@@ -25177,7 +25177,24 @@ function activePerformanceTuningPresetLabel() {
 
 function quickSetupMapItems() {
   const performance = performanceOverviewModel();
+  const workspace = activeWorkspace();
+  const panels = workspace?.panels || [];
+  const terminalCount = panels.filter((panel) => panel.type === "terminal").length;
+  const browserCount = panels.filter((panel) => panel.type === "browser").length;
+  const backgroundScope = activeBackgroundScopeModel(state.settings.backgroundImage, workspace);
+  const colorTarget = colorApplyTargetOption(state.colorApplyTarget, workspace);
   return [
+    {
+      id: "workspace",
+      category: "workspace",
+      query: "rename workspace",
+      icon: "workspace",
+      label: "Workspace",
+      value: workspaceDisplayTitle(workspace, "No workspace"),
+      body: `${workspaceCountLabel()} / ${terminalCount} terminal${terminalCount === 1 ? "" : "s"} / ${browserCount} browser${browserCount === 1 ? "" : "s"}`,
+      meta: workspace?.cwdShort || workspace?.cwd || "No folder",
+      search: workspaceRenameActionSearchText("actions", workspace, "workspace setup map folder directory cwd rename title pane color")
+    },
     {
       id: "appearance",
       category: "appearance",
@@ -25187,6 +25204,28 @@ function quickSetupMapItems() {
       body: `${optionLabel(themeOptions, state.settings.theme, "cmux")} / ${optionLabel(surfaceTintOptions, state.settings.surfaceTint, state.settings.surfaceTint)} / ${accentModeLabel()}`,
       meta: `${appearanceBackgroundLabel(state.settings.backgroundImage)} / ${optionLabel(interfaceDepthOptions, state.settings.interfaceDepth, state.settings.interfaceDepth)} depth`,
       search: "appearance look theme accent color intensity surface tint depth shadow background chrome readable soft immersive terminal colors"
+    },
+    {
+      id: "colors",
+      category: "appearance",
+      query: "color",
+      icon: "appearance",
+      label: "Colors",
+      value: accentModeLabel(),
+      body: `${colorTarget.label}: ${colorTarget.status}`,
+      meta: `${state.customColorPalette.length}/${customColorPaletteLimit} saved colors`,
+      search: `appearance colors accent workspace pane all custom palette save apply everywhere ${colorTarget.label} ${colorTarget.status} ${colorTarget.meta}`
+    },
+    {
+      id: "backgrounds",
+      category: "appearance",
+      query: "background image",
+      icon: "background",
+      label: "Backgrounds",
+      value: appearanceBackgroundLabel(state.settings.backgroundImage),
+      body: `App ${backgroundScope.app} / terminal ${backgroundScope.pane} / all ${backgroundScope.all}`,
+      meta: `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved backgrounds`,
+      search: `appearance background image wallpaper app active terminal all terminals save apply everywhere fit opacity saved library ${backgroundScope.app} ${backgroundScope.pane} ${backgroundScope.all}`
     },
     {
       id: "layout",
@@ -25244,7 +25283,7 @@ function quickSetupMapItems() {
 function quickSetupMapPanel() {
   const panel = document.createElement("div");
   panel.className = "quick-setup-map";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup map current setup appearance layout terminal browser speed performance profiles jump configure customize");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup map current setup workspace rename appearance colors backgrounds layout terminal browser speed performance profiles jump configure customize");
   panel.innerHTML = `
     <div class="quick-map-heading">
       <span class="quick-map-title">Setup map</span>
@@ -25257,7 +25296,10 @@ function quickSetupMapPanel() {
     const button = document.createElement("button");
     button.className = "quick-map-card";
     button.type = "button";
-    button.title = `Open ${item.label} settings.`;
+    button.dataset.quickMapItem = item.id;
+    button.title = item.query
+      ? `Open ${item.label} settings filtered to ${item.query}.`
+      : `Open ${item.label} settings.`;
     button.dataset.settingsSearch = normalizeSettingsQuery(`quick setup map ${item.search} ${item.label} ${item.value} ${item.body} ${item.meta}`);
     button.innerHTML = `
       <span class="quick-map-icon" aria-hidden="true"></span>
@@ -25275,7 +25317,7 @@ function quickSetupMapPanel() {
     button.querySelector(".quick-map-value").textContent = item.value || "Open";
     button.querySelector(".quick-map-body").textContent = item.body || "";
     button.querySelector(".quick-map-meta").textContent = item.meta || "";
-    button.onclick = () => openSettingsCategory(item.category);
+    button.onclick = () => openSettingsCategory(item.category, item.query ? { query: item.query, focusSearch: false } : {});
     grid.append(button);
   }
   return panel;
