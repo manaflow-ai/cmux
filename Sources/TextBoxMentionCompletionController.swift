@@ -65,7 +65,10 @@ final class TextBoxMentionCompletionController {
         // Once the user has typed a non-empty query, stale bare-trigger rows
         // read as wrong fuzzy results. Show the loading row until the exact
         // query finishes instead.
-        let queryChangedToNonEmpty = previousActiveQuery?.query != query.query &&
+        let previousQueryWasEmpty = previousActiveQuery?.query
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ?? true
+        let queryChangedToNonEmpty = previousQueryWasEmpty &&
             !query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if previousActiveQuery?.trigger != query.trigger ||
             previousRootDirectory != rootDirectory ||
