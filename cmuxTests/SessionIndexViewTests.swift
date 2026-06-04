@@ -445,11 +445,12 @@ final class SessionIndexViewTests: XCTestCase {
     func testIsDeletableGateAllowsOnlyOneFilePerSessionAgents() {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-deletable-\(UUID().uuidString).jsonl")
-        // One-file-per-session agents are deletable.
+        // Claude is a one-file-per-session agent, so deleting its transcript
+        // removes the indexed row without touching unrelated sessions.
         XCTAssertTrue(makeEntry(agent: .claude, title: "t", fileURL: url).isDeletable)
-        XCTAssertTrue(makeEntry(agent: .codex, title: "t", fileURL: url).isDeletable)
         // Shared-history / database-backed agents must never be deletable, so a
         // single-file delete can never remove unrelated sessions.
+        XCTAssertFalse(makeEntry(agent: .codex, title: "t", fileURL: url).isDeletable)
         XCTAssertFalse(makeEntry(agent: .grok, title: "t", fileURL: url).isDeletable)
         XCTAssertFalse(makeEntry(agent: .opencode, title: "t", fileURL: url).isDeletable)
         XCTAssertFalse(makeEntry(agent: .rovodev, title: "t", fileURL: url).isDeletable)

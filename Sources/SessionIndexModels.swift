@@ -311,9 +311,9 @@ struct SessionEntry: Identifiable, Hashable {
     var isDeletable: Bool {
         guard fileURL != nil else { return false }
         switch agent {
-        case .claude, .codex:
+        case .claude:
             return true
-        case .grok, .opencode, .rovodev, .hermesAgent, .registered:
+        case .codex, .grok, .opencode, .rovodev, .hermesAgent, .registered:
             return false
         }
     }

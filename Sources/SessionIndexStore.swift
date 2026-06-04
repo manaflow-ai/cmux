@@ -235,6 +235,7 @@ final class SessionIndexStore: ObservableObject {
             return false
         }
         entries.removeAll { $0.id == entry.id }
+        invalidateDirectorySnapshots()
         return true
     }
 

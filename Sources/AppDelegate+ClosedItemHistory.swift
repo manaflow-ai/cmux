@@ -156,6 +156,7 @@ extension AppDelegate {
                 originalWorkspaceIds: originalWorkspaceIdsByIndex,
                 restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
             )
+            ClosedItemHistoryStore.shared.noteReopened(.window(windowId: windowId))
             return .window(windowId: windowId)
         }
     }
@@ -243,7 +244,7 @@ extension AppDelegate {
         }
         guard !liveRefs.isEmpty else {
             ClosedItemHistoryStore.shared.setLastRestoredOperation(nil)
-            return false
+            return redoLastReopen(preferredTabManager: preferredTabManager)
         }
         let redoOperationId = UUID()
         var closedAny = false

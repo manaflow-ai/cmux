@@ -4887,6 +4887,7 @@ struct CMUXCLI {
         "focus-window",
         "get-url",
         "help",
+        "history",
         "hooks",
         "identify",
         "is-webview-focused",
@@ -4932,6 +4933,7 @@ struct CMUXCLI {
         "popup",
         "previous-window",
         "read-screen",
+        "redo",
         "refresh-surfaces",
         "reload-config",
         "remote-daemon-status",
@@ -4980,6 +4982,7 @@ struct CMUXCLI {
         "trigger-flash",
         "unbind-key",
         "uninstall-hooks",
+        "undo",
         "version",
         "vm",
         "vm-pty-attach",
@@ -6949,6 +6952,28 @@ struct CMUXCLI {
             throw CLIError(message: "history requires a subcommand. Try: list, reopen, undo, redo, clear")
         }
         let rest = Array(commandArgs.dropFirst())
+        func historyIdPositional(_ args: [String]) -> String? {
+            var index = 0
+            while index < args.count {
+                let arg = args[index]
+                if arg == "--" {
+                    return args.dropFirst(index + 1).first
+                }
+                if arg == "--window" {
+                    index += 2
+                    continue
+                }
+                if arg.hasPrefix("--window=") {
+                    index += 1
+                    continue
+                }
+                if !arg.hasPrefix("-") {
+                    return arg
+                }
+                index += 1
+            }
+            return nil
+        }
         switch sub {
         case "list":
             var params: [String: Any] = [:]
@@ -6978,7 +7003,7 @@ struct CMUXCLI {
             }
         case "reopen":
             let (idOpt, remainder) = parseOption(rest, name: "--id")
-            guard let historyId = idOpt ?? remainder.first(where: { !$0.hasPrefix("-") }) else {
+            guard let historyId = idOpt ?? historyIdPositional(remainder) else {
                 throw CLIError(message: "history reopen requires an ID (cmux history reopen <id>). Use 'cmux undo' to reopen the most recent.")
             }
             var params: [String: Any] = ["history_id": historyId]

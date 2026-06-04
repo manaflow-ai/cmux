@@ -716,7 +716,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                     anchorPanelId: remapAnchor($0.anchorPanelId)
                 )
             }
-            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
+            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, operationId: record.operationId, entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: newWorkspaceId,
                 paneId: panelEntry.paneId,
                 paneAnchorPanelId: remapAnchor(panelEntry.paneAnchorPanelId),
@@ -754,7 +754,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                 fallbackSplitPlacement?.anchorPanelId != panelEntry.fallbackSplitPlacement?.anchorPanelId {
                 didUpdate = true
             }
-            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
+            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, operationId: record.operationId, entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: panelEntry.workspaceId,
                 paneId: panelEntry.paneId,
                 paneAnchorPanelId: paneAnchorPanelId,
@@ -779,7 +779,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                 return record
             }
             didUpdate = true
-            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .workspace(ClosedWorkspaceHistoryEntry(
+            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, operationId: record.operationId, entry: .workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspaceEntry.workspaceId,
                 windowId: newWindowId,
                 workspaceIndex: workspaceEntry.workspaceIndex,
