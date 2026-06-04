@@ -24590,11 +24590,20 @@ struct CMUXCLI {
         launchCommand: AgentHookLaunchCommandRecord?
     ) {
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
+        // Pin the resume binding to the directory the agent was *launched* in, not the drift-prone
+        // runtime cwd: cwd-namespaced agents (Claude, Grok, Gemini, …) file their session under the
+        // launch dir, so resuming from a worktree the agent later `cd`'d into fails with "No
+        // conversation found".
+        let resumeWorkingDirectory = AgentResumeWorkingDirectory().resolve(
+            kind: kind,
+            runtimeCwd: cwd,
+            launchWorkingDirectory: launchCommand?.workingDirectory
+        )
         guard let command = agentSurfaceResumeCommand(
             kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
-            workingDirectory: cwd,
+            workingDirectory: resumeWorkingDirectory,
             environment: resumeEnvironment
         ) else {
             clearAgentSurfaceResumeBinding(
@@ -24614,8 +24623,8 @@ struct CMUXCLI {
             "command": command,
             "auto_resume": true
         ]
-        if let cwd = normalizedHookValue(cwd) ?? normalizedHookValue(launchCommand?.workingDirectory) {
-            params["cwd"] = cwd
+        if let resumeWorkingDirectory {
+            params["cwd"] = resumeWorkingDirectory
         }
         if let resumeEnvironment, !resumeEnvironment.isEmpty {
             params["environment"] = resumeEnvironment
@@ -24651,46 +24660,21 @@ struct CMUXCLI {
         guard let normalizedSessionId else { return nil }
 
         let argv: [String]?
-        switch launchCommand?.launcher {
-        case "claudeTeams":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "cmux")
-            var tail = original.tail
-            let removedToken = tail.first == "claude-teams"
-            if removedToken { tail.removeFirst() }
-            argv = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: tail).map {
-                agentSurfaceResumePrefixedArguments(
-                    executable: original.executable,
-                    token: "claude-teams",
-                    option: "--resume",
-                    sessionId: normalizedSessionId,
-                    preserved: $0
-                )
-            }
-        case "omo":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "cmux")
-            var tail = original.tail
-            let removedToken = tail.first == "omo"
-            if removedToken { tail.removeFirst() }
-            argv = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: tail).map {
-                agentSurfaceResumePrefixedArguments(
-                    executable: original.executable,
-                    token: "omo",
-                    option: "--session",
-                    sessionId: normalizedSessionId,
-                    preserved: $0
-                )
-            }
-        case "codexTeams":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "cmux")
-            var tail = original.tail
-            if tail.first == "codex-teams" { tail.removeFirst() }
-            argv = AgentLaunchSanitizer.preservedCodexForkArguments(args: tail).map {
-                [original.executable, "codex-teams", "resume", normalizedSessionId] + $0
-            }
-        case "omx", "omc":
-            argv = nil
-        default:
-            argv = agentSurfaceResumeArguments(kind: kind, sessionId: normalizedSessionId, launchCommand: launchCommand)
+        switch AgentResumeArgv().launcherResolution(
+            launcher: launchCommand?.launcher,
+            sessionId: normalizedSessionId,
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
+        ) {
+        case .resolved(let resolved):
+            argv = resolved
+        case .passthrough:
+            argv = AgentResumeArgv().builtInKind(
+                kind: kind,
+                sessionId: normalizedSessionId,
+                executablePath: launchCommand?.executablePath,
+                arguments: launchCommand?.arguments ?? []
+            )
         }
 
         guard let argv, !argv.isEmpty else { return nil }
@@ -24700,102 +24684,6 @@ struct CMUXCLI {
             kind: kind,
             environment: environment
         )
-    }
-
-    private func agentSurfaceResumeArguments(
-        kind: String,
-        sessionId: String,
-        launchCommand: AgentHookLaunchCommandRecord?
-    ) -> [String]? {
-        switch kind {
-        case "claude":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "claude", option: "--resume", sessionId: sessionId)
-        case "codex":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            return AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail).map {
-                [original.executable, "resume", sessionId] + $0
-            }
-        case "pi":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "pi", option: "--session", sessionId: sessionId)
-        case "grok":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "grok", option: "-r", sessionId: sessionId)
-        case "amp":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "amp")
-            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
-                [original.executable, "threads", "continue"] + $0 + [sessionId]
-            }
-        case "cursor":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "cursor-agent", option: "--resume", sessionId: sessionId)
-        case "gemini":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "gemini", option: "--resume", sessionId: sessionId)
-        case "kiro":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "kiro-cli")
-            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
-                [original.executable, "chat", "--resume-id", sessionId] + $0
-            }
-        case "antigravity":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "agy", option: "--conversation", sessionId: sessionId)
-        case "opencode":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
-            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
-                [original.executable, "--session", sessionId] + $0
-            }
-        case "rovodev":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "acli")
-            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
-                [original.executable, "rovodev", "run", "--restore", sessionId] + $0
-            }
-        case "hermes-agent":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "hermes")
-            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
-                [original.executable] + $0 + ["--resume", sessionId]
-            }
-        case "copilot":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "copilot", option: "--resume", sessionId: sessionId)
-        case "codebuddy":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "codebuddy", option: "--resume", sessionId: sessionId)
-        case "factory":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "droid", option: "--resume", sessionId: sessionId)
-        case "qoder":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "qodercli", option: "--resume", sessionId: sessionId)
-        default:
-            return nil
-        }
-    }
-
-    private func agentSurfaceResumeWithOption(
-        kind: String,
-        launchCommand: AgentHookLaunchCommandRecord?,
-        fallbackExecutable: String,
-        option: String,
-        sessionId: String
-    ) -> [String]? {
-        let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: fallbackExecutable)
-        return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
-            [original.executable, option, sessionId] + $0
-        }
-    }
-
-    private func agentSurfaceResumePrefixedArguments(
-        executable: String,
-        token: String,
-        option: String,
-        sessionId: String,
-        preserved: [String]
-    ) -> [String] {
-        [executable, token, option, sessionId] + preserved
-    }
-
-    private func agentSurfaceResumeCommandParts(
-        launchCommand: AgentHookLaunchCommandRecord?,
-        fallbackExecutable: String
-    ) -> (executable: String, tail: [String]) {
-        let arguments = launchCommand?.arguments ?? []
-        let executable = normalizedHookValue(launchCommand?.executablePath)
-            ?? arguments.first
-            ?? fallbackExecutable
-        let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
-        return (executable: executable, tail: tail)
     }
 
     private func agentSurfaceResumeShellCommand(
