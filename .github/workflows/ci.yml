@@ -406,7 +406,10 @@ jobs:
           # app-target dependency). Add a package here once its `swift test`
           # is confirmed to resolve standalone.
           PACKAGES=(
+            CmuxFileWatch
             CmuxFoundation
+            CmuxGit
+            CmuxProcess
             CmuxSettings
             CmuxSettingsUI
             CmuxSocketControl

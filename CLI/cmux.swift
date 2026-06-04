@@ -1694,6 +1694,11 @@ final class SocketClient {
         }
     }
 
+    func connectWithoutRetry(responseTimeout: TimeInterval? = nil) throws {
+        if socketFD >= 0 { return }
+        try connectOnce(responseTimeout: responseTimeout)
+    }
+
     func close() {
         if socketFD >= 0 {
             Darwin.close(socketFD)
@@ -1718,6 +1723,7 @@ final class SocketClient {
         if lastConfiguredReceiveTimeout != initialResponseTimeout {
             try configureReceiveTimeout(initialResponseTimeout)
         }
+        _ = try? configureSocketWriteSafety(initialResponseTimeout)
         var operation = CLISocketOperationTelemetry.State(
             name: CLISocketOperationTelemetry.operationName(for: command),
             timeout: initialResponseTimeout,
@@ -1800,9 +1806,47 @@ final class SocketClient {
         return response
     }
 
-    private func connectOnce() throws {
+    func sendOneWay(command: String, writeTimeout: TimeInterval) throws {
+        if relayEndpoint != nil, socketFD < 0 {
+            try connect()
+        }
+        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        let shouldCloseAfterSend = relayEndpoint != nil
+
+        try configureSocketWriteSafety(writeTimeout)
+        var operation = CLISocketOperationTelemetry.State(
+            name: CLISocketOperationTelemetry.operationName(for: command),
+            timeout: writeTimeout,
+            startedAt: Date(),
+            phase: .writeRequest
+        )
+        recordOperation(operation)
+
+        do {
+            try writeAllNonBlocking(
+                Data((command + "\n").utf8),
+                deadline: Date().addingTimeInterval(writeTimeout),
+                timeoutMessage: "Command timed out",
+                failureMessage: "Failed to write to socket"
+            )
+        } catch {
+            close()
+            throw error
+        }
+        operation.phase = .completed
+        recordOperation(operation)
+        if shouldCloseAfterSend {
+            close()
+        } else {
+            if (try? configureSocketWriteSafety(Self.responseTimeoutSeconds)) == nil {
+                close()
+            }
+        }
+    }
+
+    private func connectOnce(responseTimeout: TimeInterval? = nil) throws {
         if let relayEndpoint {
-            try connectToRelay(endpoint: relayEndpoint)
+            try connectToRelay(endpoint: relayEndpoint, responseTimeout: responseTimeout)
             return
         }
 
@@ -1823,8 +1867,9 @@ final class SocketClient {
             throw CLIError(message: "Failed to create socket")
         }
         do {
-            try configureSocketWriteSafety(Self.responseTimeoutSeconds)
-            try configureReceiveTimeout(Self.responseTimeoutSeconds)
+            let timeout = responseTimeout ?? Self.responseTimeoutSeconds
+            try configureSocketWriteSafety(timeout)
+            try configureReceiveTimeout(timeout)
         } catch {
             close()
             throw error
@@ -1931,16 +1976,17 @@ final class SocketClient {
         data.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func connectToRelay(endpoint: RelayEndpoint) throws {
+    private func connectToRelay(endpoint: RelayEndpoint, responseTimeout: TimeInterval? = nil) throws {
         let credentials = try Self.relayCredentials(for: endpoint)
+        let timeout = responseTimeout ?? Self.responseTimeoutSeconds
 
         socketFD = socket(AF_INET, SOCK_STREAM, 0)
         guard socketFD >= 0 else {
             throw CLIError(message: "Failed to create relay socket")
         }
         do {
-            try configureSocketWriteSafety(Self.responseTimeoutSeconds)
-            try configureReceiveTimeout(Self.responseTimeoutSeconds)
+            try configureSocketWriteSafety(timeout)
+            try configureReceiveTimeout(timeout)
         } catch {
             close()
             throw error
@@ -1974,15 +2020,15 @@ final class SocketClient {
         }
 
         do {
-            try authenticateRelay(credentials: credentials)
+            try authenticateRelay(credentials: credentials, responseTimeout: timeout)
         } catch {
             close()
             throw error
         }
     }
 
-    private func authenticateRelay(credentials: RelayCredentials) throws {
-        let challengeLine = try readLine()
+    private func authenticateRelay(credentials: RelayCredentials, responseTimeout: TimeInterval) throws {
+        let challengeLine = try readLine(responseTimeout: responseTimeout)
         guard let challengeData = challengeLine.data(using: .utf8),
               let challenge = try JSONSerialization.jsonObject(with: challengeData) as? [String: Any],
               (challenge["protocol"] as? String) == "cmux-relay-auth",
@@ -2007,7 +2053,7 @@ final class SocketClient {
             failureMessage: "Failed to write to relay socket"
         )
 
-        let authResponseLine = try readLine()
+        let authResponseLine = try readLine(responseTimeout: responseTimeout)
         guard let authResponseData = authResponseLine.data(using: .utf8),
               let authResponse = try JSONSerialization.jsonObject(with: authResponseData) as? [String: Any],
               (authResponse["ok"] as? Bool) == true else {
@@ -2050,6 +2096,82 @@ final class SocketClient {
         }
     }
 
+    private func writeAllNonBlocking(
+        _ data: Data,
+        deadline: Date,
+        timeoutMessage: String,
+        failureMessage: String
+    ) throws {
+        let originalFlags = fcntl(socketFD, F_GETFL, 0)
+        guard originalFlags >= 0 else {
+            throw CLIError(message: failureMessage)
+        }
+        guard fcntl(socketFD, F_SETFL, originalFlags | O_NONBLOCK) == 0 else {
+            throw CLIError(message: failureMessage)
+        }
+        defer {
+            if socketFD >= 0 {
+                _ = fcntl(socketFD, F_SETFL, originalFlags)
+            }
+        }
+
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                return
+            }
+            var offset = 0
+            while offset < data.count {
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else {
+                    close()
+                    throw CLIError(message: timeoutMessage)
+                }
+
+                var descriptor = pollfd(fd: socketFD, events: Int16(POLLOUT), revents: 0)
+                let timeoutMillis = min(max(Int(ceil(remaining * 1000)), 0), Int(Int32.max))
+                let ready = Darwin.poll(&descriptor, 1, Int32(timeoutMillis))
+                if ready < 0 {
+                    let errorCode = errno
+                    if errorCode == EINTR { continue }
+                    close()
+                    let reason = String(cString: strerror(errorCode))
+                    throw CLIError(message: "\(failureMessage) (\(reason), errno \(errorCode))")
+                }
+                if ready == 0 {
+                    close()
+                    throw CLIError(message: timeoutMessage)
+                }
+                let terminalEvents = Int16(POLLHUP | POLLERR | POLLNVAL)
+                if descriptor.revents & terminalEvents != 0 {
+                    close()
+                    throw CLIError(message: failureMessage)
+                }
+                guard descriptor.revents & Int16(POLLOUT) != 0 else {
+                    continue
+                }
+
+                let written = Darwin.write(socketFD, baseAddress.advanced(by: offset), data.count - offset)
+                if written < 0 {
+                    let errorCode = errno
+                    if errorCode == EINTR || errorCode == EAGAIN || errorCode == EWOULDBLOCK {
+                        continue
+                    }
+                    close()
+                    if errorCode == ETIMEDOUT {
+                        throw CLIError(message: timeoutMessage)
+                    }
+                    let reason = String(cString: strerror(errorCode))
+                    throw CLIError(message: "\(failureMessage) (\(reason), errno \(errorCode))")
+                }
+                if written == 0 {
+                    close()
+                    throw CLIError(message: failureMessage)
+                }
+                offset += written
+            }
+        }
+    }
+
     private func configureSocketWriteSafety(_ timeout: TimeInterval) throws {
         var interval = Self.socketTimeval(for: timeout)
         let sendTimeoutResult = withUnsafePointer(to: &interval) { ptr in
@@ -2082,11 +2204,11 @@ final class SocketClient {
 #endif
     }
 
-    private func readLine(maxBytes: Int = 16 * 1024) throws -> String {
+    private func readLine(maxBytes: Int = 16 * 1024, responseTimeout: TimeInterval? = nil) throws -> String {
         var data = Data()
 
         while data.count < maxBytes {
-            try configureReceiveTimeout(Self.responseTimeoutSeconds)
+            try configureReceiveTimeout(responseTimeout ?? Self.responseTimeoutSeconds)
 
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)
@@ -3083,6 +3205,24 @@ struct CMUXCLI {
                 print("{}")
                 return
             }
+            if commandArgs.first?.lowercased() == "feed" {
+                try runFeedHook(
+                    commandArgs: Array(commandArgs.dropFirst()),
+                    socketPath: resolvedSocketPath,
+                    socketPassword: socketPasswordArg,
+                    telemetry: cliTelemetry
+                )
+                return
+            }
+        }
+        if command == "feed-hook" {
+            try runFeedHook(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                socketPassword: socketPasswordArg,
+                telemetry: cliTelemetry
+            )
+            return
         }
 
         // Feed helpers: clear the persistent workstream history.
@@ -4474,7 +4614,7 @@ struct CMUXCLI {
         case "claude-hook":
             cliTelemetry.breadcrumb("claude-hook.dispatch")
             do {
-                try runClaudeHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+                try runClaudeHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
                 cliTelemetry.breadcrumb("claude-hook.completed")
             } catch {
                 cliTelemetry.breadcrumb("claude-hook.failure")
@@ -4483,11 +4623,11 @@ struct CMUXCLI {
             }
         case "codex-hook": // Backwards compatibility for older installed Codex hooks. Hidden from help.
             guard let codexDef = Self.agentDef(named: "codex") else { print("{}"); return }
-            try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+            try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
             try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "hooks":
-            try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+            try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
 
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
@@ -5294,13 +5434,14 @@ struct CMUXCLI {
     func authenticateClientIfNeeded(
         _ client: SocketClient,
         explicitPassword: String?,
-        socketPath: String
+        socketPath: String,
+        responseTimeout: TimeInterval? = nil
     ) throws {
         if let socketPassword = SocketPasswordResolver.resolve(
             explicit: explicitPassword,
             socketPath: socketPath
         ) {
-            let authResponse = try client.send(command: "auth \(socketPassword)")
+            let authResponse = try client.send(command: "auth \(socketPassword)", responseTimeout: responseTimeout)
             if authResponse.hasPrefix("ERROR:"),
                !authResponse.contains("Unknown command 'auth'") {
                 throw CLIError(message: authResponse)
@@ -21015,7 +21156,8 @@ struct CMUXCLI {
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        socketPassword: String? = nil
     ) throws {
         let subcommand = commandArgs.first?.lowercased() ?? "help"
         let hookArgs = Array(commandArgs.dropFirst())
@@ -21043,7 +21185,8 @@ struct CMUXCLI {
                 source: "claude",
                 subcommand: subcommand,
                 parsedInput: parsedInput,
-                workspaceId: workspaceId ?? workspaceArg
+                workspaceId: workspaceId ?? workspaceArg,
+                socketPassword: socketPassword
             )
         }
         defer {
@@ -27250,7 +27393,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return normalizedHookValue(env["CMUX_SURFACE_ID"]) ?? ""
     }
 
-    private func runGenericAgentHook(def: AgentHookDef, commandArgs: [String], client: SocketClient, telemetry: CLISocketSentryTelemetry) throws {
+    private func runGenericAgentHook(
+        def: AgentHookDef,
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry,
+        socketPassword: String? = nil
+    ) throws {
         let env = ProcessInfo.processInfo.environment
         let subcommand = commandArgs.first?.lowercased() ?? ""
         let hookArgs = Array(commandArgs.dropFirst())
@@ -27446,7 +27595,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 source: def.name,
                 subcommand: subcommand,
                 parsedInput: input,
-                workspaceId: workspaceId ?? workspaceArg()
+                workspaceId: workspaceId ?? workspaceArg(),
+                socketPassword: socketPassword
             )
         }
         func shouldSuppressGenericFeedTelemetry() -> Bool {
@@ -28489,12 +28639,30 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     /// so session-start / prompt-submit / stop events show up in Feed's
     /// "All" view even when no permission/plan/question event fires.
     /// Failures are swallowed.
+    private func sendBestEffortFeedTelemetry(socketPath: String, line: String, socketPassword: String?) {
+        let oneWayClient = SocketClient(path: socketPath)
+        defer { oneWayClient.close() }
+        do {
+            try oneWayClient.connectWithoutRetry(responseTimeout: 0.05)
+            try authenticateClientIfNeeded(
+                oneWayClient,
+                explicitPassword: socketPassword,
+                socketPath: socketPath,
+                responseTimeout: 0.05
+            )
+            try oneWayClient.sendOneWay(command: line, writeTimeout: 0.05)
+        } catch {
+            return
+        }
+    }
+
     private func sendFeedTelemetry(
         client: SocketClient,
         source: String,
         subcommand: String,
         parsedInput: ClaudeHookParsedInput,
-        workspaceId: String? = nil
+        workspaceId: String? = nil,
+        socketPassword: String? = nil
     ) {
         let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
         guard !hookEventName.isEmpty else { return }
@@ -28543,7 +28711,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
 
         let frame: [String: Any] = [
-            "id": UUID().uuidString,
             "method": "feed.push",
             "params": [
                 "event": event,
@@ -28553,7 +28720,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let line = String(data: data, encoding: .utf8)
         else { return }
-        _ = try? client.send(command: line, responseTimeout: 0.75)
+        sendBestEffortFeedTelemetry(socketPath: client.socketPath, line: line, socketPassword: socketPassword)
     }
 
     private func feedContextForEvent(
@@ -30400,10 +30567,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     /// PermissionRequest.
     private func runFeedHook(
         commandArgs: [String],
-        client: SocketClient,
+        client: SocketClient? = nil,
+        socketPath: String? = nil,
+        socketPassword: String? = nil,
         telemetry: CLISocketSentryTelemetry
     ) throws {
-        _ = client
         _ = telemetry
         let source = optionValue(commandArgs, name: "--source") ?? ""
         guard !source.isEmpty else {
@@ -30525,18 +30693,61 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             "wait_timeout_seconds": waitTimeout,
         ]
 
-        let payload = try JSONSerialization.data(withJSONObject: [
-            "id": UUID().uuidString,
+        var request: [String: Any] = [
             "method": "feed.push",
             "params": params,
-        ])
+        ]
+        if waitTimeout > 0 {
+            request["id"] = UUID().uuidString
+        }
+        let payload = try JSONSerialization.data(withJSONObject: request)
         let line = String(data: payload, encoding: .utf8) ?? "{}"
+
+        if waitTimeout == 0 {
+            if let client {
+                _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
+            } else if let socketPath {
+                sendBestEffortFeedTelemetry(
+                    socketPath: socketPath,
+                    line: line,
+                    socketPassword: socketPassword
+                )
+            }
+            print("{}")
+            return
+        }
+
+        var ownedClient: SocketClient?
+        defer { ownedClient?.close() }
+        let activeClient: SocketClient
+        if let client {
+            activeClient = client
+        } else if let socketPath {
+            let feedClient = SocketClient(path: socketPath)
+            do {
+                try feedClient.connect()
+                try authenticateClientIfNeeded(
+                    feedClient,
+                    explicitPassword: socketPassword,
+                    socketPath: socketPath
+                )
+            } catch {
+                feedClient.close()
+                print("{}")
+                return
+            }
+            ownedClient = feedClient
+            activeClient = feedClient
+        } else {
+            print("{}")
+            return
+        }
 
         let response: String
         do {
-            response = try client.send(
+            response = try activeClient.send(
                 command: line,
-                responseTimeout: waitTimeout > 0 ? waitTimeout + 5 : nil
+                responseTimeout: waitTimeout + 5
             )
         } catch {
             print("{}")
@@ -31062,7 +31273,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private func runHooksSocketCommand(
         commandArgs: [String],
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        socketPassword: String? = nil
     ) throws {
         guard let first = commandArgs.first?.lowercased() else {
             throw CLIError(message: "Usage: cmux hooks <setup|uninstall|feed|claude|agent>")
@@ -31087,7 +31299,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "claude":
             telemetry.breadcrumb("hooks.claude.dispatch")
             do {
-                try runClaudeHook(commandArgs: rest, client: client, telemetry: telemetry)
+                try runClaudeHook(commandArgs: rest, client: client, telemetry: telemetry, socketPassword: socketPassword)
                 telemetry.breadcrumb("hooks.claude.completed")
             } catch {
                 telemetry.breadcrumb("hooks.claude.failure")
@@ -31101,7 +31313,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")
             do {
-                try runGenericAgentHook(def: def, commandArgs: rest, client: client, telemetry: telemetry)
+                try runGenericAgentHook(def: def, commandArgs: rest, client: client, telemetry: telemetry, socketPassword: socketPassword)
                 telemetry.breadcrumb("hooks.\(def.name).completed")
             } catch {
                 telemetry.breadcrumb("hooks.\(def.name).failure")

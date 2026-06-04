@@ -335,8 +335,10 @@ private extension View {
 
 func resolvedBrowserChromeBackgroundColor(
     for colorScheme: ColorScheme,
-    themeBackgroundColor: NSColor
+    themeBackgroundColor: NSColor,
+    drawsBackground: Bool
 ) -> NSColor {
+    guard drawsBackground else { return .clear }
     switch colorScheme {
     case .dark, .light:
         return themeBackgroundColor
@@ -347,13 +349,13 @@ func resolvedBrowserChromeBackgroundColor(
 
 func resolvedBrowserChromeColorScheme(
     for colorScheme: ColorScheme,
-    themeBackgroundColor: NSColor
+    themeBackgroundColor: NSColor,
+    windowBackgroundColor: NSColor = .windowBackgroundColor
 ) -> ColorScheme {
-    let backgroundColor = resolvedBrowserChromeBackgroundColor(
-        for: colorScheme,
-        themeBackgroundColor: themeBackgroundColor
-    )
-    return backgroundColor.isLightColor ? .light : .dark
+    let perceivedBackgroundColor = themeBackgroundColor.alphaComponent < 0.999
+        ? cmuxCompositedNSColor(themeBackgroundColor, over: windowBackgroundColor)
+        : themeBackgroundColor
+    return cmuxReadableColorScheme(for: perceivedBackgroundColor)
 }
 
 func resolvedBrowserOmnibarPillBackgroundColor(
@@ -370,7 +372,8 @@ func resolvedBrowserOmnibarPillBackgroundColor(
         darkenMix = 0.04
     }
 
-    return themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
+    let blendedColor = themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
+    return blendedColor.withAlphaComponent(themeBackgroundColor.alphaComponent)
 }
 
 private struct BrowserChromeStyle {
@@ -380,19 +383,21 @@ private struct BrowserChromeStyle {
 
     static func resolve(
         for colorScheme: ColorScheme,
-        themeBackgroundColor: NSColor
+        themeBackgroundColor: NSColor,
+        drawsBackground: Bool
     ) -> BrowserChromeStyle {
         let backgroundColor = resolvedBrowserChromeBackgroundColor(
             for: colorScheme,
-            themeBackgroundColor: themeBackgroundColor
+            themeBackgroundColor: themeBackgroundColor,
+            drawsBackground: drawsBackground
         )
         let chromeColorScheme = resolvedBrowserChromeColorScheme(
             for: colorScheme,
-            themeBackgroundColor: backgroundColor
+            themeBackgroundColor: themeBackgroundColor
         )
         let omnibarPillBackgroundColor = resolvedBrowserOmnibarPillBackgroundColor(
             for: chromeColorScheme,
-            themeBackgroundColor: backgroundColor
+            themeBackgroundColor: themeBackgroundColor
         )
         return BrowserChromeStyle(
             backgroundColor: backgroundColor,
@@ -459,15 +464,12 @@ struct BrowserPanelView: View {
     @State private var suppressNextFocusGainedSelectAll: Bool = false
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
+    @State private var browserChromeStyle: BrowserChromeStyle
     // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
     // re-fire on every CoreAnimation commit (issue #5303). This guards the first-
     // appearance view-state seed (the empty-state import list) so a spurious appear
     // does no work. App-once settings work lives in the model bootstrap, not here.
     @State private var didCompleteInitialBrowserPanelSetup = false
-    @State private var browserChromeStyle = BrowserChromeStyle.resolve(
-        for: .light,
-        themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
-    )
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
     private let omnibarPillCornerRadius: CGFloat = 10
@@ -475,6 +477,27 @@ struct BrowserPanelView: View {
     private let addressBarButtonHitSize: CGFloat = 26
     private let addressBarVerticalPadding: CGFloat = 4
     private let devToolsButtonIconSize: CGFloat = 11
+
+    init(
+        panel: BrowserPanel,
+        paneId: PaneID,
+        isFocused: Bool,
+        isVisibleInUI: Bool,
+        portalPriority: Int,
+        onRequestPanelFocus: @escaping () -> Void
+    ) {
+        self.panel = panel
+        self.paneId = paneId
+        self.isFocused = isFocused
+        self.isVisibleInUI = isVisibleInUI
+        self.portalPriority = portalPriority
+        self.onRequestPanelFocus = onRequestPanelFocus
+        self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
+            for: .light,
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
+        ))
+    }
 
     private var searchConfiguration: BrowserSearchConfiguration {
         BrowserSearchSettings.configuration(
@@ -860,6 +883,7 @@ struct BrowserPanelView: View {
     }
 
     private func handleCurrentURLChange() {
+        refreshBrowserChromeStyle()
         let addressWasEmpty = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         syncURLFromPanel()
         // If we auto-focused a blank omnibar but then a URL loads programmatically, move focus
@@ -877,6 +901,13 @@ struct BrowserPanelView: View {
             preserveRoundTrip: true,
             reason: "panel.currentURL.changed"
         )
+    }
+
+    private func handleRenderWebViewChange() {
+        refreshBrowserChromeStyle()
+        if panel.isShowingNewTabPage {
+            refreshEmptyStateImportBrowsers()
+        }
     }
 
     private func handleBrowserThemeModeRawChange() {
@@ -1095,7 +1126,7 @@ struct BrowserPanelView: View {
         .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
     }
 
-    var body: some View {
+    private var browserPanelLifecycleView: some View {
         browserPanelBaseView
         .coordinateSpace(name: "BrowserPanelViewSpace")
         .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
@@ -1119,6 +1150,12 @@ struct BrowserPanelView: View {
         .onChange(of: panel.currentURL) { _ in
             handleCurrentURLChange()
         }
+        .onChange(of: panel.shouldRenderWebView) { _, _ in
+            handleRenderWebViewChange()
+        }
+        .onChange(of: panel.backgroundAppearanceRevision) { _, _ in
+            refreshBrowserChromeStyle()
+        }
         .onChange(of: browserThemeModeRaw) { _ in
             handleBrowserThemeModeRawChange()
         }
@@ -1131,6 +1168,10 @@ struct BrowserPanelView: View {
         .onChange(of: panel.isOmnibarVisible) { _, isVisible in
             handleOmnibarVisibilityChange(isVisible)
         }
+    }
+
+    var body: some View {
+        browserPanelLifecycleView
         .onReceive(NotificationCenter.default.publisher(for: .commandPaletteVisibilityDidChange)) { notification in
             handleCommandPaletteVisibilityChange(notification)
         }
@@ -1809,7 +1850,8 @@ struct BrowserPanelView: View {
     private func refreshBrowserChromeStyle() {
         browserChromeStyle = BrowserChromeStyle.resolve(
             for: colorScheme,
-            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
         )
     }
 
