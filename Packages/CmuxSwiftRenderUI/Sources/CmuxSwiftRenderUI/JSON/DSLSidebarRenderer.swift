@@ -33,7 +33,6 @@ struct DSLSidebarRenderer: View {
             Button(node.title ?? "") {
                 if let action = node.action { onAction(action) }
             }
-            .reportTapTarget(node.action?.buttonAction)
         case .image:
             Image(systemName: node.systemName ?? "questionmark.square.dashed")
                 .font(resolvedFont)

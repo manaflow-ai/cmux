@@ -20,7 +20,6 @@ struct RenderNodeView: View {
             return AnyView(
                 view.contentShape(Rectangle())
                     .onTapGesture { dispatch.run(action) }
-                    .reportTapTarget(action)
             )
         }
         return view
@@ -48,7 +47,6 @@ struct RenderNodeView: View {
                 Button(node.text ?? "") {
                     if let action = node.action { dispatch.run(action) }
                 }
-                .reportTapTarget(node.action)
             } else {
                 // Rich label form: `Button(action:){ label }`. Plain style so
                 // the label renders as authored, not as default button chrome.
@@ -58,7 +56,6 @@ struct RenderNodeView: View {
                     VStack(alignment: .leading, spacing: 0) { children }
                 }
                 .buttonStyle(.plain)
-                .reportTapTarget(node.action)
             }
         case .spacer:
             Spacer(minLength: node.spacing.map { CGFloat($0) })
