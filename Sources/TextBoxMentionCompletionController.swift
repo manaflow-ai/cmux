@@ -4,6 +4,8 @@ import Observation
 @MainActor
 @Observable
 final class TextBoxMentionCompletionController {
+    private static let maxVisibleStaleSuggestionsToFilter = 500
+
     private(set) var suggestions: [TextBoxMentionSuggestion] = []
     private(set) var selectionIndex: Int = 0
     private(set) var isLoadingSuggestions = false
@@ -130,23 +132,25 @@ final class TextBoxMentionCompletionController {
     }
 
     private func filterVisibleStaleSuggestions(matching query: String) {
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedQuery.isEmpty, !suggestions.isEmpty else { return }
-        suggestions = suggestions.filter { suggestion in
-            Self.title(suggestion.title, matches: trimmedQuery)
+        let normalizedQuery = Self.normalizedMentionSearchText(query)
+        guard !normalizedQuery.isEmpty, !suggestions.isEmpty else { return }
+        if suggestions.count > Self.maxVisibleStaleSuggestionsToFilter {
+            // The index store caps visible rows at this size; oversized injected
+            // stale state is safer to clear than filter on the main actor.
+            suggestions = []
+        } else {
+            suggestions = suggestions.filter { suggestion in
+                Self.title(suggestion.title, matchesNormalizedQuery: normalizedQuery)
+            }
         }
         suggestionsQuery = nil
         suggestionsRootDirectory = nil
         selectionIndex = suggestions.isEmpty ? 0 : min(selectionIndex, suggestions.count - 1)
     }
 
-    private static func title(_ title: String, matches query: String) -> Bool {
-        let normalizedTitle = title
+    private static func title(_ title: String, matchesNormalizedQuery normalizedQuery: String) -> Bool {
+        let normalizedTitle = normalizedMentionSearchText(title)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/$@"))
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
-        let normalizedQuery = query
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
         guard !normalizedQuery.isEmpty else { return true }
         guard !normalizedTitle.isEmpty else { return false }
         if normalizedTitle.contains(normalizedQuery) { return true }
@@ -159,6 +163,12 @@ final class TextBoxMentionCompletionController {
             candidateIndex = normalizedTitle.index(after: matchIndex)
         }
         return true
+    }
+
+    private static func normalizedMentionSearchText(_ text: String) -> String {
+        text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
     }
 
     deinit {
