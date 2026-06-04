@@ -13,16 +13,19 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `176bd550f`, based on `ff6e1260d`, with the
+Current cmux pinned fork head: `f7b9b74f8` (`176bd550f` plus the mobile
+render-grid producer commits, https://github.com/manaflow-ai/ghostty/pull/72),
+based on `ff6e1260d`, with the
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
 the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
 regex bound for spaced file paths followed by prose. This head keeps the cmux
 theme picker hooks, exposes the manual surface IO needed by libghostty iOS
 clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
 prevents Cmd-hover from highlighting normal sentence text after a file path.
-It also supports Ctrl-N and Ctrl-P in the cmux theme picker.
+It also supports Ctrl-N and Ctrl-P in the cmux theme picker, and adds the
+Mac-side mobile render-grid producer API (see entry 13).
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f7b9b74f89824de69d783a99b38ded48e7c5154f-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -212,14 +215,35 @@ tend to conflict together during rebases.
   - Preserves versioned or dotted path components before the first space, such as
     `/tmp/v1.2 captures/video.mp4`.
 
-The current cmux pin is the head listed above. It is reachable from
+### 13) Mobile render-grid producer API
+
+- Commits (https://github.com/manaflow-ai/ghostty/pull/72):
+  - `89425fe70` (embedder: add ghostty_surface_set_pty_tee_cb)
+  - `24cc09eb3` (Add mobile render-grid export)
+  - `f7b9b74f8` (render-grid: export scrollback history + full restore state)
+- Files:
+  - `include/ghostty.h`, `src/apprt/embedded.zig`, `src/termio/Termio.zig`
+- Summary:
+  - Adds the Mac-side producer API the cmux mobile terminal uses to stream a
+    faithful terminal view to the phone: a PTY tee callback
+    (`ghostty_surface_set_pty_tee_cb`) plus render-grid frame export
+    (`ghostty_surface_render_grid_json` / `ghostty_surface_render_now`) with
+    scrollback and full restore state (modes, colors, history).
+  - Purely additive new symbols; no existing terminal behavior changes.
+- Conflict notes:
+  - The only non-additive surface is the `src/termio/Termio.zig` tee hook on the
+    PTY read path. If upstream refactors `Termio` IO, re-check the tee stays a
+    no-op when no callback is set so the hot read path is unaffected.
+
+The current cmux pin is the head listed above (`f7b9b74f8`). It is reachable from
 `manaflow-ai/ghostty` through the
-`xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1`
-release tag and branch `issue-themes-broken-ctrl-np`.
-Published `xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1` and pinned its
-archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
-pin must be regenerated whenever this commit changes, even for comment-only
-amends, because the release tag is keyed by the Ghostty commit SHA.
+`xcframework-f7b9b74f89824de69d783a99b38ded48e7c5154f-crashsubdir-cmux-crash-v1`
+release tag and branch `ghostty-mobile-producer-backport`
+(https://github.com/manaflow-ai/ghostty/pull/72).
+Published that xcframework release and pinned its archive checksum in
+`scripts/ghosttykit-checksums.txt`. The release and checksum pin must be
+regenerated whenever this commit changes, even for comment-only amends, because
+the release tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
 
