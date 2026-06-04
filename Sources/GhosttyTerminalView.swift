@@ -8213,13 +8213,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) {
         guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
         var cursor = keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface)
-        _ = cursor.move(
+        cursor.moveAfterTerminalSelectionAdjustment(
             direction,
             count: count,
             rows: metrics.rows,
             columns: metrics.columns
         )
         keyboardCopyModeCursor = cursor
+    }
+
+    private func shiftKeyboardCopyModeCursorForViewportScroll(
+        lineDelta: Int,
+        surface: ghostty_surface_t
+    ) {
+        guard lineDelta != 0,
+              let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        var cursor = keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface)
+        cursor.shiftForViewportScroll(lineDelta: lineDelta, rows: metrics.rows, columns: metrics.columns)
+        keyboardCopyModeCursor = cursor
+        syncKeyboardCopyModeCursorOverlay(surface: surface)
     }
 
     private func adjustKeyboardCopyModeSelection(
@@ -8359,12 +8371,29 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_clear_selection_compat(surface)
             setKeyboardCopyModeActive(false)
         case let .scrollLines(delta):
-            _ = performBindingAction("scroll_page_lines:\(delta * count)")
+            let lineDelta = delta * terminalKeyboardCopyModeClampCount(count)
+            _ = performBindingAction("scroll_page_lines:\(lineDelta)")
+            shiftKeyboardCopyModeCursorForViewportScroll(lineDelta: lineDelta, surface: surface)
         case let .scrollPage(delta):
-            performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: count)
+            let clampedCount = terminalKeyboardCopyModeClampCount(count)
+            performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: clampedCount)
+            let rows = keyboardCopyModeGridMetrics(surface: surface)?.rows
+                ?? max(Int(ghostty_surface_size(surface).rows), 1)
+            shiftKeyboardCopyModeCursorForViewportScroll(
+                lineDelta: delta * rows * clampedCount,
+                surface: surface
+            )
         case let .scrollHalfPage(delta):
+            let clampedCount = terminalKeyboardCopyModeClampCount(count)
             let fraction = delta > 0 ? 0.5 : -0.5
-            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: count)
+            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: clampedCount)
+            let rows = keyboardCopyModeGridMetrics(surface: surface)?.rows
+                ?? max(Int(ghostty_surface_size(surface).rows), 1)
+            let linesPerScroll = Int((Double(rows) * 0.5).rounded(.towardZero))
+            shiftKeyboardCopyModeCursorForViewportScroll(
+                lineDelta: delta * linesPerScroll * clampedCount,
+                surface: surface
+            )
         case .scrollToTop:
             if var cursor = keyboardCopyModeCursor {
                 if let metrics = keyboardCopyModeGridMetrics(surface: surface) {

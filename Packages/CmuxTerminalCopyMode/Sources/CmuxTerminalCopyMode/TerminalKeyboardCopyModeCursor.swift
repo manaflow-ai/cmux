@@ -89,6 +89,40 @@ public struct TerminalKeyboardCopyModeCursor: Equatable, Sendable {
         }
     }
 
+    /// Moves the cursor after Ghostty has adjusted a visual-selection endpoint.
+    ///
+    /// Ghostty owns viewport scrolling for `adjust_selection`; this method keeps the visible
+    /// cursor model in step with the adjusted endpoint without asking callers to apply the
+    /// overflow returned by ``move(_:count:rows:columns:)``.
+    ///
+    /// - Parameters:
+    ///   - direction: The selection endpoint movement that Ghostty applied.
+    ///   - count: The repeat count for this movement.
+    ///   - rows: The current terminal viewport row count.
+    ///   - columns: The current terminal viewport column count.
+    public mutating func moveAfterTerminalSelectionAdjustment(
+        _ direction: TerminalKeyboardCopyModeSelectionMove,
+        count: Int,
+        rows: Int,
+        columns: Int
+    ) {
+        _ = move(direction, count: count, rows: rows, columns: columns)
+    }
+
+    /// Shifts the visible cursor row after the viewport scrolls without moving the cursor's text.
+    ///
+    /// Positive line deltas scroll the terminal viewport downward, so the same text appears on a
+    /// smaller visible row. Negative deltas scroll upward, moving the same text toward the bottom.
+    ///
+    /// - Parameters:
+    ///   - lineDelta: The signed viewport scroll delta applied by Ghostty.
+    ///   - rows: The current terminal viewport row count.
+    ///   - columns: The current terminal viewport column count.
+    public mutating func shiftForViewportScroll(lineDelta: Int, rows: Int, columns: Int) {
+        row -= lineDelta
+        clamp(rows: rows, columns: columns)
+    }
+
     private mutating func moveVertically(delta: Int, rows: Int) -> Int {
         let target = row + delta
         if target < 0 {

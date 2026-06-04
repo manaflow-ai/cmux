@@ -1966,6 +1966,35 @@ struct TerminalKeyboardCopyModeCursorSwiftTests {
         #expect(cursor.move(.end, count: 1, rows: 10, columns: 8) == 0)
         #expect(cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 7))
     }
+
+    @Test func viewportScrollShiftsCursorToStayOnSameText() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
+        cursor.shiftForViewportScroll(lineDelta: 2, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 3, column: 3))
+
+        cursor.shiftForViewportScroll(lineDelta: -4, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 7, column: 3))
+    }
+
+    @Test func viewportScrollShiftClampsAtEdges() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 1, column: 99)
+        cursor.shiftForViewportScroll(lineDelta: 5, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 7))
+
+        cursor = TerminalKeyboardCopyModeCursor(row: 8, column: -2)
+        cursor.shiftForViewportScroll(lineDelta: -5, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 0))
+    }
+
+    @Test func terminalSelectionAdjustmentKeepsEndpointAtViewportEdge() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 9, column: 3)
+        cursor.moveAfterTerminalSelectionAdjustment(.down, count: 1, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 3))
+
+        cursor = TerminalKeyboardCopyModeCursor(row: 0, column: 3)
+        cursor.moveAfterTerminalSelectionAdjustment(.up, count: 1, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 3))
+    }
 }
 
 
