@@ -137,6 +137,98 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    // Regression for https://github.com/manaflow-ai/cmux/issues/5262.
+    // cmux captures Codex's *internal* sandbox-policy `type`, which is a superset of
+    // the values the `--sandbox` CLI flag accepts. A
+    // `--dangerously-bypass-approvals-and-sandbox` launch round-trips to a captured
+    // `(approval: "never", sandbox: "disabled")`; the generator must reproduce that
+    // single combined flag rather than the invalid, contradictory `-a never -s disabled`
+    // (Codex rejects it: `error: invalid value 'disabled' for '--sandbox <SANDBOX_MODE>'`).
+    func testCodexResumeCommandReproducesBypassFlagForDisabledSandbox() {
+        let entry = makeEntry(
+            agent: .codex,
+            sessionId: "codex-session-123",
+            title: "resume me",
+            specifics: .codex(
+                model: "gpt-5.5",
+                approvalPolicy: "never",
+                sandboxMode: "disabled",
+                effort: "high"
+            )
+        )
+
+        let command = entry.resumeCommand ?? ""
+        XCTAssertEqual(
+            command,
+            "codex resume codex-session-123 -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high"
+        )
+        XCTAssertFalse(
+            command.contains("-s disabled"),
+            "Codex resume must not emit the invalid `-s disabled` flag (issue #5262)"
+        )
+        XCTAssertFalse(
+            command.contains("-a never -s"),
+            "The bypass flag must replace, not accompany, -a/-s"
+        )
+    }
+
+    // The `managed` sandbox type (ChatGPT/cloud-managed) likewise has no `--sandbox`
+    // equivalent, so it must be dropped rather than emitted as the invalid `-s managed`.
+    func testCodexResumeCommandDropsUnsupportedManagedSandbox() {
+        let entry = makeEntry(
+            agent: .codex,
+            sessionId: "codex-session-managed",
+            title: "resume me",
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: "on-request",
+                sandboxMode: "managed",
+                effort: nil
+            )
+        )
+
+        let command = entry.resumeCommand ?? ""
+        XCTAssertEqual(command, "codex resume codex-session-managed -a on-request")
+        XCTAssertFalse(
+            command.contains("-s managed"),
+            "Codex resume must not emit the invalid `-s managed` flag (issue #5262)"
+        )
+    }
+
+    // Valid sandbox values still pass through unchanged, and an explicit
+    // `(never, danger-full-access)` is preserved rather than collapsed into the
+    // bypass flag (the two are semantically distinct in Codex).
+    func testCodexResumeCommandPreservesValidSandboxModes() {
+        let readOnly = makeEntry(
+            agent: .codex,
+            sessionId: "codex-ro",
+            title: "resume me",
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: "untrusted",
+                sandboxMode: "read-only",
+                effort: nil
+            )
+        )
+        XCTAssertEqual(readOnly.resumeCommand, "codex resume codex-ro -a untrusted -s read-only")
+
+        let dangerFullAccess = makeEntry(
+            agent: .codex,
+            sessionId: "codex-dfa",
+            title: "resume me",
+            specifics: .codex(
+                model: "gpt-5.5",
+                approvalPolicy: "never",
+                sandboxMode: "danger-full-access",
+                effort: nil
+            )
+        )
+        XCTAssertEqual(
+            dangerFullAccess.resumeCommand,
+            "codex resume codex-dfa -m gpt-5.5 -a never -s danger-full-access"
+        )
+    }
+
     func testCurrentDirectorySetterDoesNotPublishEqualValue() {
         let store = SessionIndexStore()
         var emittedValues: [String?] = []

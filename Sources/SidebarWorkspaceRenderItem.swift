@@ -3,7 +3,7 @@ import Foundation
 /// One drawable item in the workspace sidebar.
 @MainActor
 enum SidebarWorkspaceRenderItem {
-    case groupHeader(WorkspaceGroup, memberCount: Int)
+    case groupHeader(WorkspaceGroup, memberWorkspaceIds: [UUID])
     case workspace(Workspace)
 
     var id: String {
@@ -19,10 +19,10 @@ enum SidebarWorkspaceRenderItem {
         groupsById: [UUID: WorkspaceGroup]
     ) -> [SidebarWorkspaceRenderItem] {
         guard !tabs.isEmpty else { return [] }
-        var memberCountByGroupId: [UUID: Int] = [:]
+        var memberWorkspaceIdsByGroupId: [UUID: [UUID]] = [:]
         for tab in tabs {
             if let gid = tab.groupId {
-                memberCountByGroupId[gid, default: 0] += 1
+                memberWorkspaceIdsByGroupId[gid, default: []].append(tab.id)
             }
         }
         var items: [SidebarWorkspaceRenderItem] = []
@@ -38,8 +38,8 @@ enum SidebarWorkspaceRenderItem {
                 skipChildrenUntilNextGroup = false
                 if let groupId, let group = groupsById[groupId] {
                     if !emittedHeaders.contains(groupId) {
-                        let count = memberCountByGroupId[groupId] ?? 0
-                        items.append(.groupHeader(group, memberCount: count))
+                        let memberWorkspaceIds = memberWorkspaceIdsByGroupId[groupId] ?? []
+                        items.append(.groupHeader(group, memberWorkspaceIds: memberWorkspaceIds))
                         emittedHeaders.insert(groupId)
                         collapsedByGroupId[groupId] = group.isCollapsed
                     }
