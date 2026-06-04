@@ -14926,6 +14926,12 @@ function renderSettingsInspector(options = {}) {
       true,
       workspacePaneColorSyncActionSearchText("actions", workspace, "settings row controls")
     ));
+    workspaceSection.append(settingRow(
+      "Terminal backgrounds",
+      workspaceTerminalBackgroundSettingsPanel(workspace),
+      true,
+      workspaceTerminalBackgroundActionSearchText("actions", workspace, "settings row controls choose paste use app clear")
+    ));
     const workspaceActions = document.createElement("div");
     workspaceActions.className = "settings-actions";
     workspaceActions.dataset.settingsSearch = normalizeSettingsQuery("workspace setup copy paste rename name color folder directory cwd clipboard json");
@@ -19400,6 +19406,47 @@ function workspaceNamingPanel(workspace) {
   actions.append(renameWorkspaceAction, useFolderAction, usePaneAction, renamePaneAction, useDefaultPaneAction);
   naming.append(actions);
   return naming;
+}
+
+function workspaceTerminalBackgroundSettingsPanel(workspace = activeWorkspace()) {
+  const model = activeBackgroundPanelViewModel("all", workspace);
+  const chooseModel = workspaceTerminalBackgroundActionModel("choose", workspace);
+  const pasteModel = workspaceTerminalBackgroundActionModel("paste", workspace);
+  const useAppModel = workspaceTerminalBackgroundActionModel("useApp", workspace);
+  const clearModel = workspaceTerminalBackgroundActionModel("clear", workspace);
+  const control = document.createElement("div");
+  control.className = "workspace-background-control";
+  control.dataset.settingsSearch = workspaceTerminalBackgroundActionSearchText("actions", workspace, "settings workspace terminal backgrounds choose paste use app clear status");
+  control.innerHTML = `
+    <span class="workspace-background-status">
+      <b>All terminals</b>
+      <em></em>
+    </span>
+    <span class="settings-actions workspace-background-actions"></span>
+  `;
+  const status = control.querySelector(".workspace-background-status");
+  const statusValue = model.mixed
+    ? "Mixed backgrounds"
+    : model.hasBackground
+      ? appearanceBackgroundLabel(model.background)
+      : chooseModel.hasTerminalPanes ? "No terminal backgrounds" : "Open a terminal pane first";
+  status.title = model.source;
+  status.querySelector("em").textContent = statusValue;
+
+  const choose = settingsActionButton("Choose", () => chooseWorkspaceTerminalBackground(workspace), "", chooseModel.search);
+  choose.disabled = chooseModel.disabled;
+  choose.title = chooseModel.title;
+  const paste = settingsActionButton("Paste", () => pasteWorkspaceTerminalBackgroundFromClipboard(workspace), "", pasteModel.search);
+  paste.disabled = pasteModel.disabled;
+  paste.title = pasteModel.title;
+  const useApp = settingsActionButton(useAppModel.active ? "App active" : "Use app", () => useAppBackgroundForWorkspaceTerminals(workspace), "", useAppModel.search);
+  useApp.disabled = useAppModel.disabled;
+  useApp.title = useAppModel.title;
+  const clear = settingsActionButton("Clear", () => clearWorkspaceTerminalBackgrounds(workspace), "danger", clearModel.search);
+  clear.disabled = clearModel.disabled;
+  clear.title = clearModel.title;
+  control.querySelector(".workspace-background-actions").append(choose, paste, useApp, clear);
+  return control;
 }
 
 function paneBackgroundTarget(panel = activeTerminalPanelForSettings()) {
