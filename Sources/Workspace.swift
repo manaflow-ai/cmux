@@ -6219,6 +6219,7 @@ final class WorkspaceRemoteSessionController {
     nonisolated(unsafe) static var runProcessOverrideForTesting: ((String, [String], Data?, TimeInterval) throws -> (status: Int32, stdout: String, stderr: String))?
     nonisolated(unsafe) static var runProcessReadHandlesDidInstallForTesting: ((FileHandle, FileHandle) -> Void)?
     nonisolated(unsafe) static var captureCommandStandardOutputOverrideForTesting: ((String, [String]) -> String?)?
+    nonisolated(unsafe) static var startSynchronouslyForTesting = false
 #endif
 
     enum PortScanKickReason: String {
@@ -6392,6 +6393,16 @@ final class WorkspaceRemoteSessionController {
 
     func start() {
         debugLog("remote.session.start \(debugConfigSummary())")
+#if DEBUG
+        if Self.startSynchronouslyForTesting {
+            queue.sync { [weak self] in
+                guard let self else { return }
+                guard !self.isStopping else { return }
+                self.beginConnectionAttemptLocked()
+            }
+            return
+        }
+#endif
         queue.async { [weak self] in
             guard let self else { return }
             guard !self.isStopping else { return }

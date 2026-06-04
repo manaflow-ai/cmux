@@ -84,7 +84,7 @@ static BOOL waitForOnlineDisplay(CGDirectDisplayID displayID) {
         if (displayIsOnline(displayID)) {
             return YES;
         }
-        usleep(50 * 1000);
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
     }
     return NO;
 }

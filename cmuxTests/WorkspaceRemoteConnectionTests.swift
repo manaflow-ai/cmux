@@ -1945,9 +1945,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             XCTFail("unexpected executable \(executable)")
             return (status: 1, stdout: "", stderr: "unexpected executable")
         }
+        WorkspaceRemoteSessionController.startSynchronouslyForTesting = true
         defer {
             WorkspaceRemoteSessionController.captureCommandStandardOutputOverrideForTesting = nil
             WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil
+            WorkspaceRemoteSessionController.startSynchronouslyForTesting = false
         }
 
         let workspace = Workspace()
@@ -1968,7 +1970,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(waitForSignalPumpingMainRunLoop(scpInvoked, timeout: 45), .success)
+        XCTAssertEqual(waitForSignalPumpingMainRunLoop(scpInvoked, timeout: 1), .success)
         lock.lock()
         let capturedDestination = scpDestination
         lock.unlock()

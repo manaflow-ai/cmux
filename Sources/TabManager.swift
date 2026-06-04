@@ -3216,7 +3216,6 @@ class TabManager: ObservableObject {
             } else {
                 workspaceGitHeadSignatureByKey.removeValue(forKey: probeKey)
             }
-            let wasDirty = workspace.panelGitBranches[probeKey.panelId]?.isDirty == true
             var isDirty = snapshot.isDirty
             if !isDirty,
                let indexSignature = snapshot.indexSignature,
@@ -3224,8 +3223,7 @@ class TabManager: ObservableObject {
                cleanIndexSignature != indexSignature {
                 if let indexContentSignature = snapshot.indexContentSignature,
                    let cleanIndexContentSignature = workspaceGitCleanIndexContentSignatureByKey[probeKey],
-                   cleanIndexContentSignature == indexContentSignature,
-                   wasDirty {
+                   cleanIndexContentSignature == indexContentSignature {
                     workspaceGitCleanIndexSignatureByKey[probeKey] = indexSignature
                 } else {
                     isDirty = true
