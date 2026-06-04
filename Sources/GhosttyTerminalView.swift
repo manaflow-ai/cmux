@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSocketControl
 import SwiftUI
 import AppKit
 import Metal
@@ -978,6 +979,20 @@ func cmuxResolveQuicklookPathForTesting(
 func cmuxTrimTerminalPathTrailingPunctuationForTesting(_ token: String) -> String {
     cmuxTrimTerminalPathTrailingPunctuation(token)
 }
+
+func cmuxResolveTerminalOpenURLFilePathForTesting(
+    _ rawText: String,
+    cwd: String?,
+    existingPaths: Set<String>
+) -> String? {
+    cmuxResolveTerminalOpenURLFilePath(
+        rawText,
+        cwd: cwd,
+        fileExists: { path in
+            existingPaths.contains((path as NSString).standardizingPath)
+        }
+    )
+}
 #endif
 
 private func cmuxResolveQuicklookPath(
@@ -1273,6 +1288,17 @@ private func cmuxResolveVisibleLinePath(
     return nil
 }
 
+private func cmuxResolveTerminalOpenURLFilePath(
+    _ rawText: String,
+    cwd: String?,
+    fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+) -> String? {
+    let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    guard URL(string: trimmed)?.scheme == nil else { return nil }
+    return cmuxResolveQuicklookPath(trimmed, cwd: cwd, fileExists: fileExists)
+}
+
 enum TerminalOpenURLTarget: Equatable {
     case embeddedBrowser(URL)
     case external(URL)
@@ -1455,12 +1481,26 @@ private func terminalKeyboardCopyModeNormalizedModifiers(
 }
 
 private func terminalKeyboardCopyModeChars(
-    _ charactersIgnoringModifiers: String?
+    _ charactersIgnoringModifiers: String?,
+    keyCode: UInt16,
+    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String?
 ) -> String {
-    guard let scalar = charactersIgnoringModifiers?.unicodeScalars.first else {
-        return ""
+    let raw = charactersIgnoringModifiers?.unicodeScalars.first.map { String($0).lowercased() } ?? ""
+    if raw.allSatisfy(\.isASCII) { return raw }
+    // Non-ASCII input sources (Korean 두벌식, Japanese Kana, Zhuyin) translate the
+    // physical key to a layout character, so a vim key like `j` arrives as `ㅓ` and
+    // never matches the ASCII `switch chars` cases. Fall back to the ASCII-capable
+    // layout lookup (the same one the keyDown shortcut path uses) so copy-mode vim
+    // keys resolve regardless of the active input source. ASCII-emitting IMEs
+    // (Pinyin, romaji) keep `raw` and skip the fallback. The provider is injected
+    // so tests can supply a deterministic mapping without depending on the runner's
+    // input source. Pass [] like KeyboardLayout.normalizedCharacters does: the
+    // lookup lowercases its output and only honors shift/command, so modifiers are
+    // irrelevant for letter keys and this stays consistent with the shortcut path.
+    if let asciiScalar = asciiCharacterProvider(keyCode, [])?.unicodeScalars.first {
+        return String(asciiScalar).lowercased()
     }
-    return String(scalar).lowercased()
+    return raw
 }
 
 func terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: NSEvent.ModifierFlags) -> Bool {
@@ -1472,10 +1512,11 @@ func terminalKeyboardCopyModeAction(
     keyCode: UInt16,
     charactersIgnoringModifiers: String?,
     modifierFlags: NSEvent.ModifierFlags,
-    hasSelection: Bool
+    hasSelection: Bool,
+    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> TerminalKeyboardCopyModeAction? {
     let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
-    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers)
+    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers, keyCode: keyCode, asciiCharacterProvider: asciiCharacterProvider)
 
     if keyCode == 53 { // Escape
         return .exit
@@ -1575,10 +1616,11 @@ func terminalKeyboardCopyModeResolve(
     charactersIgnoringModifiers: String?,
     modifierFlags: NSEvent.ModifierFlags,
     hasSelection: Bool,
-    state: inout TerminalKeyboardCopyModeInputState
+    state: inout TerminalKeyboardCopyModeInputState,
+    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> TerminalKeyboardCopyModeResolution {
     let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
-    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers)
+    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers, keyCode: keyCode, asciiCharacterProvider: asciiCharacterProvider)
 
     if keyCode == 53 { // Escape
         state.reset()
@@ -1639,7 +1681,8 @@ func terminalKeyboardCopyModeResolve(
         keyCode: keyCode,
         charactersIgnoringModifiers: charactersIgnoringModifiers,
         modifierFlags: modifierFlags,
-        hasSelection: hasSelection
+        hasSelection: hasSelection,
+        asciiCharacterProvider: asciiCharacterProvider
     ) else {
         state.reset()
         return .consume
@@ -1668,6 +1711,154 @@ private final class GhosttySurfaceCallbackContext {
     var runtimeSurface: ghostty_surface_t? {
         terminalSurface?.surface ?? surfaceView?.terminalSurface?.surface
     }
+}
+
+// The native pointer has been removed from all main-thread owner state before
+// this request is created; this wrapper only transports the one-shot free.
+private struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
+    let id: UUID
+    let workspaceId: UUID
+    let reason: String
+    let surface: ghostty_surface_t
+    let callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    let freeSurface: @Sendable (ghostty_surface_t) -> Void
+#if DEBUG
+    let surfaceToken: String
+    let workspaceToken: String
+#endif
+
+    init(
+        id: UUID,
+        workspaceId: UUID,
+        reason: String,
+        surface: ghostty_surface_t,
+        callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
+        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void
+    ) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.reason = reason
+        self.surface = surface
+        self.callbackContext = callbackContext
+        self.freeSurface = freeSurface
+#if DEBUG
+        self.surfaceToken = String(id.uuidString.prefix(5))
+        self.workspaceToken = String(workspaceId.uuidString.prefix(5))
+#endif
+    }
+}
+
+private actor TerminalSurfaceRuntimeTeardownCoordinator {
+    static let shared = TerminalSurfaceRuntimeTeardownCoordinator()
+
+    private let timeout: Duration = .seconds(5)
+    private var pendingReasonsById: [UUID: String] = [:]
+    private var queuedRequests: [TerminalSurfaceRuntimeTeardownRequest] = []
+    private var isWorkerRunning = false
+
+    func enqueue(_ request: TerminalSurfaceRuntimeTeardownRequest) {
+        pendingReasonsById[request.id] = request.reason
+        queuedRequests.append(request)
+        if !isWorkerRunning {
+            isWorkerRunning = true
+            Task.detached(priority: .utility) {
+                while let request = await self.nextRequestForWorker() {
+                    Task {
+                        await self.observeTimeout(id: request.id)
+                    }
+                    await Self.free(request)
+                    await self.complete(id: request.id)
+                }
+            }
+        }
+    }
+
+    private func nextRequestForWorker() -> TerminalSurfaceRuntimeTeardownRequest? {
+        guard !queuedRequests.isEmpty else {
+            isWorkerRunning = false
+            return nil
+        }
+        return queuedRequests.removeFirst()
+    }
+
+    private nonisolated static func free(_ request: TerminalSurfaceRuntimeTeardownRequest) async {
+#if DEBUG
+        cmuxDebugLog(
+            "surface.lifecycle.nativeFree.begin surface=\(request.surfaceToken) " +
+            "workspace=\(request.workspaceToken) reason=\(request.reason)"
+        )
+#endif
+        request.freeSurface(request.surface)
+        if let callbackContext = request.callbackContext {
+            await MainActor.run {
+                callbackContext.release()
+            }
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "surface.lifecycle.nativeFree.end surface=\(request.surfaceToken) " +
+            "workspace=\(request.workspaceToken) reason=\(request.reason)"
+        )
+#endif
+    }
+
+    private func complete(id: UUID) {
+        pendingReasonsById.removeValue(forKey: id)
+    }
+
+    private func observeTimeout(id: UUID) async {
+        do {
+            // Genuine teardown deadline: report a stuck native free without blocking close.
+            try await Task.sleep(for: timeout)
+        } catch {
+            return
+        }
+        guard let reason = pendingReasonsById[id] else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "surface.lifecycle.nativeFree.timeout surface=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason)"
+        )
+#endif
+    }
+}
+
+private func enqueueTerminalSurfaceRuntimeTeardown(
+    id: UUID,
+    workspaceId: UUID,
+    reason: String,
+    surface: ghostty_surface_t,
+    callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
+    freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void
+) {
+    let request = TerminalSurfaceRuntimeTeardownRequest(
+        id: id,
+        workspaceId: workspaceId,
+        reason: reason,
+        surface: surface,
+        callbackContext: callbackContext,
+        freeSurface: freeSurface
+    )
+    Task {
+        await TerminalSurfaceRuntimeTeardownCoordinator.shared.enqueue(request)
+    }
+}
+
+private func enqueueTerminalSurfaceRuntimeTeardown(
+    id: UUID,
+    workspaceId: UUID,
+    reason: String,
+    surface: ghostty_surface_t,
+    callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+) {
+    enqueueTerminalSurfaceRuntimeTeardown(
+        id: id,
+        workspaceId: workspaceId,
+        reason: reason,
+        surface: surface,
+        callbackContext: callbackContext,
+        freeSurface: { surface in ghostty_surface_free(surface) }
+    )
 }
 
 // Minimal Ghostty wrapper for terminal rendering
@@ -2381,10 +2572,31 @@ class GhosttyApp {
         )
     }
 
+    private func loadConditionalThemeOverrideIfNeeded(
+        _ config: ghostty_config_t,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        guard let contents = Self.conditionalThemeOverrideConfigContents(
+            preferredColorScheme: preferredColorScheme
+        ) else { return }
+
+        loadInlineGhosttyConfig(
+            contents,
+            into: config,
+            prefix: "cmux-conditional-theme",
+            logLabel: "conditional theme override"
+        )
+    }
+
     func loadDefaultConfigFilesWithLegacyFallback(
         _ config: ghostty_config_t,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference()
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference(),
+        conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) -> Bool {
+        // Surface-only reloads may use a terminal-derived scheme for background
+        // handling, while Ghostty split-theme pairs follow app appearance.
+        let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme
+
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
         if startupPreviewProfile.loadsRealUserConfig {
@@ -2392,6 +2604,10 @@ class GhosttyApp {
             loadLegacyGhosttyConfigIfNeeded(config)
             loadCmuxAppSupportGhosttyConfigIfNeeded(config)
             ghostty_config_load_recursive_files(config)
+            loadConditionalThemeOverrideIfNeeded(
+                config,
+                preferredColorScheme: themeColorScheme
+            )
             if Self.shouldApplyManagedDefaultAppearance() {
                 loadCmuxDefaultAppearanceConfig(
                     config,
@@ -2410,6 +2626,10 @@ class GhosttyApp {
         loadLegacyGhosttyConfigIfNeeded(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
+        loadConditionalThemeOverrideIfNeeded(
+            config,
+            preferredColorScheme: themeColorScheme
+        )
         if Self.shouldApplyManagedDefaultAppearance() {
             loadCmuxDefaultAppearanceConfig(
                 config,
@@ -2584,15 +2804,18 @@ class GhosttyApp {
     private struct UserAppearanceConfigSummary {
         var hasThemeDirective = false
         var hasExplicitTerminalColorDirective = false
+        var lastThemeDirective: String?
 
         var shouldApplyDefaultAppearance: Bool {
             !hasThemeDirective && !hasExplicitTerminalColorDirective
         }
 
-        mutating func recordDirective(key: String) {
+        mutating func recordDirective(key: String, value: String?) {
             switch key {
             case "theme":
                 hasThemeDirective = true
+                let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                lastThemeDirective = trimmedValue.isEmpty ? nil : trimmedValue
             case "background",
                  "foreground",
                  "palette",
@@ -2711,6 +2934,39 @@ class GhosttyApp {
         configPaths: [String] = loadedGhosttyConfigScanPaths()
     ) -> Bool {
         userAppearanceConfigSummary(configPaths: configPaths).shouldApplyDefaultAppearance
+    }
+
+    static func conditionalThemeOverrideConfigContents(
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference,
+        configPaths: [String] = loadedGhosttyConfigScanPaths()
+    ) -> String? {
+        let summary = userAppearanceConfigSummary(configPaths: configPaths)
+        guard let rawThemeValue = summary.lastThemeDirective else { return nil }
+
+        let lightTheme = GhosttyConfig.resolveThemeName(
+            from: rawThemeValue,
+            preferredColorScheme: .light
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let darkTheme = GhosttyConfig.resolveThemeName(
+            from: rawThemeValue,
+            preferredColorScheme: .dark
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lightTheme.isEmpty,
+              !darkTheme.isEmpty,
+              lightTheme.caseInsensitiveCompare(darkTheme) != .orderedSame else {
+            return nil
+        }
+
+        let resolvedTheme = GhosttyConfig.resolveThemeName(
+            from: rawThemeValue,
+            preferredColorScheme: preferredColorScheme
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedTheme.isEmpty,
+              resolvedTheme.rangeOfCharacter(from: .newlines) == nil else {
+            return nil
+        }
+
+        return "theme = \(resolvedTheme)"
     }
 
     /// Resolve auto-injected CJK families through the regular-weight descriptor
@@ -3019,7 +3275,7 @@ class GhosttyApp {
                  "cursor-text",
                  "selection-background",
                  "selection-foreground":
-                summary.recordDirective(key: entry.key)
+                summary.recordDirective(key: entry.key, value: entry.value)
             case "config-file":
                 guard let value = entry.value else { continue }
                 applyConfigFileDirective(
@@ -4663,29 +4919,30 @@ class GhosttyApp {
             #endif
 
             // Try file-path resolution before URL classification.
-            // Ghostty's link detection can match relative file paths that
-            // contain slashes or dots (e.g. "docs/spec.md.") as URLs.
+            // Ghostty's link detection can match file paths that contain
+            // slashes or dots (e.g. "docs/spec.md." or "/tmp/spec.md.") as URLs.
             // Attempt to resolve the raw string as a local file first
             // (with trailing-punctuation trimming via cmuxResolveQuicklookPath).
             // If the file exists and cmux can handle it, route through the
             // file viewer instead of the browser.
             let trimmedUrlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedUrlString.isEmpty,
-               !NSString(string: trimmedUrlString).isAbsolutePath,
-               URL(string: trimmedUrlString)?.scheme == nil {
-                let filePathRouted: Bool = performOnMain {
+            var normalizedOpenURLString = urlString
+            if !trimmedUrlString.isEmpty {
+                let filePathResolution: (routed: Bool, fallbackPath: String?) = performOnMain {
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
                           !workspace.isRemoteTerminalSurface(termSurface.id) else {
-                        return false
+                        return (false, nil)
                     }
                     let cwd = CommandClickFileOpenRouter.resolveWorkingDirectory(
                         workspace: workspace,
                         surfaceId: termSurface.id
                     )
-                    guard let resolvedPath = cmuxResolveQuicklookPath(trimmedUrlString, cwd: cwd),
-                          CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
-                        return false
+                    guard let resolvedPath = cmuxResolveTerminalOpenURLFilePath(trimmedUrlString, cwd: cwd) else {
+                        return (false, nil)
+                    }
+                    guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
+                        return (false, resolvedPath)
                     }
                     #if DEBUG
                     cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolvedPath)")
@@ -4699,14 +4956,17 @@ class GhosttyApp {
                     ) {
                         NSWorkspace.shared.open(fileURL)
                     }
-                    return true
+                    return (true, resolvedPath)
                 }
-                if filePathRouted {
+                if let fallbackPath = filePathResolution.fallbackPath {
+                    normalizedOpenURLString = fallbackPath
+                }
+                if filePathResolution.routed {
                     return true
                 }
             }
 
-            guard let target = resolveTerminalOpenURLTarget(urlString) else {
+            guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
                 #if DEBUG
                 cmuxDebugLog("link.openURL resolve failed, returning false")
                 #endif
@@ -5142,6 +5402,17 @@ final class TerminalSurface: Identifiable, ObservableObject {
         case inputQueueFull
         case surfaceUnavailable
         case processExited
+
+        /// Whether the named key was delivered to the surface or queued for an
+        /// imminently-started surface. `false` means the key never reached the PTY.
+        var accepted: Bool {
+            switch self {
+            case .sent, .queued:
+                return true
+            case .unknownKey, .inputQueueFull, .surfaceUnavailable, .processExited:
+                return false
+            }
+        }
     }
 
     enum InputSendResult: Equatable {
@@ -5254,6 +5525,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var runtimeSurfaceCreateAttemptCountForTesting = 0
     private let debugForceRefreshCountLock = NSLock()
     private var debugForceRefreshCountValue = 0
+    @MainActor
+    static var runtimeSurfaceFreeOverrideForTesting: (@Sendable (ghostty_surface_t) -> Void)?
 #endif
     private enum PortalLifecycleState: String {
         case live
@@ -5838,12 +6111,26 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 #endif
 
-        Task { @MainActor in
-            // Keep free behavior aligned with deinit: perform the runtime teardown on
-            // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
+#if DEBUG
+        if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            enqueueTerminalSurfaceRuntimeTeardown(
+                id: id,
+                workspaceId: tabId,
+                reason: "teardown",
+                surface: surfaceToFree,
+                callbackContext: callbackContext,
+                freeSurface: freeSurface
+            )
+            return
         }
+#endif
+        enqueueTerminalSurfaceRuntimeTeardown(
+            id: id,
+            workspaceId: tabId,
+            reason: "teardown",
+            surface: surfaceToFree,
+            callbackContext: callbackContext
+        )
     }
 
     @MainActor
@@ -5876,10 +6163,26 @@ final class TerminalSurface: Identifiable, ObservableObject {
         )
 #endif
 
-        Task { @MainActor in
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
+#if DEBUG
+        if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            enqueueTerminalSurfaceRuntimeTeardown(
+                id: id,
+                workspaceId: tabId,
+                reason: reason,
+                surface: surfaceToFree,
+                callbackContext: callbackContext,
+                freeSurface: freeSurface
+            )
+            return
         }
+#endif
+        enqueueTerminalSurfaceRuntimeTeardown(
+            id: id,
+            workspaceId: tabId,
+            reason: reason,
+            surface: surfaceToFree,
+            callbackContext: callbackContext
+        )
     }
 
 #if DEBUG
@@ -6188,6 +6491,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !GeminiIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_GEMINI_HOOKS_DISABLED", "1")
         }
+        if !KiroIntegrationSettings.hooksEnabled() {
+            setManagedEnvironmentValue("CMUX_KIRO_HOOKS_DISABLED", "1")
+        }
+        setManagedEnvironmentValue(
+            "CMUX_KIRO_NOTIFICATION_LEVEL",
+            KiroIntegrationSettings.notificationLevel().rawValue
+        )
+        if !AmpIntegrationSettings.hooksEnabled() {
+            setManagedEnvironmentValue("CMUX_AMP_HOOKS_DISABLED", "1")
+        }
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]
@@ -6208,6 +6521,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
             Self.applyManagedGitWatchEnvironment(
                 watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
+                showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard),
                 to: &env,
                 protectedKeys: &protectedStartupEnvironmentKeys
             )
@@ -6248,20 +6562,35 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 // macOS ships /bin/bash 3.2, where Ghostty's automatic bash
                 // integration is unsupported and HOME-based wrapper startup is
                 // not reliable. Bootstrap cmux bash integration on the first
-                // interactive prompt instead.
-                setManagedEnvironmentValue("PROMPT_COMMAND", """
-                unset PROMPT_COMMAND; \
-                if [[ "${CMUX_LOAD_GHOSTTY_BASH_INTEGRATION:-0}" == "1" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then \
-                _cmux_ghostty_bash="$GHOSTTY_RESOURCES_DIR/shell-integration/bash/ghostty.bash"; \
-                [[ -r "$_cmux_ghostty_bash" ]] && source "$_cmux_ghostty_bash"; \
-                fi; \
-                if [[ "${CMUX_SHELL_INTEGRATION:-1}" != "0" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" ]]; then \
-                _cmux_bash_integration="$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; \
-                [[ -r "$_cmux_bash_integration" ]] && source "$_cmux_bash_integration"; \
-                fi; \
-                unset _cmux_ghostty_bash _cmux_bash_integration; \
-                if declare -F _cmux_prompt_command >/dev/null 2>&1; then _cmux_prompt_command; fi
-                """)
+                // interactive prompt by exporting the shared bootstrap script as
+                // PROMPT_COMMAND. The script lives in Resources/shell-integration
+                // so the app and the regression test share one source of truth
+                // (see issue #5164). Doc comments and blank lines are stripped so
+                // users never see them in $PROMPT_COMMAND; the test mirrors this.
+                let bashBootstrapPath = (integrationDir as NSString)
+                    .appendingPathComponent("cmux-bash-bootstrap.bash")
+                do {
+                    let rawBootstrap = try String(contentsOfFile: bashBootstrapPath, encoding: .utf8)
+                    let bootstrap = rawBootstrap
+                        .components(separatedBy: "\n")
+                        .filter { line in
+                            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                            return !trimmed.isEmpty && !trimmed.hasPrefix("#")
+                        }
+                        .joined(separator: "\n")
+                    if !bootstrap.isEmpty {
+                        setManagedEnvironmentValue("PROMPT_COMMAND", bootstrap)
+                    }
+                } catch {
+                    // The bootstrap ships in the app bundle alongside
+                    // cmux-bash-integration.bash, so a read failure means a
+                    // corrupt/partial bundle. Surface it (with the underlying
+                    // error) in unified logging rather than silently leaving bash
+                    // without cmux integration. The path is logged privately so
+                    // user-specific install paths are not exposed in the log.
+                    Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
+                        .error("cmux bash bootstrap unreadable at \(bashBootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); bash shell integration will not load")
+                }
             }
         }
         env = Self.mergedStartupEnvironment(
@@ -6987,6 +7316,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return PendingKeyEvent(keycode: UInt32(kVK_ANSI_C), mods: GHOSTTY_MODS_CTRL, label: normalized)
         case "ctrl-d", "ctrl+d", "eof":
             return PendingKeyEvent(keycode: UInt32(kVK_ANSI_D), mods: GHOSTTY_MODS_CTRL, label: normalized)
+        case "ctrl-f", "ctrl+f":
+            // Force-stop chord for embedded TUIs (e.g. Claude Code's "Ctrl-F twice").
+            return PendingKeyEvent(keycode: UInt32(kVK_ANSI_F), mods: GHOSTTY_MODS_CTRL, label: normalized)
         case "ctrl-z", "ctrl+z", "sigtstp":
             return PendingKeyEvent(keycode: UInt32(kVK_ANSI_Z), mods: GHOSTTY_MODS_CTRL, label: normalized)
         case "ctrl-\\", "ctrl+\\", "sigquit":
@@ -7231,6 +7563,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         runtimeSurfaceFreedOutOfBandForTesting = true
         callbackContext?.release()
     }
+
+    @MainActor
+    func installRuntimeSurfaceForTesting(_ runtimeSurface: ghostty_surface_t) {
+        surface = runtimeSurface
+        portalLifecycleState = .live
+        runtimeSurfaceFreedOutOfBandForTesting = false
+    }
 #endif
 
     deinit {
@@ -7271,11 +7610,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
 
 #if DEBUG
-        let surfaceToken = String(id.uuidString.prefix(5))
-        let workspaceToken = String(tabId.uuidString.prefix(5))
         cmuxDebugLog(
-            "surface.lifecycle.deinit.begin surface=\(surfaceToken) " +
-            "workspace=\(workspaceToken) hasAttachedView=\(attachedView != nil ? 1 : 0) " +
+            "surface.lifecycle.deinit.begin surface=\(id.uuidString.prefix(5)) " +
+            "workspace=\(tabId.uuidString.prefix(5)) hasAttachedView=\(attachedView != nil ? 1 : 0) " +
             "hostedInWindow=\(hostedView.window != nil ? 1 : 0)"
         )
 #endif
@@ -7283,16 +7620,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Keep teardown asynchronous to avoid re-entrant close/deinit loops, but retain
         // callback userdata until surface free completes so callbacks never dereference
         // a deallocated view pointer.
-        Task { @MainActor in
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
-#if DEBUG
-            cmuxDebugLog(
-                "surface.lifecycle.deinit.end surface=\(surfaceToken) " +
-                "workspace=\(workspaceToken) freed=1"
-            )
-#endif
-        }
+        enqueueTerminalSurfaceRuntimeTeardown(
+            id: id,
+            workspaceId: tabId,
+            reason: "deinit",
+            surface: surfaceToFree,
+            callbackContext: callbackContext
+        )
     }
 }
 
@@ -7356,8 +7690,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     fileprivate static func focusLog(_ message: String) {
         guard focusDebugEnabled else { return }
-        FocusLogStore.shared.append(message)
+        AppDelegate.shared?.focusLog.append(message)
+        #if DEBUG
         NSLog("[FOCUSDBG] %@", message)
+        #endif
     }
 
     weak var terminalSurface: TerminalSurface?
@@ -7495,6 +7831,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var deferredSurfaceSizeRetryQueued = false
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
+    private var hasPendingLeftMouseRelease = false
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -8330,6 +8667,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 paneId: paneId,
                 surfaceId: terminalSurface.id,
                 includeRefs: true
+            )
+        )
+    }
+
+    @IBAction func copyCurrentSurfaceLink(_ sender: Any?) {
+        guard let terminalSurface else { return }
+        WorkspaceSurfaceIdentifierClipboardText.copy(
+            WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
+                workspaceId: terminalSurface.tabId,
+                surfaceId: terminalSurface.id
             )
         )
     }
@@ -9687,16 +10034,34 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
         }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        hasPendingLeftMouseRelease = true
     }
 
     override func mouseUp(with event: NSEvent) {
         #if DEBUG
         cmuxDebugLog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
-        guard let surface = surface else { return }
+        completePendingLeftMouseRelease(with: event)
+    }
+
+    @discardableResult
+    func forwardPendingLeftMouseDrag(with event: NSEvent) -> Bool {
+        guard hasPendingLeftMouseRelease, let surface else { return false }
+        let eventPoint = convert(event.locationInWindow, from: nil)
+        trackMousePointIfUsable(eventPoint)
+        ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
+        return true
+    }
+
+    @discardableResult
+    func completePendingLeftMouseRelease(with event: NSEvent) -> Bool {
+        guard hasPendingLeftMouseRelease else { return false }
+        hasPendingLeftMouseRelease = false
+        guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
         let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
         _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
+        return true
     }
 
     /// Attempt to open the word under the mouse cursor as a file path, resolved
@@ -10400,6 +10765,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEquivalent: ""
             )
             identifiersItem.target = self
+            let linkItem = menu.addItem(
+                withTitle: String(localized: "command.copySurfaceLink.title", defaultValue: "Copy Surface Link"),
+                action: #selector(copyCurrentSurfaceLink(_:)),
+                keyEquivalent: ""
+            )
+            linkItem.target = self
         }
         return menu
     }
@@ -10525,6 +10896,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // the viewport rather than a cached in-bounds hover point.
         ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
     }
+
+#if DEBUG
+    func debugHasPendingLeftMouseReleaseForTesting() -> Bool {
+        hasPendingLeftMouseRelease
+    }
+#endif
 
     override func scrollWheel(with event: NSEvent) {
         NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
@@ -11075,11 +11452,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
     private var lastSearchOverlayStateID: ObjectIdentifier?
-    private weak var cachedOwningWorkspace: Workspace?
-    private weak var observedWorkspaceTerminalScrollBar: Workspace?
     private var searchOverlayMutationGeneration: UInt64 = 0
     private var observers: [NSObjectProtocol] = []
-    private var workspaceTerminalScrollBarObserver: NSObjectProtocol?
     private var windowObservers: [NSObjectProtocol] = []
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
@@ -11627,9 +12001,6 @@ final class GhosttySurfaceScrollView: NSView {
         )
 #endif
         observers.forEach { NotificationCenter.default.removeObserver($0) }
-        if let workspaceTerminalScrollBarObserver {
-            NotificationCenter.default.removeObserver(workspaceTerminalScrollBarObserver)
-        }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         deferredSearchOverlayMutationWorkItem?.cancel()
         imageTransferIndicatorShowWorkItem?.cancel()
@@ -11952,9 +12323,6 @@ final class GhosttySurfaceScrollView: NSView {
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
         surfaceView.attachSurface(terminalSurface)
-        let workspace = terminalSurface.owningWorkspace()
-        cachedOwningWorkspace = workspace
-        updateWorkspaceTerminalScrollBarObserver(workspace)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
@@ -12347,7 +12715,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         searchFocusTarget = .searchField
-        let overlay = NSHostingView(rootView: rootView)
+        let overlay = TerminalSearchOverlayHostingView(rootView: rootView, surfaceView: surfaceView)
         overlay.frame = bounds
         overlay.autoresizingMask = [.width, .height]
         searchOverlayHostingView = overlay
@@ -12819,6 +13187,18 @@ final class GhosttySurfaceScrollView: NSView {
         return overlay.superview === self && !overlay.isHidden
     }
 
+    func debugSearchOverlayHostingViewForTesting() -> NSView? {
+        guard let overlay = searchOverlayHostingView,
+              overlay.superview === self else {
+            return nil
+        }
+        return overlay
+    }
+
+    func debugSurfaceHasPendingLeftMouseReleaseForTesting() -> Bool {
+        surfaceView.debugHasPendingLeftMouseReleaseForTesting()
+    }
+
     func debugHasKeyboardCopyModeIndicator() -> Bool {
         keyboardCopyModeBadgeContainerView.superview === self && !keyboardCopyModeBadgeContainerView.isHidden
     }
@@ -12967,7 +13347,9 @@ final class GhosttySurfaceScrollView: NSView {
             }
             if respectForeignFirstResponder,
                let firstResponder = window.firstResponder,
-               firstResponder is NSText || AppDelegate.shared?.isRightSidebarFocusResponder(firstResponder, in: window) == true {
+               shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
+               AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
+           }) {
 #if DEBUG
                 let reason = firstResponder is NSText ? "textEditorFocused" : "rightSidebarFocused"
                 dlog("focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=dock.\(reason)")
@@ -13041,7 +13423,9 @@ final class GhosttySurfaceScrollView: NSView {
         // surface already owns focus.
         if respectForeignFirstResponder,
            let firstResponder = window.firstResponder,
-           firstResponder is NSText || AppDelegate.shared?.isRightSidebarFocusResponder(firstResponder, in: window) == true {
+           shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
+               AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
+           }) {
 #if DEBUG
             let reason = firstResponder is NSText ? "textEditorFocused" : "rightSidebarFocused"
             dlog("focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=\(reason)")
@@ -13332,7 +13716,9 @@ final class GhosttySurfaceScrollView: NSView {
         // own GhosttyNSView for input, so NSText and the feed focus host are always foreign focus
         // owners that should survive deferred terminal visibility applies.
         if let firstResponder = window.firstResponder,
-           firstResponder is NSText || AppDelegate.shared?.isRightSidebarFocusResponder(firstResponder, in: window) == true {
+           shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
+               AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
+           }) {
 #if DEBUG
             let reason = firstResponder is NSText ? "textEditorFocused" : "rightSidebarFocused"
             cmuxDebugLog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=\(reason)")
@@ -14104,31 +14490,6 @@ final class GhosttySurfaceScrollView: NSView {
         _ = synchronizeGeometryAndContent()
     }
 
-    private func updateWorkspaceTerminalScrollBarObserver(_ workspace: Workspace?) {
-        if let observedWorkspaceTerminalScrollBar,
-           observedWorkspaceTerminalScrollBar === workspace,
-           workspaceTerminalScrollBarObserver != nil {
-            return
-        }
-
-        if let workspaceTerminalScrollBarObserver {
-            NotificationCenter.default.removeObserver(workspaceTerminalScrollBarObserver)
-            self.workspaceTerminalScrollBarObserver = nil
-        }
-
-        observedWorkspaceTerminalScrollBar = workspace
-
-        guard let workspace else { return }
-
-        workspaceTerminalScrollBarObserver = NotificationCenter.default.addObserver(
-            forName: Workspace.terminalScrollBarHiddenDidChangeNotification,
-            object: workspace,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleTerminalScrollBarPreferenceChange()
-        }
-    }
-
     private func documentHeight() -> CGFloat {
         let contentHeight = scrollView.contentSize.height
         let cellHeight = surfaceView.cellSize.height
@@ -14140,23 +14501,9 @@ final class GhosttySurfaceScrollView: NSView {
         return contentHeight
     }
 
-    private func owningWorkspace() -> Workspace? {
-        let workspaceId = surfaceView.terminalSurface?.tabId
-        if let cachedOwningWorkspace,
-           cachedOwningWorkspace.id == workspaceId {
-            updateWorkspaceTerminalScrollBarObserver(cachedOwningWorkspace)
-            return cachedOwningWorkspace
-        }
-        let workspace = surfaceView.terminalSurface?.owningWorkspace()
-        cachedOwningWorkspace = workspace
-        updateWorkspaceTerminalScrollBarObserver(workspace)
-        return workspace
-    }
-
     private func terminalScrollBarAllowedBySettings() -> Bool {
         guard GhosttyApp.shared.scrollbarVisibility() != .never else { return false }
         guard TerminalScrollBarSettings.isVisible() else { return false }
-        guard owningWorkspace()?.terminalScrollBarHidden != true else { return false }
         return true
     }
 
