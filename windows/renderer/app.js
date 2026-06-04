@@ -35646,6 +35646,15 @@ function paletteEntries() {
       search: activeEverywhere.search,
       run: () => applySavedColorEverywhere(color, paletteWorkspace)
     });
+    entries.push({
+      id: `savedColor.delete.${color.slice(1)}`,
+      label: `Delete saved color: ${colorLabel}`,
+      meta: "Remove from saved colors",
+      shortcut: "Delete",
+      title: `Delete ${colorLabel} from the saved color palette.`,
+      search: normalizeSettingsQuery(`saved color palette custom delete remove ${color}`),
+      run: () => deleteCustomColorPalette(color)
+    });
   }
   entries.push({
     id: "savedBackground.copyLibrary",
