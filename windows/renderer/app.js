@@ -31036,13 +31036,31 @@ function paletteEntries() {
     });
   }
   for (const [workspaceIndex, workspace] of (state.data?.workspaces || []).entries()) {
-    const workspaceLabel = workspace.title || "Workspace";
+    const workspaceLabel = workspaceDisplayTitle(workspace, `Workspace ${workspaceIndex + 1}`);
+    const workspaceActive = workspace.id === state.data?.activeWorkspaceId;
+    const workspacePaneCount = workspace.panels?.length || 0;
+    const workspaceReadyPaneCount = workspace.panels?.filter((panel) => !isPendingPanel(panel)).length || 0;
+    const workspaceMinimizedCount = minimizedPanelCount(workspace);
+    const workspacePendingCount = workspacePaneCount - workspaceReadyPaneCount;
+    const workspaceFolderMeta = workspace.cwdShort || workspace.cwd || "No folder";
+    const workspacePaneMeta = `${workspacePaneCount} pane${workspacePaneCount === 1 ? "" : "s"}`;
+    const workspaceStateMeta = [
+      workspaceActive ? "Active" : "",
+      workspacePaneMeta,
+      workspacePendingCount ? `${workspacePendingCount} starting` : "",
+      workspaceMinimizedCount ? `${workspaceMinimizedCount} minimized` : "",
+      workspaceFolderMeta
+    ].filter(Boolean).join(" / ");
     entries.push({
       id: `workspace.${workspace.id}`,
       label: workspaceLabel,
-      meta: workspace.cwdShort || workspace.cwd || "",
-      shortcut: "Workspace",
-      search: normalizeSettingsQuery(`workspace ${workspaceIndex + 1} ${workspace.title} ${workspace.cwdShort} ${workspace.cwd}`),
+      meta: workspaceStateMeta,
+      shortcut: workspaceActive ? "Active" : "Workspace",
+      active: workspaceActive,
+      disabled: workspaceActive,
+      icon: "workspace",
+      title: workspaceActive ? `${workspaceLabel} is already active.` : `Switch to ${workspaceLabel}.`,
+      search: normalizeSettingsQuery(`workspace switch focus ${workspaceActive ? "active current " : ""}${workspaceIndex + 1} ${workspace.title} ${workspaceLabel} ${workspace.cwdShort} ${workspace.cwd} ${workspacePaneCount} panes ${workspacePendingCount ? "starting pending " : ""}${workspaceMinimizedCount ? "minimized hidden " : ""}`),
       run: () => focusWorkspace(workspace.id)
     });
     if (workspace.cwd) {
@@ -31122,13 +31140,37 @@ function paletteEntries() {
       run: () => pasteWorkspaceSetup(workspace)
     });
     for (const [panelIndex, panel] of workspace.panels.entries()) {
-      const label = panel.type === "browser" ? hostnameOf(panel.url) : panel.title || "Terminal";
+      const panelPending = isPendingPanel(panel);
+      const panelMinimized = isPanelMinimized(panel);
+      const panelActive = workspaceActive && workspace.activePanelId === panel.id && !panelMinimized && !panelPending;
+      const panelKind = panel.type === "browser" ? "Browser" : "Terminal";
+      const label = panelDisplayTitle(panel, true) || panelKind;
+      const panelLocation = panel.type === "browser"
+        ? hostnameOf(panel.url) || panel.url || "No URL"
+        : panel.cwdShort || panel.cwd || "~";
+      const panelStatus = panelActive
+        ? "Active"
+        : panelMinimized
+          ? "Minimized"
+          : panelPending
+            ? "Starting"
+            : panelKind;
       entries.push({
         id: `panel.${panel.id}`,
         label,
-        meta: `${workspace.title || "Workspace"} / ${panel.type === "browser" ? hostnameOf(panel.url) : panel.cwdShort || "~"}`,
-        shortcut: panel.type === "browser" ? "Browser" : "Pane",
-        search: normalizeSettingsQuery(`pane ${panelIndex + 1} workspace ${workspaceIndex + 1} panel tab ${label} ${panel.type} ${workspace.title} ${panel.cwdShort} ${panel.cwd} ${panel.url}`),
+        meta: `${workspaceLabel} / ${panelStatus} / ${panelLocation}`,
+        shortcut: panelActive ? "Active" : panelMinimized ? "Restore" : panelPending ? "Starting" : panelKind,
+        active: panelActive,
+        disabled: panelActive,
+        icon: panel.type === "browser" ? "browser" : "terminal",
+        title: panelActive
+          ? `${label} is already the active pane.`
+          : panelMinimized
+            ? `Restore and focus ${label}.`
+            : panelPending
+              ? `Show ${label} while it finishes starting.`
+              : `Focus ${label}.`,
+        search: normalizeSettingsQuery(`pane focus switch ${panelActive ? "active current " : ""}${panelMinimized ? "restore minimized hidden " : ""}${panelPending ? "starting pending " : ""}${panelIndex + 1} workspace ${workspaceIndex + 1} panel tab ${label} ${panelKind} ${panel.type} ${workspace.title} ${workspaceLabel} ${panel.cwdShort} ${panel.cwd} ${panel.url} ${panelLocation}`),
         run: async () => {
           if (workspace.id !== state.data?.activeWorkspaceId) await focusWorkspace(workspace.id);
           await focusPanel(panel.id);
