@@ -8596,7 +8596,7 @@ class TabManager: ObservableObject {
         selectedWorkspace?.selectLastSurface()
     }
 
-    /// Create a new terminal surface in the focused pane of the selected workspace
+    /// Create and focus a new top-level terminal tab in the selected workspace.
     func newSurface() {
         // Cmd+T creates a Ghostty-style top tab in the current workspace and focuses it.
         selectedWorkspace?.clearSplitZoom()

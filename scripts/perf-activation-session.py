@@ -69,6 +69,7 @@ class CmuxPerfRunner:
         self.cli_path = self.app_path / "Contents/Resources/bin/cmux"
         self.fixture_root = self.make_fixture_root(args.fixture_root)
         self.proc: subprocess.Popen | None = None
+        self.app_returncode: int | None = None
         self.heavy_scrollback_surfaces: set[str] = set()
         self.result: dict = {
             "tag": self.tag,
@@ -197,6 +198,8 @@ class CmuxPerfRunner:
     def stop_app(self) -> None:
         proc = self.proc
         self.proc = None
+        if proc is not None:
+            self.app_returncode = proc.poll()
         if proc and proc.poll() is None:
             proc.terminate()
             try:
@@ -207,6 +210,8 @@ class CmuxPerfRunner:
                     proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     pass
+        if proc is not None:
+            self.app_returncode = proc.poll()
         subprocess.run(
             ["pkill", "-f", re.escape(f"cmux DEV {self.tag_slug}.app/Contents/MacOS/cmux DEV")],
             stdout=subprocess.DEVNULL,
@@ -221,6 +226,7 @@ class CmuxPerfRunner:
             raise PerfFailure(f"{label}: app process is not running")
         returncode = self.proc.poll()
         if returncode is not None:
+            self.app_returncode = returncode
             raise PerfFailure(f"{label}: app exited with code {returncode}")
 
     def record_unchecked_cli_failure(self, args: list[str], proc: subprocess.CompletedProcess[str]) -> None:
@@ -238,10 +244,9 @@ class CmuxPerfRunner:
 
     def attach_failure_diagnostics(self) -> None:
         diagnostics = self.result.setdefault("diagnostics", {})
-        if self.proc is None:
-            diagnostics["app_returncode"] = None
-        else:
-            diagnostics["app_returncode"] = self.proc.poll()
+        if self.proc is not None:
+            self.app_returncode = self.proc.poll()
+        diagnostics["app_returncode"] = self.app_returncode
         diagnostics["stdout_log_path"] = str(self.stdout_path)
         diagnostics["debug_log_path"] = str(self.debug_log_path)
         diagnostics["stdout_tail"] = file_tail(self.stdout_path)
@@ -249,12 +254,19 @@ class CmuxPerfRunner:
 
     def write_diagnostic_files(self, output_dir: pathlib.Path) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
-        for source, name in (
-            (self.stdout_path, "cmux-perf-stdout.log"),
-            (self.debug_log_path, "cmux-debug.log"),
+        run_output_dir = output_dir / f"{self.tag_slug}-{time.time_ns()}"
+        run_output_dir.mkdir(parents=True, exist_ok=True)
+        copied_log_paths = {}
+        for source, key, name in (
+            (self.stdout_path, "stdout", "cmux-perf-stdout.log"),
+            (self.debug_log_path, "debug", "cmux-debug.log"),
         ):
             if source.exists():
-                shutil.copyfile(source, output_dir / name)
+                target = run_output_dir / name
+                shutil.copyfile(source, target)
+                copied_log_paths[key] = str(target)
+        if copied_log_paths:
+            self.result.setdefault("diagnostics", {})["copied_log_paths"] = copied_log_paths
 
     def run_cli(self, args: list[str], input_text: str | None = None, timeout: float = 60, check: bool = True) -> str:
         proc = subprocess.run(
