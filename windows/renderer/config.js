@@ -201,7 +201,19 @@ export const accentOptions = [
   "oklch(74% 0.12 35)",
   "oklch(80% 0.1 115)",
   "oklch(66% 0.13 175)",
-  "oklch(86% 0.11 70)"
+  "oklch(86% 0.11 70)",
+  "oklch(68% 0.2 270)",
+  "oklch(74% 0.16 265)",
+  "oklch(72% 0.14 210)",
+  "oklch(76% 0.13 185)",
+  "oklch(74% 0.14 155)",
+  "oklch(78% 0.13 130)",
+  "oklch(84% 0.12 95)",
+  "oklch(82% 0.13 55)",
+  "oklch(74% 0.15 18)",
+  "oklch(70% 0.17 8)",
+  "oklch(72% 0.17 335)",
+  "oklch(70% 0.17 290)"
 ];
 
 export const accentIntensityOptions = [
