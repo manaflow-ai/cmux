@@ -114,11 +114,6 @@
     "filtersTitle": "عوامل التصفية",
     "searchLabel": "بحث",
     "searchPlaceholder": "ابحث في المشاريع والوكلاء واللغات",
-    "kindLabel": "النوع",
-    "kindAll": "الكل",
-    "kindNative": "أساسي",
-    "kindPort": "نقل",
-    "kindAdjacent": "مستوحى",
     "areaLabel": "المجال",
     "allAreas": "كل المجالات",
     "agentLabel": "الوكيل",
@@ -133,9 +128,6 @@
     "showingCount": "عرض {count} من {total}",
     "noProjectsTitle": "لم يتم العثور على مشاريع",
     "noProjectsDescription": "امسح عوامل التصفية أو جرّب بحثا آخر.",
-    "nativeKindLabel": "أساسي",
-    "portKindLabel": "نقل",
-    "adjacentKindLabel": "مستوحى",
     "moreCategoriesLabel": "+{count} أخرى",
     "categoryLabels": {
       "sidebarStatusPills": "الشريط الجانبي وشارات الحالة",
@@ -153,13 +145,7 @@
       "openCode": "OpenCode",
       "copilotAmp": "Copilot و Amp",
       "multiAgentAgentAgnostic": "متعدد الوكلاء / مستقل عن الوكيل",
-      "crossPlatformPorts": "نقل عبر المنصات",
-      "alternativesTmuxBased": "بدائل: مبنية على tmux",
-      "alternativesOtherTerminalsWorkspaces": "بدائل: طرفيات ومساحات عمل أخرى",
-      "alternativesForks": "بدائل: تفريعات",
-      "buildDistribution": "البناء والتوزيع",
-      "upstreamDependencies": "اعتماديات upstream",
-      "archived": "مؤرشف"
+      "buildDistribution": "البناء والتوزيع"
     }
   },
   "blog": {

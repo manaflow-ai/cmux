@@ -114,11 +114,6 @@
     "filtersTitle": "Filteri",
     "searchLabel": "Pretraga",
     "searchPlaceholder": "Pretraži projekte, agente, jezike",
-    "kindLabel": "Tip",
-    "kindAll": "Svi",
-    "kindNative": "Primarni",
-    "kindPort": "Portovi",
-    "kindAdjacent": "Inspirisani",
     "areaLabel": "Oblast",
     "allAreas": "Sve oblasti",
     "agentLabel": "AI agent",
@@ -133,9 +128,6 @@
     "showingCount": "Prikazuje se {count} od {total}",
     "noProjectsTitle": "Nema pronađenih projekata",
     "noProjectsDescription": "Očisti filtere ili pokušaj drugu pretragu.",
-    "nativeKindLabel": "Primarni",
-    "portKindLabel": "Prenos",
-    "adjacentKindLabel": "Inspirisano",
     "moreCategoriesLabel": "+{count} još",
     "categoryLabels": {
       "sidebarStatusPills": "Bočna traka i statusne oznake",
@@ -153,13 +145,7 @@
       "openCode": "OpenCode",
       "copilotAmp": "Copilot i Amp",
       "multiAgentAgentAgnostic": "Više agenata / nezavisno od agenta",
-      "crossPlatformPorts": "Portovi za više platformi",
-      "alternativesTmuxBased": "Alternative: zasnovane na tmux-u",
-      "alternativesOtherTerminalsWorkspaces": "Alternative: drugi terminali i workspaceovi",
-      "alternativesForks": "Alternative: forkovi",
-      "buildDistribution": "Build i distribucija",
-      "upstreamDependencies": "Upstream zavisnosti",
-      "archived": "Arhivirano"
+      "buildDistribution": "Build i distribucija"
     }
   },
   "blog": {

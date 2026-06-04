@@ -114,11 +114,6 @@
     "filtersTitle": "Filtros",
     "searchLabel": "Buscar",
     "searchPlaceholder": "Buscar proyectos, agentes, lenguajes",
-    "kindLabel": "Tipo",
-    "kindAll": "Todos",
-    "kindNative": "Principal",
-    "kindPort": "Adaptaciones",
-    "kindAdjacent": "Inspirados",
     "areaLabel": "Área",
     "allAreas": "Todas las áreas",
     "agentLabel": "Agente",
@@ -133,9 +128,6 @@
     "showingCount": "Mostrando {count} de {total}",
     "noProjectsTitle": "No se encontraron proyectos",
     "noProjectsDescription": "Borra los filtros o prueba otra búsqueda.",
-    "nativeKindLabel": "Principal",
-    "portKindLabel": "Adaptación",
-    "adjacentKindLabel": "Inspirado",
     "moreCategoriesLabel": "+{count} más",
     "categoryLabels": {
       "sidebarStatusPills": "Barra lateral e indicadores de estado",
@@ -153,13 +145,7 @@
       "openCode": "OpenCode",
       "copilotAmp": "Copilot y Amp",
       "multiAgentAgentAgnostic": "Multiagente / independiente del agente",
-      "crossPlatformPorts": "Ports multiplataforma",
-      "alternativesTmuxBased": "Alternativas: basadas en tmux",
-      "alternativesOtherTerminalsWorkspaces": "Alternativas: otros terminales y espacios de trabajo",
-      "alternativesForks": "Alternativas: forks",
-      "buildDistribution": "Compilación y distribución",
-      "upstreamDependencies": "Dependencias upstream",
-      "archived": "Archivados"
+      "buildDistribution": "Compilación y distribución"
     }
   },
   "blog": {

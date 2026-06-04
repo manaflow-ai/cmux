@@ -114,11 +114,6 @@
     "filtersTitle": "Filtreler",
     "searchLabel": "Ara",
     "searchPlaceholder": "Projeleri, ajanları, dilleri ara",
-    "kindLabel": "Tür",
-    "kindAll": "Tümü",
-    "kindNative": "Birincil",
-    "kindPort": "Portlar",
-    "kindAdjacent": "Esinlenen",
     "areaLabel": "Alan",
     "allAreas": "Tüm alanlar",
     "agentLabel": "Ajan",
@@ -133,9 +128,6 @@
     "showingCount": "{total} içinden {count} gösteriliyor",
     "noProjectsTitle": "Proje bulunamadı",
     "noProjectsDescription": "Filtreleri temizleyin veya başka bir arama deneyin.",
-    "nativeKindLabel": "Birincil",
-    "portKindLabel": "Uyarlama",
-    "adjacentKindLabel": "Esinlenen",
     "moreCategoriesLabel": "+{count} daha",
     "categoryLabels": {
       "sidebarStatusPills": "Kenar çubuğu ve durum rozetleri",
@@ -153,13 +145,7 @@
       "openCode": "OpenCode",
       "copilotAmp": "Copilot ve Amp",
       "multiAgentAgentAgnostic": "Çok ajanlı / ajandan bağımsız",
-      "crossPlatformPorts": "Platformlar arası portlar",
-      "alternativesTmuxBased": "Alternatifler: tmux tabanlı",
-      "alternativesOtherTerminalsWorkspaces": "Alternatifler: diğer terminaller ve çalışma alanları",
-      "alternativesForks": "Alternatifler: forklar",
-      "buildDistribution": "Build ve dağıtım",
-      "upstreamDependencies": "Upstream bağımlılıklar",
-      "archived": "Arşivlendi"
+      "buildDistribution": "Build ve dağıtım"
     }
   },
   "blog": {

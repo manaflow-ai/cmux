@@ -114,11 +114,6 @@
     "filtersTitle": "필터",
     "searchLabel": "검색",
     "searchPlaceholder": "프로젝트, 에이전트, 언어 검색",
-    "kindLabel": "유형",
-    "kindAll": "전체",
-    "kindNative": "주요",
-    "kindPort": "포트",
-    "kindAdjacent": "영감 기반",
     "areaLabel": "영역",
     "allAreas": "모든 영역",
     "agentLabel": "에이전트",
@@ -133,9 +128,6 @@
     "showingCount": "{total}개 중 {count}개 표시",
     "noProjectsTitle": "프로젝트를 찾을 수 없음",
     "noProjectsDescription": "필터를 지우거나 다른 검색어를 시도하세요.",
-    "nativeKindLabel": "주요",
-    "portKindLabel": "포트",
-    "adjacentKindLabel": "영감 기반",
     "moreCategoriesLabel": "+{count}개 더",
     "categoryLabels": {
       "sidebarStatusPills": "사이드바 및 상태 배지",
@@ -153,13 +145,7 @@
       "openCode": "OpenCode",
       "copilotAmp": "Copilot 및 Amp",
       "multiAgentAgentAgnostic": "멀티 에이전트 / 에이전트 독립",
-      "crossPlatformPorts": "크로스 플랫폼 포트",
-      "alternativesTmuxBased": "대안: tmux 기반",
-      "alternativesOtherTerminalsWorkspaces": "대안: 기타 터미널 및 워크스페이스",
-      "alternativesForks": "대안: 포크",
-      "buildDistribution": "빌드 및 배포",
-      "upstreamDependencies": "업스트림 의존성",
-      "archived": "보관됨"
+      "buildDistribution": "빌드 및 배포"
     }
   },
   "blog": {

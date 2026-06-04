@@ -114,11 +114,6 @@
     "filtersTitle": "筛选",
     "searchLabel": "搜索",
     "searchPlaceholder": "搜索项目、代理、语言",
-    "kindLabel": "类型",
-    "kindAll": "全部",
-    "kindNative": "主要",
-    "kindPort": "移植",
-    "kindAdjacent": "受启发",
     "areaLabel": "领域",
     "allAreas": "所有领域",
     "agentLabel": "代理",
@@ -133,9 +128,6 @@
     "showingCount": "显示 {count} / {total}",
     "noProjectsTitle": "未找到项目",
     "noProjectsDescription": "清除筛选或尝试其他搜索。",
-    "nativeKindLabel": "主要",
-    "portKindLabel": "移植",
-    "adjacentKindLabel": "受启发",
     "moreCategoriesLabel": "+{count} 个更多",
     "categoryLabels": {
       "sidebarStatusPills": "侧边栏和状态标签",
@@ -153,13 +145,7 @@
       "openCode": "OpenCode",
       "copilotAmp": "Copilot 和 Amp",
       "multiAgentAgentAgnostic": "多代理 / 代理无关",
-      "crossPlatformPorts": "跨平台移植",
-      "alternativesTmuxBased": "替代方案：基于 tmux",
-      "alternativesOtherTerminalsWorkspaces": "替代方案：其他终端和工作区",
-      "alternativesForks": "替代方案：分支",
-      "buildDistribution": "构建和分发",
-      "upstreamDependencies": "上游依赖",
-      "archived": "已归档"
+      "buildDistribution": "构建和分发"
     }
   },
   "blog": {

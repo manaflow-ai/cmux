@@ -114,11 +114,6 @@
     "filtersTitle": "Фільтри",
     "searchLabel": "Пошук",
     "searchPlaceholder": "Шукати проєкти, агенти, мови",
-    "kindLabel": "Тип",
-    "kindAll": "Усі",
-    "kindNative": "Основні",
-    "kindPort": "Порти",
-    "kindAdjacent": "Натхненні",
     "areaLabel": "Область",
     "allAreas": "Усі області",
     "agentLabel": "Агент",
@@ -133,9 +128,6 @@
     "showingCount": "Показано {count} з {total}",
     "noProjectsTitle": "Проєкти не знайдено",
     "noProjectsDescription": "Очистьте фільтри або спробуйте інший пошук.",
-    "nativeKindLabel": "Основний",
-    "portKindLabel": "Порт",
-    "adjacentKindLabel": "Натхненний",
     "moreCategoriesLabel": "+ ще {count}",
     "categoryLabels": {
       "sidebarStatusPills": "Бічна панель і статусні позначки",
@@ -153,13 +145,7 @@
       "openCode": "OpenCode",
       "copilotAmp": "Copilot і Amp",
       "multiAgentAgentAgnostic": "Мультиагентні / незалежні від агента",
-      "crossPlatformPorts": "Кросплатформні порти",
-      "alternativesTmuxBased": "Альтернативи: на базі tmux",
-      "alternativesOtherTerminalsWorkspaces": "Альтернативи: інші термінали й робочі простори",
-      "alternativesForks": "Альтернативи: форки",
-      "buildDistribution": "Build і розповсюдження",
-      "upstreamDependencies": "Upstream-залежності",
-      "archived": "Архівні"
+      "buildDistribution": "Build і розповсюдження"
     }
   },
   "blog": {

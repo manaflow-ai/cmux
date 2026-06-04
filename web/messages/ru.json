@@ -114,11 +114,6 @@
     "filtersTitle": "Фильтры",
     "searchLabel": "Поиск",
     "searchPlaceholder": "Искать проекты, агенты, языки",
-    "kindLabel": "Тип",
-    "kindAll": "Все",
-    "kindNative": "Основные",
-    "kindPort": "Порты",
-    "kindAdjacent": "Вдохновленные",
     "areaLabel": "Область",
     "allAreas": "Все области",
     "agentLabel": "Агент",
@@ -133,9 +128,6 @@
     "showingCount": "Показано {count} из {total}",
     "noProjectsTitle": "Проекты не найдены",
     "noProjectsDescription": "Очистите фильтры или попробуйте другой поиск.",
-    "nativeKindLabel": "Основной",
-    "portKindLabel": "Порт",
-    "adjacentKindLabel": "Вдохновленный",
     "moreCategoriesLabel": "+ еще {count}",
     "categoryLabels": {
       "sidebarStatusPills": "Боковая панель и индикаторы статуса",
@@ -153,13 +145,7 @@
       "openCode": "OpenCode",
       "copilotAmp": "Copilot и Amp",
       "multiAgentAgentAgnostic": "Мультиагентный / независимый от агента",
-      "crossPlatformPorts": "Кроссплатформенные порты",
-      "alternativesTmuxBased": "Альтернативы: на базе tmux",
-      "alternativesOtherTerminalsWorkspaces": "Альтернативы: другие терминалы и рабочие пространства",
-      "alternativesForks": "Альтернативы: форки",
-      "buildDistribution": "Сборка и распространение",
-      "upstreamDependencies": "Upstream-зависимости",
-      "archived": "Архивные"
+      "buildDistribution": "Сборка и распространение"
     }
   },
   "blog": {

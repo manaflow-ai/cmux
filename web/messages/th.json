@@ -114,11 +114,6 @@
     "filtersTitle": "ตัวกรอง",
     "searchLabel": "ค้นหา",
     "searchPlaceholder": "ค้นหาโปรเจ็กต์ เอเจนต์ ภาษา",
-    "kindLabel": "ประเภท",
-    "kindAll": "ทั้งหมด",
-    "kindNative": "หลัก",
-    "kindPort": "พอร์ต",
-    "kindAdjacent": "ได้แรงบันดาลใจ",
     "areaLabel": "พื้นที่",
     "allAreas": "ทุกพื้นที่",
     "agentLabel": "เอเจนต์",
@@ -133,9 +128,6 @@
     "showingCount": "แสดง {count} จาก {total}",
     "noProjectsTitle": "ไม่พบโปรเจ็กต์",
     "noProjectsDescription": "ล้างตัวกรองหรือลองค้นหาใหม่",
-    "nativeKindLabel": "หลัก",
-    "portKindLabel": "พอร์ต",
-    "adjacentKindLabel": "ได้แรงบันดาลใจ",
     "moreCategoriesLabel": "+อีก {count}",
     "categoryLabels": {
       "sidebarStatusPills": "แถบด้านข้างและป้ายสถานะ",
@@ -153,13 +145,7 @@
       "openCode": "OpenCode",
       "copilotAmp": "Copilot และ Amp",
       "multiAgentAgentAgnostic": "หลายเอเจนต์ / ไม่ขึ้นกับเอเจนต์",
-      "crossPlatformPorts": "พอร์ตข้ามแพลตฟอร์ม",
-      "alternativesTmuxBased": "ทางเลือก: ใช้ tmux",
-      "alternativesOtherTerminalsWorkspaces": "ทางเลือก: เทอร์มินัลและเวิร์กสเปซอื่น",
-      "alternativesForks": "ทางเลือก: ฟอร์ก",
-      "buildDistribution": "การ build และการแจกจ่าย",
-      "upstreamDependencies": "การพึ่งพา upstream",
-      "archived": "เก็บถาวร"
+      "buildDistribution": "การ build และการแจกจ่าย"
     }
   },
   "blog": {

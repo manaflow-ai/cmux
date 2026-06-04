@@ -114,11 +114,6 @@
     "filtersTitle": "Filtre",
     "searchLabel": "Søg",
     "searchPlaceholder": "Søg i projekter, agenter, sprog",
-    "kindLabel": "Kategori",
-    "kindAll": "Alle",
-    "kindNative": "Primær",
-    "kindPort": "Porteringer",
-    "kindAdjacent": "Inspireret",
     "areaLabel": "Område",
     "allAreas": "Alle områder",
     "agentLabel": "AI-agent",
@@ -133,9 +128,6 @@
     "showingCount": "Viser {count} af {total}",
     "noProjectsTitle": "Ingen projekter fundet",
     "noProjectsDescription": "Ryd filtre, eller prøv en anden søgning.",
-    "nativeKindLabel": "Primær",
-    "portKindLabel": "Portering",
-    "adjacentKindLabel": "Inspireret",
     "moreCategoriesLabel": "+{count} flere",
     "categoryLabels": {
       "sidebarStatusPills": "Sidebjælke og statuspiller",
@@ -153,13 +145,7 @@
       "openCode": "OpenCode",
       "copilotAmp": "Copilot og Amp",
       "multiAgentAgentAgnostic": "Multi-agent / agent-uafhængig",
-      "crossPlatformPorts": "Ports på tværs af platforme",
-      "alternativesTmuxBased": "Alternativer: tmux-baserede",
-      "alternativesOtherTerminalsWorkspaces": "Alternativer: andre terminaler og workspaces",
-      "alternativesForks": "Alternativer: forks",
-      "buildDistribution": "Build og distribution",
-      "upstreamDependencies": "Upstream-afhængigheder",
-      "archived": "Arkiveret"
+      "buildDistribution": "Build og distribution"
     }
   },
   "blog": {

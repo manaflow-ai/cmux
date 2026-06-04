@@ -114,11 +114,6 @@
     "filtersTitle": "Filter",
     "searchLabel": "Suche",
     "searchPlaceholder": "Projekte, Agents, Sprachen suchen",
-    "kindLabel": "Typ",
-    "kindAll": "Alle",
-    "kindNative": "Primär",
-    "kindPort": "Portierungen",
-    "kindAdjacent": "Inspiriert",
     "areaLabel": "Bereich",
     "allAreas": "Alle Bereiche",
     "agentLabel": "KI-Agent",
@@ -133,9 +128,6 @@
     "showingCount": "{count} von {total} angezeigt",
     "noProjectsTitle": "Keine Projekte gefunden",
     "noProjectsDescription": "Filter zurücksetzen oder eine andere Suche versuchen.",
-    "nativeKindLabel": "Primär",
-    "portKindLabel": "Portierung",
-    "adjacentKindLabel": "Inspiriert",
     "moreCategoriesLabel": "+{count} weitere",
     "categoryLabels": {
       "sidebarStatusPills": "Seitenleiste und Status-Pills",
@@ -153,13 +145,7 @@
       "openCode": "OpenCode",
       "copilotAmp": "Copilot und Amp",
       "multiAgentAgentAgnostic": "Multi-Agent / agentenunabhängig",
-      "crossPlatformPorts": "Plattformübergreifende Ports",
-      "alternativesTmuxBased": "Alternativen: tmux-basiert",
-      "alternativesOtherTerminalsWorkspaces": "Alternativen: andere Terminals und Workspaces",
-      "alternativesForks": "Alternativen: Forks",
-      "buildDistribution": "Build und Distribution",
-      "upstreamDependencies": "Upstream-Abhängigkeiten",
-      "archived": "Archiviert"
+      "buildDistribution": "Build und Distribution"
     }
   },
   "blog": {

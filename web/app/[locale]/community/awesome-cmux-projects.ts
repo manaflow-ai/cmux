@@ -1,5 +1,3 @@
-export type AwesomeCmuxProjectKind = "native" | "port" | "adjacent";
-
 export type AwesomeCmuxProject = {
   name: string;
   url: string;
@@ -7,12 +5,11 @@ export type AwesomeCmuxProject = {
   description: string;
   language?: string;
   stars?: number;
-  kind: AwesomeCmuxProjectKind;
   categories: readonly string[];
 };
 
 export const awesomeCmuxSourceUrl = "https://github.com/manaflow-ai/awesome-cmux";
-export const awesomeCmuxProjectRows = 452;
+export const awesomeCmuxProjectRows = 150;
 
 export const awesomeCmuxCategoryOrder = [
   "Sidebar & Status Pills",
@@ -30,13 +27,7 @@ export const awesomeCmuxCategoryOrder = [
   "OpenCode",
   "Copilot & Amp",
   "Multi-Agent / Agent-Agnostic",
-  "Cross-Platform Ports",
-  "Alternatives: tmux-Based",
-  "Alternatives: Other Terminals & Workspaces",
-  "Alternatives: Forks",
-  "Build & Distribution",
-  "Upstream Dependencies",
-  "Archived"
+  "Build & Distribution"
 ] as const;
 
 export const awesomeCmuxProjects = [
@@ -44,56 +35,26 @@ export const awesomeCmuxProjects = [
     "name": "Yeachan-Heo/oh-my-claudecode",
     "url": "https://github.com/Yeachan-Heo/oh-my-claudecode",
     "agent": "Claude Code",
-    "description": "Manage tmux worker panes as part of a full autopilot framework with team pipelines and a tri-model advisor - worktree-like isolation via dedicated tmux panes rather than git worktrees",
+    "description": "Use cmux native CLI commands to spawn, send to, capture, and close visible worker panes when Claude Code runs with CMUX_SURFACE_ID",
     "language": "TypeScript",
     "stars": 32659,
     "categories": [
       "Multi-Agent Orchestration",
-      "Worktrees & Workspace Management",
-      "Monitoring & Session Restore",
+      "Sidebar Logs & Activity Feed",
       "Claude Code"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "manaflow-ai/manaflow",
-    "url": "https://github.com/manaflow-ai/manaflow",
-    "agent": "Multi",
-    "description": "Spawn Claude Code, Codex, Gemini, and other agents in parallel VS Code workspaces with git diff view and one-click PR creation - uniquely built around VS Code rather than terminal multiplexers",
-    "language": "TypeScript",
-    "stars": 1033,
-    "categories": [
-      "Multi-Agent Orchestration",
-      "Multi-Agent / Agent-Agnostic",
-      "Build & Distribution"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "kdcokenny/ocx",
-    "url": "https://github.com/kdcokenny/ocx",
-    "agent": "OpenCode",
-    "description": "Adds portable configuration profile management on top of sidebar status - the only OpenCode plugin that lets you switch full environment profiles with flash triggers, making it production-proven at 520 stars",
-    "language": "TypeScript",
-    "stars": 669,
-    "categories": [
-      "Sidebar & Status Pills",
-      "OpenCode"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "kdcokenny/opencode-worktree",
     "url": "https://github.com/kdcokenny/opencode-worktree",
     "agent": "OpenCode",
-    "description": "Spawn a dedicated terminal with OpenCode running inside each new git worktree, sync files via post-checkout hooks, and auto-commit staged changes on worktree deletion",
+    "description": "Create OpenCode worktrees that detect CMUX_WORKSPACE_ID and launch/focus dedicated cmux workspaces through native cmux commands",
     "language": "TypeScript",
     "stars": 504,
     "categories": [
       "Worktrees & Workspace Management",
       "OpenCode"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "HazAT/pi-interactive-subagents",
@@ -108,52 +69,33 @@ export const awesomeCmuxProjects = [
       "Monitoring & Session Restore",
       "Pi",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "kdcokenny/opencode-workspace",
     "url": "https://github.com/kdcokenny/opencode-workspace",
     "agent": "OpenCode",
-    "description": "Bundle OS notifications inside a 16-component harness with planning, delegation, and worktree plugins; the most expansive OpenCode setup - notifications are one piece of a full orchestration suite",
+    "description": "Bundle OpenCode workspace, notify, and worktree components that can write cmux status, send cmux notifications, and launch cmux workspaces",
     "language": "TypeScript",
     "stars": 402,
     "categories": [
-      "Desktop Notifications",
-      "Multi-Agent Orchestration",
-      "Worktrees & Workspace Management",
-      "OpenCode"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "HazAT/pi-config",
-    "url": "https://github.com/HazAT/pi-config",
-    "agent": "Pi",
-    "description": "Deliver notifications as part of a full multi-agent architecture with cost tracking and subagent coordination; the most feature-complete Pi config - notifications are one layer of a production-grade orchestration stack",
-    "language": "TypeScript",
-    "stars": 331,
-    "categories": [
       "Sidebar & Status Pills",
       "Desktop Notifications",
-      "Multi-Agent Orchestration",
-      "Pi"
-    ],
-    "kind": "native"
+      "Worktrees & Workspace Management",
+      "OpenCode"
+    ]
   },
   {
     "name": "aannoo/hcom",
     "url": "https://github.com/aannoo/hcom",
     "agent": "Multi",
-    "description": "Deliver cross-agent notifications and file-edit collision detection across Claude Code, Gemini CLI, Codex, and OpenCode in a single Rust daemon; the only entry covering four agents simultaneously and the only one that catches edit collisions",
+    "description": "Coordinate agents across terminal backends with a cmux preset that creates and closes cmux workspaces for visible sessions",
     "language": "Rust",
     "stars": 252,
     "categories": [
-      "Desktop Notifications",
       "Multi-Agent Orchestration",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "kdcokenny/opencode-notify",
@@ -165,8 +107,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Desktop Notifications",
       "OpenCode"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "espennilsen/pi",
@@ -179,8 +120,7 @@ export const awesomeCmuxProjects = [
       "Sidebar & Status Pills",
       "Multi-Agent Orchestration",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "w-winter/dot314",
@@ -194,35 +134,20 @@ export const awesomeCmuxProjects = [
       "Desktop Notifications",
       "Multi-Agent Orchestration",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "burggraf/pi-teams",
     "url": "https://github.com/burggraf/pi-teams",
     "agent": "Pi",
-    "description": "Turn one Pi agent into a coordinated team with specialist teammates, shared task board, direct messaging, and plan-approval gates - Pi-native alternative to general multi-agent frameworks",
+    "description": "Run Pi teams through a cmux adapter that opens workspaces, creates splits, respawns panes, and closes surfaces from team workflows",
     "language": "TypeScript",
     "stars": 91,
     "categories": [
       "Multi-Agent Orchestration",
-      "Pi"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "dagster-io/erk",
-    "url": "https://github.com/dagster-io/erk",
-    "agent": "Claude Code",
-    "description": "Create implementation plans from AI, execute each in an isolated git worktree, and ship via automated PR submission - uniquely enforces full plan-execute-ship cycle with worktree isolation per task",
-    "language": "Python",
-    "stars": 81,
-    "categories": [
-      "Multi-Agent Orchestration",
       "Worktrees & Workspace Management",
-      "Claude Code"
-    ],
-    "kind": "native"
+      "Pi"
+    ]
   },
   {
     "name": "0xCaso/opencode-cmux",
@@ -237,8 +162,7 @@ export const awesomeCmuxProjects = [
       "Sidebar Logs & Activity Feed",
       "Desktop Notifications",
       "OpenCode"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "hummer98/using-cmux",
@@ -252,8 +176,7 @@ export const awesomeCmuxProjects = [
       "Desktop Notifications",
       "Multi-Agent Orchestration",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "drolosoft/cmux-resurrect",
@@ -264,21 +187,19 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Monitoring & Session Restore",
       "Themes, Layouts & Config"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "AtAFork/ghostty-claude-code-session-restore",
     "url": "https://github.com/AtAFork/ghostty-claude-code-session-restore",
     "agent": "Claude Code",
-    "description": "Snapshot Claude Code session IDs every 2 seconds via launchd, resolve each ID to its cmux surface, and replay the full session layout into the correct panes on relaunch - optimized for Ghostty terminal",
+    "description": "Restore Claude Code sessions in Ghostty or cmux by mapping CMUX_WORKSPACE_ID and replaying sessions with cmux list/send/send-key flows",
     "language": "Python",
     "stars": 23,
     "categories": [
       "Monitoring & Session Restore",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "azu/cmux-hub",
@@ -291,8 +212,7 @@ export const awesomeCmuxProjects = [
       "Sidebar & Status Pills",
       "Browser Automation",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "untra/operator",
@@ -304,22 +224,24 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Multi-Agent Orchestration",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "javiermolinar/pi-cmux",
     "url": "https://github.com/javiermolinar/pi-cmux",
     "agent": "Pi",
-    "description": "Extend Pi sessions with git worktree branching that passes handoff context between agents, plus 12+ slash commands covering pane splits and zoxide-powered directory jumps",
+    "description": "Extend Pi sessions with cmux notifications, sidebar status/progress, split creation, browser panes, screen reads, and zoxide-powered jumps",
     "language": "TypeScript",
     "stars": 16,
     "categories": [
+      "Sidebar & Status Pills",
+      "Progress Bars & Estimation",
+      "Desktop Notifications",
+      "Browser Automation",
       "Worktrees & Workspace Management",
       "Themes, Layouts & Config",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "gonzaloserrano/streamdeck-cmux",
@@ -331,8 +253,7 @@ export const awesomeCmuxProjects = [
       "Sidebar & Status Pills",
       "Progress Bars & Estimation",
       "Monitoring & Session Restore"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "sasha-computer/pi-cmux",
@@ -346,8 +267,7 @@ export const awesomeCmuxProjects = [
       "Desktop Notifications",
       "Browser Automation",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "hummer98/cmux-team",
@@ -361,8 +281,7 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Monitoring & Session Restore",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "joelhooks/pi-cmux",
@@ -376,8 +295,7 @@ export const awesomeCmuxProjects = [
       "Desktop Notifications",
       "Multi-Agent Orchestration",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "jasonraz/cmux-browser-mcp",
@@ -389,8 +307,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Browser Automation",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "darkspock/cmux-skill",
@@ -403,8 +320,7 @@ export const awesomeCmuxProjects = [
       "Browser Automation",
       "Claude Code",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "yigitkonur/cmux-claude-pro",
@@ -419,19 +335,17 @@ export const awesomeCmuxProjects = [
       "Sidebar Logs & Activity Feed",
       "Desktop Notifications",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "hummer98/cmux-remote",
     "url": "https://github.com/hummer98/cmux-remote",
-    "description": "Self-host a PWA bridge that streams live workspace state to any browser over WebSocket, rendering panes with xterm.js and supporting surface switching without an SSH tunnel",
+    "description": "Self-host a PWA bridge that can read, switch, and send input to cmux surfaces over WebSocket through the cmux socket API",
     "language": "TypeScript",
     "stars": 6,
     "categories": [
       "Remote & Mobile Access"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "mikasalikh/cmux-wf",
@@ -443,14 +357,13 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Multi-Agent Orchestration",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "EtanHey/cmuxlayer",
     "url": "https://github.com/EtanHey/cmuxlayer",
     "agent": "Multi",
-    "description": "Expose 22 tightly scoped MCP tools for sidebar updates, progress, split creation, and screen reading - smaller and more auditable than cmux-agent-mcp's 81-tool suite, while still covering multi-agent orchestration",
+    "description": "Expose 29 MCP tools over the cmux Unix socket for sidebar updates, progress, split creation, screen reads, browser automation, and agent orchestration",
     "language": "TypeScript",
     "stars": 5,
     "categories": [
@@ -459,8 +372,7 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Browser Automation",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "itsmaleen/cmux-companion",
@@ -471,8 +383,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Desktop Notifications",
       "Remote & Mobile Access"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "monzou/mo-cmux",
@@ -484,8 +395,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Browser Automation",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "ttalkkag/cmux-agent",
@@ -497,8 +407,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Multi-Agent Orchestration",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "0xNekr/cmux-bus",
@@ -509,26 +418,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Multi-Agent Orchestration",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "adhyaay-karnwal/cmux",
-    "url": "https://github.com/adhyaay-karnwal/cmux",
-    "description": "Abandoned fork with Docker isolation and multi-CLI support. TypeScript",
-    "categories": [
-      "Archived"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "agent-browser",
-    "url": "https://github.com/vercel-labs/agent-browser",
-    "description": "Vercel's browser automation, integrated into cmux  31850",
-    "categories": [
-      "Upstream Dependencies"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "alaasdk/cmux-ctl",
@@ -540,20 +430,7 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Monitoring & Session Restore",
       "Claude Code"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "alankyshum/semantic-diff",
-    "url": "https://github.com/alankyshum/semantic-diff",
-    "agent": "Claude Code",
-    "description": "Display a terminal TUI diff viewer that uses AI to semantically group git hunks with SIGUSR1 auto-refresh from Claude Code edits and Mermaid rendering in Ghostty/cmux - semantic grouping distinguishes it from line-level diff tools",
-    "language": "Rust",
-    "categories": [
-      "Browser Automation",
-      "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "albertlieyingadrian/cmux-multiplexer",
@@ -565,8 +442,7 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Worktrees & Workspace Management",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "alevental/cccp",
@@ -577,8 +453,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Multi-Agent Orchestration",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "anhoder/homebrew-repo",
@@ -587,20 +462,21 @@ export const awesomeCmuxProjects = [
     "language": "Ruby",
     "categories": [
       "Build & Distribution"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "aschreifels/cwt",
     "url": "https://github.com/aschreifels/cwt",
     "agent": "Claude Code",
-    "description": "Generate worktrees pre-wired to tickets pulled live from Linear, GitHub, or Jira, then walk through setup via an interactive TUI wizard with draft-mode support for work-in-progress branches",
+    "description": "Wrap cmux workspace, split, send, read-screen, status, progress, notify, and log commands for ticket-driven worktree setup",
     "language": "Go",
     "categories": [
+      "Sidebar & Status Pills",
+      "Progress Bars & Estimation",
+      "Desktop Notifications",
       "Worktrees & Workspace Management",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "Attamusc/copilot-cmux",
@@ -614,22 +490,21 @@ export const awesomeCmuxProjects = [
       "Sidebar Logs & Activity Feed",
       "Desktop Notifications",
       "Copilot & Amp"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "Attamusc/opencode-cmux",
     "url": "https://github.com/Attamusc/opencode-cmux",
     "agent": "OpenCode",
-    "description": "Apply rate limiting to log writes so high-frequency tool bursts produce a readable digest rather than a flooding stream, prioritizing signal over completeness during intensive OpenCode sessions",
+    "description": "Bridge OpenCode activity to cmux via socket or CLI with sidebar status, progress bars, logs, notifications, question prompts, and permission state",
     "language": "TypeScript",
     "categories": [
       "Sidebar & Status Pills",
       "Progress Bars & Estimation",
       "Sidebar Logs & Activity Feed",
+      "Desktop Notifications",
       "OpenCode"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "Attamusc/pi-cmux",
@@ -642,8 +517,7 @@ export const awesomeCmuxProjects = [
       "Progress Bars & Estimation",
       "Desktop Notifications",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "baixianger/claude-orchestration-in-cmux",
@@ -655,21 +529,21 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Worktrees & Workspace Management",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "basedcorp99/claude-worktree-zsh",
     "url": "https://github.com/basedcorp99/claude-worktree-zsh",
     "agent": "Multi",
-    "description": "Provide Zsh helpers launching 5 agents (Claude/Codex/Droid/OpenCode/Pi) in worktrees with cwl dashboard and cwm merge-back - the widest agent coverage of any worktree shell helper",
+    "description": "Provide Zsh helpers that detect CMUX_WORKSPACE_ID, open cmux workspaces, send commands, and update cmux sidebar status/progress for multi-agent worktrees",
     "language": "Shell",
     "categories": [
+      "Sidebar & Status Pills",
+      "Progress Bars & Estimation",
       "Multi-Agent Orchestration",
       "Worktrees & Workspace Management",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "bhandeland/fleet",
@@ -680,8 +554,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Worktrees & Workspace Management",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "bjacobso/pimux",
@@ -694,32 +567,19 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Worktrees & Workspace Management",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "block/cmux-amp",
     "url": "https://github.com/block/cmux-amp",
     "agent": "Amp",
-    "description": "Wire the official Amp Plugin API to the cmux sidebar with SF Symbol icons for agent state - the only first-party Amp plugin in the list, built and maintained by Block",
+    "description": "Keep Amp-specific cmux notification and session-restore hooks for workflows that need behavior beyond the status support now built into cmux core",
     "language": "TypeScript",
     "categories": [
-      "Sidebar & Status Pills",
+      "Desktop Notifications",
+      "Monitoring & Session Restore",
       "Copilot & Amp"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "blueraai/bluera-base",
-    "url": "https://github.com/blueraai/bluera-base",
-    "agent": "Claude Code",
-    "description": "Establish shared multi-language conventions enforced by PostToolUse hooks that run validation and quality gates automatically after every Claude tool call",
-    "language": "Shell",
-    "categories": [
-      "Themes, Layouts & Config",
-      "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "bocktae80/cmux-pilot",
@@ -732,8 +592,7 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Monitoring & Session Restore",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "budah1987/cmux-script",
@@ -744,8 +603,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Themes, Layouts & Config",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "budah1987/homebrew-tools",
@@ -757,17 +615,7 @@ export const awesomeCmuxProjects = [
       "Themes, Layouts & Config",
       "Claude Code",
       "Build & Distribution"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "chrisliu298/ghostty-config",
-    "url": "https://github.com/chrisliu298/ghostty-config",
-    "description": "Configure Ghostty with a GitHub Dark theme, Berkeley Mono 18pt, 128 MiB scrollback buffer, and cmux-ready key bindings tuned for long agent sessions",
-    "categories": [
-      "Themes, Layouts & Config"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "chsm04/cmux-tower",
@@ -779,30 +627,7 @@ export const awesomeCmuxProjects = [
       "Worktrees & Workspace Management",
       "Themes, Layouts & Config",
       "Claude Code"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "claude-studio/claude-studio",
-    "url": "https://github.com/claude-studio/claude-studio",
-    "agent": "Claude Code",
-    "description": "Parse JSONL transcripts from ~/.claude/projects offline to render cost, token, and session statistics on a standalone dashboard rather than writing live log entries - suited for post-session analysis, not real-time monitoring",
-    "language": "TypeScript",
-    "categories": [
-      "Sidebar Logs & Activity Feed",
-      "Monitoring & Session Restore",
-      "Claude Code"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "ctaho19/cmux-cursor-work-style",
-    "url": "https://github.com/ctaho19/cmux-cursor-work-style",
-    "description": "Repository deleted. Previously contained a Cursor aesthetic theme with charcoal/blue colors and Berkeley Mono",
-    "categories": [
-      "Archived"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "dd7200/pomo-tui",
@@ -811,8 +636,7 @@ export const awesomeCmuxProjects = [
     "language": "Go",
     "categories": [
       "Desktop Notifications"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "dmallory42/pi-cmux",
@@ -829,8 +653,7 @@ export const awesomeCmuxProjects = [
       "Worktrees & Workspace Management",
       "Themes, Layouts & Config",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "dongsik93/crosstalk",
@@ -842,75 +665,50 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Worktrees & Workspace Management",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "doublezz10/figure-viewer",
     "url": "https://github.com/doublezz10/figure-viewer",
     "agent": "OpenCode",
-    "description": "Display scientific figures in a cmux browser pane with lightbox zoom, freshness timestamps, and auto-refresh - purpose-built for data-science and research workflows where figures change frequently",
+    "description": "Open scientific figures in a cmux browser pane when CMUX_SOCKET_PATH or CMUX_WORKSPACE_ID is present, with freshness timestamps and auto-refresh",
     "language": "JavaScript",
     "categories": [
-      "Browser Automation",
-      "OpenCode"
-    ],
-    "kind": "native"
+      "Browser Automation"
+    ]
   },
   {
     "name": "earchibald/cmux-layout",
     "url": "https://github.com/earchibald/cmux-layout",
-    "description": "Apply declarative layout DSL to live cmux via socket JSON-RPC with a describe command that reads back live topology as a reusable descriptor - bidirectional layout definition and introspection",
+    "description": "Inspect and apply cmux layouts through Unix socket JSON-RPC, covering workspace, pane, and surface listing for reusable topology descriptors",
     "language": "Swift",
     "categories": [
       "Themes, Layouts & Config"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "eduwass/cru",
     "url": "https://github.com/eduwass/cru",
     "agent": "Claude Code",
-    "description": "Targets multi-agent teams rather than single sessions: arrange workers in a labeled grid with a 447-line cmux module, SF Symbol lifecycle phases, and a progress-watcher - unlike single-session Claude Code plugins",
+    "description": "Mirror Claude/tmux workers into cmux splits while updating cmux sidebar status, progress, and logs for team orchestration",
     "language": "TypeScript",
     "categories": [
       "Sidebar & Status Pills",
-      "Desktop Notifications",
+      "Progress Bars & Estimation",
+      "Sidebar Logs & Activity Feed",
       "Multi-Agent Orchestration",
       "Claude Code"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "ehardesty/fish_git_worktree",
-    "url": "https://github.com/ehardesty/fish_git_worktree",
-    "description": "Supply Fish shell worktree functions (wt-create/list/remove) with cmux workspace integration - the only Fish-specific worktree helper in the list",
-    "language": "Fish",
-    "categories": [
-      "Worktrees & Workspace Management"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "elitecoder/cmux-bridge",
-    "url": "https://github.com/elitecoder/cmux-bridge",
-    "description": "Connect cmux to Slack with read/send/key/watch commands in channels, posting watched surfaces to threads with LaunchAgent auto-start - the only Slack integration for cmux remote control",
-    "language": "TypeScript",
-    "categories": [
-      "Remote & Mobile Access"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "ensarkovankaya/cmux-mirror",
-    "url": "https://github.com/ensarkovakaya/cmux-mirror",
+    "url": "https://github.com/ensarkovankaya/cmux-mirror",
     "description": "Mirror a remote cmux layout to a local instance over SSH with incremental sync support - observability tool focused on remote-to-local layout replication rather than agent state",
     "language": "Python",
     "categories": [
       "Monitoring & Session Restore",
       "Remote & Mobile Access"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "erikhazzard/cmux-remote",
@@ -919,8 +717,7 @@ export const awesomeCmuxProjects = [
     "language": "TypeScript",
     "categories": [
       "Remote & Mobile Access"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "eunjae-lee/cmux-worktree",
@@ -930,8 +727,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Worktrees & Workspace Management",
       "Themes, Layouts & Config"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "EverybodyBusiness/cmux-browser-first",
@@ -941,8 +737,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Browser Automation",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "goddaehee/cmux-claude-skill",
@@ -953,8 +748,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Browser Automation",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "gomipapa/cmux-sidecar",
@@ -966,59 +760,30 @@ export const awesomeCmuxProjects = [
       "Browser Automation",
       "Themes, Layouts & Config",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "guanxm2617/feishu-openclaw-cmux",
-    "url": "https://github.com/guanxm2617/feishu-openclaw-cmux",
-    "agent": "Claude Code",
-    "description": "Bridge cmux sidebar state bidirectionally to Feishu/Lark: poll notifications every 4 seconds, forward as rich Feishu cards, and trigger cmux commands from Feishu messages - the only enterprise-chat integration for sidebar pills",
-    "language": "Shell",
-    "categories": [
-      "Sidebar & Status Pills",
-      "Desktop Notifications",
-      "Remote & Mobile Access",
-      "Claude Code"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "H-Noguchi-josys/cmux-split-plugin",
-    "url": "https://github.com/H-Noguchi-josys/cmux-split-plugin",
-    "agent": "Claude Code",
-    "description": "Fork the current conversation into a new cmux pane via /split skill using cmux new-split right + claude -c - minimal single-command conversation branching for parallel exploration",
-    "language": "Shell",
-    "categories": [
-      "Multi-Agent Orchestration",
-      "Worktrees & Workspace Management",
-      "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "halindrome/cmux-tmux-mapping-for-cc",
     "url": "https://github.com/halindrome/cmux-tmux-mapping-for-cc",
     "agent": "Claude Code",
-    "description": "Detect tmux vs cmux at runtime and transparently route all panel operations through the correct backend - enables skills written for one multiplexer to work unchanged on the other",
+    "description": "Experimental tmux-to-cmux command mapping for Claude Code skills; upstream README marks it as unstable and not ready for dependable workflows",
     "language": "Shell",
     "categories": [
       "Multi-Agent Orchestration",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "hashangit/cmux-skill",
     "url": "https://github.com/hashangit/cmux-skill",
     "agent": "Claude Code",
-    "description": "Control browser elements by stable ref via snapshot --interactive, applying a notification decision matrix to choose alert vs. pane - the only skill built around element-ref stability rather than XPath/CSS selectors",
+    "description": "Teach Claude Code cmux splits, browser refs, CMUX_SOCKET_PATH workflows, and cmux notify-based decisions for when to alert or open panes",
     "language": "Shell",
     "categories": [
+      "Desktop Notifications",
       "Browser Automation",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "hoonkim/cmux-skills-plugin",
@@ -1029,8 +794,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Browser Automation",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "hopchouinard/cmux-plugin",
@@ -1045,8 +809,7 @@ export const awesomeCmuxProjects = [
       "Browser Automation",
       "Worktrees & Workspace Management",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "Islanders-Treasure0969/claude-pilot",
@@ -1059,8 +822,7 @@ export const awesomeCmuxProjects = [
       "Browser Automation",
       "Monitoring & Session Restore",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "JacianLiu/cmux-claude-session",
@@ -1071,8 +833,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Monitoring & Session Restore",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "jacobtellep/cmux-setup",
@@ -1083,8 +844,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Themes, Layouts & Config",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "jaequery/cmux-diff",
@@ -1093,21 +853,9 @@ export const awesomeCmuxProjects = [
     "description": "Show Shiki-powered syntax-highlighted diffs in a browser split with multi-file selection and AI-generated commit message suggestions - distinct from azu/cmux-hub by pairing diff viewing with commit authoring",
     "language": "TypeScript",
     "categories": [
-      "Sidebar & Status Pills",
       "Browser Automation",
       "Claude Code"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "jcyamacho/zdotfiles",
-    "url": "https://github.com/jcyamacho/zdotfiles",
-    "description": "Wire up a Zsh environment with Antidote plugin management, Starship prompt, and opinionated install helpers for cmux, fzf, zoxide, and git-worktree workflows",
-    "language": "Zsh",
-    "categories": [
-      "Themes, Layouts & Config"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "jhta/cmux-skill",
@@ -1118,14 +866,13 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Themes, Layouts & Config",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "Joehoel/opencode-cmux",
     "url": "https://github.com/Joehoel/opencode-cmux",
     "agent": "OpenCode",
-    "description": "Uniquely integrates external project management services: polls Azure DevOps and Jira via Zsh to inject ticket and build status as additional sidebar pills alongside standard OpenCode status",
+    "description": "Report OpenCode status, progress, logs, notifications, and project-management context to cmux, with Azure DevOps and Jira signals as optional sidebar metadata",
     "language": "Shell",
     "categories": [
       "Sidebar & Status Pills",
@@ -1133,18 +880,7 @@ export const awesomeCmuxProjects = [
       "Sidebar Logs & Activity Feed",
       "Desktop Notifications",
       "OpenCode"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "karlorz/dev-docs-cmux",
-    "url": "https://github.com/karlorz/dev-docs-cmux",
-    "description": "Fetch and keep current LLM-optimised documentation for cmux dependencies via a make-driven workflow, ensuring agents always have accurate API references in context",
-    "language": "Shell",
-    "categories": [
-      "Themes, Layouts & Config"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "KyleJamesWalker/cc-cmux-plugin",
@@ -1156,8 +892,7 @@ export const awesomeCmuxProjects = [
       "Desktop Notifications",
       "Themes, Layouts & Config",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "KyubumShin/cmux-skills",
@@ -1170,8 +905,7 @@ export const awesomeCmuxProjects = [
       "Browser Automation",
       "Monitoring & Session Restore",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "LattyCat/cmux-workspace",
@@ -1183,18 +917,7 @@ export const awesomeCmuxProjects = [
       "Worktrees & Workspace Management",
       "Themes, Layouts & Config",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "lawrencecchen/cmux-env",
-    "url": "https://github.com/lawrencecchen/cmux-env",
-    "description": "Coordinate shared environment variables across shells and projects through a lightweight daemon with prompt hooks",
-    "language": "Rust",
-    "categories": [
-      "Build & Distribution"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "lawrencecchen/cmux-proxy",
@@ -1202,9 +925,8 @@ export const awesomeCmuxProjects = [
     "description": "Route HTTP/WebSocket/TCP traffic through a header-based reverse proxy with per-workspace network isolation",
     "language": "Rust",
     "categories": [
-      "Build & Distribution"
-    ],
-    "kind": "native"
+      "Remote & Mobile Access"
+    ]
   },
   {
     "name": "Lumiwealth/cmux-agent-recovery",
@@ -1215,8 +937,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Monitoring & Session Restore",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "madlouse/homebrew-ghostty",
@@ -1224,9 +945,8 @@ export const awesomeCmuxProjects = [
     "description": "Install a full AI stack (cmux + Ghostty + Zed + Starship + JetBrainsMono) via a single Homebrew formula with idempotent re-runs and dry-run mode - one-command developer environment bootstrap",
     "language": "Ruby",
     "categories": [
-      "Themes, Layouts & Config"
-    ],
-    "kind": "native"
+      "Build & Distribution"
+    ]
   },
   {
     "name": "manaflow-ai/chromium",
@@ -1235,8 +955,7 @@ export const awesomeCmuxProjects = [
     "language": "Obj-C++",
     "categories": [
       "Build & Distribution"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "manaflow-ai/cmux-skills",
@@ -1247,8 +966,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Multi-Agent Orchestration",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "manaflow-ai/homebrew-cmux",
@@ -1257,17 +975,7 @@ export const awesomeCmuxProjects = [
     "language": "Ruby",
     "categories": [
       "Build & Distribution"
-    ],
-    "kind": "native"
-  },
-  {
-    "name": "manaflow-ai/vscode",
-    "url": "https://github.com/manaflow-ai/vscode",
-    "description": "Fork VS Code to replace the web terminal with a cmux backend for code serve-web sessions",
-    "categories": [
-      "Build & Distribution"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "mangledmonkey/cmux-skills",
@@ -1278,8 +986,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Browser Automation",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "mangledmonkey/devmux",
@@ -1291,8 +998,7 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Worktrees & Workspace Management",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "Marmalade118/gsd-wmux",
@@ -1306,8 +1012,7 @@ export const awesomeCmuxProjects = [
       "Desktop Notifications",
       "Themes, Layouts & Config",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "mastertyko/pi-cmux-preview",
@@ -1318,20 +1023,16 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Browser Automation",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "mateusduraes/ramo",
     "url": "https://github.com/mateusduraes/ramo",
-    "agent": "Claude Code",
-    "description": "Run ramo new to create a worktree, execute setup commands, copy env files, and open a cmux workspace - declarative ramo.json config replaces manual multi-step worktree bootstrapping",
+    "description": "Create worktrees from ramo.json, run setup commands, copy env files, and open the result in cmux workspaces and splits",
     "language": "Go",
     "categories": [
-      "Worktrees & Workspace Management",
-      "Claude Code"
-    ],
-    "kind": "native"
+      "Worktrees & Workspace Management"
+    ]
   },
   {
     "name": "meengi07/cmux-agent-observer-skill",
@@ -1343,8 +1044,7 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Monitoring & Session Restore",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "Michael-Z-Freeman/antigravity-cmux-notify",
@@ -1355,8 +1055,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Desktop Notifications",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "mikecfisher/cmux-skill",
@@ -1367,8 +1066,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Browser Automation",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "Minoo7/cmux-hooks",
@@ -1379,10 +1077,10 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Sidebar & Status Pills",
       "Desktop Notifications",
-      "Themes, Layouts & Config",
+      "Monitoring & Session Restore",
+      "Remote & Mobile Access",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "miraoto/cmux-cheatsheet",
@@ -1391,8 +1089,7 @@ export const awesomeCmuxProjects = [
     "language": "Shell",
     "categories": [
       "Themes, Layouts & Config"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "Mirksen/cmux-toolkit",
@@ -1401,11 +1098,10 @@ export const awesomeCmuxProjects = [
     "description": "Skips status pills in favour of IDE ergonomics: auto-open edited files in a Vim subpane and toggle a broot file-browser sidebar, turning cmux into a lightweight editor environment",
     "language": "Shell",
     "categories": [
-      "Sidebar & Status Pills",
+      "Browser Automation",
       "Themes, Layouts & Config",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "morrisclay/ws",
@@ -1417,8 +1113,7 @@ export const awesomeCmuxProjects = [
       "Worktrees & Workspace Management",
       "Themes, Layouts & Config",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "mspiegel31/opencode-cmux",
@@ -1430,8 +1125,7 @@ export const awesomeCmuxProjects = [
       "Desktop Notifications",
       "Browser Automation",
       "OpenCode"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "multiagentcognition/cmux-agent-mcp",
@@ -1446,8 +1140,7 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Browser Automation",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "n-filatov/cmux-workspace",
@@ -1459,8 +1152,7 @@ export const awesomeCmuxProjects = [
       "Worktrees & Workspace Management",
       "Themes, Layouts & Config",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "NewTurn2017/cmux-remote",
@@ -1471,7 +1163,6 @@ export const awesomeCmuxProjects = [
       "Remote & Mobile Access",
       "Multi-Agent / Agent-Agnostic"
     ],
-    "kind": "native",
     "agent": "Multi-Agent / Agent-Agnostic"
   },
   {
@@ -1484,8 +1175,7 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Monitoring & Session Restore",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "ogallotti/cmux-tmux-shim",
@@ -1496,8 +1186,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Multi-Agent Orchestration",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "owizdom/context-brdige-for-cmux",
@@ -1509,8 +1198,7 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Monitoring & Session Restore",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "pallidev/cmux-relay",
@@ -1521,7 +1209,6 @@ export const awesomeCmuxProjects = [
       "Remote & Mobile Access",
       "Multi-Agent / Agent-Agnostic"
     ],
-    "kind": "native",
     "agent": "Multi-Agent / Agent-Agnostic"
   },
   {
@@ -1535,8 +1222,7 @@ export const awesomeCmuxProjects = [
       "Remote & Mobile Access",
       "Themes, Layouts & Config",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "richardhowes/cmux-jump",
@@ -1544,9 +1230,9 @@ export const awesomeCmuxProjects = [
     "description": "Resolve partial directory names via zoxide frecency, check cmux workspaces with 4-tier fuzzy matching, and switch or create with j - the only zoxide-integrated workspace switcher with 45 tests",
     "language": "Shell",
     "categories": [
+      "Worktrees & Workspace Management",
       "Themes, Layouts & Config"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "richardhowes/cmux-mobile",
@@ -1556,34 +1242,31 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Desktop Notifications",
       "Remote & Mobile Access"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "Ridgeio/swarm",
     "url": "https://github.com/Ridgeio/swarm",
-    "agent": "Claude Code",
-    "description": "Coordinate agents across terminals via cmux send with /join-swarm registration, SQLite persistence, and UserPromptSubmit hooks - focused on persistent swarm awareness rather than ephemeral pane dispatch",
+    "agent": "Multi",
+    "description": "Coordinate Claude, Codex, and A2A agents with cmux surface IDs, send/read/spawn/move APIs, and persistent swarm state",
     "language": "TypeScript",
     "categories": [
       "Multi-Agent Orchestration",
-      "Claude Code"
-    ],
-    "kind": "native"
+      "Multi-Agent / Agent-Agnostic"
+    ]
   },
   {
-    "name": "rjwittams/flotilla",
-    "url": "https://github.com/rjwittams/flotilla",
+    "name": "flotilla-org/flotilla",
+    "url": "https://github.com/flotilla-org/flotilla",
     "agent": "Multi",
-    "description": "Correlate agents, branches, and PRs across multiple repos into unified work items via a TUI dashboard - cross-repo aggregation makes it distinct from single-workspace monitoring tools",
+    "description": "Correlate agents, branches, and PRs through a development fleet dashboard with cmux as one supported multiplexer provider",
     "language": "Rust",
     "categories": [
       "Multi-Agent Orchestration",
       "Worktrees & Workspace Management",
       "Monitoring & Session Restore",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "RyoHirota68/cmux-pencil-preview",
@@ -1594,8 +1277,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Browser Automation",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "RyoHirota68/difit-cmux",
@@ -1606,8 +1288,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Browser Automation",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "sanurb/pi-cmux",
@@ -1619,8 +1300,7 @@ export const awesomeCmuxProjects = [
       "Sidebar & Status Pills",
       "Desktop Notifications",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "sanurb/pi-cmux-browser",
@@ -1631,8 +1311,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Browser Automation",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "sanurb/pi-cmux-workflows",
@@ -1644,33 +1323,32 @@ export const awesomeCmuxProjects = [
       "Multi-Agent Orchestration",
       "Browser Automation",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "sdgranger/will-public-claude",
     "url": "https://github.com/sdgranger/will-public-claude",
     "agent": "Claude Code",
-    "description": "Include a cmux-browser skill in a 5-skill marketplace package that also covers parallel execution and auto-skill generation - distinct from single-purpose browser plugins by bundling browser alongside orchestration",
+    "description": "Bundle cmux browser, pane, status, progress, log, and notify skills with a broader Claude Code skill marketplace package",
     "language": "Shell",
     "categories": [
+      "Sidebar & Status Pills",
+      "Progress Bars & Estimation",
+      "Sidebar Logs & Activity Feed",
       "Multi-Agent Orchestration",
       "Browser Automation",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "Seungwoo321/cmux-setup",
     "url": "https://github.com/Seungwoo321/cmux-setup",
-    "agent": "Claude Code",
-    "description": "Register projects and group them into presets, then launch all as cmux workspaces with cmux-setup run - the only Korean-language project registry and preset launcher for cmux",
+    "description": "Register projects and presets, then launch them as cmux workspaces and splits through a Korean-language project registry",
     "language": "TypeScript",
     "categories": [
-      "Themes, Layouts & Config",
-      "Claude Code"
-    ],
-    "kind": "native"
+      "Worktrees & Workspace Management",
+      "Themes, Layouts & Config"
+    ]
   },
   {
     "name": "simonjohansson/pi-cmux",
@@ -1682,8 +1360,7 @@ export const awesomeCmuxProjects = [
       "Sidebar & Status Pills",
       "Sidebar Logs & Activity Feed",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "Stealinglight/cmux-claude-code-skill",
@@ -1695,8 +1372,7 @@ export const awesomeCmuxProjects = [
       "Browser Automation",
       "Worktrees & Workspace Management",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "stegmannb/pi-agent-cmux",
@@ -1708,8 +1384,7 @@ export const awesomeCmuxProjects = [
       "Sidebar & Status Pills",
       "Desktop Notifications",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "stevenocchipinti/raycast-cmux",
@@ -1717,9 +1392,9 @@ export const awesomeCmuxProjects = [
     "description": "Search, focus, and manage cmux workspaces and panes directly from Raycast with keyboard-driven commands, eliminating the need to touch the mouse or switch apps",
     "language": "TypeScript",
     "categories": [
+      "Worktrees & Workspace Management",
       "Themes, Layouts & Config"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "storelayer/pi-cmux-browser",
@@ -1730,8 +1405,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Browser Automation",
       "Pi"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "STRML/cmux-restore",
@@ -1742,20 +1416,18 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Monitoring & Session Restore",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "tadashi-aikawa/copilot-plugin-notify",
     "url": "https://github.com/tadashi-aikawa/copilot-plugin-notify",
     "agent": "Copilot",
-    "description": "Emit OSC 777 escape sequences for tool-use approvals and agent-stop alerts with configurable allow/deny rules; uniquely exposes an allow/deny rule set so noisy approval events can be filtered before the notification fires",
+    "description": "Emit OSC 777 notifications for tool-use approvals and agent-stop alerts so cmux-compatible terminals can surface Copilot activity",
     "language": "Shell",
     "categories": [
       "Desktop Notifications",
       "Copilot & Amp"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "taichiiwamoto-s/cmux-context",
@@ -1768,8 +1440,7 @@ export const awesomeCmuxProjects = [
       "Progress Bars & Estimation",
       "Monitoring & Session Restore",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "take0x/cmux-skills",
@@ -1778,23 +1449,18 @@ export const awesomeCmuxProjects = [
     "description": "Offer two skills: self-referential cmux docs lookup (live cmux -h + scraped cmux.com) and /pane reader for other terminals - the only skill that dynamically scrapes upstream documentation at runtime",
     "language": "Shell",
     "categories": [
-      "Multi-Agent Orchestration",
       "Monitoring & Session Restore",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "tasuku43/kra",
     "url": "https://github.com/tasuku43/kra",
-    "agent": "Claude Code",
-    "description": "Map every open ticket one-to-one to a cmux workspace on disk, auto-creating the worktree when a task opens and removing it when the task closes - ticket state drives filesystem state",
+    "description": "Create or reuse cmux workspaces for tickets and worktrees, keeping task state aligned with visible cmux sessions",
     "language": "Go",
     "categories": [
-      "Worktrees & Workspace Management",
-      "Claude Code"
-    ],
-    "kind": "native"
+      "Worktrees & Workspace Management"
+    ]
   },
   {
     "name": "Th3Sp3ct3R/cmux-claude-agents",
@@ -1806,8 +1472,7 @@ export const awesomeCmuxProjects = [
       "Desktop Notifications",
       "Multi-Agent Orchestration",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "theodaguier/wt",
@@ -1818,21 +1483,19 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Worktrees & Workspace Management",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "TimoKruth/cmux-t3code",
     "url": "https://github.com/TimoKruth/cmux-t3code",
     "agent": "Multi",
-    "description": "Embed a t3code AI coding GUI in cmux browser panes via sidecar Node.js servers on unique ports - uniquely grafts an external coding interface into the browser surface",
+    "description": "Build a custom cmux-t3code app from a cmux submodule, embedding t3code sidecars into native cmux panels for AI coding workflows",
     "categories": [
       "Multi-Agent Orchestration",
       "Browser Automation",
       "Worktrees & Workspace Management",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "tslateman/cmux-claude-code",
@@ -1845,8 +1508,7 @@ export const awesomeCmuxProjects = [
       "Progress Bars & Estimation",
       "Desktop Notifications",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "tully-8888/opencode-cmux-notify-plugin",
@@ -1858,8 +1520,7 @@ export const awesomeCmuxProjects = [
       "Sidebar & Status Pills",
       "Desktop Notifications",
       "OpenCode"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "umitaltintas/cmux-agent-toolkit",
@@ -1870,8 +1531,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Multi-Agent Orchestration",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "wangyuxinwhy/agent-skills",
@@ -1881,8 +1541,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Multi-Agent Orchestration",
       "Multi-Agent / Agent-Agnostic"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "webkaz/cmux-intel-builds",
@@ -1890,21 +1549,18 @@ export const awesomeCmuxProjects = [
     "description": "Automate Intel Mac x86_64 builds by polling upstream releases every 6 hours and publishing unsigned DMGs",
     "categories": [
       "Build & Distribution"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "wwaIII/proj",
     "url": "https://github.com/wwaIII/proj",
     "agent": "Claude Code",
-    "description": "Launch named cmux workspaces through a Rust TUI project picker that marks sessions running Claude Code with [CC] activity badges for at-a-glance fleet visibility",
+    "description": "Launch named local projects as cmux workspaces from a Rust TUI and mark Claude Code sessions with activity badges",
     "language": "Rust",
     "categories": [
-      "Worktrees & Workspace Management",
       "Themes, Layouts & Config",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "ygrec-app/offload-task-skill",
@@ -1915,8 +1571,7 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Multi-Agent Orchestration",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
     "name": "ygrec-app/supreme-leader-skill",
@@ -1927,433 +1582,248 @@ export const awesomeCmuxProjects = [
     "categories": [
       "Multi-Agent Orchestration",
       "Claude Code"
-    ],
-    "kind": "native"
+    ]
   },
   {
-    "name": "mkurman/cmux-windows",
-    "url": "https://github.com/mkurman/cmux-windows",
-    "description": "Provide a native Windows terminal with ConPTY, split panes, workspace sidebar, OSC notifications, session persistence, and a named-pipe CLI API",
-    "language": "C#",
-    "stars": 154,
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "amirlehmam/wmux",
-    "url": "https://github.com/amirlehmam/wmux",
-    "description": "Build an Electron + xterm.js + ConPTY terminal with CDP proxy for browser integration, auto-injected Claude Code hooks, and a named-pipe API compatible with cmux commands",
-    "language": "TypeScript",
-    "stars": 85,
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "no1msd/seance",
-    "url": "https://github.com/no1msd/seance",
-    "description": "Build a GTK4 Linux terminal multiplexer that auto-detects Claude Code, Codex, and Pi sessions, tracking status, permission waits, task completions, desktop notifications, and unread state without dotfile setup",
-    "language": "Zig",
-    "stars": 48,
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "cai0baa/cmux-for-linux",
-    "url": "https://github.com/cai0baa/cmux-for-linux",
-    "description": "Deliver a cross-platform Tauri workspace with React and xterm.js, now branded ptrcode, with workspaces and resizable splits",
-    "language": "TypeScript",
-    "stars": 33,
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "bradwilson331/cmux-linux",
-    "url": "https://github.com/bradwilson331/cmux-linux",
-    "description": "Port cmux to Linux with Rust, GTK4, GPU-accelerated Ghostty rendering, CDP browser automation, and a 34-subcommand socket CLI",
-    "language": "Rust",
-    "stars": 27,
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "douglas/cmux-gtk",
-    "url": "https://github.com/douglas/cmux-gtk",
-    "description": "Provide a full GTK4/libadwaita port with the same socket API (V1 60 commands + V2 210+ methods), WebKit6 browser, and cmux ssh for remote workspaces - closest feature parity with macOS cmux",
-    "language": "Rust",
-    "stars": 10,
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "wshmkr/astral-terminal",
-    "url": "https://github.com/wshmkr/astral-terminal",
-    "description": "Build a Windows + WSL terminal inspired by cmux, with split panes, workspaces, browser panel, Claude Code hook notifications, restart-safe scrollback, and planned CLI scripting",
-    "language": "TypeScript",
-    "stars": 6,
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "aasm3535/wmux",
-    "url": "https://github.com/aasm3535/wmux",
-    "description": "Build a WinUI 3 port with xterm.js, vertical sidebar, split panes, OSC notifications, WebView2 browser, and native Mica backdrop",
-    "language": "C#",
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "anurag-arjun/cove",
-    "url": "https://github.com/anurag-arjun/cove",
-    "description": "Fork Ghostty's GTK frontend adding a vertical workspace sidebar, keyboard navigation, planned socket API, and WebKitGTK browser",
-    "language": "Zig",
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "asermax/seemux",
-    "url": "https://github.com/asermax/seemux",
-    "description": "Provide a GTK4 terminal with tabbed sidebar, real-time Claude Code status, tab groups, quake dropdown, agent teams, and full session persistence",
-    "language": "Rust",
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "dcieslak19973/wmux",
-    "url": "https://github.com/dcieslak19973/wmux",
-    "description": "Deliver a Tauri v2 + ConPTY terminal with OSC 9/99/777 notification parsing, sidebar metadata, session persistence, and a tmux.exe compatibility shim for migration",
-    "language": "JavaScript",
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "Kazsuto/wmux",
-    "url": "https://github.com/Kazsuto/wmux",
-    "description": "Provide a native Rust + D3D12/wgpu terminal with 80+ JSON-RPC v2 commands over Named Pipes (HMAC-SHA256 auth), Ghostty-compatible config, and command palette",
-    "language": "Rust",
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "LucasPC-hub/lcmux",
-    "url": "https://github.com/LucasPC-hub/lcmux",
-    "description": "Build a GTK4/VTE4 port with NixOS flake, Arch packages, and WebKitGTK 6.0 browser - wire-compatible with macOS cmux socket protocol for plugin reuse",
-    "language": "Rust",
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "nice-bills/lmux",
-    "url": "https://github.com/nice-bills/lmux",
-    "description": "Build a pure-C GTK4/VTE terminal with split browser panes, D-Bus notifications, toggleable sidebar, and vim-style navigation",
-    "language": "C",
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "shogotomita/cmux-win",
-    "url": "https://github.com/shogotomita/cmux-win",
-    "description": "Build a WPF/ConPTY terminal with workspace splitting, sidebar pills, Claude Code hooks, and a 28-method named-pipe IPC server",
-    "language": "C#",
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "TRINITXX/cmux-windows",
-    "url": "https://github.com/TRINITXX/cmux-windows",
-    "description": "Fork mkurman's implementation adding Claude Code hooks, Zen mode, Dracula/One Dark themes, and command log replay",
-    "language": "C#",
-    "categories": [
-      "Cross-Platform Ports"
-    ],
-    "kind": "port"
-  },
-  {
-    "name": "Octane0411/open-vibe-island",
-    "url": "https://github.com/Octane0411/open-vibe-island",
-    "description": "Monitor Claude Code, Codex, and OpenCode from a native macOS menu-bar companion that can watch terminal, Ghostty, cmux, Kakoune, and iTerm workflows without depending on cmux APIs",
+    "name": "feritzcan2/termloop",
+    "url": "https://github.com/feritzcan2/termloop",
+    "agent": "Multi",
+    "description": "Ship a cmux-derived distribution and Homebrew fork for worktree agents, MCP handoff, and mobile monitoring workflows",
     "language": "Swift",
-    "stars": 1149,
+    "stars": 29,
     "categories": [
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "craigsc/cmux",
-    "url": "https://github.com/craigsc/cmux",
-    "agent": "Claude Code",
-    "description": "Wrap the full git worktree lifecycle - create, switch, merge, and teardown - into single shell commands with tab completion and shared git history; sets the UX bar every other plugin is measured against",
-    "language": "Shell",
-    "stars": 525,
-    "categories": [
+      "Build & Distribution",
+      "Multi-Agent Orchestration",
       "Worktrees & Workspace Management",
-      "Claude Code",
-      "Alternatives: tmux-Based"
-    ],
-    "kind": "adjacent"
+      "Remote & Mobile Access",
+      "Multi-Agent / Agent-Agnostic"
+    ]
   },
   {
-    "name": "vakovalskii/codbash",
-    "url": "https://github.com/vakovalskii/codbash",
-    "description": "Provide a browser dashboard for searching, replaying, tagging, and resuming Claude Code, Codex, Pi, Cursor, OpenCode, Kiro, and Copilot sessions, with cmux as one launch target",
-    "language": "JavaScript",
-    "stars": 212,
+    "name": "sanghun0724/cmux-claude-skills",
+    "url": "https://github.com/sanghun0724/cmux-claude-skills",
+    "agent": "Claude Code",
+    "description": "Provide Claude Code skills for cmux layout automation, workspace snapshots, session restore, and Markdown preview workflows",
+    "language": "Python",
+    "stars": 28,
     "categories": [
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "adibhanna/tsm",
-    "url": "https://github.com/adibhanna/tsm",
-    "description": "Manage persistent terminal sessions as background daemons with a native cmux backend for workspaces, splits, and sidebar sync",
-    "language": "Go",
-    "stars": 157,
-    "categories": [
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "sverrirsig/claude-control",
-    "url": "https://github.com/sverrirsig/claude-control",
-    "description": "Build a macOS dashboard for discovering Claude Code sessions, showing git and PR status, approving prompts, and focusing terminal tabs across iTerm2, Terminal, kitty, WezTerm, cmux, and others",
-    "language": "TypeScript",
-    "stars": 119,
-    "categories": [
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "ClipboardHealth/groundcrew",
-    "url": "https://github.com/ClipboardHealth/groundcrew",
-    "description": "Dispatch Linear tickets to AI coding agents in sandboxed git worktrees with per-ticket status, resume tracking, and optional cmux workspace mapping for visible local execution",
-    "language": "TypeScript",
-    "stars": 32,
-    "categories": [
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "maedana/crmux",
-    "url": "https://github.com/maedana/crmux",
-    "description": "Provide a tmux sidebar with live Claude Code status, permission mode, and vim-like navigation with scriptable RPC",
-    "language": "Rust",
-    "stars": 21,
-    "categories": [
-      "Alternatives: tmux-Based"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "wolffiex/cmux",
-    "url": "https://github.com/wolffiex/cmux",
-    "description": "Manage tmux window arrangements through a popup UI featuring a visual carousel, 10 named preset layouts, and AI-generated summaries of each window's current activity",
-    "language": "TypeScript",
-    "stars": 6,
-    "categories": [
+      "Browser Automation",
+      "Monitoring & Session Restore",
       "Themes, Layouts & Config",
-      "Alternatives: tmux-Based"
-    ],
-    "kind": "adjacent"
+      "Claude Code"
+    ]
   },
   {
-    "name": "julo15/seshctl",
-    "url": "https://github.com/julo15/seshctl",
-    "description": "Track terminal-based coding sessions across Terminal.app, iTerm2, VS Code, Cursor, Warp, Ghostty, and cmux through a native menu-bar app and CLI",
-    "language": "Swift",
+    "name": "pawel-cell/cmux-ai-agents-bundle",
+    "url": "https://github.com/pawel-cell/cmux-ai-agents-bundle",
+    "agent": "Multi",
+    "description": "Bundle skills, hooks, recipes, and prompts for orchestrating AI agents through cmux socket, browser, notification, and workspace workflows",
+    "language": "Shell / Python",
+    "stars": 20,
+    "categories": [
+      "Multi-Agent Orchestration",
+      "Browser Automation",
+      "Multi-Agent / Agent-Agnostic"
+    ]
+  },
+  {
+    "name": "ericblue/cmux-session-manager",
+    "url": "https://github.com/ericblue/cmux-session-manager",
+    "agent": "Claude Code",
+    "description": "Snapshot and restore cmux workspaces with Claude Code session resumption, including saved pane state and controlled relaunch flows",
+    "language": "Python",
+    "stars": 12,
+    "categories": [
+      "Monitoring & Session Restore",
+      "Claude Code"
+    ]
+  },
+  {
+    "name": "freestyle-sh/rigkit",
+    "url": "https://github.com/freestyle-sh/rigkit",
+    "agent": "Multi",
+    "description": "Expose cmux as a local provider for RigKit/Freestyle development flows through provider-cmux and fdev-cmux packages",
+    "language": "TypeScript",
+    "stars": 7,
+    "categories": [
+      "Multi-Agent Orchestration",
+      "Worktrees & Workspace Management",
+      "Multi-Agent / Agent-Agnostic"
+    ]
+  },
+  {
+    "name": "ph3on1x/claude-cmux-skill",
+    "url": "https://github.com/ph3on1x/claude-cmux-skill",
+    "agent": "Claude Code",
+    "description": "Teach Claude Code to spawn cmux panes, monitor agents, automate browser surfaces, update sidebar metadata, and send notifications from one plugin",
+    "language": "Markdown",
+    "stars": 7,
+    "categories": [
+      "Sidebar & Status Pills",
+      "Multi-Agent Orchestration",
+      "Browser Automation",
+      "Claude Code"
+    ]
+  },
+  {
+    "name": "sinozu/cmux-git-diff",
+    "url": "https://github.com/sinozu/cmux-git-diff",
+    "description": "Open a live git diff viewer in a cmux browser pane with localhost-first WebSocket updates and automatic refresh as files change",
+    "language": "Go",
     "stars": 5,
     "categories": [
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
+      "Browser Automation"
+    ]
   },
   {
-    "name": "danneu/danterm",
-    "url": "https://github.com/danneu/danterm",
-    "description": "Build a macOS terminal on libghostty with vertical tab strips, split panes, collapsible tab groups, and JSON-serialised layout restore across restarts",
-    "language": "Swift",
+    "name": "jiahao-shao1/cmux-skill",
+    "url": "https://github.com/jiahao-shao1/cmux-skill",
+    "agent": "Claude Code",
+    "description": "Provide Claude Code skill commands for cmux splits, CMUX_SOCKET_PATH workflows, browser automation, Markdown preview, progress, and notifications",
+    "language": "Markdown",
+    "stars": 5,
     "categories": [
-      "Themes, Layouts & Config",
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
+      "Sidebar & Status Pills",
+      "Progress Bars & Estimation",
+      "Browser Automation",
+      "Claude Code"
+    ]
   },
   {
-    "name": "davis7dotsh/my-term",
-    "url": "https://github.com/davis7dotsh/my-term",
-    "description": "Prototype a native macOS terminal emulator with an Arc-style persistent sidebar and long-lived SwiftTerm sessions designed to host cmux workspaces indefinitely",
-    "language": "Swift",
-    "categories": [
-      "Themes, Layouts & Config",
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "Diogenesoftoronto/dellij",
-    "url": "https://github.com/Diogenesoftoronto/dellij",
-    "description": "Manage parallel agents via Zellij tabs where each workspace maps to a git worktree with a WASM status plugin, optional GPUI GUI, and Android app via Convex",
-    "language": "Rust",
-    "categories": [
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "ipdelete/cmux",
-    "url": "https://github.com/ipdelete/cmux",
-    "agent": "Copilot & Amp",
-    "description": "Provide an Electron workspace with file browsing, Monaco editor, Git integration, and Copilot Chat",
+    "name": "devnazim/pi-cmux",
+    "url": "https://github.com/devnazim/pi-cmux",
+    "agent": "Pi",
+    "description": "Publish a Pi package for cmux status and notification integration through npm as @devnazim/pi-cmux",
     "language": "TypeScript",
     "categories": [
-      "Copilot & Amp",
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
+      "Sidebar & Status Pills",
+      "Desktop Notifications",
+      "Pi"
+    ]
   },
   {
-    "name": "israeligal/cmux-file-explorer",
-    "url": "https://github.com/israeligal/cmux-file-explorer",
-    "description": "Add a file explorer sidebar, native text editor, and CWD sync between explorer and terminal panes. Swift",
+    "name": "Catdaemon/pi-extensions",
+    "url": "https://github.com/Catdaemon/pi-extensions",
+    "agent": "Pi",
+    "description": "Ship Pi extension packages including @catdaemon/pi-cmux for cmux status and notification workflows",
+    "language": "TypeScript",
+    "stars": 3,
     "categories": [
-      "Alternatives: Forks"
-    ],
-    "kind": "adjacent"
+      "Sidebar & Status Pills",
+      "Desktop Notifications",
+      "Pi"
+    ]
   },
   {
-    "name": "jeremyeder/sisi-cmux",
-    "url": "https://github.com/jeremyeder/sisi-cmux",
+    "name": "flyflor/cmux-codex-worktree",
+    "url": "https://github.com/flyflor/cmux-codex-worktree",
+    "agent": "Codex",
+    "description": "Launch visible child Codex TUI panes in cmux across isolated git worktree lanes for parallel implementation and review",
+    "language": "Shell",
+    "stars": 3,
+    "categories": [
+      "Multi-Agent Orchestration",
+      "Worktrees & Workspace Management"
+    ]
+  },
+  {
+    "name": "tanabee/cmux.vim",
+    "url": "https://github.com/tanabee/cmux.vim",
+    "agent": "Multi",
+    "description": "Let Vim send file references and selected line ranges into AI CLI sessions running inside cmux panes",
+    "language": "Vim Script",
+    "stars": 3,
+    "categories": [
+      "Browser Automation",
+      "Multi-Agent / Agent-Agnostic"
+    ]
+  },
+  {
+    "name": "alpeshvas/cmuxinator",
+    "url": "https://github.com/alpeshvas/cmuxinator",
+    "agent": "Multi",
+    "description": "Launch cmux workspaces, panes, surfaces, and browser views from tmuxinator-style YAML project definitions",
+    "language": "Rust",
+    "stars": 2,
+    "categories": [
+      "Worktrees & Workspace Management",
+      "Themes, Layouts & Config",
+      "Multi-Agent / Agent-Agnostic"
+    ]
+  },
+  {
+    "name": "sttts/skills",
+    "url": "https://github.com/sttts/skills",
+    "agent": "Multi",
+    "description": "Include a Claude/Codex cmux skill that launches panes, sends prompts, reads screens, focuses panes, and manages worktrees",
+    "language": "Shell",
+    "stars": 2,
+    "categories": [
+      "Multi-Agent Orchestration",
+      "Worktrees & Workspace Management",
+      "Multi-Agent / Agent-Agnostic"
+    ]
+  },
+  {
+    "name": "yigitkonur/cmux-codex",
+    "url": "https://github.com/yigitkonur/cmux-codex",
+    "agent": "Codex",
+    "description": "Publish codex-cmux hooks for Codex status, progress, notifications, logs, and SSH socket forwarding through cmux socket or CLI integration",
+    "language": "TypeScript",
+    "stars": 1,
+    "categories": [
+      "Sidebar & Status Pills",
+      "Progress Bars & Estimation",
+      "Sidebar Logs & Activity Feed",
+      "Desktop Notifications"
+    ]
+  },
+  {
+    "name": "mimen/claude-sessions",
+    "url": "https://github.com/mimen/claude-sessions",
     "agent": "Claude Code",
-    "description": "Auto-discover projects and build tmux workspaces with one-key Claude Code integration and checkpoint save/restore - project-bootstrap companion rather than a runtime orchestration skill",
+    "description": "Browse and resume Claude Code sessions from a TUI, opening restored sessions into fresh cmux workspaces when requested",
+    "language": "TypeScript",
+    "categories": [
+      "Monitoring & Session Restore",
+      "Claude Code"
+    ]
+  },
+  {
+    "name": "tanaka-yui/yui-cc-plugins",
+    "url": "https://github.com/tanaka-yui/yui-cc-plugins",
+    "agent": "Multi",
+    "description": "Ship a cmux plugin suite for remote bridging, team dispatch, usage tracking, and Claude/Codex workflows inside cmux sessions",
+    "language": "TypeScript",
+    "stars": 2,
+    "categories": [
+      "Multi-Agent Orchestration",
+      "Worktrees & Workspace Management",
+      "Remote & Mobile Access",
+      "Multi-Agent / Agent-Agnostic"
+    ]
+  },
+  {
+    "name": "talldan/cmux-opencode-agent-comm",
+    "url": "https://github.com/talldan/cmux-opencode-agent-comm",
+    "agent": "OpenCode",
+    "description": "Enable OpenCode agents to communicate across cmux workspaces by sending messages and reading peer surfaces",
     "language": "TypeScript",
     "categories": [
       "Multi-Agent Orchestration",
-      "Claude Code",
-      "Alternatives: tmux-Based"
-    ],
-    "kind": "adjacent"
+      "OpenCode"
+    ]
   },
   {
-    "name": "Kaldy14/clui",
-    "url": "https://github.com/Kaldy14/clui",
-    "agent": "Claude Code",
-    "description": "Wrap Claude Code in an Electron GUI where every conversation thread gets its own git worktree, and idle threads are LRU-hibernated to keep resource usage bounded",
+    "name": "LuisUrrutia/opencode-cmux",
+    "url": "https://github.com/LuisUrrutia/opencode-cmux",
+    "agent": "OpenCode",
+    "description": "Publish an OpenCode plugin for project and activity feedback in cmux, distributed as @luisurrutia/opencode-cmux",
     "language": "TypeScript",
-    "categories": [
-      "Worktrees & Workspace Management",
-      "Claude Code",
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "kght6123/madori",
-    "url": "https://github.com/kght6123/madori",
-    "description": "Provide a browser-based terminal multiplexer (Node.js + React + xterm.js) with vertical tab sidebar, WebGL rendering, and OSC notifications - Japanese-language alternative to native terminals",
-    "language": "TypeScript",
-    "categories": [
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "llv22/cmux_forward",
-    "url": "https://github.com/llv22/cmux_forward",
-    "description": "Add working-directory restore for Bash sessions. One patch over upstream. Swift",
-    "categories": [
-      "Alternatives: Forks"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "Pollux-Studio/maxc",
-    "url": "https://github.com/Pollux-Studio/maxc",
-    "description": "Combine terminal multiplexing, embedded browser, task orchestration, and a programmable CLI in a Tauri workspace",
-    "language": "Rust",
-    "categories": [
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "theforager/cmux",
-    "url": "https://github.com/theforager/cmux",
-    "agent": "Claude Code",
-    "description": "Provide an interactive tmux session selector with real-time status indicators tuned for low-bandwidth mobile SSH connections - prioritizes minimal rendering over rich dashboards",
-    "language": "Shell",
-    "categories": [
-      "Monitoring & Session Restore",
-      "Remote & Mobile Access",
-      "Claude Code",
-      "Alternatives: tmux-Based"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "Tom-R-Main/execuTerm",
-    "url": "https://github.com/Tom-R-Main/execuTerm",
-    "description": "Build a native macOS app on cmux + libghostty with a task-board dashboard synced from ExecuFunction SaaS, context injection, and semantic search",
-    "language": "Swift",
-    "categories": [
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "vcabeli/wezmux",
-    "url": "https://github.com/vcabeli/wezmux",
-    "description": "Fork WezTerm adding cmux-inspired workspace management: persistent sidebar, git/PR metadata, OSC 7777 agent status, blue ring notifications, and auto-injected Claude Code + Codex hooks",
-    "language": "Rust",
-    "categories": [
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
-  },
-  {
-    "name": "wrock/wezterm-agent-cards",
-    "url": "https://github.com/wrock/wezterm-agent-cards",
-    "agent": "Claude Code",
-    "description": "Targets WezTerm users exclusively: render Claude Code sessions as stacked curses-based status cards, unlike cmux-socket plugins that require the cmux sidebar infrastructure",
-    "language": "Python",
     "categories": [
       "Sidebar & Status Pills",
-      "Monitoring & Session Restore",
-      "Claude Code",
-      "Alternatives: Other Terminals & Workspaces"
-    ],
-    "kind": "adjacent"
+      "Desktop Notifications",
+      "OpenCode"
+    ]
   }
 ] as const satisfies readonly AwesomeCmuxProject[];

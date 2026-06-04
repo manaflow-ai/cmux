@@ -114,11 +114,6 @@
     "filtersTitle": "តម្រង",
     "searchLabel": "ស្វែងរក",
     "searchPlaceholder": "ស្វែងរកគម្រោង ភ្នាក់ងារ ភាសា",
-    "kindLabel": "ប្រភេទ",
-    "kindAll": "ទាំងអស់",
-    "kindNative": "ចម្បង",
-    "kindPort": "ការផ្ទេរ",
-    "kindAdjacent": "បានបំផុសគំនិត",
     "areaLabel": "ផ្នែក",
     "allAreas": "គ្រប់ផ្នែក",
     "agentLabel": "ភ្នាក់ងារ",
@@ -133,9 +128,6 @@
     "showingCount": "បង្ហាញ {count} ក្នុងចំណោម {total}",
     "noProjectsTitle": "រកមិនឃើញគម្រោង",
     "noProjectsDescription": "សម្អាតតម្រង ឬសាកល្បងស្វែងរកផ្សេង។",
-    "nativeKindLabel": "ចម្បង",
-    "portKindLabel": "ការផ្ទេរ",
-    "adjacentKindLabel": "បានបំផុសគំនិត",
     "moreCategoriesLabel": "+{count} ទៀត",
     "categoryLabels": {
       "sidebarStatusPills": "របារចំហៀង និងស្លាកស្ថានភាព",
@@ -153,13 +145,7 @@
       "openCode": "OpenCode",
       "copilotAmp": "Copilot និង Amp",
       "multiAgentAgentAgnostic": "ភ្នាក់ងារច្រើន / មិនអាស្រ័យលើភ្នាក់ងារ",
-      "crossPlatformPorts": "ការផ្ទេរឆ្លងវេទិកា",
-      "alternativesTmuxBased": "ជម្រើស: ផ្អែកលើ tmux",
-      "alternativesOtherTerminalsWorkspaces": "ជម្រើស: terminal និង workspace ផ្សេងៗ",
-      "alternativesForks": "ជម្រើស: fork",
-      "buildDistribution": "Build និងការចែកចាយ",
-      "upstreamDependencies": "ភាពអាស្រ័យ upstream",
-      "archived": "បានរក្សាទុក"
+      "buildDistribution": "Build និងការចែកចាយ"
     }
   },
   "blog": {

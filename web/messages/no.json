@@ -114,11 +114,6 @@
     "filtersTitle": "Filtre",
     "searchLabel": "Søk",
     "searchPlaceholder": "Søk i prosjekter, agenter, språk",
-    "kindLabel": "Kategori",
-    "kindAll": "Alle",
-    "kindNative": "Primær",
-    "kindPort": "Porter",
-    "kindAdjacent": "Inspirert",
     "areaLabel": "Område",
     "allAreas": "Alle områder",
     "agentLabel": "AI-agent",
@@ -133,9 +128,6 @@
     "showingCount": "Viser {count} av {total}",
     "noProjectsTitle": "Ingen prosjekter funnet",
     "noProjectsDescription": "Tøm filtre eller prøv et annet søk.",
-    "nativeKindLabel": "Primær",
-    "portKindLabel": "Portering",
-    "adjacentKindLabel": "Inspirert",
     "moreCategoriesLabel": "+{count} til",
     "categoryLabels": {
       "sidebarStatusPills": "Sidefelt og statuspiller",
@@ -153,13 +145,7 @@
       "openCode": "OpenCode",
       "copilotAmp": "Copilot og Amp",
       "multiAgentAgentAgnostic": "Flere agenter / agentuavhengig",
-      "crossPlatformPorts": "Porter på tvers av plattformer",
-      "alternativesTmuxBased": "Alternativer: tmux-baserte",
-      "alternativesOtherTerminalsWorkspaces": "Alternativer: andre terminaler og arbeidsområder",
-      "alternativesForks": "Alternativer: forks",
-      "buildDistribution": "Bygg og distribusjon",
-      "upstreamDependencies": "Upstream-avhengigheter",
-      "archived": "Arkivert"
+      "buildDistribution": "Bygg og distribusjon"
     }
   },
   "blog": {
