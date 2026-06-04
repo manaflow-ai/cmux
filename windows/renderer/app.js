@@ -16073,7 +16073,7 @@ function settingsInspectorSignature() {
     parts.push(stableJson(state.paneLayouts), stableJson(state.paneTrees));
   }
   if (searching || category === "quick") {
-    parts.push(quickSettingsSignature());
+    parts.push(quickSettingsSignature({ includePerformanceMetrics: false }));
   }
   if (searching || ["appearance", "data", "actions"].includes(category)) {
     parts.push(stableJson(state.customColorPalette), stableJson(state.savedBackgroundImages));
