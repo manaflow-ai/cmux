@@ -751,6 +751,105 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(plan.flushClosedItemHistory)
     }
 
+    func testTerminationSessionPersistencePolicyDoesNotOverwriteUpdateRelaunchSnapshot() {
+        let updatePlan = AppDelegate.terminationSessionPersistencePlan(reason: .updateRelaunch)
+        XCTAssertTrue(updatePlan.saveSnapshot)
+        XCTAssertTrue(updatePlan.includeScrollback)
+
+        for reason in [
+            AppDelegate.TerminationSessionPersistenceReason.applicationWillTerminate,
+            .workspaceWillPowerOff,
+            .sessionDidResignWhileTerminating,
+        ] {
+            let followUpPlan = AppDelegate.terminationSessionPersistencePlan(
+                reason: reason,
+                hasFullUpdateRelaunchSnapshot: true
+            )
+            XCTAssertFalse(followUpPlan.saveSnapshot)
+            XCTAssertFalse(followUpPlan.includeScrollback)
+            XCTAssertFalse(followUpPlan.flushClosedItemHistory)
+        }
+    }
+
+    func testSessionPersistenceWriteGateInvalidatesQueuedAsyncSaves() {
+        let gate = SessionPersistenceWriteGate()
+        let queuedGeneration = gate.currentGeneration()
+
+        let updateGeneration = gate.invalidateQueuedWrites()
+
+        XCTAssertFalse(gate.isCurrent(queuedGeneration))
+        XCTAssertTrue(gate.isCurrent(updateGeneration))
+    }
+
+    func testSessionPersistenceWriteGateLeavesLaterQueuedSavesCurrentUntilNextInvalidation() {
+        let gate = SessionPersistenceWriteGate()
+        _ = gate.invalidateQueuedWrites()
+        let queuedAfterUpdateGeneration = gate.currentGeneration()
+
+        XCTAssertTrue(gate.isCurrent(queuedAfterUpdateGeneration))
+
+        _ = gate.invalidateQueuedWrites()
+
+        XCTAssertFalse(gate.isCurrent(queuedAfterUpdateGeneration))
+    }
+
+    func testSessionPersistenceWritePropagatesSnapshotSaveFailure() {
+        let snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        var didRemoveLegacyGeometry = false
+        var didCallSave = false
+
+        let didWrite = AppDelegate.performSessionPersistenceWrite(
+            snapshot,
+            removeWhenEmpty: false,
+            persistedGeometryData: nil,
+            removeLegacyGeometry: {
+                didRemoveLegacyGeometry = true
+            },
+            persistGeometryData: { _ in
+                XCTFail("Snapshot-only write should not persist geometry data")
+            },
+            saveSnapshot: { savedSnapshot in
+                didCallSave = true
+                XCTAssertEqual(savedSnapshot.version, snapshot.version)
+                return false
+            },
+            removeSnapshot: {
+                XCTFail("Snapshot write should not remove the stored snapshot")
+            }
+        )
+
+        XCTAssertFalse(didWrite)
+        XCTAssertTrue(didRemoveLegacyGeometry)
+        XCTAssertTrue(didCallSave)
+    }
+
+    func testSessionPersistenceWriteReturnsTrueForGeometryOnlyWrite() {
+        let geometryData = Data(#"{"windows":{}}"#.utf8)
+        var persistedGeometryData: Data?
+        var didCallSave = false
+
+        let didWrite = AppDelegate.performSessionPersistenceWrite(
+            nil,
+            removeWhenEmpty: false,
+            persistedGeometryData: geometryData,
+            removeLegacyGeometry: {},
+            persistGeometryData: { data in
+                persistedGeometryData = data
+            },
+            saveSnapshot: { _ in
+                didCallSave = true
+                return false
+            },
+            removeSnapshot: {
+                XCTFail("Geometry-only write should not remove the stored snapshot")
+            }
+        )
+
+        XCTAssertTrue(didWrite)
+        XCTAssertEqual(persistedGeometryData, geometryData)
+        XCTAssertFalse(didCallSave)
+    }
+
     func testSessionSnapshotSynchronousWritePolicy() {
         XCTAssertFalse(
             AppDelegate.shouldWriteSessionSnapshotSynchronously(
