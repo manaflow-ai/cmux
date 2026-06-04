@@ -7,7 +7,9 @@ public import SwiftUI
 /// safe-area insets are clearly asymmetric, the larger side's delta is used; when
 /// they are symmetric and large enough, the configured `symmetricCameraEdge`
 /// decides which side to inset.
-public enum MobileTerminalContentSafeAreaPolicy {
+public struct MobileTerminalContentSafeAreaPolicy {
+    private init() {}
+
     private static let landscapeCameraInsetThreshold: CGFloat = 32
     private static let landscapeCameraInsetDeltaThreshold: CGFloat = 8
 

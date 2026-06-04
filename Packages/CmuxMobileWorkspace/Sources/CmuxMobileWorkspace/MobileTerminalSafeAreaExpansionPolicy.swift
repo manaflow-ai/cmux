@@ -2,7 +2,9 @@ import Foundation
 
 /// Pure policy deciding which edges a terminal should expand past the safe area,
 /// given its layout context and the current vertical size class.
-public enum MobileTerminalSafeAreaExpansionPolicy {
+public struct MobileTerminalSafeAreaExpansionPolicy {
+    private init() {}
+
     /// Computes the edges the terminal should expand into.
     /// - Parameters:
     ///   - context: The terminal's layout context.

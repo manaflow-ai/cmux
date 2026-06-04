@@ -7,7 +7,9 @@ public import Foundation
 /// scene branches on (authenticated, restoring, attach-URL recognition, and whether
 /// stale attach auth should be cleared or a stored Mac reconnected). All members are
 /// pure functions so the root scene's gating logic can be tested without a store.
-public enum MobileRootAuthGate {
+public struct MobileRootAuthGate {
+    private init() {}
+
     /// Whether the user is authenticated by either Stack auth or an attach ticket.
     /// - Parameters:
     ///   - stackAuthenticated: Whether Stack auth is established.

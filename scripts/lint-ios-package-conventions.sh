@@ -94,8 +94,18 @@ for m in re.finditer(r'(?:public\s+|package\s+)?enum\s+(\w+)[^{]*\{', src):
         depth -= src[i] == '}'
         i += 1
     body = src[m.end():i]
-    # caseless + has static members = namespace-enum
-    if not re.search(r'(^|\n)\s*(indirect\s+)?case\s', body) and 'static' in body:
+    # Only DECLARATION-level cases count: strip nested {...} bodies first so
+    # switch-statement cases inside member funcs don't mask a caseless enum.
+    top, depth = [], 0
+    for ch in body:
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+        elif depth == 0:
+            top.append(ch)
+    top_level = ''.join(top)
+    if not re.search(r'(^|\n)\s*(indirect\s+)?case\s', top_level) and 'static' in body:
         head = src[:m.start()]
         ctx = head[head.rfind('\n', 0, head.rfind('\n'))+1:]
         if 'lint:allow' in ctx:

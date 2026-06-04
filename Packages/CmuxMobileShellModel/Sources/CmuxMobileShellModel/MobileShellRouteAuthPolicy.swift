@@ -8,7 +8,9 @@ import Foundation
 /// vs Tailscale vs LAN vs arbitrary host) can be exhaustively tested without a live
 /// connection. The host classification is intentionally conservative: only loopback,
 /// Tailscale, private-LAN, and `.local`/`.ts.net` DNS hosts are treated as trusted.
-public enum MobileShellRouteAuthPolicy {
+public struct MobileShellRouteAuthPolicy {
+    private init() {}
+
     /// Normalizes a raw, user-entered host string, stripping IPv6 brackets and
     /// rejecting anything that contains scheme/path/whitespace characters.
     /// - Parameter rawHost: The raw host string typed by the user.

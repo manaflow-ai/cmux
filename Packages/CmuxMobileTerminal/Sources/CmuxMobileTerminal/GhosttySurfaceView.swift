@@ -162,7 +162,9 @@ struct TerminalHardwareKeyCommand: Sendable {
     let modifierFlags: UIKeyModifierFlags
 }
 
-enum TerminalHardwareKeyResolver {
+struct TerminalHardwareKeyResolver {
+    private init() {}
+
     private static let supportedModifierFlags: UIKeyModifierFlags = [.shift, .control, .alternate]
     private static let keyCommands: [TerminalHardwareKeyCommand] = {
         let navigation = [
