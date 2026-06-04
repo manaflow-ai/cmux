@@ -1846,6 +1846,81 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
   max-width: 112px;
 }
 
+.shell.toolbar-labels-icons .tool-button,
+.shell.toolbar-labels-icons .tool-button.add-tool,
+.shell.toolbar-labels-icons #newTerminalButton,
+.shell.toolbar-labels-icons #newBrowserButton {
+  width: 32px;
+  min-width: 32px;
+  max-width: 32px;
+  padding: 0;
+  gap: 0;
+}
+
+.shell.toolbar-labels-icons .tool-button .tool-label,
+.shell.toolbar-labels-icons #newTerminalButton .tool-label,
+.shell.toolbar-labels-icons #newBrowserButton .tool-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.shell.toolbar-labels-icons .tool-button.add-tool .tool-icon {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+}
+
+.shell.toolbar-labels-icons .tool-button.add-tool .tool-add-mark {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 11px;
+  height: 11px;
+  font-size: 8px;
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-pane) 70%, transparent);
+}
+
+.shell.toolbar-labels-labels.toolbar-minimal .tool-button,
+.shell.toolbar-labels-labels.toolbar-compact .tool-button {
+  width: auto;
+  max-width: 112px;
+  padding: 0 9px;
+  gap: 6px;
+}
+
+.shell.toolbar-labels-labels.toolbar-minimal #newTerminalButton,
+.shell.toolbar-labels-labels.toolbar-minimal #newBrowserButton,
+.shell.toolbar-labels-labels.toolbar-compact #newTerminalButton,
+.shell.toolbar-labels-labels.toolbar-compact #newBrowserButton {
+  min-width: 82px;
+}
+
+.shell.toolbar-labels-labels.toolbar-minimal .tool-button .tool-label,
+.shell.toolbar-labels-labels.toolbar-compact .tool-button .tool-label,
+.shell.toolbar-labels-labels.toolbar-minimal #newTerminalButton .tool-label,
+.shell.toolbar-labels-labels.toolbar-minimal #newBrowserButton .tool-label,
+.shell.toolbar-labels-labels.toolbar-compact #newTerminalButton .tool-label,
+.shell.toolbar-labels-labels.toolbar-compact #newBrowserButton .tool-label {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: none;
+}
+
+.shell.toolbar-labels-labels.toolbar-minimal .tool-button.add-tool .tool-add-mark,
+.shell.toolbar-labels-labels.toolbar-compact .tool-button.add-tool .tool-add-mark {
+  position: static;
+  width: 13px;
+  height: 13px;
+  font-size: 9px;
+}
+
 .native-window-controls {
   height: 44px;
   display: flex;
@@ -8380,6 +8455,26 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .layout-settings-preview.toolbar-expanded .layout-preview-topbar span:nth-child(2) {
   width: 100%;
   background: color-mix(in oklch, var(--color-accent) 18%, transparent);
+}
+
+.layout-settings-preview.toolbar-labels-icons .layout-preview-topbar {
+  grid-template-columns: 22px 22px 22px;
+  justify-content: start;
+}
+
+.layout-settings-preview.toolbar-labels-icons .layout-preview-topbar span,
+.layout-settings-preview.toolbar-labels-icons .layout-preview-topbar span:nth-child(2) {
+  width: 11px;
+  justify-self: center;
+}
+
+.layout-settings-preview.toolbar-labels-labels .layout-preview-topbar {
+  grid-template-columns: minmax(0, .95fr) minmax(0, 1.35fr) minmax(24px, .75fr);
+}
+
+.layout-settings-preview.toolbar-labels-labels.toolbar-minimal .layout-preview-topbar span:nth-child(2),
+.layout-settings-preview.toolbar-labels-labels.toolbar-compact .layout-preview-topbar span:nth-child(2) {
+  width: 68%;
 }
 
 .layout-preview-tabs {
@@ -15391,10 +15486,25 @@ textarea.dialog-input {
     gap: 0;
   }
 
+  .shell.toolbar-labels-icons .tool-button,
+  .shell.toolbar-labels-icons .tool-button.add-tool,
+  .shell.toolbar-labels-icons #newTerminalButton,
+  .shell.toolbar-labels-icons #newBrowserButton,
+  .shell.toolbar-labels-labels.toolbar-minimal .tool-button,
+  .shell.toolbar-labels-labels.toolbar-compact .tool-button {
+    width: 34px;
+    min-width: 34px;
+    max-width: 34px;
+    padding: 0;
+    gap: 0;
+  }
+
   .shell.toolbar-minimal #newTerminalButton .tool-label,
   .shell.toolbar-minimal #newBrowserButton .tool-label,
   .shell.toolbar-compact #newTerminalButton .tool-label,
-  .shell.toolbar-compact #newBrowserButton .tool-label {
+  .shell.toolbar-compact #newBrowserButton .tool-label,
+  .shell.toolbar-labels-labels.toolbar-minimal .tool-button .tool-label,
+  .shell.toolbar-labels-labels.toolbar-compact .tool-button .tool-label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -15406,7 +15516,9 @@ textarea.dialog-input {
   .shell.toolbar-minimal #newTerminalButton .tool-add-mark,
   .shell.toolbar-minimal #newBrowserButton .tool-add-mark,
   .shell.toolbar-compact #newTerminalButton .tool-add-mark,
-  .shell.toolbar-compact #newBrowserButton .tool-add-mark {
+  .shell.toolbar-compact #newBrowserButton .tool-add-mark,
+  .shell.toolbar-labels-labels.toolbar-minimal .tool-button.add-tool .tool-add-mark,
+  .shell.toolbar-labels-labels.toolbar-compact .tool-button.add-tool .tool-add-mark {
     position: absolute;
     right: 3px;
     bottom: 3px;

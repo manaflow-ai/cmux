@@ -40,6 +40,7 @@ export const defaultSettings = {
   workspaceActiveStyle: "filled",
   workspaceColorStyle: "dot",
   toolbarMode: "minimal",
+  toolbarLabelMode: "auto",
   topbarStyle: "subtle",
   toolbarButtonStyle: "subtle",
   tabBarStyle: "subtle",
@@ -381,6 +382,12 @@ export const toolbarModeOptions = [
   ["expanded", label("toolbar.expanded", "Expanded"), label("toolbar.expanded.body", "Show every toolbar shortcut on the top bar.")]
 ];
 
+export const toolbarLabelModeOptions = [
+  ["auto", label("toolbarLabels.auto", "Auto"), label("toolbarLabels.auto.body", "Follow the selected toolbar mode.")],
+  ["icons", label("toolbarLabels.icons", "Icons"), label("toolbarLabels.icons.body", "Hide top bar text labels.")],
+  ["labels", label("toolbarLabels.labels", "Labels"), label("toolbarLabels.labels.body", "Show top bar text labels when space allows.")]
+];
+
 export const topbarStyleOptions = [
   ["subtle", label("topbarStyle.subtle", "Subtle"), label("topbarStyle.subtle.body", "Default command strip surface")],
   ["quiet", label("topbarStyle.quiet", "Quiet"), label("topbarStyle.quiet.body", "Lower contrast top bar")],
@@ -714,6 +721,7 @@ export const settingsPresets = [
       workspaceActiveStyle: "filled",
       workspaceColorStyle: "dot",
       toolbarMode: "minimal",
+      toolbarLabelMode: "auto",
       topbarStyle: "subtle",
       toolbarButtonStyle: "subtle",
       tabBarStyle: "subtle",
@@ -794,6 +802,7 @@ export const settingsPresets = [
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
       toolbarMode: "minimal",
+      toolbarLabelMode: "auto",
       topbarStyle: "quiet",
       toolbarButtonStyle: "ghost",
       tabBarStyle: "quiet",
@@ -874,6 +883,7 @@ export const settingsPresets = [
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
       toolbarMode: "minimal",
+      toolbarLabelMode: "auto",
       topbarStyle: "quiet",
       toolbarButtonStyle: "ghost",
       tabBarStyle: "quiet",
@@ -955,6 +965,7 @@ export const settingsPresets = [
       workspaceActiveStyle: "line",
       workspaceColorStyle: "edge",
       toolbarMode: "minimal",
+      toolbarLabelMode: "auto",
       topbarStyle: "quiet",
       toolbarButtonStyle: "ghost",
       tabBarStyle: "quiet",
@@ -1035,6 +1046,7 @@ export const settingsPresets = [
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
       toolbarMode: "minimal",
+      toolbarLabelMode: "auto",
       topbarStyle: "quiet",
       toolbarButtonStyle: "ghost",
       tabBarStyle: "quiet",
@@ -1115,6 +1127,7 @@ export const settingsPresets = [
       workspaceActiveStyle: "line",
       workspaceColorStyle: "edge",
       toolbarMode: "minimal",
+      toolbarLabelMode: "auto",
       topbarStyle: "solid",
       toolbarButtonStyle: "filled",
       tabBarStyle: "banded",
@@ -1195,6 +1208,7 @@ export const settingsPresets = [
       workspaceActiveStyle: "filled",
       workspaceColorStyle: "tint",
       toolbarMode: "standard",
+      toolbarLabelMode: "labels",
       topbarStyle: "solid",
       toolbarButtonStyle: "filled",
       tabBarStyle: "banded",
