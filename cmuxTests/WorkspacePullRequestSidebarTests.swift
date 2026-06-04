@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import CmuxGit
 import CmuxProcess
 
 #if canImport(cmux_DEV)
@@ -1445,7 +1446,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testSkipWorktreeGitIndexEntriesDoNotMarkSparseCheckoutDirty() throws {
+    func testSkipWorktreeGitIndexEntriesDoNotMarkSparseCheckoutDirty() async throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defer {
@@ -1467,9 +1468,8 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             FileManager.default.fileExists(atPath: repoURL.appendingPathComponent("sparse-only.txt").path),
             "The sparse-checkout entry should be absent from the worktree."
         )
-        let trackedChanges = try XCTUnwrap(
-            TabManager.workspaceGitTrackedChangesForTesting(directory: repoURL.path)
-        )
+        let trackedChanges = await GitMetadataService().workspaceMetadata(for: repoURL.path)
+        XCTAssertTrue(trackedChanges.isRepository)
         XCTAssertFalse(
             trackedChanges.isDirty,
             "The git index parser should ignore absent files marked skip-worktree before async sidebar refresh."
