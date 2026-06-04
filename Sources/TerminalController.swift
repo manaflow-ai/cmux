@@ -8709,11 +8709,20 @@ class TerminalController {
             let windowId = v2ResolveWindowId(tabManager: tabManager)
 
             @MainActor
-            func closeWorkspaces(_ workspaces: [Workspace]) -> Int {
+            func closeWorkspaces(_ workspaces: [Workspace]) -> Int? {
+                let candidates = workspaces.filter { candidate in
+                    candidate.id != workspace.id
+                        && tabManager.tabs.contains(where: { $0.id == candidate.id })
+                }
+                if let worktreeError = v2BlockedEphemeralWorktreeError(
+                    for: candidates.flatMap { Array($0.ephemeralWorktreesByPanelId.values) }
+                ) {
+                    result = worktreeError
+                    return nil
+                }
+
                 var closed = 0
-                for candidate in workspaces where candidate.id != workspace.id {
-                    let existedBefore = tabManager.tabs.contains(where: { $0.id == candidate.id })
-                    guard existedBefore else { continue }
+                for candidate in candidates {
                     tabManager.closeWorkspace(candidate)
                     if !tabManager.tabs.contains(where: { $0.id == candidate.id }) {
                         closed += 1
@@ -8795,7 +8804,7 @@ class TerminalController {
 
             case "close_others":
                 let candidates = tabManager.tabs.filter { $0.id != workspace.id && !$0.isPinned }
-                let closed = closeWorkspaces(candidates)
+                guard let closed = closeWorkspaces(candidates) else { return }
                 finish(["closed": closed])
 
             case "close_above":
@@ -8804,7 +8813,7 @@ class TerminalController {
                     return
                 }
                 let candidates = Array(tabManager.tabs.prefix(index)).filter { !$0.isPinned }
-                let closed = closeWorkspaces(candidates)
+                guard let closed = closeWorkspaces(candidates) else { return }
                 finish(["closed": closed])
 
             case "close_below":
@@ -8818,7 +8827,7 @@ class TerminalController {
                 } else {
                     candidates = []
                 }
-                let closed = closeWorkspaces(candidates)
+                guard let closed = closeWorkspaces(candidates) else { return }
                 finish(["closed": closed])
 
             case "mark_read":
@@ -8955,7 +8964,19 @@ class TerminalController {
             }
 
             @MainActor
-            func closeTabs(_ tabIds: [TabID]) -> (closed: Int, skippedPinned: Int) {
+            func closeTabs(_ tabIds: [TabID]) -> (closed: Int, skippedPinned: Int)? {
+                let targetPanelIds = tabIds.compactMap { tabId -> UUID? in
+                    guard let panelId = workspace.panelIdFromSurfaceId(tabId),
+                          !workspace.isPanelPinned(panelId) else { return nil }
+                    return panelId
+                }
+                if let worktreeError = v2BlockedEphemeralWorktreeError(
+                    for: targetPanelIds.compactMap { workspace.ephemeralWorktreesByPanelId[$0] }
+                ) {
+                    result = worktreeError
+                    return nil
+                }
+
                 var closed = 0
                 var skippedPinned = 0
                 for tabId in tabIds {
@@ -9111,7 +9132,7 @@ class TerminalController {
                     return
                 }
                 let targetIds = Array(tabs.prefix(index).map(\.id))
-                let closeResult = closeTabs(targetIds)
+                guard let closeResult = closeTabs(targetIds) else { return }
                 finish(["closed": closeResult.closed, "skipped_pinned": closeResult.skippedPinned])
 
             case "close_right", "close_to_right":
@@ -9126,7 +9147,7 @@ class TerminalController {
                     return
                 }
                 let targetIds = (index + 1 < tabs.count) ? Array(tabs.suffix(from: index + 1).map(\.id)) : []
-                let closeResult = closeTabs(targetIds)
+                guard let closeResult = closeTabs(targetIds) else { return }
                 finish(["closed": closeResult.closed, "skipped_pinned": closeResult.skippedPinned])
 
             case "close_others", "close_other_tabs":
@@ -9138,7 +9159,7 @@ class TerminalController {
                 let targetIds = workspace.bonsplitController.tabs(inPane: paneId)
                     .map(\.id)
                     .filter { $0 != anchorTabId }
-                let closeResult = closeTabs(targetIds)
+                guard let closeResult = closeTabs(targetIds) else { return }
                 finish(["closed": closeResult.closed, "skipped_pinned": closeResult.skippedPinned])
 
             default:
