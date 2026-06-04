@@ -18015,6 +18015,50 @@ async function pasteActivePaneSetup(panel = focusedPanel() || activePanel()) {
   }
 }
 
+function paneSetupResetUpdates(panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  if (!target) return null;
+  const updates = {
+    title: "",
+    color: ""
+  };
+  if (target.type === "terminal") {
+    updates.backgroundImage = "";
+    updates.terminalFontSize = 0;
+  }
+  return updates;
+}
+
+function paneSetupResetIsDefault(panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  const updates = paneSetupResetUpdates(target);
+  return Boolean(target && updates && !panelUpdateReconcileNeeded(target.id, updates));
+}
+
+function paneSetupResetTitle(panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  if (!target) return "Open a pane before resetting setup.";
+  if (paneSetupResetIsDefault(target)) return "Pane setup already uses defaults.";
+  return target.type === "terminal"
+    ? "Reset the pane name, marker color, background, and text size."
+    : "Reset the pane name and marker color without changing the current page.";
+}
+
+async function resetActivePaneSetup(panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  const updates = paneSetupResetUpdates(target);
+  if (!target || !updates) {
+    toast("Open a pane before resetting setup.");
+    return false;
+  }
+  return applyPaneSetupUpdates(updates, target, {
+    toastText: "Pane setup reset.",
+    alreadyText: "Pane setup already uses defaults.",
+    unavailableText: "Open a pane before resetting setup.",
+    invalidText: "Pane setup could not be reset."
+  });
+}
+
 function editablePaneTitle(panel) {
   return panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal");
 }
@@ -18569,11 +18613,15 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
 
   const actions = document.createElement("div");
   actions.className = "settings-actions active-pane-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery("active pane focus duplicate split reset color text browser terminal actions copy paste setup clipboard json");
+  actions.dataset.settingsSearch = normalizeSettingsQuery("active pane focus duplicate split reset default color text browser terminal actions copy paste setup clipboard json");
+  const resetPaneSetup = settingsActionButton("Reset setup", () => resetActivePaneSetup(panel), "", "active pane setup reset default title color background text size");
+  resetPaneSetup.disabled = paneSetupResetIsDefault(panel);
+  resetPaneSetup.title = paneSetupResetTitle(panel);
   actions.append(
     settingsActionButton("Focus pane", () => focusPanel(panel.id), "", "active pane focus"),
     settingsActionButton("Copy setup", () => copyActivePaneSetup(panel), "", "active pane setup copy title color background text url clipboard json"),
     settingsActionButton("Paste setup", () => pasteActivePaneSetup(panel), "", "active pane setup paste title color background text url clipboard json"),
+    resetPaneSetup,
     settingsActionButton("Duplicate", () => duplicatePanel(panel), "", "active pane duplicate"),
     settingsActionButton("Split right", () => splitPanel(panel, "right"), "", "active pane split right"),
     settingsActionButton("Split down", () => splitPanel(panel, "down"), "", "active pane split down")
