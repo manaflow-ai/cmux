@@ -9658,7 +9658,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 // Some AppKit key paths can report Shift+` as a bare ESC control
                 // character even though the physical key should produce "~".
                 if scalar.value == 0x1B,
-                   flags == [.shift],
+                   flags.contains(.shift),
+                   !flags.contains(.control),
+                   !flags.contains(.option),
+                   !flags.contains(.command),
                    event.charactersIgnoringModifiers == "`" {
                     return "~"
                 }

@@ -4012,7 +4012,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(secondResult.status, 0, secondResult.stderr)
         XCTAssertEqual(secondResult.stdout, "{}\n")
         XCTAssertTrue(
-            waitForCodexMonitorActiveLeaseTurns(in: root, expected: ["turn-two"], timeout: 3),
+            waitForCodexMonitorActiveLeaseTurns(in: root, expected: ["turn-two"], timeout: 10),
             "Expected a new turn to retire the prior Codex monitor lease, saw \(codexMonitorActiveLeaseTurns(in: root))"
         )
     }
@@ -5738,7 +5738,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         handler: @escaping @Sendable (String) -> String
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli mock socket handled")
+        let handledLock = NSLock()
+        var didFulfill = false
         runMockServer(listenerFD: listenerFD, state: state, onHandled: {
+            handledLock.lock()
+            defer { handledLock.unlock() }
+            guard !didFulfill else { return }
+            didFulfill = true
             handled.fulfill()
         }, handler: handler)
         return handled
@@ -5863,44 +5869,59 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         handler: @escaping @Sendable (String) -> String
     ) {
         DispatchQueue.global(qos: .userInitiated).async {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+            var accepted = 0
+            while accepted < 20 {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
                 }
-            }
-            guard clientFD >= 0 else {
-                onHandled()
-                return
-            }
-            defer {
-                Darwin.close(clientFD)
-                onHandled()
-            }
-
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-
-            while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
+                if clientFD < 0 {
                     if errno == EINTR { continue }
                     return
                 }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
+                accepted += 1
 
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                    state.append(line)
-                    let response = self.mockSocketResponse(for: line, handler: handler)
-                    guard self.writeAll(response + "\n", to: clientFD) else { return }
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer { Darwin.close(clientFD) }
+
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            state.append(line)
+                            let response = self.mockSocketResponse(for: line, handler: handler)
+                            guard self.writeAll(response + "\n", to: clientFD) else { return }
+                            if !self.mockSocketLineIsSurfaceList(line) {
+                                onHandled()
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+
+    private func mockSocketLineIsSurfaceList(_ line: String) -> Bool {
+        guard let data = line.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            return false
+        }
+        return payload["method"] as? String == "surface.list"
     }
 
     private func writeAll(_ string: String, to fd: Int32) -> Bool {

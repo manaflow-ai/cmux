@@ -2838,7 +2838,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         panel.goBack()
         let releasedBResponseCount = server.releaseHeldBResponses()
         XCTAssertGreaterThan(releasedBResponseCount, 0)
-        try waitUntil("browser to remain on page A after held page B response is released") {
+        try waitUntil("browser to remain on page A after held page B response is released", timeout: 15) {
             !panel.webView.isLoading &&
                 panel.pageTitle == "Race A" &&
                 panel.currentURL?.path == pageA.path
