@@ -1313,6 +1313,7 @@ class TabManager: ObservableObject {
 #if DEBUG
     private var sidebarGitMetadataWatchEnabledOverrideForTesting: Bool?
     private var sidebarPullRequestPollingEnabledOverrideForTesting: Bool?
+    private var runsWorkspaceGitMetadataRefreshSynchronouslyForTesting = false
 #endif
     private var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     private var lastSidebarPullRequestPollingEnabled = SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
@@ -2354,6 +2355,10 @@ class TabManager: ObservableObject {
         lastSidebarPullRequestPollingEnabled = !sidebarPullRequestPollingEnabled
         sidebarMetadataSettingsDidChange()
     }
+
+    func setWorkspaceGitMetadataRefreshSynchronousForTesting(_ enabled: Bool) {
+        runsWorkspaceGitMetadataRefreshSynchronouslyForTesting = enabled
+    }
 #endif
 
     func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
@@ -2980,6 +2985,20 @@ class TabManager: ObservableObject {
         )
 #endif
 
+#if DEBUG
+        if runsWorkspaceGitMetadataRefreshSynchronouslyForTesting {
+            workspaceGitProbeStateByKey[key] = .inFlight(rerunPending: false)
+            let snapshot = Self.initialWorkspaceGitMetadataSnapshot(for: normalizedDirectory)
+            applyWorkspaceGitMetadataSnapshot(
+                snapshot,
+                probeKey: key,
+                expectedDirectory: normalizedDirectory,
+                isLastAttempt: true
+            )
+            return
+        }
+#endif
+
         var timers: [DispatchSourceTimer] = []
         for (index, delay) in delays.enumerated() {
             let isLastAttempt = index == delays.count - 1
@@ -3014,7 +3033,7 @@ class TabManager: ObservableObject {
         }
 
         Task.detached(priority: .utility) { [weak self] in
-            let snapshot = await Self.initialWorkspaceGitMetadataSnapshot(for: expectedDirectory)
+            let snapshot = Self.initialWorkspaceGitMetadataSnapshot(for: expectedDirectory)
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 self?.applyWorkspaceGitMetadataSnapshot(
@@ -3306,7 +3325,7 @@ class TabManager: ObservableObject {
 
     private nonisolated static func initialWorkspaceGitMetadataSnapshot(
         for directory: String
-    ) async -> InitialWorkspaceGitMetadataSnapshot {
+    ) -> InitialWorkspaceGitMetadataSnapshot {
         guard let repository = resolveGitRepository(containing: directory) else {
             return InitialWorkspaceGitMetadataSnapshot(
                 isRepository: false,

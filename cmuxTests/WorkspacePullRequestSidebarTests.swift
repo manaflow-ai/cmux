@@ -222,6 +222,7 @@ private func makeSidebarMetadataTabManager(
     commandRunner: any CommandRunning = CommandRunner()
 ) -> TabManager {
     let manager = TabManager(commandRunner: commandRunner)
+    manager.setWorkspaceGitMetadataRefreshSynchronousForTesting(true)
     manager.setSidebarMetadataSettingsForTesting(
         watchGitStatus: watchGitStatus,
         pullRequestPolling: pullRequestPolling
