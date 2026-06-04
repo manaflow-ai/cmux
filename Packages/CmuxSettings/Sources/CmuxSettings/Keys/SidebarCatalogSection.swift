@@ -116,9 +116,12 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowStatusPills"
     )
 
-    public let activeTabIndicatorStyle = DefaultsKey<String>(
+    // Aliases the same `sidebarActiveTabIndicatorStyle` storage key as
+    // `workspaceColors.indicatorStyle`; both must decode as the same type so
+    // the two settings surfaces stay in sync (see the catalog aliasing test).
+    public let activeTabIndicatorStyle = DefaultsKey<WorkspaceIndicatorStyle>(
         id: "sidebar.activeTabIndicatorStyle",
-        defaultValue: "leftRail",
+        defaultValue: .leftRail,
         userDefaultsKey: "sidebarActiveTabIndicatorStyle"
     )
 
