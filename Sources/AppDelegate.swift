@@ -6722,13 +6722,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "fr=\(beforeResponder)"
         )
 #endif
+        let target = context.keyboardFocusCoordinator.findShortcutTarget(
+            currentResponder: window?.firstResponder
+        )
+        guard target != .none else {
+#if DEBUG
+            let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            dlog(
+                "find.shortcut.app.end target=\(target) result=0 " +
+                "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
+            )
+#endif
+            return false
+        }
+
         if let window {
             mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
         }
 
-        let target = context.keyboardFocusCoordinator.findShortcutTarget(
-            currentResponder: window?.firstResponder
-        )
         let result: Bool
         switch target {
         case .rightSidebarFileSearch:
@@ -6736,6 +6747,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .mainPanelFind:
             result = context.tabManager.startSearch()
         case .none:
+            assertionFailure("Unhandled find shortcut target")
             result = false
         }
 #if DEBUG
