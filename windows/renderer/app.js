@@ -22229,7 +22229,7 @@ const performanceHealthCheckDefinitions = [
   {
     id: "workspaceChrome",
     label: "Workspace chrome",
-    body: "Uses compact rows, quiet chrome, compact top palette rows, focused palette results, and tighter terminal padding.",
+    body: "Uses compact rows, quiet chrome, compact top palette rows, focused palette results, no pane gutters, and tighter terminal padding.",
     actionLabel: "Compact",
     readyLabel: "Compact",
     issue: () => state.settings.density !== "compact"
@@ -22251,6 +22251,7 @@ const performanceHealthCheckDefinitions = [
       || state.settings.palettePlacement !== "top"
       || state.settings.paneActionMode !== "essential"
       || state.settings.paneSurfaceStyle !== "quiet"
+      || state.settings.paneSpacing !== "none"
       || state.settings.terminalPadding > 6,
     meta: () => {
       const density = state.settings.density === "compact" ? "Compact rows" : "Comfortable rows";
@@ -22272,8 +22273,9 @@ const performanceHealthCheckDefinitions = [
       const palettePlacement = optionLabel(palettePlacementOptions, state.settings.palettePlacement, state.settings.palettePlacement);
       const controls = optionLabel(paneActionOptions, state.settings.paneActionMode, state.settings.paneActionMode);
       const surface = optionLabel(paneSurfaceStyleOptions, state.settings.paneSurfaceStyle, state.settings.paneSurfaceStyle);
+      const spacing = optionLabel(paneSpacingOptions, state.settings.paneSpacing, state.settings.paneSpacing);
       const padding = state.settings.terminalPadding > 6 ? `${state.settings.terminalPadding}px pad` : "Tight pad";
-      return `${density} / ${toolbar} / ${toolbarLabels} labels / ${topbar} top bar / ${buttons} / ${tabBar} tab bar / ${sidebar} sidebar / ${sidebarTools} rail / ${inspector} settings / ${overlay} overlays / ${switcher} switcher / ${toastPlacement} toasts / ${palette} palette / ${paletteActions} actions / ${paletteDetail} details / ${paletteResults} results / ${palettePlacement} placement / ${surface} panes / ${controls} / ${padding}`;
+      return `${density} / ${toolbar} / ${toolbarLabels} labels / ${topbar} top bar / ${buttons} / ${tabBar} tab bar / ${sidebar} sidebar / ${sidebarTools} rail / ${inspector} settings / ${overlay} overlays / ${switcher} switcher / ${toastPlacement} toasts / ${palette} palette / ${paletteActions} actions / ${paletteDetail} details / ${paletteResults} results / ${palettePlacement} placement / ${surface} panes / ${controls} / ${spacing} spacing / ${padding}`;
     },
     updates: () => ({
       density: "compact",
@@ -22295,9 +22297,10 @@ const performanceHealthCheckDefinitions = [
       palettePlacement: "top",
       paneSurfaceStyle: "quiet",
       paneActionMode: "essential",
+      paneSpacing: "none",
       terminalPadding: Math.min(state.settings.terminalPadding, 6)
     }),
-    search: "workspace chrome compact density toolbar top bar style buttons ghost tab bar quiet sidebar style rail tools primary settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact result limit focused balanced extended results placement position top center wide quick actions hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls terminal padding lighter ui"
+    search: "workspace chrome compact density toolbar top bar style buttons ghost tab bar quiet sidebar style rail tools primary settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact result limit focused balanced extended results placement position top center wide quick actions hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls pane spacing gap gutter terminal padding lighter ui"
   },
   {
     id: "statusbar",
