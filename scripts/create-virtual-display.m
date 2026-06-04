@@ -80,7 +80,7 @@ static BOOL displayIsOnline(CGDirectDisplayID displayID) {
 }
 
 static BOOL waitForOnlineDisplay(CGDirectDisplayID displayID) {
-    for (int attempt = 0; attempt < 600; attempt += 1) {
+    for (int attempt = 0; attempt < 1800; attempt += 1) {
         if (displayIsOnline(displayID)) {
             return YES;
         }
@@ -239,7 +239,7 @@ int main(int argc, const char *argv[]) {
         descriptor.vendorID = 0x1234;
         descriptor.productID = 0x5678;
         descriptor.serialNum = 0x0001;
-        descriptor.queue = dispatch_get_main_queue();
+        descriptor.queue = dispatch_queue_create("ai.manaflow.cmux.virtual-display", DISPATCH_QUEUE_SERIAL);
 
         // Create virtual display
         CGVirtualDisplay *display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];
