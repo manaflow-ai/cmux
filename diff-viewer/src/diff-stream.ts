@@ -1,4 +1,5 @@
 import type { CodeViewItem } from "@pierre/diffs";
+import type { FileTreePreparedInput } from "@pierre/trees";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { FileTreeRefreshSource } from "./file-tree-refresh";
 
@@ -39,6 +40,7 @@ export type FileTreeSource = FileTreeRefreshSource & {
   pathCount: number;
   paths: string[];
   pathToItemId: Map<string, string>;
+  preparedInput?: FileTreePreparedInput;
   previousSource?: FileTreeSource;
   statsChanged?: boolean;
   statsByPath: Map<string, FileStats>;

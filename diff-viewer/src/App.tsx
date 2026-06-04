@@ -103,7 +103,11 @@ function reducer(state: AppState, action: AppAction): AppState {
     return {
       ...state,
       activeItemId: state.activeItemId === action.oldId ? action.newId : state.activeItemId,
-      items: state.items.map((item) => item.id === action.oldId ? { ...item, id: action.newId } : item),
+      items: state.items.map((item) => (
+        item.id === action.oldId || item.id === action.newId
+          ? { ...item, id: action.newId, version: (item.version ?? 0) + 1 }
+          : item
+      )),
     };
   case "set-active-item":
     return {
@@ -139,11 +143,14 @@ function reducer(state: AppState, action: AppAction): AppState {
   case "set-status":
     return { ...state, status: action.status };
   case "set-tree-source": {
-    const nextPath = state.activeItemId ? action.source.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath : state.activeTreePath;
+    const source = action.source.preparedInput == null
+      ? { ...action.source, preparedInput: preparePresortedFileTreeInput(action.source.paths) }
+      : action.source;
+    const nextPath = state.activeItemId ? source.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath : state.activeTreePath;
     return {
       ...state,
       activeTreePath: nextPath,
-      treeSource: action.source,
+      treeSource: source,
     };
   }
   }
@@ -675,8 +682,8 @@ function PierreFileTree({
   source: FileTreeSource;
 }) {
   const latest = useSyncedRef({ label, onSelectItem, source });
-  const [initialPreparedInput] = useState(() => preparePresortedFileTreeInput(source.paths));
-  const preparedInput = preparePresortedFileTreeInput(source.paths);
+  const [initialPreparedInput] = useState(() => source.preparedInput ?? preparePresortedFileTreeInput(source.paths));
+  const preparedInput = source.preparedInput ?? initialPreparedInput;
   const { model } = useFileTree({
     flattenEmptyDirectories: false,
     id: "cmux-diff-file-tree",
