@@ -349,6 +349,7 @@ const performanceSetupBooleanSettings = new Set([
 const performanceHealthSettingKeys = new Set([
   ...performanceSetupSettings,
   "backgroundImage",
+  "browserChromeMode",
   "paneColorMarkers",
   "paneMarkerStyle"
 ]);
@@ -19422,6 +19423,17 @@ const performanceHealthCheckDefinitions = [
       terminalPadding: Math.min(state.settings.terminalPadding, 6)
     }),
     search: "workspace chrome compact density toolbar top bar style buttons ghost tab bar quiet sidebar style rail tools primary settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact result limit focused balanced extended results placement position top center wide quick actions hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls terminal padding lighter ui"
+  },
+  {
+    id: "browserChrome",
+    label: "Browser chrome",
+    body: "Uses compact browser pane controls so previews have less chrome to repaint.",
+    actionLabel: "Compact",
+    readyLabel: "Lean",
+    issue: () => state.settings.browserChromeMode === "full",
+    meta: () => `${browserChromeModeLabel()} chrome`,
+    updates: () => ({ browserChromeMode: "compact" }),
+    search: "browser pane chrome controls tabs address compact content full preview repaint clutter lag"
   },
   {
     id: "terminalStartup",
