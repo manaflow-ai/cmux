@@ -26217,6 +26217,15 @@ function activeTerminalPanelForSettings() {
   return resolveTerminalPanel(focusedPanel()) || resolveTerminalPanel(activePanel());
 }
 
+function activeTerminalRunTarget() {
+  const panel = activeTerminalPanelForSettings();
+  return {
+    panel,
+    title: panel ? panelDisplayTitle(panel, true) : "No active terminal",
+    location: panel?.cwdShort || panel?.cwd || "~"
+  };
+}
+
 function panelBackgroundMatches(panel, value) {
   return normalizeBackgroundValue(panel?.backgroundImage) === normalizeBackgroundValue(value);
 }
@@ -27428,12 +27437,14 @@ function recentCommandsSettings() {
     return section;
   }
 
+  const terminalTarget = activeTerminalRunTarget();
+  const terminalReady = Boolean(terminalTarget.panel);
   for (const command of state.recentCommands) {
     const savedSnippet = isCommandSavedAsCustomSnippet(command);
     const limitReached = !savedSnippet && customCommandSnippetsFull();
     const card = document.createElement("div");
     card.className = `recent-folder-card${savedSnippet ? " is-active" : ""}`;
-    card.dataset.settingsSearch = normalizeSettingsQuery(`recent terminal command shell run save snippet ${savedSnippet ? "saved active current " : ""}${command}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`recent terminal command shell run save snippet ${terminalReady ? "ready " : "needs terminal "}${savedSnippet ? "saved active current " : ""}${command} ${terminalTarget.title} ${terminalTarget.location}`);
     const text = document.createElement("div");
     text.className = "recent-folder-text";
     const name = document.createElement("div");
@@ -27442,13 +27453,17 @@ function recentCommandsSettings() {
     name.title = command;
     const path = document.createElement("div");
     path.className = "recent-folder-path";
-    path.textContent = "Active terminal";
+    path.textContent = terminalReady ? `${terminalTarget.title} / ${terminalTarget.location}` : "No active terminal";
     text.append(name, path);
 
     const actions = document.createElement("div");
     actions.className = "recent-folder-actions recent-command-actions";
-    const run = settingsActionButton("Run", () => runTerminalCommand(command), "", `recent terminal command run ${command}`);
+    const run = settingsActionButton("Run", () => runTerminalCommand(command, terminalTarget.panel), "", `recent terminal command run ${terminalReady ? "ready" : "needs terminal"} ${command} ${terminalTarget.title} ${terminalTarget.location}`);
     run.dataset.recentCommandAction = "run";
+    run.disabled = !terminalReady;
+    run.title = terminalReady
+      ? `Run this recent command in ${terminalTarget.title}.`
+      : "Focus or create a terminal pane before running recent commands.";
     const save = settingsActionButton(
       savedSnippet ? "Saved" : "Save",
       () => saveRecentCommandAsSnippet(command),
@@ -27749,6 +27764,8 @@ function commandSnippetPackGrid() {
   const grid = document.createElement("div");
   grid.className = "command-snippet-pack-grid";
   grid.dataset.settingsSearch = normalizeSettingsQuery("command snippet packs starter git github pr node npm save run built in reusable");
+  const terminalTarget = activeTerminalRunTarget();
+  const terminalReady = Boolean(terminalTarget.panel);
   for (const pack of commandSnippetPackDefinitions) {
     const snippets = commandSnippetPackSnippets(pack);
     if (!snippets.length) continue;
@@ -27756,7 +27773,7 @@ function commandSnippetPackGrid() {
     const saved = commandSnippetPackSaved(pack);
     const card = document.createElement("div");
     card.className = `command-snippet-pack-card${saved ? " is-active" : ""}`;
-    card.dataset.settingsSearch = normalizeSettingsQuery(`command snippet pack ${saved ? "saved active current " : ""}${pack.label} ${pack.body} ${snippets.map((snippet) => `${snippet.label} ${snippet.command}`).join(" ")}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`command snippet pack ${terminalReady ? "ready " : "needs terminal "}${saved ? "saved active current " : ""}${pack.label} ${pack.body} ${snippets.map((snippet) => `${snippet.label} ${snippet.command}`).join(" ")} ${terminalTarget.title} ${terminalTarget.location}`);
     card.innerHTML = `
       <span class="command-snippet-pack-title-row">
         <span class="command-snippet-pack-title"></span>
@@ -27778,8 +27795,11 @@ function commandSnippetPackGrid() {
       list.append(pill);
     }
     const actions = card.querySelector(".command-snippet-pack-actions");
-    const run = settingsActionButton("Run first", () => runTerminalCommandSnippet(snippets[0].id), "", `command snippet pack run first ${pack.label} ${snippets[0].label}`);
-    run.title = `Run ${snippets[0].label}.`;
+    const run = settingsActionButton("Run first", () => runTerminalCommandSnippet(snippets[0].id, terminalTarget.panel), "", `command snippet pack run first ${terminalReady ? "ready" : "needs terminal"} ${pack.label} ${snippets[0].label} ${terminalTarget.title} ${terminalTarget.location}`);
+    run.disabled = !terminalReady;
+    run.title = terminalReady
+      ? `Run ${snippets[0].label} in ${terminalTarget.title}.`
+      : "Focus or create a terminal pane before running command snippets.";
     const save = settingsActionButton(
       saved ? "Saved" : "Save pack",
       () => saveCommandSnippetPack(pack.id),
@@ -27796,9 +27816,11 @@ function commandSnippetPackGrid() {
 
 function commandSnippetCard(snippet) {
   const savedBuiltIn = Boolean(snippet.builtIn && isBuiltInCommandSnippetSaved(snippet));
+  const terminalTarget = activeTerminalRunTarget();
+  const terminalReady = Boolean(terminalTarget.panel);
   const card = document.createElement("div");
   card.className = `recent-folder-card command-snippet-card${savedBuiltIn ? " is-active" : ""}`;
-  card.dataset.settingsSearch = normalizeSettingsQuery(`command snippet terminal shell run copy paste clipboard json ${snippet.builtIn ? "built in" : "custom saved"} ${savedBuiltIn ? "saved active current " : ""}${snippet.label} ${snippet.command}`);
+  card.dataset.settingsSearch = normalizeSettingsQuery(`command snippet terminal shell run copy paste clipboard json ${terminalReady ? "ready " : "needs terminal "}${snippet.builtIn ? "built in" : "custom saved"} ${savedBuiltIn ? "saved active current " : ""}${snippet.label} ${snippet.command} ${terminalTarget.title} ${terminalTarget.location}`);
 
   const text = document.createElement("div");
   text.className = "recent-folder-text";
@@ -27814,8 +27836,13 @@ function commandSnippetCard(snippet) {
 
   const actions = document.createElement("div");
   actions.className = `recent-folder-actions command-snippet-actions${snippet.builtIn ? " is-built-in" : ""}`;
+  const run = settingsActionButton("Run", () => runTerminalCommand(snippet.command, terminalTarget.panel), "", `run command snippet ${terminalReady ? "ready" : "needs terminal"} ${snippet.label} ${snippet.command} ${terminalTarget.title} ${terminalTarget.location}`);
+  run.disabled = !terminalReady;
+  run.title = terminalReady
+    ? `Run ${snippet.label} in ${terminalTarget.title}.`
+    : "Focus or create a terminal pane before running command snippets.";
   actions.append(
-    settingsActionButton("Run", () => runTerminalCommand(snippet.command), "", `run command snippet ${snippet.label} ${snippet.command}`),
+    run,
     settingsActionButton("Copy", () => copyCommandSnippet(snippet.id), "", `copy command snippet clipboard json ${snippet.label} ${snippet.command}`)
   );
   if (snippet.builtIn) {
