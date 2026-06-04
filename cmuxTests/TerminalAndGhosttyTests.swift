@@ -1,4 +1,5 @@
 import XCTest
+import Testing
 import CmuxTerminalCopyMode
 import CmuxSocketControl
 import AppKit
@@ -1893,26 +1894,6 @@ final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
         XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 0, column: 3))
     }
 
-    func testCursorClampKeepsStoredCursorInsideResizedGrid() {
-        var cursor = TerminalKeyboardCopyModeCursor(row: 25, column: 90)
-        cursor.clamp(rows: 10, columns: 20)
-        XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 9, column: 19))
-
-        cursor = TerminalKeyboardCopyModeCursor(row: -4, column: -2)
-        cursor.clamp(rows: 0, columns: 0)
-        XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 0, column: 0))
-    }
-
-    func testCursorHomeAndEndResetBothAxes() {
-        var cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
-        XCTAssertEqual(cursor.move(.home, count: 1, rows: 10, columns: 8), 0)
-        XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 0, column: 0))
-
-        cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
-        XCTAssertEqual(cursor.move(.end, count: 1, rows: 10, columns: 8), 0)
-        XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 9, column: 7))
-    }
-
     func testCursorSelectionXRangeUsesCellInteriorWhenAvailable() throws {
         let range = try XCTUnwrap(
             terminalKeyboardCopyModeCursorSelectionXRange(
@@ -1960,6 +1941,30 @@ final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
                 boundsWidth: 1
             )
         )
+    }
+}
+
+
+@Suite("Terminal keyboard copy mode cursor")
+struct TerminalKeyboardCopyModeCursorSwiftTests {
+    @Test func clampKeepsStoredCursorInsideResizedGrid() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 25, column: 90)
+        cursor.clamp(rows: 10, columns: 20)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 19))
+
+        cursor = TerminalKeyboardCopyModeCursor(row: -4, column: -2)
+        cursor.clamp(rows: 0, columns: 0)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 0))
+    }
+
+    @Test func homeAndEndResetBothAxes() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
+        #expect(cursor.move(.home, count: 1, rows: 10, columns: 8) == 0)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 0))
+
+        cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
+        #expect(cursor.move(.end, count: 1, rows: 10, columns: 8) == 0)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 7))
     }
 }
 
