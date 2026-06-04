@@ -28923,19 +28923,25 @@ async function deleteSavedSettingsProfile(profileId) {
 function workspaceBlueprintsPanel() {
   const wrapper = document.createElement("div");
   wrapper.className = "workspace-blueprint-list";
-  wrapper.dataset.settingsSearch = normalizeSettingsQuery("workspace blueprints saved layout pane template terminal browser split apply new save copy paste update rename delete clipboard json");
+  const workspace = activeWorkspace();
+  const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
+  const paneCount = workspace?.panels?.length || 0;
+  const paneCountLabel = `${paneCount} pane${paneCount === 1 ? "" : "s"}`;
+  const blueprintsFull = workspaceBlueprintsFull();
+  const blueprintCountLabel = `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} saved blueprints`;
+  wrapper.dataset.settingsSearch = normalizeSettingsQuery(`workspace blueprints saved layout pane template terminal browser split apply add new save copy paste update rename delete clipboard json ${workspaceTitle} ${paneCountLabel} ${blueprintCountLabel}`);
 
   const header = document.createElement("div");
   header.className = "recent-folder-header";
   const title = document.createElement("span");
   title.textContent = "Saved blueprints";
-  const save = settingsActionButton("Save", saveCurrentWorkspaceBlueprint, "", "save current workspace blueprint layout");
-  applyWorkspaceBlueprintSaveLimit(save, activeWorkspace(), "Save the current workspace pane setup as a blueprint.");
-  const copyCurrent = settingsActionButton("Copy", copyCurrentWorkspaceBlueprint, "", "copy current workspace blueprint layout clipboard json");
-  copyCurrent.disabled = !activeWorkspace()?.panels?.length;
-  copyCurrent.title = copyCurrent.disabled ? "Open panes before copying a blueprint." : "Copy the current workspace pane setup as JSON.";
-  const paste = settingsActionButton("Paste", pasteWorkspaceBlueprint, "", "paste workspace blueprint layout clipboard json");
-  paste.disabled = workspaceBlueprintsFull();
+  const save = settingsActionButton("Save", saveCurrentWorkspaceBlueprint, "", `save current workspace blueprint layout reusable ${workspaceTitle} ${paneCountLabel} ${blueprintsFull ? "limit full " : ""}`);
+  applyWorkspaceBlueprintSaveLimit(save, workspace, "Save the current workspace pane setup as a blueprint.");
+  const copyCurrent = settingsActionButton("Copy", copyCurrentWorkspaceBlueprint, "", `copy current workspace blueprint layout clipboard json ${workspaceTitle} ${paneCountLabel}`);
+  copyCurrent.disabled = !paneCount;
+  copyCurrent.title = copyCurrent.disabled ? "Open panes before copying a blueprint." : `Copy ${workspaceTitle} pane setup as JSON.`;
+  const paste = settingsActionButton("Paste", pasteWorkspaceBlueprint, "", `paste workspace blueprint layout clipboard json import saved reusable ${blueprintsFull ? "limit full " : ""}${blueprintCountLabel}`);
+  paste.disabled = blueprintsFull;
   paste.title = paste.disabled ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint.";
   const headerActions = document.createElement("div");
   headerActions.className = "recent-folder-header-actions";
@@ -28951,7 +28957,12 @@ function workspaceBlueprintsPanel() {
   } else {
     const currentBlueprint = currentWorkspaceBlueprintSnapshot("Current setup");
     for (const blueprint of state.workspaceBlueprints) {
-      wrapper.append(workspaceBlueprintCard(blueprint, currentBlueprint));
+      wrapper.append(workspaceBlueprintCard(blueprint, currentBlueprint, {
+        workspace,
+        workspaceTitle,
+        paneCount,
+        paneCountLabel
+      }));
     }
   }
 
@@ -28962,12 +28973,19 @@ function workspaceBlueprintsPanel() {
   return wrapper;
 }
 
-function workspaceBlueprintCard(blueprint, currentBlueprint = null) {
+function workspaceBlueprintCard(blueprint, currentBlueprint = null, options = {}) {
   const active = workspaceBlueprintMatchesSnapshot(blueprint, currentBlueprint);
+  const workspace = options.workspace || activeWorkspace();
+  const workspaceTitle = options.workspaceTitle || workspaceDisplayTitle(workspace, "No workspace");
+  const paneCount = Number.isInteger(options.paneCount) ? options.paneCount : workspace?.panels?.length || 0;
+  const paneCountLabel = options.paneCountLabel || `${paneCount} pane${paneCount === 1 ? "" : "s"}`;
+  const summaryText = workspaceBlueprintSummary(blueprint);
+  const addDisabled = active || !workspace;
+  const updateDisabled = !workspace || !paneCount;
   const card = document.createElement("div");
   card.className = `recent-folder-card workspace-blueprint-card${active ? " is-active" : ""}`;
   const activeSearch = active ? " active current" : "";
-  card.dataset.settingsSearch = normalizeSettingsQuery(`workspace blueprint saved layout pane template copy paste clipboard json${activeSearch} ${blueprint.label} ${workspaceBlueprintSummary(blueprint)}`);
+  card.dataset.settingsSearch = normalizeSettingsQuery(`workspace blueprint saved layout pane template apply add new update rename delete copy paste clipboard json${activeSearch} ${addDisabled ? "unavailable " : "ready "}${blueprint.label} ${summaryText} ${workspaceTitle} ${paneCountLabel}`);
 
   const text = document.createElement("div");
   text.className = "recent-folder-text";
@@ -28985,21 +29003,41 @@ function workspaceBlueprintCard(blueprint, currentBlueprint = null) {
   name.title = blueprint.label;
   const summary = document.createElement("div");
   summary.className = "recent-folder-path workspace-blueprint-summary";
-  summary.textContent = workspaceBlueprintSummary(blueprint);
+  summary.textContent = summaryText;
   summary.title = summary.textContent;
   text.append(name, summary);
 
   const actions = document.createElement("div");
   actions.className = "recent-folder-actions workspace-blueprint-actions";
-  const add = settingsActionButton(active ? "Active" : "Add", () => applyWorkspaceBlueprint(blueprint.id), active ? "primary" : "", `${active ? "active current " : ""}add apply workspace blueprint ${blueprint.label}`);
-  add.disabled = active;
+  const add = settingsActionButton(active ? "Active" : "Add", () => applyWorkspaceBlueprint(blueprint.id), active ? "primary" : "", `${active ? "active current " : ""}add apply workspace blueprint current workspace ${addDisabled ? "unavailable " : "ready "}${blueprint.label} ${summaryText} ${workspaceTitle}`);
+  add.disabled = addDisabled;
+  add.title = active
+    ? `${blueprint.label} matches the current workspace.`
+    : !workspace
+      ? "Open a workspace before adding blueprint panes."
+      : `Add ${blueprint.label} panes to ${workspaceTitle}.`;
+  const newWorkspace = settingsActionButton("New", () => createWorkspaceFromBlueprint(blueprint.id), "", `new workspace from blueprint create layout ${blueprint.label} ${summaryText}`);
+  newWorkspace.title = `Create a new workspace from ${blueprint.label}.`;
+  const copy = settingsActionButton("Copy", () => copySavedWorkspaceBlueprint(blueprint.id), "", `copy workspace blueprint clipboard json ${blueprint.label} ${summaryText}`);
+  copy.title = `Copy ${blueprint.label} as a workspace blueprint JSON.`;
+  const update = settingsActionButton("Update", () => updateWorkspaceBlueprint(blueprint.id), "", `update workspace blueprint current layout ${updateDisabled ? "needs panes unavailable " : "ready "}${blueprint.label} ${workspaceTitle} ${paneCountLabel}`);
+  update.disabled = updateDisabled;
+  update.title = !workspace
+    ? "Open a workspace before updating a blueprint."
+    : !paneCount
+      ? "Open panes before updating a blueprint."
+      : `Replace ${blueprint.label} with the current ${workspaceTitle} layout.`;
+  const rename = settingsActionButton("Rename", () => renameWorkspaceBlueprint(blueprint.id), "", `rename workspace blueprint ${blueprint.label}`);
+  rename.title = `Rename ${blueprint.label}.`;
+  const deleteAction = settingsActionButton("Delete", () => deleteWorkspaceBlueprint(blueprint.id), "danger", `delete workspace blueprint ${blueprint.label}`);
+  deleteAction.title = `Delete ${blueprint.label}.`;
   actions.append(
-    settingsActionButton("New", () => createWorkspaceFromBlueprint(blueprint.id), "", `new workspace from blueprint ${blueprint.label}`),
+    newWorkspace,
     add,
-    settingsActionButton("Copy", () => copySavedWorkspaceBlueprint(blueprint.id), "", `copy workspace blueprint clipboard json ${blueprint.label}`),
-    settingsActionButton("Update", () => updateWorkspaceBlueprint(blueprint.id), "", `update workspace blueprint ${blueprint.label} current layout`),
-    settingsActionButton("Rename", () => renameWorkspaceBlueprint(blueprint.id), "", `rename workspace blueprint ${blueprint.label}`),
-    settingsActionButton("Delete", () => deleteWorkspaceBlueprint(blueprint.id), "danger", `delete workspace blueprint ${blueprint.label}`)
+    copy,
+    update,
+    rename,
+    deleteAction
   );
   card.append(text, actions);
   return card;
