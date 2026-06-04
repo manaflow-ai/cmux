@@ -70,6 +70,9 @@ extension CMUXCLI {
 
         /// Resolves the config directory, respecting env override if set.
         func resolvedConfigDir() -> String {
+            if name == "omp" {
+                return CMUXCLI.resolvedOmpAgentDirectory().path
+            }
             let home = ProcessInfo.processInfo.environment["HOME"].flatMap { value -> String? in
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty ? nil : trimmed
@@ -191,6 +194,14 @@ extension CMUXCLI {
             configDir: ".pi/agent", configFile: "extensions/cmux-session.ts", configDirEnvOverride: "PI_CODING_AGENT_DIR",
             sessionStoreSuffix: "pi", disableEnvVar: "CMUX_PI_HOOKS_DISABLED",
             hookMarker: "cmux hooks pi", format: .flat,
+            events: []
+        ),
+        AgentHookDef(
+            name: "omp", displayName: "OMP", statusKey: "omp",
+            configDir: ".omp/agent", configFile: "extensions/cmux-omp-session.ts",
+            createConfigDirIfMissing: true,
+            sessionStoreSuffix: "omp", disableEnvVar: "CMUX_OMP_HOOKS_DISABLED",
+            hookMarker: "cmux hooks omp", format: .flat,
             events: []
         ),
         AgentHookDef(

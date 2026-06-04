@@ -7,6 +7,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -463,6 +466,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
 
   tests-build-and-lag:
     # Build the full cmux scheme and run the lag regression on macOS CI.
