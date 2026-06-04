@@ -1310,7 +1310,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     func testVimKeysResolveUnderNonASCIIKeyboardLayout() {
         // Korean 2-set (두벌식) reports "ㅓ" for the physical 'j' key (keyCode 38)
         // and "ㅏ" for 'k' (keyCode 40). Copy-mode vim keys must still resolve to a
-        // scroll action via the ASCII-capable layout fallback, without forcing the
+        // cursor motion via the ASCII-capable layout fallback, without forcing the
         // user to switch input sources. The character provider is injected so this
         // test is deterministic and independent of the CI runner's input source.
         let asciiProvider: (UInt16, NSEvent.ModifierFlags) -> String? = { keyCode, _ in
@@ -1328,7 +1328,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 hasSelection: false,
                 asciiCharacterProvider: asciiProvider
             ),
-            .scrollLines(1)
+            .adjustSelection(.down)
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -1338,7 +1338,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 hasSelection: false,
                 asciiCharacterProvider: asciiProvider
             ),
-            .scrollLines(-1)
+            .adjustSelection(.up)
         )
     }
 
@@ -1350,7 +1350,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [.capsLock],
                 hasSelection: false
             ),
-            .scrollLines(1)
+            .adjustSelection(.down)
         )
     }
 
@@ -1420,7 +1420,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [.control],
                 hasSelection: false
             ),
-            .scrollLines(-1)
+            .adjustSelection(.up)
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -1650,7 +1650,7 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
     func testCountPrefixAppliesToMotion() {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &state), .consume)
-        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 3))
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.adjustSelection(.down), count: 3))
         XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
     }
 
@@ -1658,7 +1658,7 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(19, chars: "2", hasSelection: false, state: &state), .consume)
         XCTAssertEqual(resolve(29, chars: "0", hasSelection: false, state: &state), .consume)
-        XCTAssertEqual(resolve(40, chars: "k", hasSelection: false, state: &state), .perform(.scrollLines(-1), count: 20))
+        XCTAssertEqual(resolve(40, chars: "k", hasSelection: false, state: &state), .perform(.adjustSelection(.up), count: 20))
 
         var selectionState = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(
@@ -1688,7 +1688,7 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
     func testPendingYankLineDoesNotSwallowNextCommand() {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &state), .consume)
-        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 1))
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.adjustSelection(.down), count: 1))
         XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
     }
 
@@ -1738,7 +1738,7 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
     func testPendingGCancelledByOtherKey() {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
-        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 1))
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.adjustSelection(.down), count: 1))
         XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
     }
 
@@ -1841,6 +1841,46 @@ final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
             ),
             23
         )
+    }
+
+    func testInitialViewportColumnUsesImePointMidpoint() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportColumn(
+                columns: 80,
+                imePointX: 5,
+                imeCellWidth: 10
+            ),
+            0
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportColumn(
+                columns: 80,
+                imePointX: 235,
+                imeCellWidth: 10,
+                leftPadding: 5
+            ),
+            23
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportColumn(
+                columns: 80,
+                imePointX: 9999,
+                imeCellWidth: 10
+            ),
+            79
+        )
+    }
+
+    func testCursorMovementReturnsScrollDeltaOnlyAtVerticalEdges() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
+        XCTAssertEqual(cursor.move(.down, count: 2, rows: 10, columns: 8), 0)
+        XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 7, column: 3))
+
+        XCTAssertEqual(cursor.move(.down, count: 4, rows: 10, columns: 8), 2)
+        XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 9, column: 3))
+
+        XCTAssertEqual(cursor.move(.up, count: 12, rows: 10, columns: 8), -3)
+        XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 0, column: 3))
     }
 }
 
