@@ -718,7 +718,7 @@ function PierreFileTree({
     },
   });
 
-  usePierreFileTreeSource(model, source, initialPreparedInput);
+  usePierreFileTreeSource(model, source);
   usePierreFileTreeSearch(model, fileSearchOpen);
   usePierreFileTreeSelection(model, selectedPath);
 
@@ -824,7 +824,6 @@ function sameThemeOption(
 function usePierreFileTreeSource(
   model: ReturnType<typeof useFileTree>["model"],
   source: FileTreeSource,
-  initialPreparedInput: ReturnType<typeof preparePresortedFileTreeInput>,
 ): void {
   const previousSource = useRef<FileTreeSource | null>(null);
   useEffect(() => {
@@ -843,12 +842,12 @@ function usePierreFileTreeSource(
         }
       }
     } else {
-      const preparedInput = previous ? preparePresortedFileTreeInput(source.paths) : initialPreparedInput;
+      const preparedInput = preparePresortedFileTreeInput(source.paths);
       model.resetPaths(source.paths, { preparedInput });
       resetTree = true;
     }
     applyPierreFileTreeGitStatus(model as any, source, resetTree);
-  }, [initialPreparedInput, model, source]);
+  }, [model, source]);
 }
 
 function usePierreFileTreeSearch(model: ReturnType<typeof useFileTree>["model"], fileSearchOpen: boolean): void {

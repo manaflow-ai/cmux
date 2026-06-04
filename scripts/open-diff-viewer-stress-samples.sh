@@ -138,7 +138,7 @@ ensure_repo() {
   local repo_url repo_dir
   repo_url="$(sample_repo "$name")"
   repo_dir="$ROOT/$(sample_dir "$name")"
-  mkdir -p "$ROOT"
+  mkdir -p "$(dirname "$repo_dir")"
   if [ ! -d "$repo_dir/.git" ]; then
     git clone --filter=blob:none --no-checkout "$repo_url" "$repo_dir"
   fi
