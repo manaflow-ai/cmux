@@ -14964,7 +14964,7 @@ function renderSettingsInspector(options = {}) {
       "Terminal backgrounds",
       workspaceTerminalBackgroundSettingsPanel(workspace),
       true,
-      workspaceTerminalBackgroundActionSearchText("actions", workspace, "settings row controls choose paste use app clear")
+      workspaceTerminalBackgroundActionSearchText("actions", workspace, "settings row controls choose paste save copy open use app clear")
     ));
     const workspaceActions = document.createElement("div");
     workspaceActions.className = "settings-actions";
@@ -19449,6 +19449,7 @@ function workspaceTerminalBackgroundSettingsPanel(workspace = activeWorkspace())
   const pasteModel = workspaceTerminalBackgroundActionModel("paste", workspace);
   const saveModel = workspaceTerminalBackgroundActionModel("save", workspace);
   const copyModel = workspaceTerminalBackgroundActionModel("copySource", workspace);
+  const openModel = workspaceTerminalBackgroundActionModel("openSource", workspace);
   const useAppModel = workspaceTerminalBackgroundActionModel("useApp", workspace);
   const useAsAppModel = workspaceTerminalBackgroundActionModel("useAsApp", workspace);
   const clearModel = workspaceTerminalBackgroundActionModel("clear", workspace);
@@ -19458,7 +19459,7 @@ function workspaceTerminalBackgroundSettingsPanel(workspace = activeWorkspace())
     model.hasBackground ? "has-image" : "",
     model.mixed ? "is-mixed" : ""
   ].filter(Boolean).join(" ");
-  control.dataset.settingsSearch = workspaceTerminalBackgroundActionSearchText("actions", workspace, "settings workspace terminal backgrounds choose paste save copy use app use as app clear status");
+  control.dataset.settingsSearch = workspaceTerminalBackgroundActionSearchText("actions", workspace, "settings workspace terminal backgrounds choose paste save copy open use app use as app clear status");
   control.style.setProperty("--workspace-background-image", model.image);
   control.style.setProperty("--workspace-background-repeat", model.repeat);
   control.style.setProperty("--workspace-background-size", model.size);
@@ -19498,6 +19499,9 @@ function workspaceTerminalBackgroundSettingsPanel(workspace = activeWorkspace())
   const copySource = settingsActionButton("Copy", () => copyBackgroundImageSource(sharedBackground, "Terminal background source copied."), "", copyModel.search);
   copySource.disabled = copyModel.disabled;
   copySource.title = copyModel.title;
+  const openSource = settingsActionButton("Open", () => openBackgroundImageSource(sharedBackground), "", openModel.search);
+  openSource.disabled = openModel.disabled;
+  openSource.title = openModel.title;
   const useApp = settingsActionButton(useAppModel.active ? "App active" : "Use app", () => useAppBackgroundForWorkspaceTerminals(workspace), "", useAppModel.search);
   useApp.disabled = useAppModel.disabled;
   useApp.title = useAppModel.title;
@@ -19507,7 +19511,7 @@ function workspaceTerminalBackgroundSettingsPanel(workspace = activeWorkspace())
   const clear = settingsActionButton("Clear", () => clearWorkspaceTerminalBackgrounds(workspace), "danger", clearModel.search);
   clear.disabled = clearModel.disabled;
   clear.title = clearModel.title;
-  control.querySelector(".workspace-background-actions").append(choose, paste, save, copySource, useApp, useAsApp, clear);
+  control.querySelector(".workspace-background-actions").append(choose, paste, save, copySource, openSource, useApp, useAsApp, clear);
   return control;
 }
 
@@ -27809,6 +27813,12 @@ function workspaceTerminalBackgroundActionTitle(actionId, workspace = activeWork
     if (!sharedBackground) return sharedRequiredTitle;
     return backgroundImageCopyTitle(sharedBackground, options.availableTitle || "Copy the shared terminal background source.");
   }
+  if (actionId === "openSource") {
+    const sharedBackground = normalizeBackgroundValue(options.background ?? model.sharedBackground);
+    if (!model.hasTerminalPanes) return noTerminalTitle;
+    if (!sharedBackground) return sharedRequiredTitle;
+    return backgroundImageOpenTitle(sharedBackground, options.availableTitle || "Open the shared terminal background source.");
+  }
   if (actionId === "clear") {
     if (!model.hasTerminalPanes) return noTerminalTitle;
     if (model.clearActive) return options.emptyTitle || "Terminal pane backgrounds are already clear.";
@@ -27819,13 +27829,14 @@ function workspaceTerminalBackgroundActionTitle(actionId, workspace = activeWork
 
 function workspaceTerminalBackgroundActionSearchText(actionId, workspace = activeWorkspace(), extra = "") {
   const model = workspaceTerminalBackgroundState(workspace);
-  const includeSharedBackground = actionId === "actions" || actionId === "save" || actionId === "copySource" || actionId === "useAsApp";
+  const includeSharedBackground = actionId === "actions" || actionId === "save" || actionId === "copySource" || actionId === "openSource" || actionId === "useAsApp";
   const sharedBackground = includeSharedBackground ? model.sharedBackground : "";
   const actionTerms = {
     choose: "choose browse local file picker wallpaper",
     paste: "paste clipboard copied image url local path",
     save: "save reusable library saved background image current shared",
     copySource: "copy source clipboard image url path current shared",
+    openSource: "open source reveal file external url path current shared",
     useApp: "use app whole window global image active",
     useAsApp: "use as app whole window global image from terminal panes current shared",
     clear: "clear remove reset default no image"
@@ -27871,6 +27882,13 @@ function workspaceTerminalBackgroundActionModel(actionId, workspace = activeWork
         : model.allMeta;
   } else if (actionId === "copySource") {
     disabled = !model.hasTerminalPanes || !canCopyBackgroundImageSource(model.sharedBackground);
+    meta = model.sharedBackground
+      ? appearanceBackgroundLabel(model.sharedBackground)
+      : model.mixedBackgrounds
+        ? "Mixed terminal backgrounds"
+        : model.allMeta;
+  } else if (actionId === "openSource") {
+    disabled = !model.hasTerminalPanes || !canOpenBackgroundImageSource(model.sharedBackground);
     meta = model.sharedBackground
       ? appearanceBackgroundLabel(model.sharedBackground)
       : model.mixedBackgrounds
