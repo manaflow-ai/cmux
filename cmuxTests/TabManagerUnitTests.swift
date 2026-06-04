@@ -1460,6 +1460,40 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, 5, "Expected only one workspace to close after the first accepted confirmation")
     }
 
+    func testCloseWorkspaceEnqueuesTerminalRuntimeTeardownOffMainThread() {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace()
+        manager.selectWorkspace(workspace)
+
+        guard let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let fakeSurface: ghostty_surface_t = UnsafeMutableRawPointer(bitPattern: 0x5282)!
+        terminalPanel.surface.installRuntimeSurfaceForTesting(fakeSurface)
+        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+
+        let nativeFreeStarted = expectation(description: "native free started")
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            XCTAssertFalse(Thread.isMainThread, "Native surface free must not run on the main thread")
+            nativeFreeStarted.fulfill()
+        }
+        defer {
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        manager.confirmCloseHandler = { _, _, _ in true }
+
+        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(workspace))
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
+        XCTAssertNil(terminalPanel.surface.surface)
+
+        wait(for: [nativeFreeStarted], timeout: 3.0)
+    }
+
     func testCloseCurrentTabSpamWithConfirmationDisabledClosesEveryRequestedWorkspace() {
         let manager = TabManager()
         while manager.tabs.count < 6 {

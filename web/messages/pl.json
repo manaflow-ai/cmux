@@ -39,7 +39,8 @@
     "contact": "Kontakt",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Język"
+    "language": "Język",
+    "assets": "Zasoby"
   },
   "home": {
     "taglinePrefix": "Terminal stworzony dla ",
@@ -84,7 +85,7 @@
   },
   "community": {
     "title": "Społeczność",
-    "description": "Połącz się z innymi użytkownikami cmux i zespołem za nim stojącym.",
+    "description": "Przeglądaj projekty tworzone przez społeczność cmux, od hooków agentów po orkiestrację wielu agentów i zdalny dostęp.",
     "discord": "Discord",
     "discordAction": "Dołącz do naszego Discorda",
     "discordDesc": "Rozmawiaj ze społecznością, uzyskaj pomoc i podziel się opinią",
@@ -100,7 +101,68 @@
     "linkedinAction": "Obserwuj nas",
     "linkedinDesc": "Wiadomości firmowe i aktualizacje techniczne",
     "metaTitle": "Społeczność — cmux",
-    "metaDescription": "Dołącz do społeczności cmux na Discordzie, Twitterze, GitHubie i nie tylko"
+    "metaDescription": "Przeglądaj wszystkie projekty z awesome-cmux na stronie społeczności cmux",
+    "sourceAction": "Zobacz awesome-cmux",
+    "sourceRowsLabel": "wpisy README zindeksowane",
+    "projectsLabel": "projekty",
+    "areasLabel": "obszary",
+    "placementsLabel": "dopasowania kategorii",
+    "areasTitle": "Obszary",
+    "projectsTitle": "Projekty",
+    "projectAction": "Otwórz",
+    "starsLabel": "gwiazdki",
+    "officialLinksTitle": "Oficjalne linki",
+    "filtersTitle": "Filtry",
+    "searchLabel": "Szukaj",
+    "searchPlaceholder": "Szukaj projektów, agentów, języków",
+    "kindLabel": "Typ",
+    "kindAll": "Wszystkie",
+    "kindNative": "Główne",
+    "kindPort": "Porty",
+    "kindAdjacent": "Inspirowane",
+    "areaLabel": "Obszar",
+    "allAreas": "Wszystkie obszary",
+    "agentLabel": "Asystent",
+    "allAgents": "Wszyscy agenci",
+    "languageLabel": "Język",
+    "allLanguages": "Wszystkie języki",
+    "sortLabel": "Sortuj",
+    "sortRecommended": "Polecane",
+    "sortStars": "Najwięcej gwiazdek",
+    "sortName": "A do Z",
+    "resetFilters": "Resetuj",
+    "showingCount": "Wyświetlanie {count} z {total}",
+    "noProjectsTitle": "Nie znaleziono projektów",
+    "noProjectsDescription": "Wyczyść filtry lub spróbuj innego wyszukiwania.",
+    "nativeKindLabel": "Główne",
+    "portKindLabel": "Portowanie",
+    "adjacentKindLabel": "Inspirowane",
+    "moreCategoriesLabel": "+{count} więcej",
+    "categoryLabels": {
+      "sidebarStatusPills": "Pasek boczny i znaczniki statusu",
+      "progressBarsEstimation": "Paski postępu i szacowanie",
+      "sidebarLogsActivityFeed": "Logi paska bocznego i kanał aktywności",
+      "desktopNotifications": "Powiadomienia pulpitu",
+      "multiAgentOrchestration": "Orkiestracja wielu agentów",
+      "browserAutomation": "Automatyzacja przeglądarki",
+      "worktreesWorkspaceManagement": "Worktree i zarządzanie workspace",
+      "monitoringSessionRestore": "Monitorowanie i przywracanie sesji",
+      "remoteMobileAccess": "Dostęp zdalny i mobilny",
+      "themesLayoutsConfig": "Motywy, układy i konfiguracja",
+      "claudeCode": "Claude Code",
+      "pi": "Pi",
+      "openCode": "OpenCode",
+      "copilotAmp": "Copilot i Amp",
+      "multiAgentAgentAgnostic": "Wielu agentów / niezależne od agenta",
+      "crossPlatformPorts": "Porty międzyplatformowe",
+      "alternativesTmuxBased": "Alternatywy: oparte na tmux",
+      "alternativesOtherTerminalsWorkspaces": "Alternatywy: inne terminale i workspace",
+      "alternativesForks": "Alternatywy: forki",
+      "buildDistribution": "Build i dystrybucja",
+      "upstreamDependencies": "Zależności upstream",
+      "archived": "Zarchiwizowane"
+    },
+    "section": "społeczność"
   },
   "blog": {
     "title": "Blog",
@@ -1199,7 +1261,31 @@
       "fallback": "cmux najpierw pokazuje reguły i pyta przed wklejeniem ich do bieżącego obszaru roboczego. Jeśli cmux się nie otworzy, zainstaluj cmux i ponownie kliknij Otwórz w cmux."
     }
   },
+  "download": {
+    "section": "pobierz",
+    "metaTitle": "Dziękujemy za pobranie cmux",
+    "metaDescription": "Pobieranie cmux się rozpoczyna. Przejrzyj dokumentację, dołącz do Discorda i obserwuj cmux na X.",
+    "heading": "Dziękujemy za pobranie cmux!",
+    "subtext": "Kliknij <link>tutaj</link>, jeśli pobieranie się nie rozpoczęło."
+  },
   "testimonialSubtitles": {
     "steipete": "Twórca OpenClaw. Założyciel PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Zasoby marki",
+    "metaDescription": "Pobierz jasną i ciemną ikonę aplikacji cmux używaną przez aplikację macOS.",
+    "title": "Zasoby marki",
+    "description": "Pobierz jasną i ciemną ikonę aplikacji cmux używaną przez aplikację macOS.",
+    "iconSection": "Ikony aplikacji macOS",
+    "download": "Pobierz",
+    "assetAlt": "Podgląd {name}",
+    "lightPreview": "Ikona aplikacji dla trybu jasnego.",
+    "darkPreview": "Ikona aplikacji dla trybu ciemnego."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Pobierz jasną ikonę",
+    "downloadDark": "Pobierz ciemną ikonę",
+    "brandPage": "Zasoby marki"
   }
 }
