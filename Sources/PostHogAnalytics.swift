@@ -76,8 +76,14 @@ final class PostHogAnalytics {
     func flush() {
         dispatchAsyncOnWorkQueue { [weak self] in
             guard let self else { return }
-            guard didStart else { return }
-            PostHogSDK.shared.flush()
+            self.flushOnWorkQueue()
+        }
+    }
+
+    func flushForTermination(maximumQueueDrainDuration: DispatchTimeInterval = .milliseconds(150)) {
+        dispatchBoundedOnWorkQueue(timeout: maximumQueueDrainDuration) { [weak self] in
+            guard let self else { return }
+            self.flushOnWorkQueue()
         }
     }
 
@@ -189,6 +195,24 @@ final class PostHogAnalytics {
             return
         }
         workQueue.async(execute: block)
+    }
+
+    private func dispatchBoundedOnWorkQueue(timeout: DispatchTimeInterval, _ block: @escaping () -> Void) {
+        if DispatchQueue.getSpecific(key: workQueueSpecificKey) != nil {
+            block()
+            return
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        workQueue.async {
+            block()
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + timeout)
+    }
+
+    private func flushOnWorkQueue() {
+        guard didStart else { return }
+        PostHogSDK.shared.flush()
     }
 
     private func utcHourString(_ date: Date) -> String {

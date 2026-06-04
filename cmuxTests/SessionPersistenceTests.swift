@@ -740,7 +740,8 @@ final class SessionPersistenceTests: XCTestCase {
             let plan = AppDelegate.terminationSessionPersistencePlan(reason: reason)
             XCTAssertTrue(plan.saveSnapshot)
             XCTAssertFalse(plan.includeScrollback)
-            XCTAssertFalse(plan.flushClosedItemHistory)
+            XCTAssertTrue(plan.preserveExistingScrollback)
+            XCTAssertTrue(plan.flushClosedItemHistory)
         }
     }
 
@@ -748,6 +749,7 @@ final class SessionPersistenceTests: XCTestCase {
         let plan = AppDelegate.terminationSessionPersistencePlan(reason: .updateRelaunch)
         XCTAssertTrue(plan.saveSnapshot)
         XCTAssertTrue(plan.includeScrollback)
+        XCTAssertFalse(plan.preserveExistingScrollback)
         XCTAssertTrue(plan.flushClosedItemHistory)
     }
 
@@ -767,8 +769,66 @@ final class SessionPersistenceTests: XCTestCase {
             )
             XCTAssertFalse(followUpPlan.saveSnapshot)
             XCTAssertFalse(followUpPlan.includeScrollback)
+            XCTAssertFalse(followUpPlan.preserveExistingScrollback)
             XCTAssertFalse(followUpPlan.flushClosedItemHistory)
         }
+    }
+
+    func testLightweightTerminationSnapshotPreservesExistingTerminalScrollback() throws {
+        let windowId = UUID()
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let existingSnapshot = makeTerminalSnapshot(
+            windowId: windowId,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            currentDirectory: "/old",
+            scrollback: "old terminal history"
+        )
+        let lightweightSnapshot = makeTerminalSnapshot(
+            windowId: windowId,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            currentDirectory: "/new",
+            scrollback: nil
+        )
+
+        let merged = AppDelegate.sessionSnapshotByPreservingExistingScrollback(
+            in: lightweightSnapshot,
+            existingSnapshot: existingSnapshot
+        )
+
+        let workspace = try XCTUnwrap(merged.windows.first?.tabManager.workspaces.first)
+        XCTAssertEqual(workspace.currentDirectory, "/new")
+        let terminal = try XCTUnwrap(workspace.panels.first?.terminal)
+        XCTAssertEqual(terminal.workingDirectory, "/new")
+        XCTAssertEqual(terminal.scrollback, "old terminal history")
+    }
+
+    func testLightweightTerminationSnapshotDoesNotCopyScrollbackForDifferentPanel() throws {
+        let windowId = UUID()
+        let workspaceId = UUID()
+        let existingSnapshot = makeTerminalSnapshot(
+            windowId: windowId,
+            workspaceId: workspaceId,
+            panelId: UUID(),
+            currentDirectory: "/old",
+            scrollback: "old terminal history"
+        )
+        let lightweightSnapshot = makeTerminalSnapshot(
+            windowId: windowId,
+            workspaceId: workspaceId,
+            panelId: UUID(),
+            currentDirectory: "/new",
+            scrollback: nil
+        )
+
+        let merged = AppDelegate.sessionSnapshotByPreservingExistingScrollback(
+            in: lightweightSnapshot,
+            existingSnapshot: existingSnapshot
+        )
+
+        XCTAssertNil(merged.windows.first?.tabManager.workspaces.first?.panels.first?.terminal?.scrollback)
     }
 
     func testSessionPersistenceWriteGateInvalidatesQueuedAsyncSaves() {
@@ -1843,6 +1903,66 @@ final class SessionPersistenceTests: XCTestCase {
         try data.write(to: storeURL, options: .atomic)
 
         return RestorableAgentSessionIndex.load(homeDirectory: home.path)
+    }
+
+    private func makeTerminalSnapshot(
+        windowId: UUID,
+        workspaceId: UUID,
+        panelId: UUID,
+        currentDirectory: String,
+        scrollback: String?
+    ) -> AppSessionSnapshot {
+        let panel = SessionPanelSnapshot(
+            id: panelId,
+            type: .terminal,
+            title: "Terminal",
+            customTitle: nil,
+            directory: currentDirectory,
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: currentDirectory,
+                scrollback: scrollback
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
+        )
+        let workspace = SessionWorkspaceSnapshot(
+            workspaceId: workspaceId,
+            processTitle: "Terminal",
+            customTitle: "Restored",
+            customColor: nil,
+            isPinned: true,
+            currentDirectory: currentDirectory,
+            focusedPanelId: panelId,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelId], selectedPanelId: panelId)),
+            panels: [panel],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let tabManager = SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [workspace]
+        )
+        let window = SessionWindowSnapshot(
+            windowId: windowId,
+            frame: SessionRectSnapshot(x: 10, y: 20, width: 900, height: 700),
+            display: nil,
+            tabManager: tabManager,
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
+        )
+        return AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [window]
+        )
     }
 
     private func makeSnapshot(version: Int) -> AppSessionSnapshot {

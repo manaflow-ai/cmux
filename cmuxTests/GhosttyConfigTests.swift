@@ -3905,6 +3905,38 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         releaseQueue.signal()
         XCTAssertLessThan(elapsed, 0.1)
     }
+
+    func testTerminationFlushDrainsAvailableAnalyticsQueueWork() {
+        let queue = DispatchQueue(label: "PostHogAnalyticsPropertiesTests.termination.drain")
+        let queuedWorkRan = DispatchSemaphore(value: 0)
+        queue.async {
+            queuedWorkRan.signal()
+        }
+
+        let analytics = PostHogAnalytics(workQueue: queue)
+        analytics.flushForTermination(maximumQueueDrainDuration: .seconds(1))
+
+        XCTAssertEqual(queuedWorkRan.wait(timeout: .now()), .success)
+    }
+
+    func testTerminationFlushReturnsWhenAnalyticsQueueIsBlocked() {
+        let queue = DispatchQueue(label: "PostHogAnalyticsPropertiesTests.termination")
+        let releaseQueue = DispatchSemaphore(value: 0)
+        let queueEntered = DispatchSemaphore(value: 0)
+        queue.async {
+            queueEntered.signal()
+            _ = releaseQueue.wait(timeout: .now() + 5)
+        }
+        XCTAssertEqual(queueEntered.wait(timeout: .now() + 1), .success)
+
+        let analytics = PostHogAnalytics(workQueue: queue)
+        let start = ProcessInfo.processInfo.systemUptime
+        analytics.flushForTermination(maximumQueueDrainDuration: .milliseconds(20))
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
+
+        releaseQueue.signal()
+        XCTAssertLessThan(elapsed, 0.2)
+    }
 }
 
 final class GhosttyMouseFocusTests: XCTestCase {
