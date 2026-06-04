@@ -778,6 +778,50 @@ body.reduce-motion *::after {
   background: var(--color-accent);
 }
 
+.shell.sidebar-style-quiet .sidebar {
+  border-right-color: color-mix(in oklch, var(--color-line) 56%, transparent);
+  background: color-mix(in oklch, var(--color-rail-surface) 74%, transparent);
+  box-shadow: none;
+}
+
+.shell.sidebar-style-quiet .brand,
+.shell.sidebar-style-quiet .sidebar-tools {
+  border-bottom-color: color-mix(in oklch, var(--color-line) 56%, transparent);
+}
+
+.shell.sidebar-style-quiet .workspace-row:not(.is-active):hover,
+.shell.sidebar-style-quiet .workspace-row:not(.is-active).is-hover {
+  background: color-mix(in oklch, var(--color-pane) 54%, transparent);
+}
+
+.shell.sidebar-style-quiet .sidebar-action {
+  background: transparent;
+}
+
+.shell.sidebar-style-solid .sidebar {
+  border-right-color: color-mix(in oklch, var(--color-line-strong) 72%, var(--color-accent) 28%);
+  background: color-mix(in oklch, var(--color-rail-surface) 76%, var(--color-pane-surface) 24%);
+  box-shadow: var(--depth-sidebar-shadow);
+}
+
+.shell.sidebar-style-solid .brand,
+.shell.sidebar-style-solid .sidebar-tools,
+.shell.sidebar-style-solid .sidebar-footer {
+  border-color: color-mix(in oklch, var(--color-line) 82%, transparent);
+  background: color-mix(in oklch, var(--color-pane-surface) 26%, transparent);
+}
+
+.shell.sidebar-style-solid .workspace-row:not(.is-active):not(.is-drop-target) {
+  border-color: color-mix(in oklch, var(--color-line) 34%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 18%, transparent);
+}
+
+.shell.sidebar-style-solid .workspace-row:not(.is-active):not(.is-drop-target):hover,
+.shell.sidebar-style-solid .workspace-row:not(.is-active):not(.is-drop-target).is-hover {
+  border-color: color-mix(in oklch, var(--color-line) 62%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 72%, transparent);
+}
+
 .shell.sidebar-collapsed .sidebar {
   visibility: hidden;
   pointer-events: none;
@@ -7829,6 +7873,31 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   padding: 8px;
   border-right: 1px solid var(--color-line);
   background: var(--color-rail);
+}
+
+.layout-settings-preview.sidebar-style-quiet .layout-preview-sidebar {
+  border-right-color: color-mix(in oklch, var(--color-line) 56%, transparent);
+  background: color-mix(in oklch, var(--color-rail) 72%, transparent);
+}
+
+.layout-settings-preview.sidebar-style-quiet .layout-preview-workspace:not(.active),
+.layout-settings-preview.sidebar-style-quiet .layout-preview-footer {
+  background: color-mix(in oklch, var(--color-text) 6%, transparent);
+}
+
+.layout-settings-preview.sidebar-style-solid .layout-preview-sidebar {
+  border-right-color: color-mix(in oklch, var(--color-line-strong) 72%, var(--color-accent) 28%);
+  background: color-mix(in oklch, var(--color-rail) 74%, var(--color-pane) 26%);
+}
+
+.layout-settings-preview.sidebar-style-solid .layout-preview-brand,
+.layout-settings-preview.sidebar-style-solid .layout-preview-footer {
+  background: color-mix(in oklch, var(--color-pane) 72%, var(--color-accent) 10%);
+}
+
+.layout-settings-preview.sidebar-style-solid .layout-preview-workspace:not(.active) {
+  border-color: color-mix(in oklch, var(--color-line) 54%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 54%, transparent);
 }
 
 .layout-preview-brand,

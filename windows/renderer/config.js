@@ -25,6 +25,7 @@ export const defaultSettings = {
   sidebarDetailMode: "compact",
   sidebarBranchMode: "hidden",
   sidebarFooterMode: "workspace",
+  sidebarStyle: "subtle",
   workspaceRowSize: "auto",
   workspaceActiveStyle: "filled",
   workspaceColorStyle: "dot",
@@ -387,6 +388,12 @@ export const sidebarFooterOptions = [
   ["full", label("sidebarFooter.full", "Workspace + reset")]
 ];
 
+export const sidebarStyleOptions = [
+  ["subtle", label("sidebarStyle.subtle", "Subtle"), label("sidebarStyle.subtle.body", "Default sidebar contrast")],
+  ["quiet", label("sidebarStyle.quiet", "Quiet"), label("sidebarStyle.quiet.body", "Lower contrast workspace rail")],
+  ["solid", label("sidebarStyle.solid", "Solid"), label("sidebarStyle.solid.body", "Stronger sidebar separation")]
+];
+
 export const workspaceRowSizeOptions = [
   ["auto", label("workspaceRowSize.auto", "Auto"), label("workspaceRowSize.auto.body", "Follow density")],
   ["compact", label("workspaceRowSize.compact", "Compact"), label("workspaceRowSize.compact.body", "More workspaces visible")],
@@ -617,6 +624,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
+      sidebarStyle: "subtle",
       workspaceRowSize: "auto",
       workspaceActiveStyle: "filled",
       workspaceColorStyle: "dot",
@@ -685,6 +693,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "compact",
+      sidebarStyle: "quiet",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -753,6 +762,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "compact",
+      sidebarStyle: "quiet",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -822,6 +832,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
+      sidebarStyle: "quiet",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "line",
       workspaceColorStyle: "edge",
@@ -890,6 +901,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
+      sidebarStyle: "quiet",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -958,6 +970,7 @@ export const settingsPresets = [
       sidebarDetailMode: "balanced",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
+      sidebarStyle: "solid",
       workspaceRowSize: "roomy",
       workspaceActiveStyle: "line",
       workspaceColorStyle: "edge",
@@ -1026,6 +1039,7 @@ export const settingsPresets = [
       sidebarDetailMode: "detailed",
       sidebarBranchMode: "all",
       sidebarFooterMode: "compact",
+      sidebarStyle: "solid",
       workspaceRowSize: "roomy",
       workspaceActiveStyle: "filled",
       workspaceColorStyle: "tint",
