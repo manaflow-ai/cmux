@@ -1347,7 +1347,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-generic-lifecycle-no-response-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-kiro-lifecycle-no-response-\(UUID().uuidString)", isDirectory: true)
         let workspaceId = "33333333-3333-3333-3333-333333333333"
         let surfaceId = "44444444-4444-4444-4444-444444444444"
 
@@ -1386,7 +1386,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "session-start"],
+            arguments: ["hooks", "kiro", "session-start"],
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -1395,13 +1395,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_WORKSPACE_ID": workspaceId,
                 "CMUX_SURFACE_ID": surfaceId,
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-                "CMUX_AGENT_LAUNCH_KIND": "codex",
-                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/codex",
-                "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/codex"]),
+                "CMUX_AGENT_LAUNCH_KIND": "kiro",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/Users/example/.cargo/bin/kiro-cli",
+                "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                    "/Users/example/.cargo/bin/kiro-cli",
+                    "chat",
+                    "--agent",
+                    "cmux",
+                    "--resume-id",
+                    "old-session"
+                ]),
                 "CMUX_AGENT_LAUNCH_CWD": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
-            standardInput: #"{"session_id":"codex-lifecycle-no-response","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            standardInput: #"{"session_id":"kiro-lifecycle-no-response","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
             timeout: 0.5
         )
         wait(for: [serverHandled], timeout: 5)
