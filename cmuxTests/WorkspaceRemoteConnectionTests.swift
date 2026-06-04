@@ -5903,6 +5903,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                         "ref": "surface:1",
                         "index": 1,
                         "focused": true,
+                        "kind": "terminal",
+                        "runtime_surface_ready": true,
+                        "visible": true,
                     ],
                 ],
             ]

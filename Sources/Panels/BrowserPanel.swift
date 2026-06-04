@@ -3432,6 +3432,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var restoredForwardHistoryStack: [URL] = []
     private var restoredHistoryCurrentURL: URL?
     private var isMainFrameProvisionalNavigationActive: Bool = false
+    private var shouldGoBackAfterProvisionalCommit: Bool = false
 
     /// Published estimated progress (0.0 - 1.0)
     @Published private(set) var estimatedProgress: Double = 0.0
@@ -4186,6 +4187,12 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
+                if self.shouldGoBackAfterProvisionalCommit, webView.canGoBack {
+                    self.shouldGoBackAfterProvisionalCommit = false
+                    webView.goBack()
+                    return
+                }
+                self.shouldGoBackAfterProvisionalCommit = false
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
             }
@@ -4224,6 +4231,7 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
+                self.shouldGoBackAfterProvisionalCommit = false
             }
         }
     }
@@ -6327,6 +6335,7 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 extension BrowserPanel {
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
+        shouldGoBackAfterProvisionalCommit = true
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
     }
