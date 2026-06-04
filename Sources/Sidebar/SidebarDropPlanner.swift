@@ -89,6 +89,10 @@ enum SidebarDropPlanner {
         let frame: CGRect
     }
 
+    static func shouldCollectWorkspaceDropTargets(draggedTabId: UUID?) -> Bool {
+        true
+    }
+
     enum WorkspaceDropAction: Equatable {
         case newWorkspace(insertionIndex: Int, indicator: SidebarDropIndicator)
         case existingWorkspace(UUID)

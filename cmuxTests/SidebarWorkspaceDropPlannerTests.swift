@@ -8,6 +8,14 @@ import XCTest
 #endif
 
 final class SidebarWorkspaceDropPlannerTests: XCTestCase {
+    func testWorkspaceDropTargetCollectionStaysDisabledWhenNoDragIsActive() {
+        XCTAssertFalse(SidebarDropPlanner.shouldCollectWorkspaceDropTargets(draggedTabId: nil))
+    }
+
+    func testWorkspaceDropTargetCollectionTurnsOnDuringDrag() {
+        XCTAssertTrue(SidebarDropPlanner.shouldCollectWorkspaceDropTargets(draggedTabId: UUID()))
+    }
+
     func testWorkspaceGroupHeaderDropZoneKeepsUsableCenterAtDefaultHeight() {
         XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 2, rowHeight: 24))
         XCTAssertTrue(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 12, rowHeight: 24))
