@@ -15,8 +15,6 @@ private struct AmpHookSessionRecord: Decodable {
     var cwd: String?
     var startedAt: TimeInterval?
     var updatedAt: TimeInterval?
-    /// Forward-compatible: cmux's Amp plugin does not capture a human thread
-    /// title today, but if a future plugin/hook adds one we prefer it.
     var title: String?
     var launchCommand: LaunchCommand?
 
@@ -124,8 +122,8 @@ extension SessionIndexStore {
         return entries
     }
 
-    /// Amp's hook store has no conversation title, so synthesize a readable one
-    /// from the working directory; fall back to a generic label.
+    /// Use the stored title when present; otherwise synthesize a readable label
+    /// from the working directory, falling back to a generic one.
     private nonisolated static func ampDisplayTitle(recordTitle: String?, cwd: String?) -> String {
         if let recordTitle = recordTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
            !recordTitle.isEmpty {
