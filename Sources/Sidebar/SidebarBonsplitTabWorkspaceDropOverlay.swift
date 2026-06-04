@@ -105,12 +105,12 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         updateWorkspaceDropTargetCollection(sender, isActive: true)
-        updateDrag(sender, phase: "entered")
+        return updateDrag(sender, phase: "entered")
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
         updateWorkspaceDropTargetCollection(sender, isActive: true)
-        updateDrag(sender, phase: "updated")
+        return updateDrag(sender, phase: "updated")
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
