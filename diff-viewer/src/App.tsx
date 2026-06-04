@@ -20,6 +20,7 @@ import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./statu
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
+import { createDiffWorkerPoolOptions } from "./worker-pool";
 
 type ConfigProps = {
   config: DiffViewerConfig;
@@ -226,7 +227,7 @@ export function App({ config, initialStatus }: ConfigProps) {
         <main id="viewer" aria-label={label("diffViewer")}>
           {state.items.length > 0 ? (
             <WorkerPoolContextProvider
-              poolOptions={{ workerFactory: () => new Worker(workerModuleURL, { type: "module" }) }}
+              poolOptions={createDiffWorkerPoolOptions(workerModuleURL)}
               highlighterOptions={highlighterOptions}
             >
               <WorkerRenderOptionsSync highlighterOptions={highlighterOptions} />
