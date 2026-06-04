@@ -18713,6 +18713,7 @@ extension Workspace: BonsplitDelegate {
             return true
         }
 
+        let confirmationSource: CloseTabConfirmationPolicy.Source = tabCloseButtonClose ? .tabCloseButton : .shortcut
         if shouldConfirmEphemeralWorktreeClose(panelId: panelId) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if ephemeralWorktreeManager.isTabConfirmationPending(tab.id) {
@@ -18738,7 +18739,8 @@ extension Workspace: BonsplitDelegate {
                 guard confirmed else { return }
 
                 if CloseTabConfirmationPolicy.shouldConfirm(
-                    requiresConfirmation: self.panelNeedsConfirmClose(panelId: panelId)
+                    requiresConfirmation: self.panelNeedsConfirmClose(panelId: panelId),
+                    source: confirmationSource
                 ) {
                     let closeConfirmed = await self.confirmClosePanel(for: tabId)
                     guard closeConfirmed else { return }
@@ -18757,7 +18759,6 @@ extension Workspace: BonsplitDelegate {
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        let confirmationSource: CloseTabConfirmationPolicy.Source = tabCloseButtonClose ? .tabCloseButton : .shortcut
         if CloseTabConfirmationPolicy.shouldConfirm(
             requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
             source: confirmationSource
@@ -19140,7 +19141,8 @@ extension Workspace: BonsplitDelegate {
                     if let needsCloseConfirmationTabId = forcedTabIds.first(where: { tabId in
                         guard let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
                         return CloseTabConfirmationPolicy.shouldConfirm(
-                            requiresConfirmation: self.panelNeedsConfirmClose(panelId: panelId)
+                            requiresConfirmation: self.panelNeedsConfirmClose(panelId: panelId),
+                            source: .shortcut
                         )
                     }) {
                         let closeConfirmed = await self.confirmClosePanel(for: needsCloseConfirmationTabId)
