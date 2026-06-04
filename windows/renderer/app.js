@@ -15830,6 +15830,17 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
     true,
     "toast notification feedback placement position bottom right left top terminal output status overlay"
   ));
+  const overlayChromeDefault = overlayChromeSettingsAreDefault();
+  const overlayActions = document.createElement("div");
+  overlayActions.className = "settings-actions";
+  overlayActions.dataset.settingsSearch = normalizeSettingsQuery("overlay settings panel switcher toast reset default visual weight quiet subtle solid placement bottom right left top feedback chrome");
+  const resetOverlaysAction = settingsActionButton("Reset overlays", resetOverlayChromeSettings, "", `overlay settings panel switcher toast reset default style placement ${overlayChromeDefault ? "active current " : ""}`);
+  resetOverlaysAction.disabled = overlayChromeDefault;
+  resetOverlaysAction.title = overlayChromeDefault
+    ? "Overlay settings already use defaults."
+    : "Reset settings panel, overlay, switcher, and toast placement.";
+  overlayActions.append(resetOverlaysAction);
+  panel.append(overlayActions);
   panel.append(settingRow(
     "Palette density",
     settingSegmentedControl("paletteDensity", paletteDensityOptions, "command palette density compact balanced roomy commands search results quick actions workspace chrome", { compact: true }),
@@ -32319,6 +32330,13 @@ const sidebarChromeSettings = [
   "workspaceColorStyle"
 ];
 
+const overlayChromeSettings = [
+  "inspectorStyle",
+  "overlayStyle",
+  "switcherStyle",
+  "toastPlacement"
+];
+
 const workspaceChromeBooleanSettings = new Set([
   "paneColorMarkers",
   "focusMode",
@@ -33102,6 +33120,10 @@ function sidebarChromeSettingsAreDefault() {
   return settingsKeysMatchDefaults(sidebarChromeSettings);
 }
 
+function overlayChromeSettingsAreDefault() {
+  return settingsKeysMatchDefaults(overlayChromeSettings);
+}
+
 function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
   const enabled = Boolean(nextValue);
   const changed = updateSettings({ focusMode: enabled }, { immediate: true });
@@ -33214,6 +33236,19 @@ function resetSidebarChromeSettings() {
   }
   refreshLayoutSettings();
   toast("Sidebar reset.");
+  return true;
+}
+
+function resetOverlayChromeSettings() {
+  const updates = {};
+  for (const key of overlayChromeSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Overlays already use defaults.");
+    return false;
+  }
+  refreshLayoutSettings();
+  toast("Overlays reset.");
   return true;
 }
 
