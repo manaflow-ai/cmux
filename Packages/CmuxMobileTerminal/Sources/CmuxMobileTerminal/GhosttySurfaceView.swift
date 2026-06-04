@@ -816,7 +816,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
         guard let surface else { return }
         if gesture.state == .began || gesture.state == .changed || gesture.state == .ended {
-            liveAnchormuxLog("scroll.pan state=\(gesture.state.rawValue) ty=\(Int(gesture.translation(in: self).y))")
+            MobileDebugLog.anchormux("scroll.pan state=\(gesture.state.rawValue) ty=\(Int(gesture.translation(in: self).y))")
         }
         if gesture.state == .changed {
             let translation = gesture.translation(in: self)
@@ -881,13 +881,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let target = base + delta
         guard target >= MobileTerminalFontPreference.minimumSize,
               target <= MobileTerminalFontPreference.maximumSize else {
-            liveAnchormuxLog("zoom.clamp dir=\(direction) base=\(base) target=\(target) range=[\(MobileTerminalFontPreference.minimumSize),\(MobileTerminalFontPreference.maximumSize)]")
+            MobileDebugLog.anchormux("zoom.clamp dir=\(direction) base=\(base) target=\(target) range=[\(MobileTerminalFontPreference.minimumSize),\(MobileTerminalFontPreference.maximumSize)]")
             return false
         }
         guard surface != nil else { return false }
 
         pendingFontSize = target
-        liveAnchormuxLog("zoom.queue dir=\(direction) \(base)->\(target) live=\(liveFontSize)")
+        MobileDebugLog.anchormux("zoom.queue dir=\(direction) \(base)->\(target) live=\(liveFontSize)")
         scheduleDisplayLinkWork()
         return true
     }
@@ -914,7 +914,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingFontSize = nil
         guard target != liveFontSize else { return false }
         liveFontSize = target
-        liveAnchormuxLog("zoom.apply \(target) eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")")
+        MobileDebugLog.anchormux("zoom.apply \(target) eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")")
         // Absolute set: the prior `±1` binding action drove libghostty's own
         // font counter independently of our clamp, so a fast burst could push
         // it past `maximumSize` toward the 255pt ceiling and collapse the grid.
@@ -962,14 +962,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         snapshotFallbackView.frame = bounds
         inputProxy.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         inputProxy.updateAccessoryLayoutInsets()
-        liveAnchormuxLog("surface.layout bounds=\(Int(bounds.width))x\(Int(bounds.height)) window=\(window != nil)")
+        MobileDebugLog.anchormux("surface.layout bounds=\(Int(bounds.width))x\(Int(bounds.height)) window=\(window != nil)")
         setNeedsGeometrySync()
         syncSurfaceVisibility()
     }
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
-        liveAnchormuxLog("surface.didMoveToWindow window=\(window != nil)")
+        MobileDebugLog.anchormux("surface.didMoveToWindow window=\(window != nil)")
         syncSurfaceVisibility()
         if window != nil {
             setNeedsGeometrySync()
@@ -1325,7 +1325,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let sinceOutputMs = lastOutputAppliedTime > 0
                 ? Int((nowHeartbeat - lastOutputAppliedTime) * 1000)
                 : -1
-            liveAnchormuxLog(
+            MobileDebugLog.anchormux(
                 "tick.alive win=\(window != nil) renderInFlight=\(renderInFlight) "
                 + "needsDraw=\(needsDraw) contents=\(renderLayer?.contents != nil) "
                 + "surf=\(Int(renderSize.width))x\(Int(renderSize.height)) "
@@ -1400,7 +1400,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 if viewportReportSettleFrames >= Self.viewportReportSettleThreshold {
                     pendingViewportReport = nil
                     viewportReportSettleFrames = 0
-                    liveAnchormuxLog("zoom.report grid=\(pending.columns)x\(pending.rows)")
+                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows)")
                     delegate?.ghosttySurfaceView(self, didResize: pending)
                 }
             }
@@ -1437,7 +1437,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // Queue LAG = how long this render waited behind other ops. If this
             // climbs into hundreds of ms the queue is backlogged (the freeze).
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
-            if lagMs > 150 { liveAnchormuxLog("oq.render.LAG \(Int(lagMs))ms") }
+            if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
             ghostty_surface_render_now(surface)
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -1573,7 +1573,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             alpha > 0.01 &&
             bounds.width > 0 &&
             bounds.height > 0
-        liveAnchormuxLog("surface.occlusion visible=\(visible) window=\(window != nil) hidden=\(isHidden) alpha=\(alpha)")
+        MobileDebugLog.anchormux("surface.occlusion visible=\(visible) window=\(window != nil) hidden=\(isHidden) alpha=\(alpha)")
         ghostty_surface_set_occlusion(surface, visible)
         if visible {
             updateCursorOverlay()
@@ -1591,7 +1591,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard viewportReportRetries < Self.maxViewportReportRetries,
               let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
         viewportReportRetries += 1
-        liveAnchormuxLog(
+        MobileDebugLog.anchormux(
             "zoom.viewport.retry \(viewportReportRetries)/\(Self.maxViewportReportRetries) "
             + "grid=\(pending.columns)x\(pending.rows)"
         )
@@ -1604,7 +1604,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // A value came back from the Mac, so the round-trip recovered.
         viewportReportRetries = 0
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
-        liveAnchormuxLog("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
+        MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
         effectiveGrid = (cols, rows)
         // Mark dirty instead of recomputing synchronously. This breaks the
         // feedback loop (didResize → updateTerminalViewport RPC → applyViewSize
@@ -1762,7 +1762,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let renderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
             ?? CGRect(origin: .zero, size: naturalRenderSize)
         lastRenderRect = renderRect
-        liveAnchormuxLog(
+        MobileDebugLog.anchormux(
             "geom container=\(Int(containerW))x\(Int(containerH)) scale=\(scale) "
             + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
             + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
@@ -1880,7 +1880,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let childSummaries = (hostLayer.sublayers ?? []).prefix(4).enumerated().map { index, sublayer in
             "\(index):\(type(of: sublayer)) bounds=\(sublayer.bounds.integral.debugDescription) frame=\(sublayer.frame.integral.debugDescription) hidden=\(sublayer.isHidden) contents=\(sublayer.contents != nil) scale=\(sublayer.contentsScale)"
         }.joined(separator: " | ")
-        liveAnchormuxLog("surface.layers reason=\(reason) host=\(hostSummary) children=[\(childSummaries)] fallbackHidden=\(snapshotFallbackView.isHidden) fallbackChars=\(snapshotFallbackView.text.count)")
+        MobileDebugLog.anchormux("surface.layers reason=\(reason) host=\(hostSummary) children=[\(childSummaries)] fallbackHidden=\(snapshotFallbackView.isHidden) fallbackChars=\(snapshotFallbackView.text.count)")
     }
 
     private func makeSurface(app: ghostty_app_t) -> ghostty_surface_t? {

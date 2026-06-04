@@ -3,11 +3,10 @@ import Foundation
 import UIKit
 #endif
 
-#if canImport(UIKit) && DEBUG
 /// In-app debug-log facade for iOS DEV builds, backed by an actor sink.
 ///
 /// This is the thin compatibility surface the mobile packages call into
-/// (``append(_:)`` from the synchronous ``liveAnchormuxLog(_:)`` helper, and
+/// (``append(_:)`` from the synchronous ``MobileDebugLog.anchormux(_:)`` helper, and
 /// ``copyToPasteboard(prepending:)`` from the debug menu). The actual buffer
 /// and its synchronization live in ``MobileDebugLogSink`` (an `actor`), so this
 /// type holds no mutable state of its own; it only bridges synchronous callers
@@ -17,7 +16,7 @@ import UIKit
 ///   many existing render/IO-thread call sites stay one-liners. The intended
 ///   end state injects a ``MobileDebugLogSink`` from the app composition root.
 public struct MobileDebugLog: Sendable {
-    /// Process-wide instance used by the legacy `liveAnchormuxLog` call sites.
+    /// Process-wide instance used by the legacy anchormux call sites.
     // TRANSITIONAL (iOS refactor): call sites still reach for `.shared`; the
     // composition root should inject the sink once decomposition reaches them.
     public static let shared = MobileDebugLog(sink: MobileDebugLogSink())
@@ -60,6 +59,7 @@ public struct MobileDebugLog: Sendable {
         return parts.isEmpty ? "build ?" : parts.joined(separator: " · ")
     }()
 
+    #if canImport(UIKit)
     /// Copy the buffer to the system pasteboard, optionally prefixed with a
     /// section (e.g. the visible terminal text).
     ///
@@ -79,5 +79,5 @@ public struct MobileDebugLog: Sendable {
         UIPasteboard.general.string = out
         return count
     }
+    #endif
 }
-#endif

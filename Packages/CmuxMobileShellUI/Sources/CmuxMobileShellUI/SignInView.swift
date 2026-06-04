@@ -32,7 +32,7 @@ struct SignInView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        dismissMobileKeyboard()
+                        UIApplication.shared.dismissMobileKeyboard()
                     }
                     .ignoresSafeArea()
 
@@ -381,7 +381,7 @@ struct SignInView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        dismissMobileKeyboard()
+                        UIApplication.shared.dismissMobileKeyboard()
                     }
             )
     }

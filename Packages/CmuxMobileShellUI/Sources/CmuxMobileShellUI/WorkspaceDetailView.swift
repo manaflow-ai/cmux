@@ -222,6 +222,6 @@ struct WorkspaceDetailView: View {
     }
 
     private func dismissTerminalKeyboardForChrome() {
-        dismissMobileKeyboard()
+        UIApplication.shared.dismissMobileKeyboard()
     }
 }

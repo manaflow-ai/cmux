@@ -115,7 +115,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     // report so a transient drop self-heals (bounded inside the
                     // surface). Logged so the dogfood log still distinguishes
                     // this from a true main-thread wedge.
-                    liveAnchormuxLog("zoom.viewport.noEffective grid=\(size.columns)x\(size.rows)")
+                    MobileDebugLog.anchormux("zoom.viewport.noEffective grid=\(size.columns)x\(size.rows)")
                     surfaceView?.retryViewportReport()
                     return
                 }

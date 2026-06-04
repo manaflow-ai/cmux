@@ -8,6 +8,8 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.runtime")
 
+// lint:allow free-function — @convention(c) trampoline: libghostty takes a C
+// function pointer, which cannot capture context or live on a Swift type.
 private func cmuxIOSRuntimeReadClipboardCallback(
     _ userdata: UnsafeMutableRawPointer?,
     _ location: ghostty_clipboard_e,
@@ -145,7 +147,7 @@ public final class GhosttyRuntime {
 
     func tick() {
         guard let app else { return }
-        liveAnchormuxLog("runtime.tick")
+        MobileDebugLog.anchormux("runtime.tick")
         ghostty_app_tick(app)
     }
 
@@ -382,7 +384,7 @@ public final class GhosttyRuntime {
         // Remove before merge.
         if action.tag == GHOSTTY_ACTION_SCROLLBAR {
             let sb = action.action.scrollbar
-            liveAnchormuxLog("scroll.bar total=\(sb.total) offset=\(sb.offset) len=\(sb.len)")
+            MobileDebugLog.anchormux("scroll.bar total=\(sb.total) offset=\(sb.offset) len=\(sb.len)")
             return true
         }
         #endif

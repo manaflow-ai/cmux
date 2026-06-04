@@ -339,7 +339,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             minimumIncompleteLength: 1,
             maximumLength: maximumReceiveLength
         ) { [weak self] data, _, isComplete, error in
-            let errorDescription = error.map(cmxNetworkErrorDescription)
+            let errorDescription = error.map(\.cmxUserFacingDescription)
             guard let self else {
                 return
             }
@@ -442,7 +442,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             contentContext: .defaultMessage,
             isComplete: false,
             completion: .contentProcessed { [weak self] error in
-                let errorDescription = error.map(cmxNetworkErrorDescription)
+                let errorDescription = error.map(\.cmxUserFacingDescription)
                 guard let self else {
                     return
                 }
@@ -543,7 +543,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     private func scheduleConnectTimeout() {
         cancelConnectTimeout()
         let timer = DispatchSource.makeTimerSource(queue: callbackQueue)
-        timer.schedule(deadline: .now() + dispatchTimeoutInterval(for: connectTimeoutNanoseconds))
+        timer.schedule(deadline: .now() + DispatchTimeInterval.milliseconds(coveringNanoseconds: connectTimeoutNanoseconds))
         timer.setEventHandler { [weak self] in
             guard let self else {
                 return
@@ -619,11 +619,14 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     }
 }
 
-private func dispatchTimeoutInterval(for nanoseconds: UInt64) -> DispatchTimeInterval {
-    let wholeMilliseconds = nanoseconds / 1_000_000
-    let roundedMilliseconds = wholeMilliseconds + (nanoseconds % 1_000_000 == 0 ? 0 : 1)
-    let milliseconds = max(1, roundedMilliseconds)
-    return .milliseconds(Int(min(milliseconds, UInt64(Int.max))))
+private extension DispatchTimeInterval {
+    /// A millisecond interval covering `nanoseconds`, rounded up and clamped to `Int.max`.
+    static func milliseconds(coveringNanoseconds nanoseconds: UInt64) -> DispatchTimeInterval {
+        let wholeMilliseconds = nanoseconds / 1_000_000
+        let roundedMilliseconds = wholeMilliseconds + (nanoseconds % 1_000_000 == 0 ? 0 : 1)
+        let milliseconds = max(1, roundedMilliseconds)
+        return .milliseconds(Int(min(milliseconds, UInt64(Int.max))))
+    }
 }
 
 private enum CmxNetworkConnectionEvent: Sendable {
@@ -638,9 +641,9 @@ private enum CmxNetworkConnectionEvent: Sendable {
         case .ready:
             self = .ready
         case let .waiting(error):
-            self = .waiting(cmxNetworkErrorDescription(error))
+            self = .waiting(error.cmxUserFacingDescription)
         case let .failed(error):
-            self = .failed(cmxNetworkErrorDescription(error))
+            self = .failed(error.cmxUserFacingDescription)
         case .cancelled:
             self = .cancelled
         case .setup, .preparing:
@@ -651,19 +654,22 @@ private enum CmxNetworkConnectionEvent: Sendable {
     }
 }
 
-private func cmxNetworkErrorDescription(_ error: NWError) -> String {
-    switch error {
-    case .dns:
-        return "DNS lookup failed."
-    case .posix:
-        return "Network connection failed."
-    case .tls:
-        return "Secure connection failed."
-    #if compiler(>=6.2)
-    case .wifiAware:
-        return "Network connection failed."
-    #endif
-    @unknown default:
-        return "Network connection failed."
+private extension NWError {
+    /// A short, user-presentable description of the failure category.
+    var cmxUserFacingDescription: String {
+        switch self {
+        case .dns:
+            return "DNS lookup failed."
+        case .posix:
+            return "Network connection failed."
+        case .tls:
+            return "Secure connection failed."
+        #if compiler(>=6.2)
+        case .wifiAware:
+            return "Network connection failed."
+        #endif
+        @unknown default:
+            return "Network connection failed."
+        }
     }
 }

@@ -1295,11 +1295,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
             terminalOutputTransport = transport
-            liveAnchormuxLog("sync.transport=\(transport == .renderGrid ? "render_grid" : "raw_bytes")")
+            MobileDebugLog.anchormux("sync.transport=\(transport == .renderGrid ? "render_grid" : "raw_bytes")")
             return transport
         } catch {
             terminalOutputTransport = fallback
-            liveAnchormuxLog("sync.transport=raw_bytes reason=status_failed")
+            MobileDebugLog.anchormux("sync.transport=raw_bytes reason=status_failed")
             return fallback
         }
     }
@@ -1356,10 +1356,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 topics: topics
             ) ?? false
             guard subscribed else {
-                liveAnchormuxLog("sync.subscribe_failed reason=start")
+                MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
                 return
             }
-            liveAnchormuxLog("sync.subscribe_ok topics=\(topics.count) transport=\(outputTransport)")
+            MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(outputTransport)")
             // Keep the listener alive without keeping the shell store alive.
             for await event in stream {
                 guard !Task.isCancelled else { return }
@@ -1392,7 +1392,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         mobileShellLog.info("terminal event stream ended, restarting")
-        liveAnchormuxLog("sync.stream_ended restarting (render-grid push stopped; falling back to poll)")
+        MobileDebugLog.anchormux("sync.stream_ended restarting (render-grid push stopped; falling back to poll)")
         terminalEventListenerTask = nil
         terminalEventListenerID = nil
         startTerminalRefreshPolling()
@@ -1467,7 +1467,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let silent = now.timeIntervalSince(last)
         guard silent >= Self.renderGridLivenessSilenceThreshold else { return }
         let silentMs = Int(silent * 1000)
-        liveAnchormuxLog("sync.liveness re-subscribe silentMs=\(silentMs)")
+        MobileDebugLog.anchormux("sync.liveness re-subscribe silentMs=\(silentMs)")
         mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms, re-subscribing")
         // resyncTerminalOutput(restartEventStream: true) stops the wedged listener
         // (which cancels this watchdog via stopTerminalRefreshPolling) and starts a
@@ -1492,7 +1492,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let surfaceIDs = requestedSurfaceIDs ?? Array(terminalByteContinuationsBySurfaceID.keys)
-        liveAnchormuxLog(
+        MobileDebugLog.anchormux(
             "sync.resync reason=\(reason) restart=\(restartEventStream) surfaces=\(surfaceIDs.count)"
         )
         for surfaceID in surfaceIDs {
@@ -1513,7 +1513,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID]
             pendingTerminalByteEndSeqBySurfaceID[surfaceID] = max(remoteSeq, pendingSeq ?? 0)
             if let pendingSeq, localSeq < pendingSeq {
-                liveAnchormuxLog("sync.input_seq_still_behind surface=\(surfaceID) local=\(localSeq) pending=\(pendingSeq) remote=\(remoteSeq)")
+                MobileDebugLog.anchormux("sync.input_seq_still_behind surface=\(surfaceID) local=\(localSeq) pending=\(pendingSeq) remote=\(remoteSeq)")
                 mobileShellLog.info("terminal render-grid still behind after input surface=\(surfaceID, privacy: .public) localSeq=\(localSeq, privacy: .public) pendingSeq=\(pendingSeq, privacy: .public) remoteSeq=\(remoteSeq, privacy: .public)")
                 resyncTerminalOutput(
                     reason: "input_seq_still_behind",
@@ -1521,12 +1521,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     surfaceIDs: [surfaceID]
                 )
             } else {
-                liveAnchormuxLog("sync.input_seq_wait surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
+                MobileDebugLog.anchormux("sync.input_seq_wait surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
                 refreshTerminalEventSubscription(reason: "input_seq_wait")
             }
             return
         }
-        liveAnchormuxLog("sync.input_seq_behind surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
+        MobileDebugLog.anchormux("sync.input_seq_behind surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
         mobileShellLog.info("terminal output behind after input surface=\(surfaceID, privacy: .public) localSeq=\(localSeq, privacy: .public) remoteSeq=\(remoteSeq, privacy: .public)")
         resyncTerminalOutput(
             reason: "input_seq_behind",
@@ -1541,7 +1541,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID],
            endSeq >= pendingSeq {
             pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
-            liveAnchormuxLog("sync.input_seq_caught_up surface=\(surfaceID) seq=\(endSeq)")
+            MobileDebugLog.anchormux("sync.input_seq_caught_up surface=\(surfaceID) seq=\(endSeq)")
         }
     }
 
@@ -1723,19 +1723,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if let replaySeq,
                    let deliveredSeq = self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID],
                    deliveredSeq > replaySeq {
-                    liveAnchormuxLog("CMUX_REPLAY stale surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)")
+                    MobileDebugLog.anchormux("CMUX_REPLAY stale surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)")
                     return
                 }
                 let deliverBytes: Data?
                 if let renderGrid {
                     deliverBytes = renderGrid.vtPatchBytes()
-                    liveAnchormuxLog("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq)")
+                    MobileDebugLog.anchormux("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq)")
                 } else if let snapshotBytes, !snapshotBytes.isEmpty {
                     deliverBytes = Self.terminalSnapshotReplacementBytes(snapshotBytes)
-                    liveAnchormuxLog("CMUX_REPLAY snapshot surface=\(surfaceID) bytes=\(snapshotBytes.count) seq=\(replaySeq ?? 0)")
+                    MobileDebugLog.anchormux("CMUX_REPLAY snapshot surface=\(surfaceID) bytes=\(snapshotBytes.count) seq=\(replaySeq ?? 0)")
                 } else {
                     deliverBytes = bytes
-                    liveAnchormuxLog("CMUX_REPLAY raw_tail surface=\(surfaceID) bytes=\(bytes?.count ?? -1) seq=\(replaySeq ?? 0)")
+                    MobileDebugLog.anchormux("CMUX_REPLAY raw_tail surface=\(surfaceID) bytes=\(bytes?.count ?? -1) seq=\(replaySeq ?? 0)")
                 }
                 if let replaySeq {
                     self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
@@ -1772,7 +1772,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
            deliveredSeq > renderGrid.stateSeq {
-            liveAnchormuxLog(
+            MobileDebugLog.anchormux(
                 "sync.render_grid_stale surface=\(renderGrid.surfaceID) delivered=\(deliveredSeq) frame=\(renderGrid.stateSeq)"
             )
             return
@@ -1806,7 +1806,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let endSeq = seq &+ UInt64(bytes.count)
         if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] {
             if seq > deliveredSeq {
-                liveAnchormuxLog("sync.byte_gap surface=\(surfaceID) delivered=\(deliveredSeq) next=\(seq)")
+                MobileDebugLog.anchormux("sync.byte_gap surface=\(surfaceID) delivered=\(deliveredSeq) next=\(seq)")
                 mobileShellLog.info("terminal byte gap surface=\(surfaceID, privacy: .public) deliveredSeq=\(deliveredSeq, privacy: .public) nextSeq=\(seq, privacy: .public)")
                 resyncTerminalOutput(
                     reason: "seq_gap",

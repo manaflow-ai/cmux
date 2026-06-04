@@ -76,6 +76,9 @@ scan untyped WARN '\[String: Any\]' 1 "${SCOPES[@]}"
 echo "== hardcoded global state in packages (inject instead) =="
 scan global WARN '\b(UserDefaults\.standard|FileManager\.default|Bundle\.main)\b' 1 Packages/CMUXMobile* Packages/CmuxMobile* 2>/dev/null || true
 
+echo "== free functions (scope functionality to a type) =="
+scan free-function ERROR '^(@[A-Za-z()_ ]+ )?(public |internal |package |private |fileprivate )?func [a-zA-Z]' 0 "${SCOPES[@]}"
+
 echo "== namespace-enums (caseless enum with static members) =="
 while IFS= read -r f; do
   case "$f" in */Tests/*|*Tests.swift|*/.build/*) continue ;; esac
@@ -98,7 +101,7 @@ for m in re.finditer(r'(?:public\s+|package\s+)?enum\s+(\w+)[^{]*\{', src):
         if 'lint:allow' in ctx:
             continue
         line = head.count('\n') + 1
-        print(f'ERROR   namespace-enum               {path}:{line}  enum {name} (caseless, static members) -> value struct or file-scope func')
+        print(f'ERROR   namespace-enum               {path}:{line}  enum {name} (caseless, static members) -> scope onto the owning type')
 PY
 done < <(grep -rlE '\benum [A-Z]' "${SCOPES[@]}" --include='*.swift' 2>/dev/null) | tee /tmp/.lint-ns-enum-$$
 grep -q ERROR /tmp/.lint-ns-enum-$$ 2>/dev/null && fail=1
