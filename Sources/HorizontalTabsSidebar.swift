@@ -194,7 +194,7 @@ struct HorizontalTabsSidebar: View {
             customColorHex: customColorHex,
             unreadCount: unreadCount,
             shortcutLabel: shortcutLabel,
-            canCloseWorkspace: workspaceCount > 1 && !isPinned && tabManager.canCloseWorkspace(workspace),
+            canCloseWorkspace: workspaceCount > 1 && tabManager.canCloseWorkspace(workspace, allowPinned: true),
             accessibilityTitle: String.localizedStringWithFormat(
                 String(
                     localized: "accessibility.workspacePosition",
