@@ -7344,6 +7344,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
+    private func flushPendingScrollbarIfAvailable() -> Bool {
+        _scrollbarLock.lock()
+        let hasPending = _pendingScrollbar != nil
+        _scrollbarLock.unlock()
+
+        guard hasPending else { return false }
+        flushPendingScrollbar()
+        return true
+    }
+
     func enqueueRenderedFrameUpdate() {
         guard GhosttyRenderedFrameNotificationDemand.isActive else { return }
 
@@ -7391,6 +7401,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModePendingViewportJumpSync = false
     private var keyboardCopyModePendingViewportJumpScrollbarOffset: UInt64?
+    private var keyboardCopyModePendingViewportJumpGeneration = 0
     /// Tracks whether the user has explicitly entered visual selection mode (v).
     /// Separate from Ghostty's `has_selection` because non-visual copy mode keeps
     /// the cursor in AppKit overlay state until visual selection starts.
@@ -8069,6 +8080,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func setKeyboardCopyModeActive(_ active: Bool) {
         keyboardCopyModeInputState.reset()
         keyboardCopyModeVisualActive = false
+        keyboardCopyModePendingViewportJumpGeneration += 1
+        keyboardCopyModePendingViewportJumpSync = false
+        keyboardCopyModePendingViewportJumpScrollbarOffset = nil
         keyboardCopyModeActive = active
         if active, let surface {
             _ = ghostty_surface_clear_selection_compat(surface)
@@ -8218,14 +8232,40 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func beginKeyboardCopyModeViewportJumpCursorSync() {
+        keyboardCopyModePendingViewportJumpGeneration += 1
         keyboardCopyModePendingViewportJumpSync = true
         keyboardCopyModePendingViewportJumpScrollbarOffset = scrollbar?.offset
     }
 
     private func scheduleKeyboardCopyModeViewportJumpCursorSyncFallback() {
+        let generation = keyboardCopyModePendingViewportJumpGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
-            self?.finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded()
+            self?.previewKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: generation)
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) { [weak self] in
+            self?.expireKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: generation)
+        }
+    }
+
+    private func previewKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: Int) {
+        guard keyboardCopyModePendingViewportJumpSync,
+              generation == keyboardCopyModePendingViewportJumpGeneration,
+              keyboardCopyModeActive,
+              let surface else { return }
+
+        if flushPendingScrollbarIfAvailable() {
+            return
+        }
+
+        clampKeyboardCopyModeCursor(surface: surface)
+    }
+
+    private func expireKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: Int) {
+        guard keyboardCopyModePendingViewportJumpSync,
+              generation == keyboardCopyModePendingViewportJumpGeneration else { return }
+
+        keyboardCopyModePendingViewportJumpSync = false
+        keyboardCopyModePendingViewportJumpScrollbarOffset = nil
     }
 
     private func finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded(newScrollbar: GhosttyScrollbar? = nil) {
