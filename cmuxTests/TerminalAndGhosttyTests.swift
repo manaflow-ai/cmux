@@ -3984,6 +3984,28 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTWaiter().wait(for: [expectation], timeout: 1.0)
     }
 
+    @discardableResult
+    private func waitUntil(
+        timeout: TimeInterval = 1.0,
+        description: String,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: @escaping () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        guard condition() else {
+            XCTFail("Timed out waiting for \(description)", file: file, line: line)
+            return false
+        }
+        return true
+    }
+
     func testPortalHostInstallsAboveContentViewForVisibility() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
