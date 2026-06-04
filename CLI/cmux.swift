@@ -1043,8 +1043,18 @@ private final class ClaudeHookSessionStore {
         if let pid {
             record.pid = pid
         }
-        if let launchCommand, !launchCommand.arguments.isEmpty {
-            record.launchCommand = launchCommand
+        if let launchCommand {
+            let existingHasArguments = !(record.launchCommand?.arguments.isEmpty ?? true)
+            let incomingHasArguments = !launchCommand.arguments.isEmpty
+            let incomingHasEnvironment = !(launchCommand.environment?.isEmpty ?? true)
+            // Persist an argv-bearing record always. Persist an argv-less, env-only record (the
+            // CODEX_HOME / CLAUDE_CONFIG_DIR fallback for a plain agent whose launch argv couldn't be
+            // captured) only when we don't already hold an argv-bearing one — so the durable store
+            // keeps the non-default home for the fork/resume path without ever downgrading a richer
+            // earlier capture to an env-only stub.
+            if incomingHasArguments || (incomingHasEnvironment && !existingHasArguments) {
+                record.launchCommand = launchCommand
+            }
         }
         if let isRestorable {
             // Preserve sticky true: a later isRestorable=false must not clear
@@ -3146,6 +3156,14 @@ struct CMUXCLI {
         if command == "omx" {
             try runOMX(
                 commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
+        if command == "__debug-tmux-compat-env" {
+            try debugDumpTmuxCompatEnvironment(
                 socketPath: resolvedSocketPath,
                 explicitPassword: socketPasswordArg
             )
@@ -17678,11 +17696,60 @@ struct CMUXCLI {
             setenv(envVar.key, envVar.value, 1)
         }
         if let focusedContext {
-            setenv("CMUX_WORKSPACE_ID", focusedContext.workspaceId, 1)
-            if let surfaceId = focusedContext.surfaceId, !surfaceId.isEmpty {
+            // The launcher's OWN surface (its inherited env, passed in as processEnvironment) is the
+            // agent's canonical identity; the focused pane is only a fallback. Stamping the focused
+            // pane here would desync CMUX_SURFACE_ID from the inherited CMUX_PANEL_ID and make agents
+            // (codex omx/teams) record + restore into the wrong surface after reload (#4920).
+            let identity = AgentSpawnIdentity().resolve(
+                ownWorkspaceId: processEnvironment["CMUX_WORKSPACE_ID"],
+                ownSurfaceId: processEnvironment["CMUX_SURFACE_ID"],
+                focusedWorkspaceId: focusedContext.workspaceId,
+                focusedSurfaceId: focusedContext.surfaceId
+            )
+            if let workspaceId = identity.workspaceId {
+                setenv("CMUX_WORKSPACE_ID", workspaceId, 1)
+            }
+            if let surfaceId = identity.surfaceId {
                 setenv("CMUX_SURFACE_ID", surfaceId, 1)
             }
         }
+    }
+
+    /// Hidden `__debug-tmux-compat-env` seam: runs the real ``configureTmuxCompatEnvironment`` against
+    /// the live socket's focused context and prints the resolved CMUX_* identity, so an integration
+    /// test can assert the launcher stamps the launch surface (its own env) rather than the focused
+    /// pane (#4920). Not user-facing. The shim/tmux params here do not affect the id resolution.
+    func debugDumpTmuxCompatEnvironment(socketPath: String, explicitPassword: String?) throws {
+        var processEnvironment = ProcessInfo.processInfo.environment
+        // Resolve the focused context from the SAME socket this command was pointed at, not whatever
+        // CMUX_SOCKET_PATH the process happened to inherit.
+        processEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        let focusedContext = try tmuxCompatFocusedContext(
+            processEnvironment: processEnvironment,
+            explicitPassword: explicitPassword
+        )
+        let shimDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-debug-tmux-shim-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+        // This is the one-shot debug dump (it never spawns a long-lived agent that would need the
+        // shims on PATH), so remove the shim dir on exit instead of leaking a /tmp dir per invocation.
+        defer { try? FileManager.default.removeItem(at: shimDirectory) }
+        configureTmuxCompatEnvironment(
+            processEnvironment: processEnvironment,
+            shimDirectory: shimDirectory,
+            executablePath: processEnvironment["CMUX_BUNDLED_CLI_PATH"] ?? "cmux",
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            focusedContext: focusedContext,
+            tmuxPathPrefix: "cmux-debug",
+            cmuxBinEnvVar: "CMUX_BIN",
+            termOverrideEnvVar: "TERM"
+        )
+        func dump(_ key: String) -> String { getenv(key).map { String(cString: $0) } ?? "" }
+        print("CMUX_WORKSPACE_ID=\(dump("CMUX_WORKSPACE_ID"))")
+        print("CMUX_SURFACE_ID=\(dump("CMUX_SURFACE_ID"))")
+        print("CMUX_PANEL_ID=\(dump("CMUX_PANEL_ID"))")
+        print("CMUX_TAB_ID=\(dump("CMUX_TAB_ID"))")
     }
 
     private static let claudeNodeOptionsRestoreModule = """
@@ -18553,11 +18620,21 @@ struct CMUXCLI {
         guard let focusedContext = try tmuxCompatFocusedContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
-        ),
-              let rootSurfaceId = focusedContext.surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rootSurfaceId.isEmpty else {
+        ) else {
             throw CLIError(message: "cmux codex-teams must be started from a cmux terminal surface")
         }
+        // The codex-teams root identity is the LAUNCH surface (this process's own env), not the
+        // operator's focused pane, so the watcher records the surface codex actually runs in (#4920).
+        let rootIdentity = AgentSpawnIdentity().resolve(
+            ownWorkspaceId: launcherEnvironment["CMUX_WORKSPACE_ID"],
+            ownSurfaceId: launcherEnvironment["CMUX_SURFACE_ID"],
+            focusedWorkspaceId: focusedContext.workspaceId,
+            focusedSurfaceId: focusedContext.surfaceId
+        )
+        guard let rootSurfaceId = rootIdentity.surfaceId, !rootSurfaceId.isEmpty else {
+            throw CLIError(message: "cmux codex-teams must be started from a cmux terminal surface")
+        }
+        let rootWorkspaceId = rootIdentity.workspaceId ?? focusedContext.workspaceId
 
         let codexExecutablePath = resolveCodexExecutable(searchPath: launcherEnvironment["PATH"])
         let codexExecutableForShell = codexExecutablePath ?? "codex"
@@ -18653,7 +18730,7 @@ struct CMUXCLI {
             socketPath,
             "__codex-teams-watch",
             "--workspace-id",
-            focusedContext.workspaceId,
+            rootWorkspaceId,
             "--surface-id",
             rootSurfaceId,
             "--app-server-url",
@@ -24694,22 +24771,52 @@ struct CMUXCLI {
         let envArguments = decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
         let processArguments = fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
         let arguments = envArguments ?? processArguments
-        guard let arguments, !arguments.isEmpty else { return nil }
-
-        let executablePath = normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) ?? arguments.first
+        let launcher = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]) ?? fallbackKind
         let workingDirectory = normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
-        let launcher = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]) ?? fallbackKind
+        let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
+
+        // Fallback when the launch argv is genuinely UNAVAILABLE: plain `codex` with no cmux launcher
+        // (no CMUX_AGENT_LAUNCH_ARGV_B64) and an unresolved/exited PID, so processArguments returns nil.
+        // The argv is gone, but the agent's launch env may still carry a non-default home that
+        // resume/fork MUST reproduce or the session won't be found — above all CODEX_HOME when codex
+        // runs under the subrouter account manager (~/.codex-accounts/<account>), also CLAUDE_CONFIG_DIR
+        // for Claude. AgentResumeCommandBuilder then prefixes it ahead of the kind's fallback verb
+        // (`CODEX_HOME=<home> codex resume <id>`), while launcher/kind resolution still gates whether a
+        // resume command is produced (omx/omc and unknown kinds stay non-resumable). Empty selected env
+        // keeps the historical nil. This deliberately does NOT cover a captured-but-rejected argv (see
+        // the sanitizer guard below), so non-restorable invocations stay non-resumable.
+        func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
+            guard !environment.isEmpty else { return nil }
+            return AgentHookLaunchCommandRecord(
+                launcher: launcher,
+                executablePath: nil,
+                arguments: [],
+                workingDirectory: workingDirectory,
+                environment: environment,
+                capturedAt: Date().timeIntervalSince1970,
+                source: "environment"
+            )
+        }
+
+        guard let arguments, !arguments.isEmpty else {
+            return environmentOnlyRecord()
+        }
+
+        let executablePath = normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) ?? arguments.first
         guard let sanitizedArguments = sanitizedAgentLaunchArguments(
             arguments,
             launcher: launcher,
             fallbackKind: fallbackKind
         ) else {
+            // Argv WAS captured but the sanitizer rejected it — this is exactly how AgentLaunchSanitizer
+            // suppresses non-restorable invocations (`codex exec`, `codex review`, `claude config`, …).
+            // Those must never get a resume/fork binding, so stay nil even when a safe env var (e.g.
+            // CODEX_HOME) is present; do NOT fall through to the env-only record here.
             return nil
         }
         let source = envArguments == nil ? "process" : "environment"
-        let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
 
         return AgentHookLaunchCommandRecord(
             launcher: launcher,
@@ -27309,7 +27416,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let inferredPID = inferredAgentPID()
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
-        let directSurfaceArg = optionValue(hookArgs, name: "--surface")
+        let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
+        let directSurfaceArg = explicitSurfaceFlag
             ?? (hookWsFlag == nil ? normalizedHookValue(env["CMUX_SURFACE_ID"]) : nil)
         func resolveAccessibleWorkspaceId(_ raw: String?) -> String? {
             guard let raw = nonEmptyClaudeHookIdentifier(raw) else {
@@ -27336,15 +27444,22 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
         }
         let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
-        let hasInvalidDirectWorkspaceArg = directWorkspaceArg != nil && resolvedDirectWorkspaceArg == nil
+        // Only an EXPLICIT --workspace flag that fails to resolve is a hard, hook-dropping error. A
+        // stale/invalid AMBIENT CMUX_WORKSPACE_ID must not abort routing — treated as absent, it falls
+        // through to the PID/TTY binding below, which is ground truth.
+        let hasInvalidDirectWorkspaceArg = hookWsFlag != nil && resolvedDirectWorkspaceArg == nil
         var processBindingCache: CallerTerminalBinding?
         var didResolveProcessBinding = false
         func processBinding() -> CallerTerminalBinding? {
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
-                guard directWorkspaceArg == nil || directSurfaceArg == nil else {
-                    return nil
-                }
+                // Always resolve the agent process's own terminal binding (TTY first, then PID), even
+                // when env supplies both ids. Historically this was suppressed whenever both env ids
+                // were present, which made a leaked/stale CMUX_SURFACE_ID impossible to correct — the
+                // codex jumble class, where a session routes to the wrong surface and the no-pid-gate
+                // resume binding persists it across reload. resolveAgentHookTarget now uses this
+                // binding to OVERRIDE a disagreeing ambient-env surface; the binding stays nil (env
+                // trusted) under remote/SSH where no local TTY maps to a surface.
                 processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
                     ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
             }
@@ -27361,7 +27476,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
             return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
         }()
-        let hasInvalidDirectSurfaceArg = directSurfaceArg != nil && resolvedDirectSurfaceArg == nil
+        // Same asymmetry for the surface: an explicit --surface flag that fails to resolve is a hard
+        // error, but a stale/invalid ambient CMUX_SURFACE_ID (a surface that was closed, or belongs to
+        // another workspace) must fall through to the PID/TTY binding instead of dropping the hook —
+        // that is the stale-env variant of the codex jumble.
+        let hasInvalidDirectSurfaceArg = explicitSurfaceFlag != nil && resolvedDirectSurfaceArg == nil
         let hasUnusableDirectBinding = hasInvalidDirectWorkspaceArg || hasInvalidDirectSurfaceArg
         func workspaceArg() -> String? {
             resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
@@ -27548,8 +27667,37 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return (workspaceId, surfaceId)
             }
 
+            // G3 (codex jumble defense-in-depth): the surface id can arrive from the ambient env
+            // (CMUX_SURFACE_ID), which a launcher or an inherited subprocess can leak as the operator's
+            // FOCUSED pane rather than the agent's own pane. When the agent process's controlling TTY
+            // (or PID) is bound to a DIFFERENT, accessible surface inside this same workspace, that
+            // binding is ground truth — prefer it. Returns the env surface unchanged when there is no
+            // env surface to correct, when it came from an explicit --surface flag (operator intent),
+            // or when the TTY/PID binding is unavailable (remote/SSH) or already agrees. Stays within
+            // the env workspace so a flaky binding can never cross-route to a different workspace.
+            func correctedDirectSurfaceId(workspaceId: String) -> String? {
+                guard let envSurface = resolvedDirectSurfaceArg else { return nil }
+                guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return envSurface }
+                guard let binding = processBinding(),
+                      let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
+                      let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
+                      resolveAccessibleWorkspaceId(boundWorkspaceRaw) == workspaceId,
+                      let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: workspaceId),
+                      boundSurface != envSurface else {
+                    return envSurface
+                }
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.surface.correct agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) env=\(agentHookDebugShort(envSurface)) tty=\(agentHookDebugShort(boundSurface))",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return boundSurface
+            }
+
             if let workspaceId = resolvedDirectWorkspaceArg {
-                let preferredSurfaceId = resolvedDirectSurfaceArg
+                let preferredSurfaceId = correctedDirectSurfaceId(workspaceId: workspaceId)
                     ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
                 let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped)
 #if DEBUG
