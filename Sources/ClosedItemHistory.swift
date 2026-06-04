@@ -298,6 +298,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         if lastRestoredOperationId != nil {
             lastRestoredOperationId = nil
         }
+        removeRestoredRefsMatchingClosedEntry(record.entry)
         records.append(record)
         trimToCapacityIfNeeded()
         revision &+= 1
@@ -463,7 +464,8 @@ final class ClosedItemHistoryStore: ObservableObject {
         }
         return order.compactMap { opId -> ClosedOperationSnapshot? in
             guard let recs = byOp[opId], !recs.isEmpty else { return nil }
-            let items = recs.map { record -> ClosedItemHistoryMenuItem in
+            let orderedRecords = recs.reversed()
+            let items = orderedRecords.map { record -> ClosedItemHistoryMenuItem in
                 var item = Self.menuItem(for: record)
                 item.isRestored = isRecordRestored(record.id)
                 return item
@@ -480,18 +482,19 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     /// Returns the newest operation with at least one item that is not live,
     /// without evaluating restored state for every record in the full log.
-    func firstUndoableOperation() -> ClosedOperationSnapshot? {
+    func firstUndoableOperation(excluding excludedRecordIds: Set<UUID> = []) -> ClosedOperationSnapshot? {
         var order: [UUID] = []
         var byOp: [UUID: [ClosedItemHistoryRecord]] = [:]
-        for record in records.reversed() {
+        for record in records.reversed() where !excludedRecordIds.contains(record.id) {
             if byOp[record.operationId] == nil { order.append(record.operationId) }
             byOp[record.operationId, default: []].append(record)
         }
 
         for opId in order {
             guard let recs = byOp[opId], !recs.isEmpty else { continue }
+            let orderedRecords = recs.reversed()
             var hasUnrestoredItem = false
-            let items = recs.map { record -> ClosedItemHistoryMenuItem in
+            let items = orderedRecords.map { record -> ClosedItemHistoryMenuItem in
                 var item = Self.menuItem(for: record)
                 item.isRestored = isRecordRestored(record.id)
                 if !item.isRestored {
@@ -515,14 +518,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     /// source of truth for "already restored").
     func isRecordRestored(_ recordId: UUID) -> Bool {
         guard let ref = restoredRefByRecordId[recordId], let isTargetLive else { return false }
-        guard isTargetLive(ref) else {
-            restoredRefByRecordId.removeValue(forKey: recordId)
-            if redoTarget == ref {
-                redoTarget = nil
-            }
-            return false
-        }
-        return true
+        return isTargetLive(ref)
     }
 
     /// Records that `recordId` was restored into the live item `ref`.
@@ -534,6 +530,20 @@ final class ClosedItemHistoryStore: ObservableObject {
     /// The live ref a record was restored into, if still tracked.
     func restoredRef(for recordId: UUID) -> ReopenedItemRef? {
         restoredRefByRecordId[recordId]
+    }
+
+    private func removeRestoredRefsMatchingClosedEntry(_ entry: ClosedItemHistoryEntry) {
+        let closedRef: ReopenedItemRef
+        switch entry {
+        case .panel(let panelEntry):
+            closedRef = .panel(workspaceId: panelEntry.workspaceId, panelId: panelEntry.snapshot.id)
+        case .workspace(let workspaceEntry):
+            closedRef = .workspace(workspaceId: workspaceEntry.workspaceId)
+        case .window(let windowEntry):
+            guard let windowId = windowEntry.windowId else { return }
+            closedRef = .window(windowId: windowId)
+        }
+        restoredRefByRecordId = restoredRefByRecordId.filter { $0.value != closedRef }
     }
 
     /// All records belonging to one operation, in close order (oldest first).

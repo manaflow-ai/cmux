@@ -7052,9 +7052,9 @@ class TabManager: ObservableObject {
             ) else { return }
         }
 
+        let operationId = UUID()
         for panelId in plan.panelIds {
-            plan.workspace.markCloseHistoryEligible(panelId: panelId)
-            _ = plan.workspace.closePanel(panelId, force: true)
+            _ = plan.workspace.closePanel(panelId, force: true, operationId: operationId)
         }
     }
 
@@ -9440,6 +9440,10 @@ class TabManager: ObservableObject {
         // entry stays after reopening.
         guard let record = ClosedItemHistoryStore.shared.record(id: id) else {
             return false
+        }
+        if ClosedItemHistoryStore.shared.isRecordRestored(record.id) {
+            ClosedItemHistoryStore.shared.setLastRestoredOperation(record.operationId)
+            return true
         }
 
         switch record.entry {

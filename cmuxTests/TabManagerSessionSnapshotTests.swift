@@ -671,6 +671,38 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(ClosedItemHistoryStore.shared.record(id: recordId))
     }
 
+    func testReopenClosedHistoryItemByIdDoesNotDuplicateAlreadyRestoredRow() throws {
+        let originalAppDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        defer {
+            AppDelegate.shared = originalAppDelegate
+            ClosedItemHistoryStore.shared.isTargetLive = nil
+        }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+        workspace.markCloseHistoryEligible(panelId: panelId)
+        XCTAssertTrue(workspace.closePanel(panelId, force: true))
+        drainMainQueue()
+        let recordId = try XCTUnwrap(ClosedItemHistoryStore.shared.menuSnapshot().items.first?.id)
+        ClosedItemHistoryStore.shared.isTargetLive = { ref in
+            if case .panel(let workspaceId, let panelId) = ref {
+                return workspace.id == workspaceId && workspace.panels[panelId] != nil
+            }
+            return false
+        }
+
+        XCTAssertTrue(manager.reopenClosedHistoryItem(id: recordId))
+        let panelCount = workspace.panels.count
+
+        XCTAssertTrue(manager.reopenClosedHistoryItem(id: recordId))
+
+        XCTAssertEqual(workspace.panels.count, panelCount)
+        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount, 1)
+    }
+
     func testRemovingRestoredHistoryRecordClearsRedoState() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -698,6 +730,85 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(store.restoredRef(for: record.id))
         XCTAssertNil(store.redoTarget)
         XCTAssertNil(store.lastRestoredOperationId)
+    }
+
+    func testClosingRestoredItemClearsOriginalRestoredRef() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        let originalRecord = ClosedItemHistoryRecord(entry: .panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+        let restoredRef = ReopenedItemRef.panel(workspaceId: workspace.id, panelId: panelSnapshot.id)
+        let store = ClosedItemHistoryStore(capacity: 10)
+        store.push(originalRecord)
+        store.markRestored(recordId: originalRecord.id, ref: restoredRef)
+
+        store.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+
+        XCTAssertNil(store.restoredRef(for: originalRecord.id))
+    }
+
+    func testOperationSnapshotDoesNotMutateDeadRestoredRefs() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        let record = ClosedItemHistoryRecord(entry: .panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+        let ref = ReopenedItemRef.panel(workspaceId: workspace.id, panelId: panelSnapshot.id)
+        let store = ClosedItemHistoryStore(capacity: 10)
+        store.isTargetLive = { _ in false }
+        store.push(record)
+        store.markRestored(recordId: record.id, ref: ref)
+        store.noteReopened(ref)
+
+        let snapshot = store.operationSnapshot()
+
+        XCTAssertEqual(snapshot.first?.items.first?.isRestored, false)
+        XCTAssertEqual(store.restoredRef(for: record.id), ref)
+        XCTAssertEqual(store.redoTarget, ref)
+    }
+
+    func testFirstUndoableOperationCanExcludeFailedNewestRecords() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        let store = ClosedItemHistoryStore(capacity: 10)
+        let older = ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspace.id,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: panelSnapshot
+            ))
+        )
+        let newest = ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 2),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: UUID(),
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: panelSnapshot
+            ))
+        )
+        store.push(older)
+        store.push(newest)
+
+        XCTAssertEqual(store.firstUndoableOperation()?.id, newest.operationId)
+        XCTAssertEqual(store.firstUndoableOperation(excluding: [newest.id])?.id, older.operationId)
     }
 
     func testReopenClosedBrowserSplitFromClosedItemHistoryRestoresCollapsedPane() throws {

@@ -58,7 +58,7 @@ struct SessionIndexView: View {
     @State private var openPopoverSection: SectionKey?
     @State private var previewEntry: SessionEntry?
     let onResume: ((SessionEntry) -> Void)?
-    let onDelete: ((SessionEntry) -> Void)?
+    let onDelete: ((SessionEntry) -> Bool)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
 
@@ -336,7 +336,7 @@ struct IndexSectionActions {
     let onPreviewEntry: (SessionEntry) -> Void
     let onDismissPreview: (SessionEntry.ID) -> Void
     let onResume: ((SessionEntry) -> Void)?
-    let onDelete: ((SessionEntry) -> Void)?
+    let onDelete: ((SessionEntry) -> Bool)?
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
 }
@@ -564,7 +564,7 @@ private struct SessionRow: View, Equatable {
     let isPreviewPresented: Bool
     let onPreviewPresentationChange: (Bool) -> Void
     let onResume: ((SessionEntry) -> Void)?
-    let onDelete: ((SessionEntry) -> Void)?
+    let onDelete: ((SessionEntry) -> Bool)?
     @State private var isHovered: Bool = false
 
     static func == (lhs: SessionRow, rhs: SessionRow) -> Bool {
@@ -675,7 +675,7 @@ private struct SessionRow: View, Equatable {
 private func sessionRowMenuItems(
     entry: SessionEntry,
     onResume: ((SessionEntry) -> Void)?,
-    onDelete: ((SessionEntry) -> Void)? = nil
+    onDelete: ((SessionEntry) -> Bool)? = nil
 ) -> some View {
     if let onResume {
         Button {
@@ -732,7 +732,7 @@ private func sessionRowMenuItems(
     if let onDelete, entry.isDeletable {
         Divider()
         Button(role: .destructive) {
-            onDelete(entry)
+            _ = onDelete(entry)
         } label: {
             Text(String(localized: "sessionIndex.row.delete", defaultValue: "Delete from History"))
         }
@@ -2137,7 +2137,7 @@ private struct SectionPopoverView: View {
     /// is an in-memory array slice, not repeated store round-trips.
     let loadSnapshot: DirectorySnapshotFn
     let onResume: ((SessionEntry) -> Void)?
-    let onDelete: ((SessionEntry) -> Void)?
+    let onDelete: ((SessionEntry) -> Bool)?
     let onDismiss: () -> Void
 
     @State private var query: String = ""
@@ -2245,12 +2245,13 @@ private struct SectionPopoverView: View {
                     } else {
                         ForEach(loaded) { entry in
                             PopoverRow(entry: entry, onDelete: { deletedEntry in
-                                onDelete?(deletedEntry)
+                                guard onDelete?(deletedEntry) == true else { return false }
                                 // The popover intentionally doesn't rebuild on store
                                 // changes, so drop the deleted row from local state
                                 // to keep it from lingering as activatable.
                                 loaded.removeAll { $0.id == deletedEntry.id }
                                 fullSnapshot?.removeAll { $0.id == deletedEntry.id }
+                                return true
                             }) {
                                 onResume?(entry)
                                 onDismiss()
@@ -2480,7 +2481,7 @@ private struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
-    let onDelete: ((SessionEntry) -> Void)?
+    let onDelete: ((SessionEntry) -> Bool)?
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
@@ -2660,7 +2661,7 @@ struct SectionPopoverHost: NSViewRepresentable {
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
     let onResume: ((SessionEntry) -> Void)?
-    let onDelete: ((SessionEntry) -> Void)?
+    let onDelete: ((SessionEntry) -> Bool)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(isPresented: $isPresented)
@@ -2720,7 +2721,7 @@ struct SectionPopoverHost: NSViewRepresentable {
         private var currentSearch: SessionSearchFn?
         private var currentLoadSnapshot: DirectorySnapshotFn?
         private var currentOnResume: ((SessionEntry) -> Void)?
-        private var currentOnDelete: ((SessionEntry) -> Void)?
+        private var currentOnDelete: ((SessionEntry) -> Bool)?
         private var lastRenderedSection: IndexSection?
         private var lastRenderedPresentationCount: Int?
         /// Bumped on every present(). Used as the SwiftUI view identity so each
@@ -2736,7 +2737,7 @@ struct SectionPopoverHost: NSViewRepresentable {
             search: @escaping SessionSearchFn,
             loadSnapshot: @escaping DirectorySnapshotFn,
             onResume: ((SessionEntry) -> Void)?,
-            onDelete: ((SessionEntry) -> Void)?
+            onDelete: ((SessionEntry) -> Bool)?
         ) {
             currentSection = section
             currentSearch = search

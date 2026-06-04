@@ -11567,12 +11567,15 @@ class TerminalController {
     }
 
     private func v2HistoryList(params: [String: Any]) -> V2CallResult {
+        let resolved = v2HistoryPreferredTabManager(params: params)
+        if let error = resolved.error { return error }
         var operations: [[String: Any]] = []
         var totalItems = 0
         v2MainSync {
             let ops = ClosedItemHistoryStore.shared.operationSnapshot()
             operations = ops.map { op in
-                [
+                totalItems += op.items.count
+                return [
                     "id": op.id.uuidString,
                     "label": op.label,
                     "closed_at": Int(op.closedAt.timeIntervalSince1970 * 1000),
@@ -11587,21 +11590,34 @@ class TerminalController {
                     }
                 ] as [String: Any]
             }
-            totalItems = ops.reduce(0) { $0 + $1.items.count }
         }
         return .ok(["operations": operations, "count": totalItems])
+    }
+
+    private func v2HistoryPreferredTabManager(params: [String: Any]) -> (tabManager: TabManager?, error: V2CallResult?) {
+        guard v2HasNonNullParam(params, "window_id") else {
+            return (v2ResolveTabManager(params: params), nil)
+        }
+        guard let windowId = v2UUID(params, "window_id") else {
+            return (nil, .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil))
+        }
+        guard let tabManager = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) else {
+            return (nil, .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString]))
+        }
+        return (tabManager, nil)
     }
 
     private func v2HistoryReopen(params: [String: Any]) -> V2CallResult {
         guard let historyId = v2UUID(params, "history_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid history_id", data: nil)
         }
-        let tabManager = v2ResolveTabManager(params: params)
+        let resolved = v2HistoryPreferredTabManager(params: params)
+        if let error = resolved.error { return error }
         var reopened = false
         v2MainSync {
             reopened = AppDelegate.shared?.reopenClosedHistoryItem(
                 id: historyId,
-                preferredTabManager: tabManager,
+                preferredTabManager: resolved.tabManager,
                 shouldActivate: false
             ) ?? false
         }
@@ -11616,11 +11632,12 @@ class TerminalController {
     }
 
     private func v2HistoryUndo(params: [String: Any]) -> V2CallResult {
-        let tabManager = v2ResolveTabManager(params: params)
+        let resolved = v2HistoryPreferredTabManager(params: params)
+        if let error = resolved.error { return error }
         var reopened = false
         v2MainSync {
             reopened = AppDelegate.shared?.undoLastDestructiveAction(
-                preferredTabManager: tabManager,
+                preferredTabManager: resolved.tabManager,
                 shouldActivate: false
             ) ?? false
         }
@@ -11631,10 +11648,11 @@ class TerminalController {
     }
 
     private func v2HistoryRedo(params: [String: Any]) -> V2CallResult {
-        let tabManager = v2ResolveTabManager(params: params)
+        let resolved = v2HistoryPreferredTabManager(params: params)
+        if let error = resolved.error { return error }
         var didRedo = false
         v2MainSync {
-            didRedo = AppDelegate.shared?.redoLastDestructiveAction(preferredTabManager: tabManager) ?? false
+            didRedo = AppDelegate.shared?.redoLastDestructiveAction(preferredTabManager: resolved.tabManager) ?? false
         }
         guard didRedo else {
             return .err(code: "not_found", message: "Nothing to redo", data: nil)
@@ -11643,11 +11661,12 @@ class TerminalController {
     }
 
     private func v2HistoryClear(params: [String: Any]) -> V2CallResult {
-        let tabManager = v2ResolveTabManager(params: params)
+        let resolved = v2HistoryPreferredTabManager(params: params)
+        if let error = resolved.error { return error }
         var count = 0
         v2MainSync {
             count = ClosedItemHistoryStore.shared.menuSnapshot(maxItemCount: nil).totalItemCount
-            AppDelegate.shared?.clearRecentlyClosedHistory(preferredTabManager: tabManager)
+            AppDelegate.shared?.clearRecentlyClosedHistory(preferredTabManager: resolved.tabManager)
         }
         return .ok(["cleared": count])
     }

@@ -429,7 +429,7 @@ struct RightSidebarPanelView: View {
                 store: sessionIndexStore,
                 onResume: onResumeSession,
                 onDelete: { [weak sessionIndexStore] entry in
-                    sessionIndexStore?.delete(entry)
+                    sessionIndexStore?.delete(entry) ?? false
                 }
             )
                 .onAppear {
