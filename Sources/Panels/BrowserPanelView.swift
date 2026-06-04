@@ -7,6 +7,15 @@ import ObjectiveC
 private var cmuxBrowserPanelNeedsRenderingStateReattachKey: UInt8 = 0
 let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
 
+private enum OmnibarFocusGainedSelectionIntent {
+    case preserveFieldEditorSelection
+    case selectAll
+
+    var shouldSelectAll: Bool {
+        self == .selectAll
+    }
+}
+
 private func browserPanelViewObjectID(_ object: AnyObject?) -> String {
     guard let object else { return "nil" }
     return String(describing: Unmanaged.passUnretained(object).toOpaque())
@@ -456,6 +465,7 @@ struct BrowserPanelView: View {
     @State private var focusModeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var omnibarSelectAllRequestId: UInt64 = 0
+    @State private var pendingFocusGainedSelectionIntent: OmnibarFocusGainedSelectionIntent = .preserveFieldEditorSelection
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
     // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
@@ -965,6 +975,8 @@ struct BrowserPanelView: View {
 #endif
         let urlString = panel.preferredURLStringForOmnibar() ?? ""
         if focused {
+            let selectionIntent = pendingFocusGainedSelectionIntent
+            pendingFocusGainedSelectionIntent = .preserveFieldEditorSelection
             panel.beginSuppressWebViewFocusForAddressBar()
             NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panel.id)
             // Only request panel focus if this pane isn't currently focused. When already
@@ -977,11 +989,12 @@ struct BrowserPanelView: View {
             }
             let effects = omnibarReduce(
                 state: &omnibarState,
-                event: .focusGained(currentURLString: urlString)
+                event: .focusGained(currentURLString: urlString, shouldSelectAll: selectionIntent.shouldSelectAll)
             )
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
         } else {
+            pendingFocusGainedSelectionIntent = .preserveFieldEditorSelection
             panel.endSuppressWebViewFocusForAddressBar()
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panel.id)
             if suppressNextFocusLostRevert {
@@ -1848,7 +1861,11 @@ struct BrowserPanelView: View {
         canHandleOmnibarSelectionNavigation() && hasActionableOmnibarSuggestions
     }
 
-    private func setAddressBarFocused(_ focused: Bool, reason: String) {
+    private func setAddressBarFocused(
+        _ focused: Bool,
+        reason: String,
+        focusGainedSelectionIntent: OmnibarFocusGainedSelectionIntent = .preserveFieldEditorSelection
+    ) {
 #if DEBUG
         if addressBarFocused == focused {
             logBrowserFocusState(
@@ -1862,6 +1879,11 @@ struct BrowserPanelView: View {
             )
         }
 #endif
+        if focused, !addressBarFocused {
+            pendingFocusGainedSelectionIntent = focusGainedSelectionIntent
+        } else if !focused {
+            pendingFocusGainedSelectionIntent = .preserveFieldEditorSelection
+        }
         addressBarFocused = focused
         if focused {
             panel.noteAddressBarFocused()
@@ -2039,14 +2061,11 @@ struct BrowserPanelView: View {
             )
 #endif
         } else {
-            let urlString = panel.preferredURLStringForOmnibar() ?? ""
-            let effects = omnibarReduce(
-                state: &omnibarState,
-                event: .focusGained(currentURLString: urlString, shouldSelectAll: true)
+            setAddressBarFocused(
+                true,
+                reason: "request.apply",
+                focusGainedSelectionIntent: .selectAll
             )
-            applyOmnibarEffects(effects)
-            refreshInlineCompletion()
-            setAddressBarFocused(true, reason: "request.apply")
 #if DEBUG
             logBrowserFocusState(
                 event: "addressBarFocus.request.apply",
