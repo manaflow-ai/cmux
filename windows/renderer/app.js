@@ -6665,6 +6665,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.resetAppearance",
   "settings.copyLook",
   "settings.pasteLook",
+  "settings.terminalColors",
   "settings.resetCommandPalette",
   "settings.resetLayoutMode",
   "settings.resetTabs",
@@ -6890,6 +6891,19 @@ function customizationCommandPaletteState(commandId) {
         : "Reset performance tuning, motion, output, browser, lightweight chrome, and history settings to defaults.",
       search: normalizeSettingsQuery(`performance setup reset defaults speed lag smooth tune motion output terminal browser chrome history workspace palette toast background ${setupDefault ? "active current " : ""}${summary}`)
     };
+  }
+  if (commandId === "settings.terminalColors") {
+    const colorsDefault = isTerminalColorPresetIdActive("cmux");
+    const colors = terminalColorPalettePayload().effective;
+    const meta = `${colors.background} / ${colors.foreground} / ${colors.cursor}`;
+    return customizationResetCommandPaletteState({
+      isDefault: colorsDefault,
+      meta,
+      icon: "terminal",
+      defaultTitle: "Terminal colors already match the cmux default.",
+      resetTitle: "Reset background, text, and cursor colors to the cmux default.",
+      search: `terminal color colors reset defaults background foreground text cursor cmux ${meta}`
+    });
   }
   if (commandId === "settings.resetCommandPalette") {
     const paletteDefault = commandPaletteSettingsAreDefault();
