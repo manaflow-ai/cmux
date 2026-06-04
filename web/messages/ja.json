@@ -39,7 +39,8 @@
     "contact": "お問い合わせ",
     "nightly": "ナイトリー",
     "copyright": "© {year} Manaflow",
-    "language": "言語"
+    "language": "言語",
+    "assets": "アセット"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
@@ -1509,5 +1510,22 @@
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw の開発者。PSPDFKit の創業者。"
+  },
+  "brandAssets": {
+    "metaTitle": "ブランドアセット",
+    "metaDescription": "macOS アプリで使われている cmux のライト/ダーク用アプリアイコンをダウンロードできます。",
+    "title": "ブランドアセット",
+    "description": "macOS アプリで使われている cmux のライト/ダーク用アプリアイコンをダウンロードできます。",
+    "iconSection": "macOS アプリアイコン",
+    "download": "ダウンロード",
+    "assetAlt": "{name} のプレビュー",
+    "lightPreview": "ライトモード用アプリアイコン。",
+    "darkPreview": "ダークモード用アプリアイコン。"
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "ライトアイコンをダウンロード",
+    "downloadDark": "ダークアイコンをダウンロード",
+    "brandPage": "ブランドアセット"
   }
 }

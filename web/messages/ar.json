@@ -39,7 +39,8 @@
     "contact": "تواصل معنا",
     "nightly": "إصدار ليلي",
     "copyright": "© {year} Manaflow",
-    "language": "اللغة"
+    "language": "اللغة",
+    "assets": "الأصول"
   },
   "home": {
     "taglinePrefix": "الطرفية المصممة لـ",
@@ -1269,5 +1270,22 @@
   },
   "testimonialSubtitles": {
     "steipete": "منشئ OpenClaw. مؤسس PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "أصول العلامة",
+    "metaDescription": "نزّل أيقونتي cmux الفاتحة والداكنة المستخدمتين في تطبيق macOS.",
+    "title": "أصول العلامة",
+    "description": "نزّل أيقونتي cmux الفاتحة والداكنة المستخدمتين في تطبيق macOS.",
+    "iconSection": "أيقونات تطبيق macOS",
+    "download": "تنزيل",
+    "assetAlt": "معاينة {name}",
+    "lightPreview": "أيقونة التطبيق للوضع الفاتح.",
+    "darkPreview": "أيقونة التطبيق للوضع الداكن."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "تنزيل أيقونة الوضع الفاتح",
+    "downloadDark": "تنزيل أيقونة الوضع الداكن",
+    "brandPage": "أصول العلامة"
   }
 }

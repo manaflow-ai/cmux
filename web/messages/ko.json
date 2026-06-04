@@ -39,7 +39,8 @@
     "contact": "문의",
     "nightly": "나이틀리",
     "copyright": "© {year} Manaflow",
-    "language": "언어"
+    "language": "언어",
+    "assets": "애셋"
   },
   "home": {
     "taglinePrefix": "다음을 위해 만들어진 터미널: ",
@@ -1269,5 +1270,22 @@
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw 개발자. PSPDFKit 창립자."
+  },
+  "brandAssets": {
+    "metaTitle": "브랜드 애셋",
+    "metaDescription": "macOS 앱에서 사용하는 cmux 라이트 및 다크 앱 아이콘을 다운로드하세요.",
+    "title": "브랜드 애셋",
+    "description": "macOS 앱에서 사용하는 cmux 라이트 및 다크 앱 아이콘을 다운로드하세요.",
+    "iconSection": "macOS 앱 아이콘",
+    "download": "다운로드",
+    "assetAlt": "{name} 미리보기",
+    "lightPreview": "라이트 모드 앱 아이콘.",
+    "darkPreview": "다크 모드 앱 아이콘."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "라이트 아이콘 다운로드",
+    "downloadDark": "다크 아이콘 다운로드",
+    "brandPage": "브랜드 애셋"
   }
 }

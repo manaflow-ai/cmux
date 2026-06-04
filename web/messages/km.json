@@ -39,7 +39,8 @@
     "contact": "ទំនាក់ទំនង",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "ភាសា"
+    "language": "ភាសា",
+    "assets": "ធនធាន"
   },
   "home": {
     "taglinePrefix": "ទែមីណលដែលបង្កើតសម្រាប់ ",
@@ -1269,5 +1270,22 @@
   },
   "testimonialSubtitles": {
     "steipete": "អ្នកបង្កើត OpenClaw។ ស្ថាបនិក PSPDFKit។"
+  },
+  "brandAssets": {
+    "metaTitle": "ធនធានម៉ាក",
+    "metaDescription": "ទាញយករូបតំណាងកម្មវិធី cmux ភ្លឺនិងងងឹតដែលប្រើក្នុងកម្មវិធី macOS។",
+    "title": "ធនធានម៉ាក",
+    "description": "ទាញយករូបតំណាងកម្មវិធី cmux ភ្លឺនិងងងឹតដែលប្រើក្នុងកម្មវិធី macOS។",
+    "iconSection": "រូបតំណាងកម្មវិធី macOS",
+    "download": "ទាញយក",
+    "assetAlt": "មើលជាមុន {name}",
+    "lightPreview": "រូបតំណាងកម្មវិធីសម្រាប់របៀបភ្លឺ។",
+    "darkPreview": "រូបតំណាងកម្មវិធីសម្រាប់របៀបងងឹត។"
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "ទាញយករូបតំណាងភ្លឺ",
+    "downloadDark": "ទាញយករូបតំណាងងងឹត",
+    "brandPage": "ធនធានម៉ាក"
   }
 }

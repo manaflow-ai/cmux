@@ -39,7 +39,8 @@
     "contact": "Контакты",
     "nightly": "Ночные сборки",
     "copyright": "© {year} Manaflow",
-    "language": "Язык"
+    "language": "Язык",
+    "assets": "Материалы"
   },
   "home": {
     "taglinePrefix": "Терминал, созданный для ",
@@ -1269,5 +1270,22 @@
   },
   "testimonialSubtitles": {
     "steipete": "Создатель OpenClaw. Основатель PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Бренд-материалы",
+    "metaDescription": "Скачайте светлую и темную иконки cmux, используемые приложением macOS.",
+    "title": "Бренд-материалы",
+    "description": "Скачайте светлую и темную иконки cmux, используемые приложением macOS.",
+    "iconSection": "Иконки приложения macOS",
+    "download": "Скачать",
+    "assetAlt": "Предпросмотр {name}",
+    "lightPreview": "Иконка приложения для светлого режима.",
+    "darkPreview": "Иконка приложения для темного режима."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Скачать светлую иконку",
+    "downloadDark": "Скачать тёмную иконку",
+    "brandPage": "Материалы бренда"
   }
 }

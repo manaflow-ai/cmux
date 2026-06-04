@@ -39,7 +39,8 @@
     "contact": "İletişim",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Dil"
+    "language": "Dil",
+    "assets": "Varlıklar"
   },
   "home": {
     "taglinePrefix": "Şunun için tasarlanmış terminal: ",
@@ -1269,5 +1270,22 @@
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw yaratıcısı. PSPDFKit kurucusu."
+  },
+  "brandAssets": {
+    "metaTitle": "Marka varlıkları",
+    "metaDescription": "macOS uygulamasının kullandığı açık ve koyu cmux uygulama ikonlarını indirin.",
+    "title": "Marka varlıkları",
+    "description": "macOS uygulamasının kullandığı açık ve koyu cmux uygulama ikonlarını indirin.",
+    "iconSection": "macOS uygulama ikonları",
+    "download": "İndir",
+    "assetAlt": "{name} önizlemesi",
+    "lightPreview": "Açık mod uygulama ikonu.",
+    "darkPreview": "Koyu mod uygulama ikonu."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Açık simgeyi indir",
+    "downloadDark": "Koyu simgeyi indir",
+    "brandPage": "Marka varlıkları"
   }
 }

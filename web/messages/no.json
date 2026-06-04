@@ -39,7 +39,8 @@
     "contact": "Kontakt",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Språk"
+    "language": "Språk",
+    "assets": "Ressurser"
   },
   "home": {
     "taglinePrefix": "Terminalen bygget for ",
@@ -1269,5 +1270,22 @@
   },
   "testimonialSubtitles": {
     "steipete": "Skaperen av OpenClaw. Grunnlegger av PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Merkeressurser",
+    "metaDescription": "Last ned de lyse og mørke cmux-appikonene som macOS-appen bruker.",
+    "title": "Merkeressurser",
+    "description": "Last ned de lyse og mørke cmux-appikonene som macOS-appen bruker.",
+    "iconSection": "macOS-appikoner",
+    "download": "Last ned",
+    "assetAlt": "Forhåndsvisning av {name}",
+    "lightPreview": "Appikon for lys modus.",
+    "darkPreview": "Appikon for mørk modus."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Last ned lyst ikon",
+    "downloadDark": "Last ned mørkt ikon",
+    "brandPage": "Merkevareressurser"
   }
 }

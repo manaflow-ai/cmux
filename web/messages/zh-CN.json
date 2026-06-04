@@ -39,7 +39,8 @@
     "contact": "联系我们",
     "nightly": "每夜构建",
     "copyright": "© {year} Manaflow",
-    "language": "语言"
+    "language": "语言",
+    "assets": "素材"
   },
   "home": {
     "taglinePrefix": "开源终端，专为 ",
@@ -1269,5 +1270,22 @@
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw 创建者。PSPDFKit 创始人。"
+  },
+  "brandAssets": {
+    "metaTitle": "品牌素材",
+    "metaDescription": "下载 macOS 应用使用的 cmux 浅色和深色应用图标。",
+    "title": "品牌素材",
+    "description": "下载 macOS 应用使用的 cmux 浅色和深色应用图标。",
+    "iconSection": "macOS 应用图标",
+    "download": "下载",
+    "assetAlt": "{name} 预览",
+    "lightPreview": "浅色模式应用图标。",
+    "darkPreview": "深色模式应用图标。"
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "下载浅色图标",
+    "downloadDark": "下载深色图标",
+    "brandPage": "品牌素材"
   }
 }
