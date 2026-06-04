@@ -7,11 +7,17 @@ import Foundation
 /// publisher (`agentSurfaceResumeCommand`), so both emit identical resume commands. It is pure value
 /// logic over primitives (no `AppKit`, `Process`, or socket), so it is testable in isolation.
 ///
+/// The type is a stateless value; construct one at the call site (`AgentResumeArgv()`) rather than
+/// reaching through a static namespace, per the package design discipline.
+///
 /// Resolution order mirrors the historical app builder: a cmux wrapper launcher
 /// (``launcherResolution(launcher:sessionId:executablePath:arguments:)``) is checked first, then the
 /// per-kind verb (``builtInKind(kind:sessionId:executablePath:arguments:)``). Callers that also
 /// support custom Vault agents slot that resolution between the two.
-public enum AgentResumeArgv {
+public struct AgentResumeArgv: Sendable, Equatable {
+    /// Creates a resume-argv builder. The type holds no state.
+    public init() {}
+
     /// The result of resolving a cmux wrapper launcher (the `claude-teams` / `codex-teams` / `omo`
     /// style launchers cmux injects), checked before the per-kind verb.
     public enum LauncherResolution: Sendable, Equatable {
@@ -30,7 +36,7 @@ public enum AgentResumeArgv {
     ///   - sessionId: the session/thread id to resume.
     ///   - executablePath: the captured executable path, if any.
     ///   - arguments: the captured launch arguments (argv, including the executable as element 0).
-    public static func launcherResolution(
+    public func launcherResolution(
         launcher: String?,
         sessionId: String,
         executablePath: String?,
@@ -76,7 +82,7 @@ public enum AgentResumeArgv {
     ///   - sessionId: the session/thread id to resume.
     ///   - executablePath: the captured executable path, if any.
     ///   - arguments: the captured launch arguments (argv, including the executable as element 0).
-    public static func builtInKind(
+    public func builtInKind(
         kind: String,
         sessionId: String,
         executablePath: String?,
@@ -132,7 +138,7 @@ public enum AgentResumeArgv {
         }
     }
 
-    private static func withOption(
+    private func withOption(
         _ kind: String,
         executable fallbackExecutable: String,
         option: String,
@@ -145,7 +151,7 @@ public enum AgentResumeArgv {
         return [parts.executable, option, sessionId] + preserved
     }
 
-    private static func commandParts(
+    private func commandParts(
         executablePath: String?,
         arguments: [String],
         fallbackExecutable: String
@@ -155,7 +161,7 @@ public enum AgentResumeArgv {
         return (executable, tail)
     }
 
-    private static func normalized(_ value: String?) -> String? {
+    private func normalized(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
             return nil
         }

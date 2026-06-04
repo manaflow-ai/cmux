@@ -429,7 +429,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         for kind in RestorableAgentKind.allCases {
             XCTAssertEqual(
                 kind.cwdNamespacing,
-                AgentResumeWorkingDirectory.cwdNamespacing(forKind: kind.rawValue),
+                AgentResumeWorkingDirectory().cwdNamespacing(forKind: kind.rawValue),
                 "\(kind.rawValue) namespacing must match the shared classifier"
             )
         }
@@ -499,6 +499,93 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     private func expectedClaudeProjectDirName(_ path: String) -> String {
         path.replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ".", with: "-")
+    }
+
+    // Forking branches a NEW session off an existing one. The fork command must use the correct
+    // per-agent fork verb and cd into the session's directory, so the forked session launches in the
+    // right place and is itself resumable. (Claude fork is covered above; this covers the cwd-in-file
+    // fork agents codex + opencode.)
+    func testForkCommandUsesPerAgentVerbAndSessionCwd() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-fork-agents-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let cases: [(launcher: String, store: String, verbNeedles: [String])] = [
+            ("codex", "codex-hook-sessions.json", ["'fork'"]),
+            ("opencode", "opencode-hook-sessions.json", ["'--session'", "'--fork'"]),
+        ]
+        for testCase in cases {
+            let ws = UUID()
+            let panel = UUID()
+            let sid = "55555555-5555-5555-5555-555555555555"
+            try writeHookStore(
+                root: root,
+                storeFilename: testCase.store,
+                sessions: [
+                    sid: driftedAgentHookRecord(
+                        launcher: testCase.launcher, sessionId: sid, workspaceId: ws, panelId: panel,
+                        recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+                    ),
+                ]
+            )
+            let snapshot = try XCTUnwrap(
+                RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                    .snapshot(workspaceId: ws, panelId: panel),
+                "\(testCase.launcher): snapshot"
+            )
+            let fork = try XCTUnwrap(snapshot.forkCommand, "\(testCase.launcher): forkCommand")
+            XCTAssertTrue(
+                fork.contains("cd -- '\(dir.path)'"),
+                "\(testCase.launcher): fork must cd into the session dir; got: \(fork)"
+            )
+            XCTAssertTrue(fork.contains("'\(sid)'"), "\(testCase.launcher): fork must reference the session id; got: \(fork)")
+            for needle in testCase.verbNeedles {
+                XCTAssertTrue(fork.contains(needle), "\(testCase.launcher): fork must use its fork verb \(needle); got: \(fork)")
+            }
+            // The forked session must be launchable (and therefore itself resumable).
+            XCTAssertNotNil(
+                snapshot.forkStartupInput(fileManager: fm, temporaryDirectory: root),
+                "\(testCase.launcher): forked session must be launchable"
+            )
+        }
+    }
+
+    // Agents without a fork verb must not emit a fork command (a malformed one would launch a broken
+    // session). This pins which agents support fork so the set is explicit.
+    func testNonForkAgentsProduceNoForkCommand() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-nofork-agents-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        for launcher in ["gemini", "grok", "amp", "cursor"] {
+            let ws = UUID()
+            let panel = UUID()
+            let sid = "66666666-6666-6666-6666-666666666666"
+            try writeHookStore(
+                root: root,
+                storeFilename: "\(launcher)-hook-sessions.json",
+                sessions: [
+                    sid: driftedAgentHookRecord(
+                        launcher: launcher, sessionId: sid, workspaceId: ws, panelId: panel,
+                        recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+                    ),
+                ]
+            )
+            let snapshot = try XCTUnwrap(
+                RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                    .snapshot(workspaceId: ws, panelId: panel),
+                "\(launcher): snapshot"
+            )
+            // It still resumes; it just has no fork form.
+            XCTAssertNotNil(snapshot.resumeCommand, "\(launcher): must still resume")
+            XCTAssertNil(snapshot.forkCommand, "\(launcher): has no fork support and must not emit a fork command")
+        }
     }
 
     // Spawn an agent, end it, spawn a new one on the same surface: restore must pick the NEWEST

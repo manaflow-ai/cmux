@@ -121,7 +121,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     /// ``AgentResumeWorkingDirectory/cwdNamespacing(forKind:)`` so the app and the standalone CLI
     /// apply one classification.
     var cwdNamespacing: AgentCwdNamespacing {
-        AgentResumeWorkingDirectory.cwdNamespacing(forKind: rawValue)
+        AgentResumeWorkingDirectory().cwdNamespacing(forKind: rawValue)
     }
 
     init(from decoder: Decoder) throws {

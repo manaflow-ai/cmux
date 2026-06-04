@@ -7,22 +7,28 @@ import Foundation
 /// (`publishAgentSurfaceResumeBinding` in the standalone `cmux-cli` target), so both apply one
 /// policy: directory-namespaced agents pin the launch cwd, id-keyed agents keep the runtime cwd.
 ///
+/// The type is a stateless value; construct one at the call site (`AgentResumeWorkingDirectory()`)
+/// rather than reaching through a static namespace, per the package design discipline.
+///
 /// ```swift
 /// // A Claude session launched in /repo that drifted into /repo/worktrees/x:
-/// AgentResumeWorkingDirectory.resolve(
+/// AgentResumeWorkingDirectory().resolve(
 ///     kind: "claude",
 ///     runtimeCwd: "/repo/worktrees/x",
 ///     launchWorkingDirectory: "/repo"
 /// ) // == "/repo"  (so `claude --resume` finds the transcript filed under /repo)
 /// ```
-public enum AgentResumeWorkingDirectory {
+public struct AgentResumeWorkingDirectory: Sendable, Equatable {
+    /// Creates a working-directory resolver. The type holds no state.
+    public init() {}
+
     /// Classifies an agent by its raw kind id (e.g. `"claude"`, `"codex"`, `"hermes-agent"`).
     ///
     /// - Parameter kind: the agent's raw kind identifier (``RestorableAgentKind/rawValue`` in the app).
     /// - Returns: ``AgentCwdNamespacing/cwdInFile`` for id-keyed agents that record the cwd in the
     ///   session file; ``AgentCwdNamespacing/byDirectory`` for everything else (including unknown
     ///   kinds, which prefer the launch cwd).
-    public static func cwdNamespacing(forKind kind: String) -> AgentCwdNamespacing {
+    public func cwdNamespacing(forKind kind: String) -> AgentCwdNamespacing {
         switch kind {
         case "codex", "opencode", "amp", "antigravity", "rovodev", "hermes-agent":
             return .cwdInFile
@@ -43,7 +49,7 @@ public enum AgentResumeWorkingDirectory {
     ///   - runtimeCwd: the agent's last-reported runtime cwd (may have drifted).
     ///   - launchWorkingDirectory: the directory the agent was launched in.
     /// - Returns: the directory to `cd` into, or `nil` when neither input is usable.
-    public static func resolve(
+    public func resolve(
         kind: String,
         runtimeCwd: String?,
         launchWorkingDirectory: String?
@@ -58,7 +64,7 @@ public enum AgentResumeWorkingDirectory {
         }
     }
 
-    private static func normalized(_ value: String?) -> String? {
+    private func normalized(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil

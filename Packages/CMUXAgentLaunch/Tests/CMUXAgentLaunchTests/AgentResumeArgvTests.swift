@@ -17,7 +17,7 @@ struct AgentResumeArgvTests {
     ])
     func builtInWithOptionKinds(kind: String, executable: String, expected: [String]) {
         #expect(
-            AgentResumeArgv.builtInKind(
+            AgentResumeArgv().builtInKind(
                 kind: kind, sessionId: "SID", executablePath: nil, arguments: [executable]
             ) == expected
         )
@@ -26,38 +26,38 @@ struct AgentResumeArgvTests {
     @Test("Built-in special-shaped kinds")
     func builtInSpecialShapes() {
         #expect(
-            AgentResumeArgv.builtInKind(kind: "codex", sessionId: "SID", executablePath: nil, arguments: ["codex"])
+            AgentResumeArgv().builtInKind(kind: "codex", sessionId: "SID", executablePath: nil, arguments: ["codex"])
                 == ["codex", "resume", "SID"]
         )
         #expect(
-            AgentResumeArgv.builtInKind(kind: "amp", sessionId: "SID", executablePath: nil, arguments: ["amp"])
+            AgentResumeArgv().builtInKind(kind: "amp", sessionId: "SID", executablePath: nil, arguments: ["amp"])
                 == ["amp", "threads", "continue", "SID"]
         )
         #expect(
-            AgentResumeArgv.builtInKind(kind: "kiro", sessionId: "SID", executablePath: nil, arguments: ["kiro-cli"])
+            AgentResumeArgv().builtInKind(kind: "kiro", sessionId: "SID", executablePath: nil, arguments: ["kiro-cli"])
                 == ["kiro-cli", "chat", "--resume-id", "SID"]
         )
         #expect(
-            AgentResumeArgv.builtInKind(kind: "rovodev", sessionId: "SID", executablePath: nil, arguments: ["acli"])
+            AgentResumeArgv().builtInKind(kind: "rovodev", sessionId: "SID", executablePath: nil, arguments: ["acli"])
                 == ["acli", "rovodev", "run", "--restore", "SID"]
         )
         #expect(
-            AgentResumeArgv.builtInKind(kind: "hermes-agent", sessionId: "SID", executablePath: nil, arguments: ["hermes"])
+            AgentResumeArgv().builtInKind(kind: "hermes-agent", sessionId: "SID", executablePath: nil, arguments: ["hermes"])
                 == ["hermes", "--resume", "SID"]
         )
         #expect(
-            AgentResumeArgv.builtInKind(kind: "opencode", sessionId: "SID", executablePath: nil, arguments: ["opencode"])
+            AgentResumeArgv().builtInKind(kind: "opencode", sessionId: "SID", executablePath: nil, arguments: ["opencode"])
                 == ["opencode", "--session", "SID"]
         )
         #expect(
-            AgentResumeArgv.builtInKind(kind: "not-an-agent", sessionId: "SID", executablePath: nil, arguments: ["x"]) == nil
+            AgentResumeArgv().builtInKind(kind: "not-an-agent", sessionId: "SID", executablePath: nil, arguments: ["x"]) == nil
         )
     }
 
     @Test("Captured executable path overrides the fallback executable")
     func executablePathOverridesFallback() {
         #expect(
-            AgentResumeArgv.builtInKind(
+            AgentResumeArgv().builtInKind(
                 kind: "claude",
                 sessionId: "SID",
                 executablePath: "/opt/bin/claude",
@@ -69,34 +69,39 @@ struct AgentResumeArgvTests {
     @Test("cmux wrapper launchers resolve before per-kind verbs")
     func launcherWrappers() {
         #expect(
-            AgentResumeArgv.launcherResolution(
+            AgentResumeArgv().launcherResolution(
                 launcher: "claudeTeams", sessionId: "SID", executablePath: nil, arguments: ["cmux", "claude-teams"]
             ) == .resolved(["cmux", "claude-teams", "--resume", "SID"])
         )
         #expect(
-            AgentResumeArgv.launcherResolution(
+            AgentResumeArgv().launcherResolution(
                 launcher: "codexTeams", sessionId: "SID", executablePath: nil, arguments: ["cmux", "codex-teams"]
             ) == .resolved(["cmux", "codex-teams", "resume", "SID"])
         )
         #expect(
-            AgentResumeArgv.launcherResolution(
+            AgentResumeArgv().launcherResolution(
                 launcher: "omo", sessionId: "SID", executablePath: nil, arguments: ["cmux", "omo"]
             ) == .resolved(["cmux", "omo", "--session", "SID"])
         )
-        // One-shot wrappers have no resumable form.
+        // One-shot wrappers have no resumable form (omx and omc share an arm; exercise each).
         #expect(
-            AgentResumeArgv.launcherResolution(
+            AgentResumeArgv().launcherResolution(
                 launcher: "omx", sessionId: "SID", executablePath: nil, arguments: ["cmux", "omx"]
+            ) == .resolved(nil)
+        )
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "omc", sessionId: "SID", executablePath: nil, arguments: ["cmux", "omc"]
             ) == .resolved(nil)
         )
         // A plain agent launcher falls through to the per-kind builder.
         #expect(
-            AgentResumeArgv.launcherResolution(
+            AgentResumeArgv().launcherResolution(
                 launcher: "claude", sessionId: "SID", executablePath: nil, arguments: ["claude"]
             ) == .passthrough
         )
         #expect(
-            AgentResumeArgv.launcherResolution(
+            AgentResumeArgv().launcherResolution(
                 launcher: nil, sessionId: "SID", executablePath: nil, arguments: []
             ) == .passthrough
         )

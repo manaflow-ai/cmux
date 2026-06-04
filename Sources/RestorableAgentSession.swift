@@ -422,7 +422,7 @@ enum AgentResumeCommandBuilder {
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
-        switch AgentResumeArgv.launcherResolution(
+        switch AgentResumeArgv().launcherResolution(
             launcher: launchCommand?.launcher,
             sessionId: sessionId,
             executablePath: launchCommand?.executablePath,
@@ -454,7 +454,7 @@ enum AgentResumeCommandBuilder {
             return arguments.isEmpty ? nil : arguments
         }
 
-        return AgentResumeArgv.builtInKind(
+        return AgentResumeArgv().builtInKind(
             kind: kind.rawValue,
             sessionId: sessionId,
             executablePath: launchCommand?.executablePath,
@@ -722,7 +722,11 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   returnToLoginShell: true,
-                  workingDirectory: workingDirectory ?? launchCommand?.workingDirectory
+                  // Match the resume command's own cd: agents with an `.ignore` cwd policy resume from
+                  // the current directory (no cd), so the post-exit shell must not force the launch dir.
+                  workingDirectory: registration?.cwd == .ignore
+                      ? nil
+                      : (workingDirectory ?? launchCommand?.workingDirectory)
               ) else {
             return nil
         }

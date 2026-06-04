@@ -24356,7 +24356,7 @@ struct CMUXCLI {
         // runtime cwd: cwd-namespaced agents (Claude, Grok, Gemini, …) file their session under the
         // launch dir, so resuming from a worktree the agent later `cd`'d into fails with "No
         // conversation found".
-        let resumeWorkingDirectory = AgentResumeWorkingDirectory.resolve(
+        let resumeWorkingDirectory = AgentResumeWorkingDirectory().resolve(
             kind: kind,
             runtimeCwd: cwd,
             launchWorkingDirectory: launchCommand?.workingDirectory
@@ -24422,7 +24422,7 @@ struct CMUXCLI {
         guard let normalizedSessionId else { return nil }
 
         let argv: [String]?
-        switch AgentResumeArgv.launcherResolution(
+        switch AgentResumeArgv().launcherResolution(
             launcher: launchCommand?.launcher,
             sessionId: normalizedSessionId,
             executablePath: launchCommand?.executablePath,
@@ -24431,7 +24431,7 @@ struct CMUXCLI {
         case .resolved(let resolved):
             argv = resolved
         case .passthrough:
-            argv = AgentResumeArgv.builtInKind(
+            argv = AgentResumeArgv().builtInKind(
                 kind: kind,
                 sessionId: normalizedSessionId,
                 executablePath: launchCommand?.executablePath,
