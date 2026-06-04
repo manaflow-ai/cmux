@@ -9,7 +9,6 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
-import os
 
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
@@ -1776,7 +1775,7 @@ extension Workspace {
             ) else {
                 return nil
             }
-            registerRestoredEphemeralWorktree(restoredEphemeralWorktree)
+            persistRestoredEphemeralWorktree(restoredEphemeralWorktree)
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
                     remotePTYSessionID: restoredRemotePTYSessionID,
@@ -1896,27 +1895,14 @@ extension Workspace {
         }
     }
 
-    private func registerRestoredEphemeralWorktree(
+    private func persistRestoredEphemeralWorktree(
         _ record: EphemeralWorktreeRecord?
     ) {
         guard let record else { return }
-        Task.detached(priority: .utility) {
-            do {
-                try EphemeralWorktreeRegistry.shared.register(record)
-            } catch {
-                Self.ephemeralWorktreeLogger.error(
-                    "Failed to register restored ephemeral worktree for session \(String(record.sessionId.prefix(8)), privacy: .public): \(error.localizedDescription, privacy: .public)"
-                )
-#if DEBUG
-                let detail = (error as? EphemeralWorktreeLifecycleError)?.debugDescription
-                    ?? error.localizedDescription
-                cmuxDebugLog(
-                    "worktree.restore.register.failed session=\(record.sessionId.prefix(8)) " +
-                    "error=\(detail)"
-                )
-#endif
-            }
-        }
+        // Surface creation can fail, so restored records are persisted only after the
+        // terminal exists. Once the shell has launched in the worktree, falling back
+        // to the source cwd would desynchronize panel metadata and cleanup state.
+        EphemeralWorktreeRegistry.shared.registerInBackground(record, reason: "restore")
     }
 
     private func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
@@ -10331,11 +10317,6 @@ final class Workspace: Identifiable, ObservableObject {
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
-    private nonisolated static let ephemeralWorktreeLogger = Logger(
-        subsystem: "com.cmuxterm.app",
-        category: "ephemeral-worktree"
-    )
-
     let id: UUID
     @Published var title: String
     @Published var customTitle: String?

@@ -456,6 +456,26 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
         }
     }
 
+    func registerInBackground(_ record: EphemeralWorktreeRecord, reason: String) {
+        gitWorkQueue.async {
+            do {
+                try self.register(record)
+            } catch {
+                Self.logger.error(
+                    "Failed to register \(reason, privacy: .public) ephemeral worktree for session \(String(record.sessionId.prefix(8)), privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+#if DEBUG
+                let detail = (error as? EphemeralWorktreeLifecycleError)?.debugDescription
+                    ?? error.localizedDescription
+                cmuxDebugLog(
+                    "worktree.\(reason).register.failed session=\(record.sessionId.prefix(8)) " +
+                    "error=\(detail)"
+                )
+#endif
+            }
+        }
+    }
+
     func records() -> [EphemeralWorktreeRecord] {
         lock.withLocked {
             do {
