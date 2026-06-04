@@ -165,4 +165,17 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
 
         #expect(cursor == TerminalKeyboardCopyModeCursor(row: 7, column: 4))
     }
+
+    @Test func clippedBackingRowsDoNotDelayEdgeScroll() {
+        let rows = terminalKeyboardCopyModeVisibleViewportRows(
+            backingRows: 12,
+            viewHeight: 100,
+            cellHeight: 10
+        )
+        var cursor = TerminalKeyboardCopyModeCursor(row: rows - 1, column: 4)
+
+        #expect(rows == 10)
+        #expect(cursor.move(.down, count: 1, rows: rows, columns: 8) == 1)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: rows - 1, column: 4))
+    }
 }
