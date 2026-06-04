@@ -3,6 +3,7 @@ import Bonsplit
 import SwiftUI
 
 struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
+    @MainActor
     final class TargetBridge {
         fileprivate weak var view: SidebarBonsplitTabWorkspaceDropView?
         fileprivate var targets: [SidebarDropPlanner.WorkspaceDropTarget] = []
@@ -328,10 +329,21 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     }
 
     private func completeOrClearPendingDropAfterDragTeardown() {
+        completeOrClearPendingDropAfterDragTeardown(remainingFrameWaits: 3)
+    }
+
+    private func completeOrClearPendingDropAfterDragTeardown(remainingFrameWaits: Int) {
         let requestId = workspaceDropTargetRequestId
         DispatchQueue.main.async { [weak self] in
             guard let self,
                   self.pendingDrop?.requestId == requestId else {
+                return
+            }
+
+            if self.targets.isEmpty, remainingFrameWaits > 0 {
+                self.completeOrClearPendingDropAfterDragTeardown(
+                    remainingFrameWaits: remainingFrameWaits - 1
+                )
                 return
             }
 
