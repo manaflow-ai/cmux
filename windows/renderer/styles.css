@@ -14004,6 +14004,13 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border-color: var(--color-text);
 }
 
+.saved-color-variant-swatch.is-saved {
+  border-color: var(--color-accent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklch, var(--color-text) 10%, transparent),
+    0 0 0 1px color-mix(in oklch, var(--color-accent) 46%, transparent);
+}
+
 .saved-color-actions,
 .saved-color-card-actions {
   min-width: 0;

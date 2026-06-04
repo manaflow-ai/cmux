@@ -28496,12 +28496,16 @@ function savedColorVariantStrip(colorInput) {
     const colors = colorVariantPalette(colorInput.value);
     strip.hidden = colors.length === 0;
     swatches.replaceChildren(...colors.map((color) => {
+      const saved = customColorPaletteHasColor(color);
       const button = document.createElement("button");
-      button.className = "saved-color-variant-swatch";
+      button.className = `saved-color-variant-swatch${saved ? " is-saved" : ""}`;
       button.type = "button";
       button.style.setProperty("--saved-color-variant", color);
-      button.title = `Use ${color.toUpperCase()} in the color picker.`;
+      button.title = saved
+        ? `${color.toUpperCase()} is already saved. Use it in the color picker.`
+        : `Use ${color.toUpperCase()} in the color picker.`;
       button.setAttribute("aria-label", button.title);
+      if (saved) button.setAttribute("aria-current", "true");
       button.onclick = () => {
         if (colorInput.value.toLowerCase() === color) return;
         colorInput.value = color;
