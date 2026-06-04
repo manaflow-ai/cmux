@@ -1684,9 +1684,9 @@ final class SocketClient {
         }
     }
 
-    func connectWithoutRetry() throws {
+    func connectWithoutRetry(responseTimeout: TimeInterval? = nil) throws {
         if socketFD >= 0 { return }
-        try connectOnce()
+        try connectOnce(responseTimeout: responseTimeout)
     }
 
     func close() {
@@ -1834,9 +1834,9 @@ final class SocketClient {
         }
     }
 
-    private func connectOnce() throws {
+    private func connectOnce(responseTimeout: TimeInterval? = nil) throws {
         if let relayEndpoint {
-            try connectToRelay(endpoint: relayEndpoint)
+            try connectToRelay(endpoint: relayEndpoint, responseTimeout: responseTimeout)
             return
         }
 
@@ -1857,8 +1857,9 @@ final class SocketClient {
             throw CLIError(message: "Failed to create socket")
         }
         do {
-            try configureSocketWriteSafety(Self.responseTimeoutSeconds)
-            try configureReceiveTimeout(Self.responseTimeoutSeconds)
+            let timeout = responseTimeout ?? Self.responseTimeoutSeconds
+            try configureSocketWriteSafety(timeout)
+            try configureReceiveTimeout(timeout)
         } catch {
             close()
             throw error
@@ -1965,7 +1966,7 @@ final class SocketClient {
         data.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func connectToRelay(endpoint: RelayEndpoint) throws {
+    private func connectToRelay(endpoint: RelayEndpoint, responseTimeout: TimeInterval? = nil) throws {
         let credentials = try Self.relayCredentials(for: endpoint)
 
         socketFD = socket(AF_INET, SOCK_STREAM, 0)
@@ -1973,8 +1974,9 @@ final class SocketClient {
             throw CLIError(message: "Failed to create relay socket")
         }
         do {
-            try configureSocketWriteSafety(Self.responseTimeoutSeconds)
-            try configureReceiveTimeout(Self.responseTimeoutSeconds)
+            let timeout = responseTimeout ?? Self.responseTimeoutSeconds
+            try configureSocketWriteSafety(timeout)
+            try configureReceiveTimeout(timeout)
         } catch {
             close()
             throw error
@@ -28397,10 +28399,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     /// Failures are swallowed.
     private func sendBestEffortFeedTelemetry(socketPath: String, line: String, socketPassword: String?) {
         let oneWayClient = SocketClient(path: socketPath)
-        guard !oneWayClient.isRelayBacked else { return }
         defer { oneWayClient.close() }
         do {
-            try oneWayClient.connectWithoutRetry()
+            try oneWayClient.connectWithoutRetry(responseTimeout: 0.05)
             try authenticateClientIfNeeded(
                 oneWayClient,
                 explicitPassword: socketPassword,
