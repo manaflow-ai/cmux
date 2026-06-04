@@ -30,6 +30,7 @@ export const defaultSettings = {
   workspaceColorStyle: "dot",
   toolbarMode: "minimal",
   toolbarButtonStyle: "subtle",
+  tabBarStyle: "subtle",
   tabSize: "balanced",
   tabCloseMode: "hover",
   tabActiveStyle: "filled",
@@ -422,6 +423,12 @@ export const tabSizeOptions = [
   ["roomy", label("tabSize.roomy", "Roomy")]
 ];
 
+export const tabBarStyleOptions = [
+  ["subtle", label("tabBarStyle.subtle", "Subtle"), label("tabBarStyle.subtle.body", "Default tab strip weight")],
+  ["quiet", label("tabBarStyle.quiet", "Quiet"), label("tabBarStyle.quiet.body", "Lower contrast tab strip")],
+  ["banded", label("tabBarStyle.banded", "Banded"), label("tabBarStyle.banded.body", "Stronger tab strip separation")]
+];
+
 export const tabCloseModeOptions = [
   ["minimal", label("tabClose.minimal", "Minimal"), label("tabClose.minimal.body", "Show close buttons only on hover or focus")],
   ["hover", label("tabClose.hover", "On hover"), label("tabClose.hover.body", "Show close on hover and active tabs")],
@@ -615,6 +622,7 @@ export const settingsPresets = [
       workspaceColorStyle: "dot",
       toolbarMode: "minimal",
       toolbarButtonStyle: "subtle",
+      tabBarStyle: "subtle",
       tabSize: "balanced",
       tabCloseMode: "hover",
       tabActiveStyle: "filled",
@@ -682,6 +690,7 @@ export const settingsPresets = [
       workspaceColorStyle: "dot",
       toolbarMode: "minimal",
       toolbarButtonStyle: "ghost",
+      tabBarStyle: "quiet",
       tabSize: "compact",
       tabCloseMode: "minimal",
       tabActiveStyle: "subtle",
@@ -749,6 +758,7 @@ export const settingsPresets = [
       workspaceColorStyle: "dot",
       toolbarMode: "minimal",
       toolbarButtonStyle: "ghost",
+      tabBarStyle: "quiet",
       tabSize: "compact",
       tabCloseMode: "minimal",
       tabActiveStyle: "subtle",
@@ -817,6 +827,7 @@ export const settingsPresets = [
       workspaceColorStyle: "edge",
       toolbarMode: "minimal",
       toolbarButtonStyle: "ghost",
+      tabBarStyle: "quiet",
       tabSize: "balanced",
       tabCloseMode: "minimal",
       tabActiveStyle: "line",
@@ -884,6 +895,7 @@ export const settingsPresets = [
       workspaceColorStyle: "dot",
       toolbarMode: "minimal",
       toolbarButtonStyle: "ghost",
+      tabBarStyle: "quiet",
       tabSize: "compact",
       tabCloseMode: "minimal",
       tabActiveStyle: "subtle",
@@ -951,6 +963,7 @@ export const settingsPresets = [
       workspaceColorStyle: "edge",
       toolbarMode: "minimal",
       toolbarButtonStyle: "filled",
+      tabBarStyle: "banded",
       tabSize: "balanced",
       tabCloseMode: "hover",
       tabActiveStyle: "line",
@@ -1018,6 +1031,7 @@ export const settingsPresets = [
       workspaceColorStyle: "tint",
       toolbarMode: "standard",
       toolbarButtonStyle: "filled",
+      tabBarStyle: "banded",
       tabSize: "roomy",
       tabCloseMode: "always",
       tabActiveStyle: "filled",

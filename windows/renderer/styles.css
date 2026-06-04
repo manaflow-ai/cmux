@@ -1949,6 +1949,51 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background: color-mix(in oklch, var(--color-pane-surface) 72%, transparent);
 }
 
+.shell.tab-bar-quiet .surface-tabs {
+  border-bottom-color: color-mix(in oklch, var(--color-line) 58%, transparent);
+  background: color-mix(in oklch, var(--color-terminal-gutter) 40%, transparent);
+  box-shadow: none;
+}
+
+.shell.tab-bar-quiet .surface-tabs.can-scroll-left {
+  box-shadow: inset 8px 0 10px -13px var(--color-canvas-surface);
+}
+
+.shell.tab-bar-quiet .surface-tabs.can-scroll-right {
+  box-shadow: inset -14px 0 12px -15px var(--color-canvas-surface);
+}
+
+.shell.tab-bar-quiet .surface-tabs.can-scroll-left.can-scroll-right {
+  box-shadow:
+    inset 8px 0 10px -13px var(--color-canvas-surface),
+    inset -14px 0 12px -15px var(--color-canvas-surface);
+}
+
+.shell.tab-bar-quiet .surface-tab:not(.surface-new-tab):not(.is-active) {
+  background: transparent;
+}
+
+.shell.tab-bar-quiet .surface-tab:not(.surface-new-tab):not(.is-active):hover {
+  background: color-mix(in oklch, var(--color-pane-surface) 46%, transparent);
+}
+
+.shell.tab-bar-banded .surface-tabs {
+  border-bottom-color: color-mix(in oklch, var(--color-line) 82%, var(--color-accent) 18%);
+  background: color-mix(in oklch, var(--color-terminal-gutter) 70%, var(--color-pane-surface) 30%);
+  box-shadow: var(--depth-topbar-shadow);
+}
+
+.shell.tab-bar-banded .surface-tab:not(.surface-new-tab):not(.is-active) {
+  border-color: color-mix(in oklch, var(--color-line) 44%, transparent);
+  border-bottom-color: transparent;
+  background: color-mix(in oklch, var(--color-pane-surface) 44%, transparent);
+}
+
+.shell.tab-bar-banded .surface-tab:not(.surface-new-tab):not(.is-active):hover {
+  border-color: color-mix(in oklch, var(--color-line) 72%, transparent);
+  background: color-mix(in oklch, var(--color-pane-surface) 72%, transparent);
+}
+
 .surface-tab.is-active {
   border-color: var(--color-line);
   border-bottom-color: var(--color-pane-surface);
@@ -7965,6 +8010,26 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .layout-settings-preview.hide-tabs .layout-preview-tabs {
   display: none;
+}
+
+.layout-settings-preview.tab-bar-quiet .layout-preview-tabs {
+  border-bottom-color: color-mix(in oklch, var(--color-line) 58%, transparent);
+  background: color-mix(in oklch, var(--color-text) 3%, transparent);
+}
+
+.layout-settings-preview.tab-bar-quiet .layout-preview-tabs span:not(.active) {
+  border-color: color-mix(in oklch, var(--color-line) 60%, transparent);
+  background: transparent;
+}
+
+.layout-settings-preview.tab-bar-banded .layout-preview-tabs {
+  border-bottom-color: color-mix(in oklch, var(--color-line) 82%, var(--color-accent) 18%);
+  background: color-mix(in oklch, var(--color-text) 6%, transparent);
+}
+
+.layout-settings-preview.tab-bar-banded .layout-preview-tabs span:not(.active) {
+  border-color: color-mix(in oklch, var(--color-line) 78%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 72%, var(--color-text) 4%);
 }
 
 .layout-preview-tabs span {
