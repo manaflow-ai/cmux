@@ -142,6 +142,7 @@ private final class CLISocketSentryTelemetry {
 
     func captureError(stage: String, error: Error, data: [String: Any] = [:]) {
         guard shouldEmit else { return }
+        recordCaptureProbe(stage: stage, error: error)
 #if canImport(Sentry)
         Self.ensureStarted()
         flushPendingBreadcrumbs()
@@ -169,6 +170,15 @@ private final class CLISocketSentryTelemetry {
 
     private var shouldEmit: Bool {
         !disabledByEnv
+    }
+
+    private func recordCaptureProbe(stage: String, error: Error) {
+        guard let path = processEnv["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return
+        }
+        let payload = "stage=\(stage)\nerror=\(String(describing: error))\n"
+        try? payload.write(toFile: NSString(string: path).expandingTildeInPath, atomically: true, encoding: .utf8)
     }
 
 #if canImport(Sentry)
