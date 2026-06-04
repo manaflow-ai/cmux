@@ -62,10 +62,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private let runtime: (any MobileSyncRuntime)?
-    private let pairedMacStore: (any MobilePairedMacStoring)?
+    // Internal (not `private`): read by the recovery-context conformance.
+    let pairedMacStore: (any MobilePairedMacStoring)?
     private let identityProvider: (any MobileIdentityProviding)?
-    private let reachability: any ReachabilityProviding
     private let clientID: String
+    /// The carved-out network-recovery state machine. Internal so the package
+    /// test target can drive it directly.
+    let recovery: MobileRecoveryCoordinator
     /// The carved-out workspace/terminal list + selection state. Internal so
     /// the package test target can drive it directly.
     let workspaceModel: MobileWorkspaceModel
@@ -122,7 +125,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.runtime = runtime
         self.pairedMacStore = pairedMacStore
         self.identityProvider = identityProvider
-        self.reachability = reachability
+        self.recovery = MobileRecoveryCoordinator(reachability: reachability)
         let clientID = clientIDRepository.clientID
         self.clientID = clientID
         self.workspaceModel = MobileWorkspaceModel(workspaces: workspaces)
@@ -146,13 +149,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
         terminalOutput.bind(context: self)
+        recovery.bind(context: self)
     }
 
     isolated deinit {
-        // The terminal output service cancels its own listener/watchdog/refresh
-        // tasks in its `isolated deinit`, which runs when this facade (its only
-        // strong owner) is deallocated.
-        networkPathObservationTask?.cancel()
+        // The terminal output service and recovery coordinator cancel their own
+        // listener/watchdog/observation tasks in their `isolated deinit`s, which
+        // run when this facade (their only strong owner) is deallocated.
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
@@ -192,7 +195,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func resumeForegroundRefresh() {
-        startObservingNetworkPathChanges()
+        recovery.startObservingNetworkPathChanges()
         terminalOutput.resyncTerminalOutput(reason: "foreground", restartEventStream: true)
     }
 
@@ -256,10 +259,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// True while an automatic reconnect is in progress after a network change
     /// or drop.
-    public private(set) var isRecoveringConnection: Bool = false
+    public var isRecoveringConnection: Bool {
+        recovery.isRecoveringConnection
+    }
     /// True when automatic recovery could not restore the connection; the UI
     /// surfaces a manual Retry control in this state.
-    public private(set) var connectionRecoveryFailed: Bool = false
+    public var connectionRecoveryFailed: Bool {
+        recovery.connectionRecoveryFailed
+    }
     /// True when the host rejected this device on authorization grounds (the Mac
     /// is signed in to a different account, or the token could not be verified).
     /// Retrying cannot fix this, so the UI surfaces the auth message and a
@@ -267,77 +274,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the user-facing reason.
     public private(set) var connectionRequiresReauth: Bool = false
 
-    private var networkPathObservationStarted = false
-    private var networkPathObservationTask: Task<Void, Never>?
-    private var recoveryInFlight = false
-    private var recoveryTask: Task<Void, Never>?
-    private var lastReconnectStackUserID: String?
-
-    private enum RecoveryTrigger: CustomStringConvertible {
-        case networkChange
-        case manual
-        var description: String {
-            switch self {
-            case .networkChange: return "networkChange"
-            case .manual: return "manual"
-            }
-        }
-    }
-
-    /// Begin observing meaningful network path changes (Wi-Fi<->cellular,
-    /// offline->online) so a live terminal recovers when the network moves out
-    /// from under it. Idempotent; only the first call arms the observation.
-    func startObservingNetworkPathChanges() {
-        guard !networkPathObservationStarted else { return }
-        networkPathObservationStarted = true
-        let reachability = reachability
-        networkPathObservationTask = Task { @MainActor [weak self] in
-            // Each yield marks a meaningful path change (offline->online or a
-            // primary-interface switch while online); recover the live
-            // connection so a moving network repaints instead of going stale.
-            for await _ in reachability.pathChanges() {
-                guard let self, !Task.isCancelled else { return }
-                self.recoverMobileConnection(trigger: .networkChange)
-            }
-        }
-    }
-
     /// User-initiated reconnect from the Retry control.
     public func retryMobileConnection() {
-        connectionRecoveryFailed = false
-        recoverMobileConnection(trigger: .manual)
-    }
-
-    /// Single guarded recovery entry for every trigger (network change, manual
-    /// Retry). When still connected, a network move usually only broke the event
-    /// stream while input keeps flowing over the surviving connection, so a
-    /// resync re-subscribes and requests a render-grid replay to repaint.
-    /// Otherwise the connection dropped, so reconnect once; on failure the UI
-    /// shows Retry and the next network change re-attempts automatically.
-    private func recoverMobileConnection(trigger: RecoveryTrigger) {
-        guard remoteClient != nil || pairedMacStore != nil else { return }
-        if connectionState == .connected, remoteClient != nil {
-            markMacConnectionReconnecting()
-            terminalOutput.resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
-            return
-        }
-        guard !recoveryInFlight else { return }
-        recoveryInFlight = true
-        isRecoveringConnection = true
-        connectionRecoveryFailed = false
-        let stackUserID = lastReconnectStackUserID
-        recoveryTask?.cancel()
-        recoveryTask = Task { @MainActor [weak self] in
-            defer {
-                self?.recoveryInFlight = false
-                self?.isRecoveringConnection = false
-            }
-            guard let self, self.connectionState != .connected else { return }
-            let reconnected = await self.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
-            if !reconnected, !Task.isCancelled {
-                self.connectionRecoveryFailed = true
-            }
-        }
+        recovery.retryMobileConnection()
     }
 
     public func connectPreviewHost() {
@@ -427,8 +366,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// manual host flow. Auth tokens never persist; we always re-mint.
     @discardableResult
     public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
-        lastReconnectStackUserID = stackUserID
-        startObservingNetworkPathChanges()
+        recovery.prepareForReconnect(stackUserID: stackUserID)
         guard let pairedMacStore else { return false }
         guard isSignedIn else { return false }
         let saved: MobilePairedMac?
@@ -1129,8 +1067,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         macConnectionStatus = .connected
-        isRecoveringConnection = false
-        connectionRecoveryFailed = false
+        recovery.isRecoveringConnection = false
+        recovery.connectionRecoveryFailed = false
         connectionRequiresReauth = false
     }
 
@@ -1141,8 +1079,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         macConnectionStatus = .reconnecting
-        isRecoveringConnection = true
-        connectionRecoveryFailed = false
+        recovery.isRecoveringConnection = true
+        recovery.connectionRecoveryFailed = false
     }
 
     // Internal (not `private`): witnesses ``MobileTerminalOutputContext``.
@@ -1152,8 +1090,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         macConnectionStatus = .unavailable
-        isRecoveringConnection = false
-        connectionRecoveryFailed = true
+        recovery.isRecoveringConnection = false
+        recovery.connectionRecoveryFailed = true
     }
 
     private func markMacConnectionUnavailableIfNeeded(after error: Error) {
