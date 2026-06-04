@@ -4482,8 +4482,8 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     static func shouldReleaseBackgroundPreloadHost(
-        preloadWindow: NSWindow?,
-        attachedWindow: NSWindow?
+        preloadWindow: AnyObject?,
+        attachedWindow: AnyObject?
     ) -> Bool {
         guard let preloadWindow, let attachedWindow else { return false }
         return attachedWindow !== preloadWindow

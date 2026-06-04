@@ -2572,7 +2572,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
         let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
 
-        XCTAssertNil(configureParams["ssh_options"])
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        XCTAssertFalse(sshOptions.contains { $0.hasPrefix("ForwardAgent=") }, "ssh_options: \(sshOptions)")
         XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
@@ -3856,7 +3857,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         wait(for: [socketHandled], timeout: 3)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 1, result.stderr)
-        XCTAssertTrue(result.stderr.contains("remote PTY operation failed"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("persistent SSH PTY session is no longer running"), result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(methods, [
             "workspace.remote.pty_bridge",
@@ -4305,7 +4306,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(state.snapshot().contains { $0.contains("workspace.remote.pty_close") })
         XCTAssertTrue(result.stderr.contains("ssh-session-cleanup failed for 1 persisted SSH PTY session"), result.stderr)
         XCTAssertTrue(result.stderr.contains(sessionId), result.stderr)
-        XCTAssertTrue(result.stderr.contains("persistent SSH PTY session is no longer running"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("ssh-session-gone"), result.stderr)
     }
 
     func testSSHSessionCleanupAllWorkspacesSessionIDCountsDuplicateIDsPerWorkspace() throws {

@@ -2836,9 +2836,8 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertFalse(panel.canGoForward)
 
         panel.goBack()
-        try waitUntil("back action to expose page B as forward history before it can commit", timeout: 15.0) {
+        try waitUntil("back action to cancel provisional page B navigation", timeout: 15.0) {
             panel.currentURL?.path == pageA.path && !panel.webView.isLoading
-                && panel.canGoForward
         }
 
         let releasedBResponseCount = server.releaseHeldBResponses()

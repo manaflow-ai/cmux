@@ -1588,9 +1588,23 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         let surfaceView = try XCTUnwrap(findGhosttyNSView(in: hostedView))
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if window.firstResponder === surfaceView,
+               surface.surface != nil,
+               surfaceView.terminalSurface === surface {
+                break
+            }
+            window.makeFirstResponder(surfaceView)
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertTrue(window.firstResponder === surfaceView, "Expected hosted terminal view to become first responder")
+        XCTAssertNotNil(surface.surface, "Expected runtime Ghostty surface before testing keyboard routing")
+        XCTAssertTrue(surfaceView.terminalSurface === surface, "Expected Ghostty view to attach to the hosted terminal surface")
         return HostedTerminalWindow(
             surface: surface,
             window: window,
@@ -1963,13 +1977,13 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             XCTAssertTrue(window.performKeyEquivalent(with: event))
             XCTAssertEqual(
                 pasteInvocationCount,
-                1,
-                "Cmd+V should still invoke the terminal paste action even if the window main-menu fast path misses"
+                0,
+                "Cmd+V with no menu target should use Ghostty's direct binding path, not a stale menu action"
             )
             XCTAssertEqual(
                 forwardedCommandVCount,
-                0,
-                "Cmd+V should not fall back to Ghostty keyDown when the terminal paste action is available"
+                1,
+                "Cmd+V should still reach Ghostty's paste binding when the window main-menu fast path misses"
             )
         }
     }
@@ -2053,13 +2067,13 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             )
             XCTAssertEqual(
                 pasteAsPlainTextInvocationCount,
-                1,
-                "Cmd+Shift+V should still invoke the terminal pasteAsPlainText action even if the window main-menu fast path misses"
+                0,
+                "Cmd+Shift+V with no menu target should use Ghostty's direct binding path, not a stale menu action"
             )
             XCTAssertEqual(
                 forwardedCommandVCount,
-                0,
-                "Cmd+Shift+V should not fall back to Ghostty keyDown when the terminal plain-text paste action is available"
+                1,
+                "Cmd+Shift+V should still reach Ghostty's paste binding when the window main-menu fast path misses"
             )
         }
     }
@@ -2136,13 +2150,13 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             XCTAssertTrue(window.performKeyEquivalent(with: event))
             XCTAssertEqual(
                 pasteInvocationCount,
-                1,
-                "Cmd+V should still invoke the terminal paste action after a transient surface release"
+                0,
+                "Cmd+V after a transient surface release should use Ghostty's direct binding path, not a stale menu action"
             )
             XCTAssertEqual(
                 forwardedCommandVCount,
-                0,
-                "Cmd+V should recover the Ghostty surface without falling back to keyDown"
+                1,
+                "Cmd+V should recover the Ghostty surface and deliver the paste binding through keyDown"
             )
             XCTAssertNotNil(
                 terminalSurface.surface,

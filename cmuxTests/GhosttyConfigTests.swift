@@ -2189,26 +2189,8 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
     }
 
     func testBackgroundPreloadReleaseDecisionRequiresRealWindowAttachment() {
-        let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
-        let preloadWindow = NSWindow(
-            contentRect: frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        preloadWindow.isReleasedWhenClosed = false
-        defer { preloadWindow.close() }
-
-        let realHostWindow = NSWindow(
-            contentRect: frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        defer {
-            realHostWindow.contentView = nil
-            realHostWindow.close()
-        }
+        let preloadWindow = NSObject()
+        let realHostWindow = NSObject()
 
         XCTAssertFalse(
             BrowserPanel.shouldReleaseBackgroundPreloadHost(
