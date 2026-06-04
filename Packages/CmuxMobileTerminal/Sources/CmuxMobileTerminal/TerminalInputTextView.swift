@@ -18,6 +18,9 @@ final class TerminalInputTextView: UITextView {
     /// accessory-tap byte translation. This view is a dumb first responder
     /// that forwards events and dispatches the returned emissions.
     private let inputCoordinator = TerminalInputCoordinator()
+    /// Root-constructed accessory-bar configuration (which shortcuts show,
+    /// and in what order), injected by the hosting surface view.
+    private let accessoryConfiguration: TerminalAccessoryConfiguration
     private var pendingDirectInsertMirrorText = ""
 
     /// Monotonic-ish tap timestamp for the reducer's double-tap window. Uses
@@ -199,7 +202,7 @@ final class TerminalInputTextView: UITextView {
         commandAccessoryButton?.removeFromSuperview()
         commandAccessoryButton = nil
 
-        let actions = Self.pinnedLeadingActions + TerminalAccessoryConfiguration.shared.enabledActions
+        let actions = Self.pinnedLeadingActions + accessoryConfiguration.enabledActions
         for action in actions {
             let button = makeAccessoryButton(for: action)
             // Command is Mac-only; kept out of the stack and inserted by
@@ -268,7 +271,8 @@ final class TerminalInputTextView: UITextView {
         }
     }
 
-    init() {
+    init(accessoryConfiguration: TerminalAccessoryConfiguration) {
+        self.accessoryConfiguration = accessoryConfiguration
         super.init(frame: .zero, textContainer: nil)
         backgroundColor = .clear
         textColor = .clear

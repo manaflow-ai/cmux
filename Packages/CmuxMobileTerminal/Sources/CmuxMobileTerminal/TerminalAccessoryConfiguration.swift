@@ -16,13 +16,6 @@ import Observation
 @MainActor
 @Observable
 public final class TerminalAccessoryConfiguration {
-    /// Shared instance backing the live toolbar and the settings editor.
-    // Read from the UIKit input-accessory build path inside the off-limits
-    // surface/input view; the only two readers are TerminalInputTextView's
-    // accessory builder and TerminalShortcutsSettingsView.
-    // TRANSITIONAL — construction-at-root injection lands with the GhosttySurfaceView UI-god-object split.
-    public static let shared = TerminalAccessoryConfiguration()
-
     /// Posted (on the main thread) whenever the configuration changes, so the
     /// UIKit input-accessory bar can rebuild its configurable buttons.
     public static let didChangeNotification = Notification.Name("cmux.terminal.accessoryConfigurationDidChange")
@@ -48,7 +41,11 @@ public final class TerminalAccessoryConfiguration {
         configurable: TerminalInputAccessoryAction.configurableActions.map(\.rawValue)
     )
 
-    init(defaults: UserDefaults = .standard) {
+    /// Creates a configuration backed by `defaults`. Construct once at the
+    /// app composition root and inject (the bar and the settings editor must
+    /// share the instance); tests pass a scoped `UserDefaults(suiteName:)`.
+    /// - Parameter defaults: The persistence store for order/visibility.
+    public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
         let layout = reducer.load(

@@ -20,6 +20,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// Root-constructed engine provider, carried by the SwiftUI environment
     /// from `CMUXMobileRootScene` (replaces `GhosttyRuntime.shared()`).
     @Environment(GhosttyEngineProvider.self) private var engineProvider
+    /// Root-constructed accessory-bar configuration from the environment.
+    @Environment(TerminalAccessoryConfiguration.self) private var accessoryConfiguration
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
@@ -40,6 +42,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let view = GhosttySurfaceView(
             engine: engine,
             delegate: context.coordinator,
+            accessoryConfiguration: accessoryConfiguration,
             fontSize: fontSize
         )
         context.coordinator.attach(surfaceView: view)

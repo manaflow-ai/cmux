@@ -1,4 +1,5 @@
 import CmuxMobileGhosttyEngine
+import CmuxMobileTerminal
 import CmuxMobileTransport
 import cmuxFeature
 
@@ -18,6 +19,9 @@ final class AppCompositionRoot {
     /// Lazily constructs the process's libghostty engine on first terminal
     /// mount (replaces `GhosttyRuntime.shared()`).
     let terminalEngine: GhosttyEngineProvider
+    /// Accessory-bar configuration shared by the terminal toolbar and the
+    /// shortcuts settings editor (replaces `TerminalAccessoryConfiguration.shared`).
+    let terminalAccessoryConfiguration: TerminalAccessoryConfiguration
 
     init(
         runtime: CMUXMobileRuntime,
@@ -29,5 +33,6 @@ final class AppCompositionRoot {
         self.reachability = reachability
         self.pushCoordinator = MobilePushCoordinator(registration: auth.pushRegistration)
         self.terminalEngine = GhosttyEngineProvider()
+        self.terminalAccessoryConfiguration = TerminalAccessoryConfiguration()
     }
 }

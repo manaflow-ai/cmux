@@ -31,6 +31,8 @@ struct TerminalLayoutPreviewView: View {
 private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
     /// Root-constructed engine provider from the SwiftUI environment.
     @Environment(GhosttyEngineProvider.self) private var engineProvider
+    /// Root-constructed accessory-bar configuration from the environment.
+    @Environment(TerminalAccessoryConfiguration.self) private var accessoryConfiguration
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -48,6 +50,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         let view = GhosttySurfaceView(
             engine: engine,
             delegate: context.coordinator,
+            accessoryConfiguration: accessoryConfiguration,
             fontSize: MobileTerminalFontPreference.defaultSize
         )
         // Leave the keyboard down on first appearance; the screenshot harness

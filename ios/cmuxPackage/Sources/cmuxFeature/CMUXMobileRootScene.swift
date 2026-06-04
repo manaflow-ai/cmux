@@ -9,8 +9,6 @@ import SwiftUI
 
 #if canImport(UIKit)
 import CmuxMobileGhosttyEngine
-#endif
-#if canImport(UIKit) && DEBUG
 import CmuxMobileTerminal
 #endif
 
@@ -39,6 +37,9 @@ public struct CMUXMobileRootScene: View {
     /// environment so terminal surfaces resolve the engine without a
     /// singleton.
     private let terminalEngine: GhosttyEngineProvider
+    /// Root-constructed accessory-bar configuration shared by the terminal
+    /// toolbar and the shortcuts settings editor.
+    private let terminalAccessoryConfiguration: TerminalAccessoryConfiguration
     #endif
     private let pairedMacStore: (any MobilePairedMacStoring)?
 
@@ -52,18 +53,22 @@ public struct CMUXMobileRootScene: View {
     ///   - pushCoordinator: The app-root push coordinator (shared with the app
     ///     delegate) injected into the environment.
     ///   - terminalEngine: The root-constructed Ghostty engine provider.
+    ///   - terminalAccessoryConfiguration: The root-constructed accessory-bar
+    ///     configuration shared by the toolbar and its settings editor.
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         pushCoordinator: MobilePushCoordinator,
-        terminalEngine: GhosttyEngineProvider
+        terminalEngine: GhosttyEngineProvider,
+        terminalAccessoryConfiguration: TerminalAccessoryConfiguration
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
         self.pushCoordinator = pushCoordinator
         self.terminalEngine = terminalEngine
+        self.terminalAccessoryConfiguration = terminalAccessoryConfiguration
         self.pairedMacStore = Self.openPairedMacStore()
     }
     #else
@@ -97,6 +102,7 @@ public struct CMUXMobileRootScene: View {
             #if os(iOS)
             .environment(pushCoordinator)
             .environment(terminalEngine)
+            .environment(terminalAccessoryConfiguration)
             #endif
     }
 

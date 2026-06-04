@@ -335,8 +335,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastReportedSize ?? TerminalGridSize(columns: 100, rows: 32, pixelWidth: 900, pixelHeight: 650)
     }
 
+    /// Root-constructed accessory-bar configuration, forwarded to the input
+    /// proxy's toolbar builder.
+    private let accessoryConfiguration: TerminalAccessoryConfiguration
+
     private lazy var inputProxy: TerminalInputTextView = {
-        let inputProxy = TerminalInputTextView()
+        let inputProxy = TerminalInputTextView(accessoryConfiguration: accessoryConfiguration)
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
             self.resetCursorBlink()
@@ -394,10 +398,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return inputProxy
     }()
 
-    public init(engine: GhosttyEngineService, delegate: GhosttySurfaceViewDelegate, fontSize: Float32 = 10) {
+    public init(
+        engine: GhosttyEngineService,
+        delegate: GhosttySurfaceViewDelegate,
+        accessoryConfiguration: TerminalAccessoryConfiguration,
+        fontSize: Float32 = 10
+    ) {
         self.engine = engine
         self.registry = engine.registry
         self.delegate = delegate
+        self.accessoryConfiguration = accessoryConfiguration
         self.fontSize = fontSize
         self.liveFontSize = fontSize
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))

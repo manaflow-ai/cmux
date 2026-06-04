@@ -44,7 +44,14 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
             label.textColor = .white
             return label
         }
-        let view = GhosttySurfaceView(engine: engine, delegate: context.coordinator, fontSize: 12)
+        // Standalone harness: a fresh default accessory configuration keeps
+        // the bar deterministic and avoids threading app state in here.
+        let view = GhosttySurfaceView(
+            engine: engine,
+            delegate: context.coordinator,
+            accessoryConfiguration: TerminalAccessoryConfiguration(),
+            fontSize: 12
+        )
         context.coordinator.surfaceView = view
         context.coordinator.start()
         return view
