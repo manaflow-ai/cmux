@@ -1420,7 +1420,16 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [.control],
                 hasSelection: false
             ),
-            .adjustSelection(.up)
+            .scrollLines(-1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{05}",
+                modifierFlags: [.control],
+                hasSelection: false
+            ),
+            .scrollLines(1)
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(

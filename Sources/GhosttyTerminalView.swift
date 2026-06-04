@@ -1394,6 +1394,7 @@ enum TerminalKeyboardCopyModeAction: Equatable {
     case clearSelection
     case copyAndExit
     case copyLineAndExit
+    case scrollLines(Int)
     case scrollPage(Int)
     case scrollHalfPage(Int)
     case scrollToTop
@@ -1638,10 +1639,10 @@ func terminalKeyboardCopyModeAction(
             return hasSelection ? .adjustSelection(.pageDown) : .scrollPage(1)
         }
         if chars == "y" || chars == "\u{19}" {
-            return .adjustSelection(.up)
+            return hasSelection ? .adjustSelection(.up) : .scrollLines(-1)
         }
         if chars == "e" || chars == "\u{05}" {
-            return .adjustSelection(.down)
+            return hasSelection ? .adjustSelection(.down) : .scrollLines(1)
         }
         return nil
     }
@@ -8505,6 +8506,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncKeyboardCopyModeCursorOverlay(surface: surface)
     }
 
+    private func updateKeyboardCopyModeCursorModel(
+        _ direction: TerminalKeyboardCopyModeSelectionMove,
+        count: Int,
+        surface: ghostty_surface_t
+    ) {
+        guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        var cursor = keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface)
+        _ = cursor.move(
+            direction,
+            count: count,
+            rows: metrics.rows,
+            columns: metrics.columns
+        )
+        keyboardCopyModeCursor = cursor
+    }
+
     private func selectKeyboardCopyModeCursorCell(surface: ghostty_surface_t) -> Bool {
         guard let cursor = keyboardCopyModeCursor,
               let metrics = keyboardCopyModeGridMetrics(surface: surface) else {
@@ -8520,13 +8537,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_clear_selection_compat(surface)
         ghostty_surface_mouse_pos(surface, Double(startX), Double(y), mods)
         guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
-            return false
+            return ghostty_surface_select_cursor_cell_compat(surface)
         }
         ghostty_surface_mouse_pos(surface, Double(endX), Double(y), mods)
-        defer {
-            _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+        let selectedCursorCell = ghostty_surface_has_selection(surface)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+        guard selectedCursorCell else {
+            return ghostty_surface_select_cursor_cell_compat(surface)
         }
-        return ghostty_surface_has_selection(surface)
+        return true
     }
 
     private func copyCurrentViewportLinesToClipboard(
@@ -8617,6 +8636,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
             _ = ghostty_surface_clear_selection_compat(surface)
             setKeyboardCopyModeActive(false)
+        case let .scrollLines(delta):
+            _ = performBindingAction("scroll_page_lines:\(delta * count)")
         case let .scrollPage(delta):
             performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: count)
         case let .scrollHalfPage(delta):
@@ -8653,6 +8674,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case let .adjustSelection(direction):
             if keyboardCopyModeVisualActive {
                 performBindingAction("adjust_selection:\(direction.rawValue)", repeatCount: count)
+                updateKeyboardCopyModeCursorModel(direction, count: count, surface: surface)
             } else {
                 moveKeyboardCopyModeCursor(direction, count: count, surface: surface)
             }
