@@ -2,24 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import type {
-  AwesomeCmuxProject,
-  AwesomeCmuxProjectKind,
-} from "./awesome-cmux-projects";
+import type { AwesomeCmuxProject } from "./awesome-cmux-projects";
 
 type CategorySummary = {
   category: string;
   count: number;
 };
 
-type FilterKind = "all" | AwesomeCmuxProjectKind;
 type SortMode = "recommended" | "stars" | "name";
-
-const kindRank: Record<AwesomeCmuxProjectKind, number> = {
-  native: 0,
-  port: 1,
-  adjacent: 2,
-};
 
 const categoryLabelKeys: Record<string, string> = {
   "Sidebar & Status Pills": "sidebarStatusPills",
@@ -37,14 +27,7 @@ const categoryLabelKeys: Record<string, string> = {
   OpenCode: "openCode",
   "Copilot & Amp": "copilotAmp",
   "Multi-Agent / Agent-Agnostic": "multiAgentAgentAgnostic",
-  "Cross-Platform Ports": "crossPlatformPorts",
-  "Alternatives: tmux-Based": "alternativesTmuxBased",
-  "Alternatives: Other Terminals & Workspaces":
-    "alternativesOtherTerminalsWorkspaces",
-  "Alternatives: Forks": "alternativesForks",
   "Build & Distribution": "buildDistribution",
-  "Upstream Dependencies": "upstreamDependencies",
-  Archived: "archived",
 };
 
 function isPresent(value: string | undefined): value is string {
@@ -74,6 +57,7 @@ function compareProjectStars(
 
 function projectMatchesQuery(
   project: AwesomeCmuxProject,
+  description: string,
   query: string,
   categoryLabels: ReadonlyMap<string, string>,
 ) {
@@ -83,7 +67,7 @@ function projectMatchesQuery(
 
   const searchableText = [
     project.name,
-    project.description,
+    description,
     project.agent,
     project.language,
     ...project.categories.map(
@@ -99,12 +83,12 @@ function projectMatchesQuery(
 
 function ProjectCard({
   project,
-  kindLabel,
+  description,
   categoryLabels,
   numberFormatter,
 }: {
   project: AwesomeCmuxProject;
-  kindLabel: string;
+  description: string;
   categoryLabels: ReadonlyMap<string, string>;
   numberFormatter: Intl.NumberFormat;
 }) {
@@ -119,7 +103,6 @@ function ProjectCard({
       target="_blank"
       rel="noopener noreferrer"
       data-project-card=""
-      data-project-kind={project.kind}
       className="group flex h-full flex-col rounded-lg border border-border p-4 transition-colors hover:bg-code-bg"
     >
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -132,7 +115,6 @@ function ProjectCard({
       </div>
 
       <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-muted">
-        <span className="rounded-md bg-code-bg px-2 py-1">{kindLabel}</span>
         {project.agent && (
           <span className="rounded-md bg-code-bg px-2 py-1">
             {project.agent}
@@ -150,9 +132,7 @@ function ProjectCard({
         )}
       </div>
 
-      <p className="mt-3 flex-1 text-sm leading-6 text-muted">
-        {project.description}
-      </p>
+      <p className="mt-3 flex-1 text-sm leading-6 text-muted">{description}</p>
 
       <div className="mt-4 flex flex-wrap gap-1.5">
         {visibleCategories.map((category) => (
@@ -185,7 +165,6 @@ export function CommunityProjectBrowser({
   const t = useTranslations("community");
   const locale = useLocale();
   const [query, setQuery] = useState("");
-  const [kind, setKind] = useState<FilterKind>("all");
   const [category, setCategory] = useState("all");
   const [agent, setAgent] = useState("all");
   const [language, setLanguage] = useState("all");
@@ -213,6 +192,21 @@ export function CommunityProjectBrowser({
     [collator, projects],
   );
 
+  const projectOrder = useMemo(
+    () => new Map(projects.map((project, index) => [project.url, index])),
+    [projects],
+  );
+  const projectDescriptions = useMemo(
+    () =>
+      new Map(
+        projects.map((project) => [
+          project.url,
+          t(`projectDescriptions.${project.descriptionKey}`),
+        ]),
+      ),
+    [projects, t],
+  );
+
   const categoryLabels = useMemo(() => {
     const labels = new Map<string, string>();
 
@@ -231,10 +225,6 @@ export function CommunityProjectBrowser({
   const filteredProjects = useMemo(
     () =>
       projects.filter((project) => {
-        if (kind !== "all" && project.kind !== kind) {
-          return false;
-        }
-
         if (category !== "all" && !project.categories.includes(category)) {
           return false;
         }
@@ -247,9 +237,22 @@ export function CommunityProjectBrowser({
           return false;
         }
 
-        return projectMatchesQuery(project, normalizedQuery, categoryLabels);
+        return projectMatchesQuery(
+          project,
+          projectDescriptions.get(project.url) ?? "",
+          normalizedQuery,
+          categoryLabels,
+        );
       }),
-    [agent, category, categoryLabels, kind, language, normalizedQuery, projects],
+    [
+      agent,
+      category,
+      categoryLabels,
+      language,
+      normalizedQuery,
+      projectDescriptions,
+      projects,
+    ],
   );
 
   const sortedProjects = useMemo(() => {
@@ -262,24 +265,12 @@ export function CommunityProjectBrowser({
         return compareProjectStars(collator, left, right);
       }
 
-      const kindDelta = kindRank[left.kind] - kindRank[right.kind];
-      if (kindDelta !== 0) {
-        return kindDelta;
-      }
-
-      return compareProjectStars(collator, left, right);
+      return (projectOrder.get(left.url) ?? 0) - (projectOrder.get(right.url) ?? 0);
     });
-  }, [collator, filteredProjects, sortMode]);
-
-  const kindLabels: Record<AwesomeCmuxProjectKind, string> = {
-    native: t("nativeKindLabel"),
-    port: t("portKindLabel"),
-    adjacent: t("adjacentKindLabel"),
-  };
+  }, [collator, filteredProjects, projectOrder, sortMode]);
 
   const activeFilterCount = [
     normalizedQuery,
-    kind !== "all",
     category !== "all",
     agent !== "all",
     language !== "all",
@@ -288,7 +279,6 @@ export function CommunityProjectBrowser({
 
   function resetFilters() {
     setQuery("");
-    setKind("all");
     setCategory("all");
     setAgent("all");
     setLanguage("all");
@@ -323,7 +313,7 @@ export function CommunityProjectBrowser({
         </div>
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-12">
-          <label className="grid min-w-0 gap-1.5 xl:col-span-5">
+          <label className="grid min-w-0 gap-1.5 xl:col-span-6">
             <span className="text-xs text-muted">{t("searchLabel")}</span>
             <input
               type="search"
@@ -335,33 +325,7 @@ export function CommunityProjectBrowser({
             />
           </label>
 
-          <div className="grid min-w-0 gap-1.5 xl:col-span-4">
-            <span className="text-xs text-muted">{t("kindLabel")}</span>
-            <div className="grid h-10 min-w-0 grid-cols-4 gap-1 rounded-md border border-border p-1">
-              {[
-                ["all", t("kindAll")],
-                ["native", t("kindNative")],
-                ["port", t("kindPort")],
-                ["adjacent", t("kindAdjacent")],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={kind === value}
-                  onClick={() => setKind(value as FilterKind)}
-                  className={`min-w-0 rounded-[5px] px-2 text-xs font-medium transition-colors ${
-                    kind === value
-                      ? "bg-foreground text-background"
-                      : "text-muted hover:bg-code-bg hover:text-foreground"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <label className="grid min-w-0 gap-1.5 xl:col-span-3">
+          <label className="grid min-w-0 gap-1.5 xl:col-span-6">
             <span className="text-xs text-muted">{t("sortLabel")}</span>
             <select
               value={sortMode}
@@ -430,7 +394,7 @@ export function CommunityProjectBrowser({
             <ProjectCard
               key={project.url}
               project={project}
-              kindLabel={kindLabels[project.kind]}
+              description={projectDescriptions.get(project.url) ?? ""}
               categoryLabels={categoryLabels}
               numberFormatter={numberFormatter}
             />

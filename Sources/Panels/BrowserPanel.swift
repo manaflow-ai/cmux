@@ -1168,7 +1168,6 @@ func browserNewTabNavigationSeed(
 /// Mirrors the opener's WebKit browsing context for popup windows.
 struct BrowserPopupBrowserContext {
     let websiteDataStore: WKWebsiteDataStore
-    let processPool: WKProcessPool
 }
 
 enum BrowserFileSystemAccessBridge {
@@ -2502,7 +2501,7 @@ actor BrowserSearchSuggestionService {
 }
 
 /// BrowserPanel provides a WKWebView-based browser panel.
-/// Each browser panel owns a WKProcessPool so WebContent crashes stay isolated.
+/// Each browser panel can recover from WebContent crashes by replacing its web view.
 private enum BrowserInsecureHTTPNavigationIntent {
     case currentTab
     case newTab
@@ -3115,8 +3114,6 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
-    /// Isolate WebKit crashes to this browser panel while keeping popups in the same browsing context.
-    private let processPool: WKProcessPool
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
@@ -3804,8 +3801,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore,
-            processPool: processPool
+            websiteDataStore: websiteDataStore
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -3862,11 +3858,10 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    /// Popups inherit this panel's exact WebKit storage and process context.
+    /// Popups inherit this panel's exact WebKit storage context.
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
-            websiteDataStore: websiteDataStore,
-            processPool: webView.configuration.processPool
+            websiteDataStore: websiteDataStore
         )
     }
 
@@ -4043,14 +4038,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private static func makeWebView(
         profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore? = nil,
-        processPool: WKProcessPool
+        websiteDataStore: WKWebsiteDataStore? = nil
     ) -> CmuxWebView {
         let config = WKWebViewConfiguration()
         configureWebViewConfiguration(
             config,
-            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID),
-            processPool: processPool
+            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
         )
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
@@ -4069,12 +4062,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
-        websiteDataStore: WKWebsiteDataStore,
-        processPool: WKProcessPool? = nil
+        websiteDataStore: WKWebsiteDataStore
     ) {
-        if let processPool {
-            configuration.processPool = processPool
-        }
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
@@ -4345,13 +4334,9 @@ final class BrowserPanel: Panel, ObservableObject {
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
-        let processPool = WKProcessPool()
-        self.processPool = processPool
-
         let webView = Self.makeWebView(
             profileID: resolvedProfileID,
-            websiteDataStore: websiteDataStore,
-            processPool: processPool
+            websiteDataStore: websiteDataStore
         )
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
@@ -4798,8 +4783,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = Self.makeWebView(
             profileID: resolvedProfileID,
-            websiteDataStore: websiteDataStore,
-            processPool: processPool
+            websiteDataStore: websiteDataStore
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -5319,8 +5303,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore,
-            processPool: processPool
+            websiteDataStore: websiteDataStore
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -6319,8 +6302,7 @@ extension BrowserPanel {
 
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore,
-            processPool: processPool
+            websiteDataStore: websiteDataStore
         )
         webViewInstanceID = UUID()
         webView = replacement
