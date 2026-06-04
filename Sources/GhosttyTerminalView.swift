@@ -7336,6 +7336,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         guard let pending else { return }
         scrollbar = pending
+        finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded(newScrollbar: pending)
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: self,
@@ -7388,6 +7389,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
+    private var keyboardCopyModePendingViewportJumpSync = false
+    private var keyboardCopyModePendingViewportJumpScrollbarOffset: UInt64?
     /// Tracks whether the user has explicitly entered visual selection mode (v).
     /// Separate from Ghostty's `has_selection` because non-visual copy mode keeps
     /// the cursor in AppKit overlay state until visual selection starts.
@@ -8214,6 +8217,46 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncKeyboardCopyModeCursorOverlay(surface: surface)
     }
 
+    private func beginKeyboardCopyModeViewportJumpCursorSync() {
+        keyboardCopyModePendingViewportJumpSync = true
+        keyboardCopyModePendingViewportJumpScrollbarOffset = scrollbar?.offset
+    }
+
+    private func scheduleKeyboardCopyModeViewportJumpCursorSyncFallback() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
+            self?.finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded()
+        }
+    }
+
+    private func finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded(newScrollbar: GhosttyScrollbar? = nil) {
+        guard keyboardCopyModePendingViewportJumpSync else { return }
+        keyboardCopyModePendingViewportJumpSync = false
+        defer { keyboardCopyModePendingViewportJumpScrollbarOffset = nil }
+
+        guard keyboardCopyModeActive, let surface else { return }
+        let resolvedNewOffset = newScrollbar?.offset ?? scrollbar?.offset
+        if let previousOffset = keyboardCopyModePendingViewportJumpScrollbarOffset,
+           let resolvedNewOffset {
+            let lineDelta = keyboardCopyModeViewportLineDelta(
+                from: previousOffset,
+                to: resolvedNewOffset
+            )
+            if lineDelta != 0 {
+                shiftKeyboardCopyModeCursorForViewportScroll(lineDelta: lineDelta, surface: surface)
+                return
+            }
+        }
+
+        clampKeyboardCopyModeCursor(surface: surface)
+    }
+
+    private func keyboardCopyModeViewportLineDelta(from previousOffset: UInt64, to currentOffset: UInt64) -> Int {
+        if currentOffset >= previousOffset {
+            return Int(clamping: currentOffset - previousOffset)
+        }
+        return -Int(clamping: previousOffset - currentOffset)
+    }
+
     private func updateKeyboardCopyModeCursorModel(
         _ direction: TerminalKeyboardCopyModeSelectionMove,
         count: Int,
@@ -8428,16 +8471,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = performBindingAction("scroll_to_bottom")
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         case let .jumpToPrompt(delta):
+            beginKeyboardCopyModeViewportJumpCursorSync()
             _ = performBindingAction("jump_to_prompt:\(delta * count)")
-            clampKeyboardCopyModeCursor(surface: surface)
+            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case .startSearch:
             _ = performBindingAction("start_search")
         case .searchNext:
+            beginKeyboardCopyModeViewportJumpCursorSync()
             performBindingAction("navigate_search:next", repeatCount: count)
-            clampKeyboardCopyModeCursor(surface: surface)
+            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case .searchPrevious:
+            beginKeyboardCopyModeViewportJumpCursorSync()
             performBindingAction("navigate_search:previous", repeatCount: count)
-            clampKeyboardCopyModeCursor(surface: surface)
+            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case let .adjustSelection(direction):
             if keyboardCopyModeVisualActive {
                 adjustKeyboardCopyModeSelection(direction, count: count, surface: surface)

@@ -127,4 +127,12 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
         #expect(abs(range.startX - 98) < 0.0001)
         #expect(abs(range.endX - 99) < 0.0001)
     }
+
+    @Test func viewportOffsetDeltaKeepsCursorOnSameTextAfterJump() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 10, column: 4)
+
+        cursor.shiftForViewportScroll(lineDelta: 3, rows: 20, columns: 8)
+
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 7, column: 4))
+    }
 }
