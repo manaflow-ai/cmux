@@ -8229,6 +8229,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .layout-preview-terminal-line,
 .layout-preview-overlay span,
 .layout-preview-switcher span,
+.layout-preview-toast span,
 .layout-preview-inspector span,
 .layout-preview-status {
   min-width: 0;
@@ -8495,6 +8496,47 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .layout-settings-preview.switcher-style-solid .layout-preview-switcher span:first-child {
   background: color-mix(in oklch, var(--color-accent) 26%, var(--color-pane-active-surface) 74%);
+}
+
+.layout-preview-toast {
+  position: absolute;
+  right: calc(var(--layout-preview-inspector) + 8px);
+  bottom: 20px;
+  width: clamp(44px, 18%, 62px);
+  display: grid;
+  padding: 5px 6px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-rail) 90%, transparent);
+  box-shadow: 0 10px 24px oklch(0% 0 0 / 28%);
+  pointer-events: none;
+}
+
+.layout-preview-toast span {
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--color-accent) 30%, var(--color-text) 12%);
+}
+
+.layout-settings-preview.toast-placement-bottom-left .layout-preview-toast {
+  right: auto;
+  left: calc(var(--layout-preview-sidebar) + 8px);
+}
+
+.layout-settings-preview.toast-placement-top-right .layout-preview-toast {
+  top: 8px;
+  bottom: auto;
+}
+
+.layout-settings-preview.overlay-style-quiet .layout-preview-toast {
+  border-color: color-mix(in oklch, var(--color-line) 54%, transparent);
+  background: color-mix(in oklch, var(--color-rail) 72%, transparent);
+  box-shadow: none;
+}
+
+.layout-settings-preview.overlay-style-solid .layout-preview-toast {
+  border-color: color-mix(in oklch, var(--color-line-strong) 70%, var(--color-accent) 30%);
+  background: color-mix(in oklch, var(--color-rail) 78%, var(--color-pane) 22%);
 }
 
 .layout-settings-preview.toolbar-minimal .layout-preview-topbar span:nth-child(2) {
@@ -15509,8 +15551,34 @@ textarea.dialog-input {
   right: var(--space-4);
   bottom: calc(var(--space-4) + 24px);
   display: grid;
+  justify-items: end;
   gap: var(--space-2);
   z-index: 120;
+  pointer-events: none;
+}
+
+.shell.toast-placement-bottom-right ~ .toast-region {
+  top: auto;
+  right: var(--space-4);
+  bottom: calc(var(--space-4) + 24px);
+  left: auto;
+  justify-items: end;
+}
+
+.shell.toast-placement-bottom-left ~ .toast-region {
+  top: auto;
+  right: auto;
+  bottom: calc(var(--space-4) + 24px);
+  left: var(--space-4);
+  justify-items: start;
+}
+
+.shell.toast-placement-top-right ~ .toast-region {
+  top: calc(var(--space-4) + 48px);
+  right: var(--space-4);
+  bottom: auto;
+  left: auto;
+  justify-items: end;
 }
 
 .toast {
@@ -15521,6 +15589,7 @@ textarea.dialog-input {
   padding: var(--space-3);
   color: var(--color-muted);
   box-shadow: 0 12px 48px oklch(5% 0.01 105 / 45%);
+  pointer-events: auto;
 }
 
 @media (max-width: 980px) {

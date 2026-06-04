@@ -31,6 +31,7 @@ export const defaultSettings = {
   inspectorStyle: "subtle",
   overlayStyle: "subtle",
   switcherStyle: "subtle",
+  toastPlacement: "bottom-right",
   paletteDensity: "balanced",
   paletteQuickActionsMode: "auto",
   paletteDetailMode: "full",
@@ -443,6 +444,12 @@ export const switcherStyleOptions = [
   ["solid", label("switcherStyle.solid", "Solid"), label("switcherStyle.solid.body", "Stronger switcher separation")]
 ];
 
+export const toastPlacementOptions = [
+  ["bottom-right", label("toastPlacement.bottomRight", "Bottom right"), label("toastPlacement.bottomRight.body", "Keep feedback near the status bar")],
+  ["bottom-left", label("toastPlacement.bottomLeft", "Bottom left"), label("toastPlacement.bottomLeft.body", "Keep feedback away from right-side tools")],
+  ["top-right", label("toastPlacement.topRight", "Top right"), label("toastPlacement.topRight.body", "Keep feedback above terminal output")]
+];
+
 export const paletteDensityOptions = [
   ["compact", label("paletteDensity.compact", "Compact"), label("paletteDensity.compact.body", "More commands visible")],
   ["balanced", label("paletteDensity.balanced", "Balanced"), label("paletteDensity.balanced.body", "Default command palette spacing")],
@@ -719,6 +726,7 @@ export const settingsPresets = [
       inspectorStyle: "subtle",
       overlayStyle: "subtle",
       switcherStyle: "subtle",
+      toastPlacement: "bottom-right",
       paletteDensity: "balanced",
       paletteQuickActionsMode: "auto",
       paletteDetailMode: "full",
@@ -801,6 +809,7 @@ export const settingsPresets = [
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
       switcherStyle: "quiet",
+      toastPlacement: "top-right",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -883,6 +892,7 @@ export const settingsPresets = [
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
       switcherStyle: "quiet",
+      toastPlacement: "top-right",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -966,6 +976,7 @@ export const settingsPresets = [
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
       switcherStyle: "quiet",
+      toastPlacement: "top-right",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -1048,6 +1059,7 @@ export const settingsPresets = [
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
       switcherStyle: "quiet",
+      toastPlacement: "top-right",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -1130,6 +1142,7 @@ export const settingsPresets = [
       inspectorStyle: "solid",
       overlayStyle: "solid",
       switcherStyle: "solid",
+      toastPlacement: "bottom-right",
       paletteDensity: "roomy",
       paletteQuickActionsMode: "auto",
       paletteDetailMode: "full",
@@ -1212,6 +1225,7 @@ export const settingsPresets = [
       inspectorStyle: "solid",
       overlayStyle: "solid",
       switcherStyle: "solid",
+      toastPlacement: "bottom-right",
       paletteDensity: "roomy",
       paletteQuickActionsMode: "auto",
       paletteDetailMode: "full",
