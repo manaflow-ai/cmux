@@ -212,14 +212,33 @@ tend to conflict together during rebases.
   - Preserves versioned or dotted path components before the first space, such as
     `/tmp/v1.2 captures/video.mp4`.
 
-The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` through the
+### 13) Linux embedded host support
+
+- Commit: `b4c2addce` (embedded: add Linux host support), pinned via fork head `a69143475`.
+- Files:
+  - `include/ghostty.h`
+  - `src/apprt/embedded.zig`
+  - `src/renderer/OpenGL.zig`
+- Summary:
+  - Adds `GHOSTTY_PLATFORM_LINUX` and a `ghostty_platform_linux_s { void* gl_area; }` to the
+    embedded C ABI so a GTK4 host can hand libghostty its `GtkGLArea`.
+  - Adds the `linux` arm to the embedded `Platform` union plus `App.must_draw_from_app_thread`,
+    so the renderer thread dispatches redraws back to the app thread (the GTK host owns the GL
+    context on the main thread).
+  - Adjusts `src/renderer/OpenGL.zig` for the embedded Linux GL context path.
+- Resize stale-frame guard note: earlier fork commits (`529b906c3`, `4a2b5948d`, `9b0febb59`)
+  disabled/scoped the `src/renderer/generic.zig` stale-frame resize guard for embedded/Linux.
+  Upstream `176bd550f` removed that guard from `generic.zig` entirely, so those three commits are
+  obsolete and were dropped during this rebase. The embedded "no stale-frame guard" behavior they
+  wanted is now the upstream default.
+
+The current cmux pin is the Linux host-support head `a69143475` (upstream `176bd550f` plus the one
+Linux host-support commit `b4c2addce`). For macOS/GhosttyKit, the macOS-only sections above are
+reachable from `manaflow-ai/ghostty` through the
 `xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1`
-release tag and branch `issue-themes-broken-ctrl-np`.
-Published `xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1` and pinned its
-archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
-pin must be regenerated whenever this commit changes, even for comment-only
-amends, because the release tag is keyed by the Ghostty commit SHA.
+release tag and branch `issue-themes-broken-ctrl-np`. The release and checksum pin must be
+regenerated whenever the macOS pin commit changes, because the release tag is keyed by the Ghostty
+commit SHA.
 
 ## Upstreamed fork changes
 
@@ -331,5 +350,19 @@ These files change frequently upstream; be careful when rebasing the fork:
   - Keep the APC handler wired into `.apc_start`, `.apc_put`, `.apc_end`, and preserve the
     `apcEnd()` response path so kitty graphics still reach `Terminal.kittyGraphics()` and reply via
     `write_pty`.
+
+- `src/renderer/generic.zig`
+  - Upstream `176bd550f` removed the embedded resize stale-frame guard from this file entirely.
+    The Linux port no longer carries any `generic.zig` override; embedded gets the upstream
+    no-guard behavior directly. There is nothing left to keep "narrow" here.
+
+- May 30, 2026, Linux port re-sync onto upstream `176bd550f`:
+  - Rebased the Linux fork delta from old fork head `9b0febb59` onto upstream ghostty `176bd550f`.
+  - Only `b4c2addce` (Linux host support) survived; the three stale-frame guard commits became
+    no-ops because upstream removed the guard, and were dropped (see section 13).
+  - New Linux fork head: `a69143475`. The superproject `ghostty` submodule points here.
+  - Verified `zig build -Dapp-runtime=none -Doptimize=ReleaseFast -Demit-terminfo=true` produces
+    the embedded library (now installed as `ghostty-internal.{so,a}`; upstream renamed it from
+    `libghostty.*`). `linux/ghostty-sys/build.rs` was updated to link the new name.
 
 If you resolve a conflict, update this doc with what changed.

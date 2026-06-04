@@ -1,0 +1,17 @@
+[package]
+name = "cmux-cli"
+version = "0.1.0"
+edition.workspace = true
+description = "CLI client for cmux terminal multiplexer"
+
+[[bin]]
+name = "cmux"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+libc = "0.2"
