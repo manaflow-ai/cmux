@@ -1768,6 +1768,50 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
   background: color-mix(in oklch, var(--color-accent) 42%, var(--color-pane-active-surface) 58%);
 }
 
+.shell.toolbar-buttons-ghost .tool-button:not(.primary) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.shell.toolbar-buttons-ghost .tool-button:not(.primary):hover {
+  border-color: color-mix(in oklch, var(--color-line) 56%, transparent);
+  background: color-mix(in oklch, var(--color-pane-active-surface) 64%, transparent);
+  color: var(--color-text);
+}
+
+.shell.toolbar-buttons-ghost .tool-button.add-tool {
+  border-color: color-mix(in oklch, var(--tool-accent) 24%, transparent);
+  background: color-mix(in oklch, var(--tool-accent) 6%, transparent);
+  color: var(--color-text);
+}
+
+.shell.toolbar-buttons-ghost .tool-button.add-tool:hover {
+  border-color: color-mix(in oklch, var(--tool-accent) 38%, var(--color-line) 62%);
+  background: color-mix(in oklch, var(--tool-accent) 10%, var(--color-pane-active-surface) 90%);
+}
+
+.shell.toolbar-buttons-filled .tool-button:not(.add-tool) {
+  border-color: color-mix(in oklch, var(--color-accent) 18%, var(--color-line) 82%);
+  background: color-mix(in oklch, var(--color-pane-active-surface) 86%, var(--color-accent) 8%);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
+}
+
+.shell.toolbar-buttons-filled .tool-button:not(.add-tool):hover {
+  border-color: color-mix(in oklch, var(--color-accent) 30%, var(--color-line-strong) 70%);
+  background: color-mix(in oklch, var(--color-pane-active-surface) 78%, var(--color-accent) 14%);
+}
+
+.shell.toolbar-buttons-filled .tool-button.add-tool {
+  border-color: color-mix(in oklch, var(--tool-accent) 48%, var(--color-line) 52%);
+  background: color-mix(in oklch, var(--tool-accent) 18%, var(--color-pane-active-surface) 82%);
+}
+
+.shell.toolbar-buttons-filled .tool-button.add-tool:hover {
+  border-color: color-mix(in oklch, var(--tool-accent) 62%, var(--color-line-strong) 38%);
+  background: color-mix(in oklch, var(--tool-accent) 24%, var(--color-pane-active-surface) 76%);
+}
+
 .tool-button:disabled,
 .surface-new-tab:disabled {
   opacity: .54;
@@ -1778,6 +1822,17 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
 .surface-new-tab:disabled:hover {
   border-color: var(--color-line);
   background: var(--color-pane-surface);
+}
+
+.shell.toolbar-buttons-ghost .tool-button:disabled:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.shell.toolbar-buttons-filled .tool-button:disabled:hover {
+  border-color: color-mix(in oklch, var(--color-accent) 18%, var(--color-line) 82%);
+  background: color-mix(in oklch, var(--color-pane-active-surface) 86%, var(--color-accent) 8%);
 }
 
 .surface-new-tab.is-creating.is-waiting:not(:disabled) .surface-new-icon {
@@ -7845,6 +7900,24 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .layout-preview-topbar span {
   height: 10px;
   background: color-mix(in oklch, var(--color-text) 12%, transparent);
+}
+
+.layout-settings-preview.toolbar-buttons-ghost .layout-preview-topbar span {
+  background: color-mix(in oklch, var(--color-text) 7%, transparent);
+}
+
+.layout-settings-preview.toolbar-buttons-ghost .layout-preview-topbar span:nth-child(3) {
+  background: transparent;
+  border: 1px solid color-mix(in oklch, var(--color-text) 10%, transparent);
+}
+
+.layout-settings-preview.toolbar-buttons-filled .layout-preview-topbar span {
+  background: color-mix(in oklch, var(--color-pane-active-surface) 78%, var(--color-accent) 10%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 18%, var(--color-line) 82%);
+}
+
+.layout-settings-preview.toolbar-buttons-filled .layout-preview-topbar span:nth-child(3) {
+  background: color-mix(in oklch, var(--color-accent) 22%, var(--color-pane-active-surface) 78%);
 }
 
 .layout-settings-preview.toolbar-minimal .layout-preview-topbar span:nth-child(2) {
