@@ -218,8 +218,9 @@ enum ClosedWindowRestoreValidation {
 
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
+    static let defaultCapacity = 200
     static let shared = ClosedItemHistoryStore(
-        capacity: nil,
+        capacity: defaultCapacity,
         fileURL: defaultHistoryFileURL()
     )
 

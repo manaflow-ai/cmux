@@ -7041,6 +7041,9 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "history.redo", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.reclosed", defaultValue: "Re-closed"))
         case "clear":
+            if windowFromArgsOrOverride(rest, windowOverride: windowOverride) != nil {
+                throw CLIError(message: String(localized: "cli.history.error.clearDoesNotSupportWindow", defaultValue: "history clear does not support --window because closed-item history is global"))
+            }
             let payload = try client.sendV2(method: "history.clear", params: [:])
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.cleared", defaultValue: "Cleared"))
         default:
