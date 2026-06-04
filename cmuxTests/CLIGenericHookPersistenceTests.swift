@@ -1271,13 +1271,85 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(waitTimeout.doubleValue, 0)
     }
 
-    func testNonActionableFeedHookDoesNotWaitForSocketResponse() throws {
+    func testNonActionableFeedHooksDoNotWaitForSocketResponseAcrossAgents() throws {
+        struct Case {
+            let source: String
+            let event: String
+            let toolName: String
+            let pidKey: String
+        }
+
+        let cases = [
+            Case(source: "codex", event: "PreToolUse", toolName: "apply_patch", pidKey: "CMUX_CODEX_PID"),
+            Case(source: "gemini", event: "PreToolUse", toolName: "read", pidKey: "CMUX_GEMINI_PID"),
+            Case(source: "kiro", event: "postToolUse", toolName: "fs_write", pidKey: "CMUX_KIRO_PID"),
+            Case(source: "hermes-agent", event: "pre_tool_call", toolName: "terminal", pidKey: "CMUX_HERMES_AGENT_PID"),
+            Case(source: "antigravity", event: "PostToolUse", toolName: "run_command", pidKey: "CMUX_ANTIGRAVITY_PID"),
+        ]
+
+        for testCase in cases {
+            let cliPath = try bundledCLIPath()
+            let socketPath = makeSocketPath("feed-no-reply-\(testCase.source.prefix(6))")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-feed-no-reply-\(testCase.source)-\(UUID().uuidString)", isDirectory: true)
+
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+                try? FileManager.default.removeItem(at: root)
+            }
+
+            let serverHandled = startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line),
+                      payload["method"] as? String == "feed.push" else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+                return nil
+            }
+
+            var environment = [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
+                "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ]
+            environment[testCase.pidKey] = "626262"
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "feed", "--source", testCase.source, "--event", testCase.event],
+                environment: environment,
+                standardInput: #"{"hook_event_name":"\#(testCase.event)","session_id":"\#(testCase.source)-session-123","cwd":"\#(root.path)","tool_name":"\#(testCase.toolName)","tool_input":{"path":"\#(root.appendingPathComponent("README.md").path)"}}"#,
+                timeout: 0.5
+            )
+            wait(for: [serverHandled], timeout: 5)
+
+            XCTAssertFalse(result.timedOut, "\(testCase.source): \(result.stderr)")
+            XCTAssertEqual(result.status, 0, "\(testCase.source): \(result.stderr)")
+            XCTAssertEqual(result.stdout, "{}\n", testCase.source)
+            XCTAssertEqual(
+                state.commands.filter { $0.contains(#""method":"feed.push""#) }.count,
+                1,
+                testCase.source
+            )
+        }
+    }
+
+    func testGenericLifecycleFeedTelemetryDoesNotWaitForSocketResponse() throws {
         let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("generic-feed-no-response")
+        let socketPath = makeSocketPath("generic-lifecycle-no-response")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-generic-feed-no-response-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-generic-lifecycle-no-response-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let surfaceId = "44444444-4444-4444-4444-444444444444"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -1286,28 +1358,50 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let serverHandled = startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { line in
-            guard let payload = self.jsonObject(line),
-                  payload["method"] as? String == "feed.push" else {
-                return self.malformedRequestResponse(raw: line)
+        let serverHandled = startMultiConnectionMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            connectionLimit: 8,
+            fulfillWhen: { line in
+                self.jsonObject(line)?["method"] as? String == "feed.push"
             }
-            return nil
+        ) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return nil
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
         }
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "feed", "--source", "gemini", "--event", "PreToolUse"],
+            arguments: ["hooks", "codex", "session-start"],
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "PWD": root.path,
                 "CMUX_SOCKET_PATH": socketPath,
-                "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
-                "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
-                "CMUX_GEMINI_PID": "626262",
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_AGENT_LAUNCH_KIND": "codex",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/codex",
+                "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/codex"]),
+                "CMUX_AGENT_LAUNCH_CWD": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
-            standardInput: #"{"hook_event_name":"PreToolUse","session_id":"gemini-session-123","cwd":"\#(root.path)","tool_name":"write","tool_input":{"path":"\#(root.appendingPathComponent("README.md").path)"}}"#,
+            standardInput: #"{"session_id":"codex-lifecycle-no-response","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
             timeout: 0.5
         )
         wait(for: [serverHandled], timeout: 5)
@@ -1315,7 +1409,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
-        XCTAssertEqual(state.commands.filter { $0.contains(#""method":"feed.push""#) }.count, 1)
+        XCTAssertTrue(
+            state.commands.contains { $0.contains(#""method":"feed.push""#) },
+            "Expected lifecycle hook to still emit Feed telemetry, saw \(state.commands)"
+        )
+        XCTAssertTrue(
+            state.commands.contains { command in
+                self.jsonObject(command)?["method"] as? String == "surface.resume.set"
+            },
+            "One-way Feed telemetry must not poison later socket responses, saw \(state.commands)"
+        )
     }
 
     func testAntigravityFeedHookMissingSessionIdUsesStableFallback() throws {

@@ -1795,11 +1795,8 @@ final class SocketClient {
             try connect()
         }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
-        let shouldCloseAfterSend = relayEndpoint != nil
         defer {
-            if shouldCloseAfterSend {
-                close()
-            }
+            close()
         }
 
         try configureSocketWriteSafety(writeTimeout)
