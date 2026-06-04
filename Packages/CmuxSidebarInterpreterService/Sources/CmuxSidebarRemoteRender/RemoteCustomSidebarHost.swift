@@ -17,10 +17,19 @@ public struct RemoteCustomSidebarHost: View {
     private let dispatch: SidebarActionDispatch
     private let contentInsets: CustomSidebarContentInsets
 
-    @State private var client = RenderWorkerClient.reexecingCurrentBinary()
+    /// Created once on mount (never in the initializer: this view sits
+    /// inside a per-second TimelineView, and a function-call `@State`
+    /// default would evaluate — allocating a client — on every re-init).
+    @State private var client: RenderWorkerClient?
 
-    /// Creates the host; see ``RemoteCustomSidebarView`` for parameter
-    /// semantics.
+    /// Creates the host.
+    ///
+    /// - Parameters:
+    ///   - fileURL: The `.swift` or `.json` sidebar file the worker renders
+    ///     and watches.
+    ///   - dataContext: Live, read-only values the worker's interpreter binds.
+    ///   - dispatch: Runs button/tap actions against the host command surface.
+    ///   - contentInsets: Top/bottom scroll insets for the host chrome.
     public init(
         fileURL: URL,
         dataContext: [String: SwiftValue],
@@ -34,20 +43,32 @@ public struct RemoteCustomSidebarHost: View {
     }
 
     public var body: some View {
-        RemoteCustomSidebarView(
-            fileURL: fileURL,
-            dataContext: dataContext,
-            dispatch: dispatch,
-            contentInsets: contentInsets,
-            client: client
-        )
+        Group {
+            if let client {
+                RemoteCustomSidebarView(
+                    fileURL: fileURL,
+                    dataContext: dataContext,
+                    dispatch: dispatch,
+                    contentInsets: contentInsets,
+                    client: client
+                )
+            } else {
+                Color.clear
+            }
+        }
+        .task {
+            if client == nil {
+                client = RenderWorkerClient.reexecingCurrentBinary()
+            }
+        }
         .onDisappear {
             // The branch unmounted (provider switch or sidebar hidden); the
             // discarded @State client would orphan its worker until window
             // close, so reap it here. Re-entering custom sidebars respawns
             // within a scene tick.
-            let client = client
-            Task { await client.shutdown() }
+            if let client {
+                Task { await client.shutdown() }
+            }
         }
     }
 }
