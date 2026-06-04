@@ -5232,6 +5232,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   display: none;
 }
 
+.shell.status-detail-runtime #statusPipe {
+  display: none;
+}
+
 #statusSummary.is-busy {
   display: inline-flex;
   align-items: center;
@@ -7755,6 +7759,14 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .layout-settings-preview.status-detail-compact .layout-preview-status span:nth-child(n+2) {
+  display: none;
+}
+
+.layout-settings-preview.status-detail-runtime .layout-preview-status {
+  grid-template-columns: minmax(0, 1fr) 38px;
+}
+
+.layout-settings-preview.status-detail-runtime .layout-preview-status span:nth-child(2) {
   display: none;
 }
 

@@ -37,7 +37,7 @@ export const defaultSettings = {
   focusMode: false,
   showTabs: true,
   showStatusbar: true,
-  statusDetailMode: "full",
+  statusDetailMode: "runtime",
   showAdvanced: false,
   performanceMode: false,
   adaptivePerformance: true,
@@ -421,6 +421,7 @@ export const paneMarkerStyleOptions = [
 
 export const statusDetailOptions = [
   ["compact", label("statusDetail.compact", "Compact")],
+  ["runtime", label("statusDetail.runtime", "Runtime")],
   ["full", label("statusDetail.full", "Full")]
 ];
 
@@ -526,7 +527,7 @@ export const settingsPresets = [
   {
     id: "balanced",
     label: label("settingsPreset.balanced", "Balanced"),
-    body: label("settingsPreset.balanced.body", "Default chrome, clear terminal, full status."),
+    body: label("settingsPreset.balanced.body", "Default chrome, clear terminal, runtime status."),
     settings: {
       theme: "cmux",
       accent: "oklch(61% 0.22 255)",
@@ -558,7 +559,7 @@ export const settingsPresets = [
       focusMode: false,
       showTabs: true,
       showStatusbar: true,
-      statusDetailMode: "full",
+      statusDetailMode: "runtime",
       showAdvanced: false,
       performanceMode: false,
       adaptivePerformance: true,
@@ -849,7 +850,7 @@ export const settingsPresets = [
       focusMode: false,
       showTabs: true,
       showStatusbar: true,
-      statusDetailMode: "full",
+      statusDetailMode: "runtime",
       showAdvanced: false,
       performanceMode: false,
       adaptivePerformance: true,

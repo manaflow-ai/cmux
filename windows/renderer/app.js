@@ -5295,6 +5295,7 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "hide-tabs", !state.settings.showTabs);
   toggleClassIfChanged(elements.shell, "hide-status", !state.settings.showStatusbar);
   toggleClassIfChanged(elements.shell, "status-detail-compact", state.settings.statusDetailMode === "compact");
+  toggleClassIfChanged(elements.shell, "status-detail-runtime", state.settings.statusDetailMode === "runtime");
   toggleClassIfChanged(elements.shell, "status-detail-full", state.settings.statusDetailMode === "full");
   toggleClassIfChanged(elements.shell, "show-advanced", state.settings.showAdvanced);
   toggleClassIfChanged(elements.shell, "performance-mode", state.settings.performanceMode);
@@ -13195,7 +13196,7 @@ function renderSettingsInspector(options = {}) {
       ? "Choose how much runtime information the status bar shows."
       : "Enable the status bar before changing its detail level.";
     statusDetailSelect.onchange = () => updateSettings({ statusDetailMode: statusDetailSelect.value });
-    layoutSection.append(settingRow("Status detail", statusDetailSelect, false, "status bar compact full runtime pipe shell readiness diagnostics clean"));
+    layoutSection.append(settingRow("Status detail", statusDetailSelect, false, "status bar compact runtime full pipe shell readiness diagnostics clean"));
     layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
     nodes.push(layoutSection);
   }
@@ -30712,7 +30713,7 @@ function optionIdAllowed(options, value) {
 
 function statusbarSummaryLabel(settings = state.settings) {
   if (settings.focusMode || !settings.showStatusbar) return "Hidden";
-  return optionLabel(statusDetailOptions, settings.statusDetailMode, "Full");
+  return optionLabel(statusDetailOptions, settings.statusDetailMode, "Runtime");
 }
 
 function workspaceChromeSummaryForSettings(settings) {
