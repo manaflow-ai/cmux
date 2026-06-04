@@ -58,6 +58,23 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func remoteWorkspaceWebsiteDataStoreSurvivesWebViewReplacement() {
+        let storeIdentifier = UUID()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: storeIdentifier
+        )
+        defer { panel.close() }
+        let originalStore = panel.webView.configuration.websiteDataStore
+
+        panel.debugSimulateWebContentProcessTermination()
+
+        #expect(panel.webView.configuration.websiteDataStore === originalStore)
+    }
+
+    @Test
     func reloadRecoversTerminatedWebView() {
         let panel = BrowserPanel(
             workspaceId: UUID(),

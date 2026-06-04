@@ -1163,7 +1163,7 @@ export const awesomeCmuxProjects = [
       "Remote & Mobile Access",
       "Multi-Agent / Agent-Agnostic"
     ],
-    "agent": "Multi-Agent / Agent-Agnostic"
+    "agent": "Multi"
   },
   {
     "name": "niaeee/cmux_skill",
@@ -1209,7 +1209,7 @@ export const awesomeCmuxProjects = [
       "Remote & Mobile Access",
       "Multi-Agent / Agent-Agnostic"
     ],
-    "agent": "Multi-Agent / Agent-Agnostic"
+    "agent": "Multi"
   },
   {
     "name": "rappdw/zen-term",
