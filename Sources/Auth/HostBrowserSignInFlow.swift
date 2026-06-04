@@ -70,12 +70,30 @@ final class HostBrowserSignInFlow {
     /// user can still finish.
     func signIn(timeout: TimeInterval) async -> Bool {
         if coordinator.isAuthenticated { return true }
-        let attempt = startAttempt()
+        return await awaitWithDeadline(startAttempt(), timeout: timeout)
+    }
+
+    /// Sign out with a deadline, for the socket `auth.sign_out` command. The
+    /// sign-out itself always runs to completion in the background; the
+    /// deadline only caps how long the socket caller can hang on the network
+    /// revoke round trip.
+    func signOut(timeout: TimeInterval) async {
+        let attempt = Task { @MainActor [weak self] in
+            await self?.signOut()
+            return true
+        }
+        _ = await awaitWithDeadline(attempt, timeout: timeout)
+    }
+
+    /// Await `attempt`, resolving `false` at the deadline while the attempt
+    /// keeps running in the background.
+    ///
+    /// Deadline, not polling: bounded + cancellable (cancelled as soon as the
+    /// attempt resolves), virtual-clock testable via the injected clock.
+    private func awaitWithDeadline(_ attempt: Task<Bool, Never>, timeout: TimeInterval) async -> Bool {
         // Clamp before converting so an oversized Double can't overflow.
         let clamped = max(0, min(timeout, 24 * 60 * 60))
         let clock = self.clock
-        // Deadline, not polling: bounded + cancellable (cancelled as soon as
-        // the attempt resolves), virtual-clock testable via the injected clock.
         let deadlineTask = Task { try await clock.sleep(for: .seconds(clamped)) }
         return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             let once = ResumeOnceFlag()

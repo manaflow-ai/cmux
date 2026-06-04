@@ -269,9 +269,9 @@ enum VMAttachEndpoint {
 /// All methods are `async throws` and run off the main actor.
 actor VMClient {
     /// Set once by `bootstrap(auth:)` during app startup (AppDelegate
-    /// `configure`), before any socket/CLI path can reach the cloud VM client;
-    /// immutable afterwards.
-    nonisolated(unsafe) private(set) static var shared: VMClient!
+    /// `configure`), before any socket/CLI path can reach the cloud VM client.
+    /// Main-actor isolated so every read goes through a compiler-checked hop.
+    @MainActor private(set) static var shared: VMClient!
 
     /// Build the shared client with its injected auth dependency. Call once at
     /// the composition root.

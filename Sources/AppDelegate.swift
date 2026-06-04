@@ -1139,12 +1139,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 Task { @MainActor in
                     let signedIn = await browserSignIn.handleCallbackURL(url)
                     if !signedIn {
-                        NSLog("auth.callback did not complete sign-in")
+                        AuthDebugLog().log("auth.callback did not complete sign-in")
                     }
                 }
             }
         } else if !authCallbacks.isEmpty {
-            NSLog("auth.callback dropped: auth graph not configured yet")
+            AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
         }
 
         let externalFileURLs = externalOpenFileURLs(from: urls)

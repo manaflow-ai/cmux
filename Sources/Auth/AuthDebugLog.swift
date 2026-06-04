@@ -16,17 +16,25 @@ struct AuthDebugLog: Sendable {
         Self.logger.log(level: Self.logType(for: redactedMessage), "\(redactedMessage, privacy: .public)")
         #if DEBUG
         let line = "[\(Self.timestampFormatter.string(from: Date()))] auth: \(redactedMessage)\n"
-        let path = Self.debugLogPath
-        if let handle = FileHandle(forWritingAtPath: path) {
-            handle.seekToEndOfFile()
-            handle.write(line.data(using: .utf8)!)
-            handle.closeFile()
-        } else {
-            FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
-        }
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        Self.appendToDebugFile(line)
         #endif
     }
+
+    #if DEBUG
+    /// Append one line with `O_APPEND` so concurrent logs from different actor
+    /// executors (the token stores, the browser flow) stay line-atomic instead
+    /// of interleaving through a shared seek+write.
+    private static func appendToDebugFile(_ line: String) {
+        let fd = open(debugLogPath, O_WRONLY | O_APPEND | O_CREAT, 0o600)
+        guard fd >= 0 else { return }
+        defer { close(fd) }
+        let bytes = Array(line.utf8)
+        bytes.withUnsafeBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else { return }
+            _ = write(fd, baseAddress, buffer.count)
+        }
+    }
+    #endif
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "auth")
     private static let debugLogPath = "/tmp/cmux-auth-debug.log"

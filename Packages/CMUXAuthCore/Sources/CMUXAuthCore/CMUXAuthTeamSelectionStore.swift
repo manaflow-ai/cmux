@@ -6,6 +6,10 @@ import Foundation
 /// under a caller-chosen key, so each app keeps its historical defaults key and
 /// tests can use an in-memory store. Empty and whitespace-only values normalize
 /// to `nil` so a cleared selection round-trips as "no selection".
+///
+/// `@unchecked Sendable`: the only state is the injected key-value store and an
+/// immutable key; the production backing (`UserDefaults`) is Apple-documented
+/// thread-safe, matching ``CMUXAuthSessionCache`` and ``CMUXAuthIdentityStore``.
 public final class CMUXAuthTeamSelectionStore: @unchecked Sendable {
     private let keyValueStore: CMUXAuthKeyValueStore
     private let key: String
