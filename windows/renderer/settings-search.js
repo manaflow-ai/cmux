@@ -1,5 +1,6 @@
 import {
   localizedSearchTokenAliases,
+  localizedSearchStopWords,
   localizedSettingsCategorySearchAliases
 } from "./settings-search-locales.js";
 
@@ -20,6 +21,8 @@ export function normalizeSettingsQuery(value) {
 
 export const searchTokenAliases = new Map(localizedEntries(localizedSearchTokenAliases));
 
+export const searchStopWords = new Set(localizedEntries(localizedSearchStopWords));
+
 export const settingsCategorySearchAliases = new Map(localizedEntries(localizedSettingsCategorySearchAliases));
 
 export function uniqueSearchTokens(tokens) {
@@ -27,7 +30,7 @@ export function uniqueSearchTokens(tokens) {
 }
 
 export function settingsSearchTokens(value) {
-  return normalizeSettingsQuery(value).split(/\s+/).filter(Boolean).map((token) => {
+  return normalizeSettingsQuery(value).split(/\s+/).filter((token) => token && !searchStopWords.has(token)).map((token) => {
     const aliases = searchTokenAliases.get(token) || [];
     return uniqueSearchTokens([token, ...aliases]);
   });
