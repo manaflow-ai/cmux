@@ -27515,12 +27515,22 @@ function recentBrowserPagesSettings() {
     return section;
   }
 
+  const workspace = activeWorkspace();
+  const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
+  const paneQueueFull = paneCreationButtonsDisabled();
+  const paneQueueLabel = paneCreationQueueStatusLabel();
   for (const url of state.recentBrowserPages) {
+    const pageUrl = normalizeBrowserPageUrl(url);
+    const savedProfile = savedSettingsProfileForBrowserHomeUrl(pageUrl);
     const activeHome = isActiveRecentBrowserHome(url);
     const card = document.createElement("div");
     card.className = `recent-folder-card${activeHome ? " is-active" : ""}`;
     card.dataset.recentBrowserUrl = url;
-    card.dataset.settingsSearch = recentBrowserPageSearch(url, activeHome);
+    card.dataset.settingsSearch = recentBrowserPageSearch(url, activeHome, {
+      workspaceTitle,
+      paneQueueLabel,
+      savedProfile
+    });
     const text = document.createElement("div");
     text.className = "recent-folder-text";
     const name = document.createElement("div");
@@ -27535,15 +27545,18 @@ function recentBrowserPagesSettings() {
 
     const actions = document.createElement("div");
     actions.className = "recent-folder-actions command-snippet-actions is-built-in";
-    const open = settingsActionButton("Open", () => createPanel("browser", newPaneDirection(), { url }), "", `recent browser page open ${url}`);
+    const open = settingsActionButton("Open", () => createPanel("browser", newPaneDirection(), { url: pageUrl }), "", `recent browser page open ${pageUrl} ${workspaceTitle} ${paneQueueLabel}`);
     open.dataset.recentBrowserAction = "open";
     open.dataset.recentBrowserUrl = url;
+    setRecentBrowserOpenActionState(open, pageUrl, workspace, paneQueueFull);
     const home = settingsActionButton("Home", () => useBrowserPageAsHome(url), activeHome ? "primary" : "", recentBrowserHomeActionSearch(url, activeHome));
     home.dataset.recentBrowserAction = "home";
     home.dataset.recentBrowserUrl = url;
     setRecentBrowserHomeActionState(home, activeHome);
-    const profile = settingsActionButton("Profile", () => saveBrowserProfileForHome(url), "", `recent browser page save browser settings profile setup ${url}`);
-    applySettingsProfileSaveLimit(profile, "Save this page as a reusable browser profile.");
+    const profile = settingsActionButton(savedProfile ? "Saved" : "Profile", () => saveBrowserProfileForHome(pageUrl), savedProfile ? "primary" : "", `recent browser page save browser settings profile setup ${savedProfile ? "saved active current " : ""}${pageUrl}`);
+    profile.dataset.recentBrowserAction = "profile";
+    profile.dataset.recentBrowserUrl = url;
+    setRecentBrowserProfileActionState(profile, pageUrl, savedProfile);
     actions.append(open, home, profile);
     card.append(text, actions);
     section.append(card);
@@ -27556,12 +27569,25 @@ function isActiveRecentBrowserHome(url) {
   return browserHomeKey(url) === browserHomeKey(state.settings.browserHomeUrl);
 }
 
-function recentBrowserPageSearch(url, activeHome = isActiveRecentBrowserHome(url)) {
-  return normalizeSettingsQuery(`recent browser page url web open home profile ${activeHome ? "active current " : ""}${hostnameOf(url)} ${url}`);
+function recentBrowserPageSearch(url, activeHome = isActiveRecentBrowserHome(url), options = {}) {
+  return normalizeSettingsQuery(`recent browser page url web open home profile ${activeHome ? "active current " : ""}${options.savedProfile ? "saved profile " : ""}${hostnameOf(url)} ${url} ${options.workspaceTitle || ""} ${options.paneQueueLabel || ""}`);
 }
 
 function recentBrowserHomeActionSearch(url, activeHome = isActiveRecentBrowserHome(url)) {
   return `recent browser page ${activeHome ? "active current " : ""}home set browser home ${url}`;
+}
+
+function setRecentBrowserOpenActionState(button, url, workspace = activeWorkspace(), paneQueueFull = paneCreationButtonsDisabled()) {
+  if (!button) return;
+  const pageUrl = normalizeBrowserPageUrl(url);
+  button.disabled = !pageUrl || !workspace || paneQueueFull;
+  button.title = !pageUrl
+    ? "Choose a browser page first."
+    : !workspace
+      ? "Open a workspace before opening recent browser pages."
+      : paneQueueFull
+        ? paneCreationLimitLabel()
+        : `Open ${hostnameOf(pageUrl) || pageUrl} in a new browser pane.`;
 }
 
 function setRecentBrowserHomeActionState(button, activeHome) {
@@ -27572,16 +27598,45 @@ function setRecentBrowserHomeActionState(button, activeHome) {
   setSettingsActionLabel(button, activeHome ? "Active" : "Home");
 }
 
+function setRecentBrowserProfileActionState(button, url, savedProfile = savedSettingsProfileForBrowserHomeUrl(url)) {
+  if (!button) return;
+  const pageUrl = normalizeBrowserPageUrl(url);
+  const disabled = !pageUrl || Boolean(savedProfile) || savedSettingsProfilesFull();
+  button.disabled = disabled;
+  button.classList.toggle("primary", Boolean(savedProfile));
+  button.title = browserHomeUrlProfileSaveTitle(pageUrl, savedProfile);
+  setSettingsActionLabel(button, savedProfile ? "Saved" : "Profile");
+}
+
 function refreshRecentBrowserHomeActions() {
+  const workspace = activeWorkspace();
+  const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
+  const paneQueueFull = paneCreationButtonsDisabled();
+  const paneQueueLabel = paneCreationQueueStatusLabel();
   const cards = elements.inspectorBody.querySelectorAll(".recent-folder-card[data-recent-browser-url]");
   for (const card of cards) {
     const url = card.dataset.recentBrowserUrl || "";
     const activeHome = isActiveRecentBrowserHome(url);
+    const savedProfile = savedSettingsProfileForBrowserHomeUrl(url);
     card.classList.toggle("is-active", activeHome);
-    const cardSearch = recentBrowserPageSearch(url, activeHome);
+    const cardSearch = recentBrowserPageSearch(url, activeHome, {
+      workspaceTitle,
+      paneQueueLabel,
+      savedProfile
+    });
     if (card.dataset.settingsSearch !== cardSearch) {
       card.dataset.settingsSearch = cardSearch;
       updateSettingsSearchIndexItemSearch(card, cardSearch);
+    }
+  }
+  const openButtons = elements.inspectorBody.querySelectorAll('[data-recent-browser-action="open"][data-recent-browser-url]');
+  for (const button of openButtons) {
+    const url = button.dataset.recentBrowserUrl || "";
+    setRecentBrowserOpenActionState(button, url, workspace, paneQueueFull);
+    const search = normalizeSettingsQuery(`Open recent browser page ${paneQueueFull ? "queue full " : ""}${url} ${workspaceTitle} ${paneQueueLabel}`);
+    if (button.dataset.settingsSearch !== search) {
+      button.dataset.settingsSearch = search;
+      updateSettingsSearchIndexItemSearch(button, search);
     }
   }
   const buttons = elements.inspectorBody.querySelectorAll('[data-recent-browser-action="home"][data-recent-browser-url]');
@@ -27590,6 +27645,17 @@ function refreshRecentBrowserHomeActions() {
     const activeHome = isActiveRecentBrowserHome(url);
     setRecentBrowserHomeActionState(button, activeHome);
     const search = normalizeSettingsQuery(`Home ${recentBrowserHomeActionSearch(url, activeHome)}`);
+    if (button.dataset.settingsSearch !== search) {
+      button.dataset.settingsSearch = search;
+      updateSettingsSearchIndexItemSearch(button, search);
+    }
+  }
+  const profileButtons = elements.inspectorBody.querySelectorAll('[data-recent-browser-action="profile"][data-recent-browser-url]');
+  for (const button of profileButtons) {
+    const url = button.dataset.recentBrowserUrl || "";
+    const savedProfile = savedSettingsProfileForBrowserHomeUrl(url);
+    setRecentBrowserProfileActionState(button, url, savedProfile);
+    const search = normalizeSettingsQuery(`${savedProfile ? "Saved" : "Profile"} recent browser page save browser settings profile setup ${savedProfile ? "saved active current " : ""}${savedSettingsProfilesFull() ? "limit full " : ""}${url}`);
     if (button.dataset.settingsSearch !== search) {
       button.dataset.settingsSearch = search;
       updateSettingsSearchIndexItemSearch(button, search);
