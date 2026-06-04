@@ -15157,7 +15157,7 @@ function renderSettingsInspector(options = {}) {
     && signature === state.settingsInspectorSignature
     && elements.inspectorBody.querySelector(".settings-react-host")
   ) {
-    refreshPerformanceMetricsGrid();
+    if (performanceMetricsShouldRefresh()) refreshPerformanceMetricsGrid();
     if (resetScroll) resetSettingsScroll();
     if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
     return;
@@ -26965,6 +26965,7 @@ function schedulePerformanceMetricsRefresh() {
 }
 
 function refreshPerformanceMetricsGrid() {
+  if (!performanceMetricsShouldRefresh()) return false;
   const overviewChanged = refreshPerformanceOverviewPanel();
   const healthChanged = refreshPerformanceHealthPanel();
   const presetsChanged = refreshPerformanceTuningPresetGrid();
