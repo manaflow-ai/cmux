@@ -139,6 +139,7 @@ while [ "$class_offset" -lt "${#SELECTED_TEST_CLASSES[@]}" ]; do
   set +e
   env -u SSH_AUTH_SOCK \
       HOME="$BATCH_HOME" RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo" CFFIXED_USER_HOME="$BATCH_HOME" \
+      CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS=1 \
       scripts/ci/xcodebuild_noninteractive.py \
         xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
         -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \

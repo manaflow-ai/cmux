@@ -2219,11 +2219,12 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         XCTAssertFalse(panel.hasBackgroundPreloadHost)
 
-        panel.webView.removeFromSuperview()
-        realHostWindow.contentView = nil
         panel.navigate(to: URL(string: "about:blank#second")!)
 
         XCTAssertFalse(panel.hasBackgroundPreloadHost)
+
+        panel.webView.removeFromSuperview()
+        realHostWindow.contentView = nil
     }
 
     func testLifecycleTracksVisibleHiddenAndClosingStates() {
