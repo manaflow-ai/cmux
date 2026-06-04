@@ -136,13 +136,11 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/compat-tests"
           run_unit_tests() {
-            scripts/ci/xcodebuild_noninteractive.py \
-              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" \
-              test 2>&1
+            SOURCE_PACKAGES_DIR="$SOURCE_PACKAGES_DIR" \
+              DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
+              scripts/ci/run-cmux-unit-tests-isolated.sh
           }
 
           set +e
@@ -157,7 +155,7 @@ jobs:
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
-            rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+            rm -rf "$DERIVED_DATA_PATH"
             set +e
             run_unit_tests | tee /tmp/test-output.txt
             EXIT_CODE=${PIPESTATUS[0]}
@@ -170,7 +168,7 @@ jobs:
             exit "$EXIT_CODE"
           fi
 
-          if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
+          if ! grep -Eq 'All [1-9][0-9]* cmuxTests XCTestCase classes passed in isolated app-host runs' <<<"$OUTPUT"; then
             echo "Compatibility unit tests completed without executing any tests" >&2
             exit 1
           fi

@@ -20,6 +20,7 @@ TEST_DEPOT_FILE="$ROOT_DIR/.github/workflows/test-depot.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 TERMINAL_CORPUS_NIGHTLY_FILE="$ROOT_DIR/.github/workflows/terminal-corpus-nightly.yml"
 CA_REGRESSION_SCRIPT="$ROOT_DIR/scripts/verify-main-thread-ca-transactions.sh"
+CMUX_UNIT_ISOLATED_RUNNER="$ROOT_DIR/scripts/ci/run-cmux-unit-tests-isolated.sh"
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -197,14 +198,15 @@ check_test_depot_fails_closed() {
   if ! awk '
     /^[[:space:]]*- name: Run unit tests$/ { in_unit=1; next }
     in_unit && /^[[:space:]]*- name:/ { in_unit=0 }
-    in_unit && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_unit_guard=1 }
+    in_unit && /scripts\/ci\/run-cmux-unit-tests-isolated\.sh/ { saw_unit_runner=1 }
+    in_unit && /All \[1-9\]\[0-9\]\* cmuxTests XCTestCase classes passed in isolated app-host runs/ { saw_unit_guard=1 }
     in_unit && /Unit test workflow completed without executing any tests/ { saw_unit_message=1 }
     /^[[:space:]]*- name: Run UI tests$/ { in_ui=1; next }
     in_ui && /^[[:space:]]*- name:/ { in_ui=0 }
     in_ui && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_ui_wrapper=1 }
     in_ui && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_ui_guard=1 }
     in_ui && /UI test workflow completed without executing any tests/ { saw_ui_message=1 }
-    END { exit(saw_unit_guard && saw_unit_message && saw_ui_wrapper && saw_ui_guard && saw_ui_message ? 0 : 1) }
+    END { exit(saw_unit_runner && saw_unit_guard && saw_unit_message && saw_ui_wrapper && saw_ui_guard && saw_ui_message ? 0 : 1) }
   ' "$TEST_DEPOT_FILE"; then
     echo "FAIL: test-depot.yml must run xcodebuild noninteractively and reject unit or UI runs that execute zero tests"
     exit 1
@@ -538,19 +540,59 @@ check_swift_package_tests_require_nonzero_execution() {
 
 check_xcodebuild_unit_step_requires_nonzero_execution() {
   local file="$1" step="$2" message="$3"
-  if ! awk -v step="$step" -v message="$message" '
+  local require_class_isolation="${4:-0}"
+  if ! awk -v step="$step" -v message="$message" -v require_class_isolation="$require_class_isolation" '
     index($0, "- name: " step) { in_step=1; saw_step=1; next }
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
     in_step && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_wrapper=1 }
+    in_step && /scripts\/ci\/run-cmux-unit-tests-isolated\.sh/ { saw_class_runner=1 }
     in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
+    in_step && /All \[1-9\]\[0-9\]\* cmuxTests XCTestCase classes passed in isolated app-host runs/ { saw_class_nonzero_guard=1 }
     in_step && index($0, message) { saw_message=1 }
-    END { exit(saw_step && saw_wrapper && saw_nonzero_guard && saw_message ? 0 : 1) }
+    END {
+      if (require_class_isolation) {
+        exit(saw_step && saw_class_runner && saw_class_nonzero_guard && saw_message ? 0 : 1)
+      }
+      exit(saw_step && saw_wrapper && saw_nonzero_guard && saw_message ? 0 : 1)
+    }
   ' "$file"; then
-    echo "FAIL: $step in $(basename "$file") must run xcodebuild noninteractively and reject zero-test success"
+    if [ "$require_class_isolation" = "1" ]; then
+      echo "FAIL: $step in $(basename "$file") must use the class-isolated app-host runner and reject zero-test success"
+    else
+      echo "FAIL: $step in $(basename "$file") must run xcodebuild noninteractively and reject zero-test success"
+    fi
     exit 1
   fi
 
-  echo "PASS: $step in $(basename "$file") rejects zero-test xcodebuild runs"
+  if [ "$require_class_isolation" = "1" ]; then
+    echo "PASS: $step in $(basename "$file") uses class-isolated app-host unit tests and rejects zero-test runs"
+  else
+    echo "PASS: $step in $(basename "$file") rejects zero-test xcodebuild runs"
+  fi
+}
+
+check_cmux_unit_isolated_runner() {
+  for pattern in \
+    "build-for-testing" \
+    "test-without-building" \
+    '-derivedDataPath "$DERIVED_DATA_PATH"' \
+    '-only-testing:"cmuxTests/$class"' \
+    'CFFIXED_USER_HOME="$test_home"' \
+    'RUSTUP_HOME="$HOME/.rustup" CARGO_HOME="$HOME/.cargo"' \
+    "All \${#TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"
+  do
+    if ! grep -Fq -- "$pattern" "$CMUX_UNIT_ISOLATED_RUNNER"; then
+      echo "FAIL: run-cmux-unit-tests-isolated.sh missing required isolation pattern: $pattern"
+      exit 1
+    fi
+  done
+
+  if grep -Fq -- "-skip-testing" "$CMUX_UNIT_ISOLATED_RUNNER"; then
+    echo "FAIL: run-cmux-unit-tests-isolated.sh must not skip cmuxTests classes"
+    exit 1
+  fi
+
+  echo "PASS: class-isolated cmux unit-test runner builds once and runs each XCTestCase under an isolated app-host home"
 }
 
 check_xcodebuild_unit_step_rejects_expected_failures() {
@@ -601,8 +643,10 @@ check_tests_deriveddata_cache() {
     in_job && in_restore && /^[[:space:]]{10}[^[:space:]-]/ { in_restore=0 }
     in_job && /DERIVED_DATA_PATH="\$PWD\/\.ci-derived-data\/tests"/ { saw_derived_data_env += 1 }
     in_job && /-derivedDataPath "\$DERIVED_DATA_PATH"/ { saw_derived_data += 1 }
+    in_job && /DERIVED_DATA_PATH="\$DERIVED_DATA_PATH"/ { saw_derived_data_runner=1 }
+    in_job && /scripts\/ci\/run-cmux-unit-tests-isolated\.sh/ { saw_unit_runner=1 }
     in_job && /CLI_BIN="\$DERIVED_DATA_PATH\/Build\/Products\/Debug\/cmux"/ { saw_cli_path=1 }
-    END { exit(saw_fingerprint_step && saw_fingerprint_mode && saw_cache_path && saw_key && saw_restore && !saw_broad_restore && saw_derived_data_env >= 3 && saw_derived_data >= 2 && saw_cli_path ? 0 : 1) }
+    END { exit(saw_fingerprint_step && saw_fingerprint_mode && saw_cache_path && saw_key && saw_restore && !saw_broad_restore && saw_derived_data_env >= 3 && saw_derived_data >= 1 && saw_derived_data_runner && saw_unit_runner && saw_cli_path ? 0 : 1) }
   ' "$CI_FILE"; then
     echo "FAIL: tests job must cache and reuse a source-fingerprinted explicit DerivedData path across split-theme and unit XCTest steps"
     exit 1
@@ -821,8 +865,9 @@ check_terminal_corpus_requires_live_ghostty_surface
 check_web_db_behavior_test_coverage
 check_bundled_ghostty_helper_regression_coverage
 check_swift_package_tests_require_nonzero_execution
-check_xcodebuild_unit_step_requires_nonzero_execution "$CI_FILE" "Run unit tests" "Unit test workflow completed without executing any tests"
-check_xcodebuild_unit_step_requires_nonzero_execution "$COMPAT_FILE" "Run unit tests" "Compatibility unit tests completed without executing any tests"
+check_cmux_unit_isolated_runner
+check_xcodebuild_unit_step_requires_nonzero_execution "$CI_FILE" "Run unit tests" "Unit test workflow completed without executing any tests" 1
+check_xcodebuild_unit_step_requires_nonzero_execution "$COMPAT_FILE" "Run unit tests" "Compatibility unit tests completed without executing any tests" 1
 check_xcodebuild_unit_step_requires_nonzero_execution "$TERMINAL_CORPUS_NIGHTLY_FILE" "Run terminal corpus unit tests" "Terminal corpus unit tests completed without executing any tests"
 check_xcodebuild_unit_step_rejects_expected_failures "$CI_FILE" "Run unit tests"
 check_xcodebuild_unit_step_rejects_expected_failures "$COMPAT_FILE" "Run unit tests"

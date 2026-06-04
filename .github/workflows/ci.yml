@@ -407,35 +407,9 @@ jobs:
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           DERIVED_DATA_PATH="$PWD/.ci-derived-data/tests"
           run_unit_tests() {
-            # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
-            # intermittently crash inside XCTest's post-test memory checker or
-            # leave native display/WebKit work alive on GitHub macOS runners.
-            # When that happens, Swift's crash/backtrace handling or the stale
-            # app-host process keeps xcodebuild alive until the job-level timeout,
-            # hiding the actual unit test summary.
-            scripts/ci/xcodebuild_noninteractive.py \
-              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -derivedDataPath "$DERIVED_DATA_PATH" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" \
-              CMUX_SKIP_ZIG_BUILD=1 \
-              test 2>&1 &
-            local xcodebuild_pid=$!
-            local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
-            local deadline=$((SECONDS + timeout_seconds))
-            while kill -0 "$xcodebuild_pid" 2>/dev/null; do
-              if [ "$SECONDS" -ge "$deadline" ]; then
-                echo "xcodebuild unit test timeout after ${timeout_seconds}s; terminating"
-                kill -TERM "$xcodebuild_pid" 2>/dev/null || true
-                sleep 5
-                kill -KILL "$xcodebuild_pid" 2>/dev/null || true
-                wait "$xcodebuild_pid" 2>/dev/null || true
-                return 124
-              fi
-              sleep 5
-            done
-            wait "$xcodebuild_pid"
+            SOURCE_PACKAGES_DIR="$SOURCE_PACKAGES_DIR" \
+              DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
+              scripts/ci/run-cmux-unit-tests-isolated.sh
           }
 
           # Stream output via tee so CI logs are visible in real time, while still
@@ -461,17 +435,12 @@ jobs:
             set -e
           fi
 
-          if [ "$EXIT_CODE" -eq 124 ]; then
-            echo "xcodebuild unit tests timed out"
-            exit 1
-          fi
-
           if [ "$EXIT_CODE" -ne 0 ]; then
             echo "Unit tests failed"
             exit "$EXIT_CODE"
           fi
 
-          if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
+          if ! grep -Eq 'All [1-9][0-9]* cmuxTests XCTestCase classes passed in isolated app-host runs' <<<"$OUTPUT"; then
             echo "Unit test workflow completed without executing any tests" >&2
             exit 1
           fi
