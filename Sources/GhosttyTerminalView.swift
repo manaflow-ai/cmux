@@ -1419,6 +1419,17 @@ struct TerminalKeyboardCopyModeCursor: Equatable {
     var row: Int
     var column: Int
 
+    func clamped(rows: Int, columns: Int) -> TerminalKeyboardCopyModeCursor {
+        var copy = self
+        copy.clamp(rows: rows, columns: columns)
+        return copy
+    }
+
+    mutating func clamp(rows: Int, columns: Int) {
+        row = Self.clamp(row, upperBound: rows)
+        column = Self.clamp(column, upperBound: columns)
+    }
+
     mutating func move(
         _ direction: TerminalKeyboardCopyModeSelectionMove,
         count: Int,
@@ -1428,8 +1439,7 @@ struct TerminalKeyboardCopyModeCursor: Equatable {
         let clampedRows = max(rows, 1)
         let clampedColumns = max(columns, 1)
         let clampedCount = terminalKeyboardCopyModeClampCount(count)
-        row = Self.clamp(row, upperBound: clampedRows)
-        column = Self.clamp(column, upperBound: clampedColumns)
+        clamp(rows: clampedRows, columns: clampedColumns)
 
         switch direction {
         case .left:
@@ -8503,7 +8513,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        keyboardCopyModeCursorOverlayView.frame = metrics.appKitRect(for: cursor)
+        let clampedCursor = cursor.clamped(rows: metrics.rows, columns: metrics.columns)
+        if clampedCursor != cursor {
+            keyboardCopyModeCursor = clampedCursor
+        }
+
+        keyboardCopyModeCursorOverlayView.frame = metrics.appKitRect(for: clampedCursor)
         keyboardCopyModeCursorOverlayView.isHidden = false
     }
 
@@ -8546,7 +8561,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func selectKeyboardCopyModeCursorCell(surface: ghostty_surface_t) -> Bool {
         guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return false }
 
-        let cursor = keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface)
+        let cursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
+            .clamped(rows: metrics.rows, columns: metrics.columns)
         keyboardCopyModeCursor = cursor
 
         let rect = metrics.topOriginRect(for: cursor)
@@ -8674,14 +8690,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: count)
         case .scrollToTop:
             if var cursor = keyboardCopyModeCursor {
-                cursor.row = 0
+                if let metrics = keyboardCopyModeGridMetrics(surface: surface) {
+                    _ = cursor.move(.home, count: 1, rows: metrics.rows, columns: metrics.columns)
+                } else {
+                    cursor.row = 0
+                    cursor.column = 0
+                }
                 keyboardCopyModeCursor = cursor
             }
             _ = performBindingAction("scroll_to_top")
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         case .scrollToBottom:
             if var cursor = keyboardCopyModeCursor {
-                cursor.row = max(Int(ghostty_surface_size(surface).rows) - 1, 0)
+                if let metrics = keyboardCopyModeGridMetrics(surface: surface) {
+                    _ = cursor.move(.end, count: 1, rows: metrics.rows, columns: metrics.columns)
+                } else {
+                    let size = ghostty_surface_size(surface)
+                    cursor.row = max(Int(size.rows) - 1, 0)
+                    cursor.column = max(Int(size.columns) - 1, 0)
+                }
                 keyboardCopyModeCursor = cursor
             }
             _ = performBindingAction("scroll_to_bottom")
