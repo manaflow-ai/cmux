@@ -353,7 +353,10 @@ func resolvedBrowserChromeColorScheme(
         for: colorScheme,
         themeBackgroundColor: themeBackgroundColor
     )
-    return backgroundColor.isLightColor ? .light : .dark
+    let readableBackgroundColor = backgroundColor.alphaComponent < 0.999
+        ? cmuxCompositedNSColor(backgroundColor, over: .windowBackgroundColor)
+        : backgroundColor
+    return readableBackgroundColor.isLightColor ? .light : .dark
 }
 
 func resolvedBrowserOmnibarPillBackgroundColor(
@@ -370,7 +373,10 @@ func resolvedBrowserOmnibarPillBackgroundColor(
         darkenMix = 0.04
     }
 
-    return themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
+    let opacity = themeBackgroundColor.alphaComponent
+    let opaqueBackgroundColor = themeBackgroundColor.withAlphaComponent(1)
+    return (opaqueBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? opaqueBackgroundColor)
+        .withAlphaComponent(opacity)
 }
 
 private struct BrowserChromeStyle {
