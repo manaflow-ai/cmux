@@ -908,6 +908,23 @@ final class SidebarDropPlannerTests: XCTestCase {
         XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: unpinned, edge: .top))
     }
 
+    func testCrossWindowInsertionClampsPinnedWorkspaceToFrontWhenNoExistingPins() {
+        let a = UUID()
+        let b = UUID()
+        // Drop a pinned workspace into the empty area of a window with no pins.
+        let result = SidebarDropPlanner.crossWindowInsertion(
+            targetTabId: nil,
+            draggedIsPinned: true,
+            indicator: nil,
+            tabIds: [a, b],
+            pinnedTabIds: []
+        )
+
+        // It cannot sit below the unpinned rows — clamp to the front.
+        XCTAssertEqual(result.insertionIndex, 0)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: a, edge: .top))
+    }
+
     func testCrossWindowInsertionClampsPinnedWorkspaceIntoPinnedRegion() {
         let pinnedA = UUID()
         let unpinnedA = UUID()

@@ -3535,4 +3535,67 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
         )
         XCTAssertTrue(destination.tabs.contains { $0.id == onlyWorkspace.id })
     }
+
+    func testMovingPinnedWorkspaceLandsAtFrontEvenWhenDroppedBelowUnpinnedRows() {
+        let source = TabManager()
+        let destination = TabManager()
+        let destFirst = destination.tabs[0]   // unpinned
+        let moving = source.tabs[0]
+        source.setPinned(moving, pinned: true)
+
+        guard let detached = source.detachWorkspace(tabId: moving.id) else {
+            XCTFail("Expected to detach the pinned workspace")
+            return
+        }
+        XCTAssertTrue(detached.isPinned, "Detach must preserve the pinned state")
+
+        // Request a drop position *below* the destination's unpinned row.
+        destination.attachWorkspace(detached, at: 1, select: true)
+
+        XCTAssertEqual(
+            destination.tabs.first?.id,
+            moving.id,
+            "A pinned workspace must land in the leading pinned segment regardless of drop index"
+        )
+        XCTAssertTrue(destination.tabs.contains { $0.id == destFirst.id })
+    }
+
+    func testMovingWorkspaceIntoMiddleOfGroupRunKeepsGroupContiguous() {
+        let source = TabManager()
+        let destination = TabManager()
+
+        // Build a destination group with an anchor + two members.
+        let memberA = destination.tabs[0]
+        let memberB = destination.addWorkspace()
+        guard let groupId = destination.createWorkspaceGroup(
+            name: "Group",
+            childWorkspaceIds: [memberA.id, memberB.id]
+        ) else {
+            XCTFail("Expected to create a destination group")
+            return
+        }
+
+        let moving = source.tabs[0]
+        guard let detached = source.detachWorkspace(tabId: moving.id) else {
+            XCTFail("Expected to detach the workspace")
+            return
+        }
+        XCTAssertNil(detached.groupId, "Detach must clear group membership")
+
+        // Aim the insert into the middle of the group's contiguous run.
+        let middle = max(1, destination.tabs.count - 1)
+        destination.attachWorkspace(detached, at: middle, select: true)
+
+        // The moved (ungrouped) workspace must not sit between grouped rows.
+        let groupedOffsets = destination.tabs.enumerated()
+            .filter { $0.element.groupId == groupId }
+            .map(\.offset)
+        XCTAssertFalse(groupedOffsets.isEmpty)
+        let isContiguous = groupedOffsets.max()! - groupedOffsets.min()! == groupedOffsets.count - 1
+        XCTAssertTrue(
+            isContiguous,
+            "The destination group's rows must stay contiguous after a cross-window move"
+        )
+        XCTAssertTrue(destination.tabs.contains { $0.id == moving.id })
+    }
 }

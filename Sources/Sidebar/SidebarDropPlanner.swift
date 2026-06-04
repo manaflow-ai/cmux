@@ -139,7 +139,12 @@ enum SidebarDropPlanner {
     }
 
     /// Clamp a cross-window insertion so a pinned workspace lands inside the
-    /// pinned block and an unpinned one lands after it.
+    /// leading pinned block and an unpinned one lands after it.
+    ///
+    /// The clamp applies even when `pinnedCount` is zero: a pinned workspace
+    /// dragged into a window with no existing pins must still land at the front
+    /// (index `0`), not wherever the pointer happens to be, otherwise it would
+    /// sit below unpinned rows and break the leading-pinned-segment invariant.
     private static func legalCrossWindowInsertionPosition(
         proposedInsertionPosition: Int,
         draggedIsPinned: Bool,
@@ -152,7 +157,6 @@ enum SidebarDropPlanner {
                 count += 1
             }
         }
-        guard pinnedCount > 0 else { return clampedInsertion }
         return draggedIsPinned ? min(clampedInsertion, pinnedCount) : max(clampedInsertion, pinnedCount)
     }
 
