@@ -16193,6 +16193,7 @@ private var cmuxBrowserArrowForwardingDepth = 0
 private var cmuxBrowserOmnibarMarkedTextForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxTextBoxInputArrowForwardingDepth = 0
+private var cmuxTextBoxInputControlNavForwardingDepth = 0
 private var cmuxEditableTextViewArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
@@ -17022,6 +17023,21 @@ private extension NSWindow {
             }
             cmuxTextBoxInputArrowForwardingDepth += 1
             defer { cmuxTextBoxInputArrowForwardingDepth = max(0, cmuxTextBoxInputArrowForwardingDepth - 1) }
+            self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
+        if shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+            charactersIgnoringModifiers: KeyboardLayout.normalizedCharacters(for: event),
+            firstResponderIsTextBoxInput: firstResponderIsTextBoxInput,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            if cmuxTextBoxInputControlNavForwardingDepth > 0 {
+                return false
+            }
+            cmuxTextBoxInputControlNavForwardingDepth += 1
+            defer { cmuxTextBoxInputControlNavForwardingDepth = max(0, cmuxTextBoxInputControlNavForwardingDepth - 1) }
             self.firstResponder?.keyDown(with: event)
             return true
         }

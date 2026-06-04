@@ -1,0 +1,929 @@
+import AppKit
+import Carbon.HIToolbox
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite("Text box mention completion")
+@MainActor
+struct TextBoxMentionCompletionTests {
+    @Test
+    func testTextBoxControlNavigationRoutingUsesTranslatedCharacters() {
+        #expect(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+            charactersIgnoringModifiers: "n",
+            firstResponderIsTextBoxInput: true,
+            flags: [.control]
+        ))
+        #expect(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+            charactersIgnoringModifiers: "p",
+            firstResponderIsTextBoxInput: true,
+            flags: [.control]
+        ))
+        #expect(!(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+            charactersIgnoringModifiers: "b",
+            firstResponderIsTextBoxInput: true,
+            flags: [.control]
+        )))
+        #expect(!(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+            charactersIgnoringModifiers: "n",
+            firstResponderIsTextBoxInput: true,
+            flags: [.control, .command]
+        )))
+    }
+
+    @Test
+    func testTextBoxMentionControlNavigationUsesTranslatedCharacters() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "@a"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 2), query: "a"),
+            suggestions: [
+                TextBoxMentionSuggestion(
+                    id: "alpha",
+                    title: "@alpha.txt",
+                    subtitle: "alpha.txt",
+                    insertionText: "[@alpha.txt](/tmp/alpha.txt)",
+                    systemImageName: "doc"
+                ),
+                TextBoxMentionSuggestion(
+                    id: "beta",
+                    title: "@beta.txt",
+                    subtitle: "beta.txt",
+                    insertionText: "[@beta.txt](/tmp/beta.txt)",
+                    systemImageName: "doc"
+                )
+            ]
+        )
+
+        guard let controlNEvent = makeKeyDownEvent(
+            key: "n",
+            modifiers: [.control],
+            keyCode: UInt16(kVK_ANSI_B),
+            windowNumber: 0
+        ) else {
+            #expect(Bool(false), "Failed to construct Control-N event")
+            return
+        }
+
+        textView.keyDown(with: controlNEvent)
+
+        #expect(textView.debugMentionSelectionIndex() == 1)
+    }
+
+    @Test
+    func testTextBoxControlForwardingKeepsPhysicalControlKeyRouting() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        guard let event = makeKeyDownEvent(
+            key: "N",
+            modifiers: [.control],
+            keyCode: UInt16(kVK_ANSI_G),
+            windowNumber: 0
+        ) else {
+            #expect(Bool(false), "Failed to construct remapped Control-N event")
+            return
+        }
+
+        #expect(textView.debugMentionCompletionControlNavigationKey(for: event) == "n")
+        #expect(textView.debugControlKey(for: event) == "g")
+
+        var forwardedControls: [String] = []
+        textView.onForwardControl = { forwardedControls.append($0) }
+        textView.keyDown(with: event)
+
+        #expect(forwardedControls == ["g"])
+    }
+
+    @Test
+    func testTextBoxMentionCompletionDetectsFileAndSkillTokens() {
+        let filePrompt = "open @Sources/TextBox"
+        let fileQuery = TextBoxMentionCompletionDetector.query(
+            in: filePrompt,
+            selectedRange: NSRange(location: (filePrompt as NSString).length, length: 0)
+        )
+        #expect(fileQuery?.kind == .file)
+        #expect(fileQuery?.trigger == "@")
+        #expect(fileQuery?.query == "Sources/TextBox")
+        #expect(fileQuery?.range == NSRange(location: 5, length: 16))
+
+        let skillPrompt = "use /swift-guidance before editing"
+        let cursor = (skillPrompt as NSString).range(of: " before").location
+        let skillQuery = TextBoxMentionCompletionDetector.query(
+            in: skillPrompt,
+            selectedRange: NSRange(location: cursor, length: 0)
+        )
+        #expect(skillQuery?.kind == .skill)
+        #expect(skillQuery?.trigger == "/")
+        #expect(skillQuery?.query == "swift-guidance")
+        #expect(skillQuery?.range == NSRange(location: 4, length: 15))
+
+        let dollarSkillPrompt = "use $axiom-swift now"
+        let dollarCursor = (dollarSkillPrompt as NSString).range(of: " now").location
+        let dollarSkillQuery = TextBoxMentionCompletionDetector.query(
+            in: dollarSkillPrompt,
+            selectedRange: NSRange(location: dollarCursor, length: 0)
+        )
+        #expect(dollarSkillQuery?.kind == .skill)
+        #expect(dollarSkillQuery?.trigger == "$")
+        #expect(dollarSkillQuery?.query == "axiom-swift")
+        #expect(dollarSkillQuery?.range == NSRange(location: 4, length: 12))
+
+        let bareSlashPrompt = "cd /"
+        let bareSlashQuery = TextBoxMentionCompletionDetector.query(
+            in: bareSlashPrompt,
+            selectedRange: NSRange(location: (bareSlashPrompt as NSString).length, length: 0)
+        )
+        #expect(bareSlashQuery?.kind == .skill)
+        #expect(bareSlashQuery?.trigger == "/")
+        #expect(bareSlashQuery?.query == "")
+
+        let bareDollarPrompt = "echo $"
+        let bareDollarQuery = TextBoxMentionCompletionDetector.query(
+            in: bareDollarPrompt,
+            selectedRange: NSRange(location: (bareDollarPrompt as NSString).length, length: 0)
+        )
+        #expect(bareDollarQuery?.kind == .skill)
+        #expect(bareDollarQuery?.trigger == "$")
+        #expect(bareDollarQuery?.query == "")
+
+        let emailPrompt = "mail lawrence@example.com"
+        #expect(TextBoxMentionCompletionDetector.query(
+            in: emailPrompt,
+            selectedRange: NSRange(location: (emailPrompt as NSString).length, length: 0)
+        ) == nil)
+    }
+
+    @Test
+    func testTextBoxMentionFileSuggestionsUseCommandPaletteSearchIndex() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let sourceDirectory = root.appendingPathComponent("Sources", isDirectory: true)
+        try fileManager.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try "struct TextBoxInput {}".write(
+            to: sourceDirectory.appendingPathComponent("TextBoxInput.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "notes".write(
+            to: root.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 13),
+                query: "TextBoxInput",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        #expect(suggestions.first?.title == "@Sources/TextBoxInput.swift")
+        #expect(suggestions.first?.systemImageName == "doc")
+        #expect(suggestions.first?.insertionText.hasPrefix("[@Sources/TextBoxInput.swift](") == true)
+    }
+
+    @Test
+    func testTextBoxMentionMarkdownEscapesAngleTargetDelimiters() {
+        let link = TextBoxMentionMarkdown.link(
+            label: "@Docs/[draft].md",
+            path: "Docs/roadmap <draft>.md"
+        )
+
+        #expect(link == "[@Docs/\\[draft\\].md](<Docs/roadmap %3Cdraft%3E.md>)")
+    }
+
+    @Test
+    func testTextBoxProcessTerminationStatusResumesMultipleWaiters() async {
+        let status = TextBoxProcessTerminationStatus()
+
+        async let firstWaiter: Int32 = status.wait()
+        async let secondWaiter: Int32 = status.wait()
+        await Task.yield()
+
+        await status.finish(status: 7)
+
+        let (firstStatus, secondStatus) = await (firstWaiter, secondWaiter)
+        #expect(firstStatus == 7)
+        #expect(secondStatus == 7)
+        #expect(await status.wait() == 7)
+    }
+
+    @Test
+    func testTextBoxMentionFileSuggestionsReturnRootFilesForEmptyQuery() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-empty-file-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try "notes".write(
+            to: root.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        #expect(suggestions.first?.title == "@README.md")
+        #expect(suggestions.first?.insertionText.hasPrefix("[@README.md](") == true)
+    }
+
+    @Test
+    func testTextBoxMentionFileSuggestionsIncludeDirectoriesForEmptyQuery() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-empty-directory-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let sourceDirectory = root.appendingPathComponent("Sources", isDirectory: true)
+        try fileManager.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(
+            at: sourceDirectory.appendingPathComponent("Empty", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: root.appendingPathComponent("ZEmpty", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try "nested".write(
+            to: sourceDirectory.appendingPathComponent("Nested.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "notes".write(
+            to: root.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        let sourcesDirectory = suggestions.first { $0.title == "@Sources/" }
+        #expect(sourcesDirectory != nil)
+        #expect(sourcesDirectory?.systemImageName == "folder")
+        #expect(sourcesDirectory?.insertionText.hasPrefix("[@Sources/](") == true)
+        #expect(suggestions.contains { $0.title == "@ZEmpty/" })
+        #expect(suggestions.contains { $0.title == "@README.md" })
+
+        let nestedFileSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 7),
+                query: "Nested",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+        #expect(nestedFileSuggestions.first?.title == "@Sources/Nested.swift")
+
+        let warmedSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+        #expect(warmedSuggestions.contains { $0.title == "@Sources/Empty/" })
+    }
+
+    @Test
+    func testTextBoxMentionFileSuggestionsFindNestedDirectoriesAndFilesWithFuzzyIndex() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-nested-file-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let componentsDirectory = root
+            .appendingPathComponent("Sources", isDirectory: true)
+            .appendingPathComponent("Components", isDirectory: true)
+        let fixturesDirectory = root.appendingPathComponent("Fixtures", isDirectory: true)
+        try fileManager.createDirectory(at: componentsDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: fixturesDirectory, withIntermediateDirectories: true)
+        try "struct NestedView {}".write(
+            to: componentsDirectory.appendingPathComponent("NestedView.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        for index in 0..<40 {
+            try "fixture \(index)".write(
+                to: fixturesDirectory.appendingPathComponent("Fixture\(index).txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let directorySuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 11),
+                query: "Components",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        #expect(directorySuggestions.first?.title == "@Sources/Components/")
+        #expect(directorySuggestions.first?.systemImageName == "folder")
+
+        let nestedFileSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 10),
+                query: "NestedView",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        #expect(nestedFileSuggestions.first?.title == "@Sources/Components/NestedView.swift")
+        #expect(nestedFileSuggestions.first?.systemImageName == "doc")
+
+        let missingSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 14),
+                query: "MissingNeedle",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        #expect(missingSuggestions.isEmpty)
+    }
+
+    @Test
+    func testTextBoxMentionFileSuggestionsSkipPackageContents() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-package-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let packageDirectory = root
+            .appendingPathComponent("Dependencies", isDirectory: true)
+            .appendingPathComponent("GhosttyKit.xcframework", isDirectory: true)
+        try fileManager.createDirectory(at: packageDirectory, withIntermediateDirectories: true)
+        try "internal".write(
+            to: packageDirectory.appendingPathComponent("InternalNeedle.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 15),
+                query: "InternalNeedle",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        #expect(!(suggestions.contains { $0.title.contains("InternalNeedle.swift") }))
+    }
+
+    @Test
+    func testTextBoxMentionFileSuggestionsKeepCaseVariantProjectDirectories() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-library-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let libraryDirectory = root.appendingPathComponent("library", isDirectory: true)
+        try fileManager.createDirectory(at: libraryDirectory, withIntermediateDirectories: true)
+        try "valid".write(
+            to: libraryDirectory.appendingPathComponent("VisibleNeedle.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 14),
+                query: "VisibleNeedle",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        #expect(suggestions.contains { $0.title == "@library/VisibleNeedle.swift" })
+    }
+
+    @Test
+    func testTextBoxMentionFileSuggestionsRefreshCachedMisses() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-mentions-refresh-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try "old".write(
+            to: root.appendingPathComponent("old-file.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let oldSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 8),
+                query: "old-file",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+        #expect(oldSuggestions.first?.title == "@old-file.txt")
+
+        try "new".write(
+            to: root.appendingPathComponent("new-file.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let newSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 8),
+                query: "new-file",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+        #expect(newSuggestions.first?.title == "@new-file.txt")
+    }
+
+    @Test
+    func testTextBoxMentionSkillSuggestionsUseTypedDollarTrigger() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-skills-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let skillDirectory = root
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent("sample-dollar-skill", isDirectory: true)
+        try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try "name: sample-dollar-skill\n".write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 20),
+                query: "sample-dollar",
+                trigger: "$"
+            ),
+            rootDirectory: root.path
+        )
+
+        #expect(suggestions.first?.title == "$sample-dollar-skill")
+        #expect(suggestions.first?.systemImageName == "sparkle.magnifyingglass")
+        // The $ trigger inserts the bare skill reference (not a markdown link),
+        // unlike the / and @ triggers.
+        #expect(suggestions.first?.insertionText == "$sample-dollar-skill")
+    }
+
+    @Test
+    func testTextBoxMentionSkillSuggestionsUseTypedSlashTriggerForEmptyQuery() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-slash-skills-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let skillDirectory = root
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent("sample-slash-skill", isDirectory: true)
+        try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try "name: sample-slash-skill\n".write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "/"
+            ),
+            rootDirectory: root.path
+        )
+
+        // An empty query returns the whole skill corpus, which also includes the
+        // machine's global skill roots (~/.codex/skills, etc.), so the temp skill
+        // is not guaranteed to sort first. Assert it is present with the typed
+        // trigger rather than asserting its position.
+        let slashSkill = suggestions.first { $0.title == "/sample-slash-skill" }
+        #expect(slashSkill != nil)
+        #expect(slashSkill?.insertionText.hasPrefix("[/sample-slash-skill](") == true)
+    }
+
+    @Test
+    func testTextBoxMentionEmptySkillSuggestionsKeepNearestProjectSkillsBeforeCap() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-local-skill-priority-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let ancestorSkillsDirectory = root.appendingPathComponent("skills", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let projectSkillsDirectory = projectDirectory.appendingPathComponent("skills", isDirectory: true)
+        let localSkillDirectory = projectSkillsDirectory.appendingPathComponent("zz-local-skill", isDirectory: true)
+        try fileManager.createDirectory(at: localSkillDirectory, withIntermediateDirectories: true)
+        try "name: zz-local-skill\n".write(
+            to: localSkillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        for index in 0..<520 {
+            let skillName = String(format: "aaa-global-%03d", index)
+            let skillDirectory = ancestorSkillsDirectory.appendingPathComponent(skillName, isDirectory: true)
+            try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+            try "name: \(skillName)\n".write(
+                to: skillDirectory.appendingPathComponent("SKILL.md"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "/"
+            ),
+            rootDirectory: projectDirectory.path
+        )
+
+        let localSkillIndex = suggestions.firstIndex { $0.title == "/zz-local-skill" }
+        let ancestorSkillIndex = suggestions.firstIndex { $0.title.hasPrefix("/aaa-global-") }
+        #expect(localSkillIndex != nil)
+        #expect(ancestorSkillIndex != nil)
+        #expect((localSkillIndex ?? Int.max) < (ancestorSkillIndex ?? Int.max))
+    }
+
+    @Test
+    func testTextBoxMentionSkillSuggestionsFindNestedSkillPacks() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-nested-skills-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let skillDirectory = root
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent("team", isDirectory: true)
+            .appendingPathComponent("nested-skill", isDirectory: true)
+        try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try "name: nested-skill\n".write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 13),
+                query: "nested-skill",
+                trigger: "/"
+            ),
+            rootDirectory: root.path
+        )
+
+        let nestedSkill = suggestions.first { $0.title == "/nested-skill" }
+        #expect(nestedSkill != nil)
+        #expect(nestedSkill?.insertionText.hasPrefix("[/nested-skill](") == true)
+    }
+
+    @Test
+    func testTextBoxMentionRefreshKeepsRowsOnSameTriggerEditButClearsOnTriggerChange() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "@a"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "alpha",
+            title: "@alpha.txt",
+            subtitle: "alpha.txt",
+            insertionText: "[@alpha.txt](/tmp/alpha.txt)",
+            systemImageName: "doc"
+        )
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 2), query: "a"),
+            suggestions: [staleSuggestion]
+        )
+        #expect(textView.debugMentionSuggestionCount() == 1)
+
+        // Editing within the same trigger keeps the previous rows visible until
+        // the async lookup returns, avoiding a per-keystroke popover flicker.
+        textView.string = "@z"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.refreshMentionCompletions()
+        #expect(textView.debugMentionSuggestionCount() == 1)
+        #expect(!(textView.debugMentionSuggestionsAreCurrent()))
+        #expect(!(textView.debugAcceptMentionCompletion()))
+        #expect(!(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion)))
+        #expect(textView.string == "@z")
+        var submitCount = 0
+        textView.onSubmit = { submitCount += 1 }
+        textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        #expect(submitCount == 1)
+        #expect(textView.string == "@z")
+
+        // Switching the trigger is a different completion kind, so stale rows are
+        // dropped immediately rather than shown under the wrong trigger.
+        textView.string = "/z"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.refreshMentionCompletions()
+        #expect(textView.debugMentionSuggestionCount() == 0)
+    }
+
+    @Test
+    func testTextBoxMentionRootDirectoryChangeClearsActiveFileSuggestions() throws {
+        let fileManager = FileManager.default
+        let oldRoot = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-old-root-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let newRoot = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-new-root-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer {
+            try? fileManager.removeItem(at: oldRoot)
+            try? fileManager.removeItem(at: newRoot)
+        }
+        try fileManager.createDirectory(at: oldRoot, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: newRoot, withIntermediateDirectories: true)
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.completionRootDirectory = oldRoot.path
+        textView.string = "@a"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 2), query: "a"),
+            suggestions: [
+                TextBoxMentionSuggestion(
+                    id: "old:alpha",
+                    title: "@alpha.txt",
+                    subtitle: "alpha.txt",
+                    insertionText: "[@alpha.txt](\(oldRoot.path)/alpha.txt)",
+                    systemImageName: "doc"
+                )
+            ],
+            rootDirectory: oldRoot.path
+        )
+        #expect(textView.debugMentionSuggestionsAreCurrent())
+
+        textView.completionRootDirectory = newRoot.path
+
+        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(!(textView.debugAcceptMentionCompletion()))
+    }
+
+    @Test
+    func testTextBoxMentionRefreshOpensPopoverImmediatelyForBareFileTrigger() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-loading-file-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try "notes".write(
+            to: root.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.completionRootDirectory = root.path
+        textView.string = "@"
+        textView.setSelectedRange(NSRange(location: 1, length: 0))
+
+        textView.refreshMentionCompletions()
+
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(textView.debugMentionSuggestionCount() == 0)
+    }
+
+    @Test
+    func testTextBoxMentionEscapeFallsThroughWhenQueryHasNoSuggestions() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "@missing"
+        textView.setSelectedRange(NSRange(location: 8, length: 0))
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 8), query: "missing"),
+            suggestions: []
+        )
+        var escapeCount = 0
+        textView.onEscape = { escapeCount += 1 }
+
+        guard let escapeEvent = makeKeyDownEvent(
+            key: "\u{1b}",
+            modifiers: [],
+            keyCode: UInt16(kVK_Escape),
+            windowNumber: 0
+        ) else {
+            #expect(Bool(false), "Failed to construct Escape event")
+            return
+        }
+
+        textView.keyDown(with: escapeEvent)
+        #expect(escapeCount == 1)
+    }
+
+    @Test
+    func testTextBoxMentionEscapeDismissesLoadingPopover() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "@"
+        textView.setSelectedRange(NSRange(location: 1, length: 0))
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 1), query: ""),
+            suggestions: [],
+            isLoading: true
+        )
+        var escapeCount = 0
+        textView.onEscape = { escapeCount += 1 }
+
+        guard let escapeEvent = makeKeyDownEvent(
+            key: "\u{1b}",
+            modifiers: [],
+            keyCode: UInt16(kVK_Escape),
+            windowNumber: 0
+        ) else {
+            #expect(Bool(false), "Failed to construct Escape event")
+            return
+        }
+
+        textView.keyDown(with: escapeEvent)
+        #expect(escapeCount == 0)
+        #expect(!(textView.debugMentionCompletionsShouldShowPopover()))
+    }
+
+    @Test
+    func testTextBoxMentionBareSkillTriggerReturnSubmitsInsteadOfAcceptingFirstSuggestion() {
+        let scenarios: [(text: String, range: NSRange, trigger: Character, insertionText: String)] = [
+            ("cd /", NSRange(location: 3, length: 1), "/", "[/sample-skill](/tmp/sample-skill/SKILL.md)"),
+            ("echo $", NSRange(location: 5, length: 1), "$", "$sample-skill")
+        ]
+
+        for scenario in scenarios {
+            let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+            textView.string = scenario.text
+            textView.setSelectedRange(NSRange(location: (scenario.text as NSString).length, length: 0))
+            textView.debugSetMentionCompletionState(
+                query: TextBoxMentionQuery(
+                    kind: .skill,
+                    range: scenario.range,
+                    query: "",
+                    trigger: scenario.trigger
+                ),
+                suggestions: [
+                    TextBoxMentionSuggestion(
+                        id: "\(scenario.trigger):/tmp/sample-skill/SKILL.md",
+                        title: "\(scenario.trigger)sample-skill",
+                        subtitle: "/tmp/sample-skill/SKILL.md",
+                        insertionText: scenario.insertionText,
+                        systemImageName: "sparkle.magnifyingglass"
+                    )
+                ]
+            )
+            var submitCount = 0
+            textView.onSubmit = { submitCount += 1 }
+
+            textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+
+            #expect(submitCount == 1)
+            #expect(textView.string == scenario.text)
+            #expect(textView.debugMentionSuggestionCount() == 0)
+        }
+    }
+
+    @Test
+    func testTextBoxMentionBareSkillTriggerTabAcceptsFirstSuggestion() {
+        let scenarios: [(text: String, range: NSRange, trigger: Character, insertionText: String, expected: String)] = [
+            (
+                "cd /",
+                NSRange(location: 3, length: 1),
+                "/",
+                "[/sample-skill](/tmp/sample-skill/SKILL.md)",
+                "cd [/sample-skill](/tmp/sample-skill/SKILL.md) "
+            ),
+            (
+                "echo $",
+                NSRange(location: 5, length: 1),
+                "$",
+                "$sample-skill",
+                "echo $sample-skill "
+            )
+        ]
+
+        for scenario in scenarios {
+            let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+            textView.string = scenario.text
+            textView.setSelectedRange(NSRange(location: (scenario.text as NSString).length, length: 0))
+            textView.debugSetMentionCompletionState(
+                query: TextBoxMentionQuery(
+                    kind: .skill,
+                    range: scenario.range,
+                    query: "",
+                    trigger: scenario.trigger
+                ),
+                suggestions: [
+                    TextBoxMentionSuggestion(
+                        id: "\(scenario.trigger):/tmp/sample-skill/SKILL.md",
+                        title: "\(scenario.trigger)sample-skill",
+                        subtitle: "/tmp/sample-skill/SKILL.md",
+                        insertionText: scenario.insertionText,
+                        systemImageName: "sparkle.magnifyingglass"
+                    )
+                ]
+            )
+
+            textView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+
+            #expect(textView.string == scenario.expected)
+            #expect(textView.debugMentionSuggestionCount() == 0)
+        }
+    }
+
+    private func makeKeyDownEvent(
+        key: String,
+        modifiers: NSEvent.ModifierFlags,
+        keyCode: UInt16,
+        windowNumber: Int,
+        isARepeat: Bool = false
+    ) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: key,
+            charactersIgnoringModifiers: key,
+            isARepeat: isARepeat,
+            keyCode: keyCode
+        )
+    }
+}
