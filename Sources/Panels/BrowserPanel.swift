@@ -1742,7 +1742,9 @@ final class BrowserHistoryStore: ObservableObject {
         }
     }
 
-    @Published private(set) var entries: [Entry] = []
+    @Published private(set) var entries: [Entry] = [] {
+        didSet { suggestionCandidatesDirty = true }
+    }
 
     private let fileURL: URL?
     private var didLoad: Bool = false
@@ -1766,6 +1768,22 @@ final class BrowserHistoryStore: ObservableObject {
     private struct ScoredSuggestion {
         let entry: Entry
         let score: Double
+    }
+
+    // Precomputed, lowercased/parsed match fields for every entry. Building a
+    // SuggestionCandidate parses the URL (URLComponents) and lowercases five
+    // fields; doing that for all entries on every omnibar keystroke pegged the
+    // main thread once history grew to a few thousand rows (the typing
+    // beachball). The cache is rebuilt only when `entries` actually changes
+    // (via the didSet above), so steady-state typing reuses it and pays only
+    // the cheap substring scoring in `suggestionScore`.
+    private var cachedSuggestionCandidates: [SuggestionCandidate] = []
+    private var suggestionCandidatesDirty = true
+
+    private func refreshSuggestionCandidatesIfNeeded() {
+        guard suggestionCandidatesDirty else { return }
+        cachedSuggestionCandidates = entries.map(makeSuggestionCandidate)
+        suggestionCandidatesDirty = false
     }
 
     init(fileURL: URL? = nil) {
@@ -1911,12 +1929,12 @@ final class BrowserHistoryStore: ObservableObject {
         let queryTokens = tokenizeSuggestionQuery(q)
         let now = Date()
 
-        let matched = entries.compactMap { entry -> ScoredSuggestion? in
-            let candidate = makeSuggestionCandidate(entry: entry)
+        refreshSuggestionCandidatesIfNeeded()
+        let matched = cachedSuggestionCandidates.compactMap { candidate -> ScoredSuggestion? in
             guard let score = suggestionScore(candidate: candidate, query: q, queryTokens: queryTokens, now: now) else {
                 return nil
             }
-            return ScoredSuggestion(entry: entry, score: score)
+            return ScoredSuggestion(entry: candidate.entry, score: score)
         }
         .sorted { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
