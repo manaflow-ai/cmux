@@ -234,6 +234,7 @@ private func debugAXTree(root: AXUIElement, maxNodes: Int = 80) {
 private func openApplication(appURL: URL, bundleIdentifier: String) -> NSRunningApplication? {
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.activates = true
+    configuration.environment = ProcessInfo.processInfo.environment
 
     let semaphore = DispatchSemaphore(value: 0)
     var openedApp: NSRunningApplication?
