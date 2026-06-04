@@ -1,38 +1,56 @@
 import SwiftUI
 
 /// Browses the closed-item history (closed terminals, browsers, panes, workspaces,
-/// and windows) and lets the user reopen or forget any entry. This is the History
-/// pane's content, distinct from the agent-session "Vault".
+/// and windows) grouped by destructive operation, and lets the user reopen or
+/// forget any entry. This is the History pane's content, distinct from the
+/// agent-session "Vault".
+///
+/// Each destructive action is one operation (a single close, or a multi-select
+/// delete of N items). Operations render as collapsible groups: "Restore all" on
+/// the header brings back the items that are not already restored, and each child
+/// can be reopened or removed individually.
 ///
 /// Follows the snapshot-boundary rule (https://github.com/manaflow-ai/cmux/issues/2586):
-/// the store is observed only here; rows receive immutable ``ClosedItemHistoryMenuItem``
-/// value snapshots plus closures, never the store itself.
+/// the store is observed only here; rows receive immutable value snapshots plus
+/// closures, never the store itself.
 struct ClosedItemsHistoryView: View {
     @ObservedObject var store: ClosedItemHistoryStore
+    /// Reopen a single item by its record id (non-destructive).
     let onReopen: (UUID) -> Void
+    /// Remove a single item from history by its record id.
     let onDelete: (UUID) -> Void
     let onClearAll: () -> Void
 
+    @State private var collapsed: Set<UUID> = []
+
     var body: some View {
-        let snapshot = store.menuSnapshot(maxItemCount: nil)
+        let operations = store.operationSnapshot()
+        let totalItems = operations.reduce(0) { $0 + $1.items.count }
         let onReopen = self.onReopen
         let onDelete = self.onDelete
 
         return VStack(spacing: 0) {
-            header(count: snapshot.totalItemCount)
-            if snapshot.items.isEmpty {
+            header(count: totalItems)
+            if operations.isEmpty {
                 emptyView
             } else {
                 ScrollView(.vertical) {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(snapshot.items) { item in
-                            ClosedItemRow(
-                                item: item,
-                                onReopen: { onReopen(item.id) },
-                                onDelete: { onDelete(item.id) }
+                        ForEach(operations) { op in
+                            ClosedOperationGroup(
+                                operation: op,
+                                isCollapsed: collapsed.contains(op.id),
+                                onToggleCollapse: { toggle(op.id) },
+                                onReopenItem: onReopen,
+                                onDeleteItem: onDelete,
+                                onRestoreAll: {
+                                    for item in op.items where !item.isRestored {
+                                        onReopen(item.id)
+                                    }
+                                }
                             )
                             .equatable()
-                            .id(item.id)
+                            .id(op.id)
                         }
                     }
                     .padding(.bottom, 8)
@@ -40,6 +58,10 @@ struct ClosedItemsHistoryView: View {
                 .modifier(ClearScrollBackground())
             }
         }
+    }
+
+    private func toggle(_ id: UUID) {
+        if collapsed.contains(id) { collapsed.remove(id) } else { collapsed.insert(id) }
     }
 
     private func header(count: Int) -> some View {
@@ -60,9 +82,7 @@ struct ClosedItemsHistoryView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color.primary.opacity(0.08))
-                .frame(height: 1)
+            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
         }
     }
 
@@ -82,16 +102,90 @@ struct ClosedItemsHistoryView: View {
     }
 }
 
+/// Renders one operation: a single row for a singleton close, or a collapsible
+/// group header plus child rows for a multi-item operation.
+private struct ClosedOperationGroup: View, Equatable {
+    let operation: ClosedOperationSnapshot
+    let isCollapsed: Bool
+    let onToggleCollapse: () -> Void
+    let onReopenItem: (UUID) -> Void
+    let onDeleteItem: (UUID) -> Void
+    let onRestoreAll: () -> Void
+
+    static func == (lhs: ClosedOperationGroup, rhs: ClosedOperationGroup) -> Bool {
+        lhs.operation == rhs.operation && lhs.isCollapsed == rhs.isCollapsed
+    }
+
+    var body: some View {
+        if operation.isSingleton, let item = operation.items.first {
+            ClosedItemRow(
+                item: item,
+                indented: false,
+                onReopen: { onReopenItem(item.id) },
+                onDelete: { onDeleteItem(item.id) }
+            )
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                groupHeader
+                if !isCollapsed {
+                    ForEach(operation.items) { item in
+                        ClosedItemRow(
+                            item: item,
+                            indented: true,
+                            onReopen: { onReopenItem(item.id) },
+                            onDelete: { onDeleteItem(item.id) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var groupHeader: some View {
+        HStack(spacing: 8) {
+            Button(action: onToggleCollapse) {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                    .frame(width: 16)
+            }
+            .buttonStyle(.plain)
+            Image(systemName: "rectangle.stack")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+            Text(operation.label)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(operation.isFullyRestored ? .secondary : .primary.opacity(0.9))
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            if !operation.isFullyRestored {
+                Button(action: onRestoreAll) {
+                    Text(String(localized: "historyPane.group.restoreAll", defaultValue: "Restore all"))
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.borderless)
+                .help(String(localized: "historyPane.group.restoreAll.tooltip", defaultValue: "Reopen the items in this group that aren't already open"))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .onTapGesture { onToggleCollapse() }
+    }
+}
+
 /// A single closed-item row. Value-snapshot + closures only; never observes the store.
 private struct ClosedItemRow: View, Equatable {
     let item: ClosedItemHistoryMenuItem
+    let indented: Bool
     let onReopen: () -> Void
     let onDelete: () -> Void
 
     @State private var isHovered: Bool = false
 
     static func == (lhs: ClosedItemRow, rhs: ClosedItemRow) -> Bool {
-        lhs.item == rhs.item
+        lhs.item == rhs.item && lhs.indented == rhs.indented
     }
 
     static let relativeFormatter: RelativeDateTimeFormatter = {
@@ -102,14 +196,14 @@ private struct ClosedItemRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: item.kind.systemImage)
+            Image(systemName: item.isRestored ? "checkmark.circle" : item.kind.systemImage)
                 .font(.system(size: 12))
-                .foregroundColor(.secondary)
+                .foregroundColor(item.isRestored ? .secondary.opacity(0.6) : .secondary)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title)
                     .font(.system(size: 13))
-                    .foregroundColor(.primary.opacity(0.92))
+                    .foregroundColor(item.isRestored ? .secondary : .primary.opacity(0.92))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text(item.detail)
@@ -135,7 +229,8 @@ private struct ClosedItemRow: View, Equatable {
                     .fixedSize()
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.leading, indented ? 30 : 12)
+        .padding(.trailing, 12)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())

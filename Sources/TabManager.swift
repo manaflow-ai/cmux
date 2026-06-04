@@ -6890,7 +6890,7 @@ class TabManager: ObservableObject {
         return trimmed
     }
 
-    func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
+    func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true, operationId: UUID? = nil) {
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         if recordHistory,
@@ -6905,7 +6905,7 @@ class TabManager: ObservableObject {
                 windowId: AppDelegate.shared?.windowId(for: self),
                 workspaceIndex: index,
                 snapshot: snapshot
-            )))
+            )), operationId: operationId)
         }
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         clearWorkspacePullRequestTracking(workspaceId: workspace.id)
@@ -7151,6 +7151,9 @@ class TabManager: ObservableObject {
             }
         }
 
+        // All closes in this multi-select share one operationId so they form a
+        // single restorable group in the History pane.
+        let batchOperationId = UUID()
         for workspace in plan.workspaces {
             guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
             // Anchor-close confirms inside closeWorkspaceIfRunningProcess.
@@ -7176,11 +7179,11 @@ class TabManager: ObservableObject {
                         AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
                     }
                 } else {
-                    closeWorkspace(workspace)
+                    closeWorkspace(workspace, operationId: batchOperationId)
                 }
                 continue
             }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false, operationId: batchOperationId)
         }
     }
 
@@ -7384,7 +7387,8 @@ class TabManager: ObservableObject {
     private func closeWorkspaceIfRunningProcess(
         _ workspace: Workspace,
         requiresConfirmation: Bool = true,
-        source: CloseConfirmationSource = .workspace
+        source: CloseConfirmationSource = .workspace,
+        operationId: UUID? = nil
     ) {
         // Anchor-close ALWAYS prompts (subject to its own
         // WorkspaceGroupAnchorCloseSettings.suppressed flag), regardless of
@@ -7422,7 +7426,7 @@ class TabManager: ObservableObject {
                 AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
             }
         } else {
-            closeWorkspace(workspace)
+            closeWorkspace(workspace, operationId: operationId)
         }
     }
 

@@ -79,12 +79,30 @@ enum ReopenedItemRef: Equatable, Sendable {
 struct ClosedItemHistoryRecord: Identifiable, Codable {
     let id: UUID
     let closedAt: Date
+    /// Groups records closed by the same user action (a multi-select delete).
+    /// A single close is a group of one (`operationId == id`). Older persisted
+    /// records that predate grouping decode as singletons.
+    var operationId: UUID
     var entry: ClosedItemHistoryEntry
 
-    init(id: UUID = UUID(), closedAt: Date = Date(), entry: ClosedItemHistoryEntry) {
+    init(id: UUID = UUID(), closedAt: Date = Date(), operationId: UUID? = nil, entry: ClosedItemHistoryEntry) {
         self.id = id
         self.closedAt = closedAt
+        self.operationId = operationId ?? id
         self.entry = entry
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, closedAt, operationId, entry
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(UUID.self, forKey: .id)
+        self.id = id
+        self.closedAt = try container.decode(Date.self, forKey: .closedAt)
+        self.operationId = try container.decodeIfPresent(UUID.self, forKey: .operationId) ?? id
+        self.entry = try container.decode(ClosedItemHistoryEntry.self, forKey: .entry)
     }
 }
 
@@ -138,6 +156,10 @@ struct ClosedItemHistoryMenuItem: Identifiable, Equatable {
     let title: String
     let detail: String
     let closedAt: Date
+    /// True when this item's restored target is currently live (so it should be
+    /// shown as already restored and skipped by "restore remaining" / undo).
+    /// Computed at snapshot time from the in-memory restore map; defaults false.
+    var isRestored: Bool = false
 
     var menuSubtitle: String {
         let closed = String(
@@ -165,6 +187,23 @@ struct ClosedItemHistoryMenuSnapshot {
     let isLimited: Bool
 }
 
+/// One destructive action in the History pane: a group of 1..N closed items that
+/// were closed together (a single close, or a multi-select delete). Restoring an
+/// operation brings back only its not-yet-live items.
+struct ClosedOperationSnapshot: Identifiable, Equatable {
+    /// The shared `operationId` of the records in this group.
+    let id: UUID
+    /// Header label, e.g. "3 workspaces" for a group or the item's title for a singleton.
+    let label: String
+    /// Most recent close time among the group's items.
+    let closedAt: Date
+    let items: [ClosedItemHistoryMenuItem]
+
+    var isSingleton: Bool { items.count == 1 }
+    /// True when every item in the operation is already restored/live.
+    var isFullyRestored: Bool { !items.isEmpty && items.allSatisfy(\.isRestored) }
+}
+
 enum ClosedWindowRestoreValidation {
     static func hasUsableRestoredContent(
         snapshot: SessionWindowSnapshot,
@@ -190,6 +229,14 @@ final class ClosedItemHistoryStore: ObservableObject {
     /// after an undo.
     @Published private(set) var redoTarget: ReopenedItemRef? = nil
     @Published private var records: [ClosedItemHistoryRecord] = []
+    /// In-memory map from a restored record's id to the live item it produced.
+    /// Not persisted, so it is empty after relaunch, which is exactly the
+    /// reset-on-launch behavior: nothing is marked restored after a fresh launch.
+    private var restoredRefByRecordId: [UUID: ReopenedItemRef] = [:]
+    /// Injected liveness check (set by AppDelegate at startup): is this restored
+    /// target still a live panel/workspace/window? Single source of truth for
+    /// "already restored", so restore-remaining and undo never duplicate a live item.
+    var isTargetLive: ((ReopenedItemRef) -> Bool)?
     private let capacity: Int?
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool
@@ -235,8 +282,8 @@ final class ClosedItemHistoryStore: ObservableObject {
         !records.isEmpty
     }
 
-    func push(_ entry: ClosedItemHistoryEntry) {
-        push(ClosedItemHistoryRecord(entry: entry))
+    func push(_ entry: ClosedItemHistoryEntry, operationId: UUID? = nil) {
+        push(ClosedItemHistoryRecord(operationId: operationId, entry: entry))
     }
 
     func push(_ record: ClosedItemHistoryRecord) {
@@ -355,6 +402,76 @@ final class ClosedItemHistoryStore: ObservableObject {
             totalItemCount: allItems.count,
             isLimited: false
         )
+    }
+
+    /// Groups records into operations (newest first) for the History pane. Each
+    /// item carries its current restored/live state.
+    func operationSnapshot() -> [ClosedOperationSnapshot] {
+        var order: [UUID] = []
+        var byOp: [UUID: [ClosedItemHistoryRecord]] = [:]
+        for record in records.reversed() {
+            if byOp[record.operationId] == nil { order.append(record.operationId) }
+            byOp[record.operationId, default: []].append(record)
+        }
+        return order.compactMap { opId -> ClosedOperationSnapshot? in
+            guard let recs = byOp[opId], !recs.isEmpty else { return nil }
+            let items = recs.map { record -> ClosedItemHistoryMenuItem in
+                var item = Self.menuItem(for: record)
+                item.isRestored = isRecordRestored(record.id)
+                return item
+            }
+            let closedAt = recs.map(\.closedAt).max() ?? recs[0].closedAt
+            return ClosedOperationSnapshot(
+                id: opId,
+                label: Self.operationLabel(for: items),
+                closedAt: closedAt,
+                items: items
+            )
+        }
+    }
+
+    /// Whether the given record's restored target is currently live (the single
+    /// source of truth for "already restored").
+    func isRecordRestored(_ recordId: UUID) -> Bool {
+        guard let ref = restoredRefByRecordId[recordId], let isTargetLive else { return false }
+        return isTargetLive(ref)
+    }
+
+    /// Records that `recordId` was restored into the live item `ref`.
+    func markRestored(recordId: UUID, ref: ReopenedItemRef) {
+        restoredRefByRecordId[recordId] = ref
+        revision &+= 1
+    }
+
+    /// The live ref a record was restored into, if still tracked.
+    func restoredRef(for recordId: UUID) -> ReopenedItemRef? {
+        restoredRefByRecordId[recordId]
+    }
+
+    /// All records belonging to one operation, in close order (oldest first).
+    func recordsForOperation(_ operationId: UUID) -> [ClosedItemHistoryRecord] {
+        records.filter { $0.operationId == operationId }
+    }
+
+    /// The operationId of the most recently closed record, or nil if empty.
+    var mostRecentOperationId: UUID? {
+        records.last?.operationId
+    }
+
+    private static func operationLabel(for items: [ClosedItemHistoryMenuItem]) -> String {
+        guard items.count > 1 else { return items.first?.title ?? "" }
+        let kinds = Set(items.map(\.kind))
+        let format: String
+        if kinds == [.workspace] {
+            format = String(localized: "historyPane.group.workspaces", defaultValue: "%d workspaces")
+        } else if kinds == [.window] {
+            format = String(localized: "historyPane.group.windows", defaultValue: "%d windows")
+        } else if kinds.allSatisfy({ $0 != .workspace && $0 != .window }) {
+            format = String(localized: "historyPane.group.tabs", defaultValue: "%d tabs")
+        } else {
+            format = String(localized: "historyPane.group.items", defaultValue: "%d items")
+        }
+        return String.localizedStringWithFormat(format, items.count)
     }
 
     func remapPanelWorkspaceIds(
