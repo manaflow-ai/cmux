@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 /// Keep Workspace Open When Closing Last Surface, Focus Pane on
 /// First Click, File Drops, Open Files With, Open Supported Files in
 /// cmux, Terminal Config link, Open Markdown in cmux Viewer,
-/// iMessage Mode, Reorder on Notification, Dock Badge, Menu Bar
+/// Markdown Viewer typography, iMessage Mode, Reorder on Notification, Dock Badge, Menu Bar
 /// Only, Show in Menu Bar, Unread Pane Ring, Pane Flash, Desktop
 /// Notifications, Notification Sound, Notification Command, Send
 /// anonymous telemetry, Warn Before Quit, Warn Before Closing Tab /
@@ -35,6 +35,10 @@ public struct AppSection: View {
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
+    @State private var markdownFontSize: DefaultsValueModel<Int>
+    @State private var markdownFontFamily: DefaultsValueModel<String>
+    @State private var markdownMaxWidth: DefaultsValueModel<Int>
+    @State private var fileEditorWordWrap: DefaultsValueModel<Bool>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
     @State private var dockBadge: DefaultsValueModel<Bool>
@@ -75,6 +79,10 @@ public struct AppSection: View {
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
+        _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
+        _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
+        _markdownMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
+        _fileEditorWordWrap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.wordWrap))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
         _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
@@ -308,6 +316,82 @@ public struct AppSection: View {
                 Toggle("", isOn: Binding(get: { openMarkdown.current }, set: { openMarkdown.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Markdown Viewer Font Size
+            SettingsCardRow(
+                configurationReview: .json("markdown.fontSize"),
+                String(localized: "settings.app.markdownFontSize", defaultValue: "Markdown Viewer Font Size"),
+                subtitle: String(localized: "settings.app.markdownFontSize.subtitle", defaultValue: "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0."),
+                controlWidth: Self.columnWidth
+            ) {
+                Stepper(
+                    value: Binding(get: { markdownFontSize.current }, set: { markdownFontSize.set($0) }),
+                    in: 8...96
+                ) {
+                    Text(verbatim: "\(markdownFontSize.current)")
+                        .monospacedDigit()
+                        .frame(width: 28, alignment: .trailing)
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsMarkdownFontSizeStepper")
+                .accessibilityLabel(
+                    String(localized: "settings.app.markdownFontSize", defaultValue: "Markdown Viewer Font Size")
+                )
+            }
+            SettingsCardDivider()
+
+            // Markdown Viewer Max Width
+            SettingsCardRow(
+                configurationReview: .json("markdown.maxWidth"),
+                String(localized: "settings.app.markdownMaxWidth", defaultValue: "Markdown Viewer Max Width"),
+                subtitle: String(localized: "settings.app.markdownMaxWidth.subtitle", defaultValue: "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."),
+                controlWidth: Self.columnWidth
+            ) {
+                Stepper(
+                    value: Binding(get: { markdownMaxWidth.current }, set: { markdownMaxWidth.set($0) }),
+                    in: 320...2400,
+                    step: 20
+                ) {
+                    Text(verbatim: "\(markdownMaxWidth.current)")
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsMarkdownMaxWidthStepper")
+                .accessibilityLabel(
+                    String(localized: "settings.app.markdownMaxWidth", defaultValue: "Markdown Viewer Max Width")
+                )
+            }
+            SettingsCardDivider()
+
+            // Markdown Viewer Font Family
+            SettingsCardRow(
+                configurationReview: .json("markdown.fontFamily"),
+                String(localized: "settings.app.markdownFontFamily", defaultValue: "Markdown Viewer Font"),
+                subtitle: String(localized: "settings.app.markdownFontFamily.subtitle", defaultValue: "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.")
+            ) {
+                TextField(
+                    String(localized: "settings.app.markdownFontFamily.placeholder", defaultValue: "System"),
+                    text: Binding(get: { markdownFontFamily.current }, set: { markdownFontFamily.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+                .accessibilityIdentifier("SettingsMarkdownFontFamilyTextField")
+            }
+            SettingsCardDivider()
+
+            // File Editor Word Wrap
+            SettingsCardRow(
+                configurationReview: .json("fileEditor.wordWrap"),
+                String(localized: "settings.app.fileEditorWordWrap", defaultValue: "File Editor Word Wrap"),
+                subtitle: String(localized: "settings.app.fileEditorWordWrap.subtitle", defaultValue: "Wrap long lines at the editor's right edge instead of scrolling horizontally. Applies to the plain-text file editor.")
+            ) {
+                Toggle("", isOn: Binding(get: { fileEditorWordWrap.current }, set: { fileEditorWordWrap.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsFileEditorWordWrapToggle")
             }
             SettingsCardDivider()
 

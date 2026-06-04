@@ -8,7 +8,7 @@ This is a standalone macOS app that embeds a CMUX sidebar ExtensionKit app exten
 2. Select the app and extension targets.
 3. Replace the Manaflow signing team with your own team.
 4. Replace the app and extension bundle identifiers with your own reverse-DNS identifiers.
-5. Keep the extension point identifier as `com.manaflow.cmux.sidebar`.
+5. Keep the extension point identifier as `com.cmuxterm.app.cmux.sidebar`.
 6. Build and launch the containing app once.
 7. In CMUX, click the puzzle button next to the sidebar help button, open Sidebar Extensions, and enable the sample.
 8. In the same puzzle menu, choose the extension sidebar provider.
@@ -42,7 +42,7 @@ host helpers for actions:
 @main
 @MainActor
 final class SampleSidebarExtension: CmuxSidebarExtension {
-    static let manifest = CMUXExtensionManifest(...)
+    static let manifest = CmuxExtensionManifest(...)
     private let model = SidebarConnectionModel()
 
     required init() {}
@@ -59,32 +59,24 @@ final class SampleSidebarExtension: CmuxSidebarExtension {
 @Observable
 @MainActor
 final class SidebarConnectionModel {
-    private(set) var snapshot: CMUXSidebarSnapshot?
+    private(set) var snapshot: CmuxSidebarSnapshot?
     private var host: CmuxSidebarHost?
-    private var cmux: CmuxHost?
 
     func update(context: CmuxSidebarContext) {
         snapshot = context.snapshot
         host = context.host
-        cmux = context.cmux
     }
 
-    func selectWorkspace(_ id: UUID) {
-        Task { @MainActor in
-            _ = await host?.selectWorkspace(id)
-        }
+    func selectWorkspace(_ id: UUID) async {
+        try? await host?.selectWorkspace(id)
     }
 
-    func selectNextWorkspace() {
-        Task { @MainActor in
-            _ = await cmux?.selectNextWorkspace()
-        }
+    func selectNextWorkspace() async {
+        try? await host?.selectNextWorkspace()
     }
 
-    func createTerminalSurface(in workspaceID: UUID?) {
-        Task { @MainActor in
-            _ = await host?.createTerminalSurface(in: workspaceID)
-        }
+    func createTerminalSurface(in workspaceID: UUID?) async {
+        try? await host?.createTerminalSurface(in: workspaceID)
     }
 }
 ```
@@ -93,10 +85,7 @@ final class SidebarConnectionModel {
 authors do not define `configuration`, bind an extension point in Swift, or touch
 `NSXPCConnection`.
 
-`CmuxSidebarContext` exposes two typed host channels:
-
-- `context.cmux` for generic CMUX actions that are useful across extension types.
-- `context.host` for sidebar-specific actions that operate on sidebar snapshot data.
+`CmuxSidebarContext` exposes one typed host channel through `context.host`.
 
 The manifest is the permission request CMUX shows to users. Request only the scopes
 your sidebar actually needs.

@@ -871,6 +871,12 @@
           "descriptionKey": "schemaDescriptions.automation.suppressSubagentNotifications",
           "description": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
         },
+        "ampIntegration": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.automation.ampIntegration",
+          "description": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed."
+        },
         "cursorIntegration": {
           "type": "boolean",
           "default": true,
@@ -1011,6 +1017,50 @@
         }
       }
     },
+    "markdown": {
+      "title": "markdown",
+      "description": "Built-in markdown viewer settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fontSize": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 96,
+          "default": 15,
+          "description": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "descriptionKey": "schemaDescriptions.markdown.fontSize"
+        },
+        "fontFamily": {
+          "type": "string",
+          "default": "",
+          "description": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "descriptionKey": "schemaDescriptions.markdown.fontFamily"
+        },
+        "maxWidth": {
+          "type": "integer",
+          "minimum": 320,
+          "maximum": 2400,
+          "default": 980,
+          "description": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers.",
+          "descriptionKey": "schemaDescriptions.markdown.maxWidth"
+        }
+      }
+    },
+    "fileEditor": {
+      "title": "fileEditor",
+      "description": "Built-in plain-text file editor settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wordWrap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+          "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        }
+      }
+    },
     "shortcuts": {
       "title": "shortcuts",
       "description": "Keyboard shortcut settings from Settings > Keyboard Shortcuts.",
@@ -1092,6 +1142,9 @@
               "browserZoomIn",
               "browserZoomOut",
               "browserZoomReset",
+              "markdownZoomIn",
+              "markdownZoomOut",
+              "markdownZoomReset",
               "find",
               "findInDirectory",
               "findNext",
@@ -1100,6 +1153,7 @@
               "useSelectionForFind",
               "toggleBrowserDeveloperTools",
               "showBrowserJavaScriptConsole",
+              "toggleBrowserFocusMode",
               "toggleReactGrab",
               "diffViewerScrollDown",
               "diffViewerScrollUp",

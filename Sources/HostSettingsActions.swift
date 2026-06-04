@@ -70,7 +70,11 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openConfigInExternalEditor() {
-        NSWorkspace.shared.open(configFileURL)
+        // Honor the user's configured editor (`preferredEditorCommand`),
+        // falling back to the OS default. Opening the config file directly
+        // through `NSWorkspace.shared.open` would route to the default
+        // `.json` handler and ignore the cmux setting.
+        PreferredEditorSettings.open(configFileURL)
     }
 
     func sendFeedback() {
