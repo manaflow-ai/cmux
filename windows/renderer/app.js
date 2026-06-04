@@ -7343,6 +7343,16 @@ const corePaletteCommandIds = new Set([
   "browser.copySetup",
   "browser.pasteSetup",
   "browser.resetSetup",
+  "browser.copyTabs",
+  "browser.copyAllTabs",
+  "browser.pasteTabs",
+  "browser.newTab",
+  "browser.focusAddress",
+  "browser.reload",
+  "browser.openExternal",
+  "browser.copyUrl",
+  "browser.activeHome",
+  "browser.saveActiveProfile",
   "settings.pane",
   "settings.renamePane",
   "settings.copyPaneSetup",
@@ -7392,6 +7402,13 @@ function coreCommandPaletteSignature() {
   appendSignatureValue(parts, Boolean(panel && isPanelZoomed(panel, workspace)));
   appendSignatureValue(parts, activePaneLayoutPercent(workspace));
   appendSignatureValue(parts, settingsKeysSignature(browserSetupSettings));
+  const browserPanel = resolveBrowserPanel(panel);
+  const browserUrl = browserPanel ? browserPanelUrl(browserPanel) : "";
+  appendSignatureValue(parts, browserUrl);
+  appendSignatureValue(parts, Boolean(browserUrl && browserHomeKey(browserUrl) === browserHomeKey(state.settings.browserHomeUrl)));
+  appendSignatureValue(parts, savedSettingsProfilesFull());
+  appendSignatureValue(parts, state.browserTabSnapshots.size);
+  appendSignatureValue(parts, browserTabSnapshotCount());
   appendSignatureValue(parts, settingsKeysSignature(workspaceChromeSettings));
   return parts.join("");
 }
@@ -7581,6 +7598,132 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
           ? "Apply copied cmux browser setup."
           : "Copy browser home, launch mode, external profile, suspend setting, pane chrome, and pane zoom as JSON.",
       search: normalizeSettingsQuery(`browser setup ${isPaste ? "paste import" : isReset ? "reset default" : "copy export"} home launch external profile suspend inactive pane chrome tabs address controls full compact content zoom scale clipboard json ${setupDefault ? "active current " : ""}${summary.home} ${summary.launch} ${summary.profile} ${summary.inactivePanes} ${summary.chrome} ${summary.zoom}`)
+    };
+  }
+  if (["browser.copyTabs", "browser.copyAllTabs", "browser.pasteTabs", "browser.newTab", "browser.focusAddress", "browser.reload", "browser.openExternal", "browser.copyUrl", "browser.activeHome", "browser.saveActiveProfile"].includes(commandId)) {
+    const browserPanel = resolveBrowserPanel(panel);
+    const browserSession = browserPanel ? state.browserViews.get(browserPanel.id) : null;
+    const browserUrl = browserPanel ? browserPanelUrl(browserPanel) : "";
+    const browserHost = hostnameOf(browserUrl) || browserUrl || "No browser";
+    const browserTitle = browserPanel ? panelDisplayTitle(browserPanel, true) : "No active browser";
+    const browserMeta = browserPanel ? `${browserHost} / ${browserTitle}` : "No active browser";
+    const activePageHome = Boolean(browserUrl && browserHomeKey(browserUrl) === browserHomeKey(state.settings.browserHomeUrl));
+    const noBrowserTitle = "Focus a browser pane first.";
+    const browserSearch = normalizeSettingsQuery(`browser active pane page url web tabs address reload external home profile clipboard ${browserUrl} ${browserHost} ${browserTitle}`);
+    if (commandId === "browser.newTab") {
+      return {
+        meta: browserMeta,
+        shortcut: "Tab",
+        disabled: !browserPanel,
+        icon: "browserPlus",
+        title: browserPanel ? "Open a new tab in the active browser pane." : noBrowserTitle,
+        search: normalizeSettingsQuery(`${browserSearch} new tab add`)
+      };
+    }
+    if (commandId === "browser.focusAddress") {
+      const addressReady = Boolean(browserSession?.address);
+      return {
+        meta: browserMeta,
+        shortcut: "Focus",
+        disabled: !browserPanel || !addressReady,
+        icon: "browser",
+        title: !browserPanel ? noBrowserTitle : addressReady ? "Focus the active browser address field." : "Browser pane is not ready.",
+        search: normalizeSettingsQuery(`${browserSearch} focus address url location input`)
+      };
+    }
+    if (commandId === "browser.reload") {
+      return {
+        meta: browserMeta,
+        shortcut: "Reload",
+        disabled: !browserPanel || !browserSession,
+        icon: "browser",
+        title: !browserPanel ? noBrowserTitle : browserSession ? "Reload the active browser page." : "Browser pane is not ready.",
+        search: normalizeSettingsQuery(`${browserSearch} reload refresh page`)
+      };
+    }
+    if (commandId === "browser.openExternal") {
+      return {
+        meta: browserMeta,
+        shortcut: "Open",
+        disabled: !browserPanel,
+        icon: "browser",
+        title: browserPanel ? `Open ${browserHost} externally.` : noBrowserTitle,
+        search: normalizeSettingsQuery(`${browserSearch} open external system browser chrome edge brave profile`)
+      };
+    }
+    if (commandId === "browser.copyUrl") {
+      return {
+        meta: browserMeta,
+        shortcut: "Copy",
+        disabled: !browserPanel,
+        icon: "browser",
+        title: browserPanel ? "Copy the active browser URL." : noBrowserTitle,
+        search: normalizeSettingsQuery(`${browserSearch} copy url clipboard link`)
+      };
+    }
+    if (commandId === "browser.activeHome") {
+      return {
+        meta: activePageHome ? "Home active" : browserMeta,
+        shortcut: activePageHome ? "Home" : "Set home",
+        active: activePageHome,
+        disabled: !browserPanel || activePageHome,
+        icon: "browser",
+        title: !browserPanel
+          ? noBrowserTitle
+          : activePageHome
+            ? "Active browser page is already the home page."
+            : "Set the active browser page as the browser home page.",
+        search: normalizeSettingsQuery(`${browserSearch} use active page as home homepage ${activePageHome ? "active current " : ""}`)
+      };
+    }
+    if (commandId === "browser.saveActiveProfile") {
+      const profilesFull = savedSettingsProfilesFull();
+      return {
+        meta: browserPanel ? `${browserHost} / ${savedSettingsProfileCountLabel()}` : "No active browser",
+        shortcut: "Save",
+        disabled: !browserPanel || profilesFull,
+        icon: "profiles",
+        title: !browserPanel
+          ? noBrowserTitle
+          : profilesFull
+            ? settingsProfileLimitTitle()
+            : "Save the active browser page as a reusable Settings profile.",
+        search: normalizeSettingsQuery(`${browserSearch} save active page browser settings profile reusable ${profilesFull ? "limit full " : ""}${savedSettingsProfileCountLabel()}`)
+      };
+    }
+    if (commandId === "browser.copyTabs") {
+      const entry = browserPanel ? browserTabSessionEntryForPanel(browserPanel) : null;
+      return {
+        meta: entry ? `${browserTabSessionCountLabel(entry.snapshot)} / ${entry.activeHost}` : "No active browser",
+        shortcut: "Copy",
+        disabled: !entry,
+        icon: "browser",
+        title: entry ? "Copy the active browser tab session as JSON." : noBrowserTitle,
+        search: normalizeSettingsQuery(`${browserSearch} copy active tabs tab session clipboard json ${entry?.activeHost || ""}`)
+      };
+    }
+    if (commandId === "browser.copyAllTabs") {
+      const entries = browserTabSessionEntries();
+      return {
+        meta: entries.length ? browserTabSessionsMeta(entries) : "No browser tabs",
+        shortcut: "Copy",
+        disabled: entries.length === 0,
+        icon: "browser",
+        title: entries.length ? "Copy all browser tab sessions as JSON." : "Open a browser pane before copying tab sessions.",
+        search: normalizeSettingsQuery(`browser tabs sessions copy all clipboard json panes ${browserTabSessionsMeta(entries)}`)
+      };
+    }
+    return {
+      meta: browserPanel ? `Active browser / ${browserHost}` : workspaceTitle,
+      shortcut: "Paste",
+      disabled: !browserPanel && !hasWorkspace,
+      icon: "browser",
+      title: browserPanel
+        ? "Paste copied tabs into the active browser pane."
+        : hasWorkspace
+          ? "Paste copied browser tabs as new panes in the active workspace."
+          : "Open a workspace or focus a browser pane before restoring browser tabs.",
+      search: normalizeSettingsQuery(`${browserSearch} paste import restore browser tabs tab sessions clipboard json`)
     };
   }
   if (commandId === "terminal.splitRight" || commandId === "terminal.splitDown") {
