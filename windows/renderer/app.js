@@ -17594,14 +17594,7 @@ function refreshLayoutSettingsPreview() {
     if (!preset) continue;
     updateWorkspaceChromePresetButton(button, preset);
   }
-  const workspace = activeWorkspace();
-  const unavailable = !workspace || workspace.panels.length <= 1;
-  const activePresetIds = unavailable ? new Set() : activePaneLayoutPresetIds(workspace);
-  for (const button of elements.inspectorBody.querySelectorAll(".pane-layout-preset[data-preset-id]")) {
-    const preset = paneLayoutPresets.find((candidate) => candidate.id === button.dataset.presetId);
-    if (!preset) continue;
-    updatePaneLayoutPresetButton(button, preset, activePresetIds.has(preset.id), unavailable);
-  }
+  refreshPaneLayoutPresetGrid();
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
 
@@ -25263,15 +25256,16 @@ function paneLayoutPresetGrid() {
     const active = activePresetIds.has(preset.id);
     const savedBlueprint = unavailable ? null : paneLayoutPresetSavedBlueprint(preset, workspace);
     const card = document.createElement("div");
-    card.className = "pane-layout-preset-card";
-    card.dataset.settingsSearch = normalizeSettingsQuery(`split layout pane preset save copy blueprint ${active ? "active current " : ""}${savedBlueprint ? "saved " : ""}${preset.label} ${preset.body}`);
+    card.className = `pane-layout-preset-card${active ? " is-active" : ""}`;
+    card.dataset.paneLayoutPresetCard = preset.id;
+    card.dataset.settingsSearch = paneLayoutPresetSearchText(preset, active, savedBlueprint, unavailable, workspace);
     const button = document.createElement("button");
     button.className = `pane-layout-preset${active ? " is-active" : ""}`;
     button.type = "button";
     button.disabled = unavailable || active;
     button.title = paneLayoutPresetTitle(preset, active, unavailable);
     button.dataset.presetId = preset.id;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`split layout pane preset save copy blueprint ${active ? "active current " : ""}${savedBlueprint ? "saved " : ""}${preset.label} ${preset.body}`);
+    button.dataset.settingsSearch = paneLayoutPresetApplySearchText(preset, active, unavailable, workspace);
     button.setAttribute("aria-pressed", active ? "true" : "false");
     button.innerHTML = `
       <span class="pane-layout-preset-icon" aria-hidden="true">
@@ -25297,11 +25291,13 @@ function paneLayoutPresetGrid() {
       savedBlueprint ? "Saved" : "Save",
       () => savePaneLayoutPresetBlueprint(preset.id),
       savedBlueprint ? "primary" : "",
-      `save split layout pane preset blueprint reusable ${savedBlueprint ? "saved active current " : ""}${preset.label}`
+      paneLayoutPresetBlueprintSaveSearchText(preset, savedBlueprint, unavailable, workspace)
     );
+    save.dataset.paneLayoutPresetSave = preset.id;
     save.disabled = unavailable || Boolean(savedBlueprint) || workspaceBlueprintsFull();
     save.title = paneLayoutPresetBlueprintSaveTitle(preset, savedBlueprint, unavailable);
-    const copy = settingsActionButton("Copy", () => copyPaneLayoutPresetBlueprint(preset.id), "", `copy split layout pane preset blueprint clipboard json ${preset.label}`);
+    const copy = settingsActionButton("Copy", () => copyPaneLayoutPresetBlueprint(preset.id), "", paneLayoutPresetBlueprintCopySearchText(preset, unavailable, workspace));
+    copy.dataset.paneLayoutPresetCopy = preset.id;
     copy.disabled = unavailable;
     copy.title = paneLayoutPresetBlueprintCopyTitle(preset, unavailable);
     actions.append(save, copy);
@@ -25315,6 +25311,57 @@ function paneLayoutPresetTitle(preset, active, unavailable) {
   if (unavailable) return "Open another pane to use layout presets.";
   if (active) return `${preset.label} layout already active.`;
   return `Apply ${preset.label} layout.`;
+}
+
+function paneLayoutPresetBaseSearchText(preset, workspace = activeWorkspace()) {
+  const paneCount = workspace?.panels?.length || 0;
+  return [
+    "split layout pane preset workspace blueprint side by side stacked rows columns active wide tall equal grid focus resize simple cleanup",
+    preset?.label || "",
+    preset?.body || "",
+    preset?.mode || "",
+    preset?.direction || "",
+    activePaneLayoutPresetLabel(workspace),
+    `${paneCount} panes`,
+    paneLayoutDirectionLabel(workspace)
+  ].join(" ");
+}
+
+function paneLayoutPresetApplySearchText(preset, active = false, unavailable = false, workspace = activeWorkspace()) {
+  return normalizeSettingsQuery([
+    paneLayoutPresetBaseSearchText(preset, workspace),
+    "apply use",
+    unavailable ? "unavailable needs another pane" : active ? "active current unavailable already applied" : "ready available"
+  ].join(" "));
+}
+
+function paneLayoutPresetBlueprintSaveSearchText(preset, savedBlueprint = null, unavailable = false, workspace = activeWorkspace()) {
+  return normalizeSettingsQuery([
+    paneLayoutPresetBaseSearchText(preset, workspace),
+    "save blueprint reusable workspace",
+    unavailable ? "unavailable needs another pane" : "",
+    savedBlueprint ? `saved unavailable ${savedBlueprint.label}` : workspaceBlueprintsFull() ? "limit full unavailable" : "ready",
+    `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} blueprints`
+  ].join(" "));
+}
+
+function paneLayoutPresetBlueprintCopySearchText(preset, unavailable = false, workspace = activeWorkspace()) {
+  return normalizeSettingsQuery([
+    paneLayoutPresetBaseSearchText(preset, workspace),
+    "copy blueprint clipboard json workspace",
+    unavailable ? "unavailable needs another pane" : "ready"
+  ].join(" "));
+}
+
+function paneLayoutPresetSearchText(preset, active = false, savedBlueprint = null, unavailable = false, workspace = activeWorkspace()) {
+  return normalizeSettingsQuery([
+    paneLayoutPresetBaseSearchText(preset, workspace),
+    paneLayoutPresetApplySearchText(preset, active, unavailable, workspace),
+    paneLayoutPresetBlueprintSaveSearchText(preset, savedBlueprint, unavailable, workspace),
+    paneLayoutPresetBlueprintCopySearchText(preset, unavailable, workspace),
+    active ? "active current" : "",
+    savedBlueprint ? "saved" : ""
+  ].join(" "));
 }
 
 function paneLayoutPresetById(presetId) {
@@ -25440,19 +25487,70 @@ function copyPaneLayoutPresetBlueprint(presetId) {
   return copyWorkspaceBlueprintPayload(blueprint, `${preset.label} layout blueprint copied.`);
 }
 
-function updatePaneLayoutPresetButton(button, preset, active, unavailable) {
-  const savedBlueprint = unavailable ? null : paneLayoutPresetSavedBlueprint(preset);
-  button.classList.toggle("is-active", active);
-  setDisabledIfChanged(button, unavailable || active);
-  setTitleIfChanged(button, paneLayoutPresetTitle(preset, active, unavailable));
-  setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
-  const status = button.querySelector(".pane-layout-preset-status");
-  if (status) setTextIfChanged(status, active ? "Active" : "");
-  const search = normalizeSettingsQuery(`split layout pane preset save copy blueprint ${active ? "active current " : ""}${savedBlueprint ? "saved " : ""}${preset.label} ${preset.body}`);
-  if (button.dataset.settingsSearch !== search) {
-    button.dataset.settingsSearch = search;
-    updateSettingsSearchIndexItemSearch(button, search);
+function updatePaneLayoutPresetCard(card, preset, workspace = activeWorkspace()) {
+  if (!card || !preset) return false;
+  const unavailable = !workspace || workspace.panels.length <= 1;
+  const active = !unavailable && activePaneLayoutPresetIds(workspace).has(preset.id);
+  const savedBlueprint = unavailable ? null : paneLayoutPresetSavedBlueprint(preset, workspace);
+  let changed = toggleClassIfChanged(card, "is-active", active);
+  const cardSearch = paneLayoutPresetSearchText(preset, active, savedBlueprint, unavailable, workspace);
+  if (card.dataset.settingsSearch !== cardSearch) {
+    card.dataset.settingsSearch = cardSearch;
+    updateSettingsSearchIndexItemSearch(card, cardSearch);
+    changed = true;
   }
+  const button = card.querySelector(".pane-layout-preset[data-preset-id]");
+  if (button) {
+    changed = toggleClassIfChanged(button, "is-active", active) || changed;
+    changed = setDisabledIfChanged(button, unavailable || active) || changed;
+    changed = setTitleIfChanged(button, paneLayoutPresetTitle(preset, active, unavailable)) || changed;
+    changed = setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false") || changed;
+    const status = button.querySelector(".pane-layout-preset-status");
+    if (status) changed = setTextIfChanged(status, active ? "Active" : "") || changed;
+    const buttonSearch = paneLayoutPresetApplySearchText(preset, active, unavailable, workspace);
+    if (button.dataset.settingsSearch !== buttonSearch) {
+      button.dataset.settingsSearch = buttonSearch;
+      updateSettingsSearchIndexItemSearch(button, buttonSearch);
+      changed = true;
+    }
+  }
+  const save = card.querySelector("[data-pane-layout-preset-save]");
+  if (save) {
+    changed = setTextIfChanged(save, savedBlueprint ? "Saved" : "Save") || changed;
+    changed = setDisabledIfChanged(save, unavailable || Boolean(savedBlueprint) || workspaceBlueprintsFull()) || changed;
+    changed = toggleClassIfChanged(save, "primary", Boolean(savedBlueprint)) || changed;
+    changed = setTitleIfChanged(save, paneLayoutPresetBlueprintSaveTitle(preset, savedBlueprint, unavailable)) || changed;
+    const saveSearch = paneLayoutPresetBlueprintSaveSearchText(preset, savedBlueprint, unavailable, workspace);
+    if (save.dataset.settingsSearch !== saveSearch) {
+      save.dataset.settingsSearch = saveSearch;
+      updateSettingsSearchIndexItemSearch(save, saveSearch);
+      changed = true;
+    }
+  }
+  const copy = card.querySelector("[data-pane-layout-preset-copy]");
+  if (copy) {
+    changed = setDisabledIfChanged(copy, unavailable) || changed;
+    changed = setTitleIfChanged(copy, paneLayoutPresetBlueprintCopyTitle(preset, unavailable)) || changed;
+    const copySearch = paneLayoutPresetBlueprintCopySearchText(preset, unavailable, workspace);
+    if (copy.dataset.settingsSearch !== copySearch) {
+      copy.dataset.settingsSearch = copySearch;
+      updateSettingsSearchIndexItemSearch(copy, copySearch);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function refreshPaneLayoutPresetGrid(root = elements.inspectorBody) {
+  if (!root?.querySelectorAll) return false;
+  const workspace = activeWorkspace();
+  let changed = false;
+  for (const card of root.querySelectorAll("[data-pane-layout-preset-card]")) {
+    const preset = paneLayoutPresetById(card.dataset.paneLayoutPresetCard);
+    if (!preset) continue;
+    changed = updatePaneLayoutPresetCard(card, preset, workspace) || changed;
+  }
+  return changed;
 }
 
 function paneLayoutPresetTreeForWorkspace(preset, workspace, activePanelId, currentTree = null) {
@@ -31775,7 +31873,7 @@ function paletteEntries() {
       shortcut: savedBlueprint ? "Saved" : "Save",
       disabled: layoutUnavailable || Boolean(savedBlueprint) || layoutPresetBlueprintsFull,
       title: paneLayoutPresetBlueprintSaveTitle(preset, savedBlueprint, layoutUnavailable),
-      search: normalizeSettingsQuery(`split layout pane preset save blueprint reusable ${savedBlueprint ? "saved active current " : ""}${preset.label} ${preset.body} ${summary}`),
+      search: paneLayoutPresetBlueprintSaveSearchText(preset, savedBlueprint, layoutUnavailable, paletteWorkspace),
       run: () => savePaneLayoutPresetBlueprint(preset.id)
     });
     entries.push({
@@ -31785,7 +31883,7 @@ function paletteEntries() {
       shortcut: "Copy",
       disabled: layoutUnavailable,
       title: paneLayoutPresetBlueprintCopyTitle(preset, layoutUnavailable),
-      search: normalizeSettingsQuery(`split layout pane preset copy blueprint clipboard json ${preset.label} ${preset.body} ${summary}`),
+      search: paneLayoutPresetBlueprintCopySearchText(preset, layoutUnavailable, paletteWorkspace),
       run: () => copyPaneLayoutPresetBlueprint(preset.id)
     });
   }
