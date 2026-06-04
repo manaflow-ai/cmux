@@ -12,6 +12,7 @@ test("code view CSS leaves Pierre diff body surfaces transparent", () => {
   expect(css).toContain("--diffs-bg-addition-override: color-mix");
   expect(css).toContain("--diffs-bg-deletion-override: color-mix");
   expect(css).toContain("[data-diffs-header=default] {");
+  expect(css).toContain("background-color: var(--diffs-bg-separator)");
   expect(css).toContain("border-block: 1px solid var(--cmux-diff-border)");
   expect(css).toContain("[data-separator='line-info'] {");
   expect(css).toContain("[data-separator='line-info'] [data-separator-wrapper]");
