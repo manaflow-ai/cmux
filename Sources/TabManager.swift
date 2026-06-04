@@ -11378,8 +11378,9 @@ extension TabManager {
         // Session restore replaces the bootstrap workspace objects with freshly
         // restored ones. Tear the old graph down after the atomic swap so late
         // panel/socket callbacks cannot keep mutating hidden pre-restore state.
+        let cleanupAuthorizedPanelIds = Set(blockPolicyEphemeralWorktreePanelIds(in: workspace))
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
-        workspace.teardownAllPanels()
+        workspace.teardownAllPanels(ephemeralWorktreeCleanupAuthorizedPanelIds: cleanupAuthorizedPanelIds)
         workspace.teardownRemoteConnection()
         workspace.owningTabManager = nil
     }
