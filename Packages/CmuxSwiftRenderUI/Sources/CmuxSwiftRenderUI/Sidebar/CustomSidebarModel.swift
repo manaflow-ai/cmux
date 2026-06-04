@@ -24,6 +24,7 @@ final class CustomSidebarModel {
     let fileURL: URL
 
     private var watchTask: Task<Void, Never>?
+    private var reloadTask: Task<Void, Never>?
     private var watcher: FileWatcher?
 
     private let interpreter = SwiftViewInterpreter()
@@ -68,6 +69,13 @@ final class CustomSidebarModel {
         watchTask = Task { [weak self] in
             for await _ in watcher.events {
                 guard let self else { return }
+                self.reload(preserveCurrentOnFailure: true)
+            }
+        }
+        reloadTask = Task { [weak self] in
+            for await notification in NotificationCenter.default.notifications(named: .customSidebarReloadRequested) {
+                guard let self else { return }
+                guard self.matchesReloadRequest(notification) else { continue }
                 self.reload()
             }
         }
@@ -76,6 +84,8 @@ final class CustomSidebarModel {
     func stop() {
         watchTask?.cancel()
         watchTask = nil
+        reloadTask?.cancel()
+        reloadTask = nil
         if let watcher {
             self.watcher = nil
             Task { await watcher.stop() }
@@ -83,16 +93,18 @@ final class CustomSidebarModel {
     }
 
     /// Re-reads the file: stores `.swift` source verbatim, decodes `.json`.
-    func reload() {
+    func reload(preserveCurrentOnFailure: Bool = false) {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            state = .missing
+            if !preserveCurrentOnFailure { state = .missing }
             return
         }
         if fileURL.pathExtension.lowercased() == "swift" {
             do {
                 state = .swiftSource(try String(contentsOf: fileURL, encoding: .utf8))
             } catch {
-                state = .failed(Self.describe(error))
+                if !preserveCurrentOnFailure {
+                    state = .failed(CustomSidebarValidation.describe(error))
+                }
             }
             return
         }
@@ -101,30 +113,17 @@ final class CustomSidebarModel {
             let document = try JSONDecoder().decode(DSLDocument.self, from: data)
             state = .json(document)
         } catch {
-            state = .failed(Self.describe(error))
-        }
-    }
-
-    private static func describe(_ error: Error) -> String {
-        if let decoding = error as? DecodingError {
-            switch decoding {
-            case let .keyNotFound(key, ctx):
-                return "Missing key '\(key.stringValue)' at \(path(ctx))"
-            case let .typeMismatch(_, ctx):
-                return "Type mismatch at \(path(ctx)): \(ctx.debugDescription)"
-            case let .valueNotFound(_, ctx):
-                return "Missing value at \(path(ctx))"
-            case let .dataCorrupted(ctx):
-                return "Invalid JSON at \(path(ctx)): \(ctx.debugDescription)"
-            @unknown default:
-                return decoding.localizedDescription
+            if !preserveCurrentOnFailure {
+                state = .failed(CustomSidebarValidation.describe(error))
             }
         }
-        return (error as NSError).localizedDescription
     }
 
-    private static func path(_ ctx: DecodingError.Context) -> String {
-        let parts = ctx.codingPath.map(\.stringValue)
-        return parts.isEmpty ? "root" : parts.joined(separator: " › ")
+    private func matchesReloadRequest(_ notification: Notification) -> Bool {
+        guard let names = notification.userInfo?["names"] as? [String], !names.isEmpty else {
+            return true
+        }
+        let name = fileURL.deletingPathExtension().lastPathComponent
+        return names.contains(name)
     }
 }
