@@ -16177,7 +16177,8 @@ function appearanceWorkspaceSettingsSignature(workspace = activeWorkspace()) {
   return parts.join("");
 }
 
-function quickSettingsSignature() {
+function quickSettingsSignature(options = {}) {
+  const includePerformanceMetrics = options.includePerformanceMetrics !== false;
   const panels = allPanels();
   const parts = [];
   appendSignatureValue(parts, quickWorkspaceSettingsSignature());
@@ -16208,12 +16209,14 @@ function quickSettingsSignature() {
   appendSignatureValue(parts, state.performanceGuardTriggered);
   appendSignatureValue(parts, state.performanceGuardReason || "");
   appendSignatureValue(parts, hasPerformanceStats());
-  appendSignatureValue(parts, state.renderStats.lastMs || 0);
-  appendSignatureValue(parts, state.renderStats.avgMs || 0);
-  appendSignatureValue(parts, state.renderStats.slowCount || 0);
-  appendSignatureValue(parts, state.terminalOutputStats.currentQueued || 0);
-  appendSignatureValue(parts, state.paneCreateStats.lastMs || 0);
-  appendSignatureValue(parts, state.terminalConnectStats.lastMs || 0);
+  if (includePerformanceMetrics) {
+    appendSignatureValue(parts, state.renderStats.lastMs || 0);
+    appendSignatureValue(parts, state.renderStats.avgMs || 0);
+    appendSignatureValue(parts, state.renderStats.slowCount || 0);
+    appendSignatureValue(parts, state.terminalOutputStats.currentQueued || 0);
+    appendSignatureValue(parts, state.paneCreateStats.lastMs || 0);
+    appendSignatureValue(parts, state.terminalConnectStats.lastMs || 0);
+  }
   return parts.join("");
 }
 
@@ -33555,7 +33558,7 @@ function paletteEntriesSignature() {
   appendSignatureValue(parts, state.inspectorMode || "");
   appendSignatureValue(parts, state.settingsCategory || "");
   appendSignatureValue(parts, settingsKeysSignature(profileSettingsSettingKeys));
-  appendSignatureValue(parts, quickSettingsSignature());
+  appendSignatureValue(parts, quickSettingsSignature({ includePerformanceMetrics: false }));
   appendSignatureValue(parts, backgroundCommandPaletteSignature());
   appendSignatureValue(parts, customizationCommandPaletteSignature());
   appendSignatureValue(parts, coreCommandPaletteSignature());
