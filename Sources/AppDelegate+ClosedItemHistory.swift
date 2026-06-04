@@ -270,7 +270,11 @@ extension AppDelegate {
         }
         let redoOperationId = UUID()
         var closedCount = 0
-        for (_, ref) in liveRecords where closeReopenedRef(ref, operationId: redoOperationId, force: force) {
+        for (_, ref) in liveRecords {
+            guard closeReopenedRef(ref, operationId: redoOperationId, force: force) else {
+                ClosedItemHistoryStore.shared.setLastRestoredOperation(opId)
+                return false
+            }
             closedCount += 1
         }
         let closedAll = closedCount == liveRecords.count

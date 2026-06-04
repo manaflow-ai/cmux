@@ -3966,6 +3966,48 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testPrintableOptionOnlyTextBypassesAppShortcutRouting() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        withTemporaryShortcut(
+            action: .showNotifications,
+            shortcut: StoredShortcut(key: "e", command: false, shift: false, option: true, control: false)
+        ) {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "é",
+                charactersIgnoringModifiers: "e",
+                isARepeat: false,
+                keyCode: 14
+            ) else {
+                XCTFail("Failed to construct Option+E text event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
     func testCmdUnshiftedSymbolDoesNotMatchDigitShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

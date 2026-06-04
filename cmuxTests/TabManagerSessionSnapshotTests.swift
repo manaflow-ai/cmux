@@ -821,6 +821,79 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(ClosedItemHistoryStore.shared.lastRestoredOperationId)
     }
 
+    func testGroupedRedoStopsAfterPanelCloseCancellation() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer {
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+        workspace.setPanelCustomTitle(panelId: firstPanelId, title: "Cancel First")
+        workspace.setPanelCustomTitle(panelId: secondPanelId, title: "Keep Second")
+        try XCTUnwrap(workspace.terminalPanel(for: firstPanelId))
+            .surface
+            .setNeedsConfirmCloseOverrideForTesting(true)
+
+        let snapshots = workspace.sessionSnapshot(includeScrollback: false).panels
+        let firstSnapshot = try XCTUnwrap(snapshots.first { $0.id == firstPanelId })
+        let secondSnapshot = try XCTUnwrap(snapshots.first { $0.id == secondPanelId })
+        let operationId = UUID()
+        let firstRecord = ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 1),
+            operationId: operationId,
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspace.id,
+                paneId: pane.id,
+                tabIndex: 0,
+                snapshot: firstSnapshot
+            ))
+        )
+        let secondRecord = ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 2),
+            operationId: operationId,
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspace.id,
+                paneId: pane.id,
+                tabIndex: 1,
+                snapshot: secondSnapshot
+            ))
+        )
+        ClosedItemHistoryStore.shared.push(firstRecord)
+        ClosedItemHistoryStore.shared.push(secondRecord)
+        ClosedItemHistoryStore.shared.markRestored(
+            recordId: firstRecord.id,
+            ref: .panel(workspaceId: workspace.id, panelId: firstPanelId)
+        )
+        ClosedItemHistoryStore.shared.markRestored(
+            recordId: secondRecord.id,
+            ref: .panel(workspaceId: workspace.id, panelId: secondPanelId)
+        )
+        ClosedItemHistoryStore.shared.setLastRestoredOperation(operationId)
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        XCTAssertFalse(appDelegate.redoLastDestructiveAction(preferredTabManager: manager))
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertNotNil(workspace.panels[firstPanelId])
+        XCTAssertNotNil(workspace.panels[secondPanelId])
+        XCTAssertEqual(ClosedItemHistoryStore.shared.lastRestoredOperationId, operationId)
+    }
+
     func testRedoRestoredWindowCancelKeepsRedoState() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()

@@ -12404,6 +12404,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        if shouldBypassPrintableOptionTextShortcutRouting(event: event, normalizedFlags: normalizedFlags) {
+            return false
+        }
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
         let isPlainEscape = normalizedFlags.isEmpty && event.keyCode == 53
         if !isPlainEscape {
@@ -13490,6 +13493,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return false
+    }
+
+    private func shouldBypassPrintableOptionTextShortcutRouting(
+        event: NSEvent,
+        normalizedFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard normalizedFlags.contains(.option),
+              !normalizedFlags.contains(.command),
+              !normalizedFlags.contains(.control),
+              let characters = event.characters,
+              !characters.isEmpty,
+              characters.rangeOfCharacter(from: .newlines) == nil,
+              characters.rangeOfCharacter(from: CharacterSet.controlCharacters.inverted) != nil else {
+            return false
+        }
+        return true
     }
 
     func shouldSuppressSplitShortcutForTransientTerminalFocusState(
