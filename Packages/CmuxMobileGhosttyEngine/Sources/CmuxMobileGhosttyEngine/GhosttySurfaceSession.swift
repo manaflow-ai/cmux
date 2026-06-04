@@ -29,6 +29,14 @@ public import Foundation
 /// `GhosttyEngineService.makeSurfaceSession(...)`, end with ``shutdown()``,
 /// which drains queued commands, frees the surface (the pre-actor
 /// `GhosttySurfaceDisposer` semantics), and finishes the event stream.
+///
+/// ```swift
+/// let creation = engine.makeSurfaceSession(hostView: view, fontSize: 12, scale: 3)!
+/// creation.session.submit(.output(ptyBytes))   // ordered, off-main
+/// creation.session.submit(.render)
+/// for await event in creation.events { ... }   // one main-actor consumer
+/// creation.session.shutdown()                  // drain, free, finish
+/// ```
 public actor GhosttySurfaceSession {
     /// One unit of ordered surface work.
     public enum Command: Sendable {
@@ -47,6 +55,11 @@ public actor GhosttySurfaceSession {
         /// Run a geometry pass and emit
         /// ``GhosttySurfaceHostEvent/geometryMeasured(_:)``.
         case geometry(GhosttySurfaceGeometryRequest)
+        /// Complete a libghostty clipboard-read request with `text`.
+        /// `stateBits` is the opaque request-state pointer's bit-pattern
+        /// (libghostty owns its lifetime). Routed as an ordered command so it
+        /// can never dereference the surface after ``shutdown()`` freed it.
+        case completeClipboardRequest(text: String, stateBits: Int)
     }
 
     // Dedicated serial executor; see the type doc. carve-out justification:
@@ -174,6 +187,8 @@ public actor GhosttySurfaceSession {
                 events.yield(.renderCompleted)
             case .geometry(let request):
                 events.yield(.geometryMeasured(measureGeometry(request)))
+            case .completeClipboardRequest(let text, let stateBits):
+                backend.completeClipboardRequest(text: text, stateBits: stateBits)
             }
         }
         backend.free()

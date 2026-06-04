@@ -281,6 +281,10 @@ private struct LatencyProbeRepresentable: UIViewRepresentable {
         private func tearDownCadenceLink() {
             cadenceLink?.invalidate()
             cadenceLink = nil
+            // A probe cancelled mid-cadence must not leak the suspended
+            // continuation (the run task would hang forever).
+            cadenceCompletion?.resume()
+            cadenceCompletion = nil
         }
 
         // MARK: - Reporting

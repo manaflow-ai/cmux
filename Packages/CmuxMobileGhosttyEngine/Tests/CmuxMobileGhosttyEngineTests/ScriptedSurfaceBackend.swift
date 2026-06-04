@@ -4,8 +4,9 @@ import Foundation
 /// Records every backend call in order so tests can assert the session's
 /// FIFO + dispose-last guarantees without linking libghostty.
 ///
-/// Calls arrive on the session's serial executor while assertions run on the
-/// test thread, so the record is lock-guarded (fine in test scaffolding).
+/// `@unchecked Sendable` justification: calls arrive on the session's serial
+/// executor while assertions run on the test thread; every mutable property
+/// is guarded by `lock` (test scaffolding, where locks are sanctioned).
 final class ScriptedSurfaceBackend: GhosttySurfaceControlling, @unchecked Sendable {
     enum Call: Equatable {
         case processOutput(String)
@@ -17,6 +18,7 @@ final class ScriptedSurfaceBackend: GhosttySurfaceControlling, @unchecked Sendab
         case setContentScale(Double)
         case measuredSize
         case readText(GhosttySurfaceTextScope)
+        case completeClipboardRequest(String)
         case free
     }
 
@@ -89,6 +91,10 @@ final class ScriptedSurfaceBackend: GhosttySurfaceControlling, @unchecked Sendab
 
     func imePoint() -> GhosttySurfaceIMEPoint {
         GhosttySurfaceIMEPoint(x: 0, y: 0, width: 0, height: 0)
+    }
+
+    func completeClipboardRequest(text: String, stateBits: Int) {
+        record(.completeClipboardRequest(text))
     }
 
     func free() { record(.free) }

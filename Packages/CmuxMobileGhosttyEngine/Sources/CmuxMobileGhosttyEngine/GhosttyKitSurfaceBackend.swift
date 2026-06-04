@@ -4,12 +4,16 @@ import Foundation
 
 /// The production ``GhosttySurfaceControlling`` over one `ghostty_surface_t`.
 ///
+/// A reference type on purpose: it owns the surface handle and the retained
+/// callback bridge, so copyable-value semantics could duplicate ownership and
+/// double-free.
+///
 /// `@unchecked Sendable` justification: `surface` is an opaque C handle whose
 /// blocking operations are only ever invoked on the owning session's dedicated
 /// serial executor (plus the three documented cheap main-thread calls, which
 /// libghostty itself synchronizes); the handle is freed exactly once by the
 /// session after its command stream drains.
-struct GhosttyKitSurfaceBackend: GhosttySurfaceControlling, @unchecked Sendable {
+final class GhosttyKitSurfaceBackend: GhosttySurfaceControlling, @unchecked Sendable {
     let surface: ghostty_surface_t
     /// The retained C-callback bridge released together with the surface so
     /// in-flight `io_write` callbacks never dangle (the pre-actor
@@ -110,6 +114,13 @@ struct GhosttyKitSurfaceBackend: GhosttySurfaceControlling, @unchecked Sendable 
         var height: Double = 0
         ghostty_surface_ime_point(surface, &x, &y, &width, &height)
         return GhosttySurfaceIMEPoint(x: x, y: y, width: width, height: height)
+    }
+
+    func completeClipboardRequest(text: String, stateBits: Int) {
+        let statePointer = stateBits == 0 ? nil : UnsafeMutableRawPointer(bitPattern: stateBits)
+        text.withCString { pointer in
+            ghostty_surface_complete_clipboard_request(surface, pointer, statePointer, false)
+        }
     }
 
     func free() {

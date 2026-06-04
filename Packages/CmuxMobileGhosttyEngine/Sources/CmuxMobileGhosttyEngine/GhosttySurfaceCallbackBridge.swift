@@ -24,6 +24,16 @@ final class GhosttySurfaceCallbackBridge: Sendable {
     /// single write.
     nonisolated(unsafe) private(set) var surfaceIdentity: UInt = 0
 
+    /// The owning session, used to submit clipboard completions as ordered
+    /// commands so they serialize before the surface is freed (a direct
+    /// pointer call from a deferred main-actor task could race `free`).
+    ///
+    /// `nonisolated(unsafe)` justification: written exactly once on the main
+    /// thread immediately after the session is constructed and before any
+    /// callback can need it; weak so the bridge never extends the session's
+    /// lifetime.
+    nonisolated(unsafe) private(set) weak var session: GhosttySurfaceSession?
+
     init(
         events: AsyncStream<GhosttySurfaceHostEvent>.Continuation,
         clipboard: GhosttyEngineClipboard
@@ -35,6 +45,11 @@ final class GhosttySurfaceCallbackBridge: Sendable {
     /// Stamps the owning surface's identity (see `surfaceIdentity`).
     func stampSurfaceIdentity(_ identity: UInt) {
         surfaceIdentity = identity
+    }
+
+    /// Stamps the owning session (see `session`).
+    func stampSession(_ session: GhosttySurfaceSession) {
+        self.session = session
     }
 
     /// Forwards bytes libghostty wrote toward the PTY.

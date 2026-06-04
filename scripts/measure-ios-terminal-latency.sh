@@ -53,6 +53,10 @@ if [[ -z "$LABEL" ]]; then
   echo "error: --label is required (e.g. --label baseline)" >&2
   exit 2
 fi
+if [[ ! "$LABEL" =~ ^[A-Za-z0-9._-]+$ || "$LABEL" == *..* ]]; then
+  echo "error: --label must match [A-Za-z0-9._-]+ (it names the report file)" >&2
+  exit 2
+fi
 
 DERIVED_DATA="/tmp/cmux-ios-latency-probe"
 APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/cmux.app"

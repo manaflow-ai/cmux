@@ -41,6 +41,9 @@ public protocol GhosttySurfaceControlling: Sendable {
     /// Reads the IME caret point (used for the cursor overlay). Cheap read;
     /// safe from the main thread (matches the pre-actor behavior).
     func imePoint() -> GhosttySurfaceIMEPoint
+    /// Completes a libghostty clipboard-read request with `text`; `stateBits`
+    /// is the opaque request-state pointer's bit-pattern.
+    func completeClipboardRequest(text: String, stateBits: Int)
     /// Frees the surface. Called exactly once, after all queued work drained.
     func free()
 }

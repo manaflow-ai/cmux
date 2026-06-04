@@ -45,7 +45,9 @@ struct MobileTerminalLatencyReport: Codable, Sendable {
             maxMs = sorted[sorted.count - 1]
         }
 
-        /// Nearest-rank percentile over an ascending-sorted, non-empty array.
+        /// Percentile by rounded linear index over an ascending-sorted,
+        /// non-empty array (`round((n-1)·q)`). Kept stable across probe runs
+        /// so reports remain comparable; do not switch methods mid-series.
         private static func percentile(_ ascending: [Double], _ q: Double) -> Double {
             let index = Int((Double(ascending.count - 1) * q).rounded())
             return ascending[min(max(index, 0), ascending.count - 1)]

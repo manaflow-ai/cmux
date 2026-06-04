@@ -75,7 +75,9 @@ public final class GhosttyEngineService {
         self.clipboard = clipboard
         try Self.initializeBackendIfNeeded()
 
-        let config = ghostty_config_new()
+        guard let config = ghostty_config_new() else {
+            throw GhosttyEngineError.appCreationFailed
+        }
         Self.loadConfig(config)
         ghostty_config_finalize(config)
 
@@ -176,6 +178,7 @@ public final class GhosttyEngineService {
         bridge.stampSurfaceIdentity(identity)
         let backend = GhosttyKitSurfaceBackend(surface: surface, bridge: bridge)
         let session = GhosttySurfaceSession(backend: backend, events: continuation)
+        bridge.stampSession(session)
         registry.register(identity: identity, session: session, events: continuation)
         return SurfaceCreation(session: session, events: events, identity: identity)
     }
@@ -202,6 +205,10 @@ public final class GhosttyEngineService {
 
     // MARK: - Backend bootstrap (ported verbatim from GhosttyRuntime)
 
+    // Explicitly @MainActor (not just inferred from the enclosing class) so
+    // the once-per-process `backendInitialized` guard keeps its isolation even
+    // if a future change marks parts of this type nonisolated.
+    @MainActor
     private static func initializeBackendIfNeeded() throws {
         guard !backendInitialized else { return }
         let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
@@ -383,24 +390,20 @@ public final class GhosttyEngineService {
         location: ghostty_clipboard_e,
         state: UnsafeMutableRawPointer?
     ) -> Bool {
-        // The libghostty userdata + state pointers are opaque tokens (no
-        // Swift Sendable conformance). Cross the actor boundary as Int
-        // bit-patterns and rebuild the pointers on the main actor side; the
-        // pointers outlive this scope because libghostty owns their lifetime.
-        let userdataBits: Int = userdata.map { Int(bitPattern: $0) } ?? 0
+        // Resolve the bridge synchronously while libghostty still guarantees
+        // the surface (and therefore the retained bridge) is alive; the strong
+        // Swift reference then keeps the bridge valid across the main-actor
+        // hop. The completion itself is submitted as an ordered session
+        // command, so it serializes before the surface free and is dropped if
+        // the session already shut down — no use-after-free window. The state
+        // pointer crosses as an `Int` bit-pattern (opaque token libghostty
+        // owns).
+        guard let bridge = GhosttySurfaceCallbackBridge.fromOpaque(userdata) else { return false }
         let stateBits: Int = state.map { Int(bitPattern: $0) } ?? 0
-        guard userdataBits != 0 else { return false }
         Task { @MainActor in
-            guard let userdataPointer = UnsafeMutableRawPointer(bitPattern: userdataBits),
-                  let bridge = GhosttySurfaceCallbackBridge.fromOpaque(userdataPointer),
-                  bridge.surfaceIdentity != 0,
-                  let surface = UnsafeMutableRawPointer(bitPattern: Int(bitPattern: bridge.surfaceIdentity))
-            else { return }
-            let statePointer = stateBits == 0 ? nil : UnsafeMutableRawPointer(bitPattern: stateBits)
+            guard let session = bridge.session else { return }
             let value = bridge.clipboard.read() ?? ""
-            value.withCString { pointer in
-                ghostty_surface_complete_clipboard_request(surface, pointer, statePointer, false)
-            }
+            session.submit(.completeClipboardRequest(text: value, stateBits: stateBits))
         }
         return true
     }
@@ -413,8 +416,9 @@ public final class GhosttyEngineService {
         confirm: Bool
     ) {
         guard let content, len > 0 else { return }
-        guard let userdata else { return }
-        let userdataBits = Int(bitPattern: userdata)
+        // Strong bridge reference resolved synchronously (see
+        // handleReadClipboard) so the deferred write can never dangle.
+        guard let bridge = GhosttySurfaceCallbackBridge.fromOpaque(userdata) else { return }
         for index in 0..<len {
             let item = content[index]
             guard let mimePointer = item.mime,
@@ -423,9 +427,6 @@ public final class GhosttyEngineService {
             guard mime == "text/plain" else { continue }
             let value = String(cString: dataPointer)
             Task { @MainActor in
-                guard let userdataPointer = UnsafeMutableRawPointer(bitPattern: userdataBits),
-                      let bridge = GhosttySurfaceCallbackBridge.fromOpaque(userdataPointer)
-                else { return }
                 bridge.clipboard.write(value)
             }
             return

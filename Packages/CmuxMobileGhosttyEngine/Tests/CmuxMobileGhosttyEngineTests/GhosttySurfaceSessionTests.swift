@@ -160,6 +160,23 @@ import Testing
         #expect(backend.calls.contains(.setSize(500, 400)))
     }
 
+    @Test func clipboardCompletionOrdersAfterOutputAndDropsAfterShutdown() async {
+        let backend = ScriptedSurfaceBackend()
+        let (session, stream) = makeSession(backend: backend)
+
+        session.submit(.output(Data("before".utf8)))
+        session.submit(.completeClipboardRequest(text: "copied", stateBits: 0))
+        session.shutdown()
+        session.submit(.completeClipboardRequest(text: "late", stateBits: 0))
+        _ = await drain(stream)
+
+        #expect(withoutAccessibilityReads(backend.calls) == [
+            .processOutput("before"),
+            .completeClipboardRequest("copied"),
+            .free,
+        ])
+    }
+
     @Test func readTextRunsOnSessionAndReturnsBackendText() async {
         let backend = ScriptedSurfaceBackend()
         backend.scriptedText = "hello world"
