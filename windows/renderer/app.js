@@ -5113,6 +5113,12 @@ async function applyBackgroundValueToTarget(value, target = state.backgroundAppl
   return applyCustomBackgroundImage(value, options);
 }
 
+function backgroundSetupTargetDefault(target = state.backgroundApplyTarget) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  const status = activeBackgroundTargetStatus(scope);
+  return !status.hasValue && backgroundTuningSettingsDefault();
+}
+
 function backgroundSetupPayload(target = state.backgroundApplyTarget) {
   const scope = normalizeBackgroundApplyTarget(target);
   const model = activeBackgroundPanelViewModel(scope);
@@ -5253,6 +5259,31 @@ async function pasteBackgroundSetup(target = state.backgroundApplyTarget) {
   } catch {
     return applyBackgroundSetupPayload(clipboard, target);
   }
+}
+
+async function resetBackgroundSetup(target = state.backgroundApplyTarget) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  const targetOption = backgroundApplyTargetOption(scope);
+  if (!activeBackgroundTargetStatus(scope).canTarget) {
+    toast(`${targetOption.label} cannot use a background right now.`);
+    return false;
+  }
+  const defaultBackground = scope === "app" ? defaultSettings.backgroundImage : "";
+  const backgroundResult = await applyBackgroundValueToTarget(defaultBackground, scope, { render: false, toast: false });
+  if (backgroundResult === null) {
+    toast("Background setup could not be reset.");
+    return false;
+  }
+  const tuningUpdates = {};
+  for (const key of backgroundTuningSettings) tuningUpdates[key] = defaultSettings[key];
+  const tuningChanged = updateSettings(tuningUpdates, { immediate: true });
+  if (backgroundResult || tuningChanged) {
+    renderSettingsInspector();
+    toast(`Background setup reset for ${targetOption.label.toLowerCase()}.`);
+    return true;
+  }
+  toast(`Background setup already reset for ${targetOption.label.toLowerCase()}.`);
+  return false;
 }
 
 async function applyBackgroundPresetToTarget(preset, target = state.backgroundApplyTarget) {
@@ -15024,7 +15055,16 @@ function activeBackgroundPanel(options = {}) {
   pasteSetup.dataset.backgroundAction = "paste-setup";
   pasteSetup.title = `Paste copied background setup to ${targetLabel}.`;
   pasteSetup.disabled = !targetStatus.canTarget;
-  const setupGroup = backgroundActionGroup("Setup", "active background setup copy paste tuning chrome readable soft immersive clipboard json", [copySetup, pasteSetup]);
+  const setupDefault = backgroundSetupTargetDefault(targetStatus.scope);
+  const resetSetup = settingsActionButton("Reset setup", () => resetBackgroundSetup(state.backgroundApplyTarget), "", `active background setup reset default clear selected target image tuning fit position effects opacity chrome readable soft immersive ${setupDefault ? "active current " : ""}`);
+  resetSetup.dataset.backgroundAction = "reset-setup";
+  resetSetup.disabled = !targetStatus.canTarget || setupDefault;
+  resetSetup.title = !targetStatus.canTarget
+    ? `${backgroundApplyTargetOption(targetStatus.scope).label} cannot use a background right now.`
+    : setupDefault
+      ? `${targetLabel} background setup already uses defaults.`
+      : `Clear ${targetLabel} and reset background tuning to defaults.`;
+  const setupGroup = backgroundActionGroup("Setup", "active background setup copy paste reset default tuning chrome readable soft immersive clipboard json", [copySetup, pasteSetup, resetSetup]);
   setupGroup.classList.add("background-action-group-setup");
 
   const applyCurrent = settingsActionButton("Use app image", applyCurrentBackgroundToTarget, "", "active background apply current app image to selected target pane all terminals");
@@ -15175,6 +15215,7 @@ function refreshBackgroundPreviewNodes() {
     const copySource = panel.querySelector('[data-background-action="copy"]');
     const copySetup = panel.querySelector('[data-background-action="copy-setup"]');
     const pasteSetup = panel.querySelector('[data-background-action="paste-setup"]');
+    const resetSetup = panel.querySelector('[data-background-action="reset-setup"]');
     const applyTyped = panel.querySelector('[data-background-action="apply-typed"]');
     const applyCurrent = panel.querySelector('[data-background-action="apply-current"]');
     const open = panel.querySelector('[data-background-action="open"]');
@@ -15216,6 +15257,15 @@ function refreshBackgroundPreviewNodes() {
     if (pasteSetup) {
       setDisabledIfChanged(pasteSetup, !targetStatus.canTarget);
       setTitleIfChanged(pasteSetup, `Paste copied background setup to ${targetLabel}.`);
+    }
+    if (resetSetup) {
+      const setupDefault = backgroundSetupTargetDefault(targetStatus.scope);
+      setDisabledIfChanged(resetSetup, !targetStatus.canTarget || setupDefault);
+      setTitleIfChanged(resetSetup, !targetStatus.canTarget
+        ? `${backgroundApplyTargetOption(targetStatus.scope).label} cannot use a background right now.`
+        : setupDefault
+          ? `${targetLabel} background setup already uses defaults.`
+          : `Clear ${targetLabel} and reset background tuning to defaults.`);
     }
     if (applyCurrent) {
       setDisabledIfChanged(applyCurrent, !state.settings.backgroundImage || !targetStatus.canTarget || targetStatus.scope === "app");
