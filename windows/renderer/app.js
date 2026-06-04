@@ -15896,6 +15896,17 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
     true,
     "top bar command strip button style visual weight ghost subtle filled cleaner stronger chrome"
   ));
+  const toolbarChromeDefault = toolbarChromeSettingsAreDefault();
+  const toolbarActions = document.createElement("div");
+  toolbarActions.className = "settings-actions";
+  toolbarActions.dataset.settingsSearch = normalizeSettingsQuery("toolbar top bar command strip reset default mode labels icons auto surface style quiet subtle solid button style ghost filled");
+  const resetToolbarAction = settingsActionButton("Reset toolbar", resetToolbarChromeSettings, "", `toolbar top bar reset default mode labels style buttons ${toolbarChromeDefault ? "active current " : ""}`);
+  resetToolbarAction.disabled = toolbarChromeDefault;
+  resetToolbarAction.title = toolbarChromeDefault
+    ? "Toolbar settings already use defaults."
+    : "Reset toolbar mode, label mode, top bar style, and button style.";
+  toolbarActions.append(resetToolbarAction);
+  panel.append(toolbarActions);
   panel.append(settingRow(
     "Tab bar",
     settingSegmentedControl("tabBarStyle", tabBarStyleOptions, "surface tab bar strip visual weight quiet subtle banded divider chrome", { compact: true }),
@@ -32251,6 +32262,13 @@ const statusBarSettings = [
   "statusbarStyle"
 ];
 
+const toolbarChromeSettings = [
+  "toolbarMode",
+  "toolbarLabelMode",
+  "topbarStyle",
+  "toolbarButtonStyle"
+];
+
 const workspaceChromeBooleanSettings = new Set([
   "paneColorMarkers",
   "focusMode",
@@ -33022,6 +33040,10 @@ function statusBarSettingsAreDefault() {
   return settingsKeysMatchDefaults(statusBarSettings);
 }
 
+function toolbarChromeSettingsAreDefault() {
+  return settingsKeysMatchDefaults(toolbarChromeSettings);
+}
+
 function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
   const enabled = Boolean(nextValue);
   const changed = updateSettings({ focusMode: enabled }, { immediate: true });
@@ -33095,6 +33117,19 @@ function resetStatusBarSettings() {
   }
   refreshLayoutSettings();
   toast("Status bar reset.");
+  return true;
+}
+
+function resetToolbarChromeSettings() {
+  const updates = {};
+  for (const key of toolbarChromeSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Toolbar already uses defaults.");
+    return false;
+  }
+  refreshLayoutSettings();
+  toast("Toolbar reset.");
   return true;
 }
 
