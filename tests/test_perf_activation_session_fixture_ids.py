@@ -152,9 +152,10 @@ def test_activation_socket_readiness_uses_worker_ping(tmp_path: pathlib.Path) ->
 
 def test_post_restore_snapshot_uses_transient_socket_retries() -> None:
     runner = object.__new__(perf_activation_session.CmuxPerfRunner)
-    runner.args = types.SimpleNamespace(snapshot_timeout=120)
+    runner.args = types.SimpleNamespace(snapshot_timeout=120, restore_ready_timeout=20)
     runner.result = {"measurements": {}, "fixture": {}}
     observed_socket_retries: list[int] = []
+    readiness_waits: list[tuple[str, tuple[str, ...], float]] = []
 
     def stop_app() -> None:
         pass
@@ -162,6 +163,10 @@ def test_post_restore_snapshot_uses_transient_socket_retries() -> None:
     def launch(label: str) -> float:
         assert label == "restore"
         return 1.0
+
+    def wait_for_debug_log_marker(label: str, markers: tuple[str, ...], timeout_s: float) -> float:
+        readiness_waits.append((label, markers, timeout_s))
+        return 42.0
 
     def rpc(
         method: str,
@@ -177,10 +182,15 @@ def test_post_restore_snapshot_uses_transient_socket_retries() -> None:
 
     runner.stop_app = stop_app
     runner.launch = launch
+    runner.wait_for_debug_log_marker = wait_for_debug_log_marker
     runner.rpc = rpc
 
     runner.benchmark_restore()
 
+    assert readiness_waits == [
+        ("restore_main_window_ready", ("mainWindow.visibility.focus reason=createMainWindow",), 20)
+    ]
+    assert runner.result["measurements"]["restore_main_window_ready_ms"] == 42.0
     assert observed_socket_retries == [3]
     assert runner.result["fixture"]["post_restore_shape"] == {"workspaces": 12, "terminals": 66}
 

@@ -87,6 +87,7 @@ class CmuxPerfRunner:
         self.fixture_root = self.make_fixture_root(args.fixture_root)
         self.proc: subprocess.Popen | None = None
         self.app_returncode: int | None = None
+        self.last_launch_debug_log_offset = 0
         self.heavy_scrollback_surfaces: set[str] = set()
         self.result: dict = {
             "tag": self.tag,
@@ -196,6 +197,7 @@ class CmuxPerfRunner:
 
     def launch(self, label: str) -> float:
         self.socket_path.unlink(missing_ok=True)
+        self.last_launch_debug_log_offset = self.debug_log_size()
         stdout = open(self.stdout_path, "ab", buffering=0)
         start = now_ms()
         self.proc = subprocess.Popen(
@@ -226,6 +228,52 @@ class CmuxPerfRunner:
                     pass
             time.sleep(0.1)
         return False
+
+    def debug_log_size(self) -> int:
+        try:
+            return self.debug_log_path.stat().st_size
+        except OSError:
+            return 0
+
+    def wait_for_debug_log_marker(
+        self,
+        label: str,
+        markers: tuple[str, ...],
+        timeout_s: float,
+    ) -> float:
+        start = now_ms()
+        start_offset = self.last_launch_debug_log_offset
+        deadline = time.monotonic() + timeout_s
+        last_tail = ""
+        last_error = ""
+        while time.monotonic() < deadline:
+            self.ensure_app_running(f"wait_for_{label}")
+            try:
+                if self.debug_log_path.exists():
+                    size = self.debug_log_size()
+                    offset = start_offset if start_offset <= size else 0
+                    with self.debug_log_path.open("rb") as handle:
+                        handle.seek(offset)
+                        text = handle.read().decode("utf-8", errors="replace")
+                    if any(marker in text for marker in markers):
+                        return rounded_ms(now_ms() - start)
+                    last_tail = text[-4000:]
+            except OSError as exc:
+                last_error = str(exc)
+            time.sleep(0.1)
+
+        failures = self.result["fixture"].setdefault("debug_log_wait_failures", [])
+        if len(failures) < 10:
+            failures.append(
+                {
+                    "label": label,
+                    "markers": list(markers),
+                    "timeout_s": timeout_s,
+                    "last_error": last_error,
+                    "tail": last_tail,
+                }
+            )
+        raise PerfFailure(f"{label}: debug log marker not found after {timeout_s}s")
 
     def stop_app(self) -> None:
         proc = self.proc
@@ -719,6 +767,12 @@ class CmuxPerfRunner:
     def benchmark_restore(self) -> None:
         self.stop_app()
         self.launch("restore")
+        ready_ms = self.wait_for_debug_log_marker(
+            "restore_main_window_ready",
+            ("mainWindow.visibility.focus reason=createMainWindow",),
+            timeout_s=self.args.restore_ready_timeout,
+        )
+        self.result["measurements"]["restore_main_window_ready_ms"] = ready_ms
         restored = self.benchmark_snapshot(
             "post_restore_no_scrollback_snapshot",
             include_scrollback=False,
@@ -859,6 +913,7 @@ def print_summary(result: dict) -> None:
         print(f"  snapshot_with_real_scrollback_ms={real_scroll.get('elapsed_ms')} shape={real_scroll.get('shape')}")
     print(f"  snapshot_with_scrollback_ms={with_scroll.get('elapsed_ms')} shape={with_scroll.get('shape')}")
     print(f"  restore_socket_ready_ms={measurements.get('restore_socket_ready_ms')}")
+    print(f"  restore_main_window_ready_ms={measurements.get('restore_main_window_ready_ms')}")
     failures = result.get("failures", [])
     if failures:
         print("  budget_failures:")
@@ -894,6 +949,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--launch-timeout", type=float, default=45)
     parser.add_argument("--scrollback-timeout", type=float, default=180)
     parser.add_argument("--snapshot-timeout", type=float, default=120)
+    parser.add_argument("--restore-ready-timeout", type=float, default=20)
 
     parser.add_argument("--budget-launch-socket-ready-ms", type=float, default=15000)
     parser.add_argument("--budget-restore-socket-ready-ms", type=float, default=15000)
