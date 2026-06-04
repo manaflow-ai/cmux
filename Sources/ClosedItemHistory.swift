@@ -442,6 +442,39 @@ final class ClosedItemHistoryStore: ObservableObject {
         }
     }
 
+    /// Returns the newest operation with at least one item that is not live,
+    /// without evaluating restored state for every record in the full log.
+    func firstUndoableOperation() -> ClosedOperationSnapshot? {
+        var order: [UUID] = []
+        var byOp: [UUID: [ClosedItemHistoryRecord]] = [:]
+        for record in records.reversed() {
+            if byOp[record.operationId] == nil { order.append(record.operationId) }
+            byOp[record.operationId, default: []].append(record)
+        }
+
+        for opId in order {
+            guard let recs = byOp[opId], !recs.isEmpty else { continue }
+            var hasUnrestoredItem = false
+            let items = recs.map { record -> ClosedItemHistoryMenuItem in
+                var item = Self.menuItem(for: record)
+                item.isRestored = isRecordRestored(record.id)
+                if !item.isRestored {
+                    hasUnrestoredItem = true
+                }
+                return item
+            }
+            guard hasUnrestoredItem else { continue }
+            let closedAt = recs.map(\.closedAt).max() ?? recs[0].closedAt
+            return ClosedOperationSnapshot(
+                id: opId,
+                label: Self.operationLabel(for: items),
+                closedAt: closedAt,
+                items: items
+            )
+        }
+        return nil
+    }
+
     /// Whether the given record's restored target is currently live (the single
     /// source of truth for "already restored").
     func isRecordRestored(_ recordId: UUID) -> Bool {

@@ -1207,6 +1207,54 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(store.restoredRef(for: recordId))
     }
 
+    func testClosedItemHistoryFirstUndoableOperationStopsAfterNewestEligibleOperation() throws {
+        let store = ClosedItemHistoryStore(loadPersisted: false)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+
+        func makeWorkspaceRecord(
+            title: String,
+            closedAt: TimeInterval,
+            operationId: UUID
+        ) -> ClosedItemHistoryRecord {
+            var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+            snapshot.customTitle = title
+            return ClosedItemHistoryRecord(
+                operationId: operationId,
+                closedAt: Date(timeIntervalSince1970: closedAt),
+                entry: .workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: UUID(),
+                    windowId: nil,
+                    workspaceIndex: 0,
+                    snapshot: snapshot
+                ))
+            )
+        }
+
+        let oldestRestored = makeWorkspaceRecord(title: "Oldest restored", closedAt: 1, operationId: UUID())
+        let undoable = makeWorkspaceRecord(title: "Undoable", closedAt: 2, operationId: UUID())
+        let newestRestored = makeWorkspaceRecord(title: "Newest restored", closedAt: 3, operationId: UUID())
+
+        store.push(oldestRestored)
+        store.push(undoable)
+        store.push(newestRestored)
+
+        store.markRestored(recordId: oldestRestored.id, ref: .workspace(workspaceId: UUID()))
+        store.markRestored(recordId: newestRestored.id, ref: .workspace(workspaceId: UUID()))
+
+        var livenessChecks = 0
+        store.isTargetLive = { _ in
+            livenessChecks += 1
+            return true
+        }
+
+        let operation = try XCTUnwrap(store.firstUndoableOperation())
+
+        XCTAssertEqual(operation.id, undoable.operationId)
+        XCTAssertEqual(operation.items.map(\.title), ["Undoable"])
+        XCTAssertEqual(livenessChecks, 1)
+    }
+
     func testClosedItemHistoryFlushPendingSavesPersistsLatestRecords() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-closed-history-flush-\(UUID().uuidString)", isDirectory: true)

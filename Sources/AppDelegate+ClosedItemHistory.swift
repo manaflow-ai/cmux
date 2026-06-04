@@ -201,15 +201,15 @@ extension AppDelegate {
         preferredTabManager: TabManager? = nil,
         shouldActivate: Bool = false
     ) -> Bool {
-        let operations = ClosedItemHistoryStore.shared.operationSnapshot()
+        let undoableOperation = ClosedItemHistoryStore.shared.firstUndoableOperation()
         let legacyManagers = recentlyClosedLegacyBrowserManagers(preferredTabManager: preferredTabManager)
         if let legacyManager = legacyManagers.first,
            let legacyClosedAt = legacyManager.mostRecentLegacyClosedBrowserPanelClosedAt(),
-           operations.first(where: { !$0.isFullyRestored }).map({ legacyClosedAt > $0.closedAt }) ?? true,
+           undoableOperation.map({ legacyClosedAt > $0.closedAt }) ?? true,
            legacyManager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
             return true
         }
-        guard let op = operations.first(where: { !$0.isFullyRestored }) else {
+        guard let op = undoableOperation else {
             // Everything in the store is already live. Fall back to the legacy
             // browser-tab stack only (never re-restore a store entry, which would
             // duplicate something already on screen).
