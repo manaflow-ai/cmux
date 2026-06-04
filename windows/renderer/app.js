@@ -6956,6 +6956,11 @@ const corePaletteCommandIds = new Set([
   "settings.savePaneLook",
   "settings.resetPaneSetup",
   "settings.syncPaneLook",
+  "layout.copySetup",
+  "layout.pasteSetup",
+  "layout.copyChrome",
+  "layout.pasteChrome",
+  "layout.resetChrome",
   "layout.activePercent",
   "layout.focusMode"
 ]);
@@ -6990,6 +6995,7 @@ function coreCommandPaletteSignature() {
   appendSignatureValue(parts, Boolean(state.settings.focusMode));
   appendSignatureValue(parts, Boolean(panel && isPanelZoomed(panel, workspace)));
   appendSignatureValue(parts, activePaneLayoutPercent(workspace));
+  appendSignatureValue(parts, settingsKeysSignature(workspaceChromeSettings));
   return parts.join("");
 }
 
@@ -7335,6 +7341,36 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       icon: "focus",
       title: state.settings.focusMode ? "Turn focus mode off." : "Turn focus mode on.",
       search: "layout focus mode hide chrome simple workspace"
+    };
+  }
+  if (["layout.copySetup", "layout.pasteSetup", "layout.copyChrome", "layout.pasteChrome", "layout.resetChrome"].includes(commandId)) {
+    const chromeDefault = workspaceChromeSettingsAreDefault();
+    const summary = workspaceChromeSummaryForSettings(state.settings);
+    const chromeMeta = `${summary.density} / ${summary.toolbar} / ${summary.paletteResults} results`;
+    const layoutMeta = `${chromeMeta} / ${readyPanels.length || 0} pane${readyPanels.length === 1 ? "" : "s"}`;
+    const isSetup = commandId === "layout.copySetup" || commandId === "layout.pasteSetup";
+    const isPaste = commandId === "layout.pasteSetup" || commandId === "layout.pasteChrome";
+    const isReset = commandId === "layout.resetChrome";
+    return {
+      meta: isReset
+        ? chromeDefault ? "Defaults active" : chromeMeta
+        : isSetup ? layoutMeta : chromeMeta,
+      shortcut: isReset ? (chromeDefault ? "Default" : "Reset") : isPaste ? "Paste" : "Copy",
+      active: isReset && chromeDefault,
+      disabled: isReset && chromeDefault,
+      icon: "layout",
+      title: isReset
+        ? chromeDefault
+          ? "Workspace chrome already matches the default setup."
+          : "Reset toolbar, sidebar, tabs, palette, pane spacing, status bar, and panel width settings."
+        : isSetup
+          ? isPaste
+            ? "Apply copied layout setup and save any included pane blueprint."
+            : "Copy current pane layout and workspace chrome as JSON."
+          : isPaste
+            ? "Apply copied cmux workspace chrome JSON."
+            : "Copy workspace chrome settings as JSON.",
+      search: normalizeSettingsQuery(`layout workspace chrome setup ${isSetup ? "pane split blueprint " : ""}${isPaste ? "paste import" : isReset ? "reset default" : "copy export"} toolbar top bar sidebar tabs palette command results quick actions toast switcher overlay settings panel density row active marker status pane spacing divider focus clipboard json ${chromeDefault ? "active current " : ""}${summary.density} ${summary.toolbar} ${summary.toolbarLabels} ${summary.topbarStyle} ${summary.toolbarButtons} ${summary.tabBar} ${summary.sidebarStyle} ${summary.sidebarTools} ${summary.emptyWorkspace} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.paneSpacing} ${summary.widths} ${workspaceTitle}`)
     };
   }
   return null;
