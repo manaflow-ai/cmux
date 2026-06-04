@@ -2548,26 +2548,31 @@ class TerminalController {
         }
 
         let result: V2CallResult
+        let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(
+            commandKey: request.method,
+            isV2: true,
+            params: request.params
+        )
         switch request.method {
         case "workspace.create":
             result = await v2WorkspaceCreateWithAsyncWorktree(
                 params: request.params,
-                allowsFocusMutation: accessMode.allowsFocusMutation
+                allowsFocusMutation: allowsFocusMutation
             )
         case "surface.split":
             result = await v2SurfaceSplitWithAsyncWorktree(
                 params: request.params,
-                allowsFocusMutation: accessMode.allowsFocusMutation
+                allowsFocusMutation: allowsFocusMutation
             )
         case "surface.create":
             result = await v2SurfaceCreateWithAsyncWorktree(
                 params: request.params,
-                allowsFocusMutation: accessMode.allowsFocusMutation
+                allowsFocusMutation: allowsFocusMutation
             )
         case "pane.create":
             result = await v2PaneCreateWithAsyncWorktree(
                 params: request.params,
-                allowsFocusMutation: accessMode.allowsFocusMutation
+                allowsFocusMutation: allowsFocusMutation
             )
         default:
             result = .err(code: "method_not_found", message: "Unknown method", data: nil)

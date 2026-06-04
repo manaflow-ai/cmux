@@ -108,7 +108,7 @@ extension TerminalController {
                 cleanupPolicy: cleanupPolicy
             )
         }
-        try await withThrowingTaskGroup(of: EphemeralWorktreeRecord.self) { group in
+        return try await withThrowingTaskGroup(of: EphemeralWorktreeRecord.self) { group in
             defer { group.cancelAll() }
             group.addTask {
                 try await createTask.value
