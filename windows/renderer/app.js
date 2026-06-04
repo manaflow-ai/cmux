@@ -348,7 +348,9 @@ const performanceSetupBooleanSettings = new Set([
 ]);
 const performanceHealthSettingKeys = new Set([
   ...performanceSetupSettings,
-  "backgroundImage"
+  "backgroundImage",
+  "paneColorMarkers",
+  "paneMarkerStyle"
 ]);
 const appearancePreviewKeys = new Set([
   "theme",
@@ -19259,6 +19261,22 @@ const performanceHealthCheckDefinitions = [
     meta: () => optionLabel(interfaceDepthOptions, state.settings.interfaceDepth, state.settings.interfaceDepth),
     updates: () => ({ interfaceDepth: "flat" }),
     search: "surface depth shadow layered flat performance lag"
+  },
+  {
+    id: "paneMarkers",
+    label: "Pane markers",
+    body: "Turns off colored pane markers so tabs and headers stay visually lighter.",
+    actionLabel: "Quiet",
+    readyLabel: "Quiet",
+    issue: () => state.settings.paneColorMarkers,
+    meta: () => state.settings.paneColorMarkers
+      ? `${optionLabel(paneMarkerStyleOptions, state.settings.paneMarkerStyle, state.settings.paneMarkerStyle)} markers`
+      : "Off",
+    updates: () => ({
+      paneColorMarkers: false,
+      paneMarkerStyle: "dot"
+    }),
+    search: "pane color markers tab header dot edge tint colored lighter quiet performance"
   },
   {
     id: "workspaceChrome",
