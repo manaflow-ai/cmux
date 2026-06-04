@@ -49,12 +49,16 @@ public struct AgentSpawnIdentity: Sendable, Equatable {
         focusedWorkspaceId: String?,
         focusedSurfaceId: String?
     ) -> (workspaceId: String?, surfaceId: String?) {
+        let ownWorkspace = normalized(ownWorkspaceId)
         let ownSurface = normalized(ownSurfaceId)
         let focusedWorkspace = normalized(focusedWorkspaceId)
-        let workspaceId = normalized(ownWorkspaceId) ?? focusedWorkspace
+        let workspaceId = ownWorkspace ?? focusedWorkspace
 
         let surfaceId: String?
-        if let ownSurface {
+        if let ownSurface, ownWorkspace != nil {
+            // The own surface is the launch identity, authoritative only paired with its own workspace.
+            // An orphan own surface (inherited CMUX_SURFACE_ID with no CMUX_WORKSPACE_ID, e.g. partial
+            // env scrubbing) has an unknown workspace, so it is not trusted against the focused context.
             surfaceId = ownSurface
         } else if let focusedSurface = normalized(focusedSurfaceId), focusedWorkspace == workspaceId {
             // Borrow the focused surface only when the focused pane is in the resolved workspace, so we

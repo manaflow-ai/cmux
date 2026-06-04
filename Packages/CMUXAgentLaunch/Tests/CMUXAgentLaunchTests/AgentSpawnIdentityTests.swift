@@ -59,6 +59,30 @@ struct AgentSpawnIdentityTests {
         #expect(resolved.surfaceId == "A")
     }
 
+    @Test("Orphan own surface (no own workspace) is not paired with the focused workspace")
+    func orphanOwnSurfaceIsNotPairedWithFocusedWorkspace() {
+        // Only CMUX_SURFACE_ID was inherited (no CMUX_WORKSPACE_ID), e.g. partial env scrubbing, while
+        // focus is a pane in WS-A. The own surface "B" has an unknown workspace, so stamping (WS-A, B)
+        // would be an incoherent cross-workspace pair. The resolver uses the coherent focused pair
+        // instead; the orphan own surface is not trusted.
+        let resolved = AgentSpawnIdentity().resolve(
+            ownWorkspaceId: nil, ownSurfaceId: "B",
+            focusedWorkspaceId: "WS-A", focusedSurfaceId: "A"
+        )
+        #expect(resolved.workspaceId == "WS-A")
+        #expect(resolved.surfaceId == "A")
+    }
+
+    @Test("Orphan own surface with no focused context yields nil for PID/TTY recovery")
+    func orphanOwnSurfaceWithoutFocusYieldsNil() {
+        let resolved = AgentSpawnIdentity().resolve(
+            ownWorkspaceId: nil, ownSurfaceId: "B",
+            focusedWorkspaceId: nil, focusedSurfaceId: nil
+        )
+        #expect(resolved.workspaceId == nil)
+        #expect(resolved.surfaceId == nil)
+    }
+
     @Test("No identity anywhere yields nil")
     func noIdentity() {
         let resolved = AgentSpawnIdentity().resolve(
