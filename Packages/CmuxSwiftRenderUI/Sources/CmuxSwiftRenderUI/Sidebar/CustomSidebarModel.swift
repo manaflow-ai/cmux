@@ -1,14 +1,12 @@
-import CmuxFileWatch
 import CmuxSettings
 import CmuxSwiftRender
 import Foundation
 
-/// Loads a named custom sidebar file and hot-reloads it on change.
+/// Loads a named custom sidebar file and reloads it on explicit request.
 ///
 /// The file is either an interpreted `.swift` view or a declarative `.json`
-/// document. Watched via ``CmuxFileWatch/FileWatcher`` (kqueue-backed); the
-/// model stores raw Swift source so the view can re-interpret it against the
-/// live data context, not only on file save.
+/// document. The model stores raw Swift source so the view can re-interpret it
+/// against the live data context without re-reading the file on every render.
 @MainActor
 @Observable
 final class CustomSidebarModel {
@@ -23,9 +21,7 @@ final class CustomSidebarModel {
     private(set) var state: State = .missing
     let fileURL: URL
 
-    private var watchTask: Task<Void, Never>?
     private var reloadTask: Task<Void, Never>?
-    private var watcher: FileWatcher?
 
     private let interpreter = SwiftViewInterpreter()
     // Cache the parsed Swift program so re-rendering against live data (the
@@ -58,20 +54,11 @@ final class CustomSidebarModel {
         return interpreter.evaluate(program, state: dataContext)
     }
 
-    /// Loads the file once and starts watching it. Idempotent.
+    /// Loads the file once and listens for explicit reload requests.
+    /// Idempotent.
     func start() {
         reload()
-        guard watchTask == nil else { return }
-        // Leading-edge throttle coalesces the burst of kqueue events an atomic
-        // save emits into one reload.
-        let watcher = FileWatcher(path: fileURL.path, throttle: .milliseconds(150))
-        self.watcher = watcher
-        watchTask = Task { [weak self] in
-            for await _ in watcher.events {
-                guard let self else { return }
-                self.reload(preserveCurrentOnFailure: true)
-            }
-        }
+        guard reloadTask == nil else { return }
         reloadTask = Task { [weak self] in
             for await notification in NotificationCenter.default.notifications(named: .customSidebarReloadRequested) {
                 guard let self else { return }
@@ -82,29 +69,21 @@ final class CustomSidebarModel {
     }
 
     func stop() {
-        watchTask?.cancel()
-        watchTask = nil
         reloadTask?.cancel()
         reloadTask = nil
-        if let watcher {
-            self.watcher = nil
-            Task { await watcher.stop() }
-        }
     }
 
     /// Re-reads the file: stores `.swift` source verbatim, decodes `.json`.
-    func reload(preserveCurrentOnFailure: Bool = false) {
+    func reload() {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            if !preserveCurrentOnFailure { state = .missing }
+            state = .missing
             return
         }
         if fileURL.pathExtension.lowercased() == "swift" {
             do {
                 state = .swiftSource(try String(contentsOf: fileURL, encoding: .utf8))
             } catch {
-                if !preserveCurrentOnFailure {
-                    state = .failed(CustomSidebarValidation.describe(error))
-                }
+                state = .failed(CustomSidebarValidation.describe(error))
             }
             return
         }
@@ -113,9 +92,7 @@ final class CustomSidebarModel {
             let document = try JSONDecoder().decode(DSLDocument.self, from: data)
             state = .json(document)
         } catch {
-            if !preserveCurrentOnFailure {
-                state = .failed(CustomSidebarValidation.describe(error))
-            }
+            state = .failed(CustomSidebarValidation.describe(error))
         }
     }
 
