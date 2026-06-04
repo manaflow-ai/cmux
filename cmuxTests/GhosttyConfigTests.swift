@@ -1931,12 +1931,10 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
 
 
 @MainActor
-@Suite(.serialized)
-struct BrowserPanelPopupContextTests {
-    @Test
-    func floatingPopupInheritsOpenerBrowserContext() throws {
+final class BrowserPanelPopupContextTests: XCTestCase {
+    func testFloatingPopupInheritsOpenerBrowserContext() throws {
         let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
-        let popupWebView = try #require(
+        let popupWebView = try XCTUnwrap(
             panel.createFloatingPopup(
                 configuration: WKWebViewConfiguration(),
                 windowFeatures: WKWindowFeatures()
@@ -1944,20 +1942,22 @@ struct BrowserPanelPopupContextTests {
         )
         defer { popupWebView.window?.close() }
 
-        #expect(
+        XCTAssertTrue(
+            popupWebView.configuration.processPool === panel.webView.configuration.processPool
+        )
+        XCTAssertTrue(
             popupWebView.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore
         )
     }
 
-    @Test
-    func floatingPopupInheritsRemoteWorkspaceWebsiteDataStore() throws {
+    func testFloatingPopupInheritsRemoteWorkspaceWebsiteDataStore() throws {
         let remoteWorkspaceId = UUID()
         let panel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
-        let popupWebView = try #require(
+        let popupWebView = try XCTUnwrap(
             panel.createFloatingPopup(
                 configuration: WKWebViewConfiguration(),
                 windowFeatures: WKWindowFeatures()
@@ -1965,10 +1965,10 @@ struct BrowserPanelPopupContextTests {
         )
         defer { popupWebView.window?.close() }
 
-        #expect(
+        XCTAssertTrue(
             popupWebView.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore
         )
-        #expect(!(popupWebView.configuration.websiteDataStore === WKWebsiteDataStore.default()))
+        XCTAssertFalse(popupWebView.configuration.websiteDataStore === WKWebsiteDataStore.default())
     }
 }
 
