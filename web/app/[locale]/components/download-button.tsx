@@ -3,7 +3,11 @@
 import { useTranslations } from "next-intl";
 import posthog from "posthog-js";
 import { Link, usePathname } from "../../../i18n/navigation";
-import { DOWNLOAD_CONFIRMATION_PATH, DOWNLOAD_URL } from "../../lib/download";
+import {
+  DOWNLOAD_CONFIRMATION_HREF,
+  DOWNLOAD_CONFIRMATION_PATH,
+  DOWNLOAD_URL,
+} from "../../lib/download";
 
 export function DownloadButton({
   size = "default",
@@ -50,7 +54,7 @@ export function DownloadButton({
 
   return (
     <Link
-      href={DOWNLOAD_CONFIRMATION_PATH}
+      href={DOWNLOAD_CONFIRMATION_HREF}
       onClick={onClick}
       className={className_}
       style={style}

@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
-import { DOWNLOAD_URL } from "../../lib/download";
+import { DOWNLOAD_URL, DOWNLOAD_INTENT_PARAM } from "../../lib/download";
 import { OfficialLinks } from "./official-links";
 
 function triggerDownload() {
@@ -19,15 +19,6 @@ function triggerDownload() {
   anchor.remove();
 }
 
-/** True only on a fresh forward navigation — not a reload or back/forward. */
-function isFreshNavigation() {
-  const entries = performance.getEntriesByType(
-    "navigation",
-  ) as PerformanceNavigationTiming[];
-  // Default to triggering when the type is unavailable (older browsers).
-  return entries.length === 0 || entries[0].type === "navigate";
-}
-
 export function DownloadConfirmation() {
   const t = useTranslations("download");
   // Guard against React StrictMode's double-invoke (and any re-render) so the
@@ -37,10 +28,22 @@ export function DownloadConfirmation() {
   useEffect(() => {
     if (hasTriggered.current) return;
     hasTriggered.current = true;
-    // Only auto-download when the user actually navigated here (e.g. clicked a
-    // Download button). Refreshing the page or using back/forward must NOT
-    // re-trigger the download; the manual "Click here" link is always available.
-    if (isFreshNavigation()) triggerDownload();
+    // Auto-download only when the navigation carried the intent marker (set by
+    // the Download CTAs). Reading the URL works for client-side `Link`
+    // transitions, unlike the Performance navigation type which keeps the
+    // original document's load type. Strip the marker afterwards so refreshing
+    // or navigating back to this page does not re-trigger the download.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get(DOWNLOAD_INTENT_PARAM) === "1") {
+      triggerDownload();
+      params.delete(DOWNLOAD_INTENT_PARAM);
+      const query = params.toString();
+      const cleanUrl =
+        window.location.pathname +
+        (query ? `?${query}` : "") +
+        window.location.hash;
+      window.history.replaceState(window.history.state, "", cleanUrl);
+    }
   }, []);
 
   return (
