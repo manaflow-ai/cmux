@@ -28483,11 +28483,14 @@ function savedColorPalettePanel() {
     }, "primary", `saved color apply selected target ${targetDisabled ? "unavailable " : "ready "}${targetOption.label} ${color}`);
     apply.disabled = targetDisabled;
     apply.title = applyTitle;
+    const everywhere = settingsActionButton("Everywhere", () => applySavedColorEverywhere(color, workspace), "", `saved color apply everywhere all scopes accent workspace panes ${activeEverywhere.search} ${color}`);
+    everywhere.disabled = activeEverywhere.disabled;
+    everywhere.title = activeEverywhere.title;
     const copy = settingsActionButton("Copy", () => copyCustomColorValue(color, "Saved color copied."), "", `saved color copy hex clipboard ${color}`);
     copy.title = customColorCopyTitle(color, "Copy this saved color hex value.");
     const more = settingsActionButton("More", (event) => showSavedColorMenu(event, color), "", `saved color more actions accent workspace pane all everywhere copy delete ${color}`);
     more.title = `More actions for ${color.toUpperCase()}.`;
-    cardActions.append(apply, copy, more);
+    cardActions.append(apply, everywhere, copy, more);
     card.append(swatch, value, scope, cardActions);
     list.append(card);
   }
@@ -29014,6 +29017,7 @@ function backgroundPresetGrid() {
     const activeApp = backgroundPresetActiveForTarget(preset.value, "app", workspace);
     const activePane = Boolean(activeTerminal && panelBackgroundMatches(activeTerminal, preset.value));
     const activeAll = terminalBackgroundsMatch(workspace, preset.value);
+    const activeEverywhere = backgroundEverywhereApplyModel(preset.value, preset.label, workspace);
     const activeTarget = target === "pane" ? activePane : target === "all" ? activeAll : activeApp;
     const savedBackground = backgroundPresetSavedBackground(preset);
     const targetDisabled = Boolean(targetOption.disabled) || activeTarget;
@@ -29023,9 +29027,10 @@ function backgroundPresetGrid() {
       "background-preset-card",
       activeApp ? "is-active-app" : "",
       activePane ? "is-active-pane" : "",
-      activeAll ? "is-active-all" : ""
+      activeAll ? "is-active-all" : "",
+      activeEverywhere.active ? "is-active-everywhere" : ""
     ].filter(Boolean).join(" ");
-    card.dataset.settingsSearch = normalizeSettingsQuery(`background image wallpaper template save copy reusable ${preset.label}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`background image wallpaper template save copy reusable everywhere ${activeEverywhere.search} ${preset.label}`);
 
     const button = document.createElement("button");
     button.className = `background-preset${activeTarget ? " is-active" : ""}`;
@@ -29066,6 +29071,9 @@ function backgroundPresetGrid() {
     applyAction.classList.add("background-preset-apply-action");
     applyAction.disabled = targetDisabled;
     applyAction.title = applyTitle;
+    const everywhereAction = settingsActionButton("Everywhere", () => applyBackgroundValueEverywhere(preset.value, { label: preset.label, workspace }), "", `background template apply everywhere whole app all terminals ${activeEverywhere.search} ${preset.label}`);
+    everywhereAction.disabled = activeEverywhere.disabled;
+    everywhereAction.title = activeEverywhere.title;
     const saveAction = settingsActionButton(
       savedBackground ? "Saved" : "Save",
       () => saveBackgroundPresetImage(preset),
@@ -29078,7 +29086,7 @@ function backgroundPresetGrid() {
     copyAction.disabled = !preset.value;
     copyAction.title = preset.value ? "Copy this template as saved background JSON." : "This template has no reusable background.";
     const moreAction = settingsActionButton("More", (event) => showBackgroundPresetMenu(event, preset), "", `background template more scopes app pane all terminals everywhere ${preset.label}`);
-    actions.append(applyAction, saveAction, copyAction, moreAction);
+    actions.append(applyAction, everywhereAction, saveAction, copyAction, moreAction);
 
     card.append(button, scope, actions);
     grid.append(card);
@@ -29295,19 +29303,21 @@ function savedBackgroundImagesPanel() {
     const activeApp = savedBackgroundImageActiveForTarget(background, "app", workspace);
     const activePane = Boolean(activeTerminal && savedBackgroundImageActiveForTarget(background, "pane", workspace));
     const activeAll = hasTerminalPanes && savedBackgroundImageActiveForTarget(background, "all", workspace);
+    const activeEverywhere = backgroundEverywhereApplyModel(background.url, background.label, workspace);
     const activeTarget = target === "pane" ? activePane : target === "all" ? activeAll : activeApp;
     const targetDisabled = Boolean(targetOption.disabled) || activeTarget;
     const applyTitle = savedBackgroundImageApplyTitle(background, targetOption, activeTarget);
-    const activeSearch = `${activeApp ? "app active " : ""}${activePane ? "pane active " : ""}${activeAll ? "all terminals active " : ""}`;
+    const activeSearch = `${activeApp ? "app active " : ""}${activePane ? "pane active " : ""}${activeAll ? "all terminals active " : ""}${activeEverywhere.active ? "everywhere active " : ""}`;
     const card = document.createElement("div");
     card.className = [
       "saved-background-card",
       activeApp ? "is-active is-active-app" : "",
       activePane ? "is-active-pane" : "",
       activeAll ? "is-active-all" : "",
+      activeEverywhere.active ? "is-active-everywhere" : "",
       activeTarget ? "is-active-target" : ""
     ].filter(Boolean).join(" ");
-    card.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper scope app pane all terminals copy clipboard json apply ${activeTarget ? "active current unavailable " : targetDisabled ? "unavailable " : "ready "}${activeSearch}${targetLabel} ${background.label} ${background.url}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper scope app pane all terminals everywhere copy clipboard json apply ${activeTarget ? "active current unavailable " : targetDisabled ? "unavailable " : "ready "}${activeSearch}${activeEverywhere.search} ${targetLabel} ${background.label} ${background.url}`);
     const preview = document.createElement("button");
     preview.className = `saved-background-preview${activeTarget ? " is-active" : ""}`;
     preview.type = "button";
@@ -29352,9 +29362,12 @@ function savedBackgroundImagesPanel() {
     const apply = settingsActionButton(backgroundApplyTargetPrimaryLabel(target), () => applySavedBackgroundImageToTarget(background.id, target), "primary", `apply saved background selected target ${targetDisabled ? "unavailable " : "ready "}${targetOption.label} ${background.label}`);
     apply.disabled = targetDisabled;
     apply.title = applyTitle;
+    const everywhere = settingsActionButton("Everywhere", () => applyBackgroundValueEverywhere(background.url, { label: background.label, workspace }), "", `apply saved background everywhere whole app all terminals ${activeEverywhere.search} ${background.label}`);
+    everywhere.disabled = activeEverywhere.disabled;
+    everywhere.title = activeEverywhere.title;
     const more = settingsActionButton("More", (event) => showSavedBackgroundImageMenu(event, background), "", `saved background more actions open rename delete copy apply app pane all terminals everywhere ${background.label}`);
     more.title = `More actions for ${background.label}.`;
-    cardActions.append(apply, more);
+    cardActions.append(apply, everywhere, more);
     card.append(preview, text, scope, cardActions);
     list.append(card);
   }

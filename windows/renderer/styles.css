@@ -14027,7 +14027,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .saved-color-card-actions {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 0.78fr) 58px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, .72fr) 58px;
   gap: var(--space-1);
 }
 
@@ -14765,10 +14765,14 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   box-shadow: inset 0 -2px 0 color-mix(in oklch, var(--color-accent-hover) 82%, transparent);
 }
 
+.background-preset-card.is-active-everywhere .background-preset {
+  border-color: color-mix(in oklch, var(--color-accent) 54%, var(--color-line) 46%);
+}
+
 .background-preset-actions {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-1);
 }
 
@@ -15073,7 +15077,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .saved-background-card.is-active-pane:not(.is-active),
-.saved-background-card.is-active-all:not(.is-active) {
+.saved-background-card.is-active-all:not(.is-active),
+.saved-background-card.is-active-everywhere:not(.is-active) {
   border-color: color-mix(in oklch, var(--color-accent) 40%, var(--color-line) 60%);
 }
 
@@ -15136,7 +15141,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .saved-background-card-actions {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 58px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 58px;
   gap: var(--space-1);
 }
 
