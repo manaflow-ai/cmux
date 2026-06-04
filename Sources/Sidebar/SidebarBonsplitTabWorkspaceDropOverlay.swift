@@ -52,6 +52,7 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
             syncSidebarSelection(preferredSelectedTabId: destinationWorkspaceId)
             return true
         }
+        nsView.performPendingDropIfPossible()
     }
 
     private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
@@ -67,6 +68,11 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
 final class SidebarBonsplitTabWorkspaceDropView: NSView {
     private static let pasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
 
+    private struct PendingDrop {
+        let point: CGPoint
+        let transfer: BonsplitTabDragPayload.Transfer
+    }
+
     var targets: [SidebarDropPlanner.WorkspaceDropTarget] = []
     var canPerformAction: (SidebarDropPlanner.WorkspaceDropAction, BonsplitTabDragPayload.Transfer) -> Bool = { _, _ in false }
     var updateAutoscroll: () -> Void = {}
@@ -75,6 +81,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     var performExistingWorkspaceMove: (UUID, BonsplitTabDragPayload.Transfer) -> Bool = { _, _ in false }
     var performNewWorkspaceMove: (Int, SidebarDropIndicator, BonsplitTabDragPayload.Transfer) -> Bool = { _, _, _ in false }
     private var isRequestingWorkspaceDropTargets = false
+    private var pendingDrop: PendingDrop?
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
@@ -103,6 +110,10 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        guard pendingDrop == nil else {
+            setDropIndicator(nil)
+            return
+        }
         updateWorkspaceDropTargetCollection(sender, isActive: false)
 #if DEBUG
         dlog("sidebar.workspaceDropOverlay.exited clear=1")
@@ -112,7 +123,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let action = action(for: sender)
-        let accepted = acceptedTransfer(sender, action: action) != nil
+        let accepted = acceptedTransfer(sender, action: action) != nil || pendingTransfer(sender) != nil
 #if DEBUG
         dlog(
             "sidebar.workspaceDropOverlay.prepare accepted=\(accepted ? 1 : 0) " +
@@ -123,39 +134,81 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        defer {
+        let action = action(for: sender)
+        if let action, let transfer = acceptedTransfer(sender, action: action) {
+            let moved = perform(action: action, transfer: transfer)
             updateWorkspaceDropTargetCollection(sender, isActive: false)
             setDropIndicator(nil)
-        }
-        let action = action(for: sender)
-        guard let action, let transfer = acceptedTransfer(sender, action: action) else {
 #if DEBUG
             dlog(
-                "sidebar.workspaceDropOverlay.perform moved=0 reason=notAccepted " +
+                "sidebar.workspaceDropOverlay.perform moved=\(moved ? 1 : 0) " +
                 "action=\(debugActionDescription(action))"
             )
 #endif
-            return false
+            return moved
         }
 
-        let moved: Bool
-        switch action {
-        case .existingWorkspace(let workspaceId):
-            moved = performExistingWorkspaceMove(workspaceId, transfer)
-        case .newWorkspace(let insertionIndex, let indicator):
-            moved = performNewWorkspaceMove(insertionIndex, indicator, transfer)
+        if let transfer = pendingTransfer(sender) {
+            pendingDrop = PendingDrop(point: localPoint(sender), transfer: transfer)
+#if DEBUG
+            dlog("sidebar.workspaceDropOverlay.perform pendingTargets=1")
+#endif
+            return true
         }
 
+        updateWorkspaceDropTargetCollection(sender, isActive: false)
+        setDropIndicator(nil)
 #if DEBUG
         dlog(
-            "sidebar.workspaceDropOverlay.perform moved=\(moved ? 1 : 0) " +
+            "sidebar.workspaceDropOverlay.perform moved=0 reason=notAccepted " +
             "action=\(debugActionDescription(action))"
         )
 #endif
-        return moved
+        return false
+    }
+
+    func performPendingDropIfPossible() {
+        guard let pendingDrop, !targets.isEmpty else { return }
+        self.pendingDrop = nil
+        defer {
+            updateWorkspaceDropTargetCollection(nil, isActive: false)
+            setDropIndicator(nil)
+        }
+
+        guard let action = SidebarDropPlanner.workspaceAction(for: pendingDrop.point, targets: targets),
+              canPerformAction(action, pendingDrop.transfer) else {
+#if DEBUG
+            dlog("sidebar.workspaceDropOverlay.performPending moved=0 reason=notAccepted")
+#endif
+            return
+        }
+
+        let moved = perform(action: action, transfer: pendingDrop.transfer)
+#if DEBUG
+        dlog(
+            "sidebar.workspaceDropOverlay.performPending moved=\(moved ? 1 : 0) " +
+            "action=\(debugActionDescription(action))"
+        )
+#endif
+    }
+
+    private func perform(
+        action: SidebarDropPlanner.WorkspaceDropAction,
+        transfer: BonsplitTabDragPayload.Transfer
+    ) -> Bool {
+        switch action {
+        case .existingWorkspace(let workspaceId):
+            return performExistingWorkspaceMove(workspaceId, transfer)
+        case .newWorkspace(let insertionIndex, let indicator):
+            return performNewWorkspaceMove(insertionIndex, indicator, transfer)
+        }
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        guard pendingDrop == nil else {
+            setDropIndicator(nil)
+            return
+        }
         updateWorkspaceDropTargetCollection(sender, isActive: false)
 #if DEBUG
         dlog("sidebar.workspaceDropOverlay.concluded clear=1")
@@ -170,9 +223,9 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
            BonsplitTabDragPayload.transfer(from: sender.draggingPasteboard) != nil {
             setDropIndicator(nil)
 #if DEBUG
-            dlog("sidebar.workspaceDropOverlay.\(phase) accepted=0 pendingTargets=1")
+            dlog("sidebar.workspaceDropOverlay.\(phase) accepted=1 pendingTargets=1")
 #endif
-            return []
+            return .move
         }
         guard acceptedTransfer(sender, action: action) != nil, let action else {
             setDropIndicator(nil)
@@ -225,6 +278,11 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
             return nil
         }
         return transfer
+    }
+
+    private func pendingTransfer(_ sender: any NSDraggingInfo) -> BonsplitTabDragPayload.Transfer? {
+        guard isRequestingWorkspaceDropTargets, targets.isEmpty else { return nil }
+        return BonsplitTabDragPayload.transfer(from: sender.draggingPasteboard)
     }
 
     private func action(for sender: any NSDraggingInfo) -> SidebarDropPlanner.WorkspaceDropAction? {
