@@ -13343,9 +13343,10 @@ function renderSettingsInspector(options = {}) {
       "workspace color custom hex picker palette swatch reset default clear"
     ));
     const paneColorSuggestion = workspacePaneColorSuggestion(workspace);
+    const workspaceHasPaneColors = Boolean(workspace?.panels?.some((panel) => panel.color));
     const workspaceColorSyncActions = document.createElement("div");
     workspaceColorSyncActions.className = "settings-actions";
-    workspaceColorSyncActions.dataset.settingsSearch = normalizeSettingsQuery("workspace color sync active pane tab use pane color match");
+    workspaceColorSyncActions.dataset.settingsSearch = normalizeSettingsQuery("workspace color sync active pane tab use pane color match reset clear all panes inherit");
     const usePaneColor = settingsActionButton("Use pane color", () => setWorkspaceColorFromActivePane(workspace), "", "workspace color sync active pane tab match use pane color");
     usePaneColor.disabled = !workspace || !paneColorSuggestion || paneColorSuggestion === workspace.color;
     usePaneColor.title = !workspace
@@ -13355,12 +13356,19 @@ function renderSettingsInspector(options = {}) {
         : paneColorSuggestion === workspace.color
           ? "Workspace already uses the active pane color."
           : "Set the workspace color from the active pane.";
-    workspaceColorSyncActions.append(usePaneColor);
+    const resetPaneColors = settingsActionButton("Reset pane colors", () => clearWorkspacePaneColors(workspace), "", "workspace color sync reset clear all pane colors inherit workspace default");
+    resetPaneColors.disabled = !workspace || !workspaceHasPaneColors;
+    resetPaneColors.title = !workspace
+      ? "Open a workspace before resetting pane colors."
+      : !workspaceHasPaneColors
+        ? "Pane colors already inherit the workspace color."
+        : "Clear pane colors so they inherit the workspace color.";
+    workspaceColorSyncActions.append(usePaneColor, resetPaneColors);
     workspaceSection.append(settingRow(
       "Color sync",
       workspaceColorSyncActions,
       true,
-      "workspace color sync active pane tab use pane color match"
+      "workspace color sync active pane tab use pane color match reset clear all panes inherit"
     ));
     const workspaceActions = document.createElement("div");
     workspaceActions.className = "settings-actions";
