@@ -760,9 +760,23 @@ function sameWorkerHighlighterOptions(
   return previous?.lineDiffType === next.lineDiffType &&
     previous?.maxLineDiffLength === next.maxLineDiffLength &&
     previous?.preferredHighlighter === next.preferredHighlighter &&
-    previous?.theme === next.theme &&
+    sameThemeOption(previous?.theme, next.theme) &&
     previous?.tokenizeMaxLineLength === next.tokenizeMaxLineLength &&
     previous?.useTokenTransformer === next.useTokenTransformer;
+}
+
+function sameThemeOption(
+  previous: ReturnType<typeof workerHighlighterOptions>["theme"] | undefined,
+  next: ReturnType<typeof workerHighlighterOptions>["theme"],
+): boolean {
+  if (previous === next) {
+    return true;
+  }
+  if (typeof previous !== "object" || previous == null || typeof next !== "object" || next == null) {
+    return false;
+  }
+  return (previous as { dark?: string }).dark === (next as { dark?: string }).dark &&
+    (previous as { light?: string }).light === (next as { light?: string }).light;
 }
 
 function usePierreFileTreeSource(
