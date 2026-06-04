@@ -1043,8 +1043,18 @@ private final class ClaudeHookSessionStore {
         if let pid {
             record.pid = pid
         }
-        if let launchCommand, !launchCommand.arguments.isEmpty {
-            record.launchCommand = launchCommand
+        if let launchCommand {
+            let existingHasArguments = !(record.launchCommand?.arguments.isEmpty ?? true)
+            let incomingHasArguments = !launchCommand.arguments.isEmpty
+            let incomingHasEnvironment = !(launchCommand.environment?.isEmpty ?? true)
+            // Persist an argv-bearing record always. Persist an argv-less, env-only record (the
+            // CODEX_HOME / CLAUDE_CONFIG_DIR fallback for a plain agent whose launch argv couldn't be
+            // captured) only when we don't already hold an argv-bearing one — so the durable store
+            // keeps the non-default home for the fork/resume path without ever downgrading a richer
+            // earlier capture to an env-only stub.
+            if incomingHasArguments || (incomingHasEnvironment && !existingHasArguments) {
+                record.launchCommand = launchCommand
+            }
         }
         if let isRestorable {
             // Preserve sticky true: a later isRestorable=false must not clear

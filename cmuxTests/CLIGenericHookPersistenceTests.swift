@@ -3403,6 +3403,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         let command = try XCTUnwrap(params["command"] as? String)
         XCTAssertTrue(command.contains("'resume' '\(sessionId)'"), command)
+
+        // The env-only record must also be PERSISTED to the hook session store (its arguments are
+        // empty, so the store's "only assign launchCommand when arguments is non-empty" gate would
+        // otherwise drop it) — a later fork/resume that reads the store rather than re-deriving from a
+        // live hook env still needs CODEX_HOME.
+        let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        let persistedLaunch = try XCTUnwrap(
+            persisted["launchCommand"] as? [String: Any],
+            "env-only launchCommand must be persisted for the fork path"
+        )
+        XCTAssertEqual(
+            (persistedLaunch["environment"] as? [String: String])?["CODEX_HOME"], codexHome,
+            "persisted launchCommand must carry CODEX_HOME"
+        )
     }
 
     /// G3 (https://github.com/manaflow-ai/cmux/issues/5333): the codex surface jumble. CMUX_SURFACE_ID
