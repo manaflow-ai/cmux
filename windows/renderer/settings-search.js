@@ -15,14 +15,31 @@ function localizedEntries(source) {
   return source[locale] || source.en || [];
 }
 
+const settingsSearchCacheLimit = 2048;
+const settingsSearchCacheMaxKeyLength = 4096;
+const normalizedQueryCache = new Map();
+const normalizedTokenCache = new Map();
+
+function rememberSettingsSearchCache(cache, key, value) {
+  if (key.length > settingsSearchCacheMaxKeyLength) return value;
+  if (cache.size >= settingsSearchCacheLimit) {
+    cache.delete(cache.keys().next().value);
+  }
+  cache.set(key, value);
+  return value;
+}
+
 export function normalizeSettingsQuery(value) {
-  return String(value || "")
+  const raw = String(value || "");
+  const cached = normalizedQueryCache.get(raw);
+  if (cached !== undefined) return cached;
+  return rememberSettingsSearchCache(normalizedQueryCache, raw, raw
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
-    .replace(/\s+/g, " ");
+    .replace(/\s+/g, " "));
 }
 
 export const searchTokenAliases = new Map(localizedEntries(localizedSearchTokenAliases));
@@ -42,10 +59,13 @@ export function settingsSearchTokens(value) {
 export function settingsSearchTokensNormalized(value) {
   const normalized = String(value || "").trim();
   if (!normalized) return [];
-  return normalized.split(/\s+/).filter((token) => !searchStopWords.has(token)).map((token) => {
+  const cached = normalizedTokenCache.get(normalized);
+  if (cached) return cached;
+  const tokens = normalized.split(/\s+/).filter((token) => !searchStopWords.has(token)).map((token) => {
     const aliases = searchTokenAliases.get(token) || [];
     return uniqueSearchTokens([token, ...aliases]);
   });
+  return rememberSettingsSearchCache(normalizedTokenCache, normalized, tokens);
 }
 
 export function settingsSearchMatches(searchText, tokens) {
