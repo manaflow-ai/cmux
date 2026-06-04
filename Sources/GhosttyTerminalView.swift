@@ -1480,6 +1480,7 @@ enum TerminalOpenURLTarget: Equatable, Sendable {
 func resolveTerminalOpenURLTarget(
     _ rawValue: String,
     cwd: String? = FileManager.default.currentDirectoryPath,
+    allowAbsolutePathFallback: Bool = true,
     fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
 ) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1547,6 +1548,12 @@ func resolveTerminalOpenURLTarget(
     }
 
     if NSString(string: trimmed).isAbsolutePath {
+        guard allowAbsolutePathFallback else {
+            #if DEBUG
+            cmuxDebugLog("link.resolve result=nil (absolutePathFallbackDisabled) url=\(trimmed)")
+            #endif
+            return nil
+        }
         #if DEBUG
         cmuxDebugLog("link.resolve result=external(absolutePath) url=\(trimmed)")
         #endif
@@ -4967,6 +4974,7 @@ class GhosttyApp {
         return resolveTerminalOpenURLTarget(
             context.urlString,
             cwd: context.cwd,
+            allowAbsolutePathFallback: context.canResolveLocalFiles,
             fileExists: localFileExists
         )
     }

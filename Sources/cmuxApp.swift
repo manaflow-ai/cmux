@@ -5354,12 +5354,10 @@ enum PreferredEditorSettings {
             NSWorkspace.shared.open(target.fallbackURL)
             return
         }
-        let includeLineReference = !commandUsesMacOpen(command)
-        let gotoFlag = commandNeedsGotoFlag(command) && target.line != nil ? " -g" : ""
-        let argument = target.commandArgument(includeLineReference: includeLineReference)
+        let invocation = commandInvocationComponents(target: target, command: command)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "\(command)\(gotoFlag) \(shellQuote(argument))"]
+        process.arguments = ["-c", "\(command)\(invocation.gotoFlag) \(shellQuote(invocation.argument))"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
@@ -5391,7 +5389,26 @@ enum PreferredEditorSettings {
     static func fallbackURLForTesting(_ url: URL) -> URL {
         openTarget(from: url).fallbackURL
     }
+
+    static func editorInvocationForTesting(
+        _ url: URL,
+        command: String
+    ) -> (gotoFlag: String, argument: String) {
+        commandInvocationComponents(target: openTarget(from: url), command: command)
+    }
     #endif
+
+    private static func commandInvocationComponents(
+        target: OpenTarget,
+        command: String
+    ) -> (gotoFlag: String, argument: String) {
+        let includeLineReference = commandSupportsPathLineReference(command)
+        let gotoFlag = commandNeedsGotoFlag(command) && target.line != nil ? " -g" : ""
+        return (
+            gotoFlag: gotoFlag,
+            argument: target.commandArgument(includeLineReference: includeLineReference)
+        )
+    }
 
     private static func lineColumn(fromFragment fragment: String?) -> (line: Int, column: Int?)? {
         guard var raw = fragment?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -5423,15 +5440,24 @@ enum PreferredEditorSettings {
 
     private static func commandNeedsGotoFlag(_ command: String) -> Bool {
         guard let commandName = normalizedCommandName(command) else { return false }
-        guard ["code", "code-insiders", "cursor", "cursor-insiders", "windsurf"].contains(commandName) else {
+        guard pathLineReferenceCommandNames.contains(commandName) else {
             return false
         }
         let tokens = CmuxShellWords.split(command)
         return !tokens.contains("-g") && !tokens.contains("--goto")
     }
 
-    private static func commandUsesMacOpen(_ command: String) -> Bool {
-        normalizedCommandName(command) == "open"
+    private static let pathLineReferenceCommandNames: Set<String> = [
+        "code",
+        "code-insiders",
+        "cursor",
+        "cursor-insiders",
+        "windsurf",
+    ]
+
+    private static func commandSupportsPathLineReference(_ command: String) -> Bool {
+        guard let commandName = normalizedCommandName(command) else { return false }
+        return pathLineReferenceCommandNames.contains(commandName)
     }
 
     private static func normalizedCommandName(_ command: String) -> String? {

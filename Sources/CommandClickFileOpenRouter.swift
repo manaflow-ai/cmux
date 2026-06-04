@@ -45,7 +45,16 @@ enum CommandClickFileOpenRouter {
     ) -> Bool {
         switch routeKind {
         case .markdown:
-            return workspace.openOrFocusMarkdownSplit(
+            if workspace.openOrFocusMarkdownSplit(
+                from: sourcePanelId,
+                filePath: filePath
+            ) != nil {
+                return true
+            }
+            guard CmdClickSupportedFileRouteSettings.shouldRoute(path: filePath) else {
+                return false
+            }
+            return workspace.openOrFocusFilePreviewSplit(
                 from: sourcePanelId,
                 filePath: filePath
             ) != nil

@@ -56,6 +56,30 @@ import Testing
         #expect(fallbackURL.fragment == "L42:5")
     }
 
+    @Test func editorInvocationAddsLineReferenceForKnownGotoEditor() throws {
+        let url = try #require(URL(string: "file:///tmp/cmux-fixture.swift#L42:5"))
+        let invocation = PreferredEditorSettings.editorInvocationForTesting(url, command: "code")
+
+        #expect(invocation.gotoFlag == " -g")
+        #expect(invocation.argument == "/tmp/cmux-fixture.swift:42:5")
+    }
+
+    @Test func editorInvocationKeepsExistingGotoFlagForKnownEditor() throws {
+        let url = try #require(URL(string: "file:///tmp/cmux-fixture.swift#L42:5"))
+        let invocation = PreferredEditorSettings.editorInvocationForTesting(url, command: "cursor --goto")
+
+        #expect(invocation.gotoFlag == "")
+        #expect(invocation.argument == "/tmp/cmux-fixture.swift:42:5")
+    }
+
+    @Test func editorInvocationDoesNotAppendLineReferenceForUnknownCommand() throws {
+        let url = try #require(URL(string: "file:///tmp/cmux-fixture.swift#L42:5"))
+        let invocation = PreferredEditorSettings.editorInvocationForTesting(url, command: "mate")
+
+        #expect(invocation.gotoFlag == "")
+        #expect(invocation.argument == "/tmp/cmux-fixture.swift")
+    }
+
     @Test func shellWordsKeepQuotedEditorCommandWithGotoFlag() {
         let words = CmuxShellWords.split("\"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code\" --goto")
 

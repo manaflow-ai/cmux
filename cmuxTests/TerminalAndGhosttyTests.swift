@@ -5130,6 +5130,16 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 
+    func testSkipsUnverifiedAbsolutePathFallbackWhenDisabled() throws {
+        let target = resolveTerminalOpenURLTarget(
+            "/tmp/cmux-remote-path.txt",
+            allowAbsolutePathFallback: false,
+            fileExists: { _ in false }
+        )
+
+        XCTAssertNil(target)
+    }
+
     func testResolvesRelativeFileLineReferenceAsExternalFileURLInsteadOfBrowser() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
