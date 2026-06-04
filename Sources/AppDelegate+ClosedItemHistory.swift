@@ -329,8 +329,10 @@ extension AppDelegate {
     private func closeReopenedRef(_ ref: ReopenedItemRef, operationId: UUID, force: Bool = false) -> Bool {
         switch ref {
         case .panel(let workspaceId, let panelId):
-            guard let manager = tabManagerFor(tabId: workspaceId),
-                  let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
+            guard let (workspace, _) = workspaceContainingPanel(
+                panelId: panelId,
+                preferredWorkspaceId: workspaceId
+            ) else { return false }
             return workspace.closePanelForHistoryRedo(panelId, operationId: operationId, force: force)
         case .workspace(let workspaceId):
             guard let manager = tabManagerFor(tabId: workspaceId),

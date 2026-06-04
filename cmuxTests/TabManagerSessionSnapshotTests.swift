@@ -821,6 +821,55 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(ClosedItemHistoryStore.shared.lastRestoredOperationId)
     }
 
+    func testRedoRestoredPanelClosesPanelMovedToAnotherWorkspace() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer {
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true))
+        workspace.setPanelCustomTitle(panelId: panel.id, title: "Moved Redo")
+        workspace.markCloseHistoryEligible(panelId: panel.id)
+        XCTAssertTrue(workspace.closePanel(panel.id, force: true))
+        drainMainQueue()
+
+        let record = try XCTUnwrap(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
+        XCTAssertTrue(appDelegate.reopenClosedHistoryItem(
+            id: record.id,
+            preferredTabManager: manager,
+            shouldActivate: false
+        ))
+        guard case .panel(let restoredWorkspaceId, let restoredPanelId) = ClosedItemHistoryStore.shared.restoredRef(for: record.id) else {
+            XCTFail("Expected restored panel ref")
+            return
+        }
+        XCTAssertEqual(restoredWorkspaceId, workspace.id)
+        XCTAssertNotNil(workspace.panels[restoredPanelId])
+
+        let move = try XCTUnwrap(appDelegate.moveSurfaceToNewWorkspace(
+            panelId: restoredPanelId,
+            focus: false,
+            focusWindow: false
+        ))
+        let movedWorkspace = try XCTUnwrap(manager.tabs.first { $0.id == move.destinationWorkspaceId })
+        XCTAssertNil(workspace.panels[restoredPanelId])
+        XCTAssertNotNil(movedWorkspace.panels[restoredPanelId])
+
+        XCTAssertTrue(appDelegate.redoLastDestructiveAction(preferredTabManager: manager, force: true))
+        XCTAssertNil(movedWorkspace.panels[restoredPanelId])
+        XCTAssertNil(ClosedItemHistoryStore.shared.lastRestoredOperationId)
+    }
+
     func testGroupedRedoStopsAfterPanelCloseCancellation() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
