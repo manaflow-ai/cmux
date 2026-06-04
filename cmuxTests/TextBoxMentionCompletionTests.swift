@@ -928,46 +928,84 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionRefreshKeepsRowsOnSameTriggerEditButClearsOnTriggerChange() {
+    func testTextBoxMentionSkillSuggestionsPreferExactNameOverPathOnlyFuzzyMatches() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-skill-fuzzy-filter-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let skillsDirectory = root.appendingPathComponent("skills", isDirectory: true)
+        let skillNames = [
+            "agent-browser",
+            "agent-cli-integration",
+            "algorithmic-complexity-audit",
+            "auto-issue",
+            "cleanup-dev-builds",
+            "close-issues",
+            "pi-agent-rust",
+            "xcodebuildmcp-cli",
+            "iterate-pr"
+        ] + (0..<40).map { String(format: "zzz-distractor-%02d", $0) }
+        for skillName in skillNames {
+            let skillDirectory = skillsDirectory.appendingPathComponent(skillName, isDirectory: true)
+            try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+            try "name: \(skillName)\n".write(
+                to: skillDirectory.appendingPathComponent("SKILL.md"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        for trigger in ["/", "$"] as [Character] {
+            let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+                for: TextBoxMentionQuery(
+                    kind: .skill,
+                    range: NSRange(location: 0, length: 11),
+                    query: "iterate-pr",
+                    trigger: trigger
+                ),
+                rootDirectory: root.path
+            )
+
+            #expect(suggestions.first?.title == "\(trigger)iterate-pr")
+            #expect(!suggestions.contains { $0.title == "\(trigger)pi-agent-rust" })
+            #expect(!suggestions.contains { $0.title == "\(trigger)agent-browser" })
+        }
+    }
+
+    @Test
+    func testTextBoxMentionRefreshClearsRowsWhenSameTriggerQueryBecomesNonEmpty() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
-        textView.string = "@a"
-        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.string = "$"
+        textView.setSelectedRange(NSRange(location: 1, length: 0))
         let staleSuggestion = TextBoxMentionSuggestion(
-            id: "alpha",
-            title: "@alpha.txt",
-            subtitle: "alpha.txt",
-            insertionText: "[@alpha.txt](/tmp/alpha.txt)",
-            systemImageName: "doc"
+            id: "$:/tmp/agent-browser/SKILL.md",
+            title: "$agent-browser",
+            subtitle: "/tmp/agent-browser/SKILL.md",
+            insertionText: "$agent-browser",
+            systemImageName: "sparkle.magnifyingglass"
         )
 
         textView.debugSetMentionCompletionState(
-            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 2), query: "a"),
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "$"
+            ),
             suggestions: [staleSuggestion]
         )
         #expect(textView.debugMentionSuggestionCount() == 1)
 
-        // Editing within the same trigger keeps the previous rows visible until
-        // the async lookup returns, avoiding a per-keystroke popover flicker.
-        textView.string = "@z"
-        textView.setSelectedRange(NSRange(location: 2, length: 0))
-        textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionCount() == 1)
-        #expect(!(textView.debugMentionSuggestionsAreCurrent()))
-        #expect(!(textView.debugAcceptMentionCompletion()))
-        #expect(!(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion)))
-        #expect(textView.string == "@z")
-        var submitCount = 0
-        textView.onSubmit = { submitCount += 1 }
-        textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
-        #expect(submitCount == 1)
-        #expect(textView.string == "@z")
-
-        // Switching the trigger is a different completion kind, so stale rows are
-        // dropped immediately rather than shown under the wrong trigger.
-        textView.string = "/z"
-        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.string = "$iterate-pr"
+        textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
         #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(!(textView.debugAcceptMentionCompletion()))
+        #expect(!(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion)))
     }
 
     @Test
