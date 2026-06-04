@@ -6947,6 +6947,9 @@ const corePaletteCommandIds = new Set([
   "terminal.fontDown",
   "terminal.fontReset",
   "browser.newPane",
+  "browser.copySetup",
+  "browser.pasteSetup",
+  "browser.resetSetup",
   "settings.pane",
   "settings.renamePane",
   "settings.copyPaneSetup",
@@ -6995,6 +6998,7 @@ function coreCommandPaletteSignature() {
   appendSignatureValue(parts, Boolean(state.settings.focusMode));
   appendSignatureValue(parts, Boolean(panel && isPanelZoomed(panel, workspace)));
   appendSignatureValue(parts, activePaneLayoutPercent(workspace));
+  appendSignatureValue(parts, settingsKeysSignature(browserSetupSettings));
   appendSignatureValue(parts, settingsKeysSignature(workspaceChromeSettings));
   return parts.join("");
 }
@@ -7161,6 +7165,29 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       icon: "browserPlus",
       title: !hasWorkspace ? noWorkspaceTitle : creationTitle("Open the browser home page in a new pane."),
       search: `browser new pane web home add workspace ${workspaceTitle} ${state.settings.browserHomeUrl}`
+    };
+  }
+  if (["browser.copySetup", "browser.pasteSetup", "browser.resetSetup"].includes(commandId)) {
+    const setupDefault = browserSetupSettingsAreDefault();
+    const summary = browserSetupSummaryForSettings(state.settings);
+    const home = hostnameOf(summary.home) || summary.home || "Browser home";
+    const meta = `${home} / ${summary.chrome} / ${summary.zoom}`;
+    const isPaste = commandId === "browser.pasteSetup";
+    const isReset = commandId === "browser.resetSetup";
+    return {
+      meta: isReset ? setupDefault ? "Defaults active" : meta : isPaste ? "Browser setup import" : meta,
+      shortcut: isReset ? (setupDefault ? "Default" : "Reset") : isPaste ? "Paste" : "Copy",
+      active: isReset && setupDefault,
+      disabled: isReset && setupDefault,
+      icon: "browserPlus",
+      title: isReset
+        ? setupDefault
+          ? "Browser setup already uses defaults."
+          : "Reset browser home, launch mode, external profile, inactive-pane suspension, pane chrome, and zoom to defaults."
+        : isPaste
+          ? "Apply copied cmux browser setup."
+          : "Copy browser home, launch mode, external profile, suspend setting, pane chrome, and pane zoom as JSON.",
+      search: normalizeSettingsQuery(`browser setup ${isPaste ? "paste import" : isReset ? "reset default" : "copy export"} home launch external profile suspend inactive pane chrome tabs address controls full compact content zoom scale clipboard json ${setupDefault ? "active current " : ""}${summary.home} ${summary.launch} ${summary.profile} ${summary.inactivePanes} ${summary.chrome} ${summary.zoom}`)
     };
   }
   if (commandId === "terminal.splitRight" || commandId === "terminal.splitDown") {
