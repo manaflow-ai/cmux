@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileAuth
 import Foundation
 
 enum MobileShellConnectionError: LocalizedError {
@@ -139,10 +140,68 @@ final class MobileCoreRPCClient: Sendable {
     }
 
     func sendRequest(_ requestData: Data, timeoutNanoseconds: UInt64? = nil) async throws -> Data {
+        do {
+            return try await sendAuthenticatedRequest(
+                requestData,
+                timeoutNanoseconds: timeoutNanoseconds,
+                allowAuthRetry: true
+            )
+        } catch let error as MobileShellConnectionError {
+            // The host rejected this request on Stack-auth grounds. Before
+            // surfacing it (which drives the re-auth prompt), force exactly one
+            // fresh-token mint and retry once: the persisted access token is
+            // commonly just stale past its ~1h TTL while the refresh token is
+            // still valid, and a normal provider call would hand back the same
+            // stale token. `.accountMismatch` is deliberately NOT retried here —
+            // it means the Mac is signed in to a different account, so retrying
+            // with a fresh token of THIS account cannot help and would only
+            // weaken the same-account gate.
+            guard case .authorizationFailed = error else { throw error }
+            try await forceRefreshStackTokenForRetry()
+            // Re-run with retry disabled so a fresh token that is still rejected
+            // surfaces as a definitive auth failure instead of looping.
+            return try await sendAuthenticatedRequest(
+                requestData,
+                timeoutNanoseconds: timeoutNanoseconds,
+                allowAuthRetry: false
+            )
+        }
+    }
+
+    /// Force a single Stack token refresh ahead of a retry. A transient refresh
+    /// failure (session intact) is kept retryable so a network blip does not
+    /// trip the re-auth prompt; a definitive failure surfaces as
+    /// `.authorizationFailed` to drive re-auth.
+    private func forceRefreshStackTokenForRetry() async throws {
+        do {
+            _ = try await runtime.stackAccessTokenForceRefresher()
+        } catch {
+            if Self.stackAuthErrorIsRetryable(error) {
+                throw MobileShellConnectionError.connectionClosed
+            }
+            throw MobileShellConnectionError.authorizationFailed(
+                L10n.string(
+                    "mobile.pairing.stackAuthTokenUnavailable",
+                    defaultValue: "Sign in on your computer with the same account, then try again."
+                )
+            )
+        }
+    }
+
+    private func sendAuthenticatedRequest(
+        _ requestData: Data,
+        timeoutNanoseconds: UInt64?,
+        allowAuthRetry: Bool
+    ) async throws -> Data {
         // Multiplexed over a persistent transport: each request gets a unique
         // id, the session's reader task routes the response back here. No
         // connect/close per RPC, no head-of-line blocking between calls.
-        let (id, augmented) = try Self.requestWithGuaranteedID(requestData)
+        // `forceID` mints a brand-new id on the retry pass so it never collides
+        // with the first attempt's already-resolved pending continuation.
+        let (id, augmented) = try Self.requestWithGuaranteedID(
+            requestData,
+            forceID: !allowAuthRetry
+        )
         let authenticated = try await requestDataWithAuth(augmented)
         return try await Self.withRequestTimeout(
             timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
@@ -151,12 +210,15 @@ final class MobileCoreRPCClient: Sendable {
         }
     }
 
-    private static func requestWithGuaranteedID(_ requestData: Data) throws -> (String, Data) {
+    private static func requestWithGuaranteedID(
+        _ requestData: Data,
+        forceID: Bool = false
+    ) throws -> (String, Data) {
         guard var dict = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             throw MobileShellConnectionError.invalidResponse
         }
         let id: String
-        if let existing = dict["id"] as? String, !existing.isEmpty {
+        if !forceID, let existing = dict["id"] as? String, !existing.isEmpty {
             id = existing
         } else {
             id = UUID().uuidString
@@ -193,6 +255,16 @@ final class MobileCoreRPCClient: Sendable {
             do {
                 auth["stack_access_token"] = try await runtime.stackAccessTokenProvider()
             } catch {
+                // Distinguish a transient token-fetch failure (offline / refresh
+                // server hiccup, with the session still intact) from a definitive
+                // one (no session left). A transient failure must stay retryable so
+                // the connection survives a network blip past the ~1h access-token
+                // TTL without a manual re-sign-in; only a definitive failure routes
+                // to the re-auth prompt. Mapping everything to `.authorizationFailed`
+                // here is what made retry fail permanently.
+                if Self.stackAuthErrorIsRetryable(error) {
+                    throw MobileShellConnectionError.connectionClosed
+                }
                 throw MobileShellConnectionError.authorizationFailed(
                     L10n.string(
                         "mobile.pairing.stackAuthTokenUnavailable",
@@ -241,6 +313,22 @@ final class MobileCoreRPCClient: Sendable {
             return false
         default:
             return true
+        }
+    }
+
+    /// Whether a Stack-auth token-fetch failure is transient (the session is
+    /// intact, retry can recover) versus definitive (no session, re-auth needed).
+    ///
+    /// `AuthManager.getAccessToken()` throws `.networkError`/`.offline` when it
+    /// has no usable access token but a refresh token is still present (the SDK
+    /// preserves the refresh token across network/server hiccups), and throws
+    /// `.unauthorized` only when the session is genuinely gone.
+    static func stackAuthErrorIsRetryable(_ error: Error) -> Bool {
+        switch error {
+        case AuthError.networkError, AuthError.offline:
+            return true
+        default:
+            return false
         }
     }
 

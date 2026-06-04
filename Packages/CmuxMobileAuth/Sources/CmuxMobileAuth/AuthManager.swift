@@ -433,6 +433,15 @@ public final class AuthManager {
         }
         #endif
 
+        // No usable access token. Distinguish recoverable from definitive so the
+        // caller never signs the user out on a transient blip: if a refresh token
+        // is still present, the SDK could not mint a fresh access token for a
+        // network/server reason (it clears the refresh token only on a genuine
+        // server rejection), so this is retryable. Only a missing refresh token
+        // means the session is truly gone and a real re-sign-in is required.
+        if await stack.getRefreshToken() != nil {
+            throw AuthError.networkError
+        }
         throw AuthError.unauthorized
     }
 
@@ -441,6 +450,37 @@ public final class AuthManager {
     /// so callers need both this and ``getAccessToken()``.
     public func getRefreshToken() async -> String? {
         await stack.getRefreshToken()
+    }
+
+    /// Force-mint a fresh access token, bypassing the cached-token freshness
+    /// check. Call this after the host rejected the current token so the retry
+    /// presents a genuinely new credential instead of the same rejected one.
+    ///
+    /// The SDK serializes refreshes per token store through its refresh lock, so
+    /// concurrent callers (e.g. several in-flight RPCs when the token tips over)
+    /// never overlap a refresh exchange. Note this serializes rather than
+    /// coalesces: each waiter still performs its own exchange in turn against the
+    /// non-rotating refresh token.
+    ///
+    /// - Returns: a freshly minted access token.
+    /// - Throws: ``AuthError/networkError`` when the refresh failed transiently
+    ///   but the session is intact (a refresh token is still stored), so the
+    ///   caller should retry rather than sign out; ``AuthError/unauthorized``
+    ///   only when the session is genuinely gone (the refresh token was
+    ///   definitively rejected and cleared).
+    @discardableResult
+    public func forceRefreshAccessToken() async throws -> String {
+        if let accessToken = await stack.fetchNewAccessToken() {
+            return accessToken
+        }
+
+        // Same classification as `getAccessToken()`: a surviving refresh token
+        // means the failure was transient (network/server), so stay retryable;
+        // a missing one means the SDK definitively cleared the session.
+        if await stack.getRefreshToken() != nil {
+            throw AuthError.networkError
+        }
+        throw AuthError.unauthorized
     }
 
     private func sanitizedAuthError(_ error: Error) -> Error {

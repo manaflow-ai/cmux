@@ -455,6 +455,10 @@ public final class CMUXMobileShellStore {
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return }
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
+            // A definitive auth failure (expired/invalid token after the
+            // refresh-then-retry in the RPC layer already gave up) must drive the
+            // re-auth prompt, not the generic "could not connect / Retry" banner.
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             connectionError = Self.localizedConnectionError(for: error, route: activeRoute ?? directRoute)
             connectionState = .disconnected
             macConnectionStatus = .unavailable
@@ -570,6 +574,9 @@ public final class CMUXMobileShellStore {
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .private)")
+            // Surface a definitive auth failure as a re-auth prompt rather than a
+            // generic connection error (matches the manual-host path).
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return .failed }
             connectionError = Self.localizedConnectionError(for: error, route: activeRoute)
             connectionState = .disconnected
             macConnectionStatus = .unavailable
@@ -1397,6 +1404,13 @@ public final class CMUXMobileShellStore {
             responseData = try await client.sendRequest(requestData)
         } catch {
             mobileShellLog.error("subscribe failed reason=\(reason, privacy: .public): \(String(describing: error), privacy: .private)")
+            // Event-stream (re)subscribe is the view-only/foreground-resume path.
+            // A definitive auth failure here (RPC layer already tried a
+            // force-refresh + retry) must drive the re-auth prompt instead of a
+            // silently stale live frame.
+            if remoteClient === client {
+                _ = disconnectForAuthorizationFailureIfNeeded(error)
+            }
             return false
         }
         let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
@@ -1862,6 +1876,12 @@ public final class CMUXMobileShellStore {
                 self.terminalByteSinksBySurfaceID[surfaceID]?(deliverBytes)
             } catch {
                 mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                // The replay request is the view-only/foreground-resume path. A
+                // definitive auth failure here (after the RPC layer's
+                // force-refresh-and-retry already gave up) must drive the re-auth
+                // prompt instead of silently leaving a stale frame.
+                guard self.remoteClient === client else { return }
+                _ = self.disconnectForAuthorizationFailureIfNeeded(error)
             }
         }
     }

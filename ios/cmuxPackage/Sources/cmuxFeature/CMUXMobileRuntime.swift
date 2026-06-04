@@ -11,6 +11,11 @@ public struct CMUXMobileRuntime: Sendable {
     public var supportedRouteKinds: [CmxAttachTransportKind]
     public var transportFactory: any CmxByteTransportFactory
     public var stackAccessTokenProvider: @Sendable () async throws -> String
+    /// Force-mint a fresh Stack access token, bypassing the cached-token
+    /// freshness check. The connection layer calls this exactly once after the
+    /// host rejects a request on auth grounds, so the retry presents a genuinely
+    /// new credential instead of re-sending the rejected (likely stale) token.
+    public var stackAccessTokenForceRefresher: @Sendable () async throws -> String
     public var rpcRequestTimeoutNanoseconds: UInt64
     public var pairingRequestTimeoutNanoseconds: UInt64
     public var now: @Sendable () -> Date
@@ -32,10 +37,24 @@ public struct CMUXMobileRuntime: Sendable {
         }
     }
 
+    private static var defaultStackAccessTokenForceRefresher: @Sendable () async throws -> String {
+        {
+            #if DEBUG
+            // A dev-injected token has no SDK session to refresh; return it as-is
+            // so a force-refresh retry still presents the same dev credential.
+            if let token = MobileShellDevStackAuthTokenProvider.token() {
+                return token
+            }
+            #endif
+            return try await AuthManager.shared.forceRefreshAccessToken()
+        }
+    }
+
     public init(
         supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
         transportFactory: any CmxByteTransportFactory,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
+        stackAccessTokenForceRefresher: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
         pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init,
@@ -44,6 +63,7 @@ public struct CMUXMobileRuntime: Sendable {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
         self.stackAccessTokenProvider = stackAccessTokenProvider ?? Self.defaultStackAccessTokenProvider
+        self.stackAccessTokenForceRefresher = stackAccessTokenForceRefresher ?? Self.defaultStackAccessTokenForceRefresher
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.now = now
@@ -53,6 +73,7 @@ public struct CMUXMobileRuntime: Sendable {
     public init(
         transportFactory: any CmxRouteAwareByteTransportFactory,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
+        stackAccessTokenForceRefresher: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
         pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init,
@@ -61,6 +82,7 @@ public struct CMUXMobileRuntime: Sendable {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
         self.stackAccessTokenProvider = stackAccessTokenProvider ?? Self.defaultStackAccessTokenProvider
+        self.stackAccessTokenForceRefresher = stackAccessTokenForceRefresher ?? Self.defaultStackAccessTokenForceRefresher
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.supportsServerPushEvents = supportsServerPushEvents
