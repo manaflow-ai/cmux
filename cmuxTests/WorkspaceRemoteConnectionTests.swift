@@ -5797,12 +5797,38 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                             pending.removeSubrange(0...newlineRange.lowerBound)
                             guard let line = String(data: lineData, encoding: .utf8) else { continue }
                             state.append(line)
-                            guard self.writeAll(handler(line) + "\n", to: clientFD) else { return }
+                            let response = self.defaultMockSocketResponse(for: line) ?? handler(line)
+                            guard self.writeAll(response + "\n", to: clientFD) else { return }
                         }
                     }
                 }
             }
         }
+    }
+
+    private func defaultMockSocketResponse(for line: String) -> String? {
+        guard let data = line.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let id = payload["id"] as? String,
+              let method = payload["method"] as? String,
+              method == "surface.list" else {
+            return nil
+        }
+
+        return v2Response(
+            id: id,
+            ok: true,
+            result: [
+                "surfaces": [
+                    [
+                        "id": "22222222-2222-2222-2222-222222222222",
+                        "ref": "surface:1",
+                        "index": 1,
+                        "focused": true,
+                    ],
+                ],
+            ]
+        )
     }
 
     private func runMockServer(
@@ -5845,7 +5871,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     pending.removeSubrange(0...newlineRange.lowerBound)
                     guard let line = String(data: lineData, encoding: .utf8) else { continue }
                     state.append(line)
-                    guard self.writeAll(handler(line) + "\n", to: clientFD) else { return }
+                    let response = self.defaultMockSocketResponse(for: line) ?? handler(line)
+                    guard self.writeAll(response + "\n", to: clientFD) else { return }
                 }
             }
         }

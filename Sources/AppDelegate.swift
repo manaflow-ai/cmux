@@ -14595,9 +14595,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             : nil
 
         guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
-#if DEBUG
             let candidatePanelId = responderPanelId ?? browserAddressBarFocusedPanelId
             guard let candidatePanelId else { return nil }
+            if browserOmnibarField(panelId: candidatePanelId, in: shortcutWindow) != nil {
+                return candidatePanelId
+            }
+#if DEBUG
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(candidatePanelId.uuidString.prefix(5)) " +
                 "accepted=0 reason=no_context event=\(NSWindow.keyDescription(event))"

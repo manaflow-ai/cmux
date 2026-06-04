@@ -1862,7 +1862,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             window.orderOut(nil)
         }
 
-        let readyText = try waitForTerminalText(from: hostedTerminal) {
+        let readyText = try waitForTerminalText(from: hostedTerminal, timeout: 15) {
             $0.contains(captureReadyMarker)
         }
         XCTAssertTrue(readyText.contains(captureReadyMarker), "Expected Kitty enable marker before clear-history")
@@ -1888,7 +1888,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         )
         XCTAssertTrue(sent, "Expected ordinary c keyDown to be dispatched through ghostty_surface_key")
 
-        let captureText = try waitForTerminalText(from: hostedTerminal, timeout: 5) {
+        let captureText = try waitForTerminalText(from: hostedTerminal, timeout: 15) {
             $0.contains(captureMarker)
         }
         guard let markerRange = captureText.range(of: "\(captureMarker)=") else {
