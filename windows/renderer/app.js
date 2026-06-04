@@ -6574,6 +6574,7 @@ const commands = [
   { id: "settings.copyDiagnostics", label: "Copy Performance Diagnostics", shortcut: "", run: () => copyPerformanceDiagnostics() },
   { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
+  { id: "settings.resetCommandPalette", label: "Reset Command Palette Settings", shortcut: "", run: () => resetCommandPaletteSettings() },
   { id: "settings.pasteCommandSnippet", label: "Paste Command Snippet", shortcut: "", run: () => pasteCommandSnippet() },
   { id: "settings.profiles", label: "Open Settings Profiles", shortcut: "", run: () => openSettingsCategory("profiles") },
   { id: "settings.saveProfile", label: "Save Current Settings Profile", shortcut: "", run: () => saveCurrentSettingsProfile() },
@@ -6654,6 +6655,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.resetAppearance",
   "settings.copyLook",
   "settings.pasteLook",
+  "settings.resetCommandPalette",
   "settings.copySavedColors",
   "settings.pasteSavedColors",
   "settings.saveAccentColor",
@@ -6672,6 +6674,7 @@ function customizationCommandPaletteSignature() {
   appendSignatureValue(parts, savedDataItemCount());
   appendSignatureValue(parts, recentDataItemCount());
   appendSignatureValue(parts, settingsKeysSignature(appearanceResetSettings));
+  appendSignatureValue(parts, settingsKeysSignature(commandPaletteSettings));
   appendSignatureValue(parts, settingsKeysSignature(performanceSetupSettings));
   appendSignatureValue(parts, state.customColorPalette.length);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
@@ -6848,6 +6851,26 @@ function customizationCommandPaletteState(commandId) {
         ? "Performance setup already uses defaults."
         : "Reset performance tuning, motion, output, browser, lightweight chrome, and history settings to defaults.",
       search: normalizeSettingsQuery(`performance setup reset defaults speed lag smooth tune motion output terminal browser chrome history workspace palette toast background ${setupDefault ? "active current " : ""}${summary}`)
+    };
+  }
+  if (commandId === "settings.resetCommandPalette") {
+    const paletteDefault = commandPaletteSettingsAreDefault();
+    const density = optionLabel(paletteDensityOptions, state.settings.paletteDensity, state.settings.paletteDensity);
+    const actions = optionLabel(paletteQuickActionsModeOptions, state.settings.paletteQuickActionsMode, state.settings.paletteQuickActionsMode);
+    const detail = optionLabel(paletteDetailModeOptions, state.settings.paletteDetailMode, state.settings.paletteDetailMode);
+    const results = optionLabel(paletteResultLimitOptions, state.settings.paletteResultLimit, state.settings.paletteResultLimit);
+    const placement = optionLabel(palettePlacementOptions, state.settings.palettePlacement, state.settings.palettePlacement);
+    const meta = `${density} / ${results} results / ${placement}`;
+    return {
+      meta: paletteDefault ? "Defaults active" : meta,
+      shortcut: paletteDefault ? "Default" : "Reset",
+      active: paletteDefault,
+      disabled: paletteDefault,
+      icon: "settings",
+      title: paletteDefault
+        ? "Command palette already uses defaults."
+        : "Reset command palette density, quick actions, details, result limit, and placement.",
+      search: normalizeSettingsQuery(`command palette reset defaults density compact balanced roomy quick actions auto hidden details metadata shortcuts result limit focused balanced extended placement top center wide ${paletteDefault ? "active current " : ""}${density} ${actions} ${detail} ${results} ${placement}`)
     };
   }
   if (commandId === "settings.copySavedColors") {
