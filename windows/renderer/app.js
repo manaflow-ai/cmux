@@ -15849,6 +15849,17 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
     true,
     "command palette placement position top center wide command search overlay workspace chrome"
   ));
+  const commandPaletteDefault = commandPaletteSettingsAreDefault();
+  const paletteActions = document.createElement("div");
+  paletteActions.className = "settings-actions";
+  paletteActions.dataset.settingsSearch = normalizeSettingsQuery("command palette reset default density compact balanced roomy quick actions auto hidden details metadata shortcuts result limit focused balanced extended placement top center wide");
+  const resetPaletteAction = settingsActionButton("Reset palette", resetCommandPaletteSettings, "", `command palette reset default density quick actions details result limit placement ${commandPaletteDefault ? "active current " : ""}`);
+  resetPaletteAction.disabled = commandPaletteDefault;
+  resetPaletteAction.title = commandPaletteDefault
+    ? "Command palette settings already use defaults."
+    : "Reset command palette density, quick actions, details, result limit, and placement.";
+  paletteActions.append(resetPaletteAction);
+  panel.append(paletteActions);
   panel.append(settingRow(
     "Active workspace",
     settingSegmentedControl("workspaceActiveStyle", workspaceActiveStyleOptions, "sidebar workspace active selected current row subtle filled line highlight accent", { compact: true }),
@@ -32195,6 +32206,14 @@ const workspaceChromeSettings = [
   "inspectorWidth"
 ];
 
+const commandPaletteSettings = [
+  "paletteDensity",
+  "paletteQuickActionsMode",
+  "paletteDetailMode",
+  "paletteResultLimit",
+  "palettePlacement"
+];
+
 const workspaceChromeBooleanSettings = new Set([
   "paneColorMarkers",
   "focusMode",
@@ -32954,6 +32973,10 @@ function workspaceChromeSettingsAreDefault() {
   return settingsKeysMatchDefaults(workspaceChromeSettings);
 }
 
+function commandPaletteSettingsAreDefault() {
+  return settingsKeysMatchDefaults(commandPaletteSettings);
+}
+
 function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
   const enabled = Boolean(nextValue);
   const changed = updateSettings({ focusMode: enabled }, { immediate: true });
@@ -32989,6 +33012,19 @@ function resetWorkspaceChrome() {
   }
   refreshLayoutSettings();
   toast("Workspace chrome reset.");
+}
+
+function resetCommandPaletteSettings() {
+  const updates = {};
+  for (const key of commandPaletteSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Command palette already uses defaults.");
+    return false;
+  }
+  refreshLayoutSettings();
+  toast("Command palette reset.");
+  return true;
 }
 
 function resetWorkspacePanelWidths() {
