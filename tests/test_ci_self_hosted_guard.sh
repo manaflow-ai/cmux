@@ -304,6 +304,15 @@ check_vm_socket_tests_do_not_skip_ctrl_interactive() {
   echo "PASS: VM socket runners include Ctrl+C/Ctrl+D terminal delivery regression"
 }
 
+check_vm_socket_tests_do_not_self_skip() {
+  if grep -R -n --exclude-dir=__pycache__ -E "class[[:space:]]+cmuxSkip|raise[[:space:]]+cmuxSkip" "$ROOT_DIR/tests" "$ROOT_DIR/tests_v2"; then
+    echo "FAIL: VM socket tests must not use custom cmuxSkip exceptions to hide app behavior failures"
+    exit 1
+  fi
+
+  echo "PASS: VM socket tests do not use custom self-skip exceptions"
+}
+
 check_retryable_submodule_checkout() {
   if grep -R -n "submodules: recursive" "$ROOT_DIR/.github/workflows"; then
     echo "FAIL: workflows must not let actions/checkout fetch submodules without the retry wrapper"
@@ -759,6 +768,7 @@ check_workflow_yaml_parse
 check_release_build_signal
 check_no_xctest_quarantines
 check_vm_socket_tests_do_not_skip_ctrl_interactive
+check_vm_socket_tests_do_not_self_skip
 check_tmux_corpus_pr_jobs_do_not_report_skipped_terminal_tests
 check_activation_artifacts_are_required
 check_retryable_submodule_checkout

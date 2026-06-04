@@ -19,10 +19,6 @@ from cmux import cmux, cmuxError
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 
 
-class cmuxSkip(Exception):
-    pass
-
-
 def _must(cond: bool, msg: str) -> None:
     if not cond:
         raise cmuxError(msg)
@@ -131,7 +127,7 @@ def _find_unhosted_background_workspace(c: cmux, cli: str, baseline_ws: str) -> 
                 created_workspaces.remove(workspace_ref)
                 return workspace_ref, created_workspaces
 
-        raise cmuxSkip("could not create an unhosted background workspace for helper terminal regression")
+        raise cmuxError("could not create an unhosted background workspace for helper terminal regression")
     except Exception:
         for workspace_ref in created_workspaces:
             try:
@@ -153,11 +149,7 @@ def main() -> int:
         cleanup_workspaces: List[str] = []
 
         try:
-            try:
-                workspace_ref, cleanup_workspaces = _find_unhosted_background_workspace(c, cli, baseline_ws)
-            except cmuxSkip as exc:
-                print(f"SKIP: {exc}")
-                return 0
+            workspace_ref, cleanup_workspaces = _find_unhosted_background_workspace(c, cli, baseline_ws)
             panes = c._call("pane.list", {"workspace_id": workspace_ref}) or {}
             pane_rows = panes.get("panes") or []
             _must(bool(pane_rows), f"pane.list returned no panes for background workspace: {panes}")
