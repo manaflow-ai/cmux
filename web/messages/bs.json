@@ -146,7 +146,8 @@
       "copilotAmp": "Copilot i Amp",
       "multiAgentAgentAgnostic": "Više agenata / nezavisno od agenta",
       "buildDistribution": "Build i distribucija"
-    }
+    },
+    "section": "zajednica"
   },
   "blog": {
     "title": "Blog",
@@ -1244,6 +1245,13 @@
       "intro": "Ova stranica otvara pravila u trenutnom cmux radnom prostoru.",
       "fallback": "cmux prvo prikazuje pravila i pita prije nego što ih zalijepi u trenutni radni prostor. Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmux."
     }
+  },
+  "download": {
+    "section": "preuzimanje",
+    "metaTitle": "Hvala što ste preuzeli cmux",
+    "metaDescription": "Vaše preuzimanje cmux-a počinje. Istražite dokumentaciju, pridružite se Discordu i pratite cmux na X-u.",
+    "heading": "Hvala što ste preuzeli cmux!",
+    "subtext": "Kliknite <link>ovdje</link> ako preuzimanje nije počelo."
   },
   "testimonialSubtitles": {
     "steipete": "Kreator OpenClawa. Osnivač PSPDFKita."

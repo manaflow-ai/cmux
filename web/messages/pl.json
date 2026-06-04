@@ -146,7 +146,8 @@
       "copilotAmp": "Copilot i Amp",
       "multiAgentAgentAgnostic": "Wielu agentów / niezależne od agenta",
       "buildDistribution": "Build i dystrybucja"
-    }
+    },
+    "section": "społeczność"
   },
   "blog": {
     "title": "Blog",
@@ -1244,6 +1245,13 @@
       "intro": "Ta strona otwiera reguły w bieżącym obszarze roboczym cmux.",
       "fallback": "cmux najpierw pokazuje reguły i pyta przed wklejeniem ich do bieżącego obszaru roboczego. Jeśli cmux się nie otworzy, zainstaluj cmux i ponownie kliknij Otwórz w cmux."
     }
+  },
+  "download": {
+    "section": "pobierz",
+    "metaTitle": "Dziękujemy za pobranie cmux",
+    "metaDescription": "Pobieranie cmux się rozpoczyna. Przejrzyj dokumentację, dołącz do Discorda i obserwuj cmux na X.",
+    "heading": "Dziękujemy za pobranie cmux!",
+    "subtext": "Kliknij <link>tutaj</link>, jeśli pobieranie się nie rozpoczęło."
   },
   "testimonialSubtitles": {
     "steipete": "Twórca OpenClaw. Założyciel PSPDFKit."

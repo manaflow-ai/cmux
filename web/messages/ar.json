@@ -146,7 +146,8 @@
       "copilotAmp": "Copilot و Amp",
       "multiAgentAgentAgnostic": "متعدد الوكلاء / مستقل عن الوكيل",
       "buildDistribution": "البناء والتوزيع"
-    }
+    },
+    "section": "المجتمع"
   },
   "blog": {
     "title": "المدونة",
@@ -1244,6 +1245,13 @@
       "intro": "تفتح هذه الصفحة القواعد في مساحة عمل cmux الحالية.",
       "fallback": "يعرض cmux القواعد أولاً ويسألك قبل لصقها في مساحة العمل الحالية. إذا لم يتم فتح cmux، فقم بتثبيت cmux وانقر فوق Open in cmux مرة أخرى."
     }
+  },
+  "download": {
+    "section": "تنزيل",
+    "metaTitle": "شكرًا لتنزيل cmux",
+    "metaDescription": "يبدأ تنزيل cmux الآن. استكشف الوثائق وانضم إلى Discord وتابع cmux على X.",
+    "heading": "شكرًا لتنزيل cmux!",
+    "subtext": "انقر <link>هنا</link> إذا لم يبدأ التنزيل."
   },
   "testimonialSubtitles": {
     "steipete": "منشئ OpenClaw. مؤسس PSPDFKit."
