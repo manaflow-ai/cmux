@@ -879,6 +879,10 @@ final class DirectoryToolWebServerController {
         case failed(LaunchFailure)
     }
 
+    struct LaunchProgress: Sendable, Equatable {
+        var output: String
+    }
+
     struct LaunchFailure: Sendable, Equatable {
         enum Reason: Sendable, Equatable {
             case invalidConfiguration
@@ -903,6 +907,7 @@ final class DirectoryToolWebServerController {
     func ensureWebServerURL(
         tool: CmuxResolvedDirectoryTool,
         directoryURL: URL,
+        progress: ((LaunchProgress) -> Void)? = nil,
         completion: @escaping (LaunchResult) -> Void
     ) {
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
@@ -917,7 +922,11 @@ final class DirectoryToolWebServerController {
             }
             self.serversByKey.removeValue(forKey: key)
             self.launchQueue.async {
-                let result = self.launchWebServer(tool: tool, directoryURL: normalizedDirectoryURL)
+                let result = self.launchWebServer(
+                    tool: tool,
+                    directoryURL: normalizedDirectoryURL,
+                    progress: progress
+                )
                 self.queue.async {
                     if case .opened(let process, let url) = result {
                         self.serversByKey[key] = (process, url)
@@ -942,7 +951,8 @@ final class DirectoryToolWebServerController {
 
     private func launchWebServer(
         tool: CmuxResolvedDirectoryTool,
-        directoryURL: URL
+        directoryURL: URL,
+        progress: ((LaunchProgress) -> Void)?
     ) -> InternalLaunchResult {
         guard tool.kind == .shellWebServer,
               let command = tool.command,
@@ -967,7 +977,14 @@ final class DirectoryToolWebServerController {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        let collector = DirectoryToolWebServerOutputCollector(urlPattern: tool.urlRegex)
+        let collector = DirectoryToolWebServerOutputCollector(
+            urlPattern: tool.urlRegex
+        ) { output in
+            guard let progress else { return }
+            DispatchQueue.main.async {
+                progress(LaunchProgress(output: output))
+            }
+        }
         let outputReader: (FileHandle) -> Void = { fileHandle in
             switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
             case .data(let data):
@@ -1045,15 +1062,19 @@ final class DirectoryToolWebServerController {
 }
 
 final class DirectoryToolWebServerOutputCollector {
+    private static let maxOutputSnippetLength = 800
+
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
     private let urlPattern: String?
+    private let outputHandler: ((String) -> Void)?
     private var outputBuffer = ""
     private var resolvedURL: URL?
     private var didSignal = false
 
-    init(urlPattern: String?) {
+    init(urlPattern: String?, outputHandler: ((String) -> Void)? = nil) {
         self.urlPattern = urlPattern
+        self.outputHandler = outputHandler
     }
 
     var webServerURL: URL? {
@@ -1065,39 +1086,67 @@ final class DirectoryToolWebServerOutputCollector {
     var outputSnippet: String {
         lock.lock()
         defer { lock.unlock() }
-        let trimmed = outputBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > 800 else { return trimmed }
-        let suffix = trimmed.suffix(800)
+        return Self.snippet(from: outputBuffer)
+    }
+
+    private static func snippet(from output: String) -> String {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > maxOutputSnippetLength else { return trimmed }
+        let suffix = trimmed.suffix(maxOutputSnippetLength)
         return "..." + suffix
     }
 
     func append(_ data: Data) {
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
+        var outputToReport: String?
+        var shouldSignal = false
+
         lock.lock()
-        defer { lock.unlock() }
-        guard resolvedURL == nil else { return }
-        outputBuffer.append(text)
-        if let parsedURL = DirectoryToolWebServerURLBuilder.extractURL(from: outputBuffer, pattern: urlPattern) {
-            resolvedURL = parsedURL
-            outputBuffer.removeAll(keepingCapacity: false)
-            if !didSignal {
-                didSignal = true
-                semaphore.signal()
+        if resolvedURL == nil {
+            outputBuffer.append(text)
+            outputToReport = Self.snippet(from: outputBuffer)
+            if let parsedURL = DirectoryToolWebServerURLBuilder.extractURL(from: outputBuffer, pattern: urlPattern) {
+                resolvedURL = parsedURL
+                outputBuffer.removeAll(keepingCapacity: false)
+                if !didSignal {
+                    didSignal = true
+                    shouldSignal = true
+                }
             }
+        }
+        lock.unlock()
+
+        if let outputToReport {
+            outputHandler?(outputToReport)
+        }
+        if shouldSignal {
+            semaphore.signal()
         }
     }
 
     func markProcessExited() {
+        var outputToReport: String?
+        var shouldSignal = false
+
         lock.lock()
-        defer { lock.unlock() }
         if resolvedURL == nil,
            let parsedURL = DirectoryToolWebServerURLBuilder.extractURL(from: outputBuffer, pattern: urlPattern) {
             resolvedURL = parsedURL
             outputBuffer.removeAll(keepingCapacity: false)
+            outputToReport = Self.snippet(from: outputBuffer)
         }
-        guard !didSignal else { return }
-        didSignal = true
-        semaphore.signal()
+        if !didSignal {
+            didSignal = true
+            shouldSignal = true
+        }
+        lock.unlock()
+
+        if let outputToReport {
+            outputHandler?(outputToReport)
+        }
+        if shouldSignal {
+            semaphore.signal()
+        }
     }
 
     func waitForURL(timeoutSeconds: TimeInterval) -> Bool {

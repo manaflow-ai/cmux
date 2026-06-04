@@ -339,6 +339,21 @@ final class DirectoryToolWebServerOutputCollectorTests: XCTestCase {
         XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
         XCTAssertEqual(collector.webServerURL?.absoluteString, "http://localhost:8888/lab?token=test-token")
     }
+
+    func testReportsOutputSnippetAsTextArrives() {
+        var snippets: [String] = []
+        let collector = DirectoryToolWebServerOutputCollector(urlPattern: nil) { snippet in
+            snippets.append(snippet)
+        }
+
+        collector.append(Data("Resolving packages\n".utf8))
+        collector.append(Data("Installed jupyterlab\n".utf8))
+
+        XCTAssertEqual(snippets, [
+            "Resolving packages",
+            "Resolving packages\nInstalled jupyterlab"
+        ])
+    }
 }
 
 

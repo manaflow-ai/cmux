@@ -9912,7 +9912,10 @@ struct ContentView: View {
             progressController.show(presentingWindow: NSApp.keyWindow ?? NSApp.mainWindow)
             DirectoryToolWebServerController.shared.ensureWebServerURL(
                 tool: tool,
-                directoryURL: directoryURL.standardizedFileURL
+                directoryURL: directoryURL.standardizedFileURL,
+                progress: { progress in
+                    progressController.updateOutput(progress.output)
+                }
             ) { result in
                 progressController.close()
                 switch result {
@@ -9936,54 +9939,150 @@ struct ContentView: View {
         }
     }
 
-    private final class DirectoryToolLaunchProgressController {
-        private let alert: NSAlert
+    private final class DirectoryToolLaunchProgressController: NSObject, NSWindowDelegate {
+        private let panel: NSPanel
+        private let outputTextView: NSTextView
+        private let noOutputText: String
         private var isClosed = false
 
         init(tool: CmuxResolvedDirectoryTool) {
-            alert = NSAlert()
-            alert.alertStyle = .informational
             let titleFormat = String(
                 localized: "directoryTool.launchProgress.title",
                 defaultValue: "Starting %@"
             )
-            alert.messageText = String(format: titleFormat, tool.subtitle ?? tool.title)
-            alert.informativeText = String(
+            let title = String(format: titleFormat, tool.subtitle ?? tool.title)
+            let message = String(
                 localized: "directoryTool.launchProgress.message",
                 defaultValue: "Waiting for the tool to print a local URL."
             )
+            noOutputText = String(
+                localized: "directoryTool.launchProgress.noOutput",
+                defaultValue: "No output yet."
+            )
 
-            let spinner = NSProgressIndicator(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 256))
+
+            let spinner = NSProgressIndicator()
             spinner.style = .spinning
             spinner.controlSize = .regular
             spinner.isIndeterminate = true
             spinner.startAnimation(nil)
-            alert.accessoryView = spinner
-            alert.addButton(withTitle: String(
+
+            let titleLabel = NSTextField(labelWithString: title)
+            titleLabel.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+            titleLabel.lineBreakMode = .byTruncatingTail
+
+            let messageLabel = NSTextField(labelWithString: message)
+            messageLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            messageLabel.textColor = .secondaryLabelColor
+            messageLabel.lineBreakMode = .byWordWrapping
+            messageLabel.maximumNumberOfLines = 2
+
+            let headerStack = NSStackView(views: [spinner, titleLabel])
+            headerStack.orientation = .horizontal
+            headerStack.alignment = .centerY
+            headerStack.spacing = 10
+
+            outputTextView = NSTextView()
+            outputTextView.isEditable = false
+            outputTextView.isSelectable = true
+            outputTextView.drawsBackground = false
+            outputTextView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+            outputTextView.textColor = .secondaryLabelColor
+            outputTextView.textContainerInset = NSSize(width: 8, height: 8)
+            outputTextView.string = noOutputText
+
+            let scrollView = NSScrollView()
+            scrollView.hasVerticalScroller = true
+            scrollView.drawsBackground = true
+            scrollView.backgroundColor = .textBackgroundColor.withAlphaComponent(0.65)
+            scrollView.borderType = .lineBorder
+            scrollView.documentView = outputTextView
+
+            let hideButton = NSButton(title: String(
                 localized: "directoryTool.launchProgress.hide",
                 defaultValue: "Hide"
-            ))
+            ), target: nil, action: nil)
+            hideButton.bezelStyle = .rounded
+
+            let footerStack = NSStackView(views: [NSView(), hideButton])
+            footerStack.orientation = .horizontal
+            footerStack.alignment = .centerY
+
+            let stack = NSStackView(views: [headerStack, messageLabel, scrollView, footerStack])
+            stack.orientation = .vertical
+            stack.alignment = .leading
+            stack.spacing = 10
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview(stack)
+
+            NSLayoutConstraint.activate([
+                stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+                stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+                stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+                stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+                spinner.widthAnchor.constraint(equalToConstant: 18),
+                spinner.heightAnchor.constraint(equalToConstant: 18),
+                titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: stack.trailingAnchor),
+                messageLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
+                scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
+                scrollView.heightAnchor.constraint(equalToConstant: 128)
+            ])
+
+            panel = NSPanel(
+                contentRect: contentView.frame,
+                styleMask: [.titled, .closable, .nonactivatingPanel],
+                backing: .buffered,
+                defer: false
+            )
+            panel.title = title
+            panel.contentView = contentView
+            panel.level = .floating
+            panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+            panel.isReleasedWhenClosed = false
+
+            super.init()
+
+            panel.delegate = self
+            hideButton.target = self
+            hideButton.action = #selector(hide)
         }
 
         func show(presentingWindow: NSWindow?) {
             guard !isClosed else { return }
             if let presentingWindow {
-                alert.beginSheetModal(for: presentingWindow) { [weak self] _ in
-                    self?.isClosed = true
-                }
+                let windowFrame = presentingWindow.frame
+                let panelFrame = panel.frame
+                let origin = NSPoint(
+                    x: windowFrame.midX - panelFrame.width / 2,
+                    y: windowFrame.maxY - panelFrame.height - 72
+                )
+                panel.setFrameOrigin(origin)
             } else {
-                alert.window.makeKeyAndOrderFront(nil)
+                panel.center()
             }
+            panel.orderFrontRegardless()
+        }
+
+        func updateOutput(_ output: String) {
+            guard !isClosed else { return }
+            let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            outputTextView.string = trimmed.isEmpty ? noOutputText : trimmed
+            outputTextView.scrollToEndOfDocument(nil)
         }
 
         func close() {
             guard !isClosed else { return }
             isClosed = true
-            if let sheetParent = alert.window.sheetParent {
-                sheetParent.endSheet(alert.window)
-            } else {
-                alert.window.close()
-            }
+            panel.close()
+        }
+
+        func windowWillClose(_ notification: Notification) {
+            isClosed = true
+        }
+
+        @objc private func hide() {
+            close()
         }
     }
 
