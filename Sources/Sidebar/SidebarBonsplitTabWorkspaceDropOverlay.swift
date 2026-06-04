@@ -121,9 +121,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         guard pendingDrop == nil else {
-            if !isRequestingWorkspaceDropTargets {
-                clearPendingDrop()
-            }
+            completeOrClearPendingDropAfterDragTeardown()
             setDropIndicator(nil)
             return
         }
@@ -240,9 +238,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
         guard pendingDrop == nil else {
-            if !isRequestingWorkspaceDropTargets {
-                clearPendingDrop()
-            }
+            completeOrClearPendingDropAfterDragTeardown()
             setDropIndicator(nil)
             return
         }
@@ -290,6 +286,26 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         )
 #endif
         return .move
+    }
+
+    private func completeOrClearPendingDropAfterDragTeardown() {
+        let requestId = workspaceDropTargetRequestId
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.pendingDrop?.requestId == requestId else {
+                return
+            }
+
+            self.performPendingDropIfPossible()
+            guard self.pendingDrop?.requestId == requestId else { return }
+
+            self.clearPendingDrop()
+            self.setWorkspaceDropTargetCollectionActive(false)
+            self.setDropIndicator(nil)
+#if DEBUG
+            dlog("sidebar.workspaceDropOverlay.pendingTeardown clear=1")
+#endif
+        }
     }
 
     private func updateWorkspaceDropTargetCollection(
