@@ -1,4 +1,7 @@
 import AppKit
+import CmuxSettings
+import CmuxSocketControl
+import CmuxSwiftRenderUI
 import Carbon.HIToolbox
 import CMUXWorkstream
 import Foundation
@@ -15,7 +18,7 @@ extension Notification.Name {
 }
 
 nonisolated private struct SocketLineProcessingResult: Sendable {
-    let response: String
+    let response: String?
     let authenticated: Bool
 }
 
@@ -129,6 +132,8 @@ class TerminalController {
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     private var tabManager: TabManager?
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
+    // Sendable value type; injected at construction so socket auth never reaches a global.
+    private nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenBacklog: Int32 = 128
@@ -264,6 +269,7 @@ class TerminalController {
         "workspace.next",
         "workspace.previous",
         "workspace.last",
+        "workspace.group.focus",
         "surface.focus",
         "pane.focus",
         "pane.last",
@@ -283,6 +289,7 @@ class TerminalController {
     enum V2HandleKind: String, CaseIterable {
         case window
         case workspace
+        case workspaceGroup = "workspace_group"
         case pane
         case surface
     }
@@ -290,18 +297,21 @@ class TerminalController {
     private var v2NextHandleOrdinal: [V2HandleKind: Int] = [
         .window: 1,
         .workspace: 1,
+        .workspaceGroup: 1,
         .pane: 1,
         .surface: 1,
     ]
     private var v2RefByUUID: [V2HandleKind: [UUID: String]] = [
         .window: [:],
         .workspace: [:],
+        .workspaceGroup: [:],
         .pane: [:],
         .surface: [:],
     ]
     private var v2UUIDByRef: [V2HandleKind: [String: UUID]] = [
         .window: [:],
         .workspace: [:],
+        .workspaceGroup: [:],
         .pane: [:],
         .surface: [:],
     ]
@@ -353,7 +363,8 @@ class TerminalController {
         }
     }
 
-    private init() {
+    private init(passwordStore: SocketControlPasswordStore = SocketControlPasswordStore()) {
+        self.passwordStore = passwordStore
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
             object: nil,
@@ -374,6 +385,15 @@ class TerminalController {
         listenerStateLock.lock()
         defer { listenerStateLock.unlock() }
         return body()
+    }
+
+    nonisolated func currentSocketPathForRemoteRestore() -> String? {
+        withListenerState {
+            if isRunning || acceptLoopAlive || listenerStartInProgress || serverSocket >= 0 {
+                return socketPath
+            }
+            return reservedStartupSocketPath
+        }
     }
 
     private nonisolated func listenerStateSnapshot() -> ListenerStateSnapshot {
@@ -2166,7 +2186,7 @@ class TerminalController {
         guard lowered == "auth" || lowered.hasPrefix("auth ") else {
             return nil
         }
-        guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
+        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
             return "ERROR: Password mode is enabled but no socket password is configured in Settings."
         }
 
@@ -2179,7 +2199,7 @@ class TerminalController {
         guard !provided.isEmpty else {
             return "ERROR: Missing password. Usage: auth <password>"
         }
-        guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
+        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
             return "ERROR: Invalid password"
         }
         authenticated = true
@@ -2203,7 +2223,7 @@ class TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "auth.login requires params.password")
         }
 
-        guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
+        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
             return v2Error(
                 id: id,
                 code: "auth_unconfigured",
@@ -2211,7 +2231,7 @@ class TerminalController {
             )
         }
 
-        guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
+        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
             return v2Error(id: id, code: "auth_failed", message: "Invalid password")
         }
         authenticated = true
@@ -2270,6 +2290,15 @@ class TerminalController {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        "sidebar.custom.validate",
+        "sidebar.custom.reload",
+        "sidebar.custom.select",
+        // debug.sidebar.simulate_drag intentionally runs on the socket worker
+        // so its Thread.sleep between drag-state ticks doesn't block the main
+        // actor (which still owns the SidebarDragState mutations via
+        // v2MainSync). Running on .mainActor would deadlock the UI for the
+        // entire simulation, defeating the profiling workload.
+        "debug.sidebar.simulate_drag",
     ]
 
     private nonisolated static let mainThreadCallableSocketWorkerV2Methods: Set<String> = [
@@ -2304,15 +2333,56 @@ class TerminalController {
         )
     }
 
-    private nonisolated func socketWorkerV2ResponseIfNeeded(for command: String) -> String? {
+    private nonisolated func socketWorkerV2ResponseIfHandled(for command: String) -> (handled: Bool, response: String?) {
         guard let request = parseV2SocketRequest(command),
               Self.executionPolicy(forV2Method: request.method) == .socketWorker else {
-            return nil
+            return (false, nil)
         }
 
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
-            socketWorkerV2Response(request)
+            if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
+                return (true, v2Result(id: request.id, workspaceParamError))
+            }
+            if request.method == "feed.push", request.id == nil {
+                guard let waitTimeout = Self.feedPushWaitTimeoutSeconds(params: request.params) else {
+                    return (true, v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "feed.push wait_timeout_seconds must be numeric and between 0 and 120"
+                    ))
+                }
+                guard waitTimeout == 0 else {
+                    return (true, v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "feed.push without an id requires wait_timeout_seconds 0"
+                    ))
+                }
+                _ = socketWorkerV2Response(request)
+                return (true, nil)
+            }
+            return (true, socketWorkerV2Response(request))
         }
+    }
+
+    private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
+        guard let rawTimeout = params["wait_timeout_seconds"] else {
+            return 0
+        }
+        let seconds: Double?
+        if let number = rawTimeout as? NSNumber {
+            seconds = number.doubleValue
+        } else if let value = rawTimeout as? Double {
+            seconds = value
+        } else if let value = rawTimeout as? Int {
+            seconds = Double(value)
+        } else {
+            seconds = nil
+        }
+        guard let seconds, seconds.isFinite, seconds >= 0, seconds <= 120 else {
+            return nil
+        }
+        return seconds
     }
 
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
@@ -2400,6 +2470,16 @@ class TerminalController {
             return v2Result(id: request.id, v2WorkspaceRemotePTYBridge(params: request.params))
         case "workspace.remote.pty_resize":
             return v2Result(id: request.id, v2WorkspaceRemotePTYResize(params: request.params))
+        case "sidebar.custom.validate":
+            return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
+        case "sidebar.custom.reload":
+            return v2Result(id: request.id, v2CustomSidebarReload(params: request.params))
+        case "sidebar.custom.select":
+            return v2Result(id: request.id, v2CustomSidebarSelect(params: request.params))
+#if DEBUG
+        case "debug.sidebar.simulate_drag":
+            return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+#endif
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         default:
@@ -2755,10 +2835,12 @@ class TerminalController {
 
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
-                let didWriteResponse = writeSocketResponse(result.response, to: socket)
-                publishSocketEvents(command: trimmed, response: result.response)
-                guard didWriteResponse else {
-                    return
+                if let response = result.response {
+                    let didWriteResponse = writeSocketResponse(response, to: socket)
+                    publishSocketEvents(command: trimmed, response: response)
+                    guard didWriteResponse else {
+                        return
+                    }
                 }
             }
         }
@@ -2793,12 +2875,14 @@ class TerminalController {
 
         let response = processCommandUsingSocketExecutionPolicy(command)
 #if DEBUG
-        Self.debugLogSocketCommandEndIfNeeded(
-            debugInfo: debugInfo,
-            startedAt: debugStart,
-            response: response,
-            loggingEnabled: debugLoggingEnabled
-        )
+        if let response {
+            Self.debugLogSocketCommandEndIfNeeded(
+                debugInfo: debugInfo,
+                startedAt: debugStart,
+                response: response,
+                loggingEnabled: debugLoggingEnabled
+            )
+        }
 #endif
         return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
     }
@@ -2885,7 +2969,7 @@ class TerminalController {
     }
 #endif
 
-    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
+    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
         if Thread.isMainThread,
            let request = parseV2SocketRequest(command),
            Self.executionPolicy(forV2Method: request.method) == .socketWorker,
@@ -2897,7 +2981,11 @@ class TerminalController {
             )
         }
 
-        if let response = socketWorkerV2ResponseIfNeeded(for: command) {
+        let socketWorkerResult = socketWorkerV2ResponseIfHandled(for: command)
+        if socketWorkerResult.handled {
+            guard let response = socketWorkerResult.response else {
+                return nil
+            }
             return response
         }
 
@@ -2917,7 +3005,7 @@ class TerminalController {
     /// request) can reuse the full V1/V2 dispatcher without duplicating
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
-        return processCommandUsingSocketExecutionPolicy(line)
+        return processCommandUsingSocketExecutionPolicy(line) ?? ""
     }
 
     private func processCommand(_ command: String) -> String {
@@ -3295,6 +3383,14 @@ class TerminalController {
 
     // MARK: - V2 JSON Socket Protocol
 
+    /// Runs a v2 command line (`{"method","params","id"}`) through the
+    /// dispatcher in-process and returns the JSON response. Internal seam so
+    /// in-app callers (e.g. custom-sidebar button actions) can drive the same
+    /// command surface as the socket without reaching the private dispatcher.
+    func runV2CommandLine(_ jsonLine: String) -> String {
+        processV2Command(jsonLine)
+    }
+
     private func processV2Command(_ jsonLine: String) -> String {
         // v1 access-mode gating applies to v2 as well. We can't know which v2 method maps
         // to which v1 command without parsing, so parse first and then apply allow-list.
@@ -3330,10 +3426,13 @@ class TerminalController {
             )
         }
 
-        v2MainSync { self.v2RefreshKnownRefs() }
-
-
         return withSocketCommandPolicy(commandKey: method, isV2: true, params: params) {
+            if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: method, params: params) {
+                return v2Result(id: id, workspaceParamError)
+            }
+
+            v2MainSync { self.v2RefreshKnownRefs() }
+
             switch method {
         case "system.ping":
             return v2Ok(id: id, result: ["pong": true])
@@ -3392,6 +3491,40 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspacePromptSubmit(params: params))
         case "workspace.rename":
             return v2Result(id: id, self.v2WorkspaceRename(params: params))
+        case "workspace.group.list":
+            return v2Result(id: id, self.v2WorkspaceGroupList(params: params))
+        case "workspace.group.create":
+            return v2Result(id: id, self.v2WorkspaceGroupCreate(params: params))
+        case "workspace.group.ungroup":
+            return v2Result(id: id, self.v2WorkspaceGroupUngroup(params: params))
+        case "workspace.group.delete":
+            return v2Result(id: id, self.v2WorkspaceGroupDelete(params: params))
+        case "workspace.group.rename":
+            return v2Result(id: id, self.v2WorkspaceGroupRename(params: params))
+        case "workspace.group.collapse":
+            return v2Result(id: id, self.v2WorkspaceGroupSetCollapsed(params: params, isCollapsed: true))
+        case "workspace.group.expand":
+            return v2Result(id: id, self.v2WorkspaceGroupSetCollapsed(params: params, isCollapsed: false))
+        case "workspace.group.pin":
+            return v2Result(id: id, self.v2WorkspaceGroupSetPinned(params: params, isPinned: true))
+        case "workspace.group.unpin":
+            return v2Result(id: id, self.v2WorkspaceGroupSetPinned(params: params, isPinned: false))
+        case "workspace.group.add":
+            return v2Result(id: id, self.v2WorkspaceGroupAdd(params: params))
+        case "workspace.group.remove":
+            return v2Result(id: id, self.v2WorkspaceGroupRemove(params: params))
+        case "workspace.group.set_anchor":
+            return v2Result(id: id, self.v2WorkspaceGroupSetAnchor(params: params))
+        case "workspace.group.new_workspace":
+            return v2Result(id: id, self.v2WorkspaceGroupNewWorkspace(params: params))
+        case "workspace.group.set_color":
+            return v2Result(id: id, self.v2WorkspaceGroupSetColor(params: params))
+        case "workspace.group.set_icon":
+            return v2Result(id: id, self.v2WorkspaceGroupSetIcon(params: params))
+        case "workspace.group.move":
+            return v2Result(id: id, self.v2WorkspaceGroupMove(params: params))
+        case "workspace.group.focus":
+            return v2Result(id: id, self.v2WorkspaceGroupFocus(params: params))
         case "workspace.action":
             return v2Result(id: id, self.v2WorkspaceAction(params: params))
         case "extension.sidebar.snapshot":
@@ -3712,6 +3845,24 @@ class TerminalController {
         case "file.open":
             return v2Result(id: id, self.v2FileOpen(params: params))
 
+        // Project
+        case "project.open":
+            return v2Result(id: id, self.v2ProjectOpen(params: params))
+        case "project.set_tab":
+            return v2Result(id: id, self.v2ProjectSetTab(params: params))
+        case "project.set_scheme":
+            return v2Result(id: id, self.v2ProjectSetScheme(params: params))
+        case "project.set_configuration":
+            return v2Result(id: id, self.v2ProjectSetConfiguration(params: params))
+        case "project.set_selected_target":
+            return v2Result(id: id, self.v2ProjectSetSelectedTarget(params: params))
+        case "project.set_selected_file":
+            return v2Result(id: id, self.v2ProjectSetSelectedFile(params: params))
+        case "project.set_settings_filter":
+            return v2Result(id: id, self.v2ProjectSetSettingsFilter(params: params))
+        case "project.get_state":
+            return v2Result(id: id, self.v2ProjectGetState(params: params))
+
         case "surface.read_text":
             return v2Result(id: id, self.v2SurfaceReadText(params: params))
 
@@ -3761,6 +3912,9 @@ class TerminalController {
 #if DEBUG
         case "debug.terminal.simulate_file_drop":
             return v2Result(id: id, self.v2DebugSimulateTerminalFileDrop(params: params))
+        // debug.sidebar.simulate_drag is dispatched on the socket worker
+        // (see socketWorkerV2Methods + the worker switch in processCommand)
+        // so its inter-tick Thread.sleep never blocks the main actor.
 #endif
         case "debug.terminal.read_text":
             return v2Result(id: id, self.v2DebugReadTerminalText(params: params))
@@ -3832,6 +3986,23 @@ class TerminalController {
             "workspace.reorder_many",
             "workspace.prompt_submit",
             "workspace.rename",
+            "workspace.group.list",
+            "workspace.group.create",
+            "workspace.group.ungroup",
+            "workspace.group.delete",
+            "workspace.group.rename",
+            "workspace.group.collapse",
+            "workspace.group.expand",
+            "workspace.group.pin",
+            "workspace.group.unpin",
+            "workspace.group.add",
+            "workspace.group.remove",
+            "workspace.group.set_anchor",
+            "workspace.group.new_workspace",
+            "workspace.group.set_color",
+            "workspace.group.set_icon",
+            "workspace.group.move",
+            "workspace.group.focus",
             "workspace.action",
             "extension.sidebar.snapshot",
             "workspace.next",
@@ -4036,6 +4207,7 @@ class TerminalController {
 #endif
 #if DEBUG
         methods.append("debug.terminal.simulate_file_drop")
+        methods.append("debug.sidebar.simulate_drag")
 #endif
 
         return [
@@ -5079,6 +5251,22 @@ class TerminalController {
         }
     }
 
+    private nonisolated func v2UnsupportedWorkspaceAliasError(method: String, params: [String: Any]) -> V2CallResult? {
+        guard method.hasPrefix("workspace."), params.keys.contains("window") else { return nil }
+        return .err(
+            code: "invalid_params",
+            message: String(
+                localized: "socket.workspace.unsupportedWindowParam",
+                defaultValue: "Unsupported parameter `window`; use `window_id` with a window UUID or ref from `window.list`."
+            ),
+            data: [
+                "method": method,
+                "unsupported_param": "window",
+                "supported_param": "window_id"
+            ]
+        )
+    }
+
     private nonisolated func v2Encode(_ object: Any) -> String {
         guard JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object, options: []),
@@ -5214,6 +5402,13 @@ class TerminalController {
                         _ = v2EnsureHandleRef(kind: .surface, uuid: panelId)
                     }
                 }
+                // Mint workspace_group refs for groups that exist before any
+                // workspace.group.* call so callers can pass `workspace_group:N`
+                // immediately after restore (otherwise the first ref hand-off
+                // happens only on `list`/`create`).
+                for group in tm.workspaceGroups {
+                    _ = v2EnsureHandleRef(kind: .workspaceGroup, uuid: group.id)
+                }
             }
         }
     }
@@ -5221,11 +5416,20 @@ class TerminalController {
     // MARK: - V2 Context Resolution
 
     func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
-        // Prefer explicit window_id routing. Fall back to global lookup by workspace_id/surface_id/tab_id,
-        // and finally to the active window's TabManager.
+        // Prefer explicit window_id routing. Otherwise prefer group_id (group
+        // methods are the only routing key for cross-window group ops, and
+        // CLI helpers always inject caller workspace_id/surface_id, which
+        // would otherwise win even when the group belongs to a different
+        // window). Fall back to workspace/surface/pane lookup, then the
+        // active window's TabManager.
         if v2HasNonNullParam(params, "window_id") {
             guard let windowId = v2UUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
+        }
+        if let groupId = v2UUID(params, "group_id") {
+            if let tm = v2MainSync({ v2LocateTabManager(forGroupId: groupId) }) {
+                return tm
+            }
         }
         if let wsId = v2UUID(params, "workspace_id") {
             if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(tabId: wsId) }) {
@@ -5243,6 +5447,18 @@ class TerminalController {
             }
         }
         return tabManager ?? v2MainSync { AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
+    }
+
+    @MainActor
+    private func v2LocateTabManager(forGroupId groupId: UUID) -> TabManager? {
+        guard let app = AppDelegate.shared else { return nil }
+        for summary in app.listMainWindowSummaries() {
+            guard let tm = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            if tm.workspaceGroups.contains(where: { $0.id == groupId }) {
+                return tm
+            }
+        }
+        return nil
     }
 
     func v2ResolveWindowId(tabManager: TabManager?) -> UUID? {
@@ -5382,6 +5598,117 @@ class TerminalController {
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspaces": workspaces
         ])
+    }
+
+    private nonisolated func v2CustomSidebarValidate(params: [String: Any]) -> V2CallResult {
+        let name = v2CustomSidebarName(params: params)
+        if let name, name.isEmpty {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.invalidName",
+                    defaultValue: "Sidebar name must not be empty."
+                ),
+                data: nil
+            )
+        }
+        let report = v2CustomSidebarValidationReport(name: name)
+        return .ok(v2CustomSidebarReportPayload(report))
+    }
+
+    private nonisolated func v2CustomSidebarReload(params: [String: Any]) -> V2CallResult {
+        let name = v2CustomSidebarName(params: params)
+        if let name, name.isEmpty {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.invalidName",
+                    defaultValue: "Sidebar name must not be empty."
+                ),
+                data: nil
+            )
+        }
+        let report = v2CustomSidebarValidationReport(name: name)
+        let validNames = report.validNames
+        let reloadNames = report.names
+        if !reloadNames.isEmpty {
+            v2MainSync {
+                NotificationCenter.default.post(
+                    name: .customSidebarReloadRequested,
+                    object: nil,
+                    userInfo: ["names": reloadNames]
+                )
+            }
+        }
+        var payload = v2CustomSidebarReportPayload(report)
+        payload["reloaded_count"] = validNames.count
+        payload["reloaded_names"] = validNames
+        return .ok(payload)
+    }
+
+    private nonisolated func v2CustomSidebarSelect(params: [String: Any]) -> V2CallResult {
+        guard let name = v2CustomSidebarName(params: params), !name.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.selectMissingName",
+                    defaultValue: "Select requires a sidebar name."
+                ),
+                data: nil
+            )
+        }
+
+        let report = v2CustomSidebarValidationReport(name: name)
+        guard let entry = report.entries.first else {
+            return .ok(v2CustomSidebarReportPayload(report))
+        }
+        if let errorMessage = entry.errorMessage {
+            var payload = v2CustomSidebarReportPayload(report)
+            payload["message"] = errorMessage
+            return .ok(payload)
+        }
+
+        let providerId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+        v2MainSync {
+            UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
+            CmuxExtensionSidebarSelection.setProviderId(providerId)
+            NotificationCenter.default.post(
+                name: .customSidebarReloadRequested,
+                object: nil,
+                userInfo: ["names": [name]]
+            )
+        }
+        var payload = v2CustomSidebarReportPayload(report)
+        payload["selected_provider_id"] = providerId
+        payload["selected_name"] = name
+        return .ok(payload)
+    }
+
+    private nonisolated func v2CustomSidebarName(params: [String: Any]) -> String? {
+        guard let raw = params["name"] as? String else { return nil }
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private nonisolated func v2CustomSidebarValidationReport(name: String?) -> CustomSidebarValidationReport {
+        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
+        return CustomSidebarValidator().validate(directory: directory, name: name)
+    }
+
+    private nonisolated func v2CustomSidebarReportPayload(_ report: CustomSidebarValidationReport) -> [String: Any] {
+        [
+            "directory": CmuxExtensionSidebarSelection.customSidebarsDirectory.path,
+            "valid_count": report.validCount,
+            "error_count": report.errorCount,
+            "sidebars": report.entries.map { entry in
+                [
+                    "name": entry.name,
+                    "path": entry.fileURL.path,
+                    "kind": entry.kind.rawValue,
+                    "ok": entry.isValid,
+                    "error": v2OrNull(entry.errorMessage)
+                ] as [String: Any]
+            }
+        ]
     }
 
     private func v2ExtensionSidebarSnapshot(params: [String: Any]) -> V2CallResult {
@@ -6007,6 +6334,526 @@ class TerminalController {
         ])
     }
 
+    // MARK: - Workspace Groups (v2)
+
+    @MainActor
+    private func v2WorkspaceGroupPayload(_ group: WorkspaceGroup, tabManager: TabManager) -> [String: Any] {
+        let memberIds = tabManager.tabs.compactMap { $0.groupId == group.id ? $0.id : nil }
+        return [
+            "id": group.id.uuidString,
+            "ref": v2Ref(kind: .workspaceGroup, uuid: group.id),
+            "name": group.name,
+            "is_collapsed": group.isCollapsed,
+            "is_pinned": group.isPinned,
+            "anchor_workspace_id": group.anchorWorkspaceId.uuidString,
+            "anchor_workspace_ref": v2Ref(kind: .workspace, uuid: group.anchorWorkspaceId),
+            "custom_color": v2OrNull(group.customColor),
+            "icon_symbol": v2OrNull(group.iconSymbol),
+            "member_workspace_ids": memberIds.map { $0.uuidString },
+            "member_workspace_refs": memberIds.map { v2Ref(kind: .workspace, uuid: $0) },
+            "member_count": memberIds.count
+        ]
+    }
+
+    private func v2WorkspaceGroupList(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        var groups: [[String: Any]] = []
+        v2MainSync {
+            groups = tabManager.workspaceGroups.map { v2WorkspaceGroupPayload($0, tabManager: tabManager) }
+        }
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "groups": groups
+        ])
+    }
+
+    private func v2WorkspaceGroupCreate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let name = (params["name"] as? String) ?? ""
+        let cwd = params["cwd"] as? String
+        // child_workspace_ids accepts raw UUID strings AND v2 handle refs
+        // (workspace:1, ws:1, etc.) so callers can use whatever they got back
+        // from workspace.list / workspace-group list.
+        //
+        // Default behavior when the param is absent (e.g. `cmux workspace-group
+        // create --name foo` from a cmux terminal): group the active sidebar
+        // selection, or fall back to the caller workspace_id, or the focused
+        // workspace. An empty array (explicit `--from ""`) still creates an
+        // anchor-only group.
+        let rawChildren: [String]
+        let childrenExplicit: Bool
+        if let provided = params["child_workspace_ids"] as? [String] {
+            rawChildren = provided
+            childrenExplicit = true
+        } else if params["child_workspace_ids"] != nil,
+                  !(params["child_workspace_ids"] is NSNull) {
+            // Reject malformed shapes (single string, mixed array, etc.) so
+            // a typo in a script doesn't silently apply the create to the
+            // current sidebar selection. Empty/absent → fall through.
+            return .err(
+                code: "invalid_params",
+                message: "child_workspace_ids must be an array of workspace handles",
+                data: ["child_workspace_ids": String(describing: params["child_workspace_ids"] ?? "")]
+            )
+        } else {
+            let fallbackIds: [UUID] = v2MainSync {
+                let selected = tabManager.sidebarSelectedWorkspaceIds
+                if !selected.isEmpty {
+                    return tabManager.tabs.compactMap { selected.contains($0.id) ? $0.id : nil }
+                }
+                if let callerId = v2UUID(params, "workspace_id"),
+                   tabManager.tabs.contains(where: { $0.id == callerId }) {
+                    return [callerId]
+                }
+                if let selectedId = tabManager.selectedTabId {
+                    return [selectedId]
+                }
+                return []
+            }
+            rawChildren = fallbackIds.map { $0.uuidString }
+            childrenExplicit = false
+        }
+        var unresolved: [String] = []
+        let parsedChildIds: [UUID] = rawChildren.compactMap { raw -> UUID? in
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            if let uuid = v2UUIDAny(trimmed) {
+                return uuid
+            }
+            unresolved.append(trimmed)
+            return nil
+        }
+        if !unresolved.isEmpty {
+            return .err(
+                code: "invalid_params",
+                message: "Unresolved child workspace handles: \(unresolved.joined(separator: ", "))",
+                data: ["unresolved": unresolved]
+            )
+        }
+        // A syntactically valid UUID can still reference a workspace that
+        // doesn't exist in this TabManager (typo, stale snapshot from a
+        // closed window). Surface those explicitly instead of letting
+        // createWorkspaceGroup silently drop them and produce an
+        // anchor-only group.
+        let knownTabIds: Set<UUID> = v2MainSync { Set(tabManager.tabs.map(\.id)) }
+        let missing: [String] = parsedChildIds.compactMap { id in
+            knownTabIds.contains(id) ? nil : id.uuidString
+        }
+        if !missing.isEmpty {
+            return .err(
+                code: "not_found",
+                message: "Child workspace not found in target window: \(missing.joined(separator: ", "))",
+                data: ["unknown_workspace_ids": missing]
+            )
+        }
+        let childIds = parsedChildIds
+        // When the caller explicitly listed children, refuse to create an
+        // anchor-only group if every one of them was ineligible (pinned or
+        // already an anchor of another group). The keyboard-shortcut path
+        // already enforces this; the socket/CLI path used to return OK with
+        // a fresh empty group, hiding the real failure.
+        if childrenExplicit, !parsedChildIds.isEmpty {
+            let ineligible: [String] = v2MainSync {
+                let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                return parsedChildIds.compactMap { id -> String? in
+                    guard let tab = tabManager.tabs.first(where: { $0.id == id }) else { return nil }
+                    if tab.isPinned || existingAnchorIds.contains(id) {
+                        return id.uuidString
+                    }
+                    return nil
+                }
+            }
+            if ineligible.count == parsedChildIds.count {
+                return .err(
+                    code: "invalid_state",
+                    message: "All requested children are ineligible (pinned or already an anchor); ungroup or unpin them first",
+                    data: ["ineligible_workspace_ids": ineligible]
+                )
+            }
+        }
+        // workspace.group.create is NOT a focus-intent method. The select
+        // option used to be honored here, but the socket focus policy says
+        // non-focus commands must not change the user's active workspace.
+        // Callers that want to focus the new anchor should call
+        // workspace.group.focus afterward (which IS focus-intent).
+        var createdGroupId: UUID?
+        v2MainSync {
+            createdGroupId = tabManager.createWorkspaceGroup(
+                name: name,
+                childWorkspaceIds: childIds,
+                anchorWorkingDirectory: cwd,
+                selectAnchor: false,
+                collapseSidebarSelection: false
+            )
+        }
+        guard let gid = createdGroupId,
+              let group = v2MainSync({ tabManager.workspaceGroups.first(where: { $0.id == gid }) }) else {
+            return .err(code: "not_created", message: "Group was not created", data: nil)
+        }
+        return .ok([
+            "group": v2MainSync { v2WorkspaceGroupPayload(group, tabManager: tabManager) }
+        ])
+    }
+
+    private func v2WorkspaceGroupUngroup(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        var found = false
+        v2MainSync {
+            found = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if found {
+                tabManager.ungroupWorkspaceGroup(groupId: gid)
+            }
+        }
+        guard found else {
+            return .err(code: "not_found", message: "Group not found", data: [
+                "group_id": gid.uuidString
+            ])
+        }
+        return .ok(["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupDelete(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        var found = false
+        var closedCount = 0
+        v2MainSync {
+            found = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if found {
+                closedCount = tabManager.deleteWorkspaceGroup(groupId: gid)
+            }
+        }
+        guard found else {
+            return .err(code: "not_found", message: "Group not found", data: [
+                "group_id": gid.uuidString
+            ])
+        }
+        return .ok([
+            "group_id": gid.uuidString,
+            "closed_workspace_count": closedCount,
+        ])
+    }
+
+    private func v2WorkspaceGroupRename(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id"),
+              let name = v2String(params, "name") else {
+            return .err(code: "invalid_params", message: "Missing group_id or name", data: nil)
+        }
+        var ok = false
+        v2MainSync {
+            ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if ok { tabManager.renameWorkspaceGroup(groupId: gid, name: name) }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "name": name])
+            : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupSetCollapsed(params: [String: Any], isCollapsed: Bool) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        var ok = false
+        v2MainSync {
+            ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if ok { tabManager.setWorkspaceGroupCollapsed(groupId: gid, isCollapsed: isCollapsed) }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "is_collapsed": isCollapsed])
+            : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupSetPinned(params: [String: Any], isPinned: Bool) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        var ok = false
+        v2MainSync {
+            ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if ok { tabManager.setWorkspaceGroupPinned(groupId: gid, isPinned: isPinned) }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "is_pinned": isPinned])
+            : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupAdd(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id"),
+              let wsId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing group_id or workspace_id", data: nil)
+        }
+        var failureCode = "not_found"
+        var failureMessage = "Group or workspace not found"
+        var ok = false
+        v2MainSync {
+            let hasGroup = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            guard let tab = tabManager.tabs.first(where: { $0.id == wsId }), hasGroup else {
+                return
+            }
+            // addWorkspaceToGroup silently no-ops for pinned workspaces and
+            // for anchors of other groups. Confirm membership actually
+            // changed before reporting success so scripts don't get OK on a
+            // no-op.
+            tabManager.addWorkspaceToGroup(workspaceId: wsId, groupId: gid)
+            if tab.groupId == gid {
+                ok = true
+            } else {
+                if tab.isPinned {
+                    failureCode = "invalid_state"
+                    failureMessage = "Workspace is pinned and cannot join a group"
+                } else if tabManager.workspaceGroups.contains(where: { $0.id != gid && $0.anchorWorkspaceId == wsId }) {
+                    failureCode = "invalid_state"
+                    failureMessage = "Workspace is the anchor of another group; ungroup it first"
+                }
+            }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "workspace_id": wsId.uuidString])
+            : .err(code: failureCode, message: failureMessage, data: [
+                "group_id": gid.uuidString,
+                "workspace_id": wsId.uuidString
+            ])
+    }
+
+    private func v2WorkspaceGroupRemove(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let wsId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        var ok = false
+        v2MainSync {
+            if let tab = tabManager.tabs.first(where: { $0.id == wsId }), tab.groupId != nil {
+                tabManager.removeWorkspaceFromGroup(workspaceId: wsId)
+                ok = true
+            }
+        }
+        return ok
+            ? .ok(["workspace_id": wsId.uuidString])
+            : .err(code: "not_found", message: "Workspace not in a group", data: ["workspace_id": wsId.uuidString])
+    }
+
+    private func v2WorkspaceGroupSetAnchor(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id"),
+              let wsId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing group_id or workspace_id", data: nil)
+        }
+        var ok = false
+        v2MainSync {
+            let hasGroup = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            let hasWs = tabManager.tabs.contains(where: { $0.id == wsId && $0.groupId == gid })
+            if hasGroup && hasWs {
+                tabManager.setWorkspaceGroupAnchor(groupId: gid, workspaceId: wsId)
+                ok = true
+            }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "anchor_workspace_id": wsId.uuidString])
+            : .err(code: "not_found", message: "Group not found or workspace not a member", data: [
+                "group_id": gid.uuidString,
+                "workspace_id": wsId.uuidString
+            ])
+    }
+
+    private func v2WorkspaceGroupNewWorkspace(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        // workspace.group.new_workspace is NOT a focus-intent method. The
+        // socket focus policy says non-focus commands must not change the
+        // user's active workspace; callers that want to focus the new
+        // workspace should call workspace.select / workspace.group.focus
+        // afterward.
+        //
+        // Placement resolution: explicit `placement` param wins, then the
+        // group's per-cwd `newWorkspacePlacement` from cmux.json, then the
+        // global default. The CLI exposes this as
+        // `cmux workspace-group new-workspace <group> --placement <afterCurrent|top|end>`.
+        let placementRaw = v2String(params, "placement")
+        let explicitPlacement = WorkspaceGroupNewPlacement(rawString: placementRaw)
+        if let raw = placementRaw,
+           !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           explicitPlacement == nil {
+            return .err(
+                code: "invalid_params",
+                message: "placement must be one of: afterCurrent, top, end",
+                data: ["placement": raw]
+            )
+        }
+        var createdId: UUID?
+        v2MainSync {
+            guard let group = tabManager.workspaceGroups.first(where: { $0.id == gid }) else { return }
+            let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+            let configStore = AppDelegate.shared?.mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.cmuxConfigStore
+            let configured = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
+            let placement = explicitPlacement
+                ?? configured
+                ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+            if let newWs = tabManager.createWorkspaceInGroup(
+                groupId: gid,
+                placement: placement,
+                select: false
+            ) {
+                createdId = newWs.id
+            }
+        }
+        guard let createdId else {
+            return .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+        }
+        return .ok([
+            "group_id": gid.uuidString,
+            "workspace_id": createdId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: createdId)
+        ])
+    }
+
+    private func v2WorkspaceGroupSetColor(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        // Accept "hex": null to clear the override, or omit it entirely.
+        let hex: String? = (params["hex"] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let normalized: String? = (hex?.isEmpty == false) ? hex : nil
+        var ok = false
+        v2MainSync {
+            ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if ok { tabManager.setWorkspaceGroupColor(groupId: gid, hex: normalized) }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "custom_color": v2OrNull(normalized)])
+            : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupSetIcon(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        let symbol: String? = (params["symbol"] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let normalized: String? = (symbol?.isEmpty == false) ? symbol : nil
+        var ok = false
+        var storedIconSymbol: String?
+        v2MainSync {
+            ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if ok {
+                storedIconSymbol = tabManager.setWorkspaceGroupIcon(groupId: gid, symbol: normalized)
+            }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "icon_symbol": v2OrNull(storedIconSymbol)])
+            : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupMove(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        // Resolve target via explicit absolute index OR relative position to
+        // another group via `before_group_id` / `after_group_id`.
+        var ok = false
+        v2MainSync {
+            guard let current = tabManager.workspaceGroups.firstIndex(where: { $0.id == gid }) else { return }
+            // moveWorkspaceGroup interprets toIndex as the FINAL position the
+            // group should occupy. before/after refer to a peer's CURRENT
+            // index, so when the source comes before the peer in the original
+            // order, removing the source shifts the peer left by one, and the
+            // translated final position must shift with it.
+            let target: Int? = {
+                if let toIndex = v2Int(params, "to_index") {
+                    return toIndex
+                }
+                if let beforeId = v2UUID(params, "before_group_id"),
+                   let beforeIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == beforeId }) {
+                    return current < beforeIndex ? beforeIndex - 1 : beforeIndex
+                }
+                if let afterId = v2UUID(params, "after_group_id"),
+                   let afterIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == afterId }) {
+                    return current < afterIndex ? afterIndex : afterIndex + 1
+                }
+                return nil
+            }()
+            guard let target else { return }
+            tabManager.moveWorkspaceGroup(groupId: gid, toIndex: target)
+            ok = true
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString])
+            : .err(code: "invalid_params", message: "Missing or unresolvable target position", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupFocus(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        var anchorId: UUID?
+        v2MainSync {
+            guard let group = tabManager.workspaceGroups.first(where: { $0.id == gid }),
+                  let anchor = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId }) else { return }
+            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(tabManager)
+            }
+            // Route through selectWorkspace so the explicit-resume
+            // notification dismissal and other selection side effects fire,
+            // matching workspace.select and the sidebar header click path.
+            tabManager.selectWorkspace(anchor)
+            anchorId = anchor.id
+        }
+        guard let anchorId else {
+            return .err(code: "not_found", message: "Group or anchor not found", data: ["group_id": gid.uuidString])
+        }
+        return .ok([
+            "group_id": gid.uuidString,
+            "anchor_workspace_id": anchorId.uuidString,
+            "anchor_workspace_ref": v2Ref(kind: .workspace, uuid: anchorId)
+        ])
+    }
+
     private func v2WorkspaceRename(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -6198,8 +7045,26 @@ class TerminalController {
         let foregroundAuthToken = v2RawString(params, "foreground_auth_token")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let localSocketPath = v2RawString(params, "local_socket_path")
+        let hasExplicitAgentSocketPath = v2HasNonNullParam(params, "ssh_auth_sock")
+        let agentSocketPath = v2RawString(params, "ssh_auth_sock")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        var persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if v2HasNonNullParam(params, "persistent_daemon_slot") {
+            guard let persistentDaemonSlot,
+                  !persistentDaemonSlot.isEmpty,
+                  persistentDaemonSlot.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil,
+                  persistentDaemonSlot != ".",
+                  persistentDaemonSlot != ".." else {
+                return .err(
+                    code: "invalid_params",
+                    message: "persistent_daemon_slot must contain only letters, numbers, '.', '_' or '-'",
+                    data: nil
+                )
+            }
+        }
         let daemonWebSocketURL = v2RawString(params, "daemon_websocket_url")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonWebSocketToken = v2RawString(params, "daemon_websocket_token")?
@@ -6241,6 +7106,20 @@ class TerminalController {
             )
         }
         let skipDaemonBootstrap = v2Bool(params, "skip_daemon_bootstrap") ?? false
+        if persistentDaemonSlot != nil, !preserveAfterTerminalExit {
+            return .err(
+                code: "invalid_params",
+                message: "preserve_after_terminal_exit is required when persistent_daemon_slot is set",
+                data: nil
+            )
+        }
+        if preserveAfterTerminalExit,
+           transport == .ssh,
+           !skipDaemonBootstrap,
+           daemonWebSocketEndpoint == nil,
+           persistentDaemonSlot == nil {
+            persistentDaemonSlot = "ssh-\(workspaceId.uuidString.lowercased())"
+        }
         if relayPort != nil {
             guard let relayID, !relayID.isEmpty else {
                 return .err(code: "invalid_params", message: "relay_id is required when relay_port is set", data: nil)
@@ -6257,6 +7136,7 @@ class TerminalController {
             "target=\(destination) transport=\(transport.rawValue) port=\(sshPort.map(String.init) ?? "nil") " +
             "autoConnect=\(autoConnect ? 1 : 0) relayPort=\(relayPort.map(String.init) ?? "nil") " +
             "localSocket=\(localSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? localSocketPath! : "nil") " +
+            "sshAuthSock=\(agentSocketPath?.isEmpty == false ? 1 : 0) " +
             "sshOptions=\(sshOptions.joined(separator: "|"))"
         )
 #endif
@@ -6285,8 +7165,14 @@ class TerminalController {
                 localSocketPath: localSocketPath,
                 terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
                 foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
+                agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
+                    sshOptions: sshOptions,
+                    explicitAgentSocketPath: agentSocketPath,
+                    explicitAgentSocketPathIsSet: hasExplicitAgentSocketPath
+                ),
                 daemonWebSocketEndpoint: daemonWebSocketEndpoint,
                 preserveAfterTerminalExit: preserveAfterTerminalExit,
+                persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
                 skipDaemonBootstrap: skipDaemonBootstrap
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
@@ -9299,7 +10185,9 @@ class TerminalController {
             includeScrollback = true
         }
 
-        var result: V2CallResult = .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
+        var rawSnapshot: TerminalTextRawSnapshot?
+        var resolvedContext: (workspaceId: UUID, surfaceId: UUID, windowId: UUID?)?
+        var result: V2CallResult?
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -9325,35 +10213,74 @@ class TerminalController {
                 return
             }
 
-            let response = readTerminalTextBase64(
+            rawSnapshot = readTerminalTextRawSnapshot(
                 terminalPanel: terminalPanel,
-                includeScrollback: includeScrollback,
-                lineLimit: lineLimit
+                includeScrollback: includeScrollback
             )
-            guard response.hasPrefix("OK ") else {
-                result = .err(code: "internal_error", message: response, data: nil)
-                return
-            }
-            let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-            let decoded = Data(base64Encoded: base64).flatMap { String(data: $0, encoding: .utf8) }
-            guard let text = decoded ?? (base64.isEmpty ? "" : nil) else {
-                result = .err(code: "internal_error", message: "Failed to decode terminal text", data: nil)
-                return
-            }
-
-            let windowId = v2ResolveWindowId(tabManager: tabManager)
-            result = .ok([
-                "text": text,
-                "base64": base64,
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "window_id": v2OrNull(windowId?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: windowId)
-            ])
+            resolvedContext = (ws.id, surfaceId, v2ResolveWindowId(tabManager: tabManager))
         }
-        return result
+        if let result {
+            return result
+        }
+        guard let rawSnapshot, let resolvedContext else {
+            return .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
+        }
+        switch Self.terminalTextPayload(
+            from: rawSnapshot,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        ) {
+        case .success(let payload):
+            return .ok([
+                "text": payload.text,
+                "base64": payload.base64,
+                "workspace_id": resolvedContext.workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: resolvedContext.workspaceId),
+                "surface_id": resolvedContext.surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: resolvedContext.surfaceId),
+                "window_id": v2OrNull(resolvedContext.windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: resolvedContext.windowId)
+            ])
+        case .failure(let error):
+            return .err(code: "internal_error", message: error.message, data: nil)
+        }
+    }
+
+    struct TerminalTextRawSnapshot {
+        var viewport: String?
+        var screen: String?
+        var history: String?
+        var active: String?
+    }
+
+    struct TerminalTextPayload: Equatable {
+        let text: String
+        let base64: String
+    }
+
+    struct TerminalTextPayloadError: Error, Equatable {
+        let message: String
+    }
+
+    private func readTerminalTextRawSnapshot(
+        terminalPanel: TerminalPanel,
+        includeScrollback: Bool
+    ) -> TerminalTextRawSnapshot? {
+        guard terminalPanel.surface.surface != nil else { return nil }
+        if includeScrollback {
+            return TerminalTextRawSnapshot(
+                viewport: nil,
+                screen: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SCREEN),
+                history: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SURFACE),
+                active: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_ACTIVE)
+            )
+        }
+        return TerminalTextRawSnapshot(
+            viewport: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_VIEWPORT),
+            screen: nil,
+            history: nil,
+            active: nil
+        )
     }
 
     private func readTerminalSelectionText(terminalPanel: TerminalPanel, pointTag: ghostty_point_tag_e) -> String? {
@@ -9392,64 +10319,84 @@ class TerminalController {
     }
 
     private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard terminalPanel.surface.surface != nil else { return "ERROR: Terminal surface not found" }
-        func readSelectionText(pointTag: ghostty_point_tag_e) -> String? {
-            readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: pointTag)
+        guard let snapshot = readTerminalTextRawSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: includeScrollback
+        ) else {
+            return "ERROR: Terminal surface not found"
         }
+        switch Self.terminalTextPayload(
+            from: snapshot,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        ) {
+        case .success(let payload):
+            return "OK \(payload.base64)"
+        case .failure(let error):
+            return "ERROR: \(error.message)"
+        }
+    }
 
-        var output: String
+    nonisolated static func terminalTextPayload(
+        from snapshot: TerminalTextRawSnapshot,
+        includeScrollback: Bool,
+        lineLimit: Int?
+    ) -> Result<TerminalTextPayload, TerminalTextPayloadError> {
+        let output: String
         if includeScrollback {
-            func candidateScore(_ text: String) -> (lines: Int, bytes: Int) {
-                let lines = text.isEmpty ? 0 : text.split(separator: "\n", omittingEmptySubsequences: false).count
-                return (lines, text.utf8.count)
-            }
-
-            // Read all available regions and pick the most complete candidate.
-            // Different point tags can lose different rows around resize/reflow boundaries.
-            let screen = readSelectionText(pointTag: GHOSTTY_POINT_SCREEN)
-            let history = readSelectionText(pointTag: GHOSTTY_POINT_SURFACE)
-            let active = readSelectionText(pointTag: GHOSTTY_POINT_ACTIVE)
-
             var candidates: [String] = []
-            if let screen {
-                candidates.append(screen)
+            if let screen = snapshot.screen {
+                candidates.append(lineLimit.map { Self.tailTerminalLines(screen, maxLines: $0) } ?? screen)
             }
-            if history != nil || active != nil {
-                var merged = history ?? ""
-                if let active {
+            if snapshot.history != nil || snapshot.active != nil {
+                var merged = lineLimit.map {
+                    Self.tailTerminalLines(snapshot.history ?? "", maxLines: $0)
+                } ?? (snapshot.history ?? "")
+                if let active = snapshot.active {
                     if !merged.isEmpty, !merged.hasSuffix("\n"), !active.isEmpty {
                         merged.append("\n")
                     }
-                    merged.append(active)
+                    merged.append(lineLimit.map { Self.tailTerminalLines(active, maxLines: $0) } ?? active)
                 }
-                candidates.append(merged)
+                candidates.append(lineLimit.map { Self.tailTerminalLines(merged, maxLines: $0) } ?? merged)
             }
 
-            if let best = candidates.max(by: { lhs, rhs in
-                let left = candidateScore(lhs)
-                let right = candidateScore(rhs)
+            guard let best = candidates.max(by: { lhs, rhs in
+                let left = terminalTextCandidateScore(lhs)
+                let right = terminalTextCandidateScore(rhs)
                 if left.lines != right.lines {
                     return left.lines < right.lines
                 }
                 return left.bytes < right.bytes
-            }) {
-                output = best
-            } else {
-                return "ERROR: Failed to read terminal text"
+            }) else {
+                return .failure(TerminalTextPayloadError(message: "Failed to read terminal text"))
             }
+            output = best
         } else {
-            guard let viewport = readSelectionText(pointTag: GHOSTTY_POINT_VIEWPORT) else {
-                return "ERROR: Failed to read terminal text"
+            guard var viewport = snapshot.viewport else {
+                return .failure(TerminalTextPayloadError(message: "Failed to read terminal text"))
+            }
+            if let lineLimit {
+                viewport = Self.tailTerminalLines(viewport, maxLines: lineLimit)
             }
             output = viewport
         }
 
-        if let lineLimit {
-            output = tailTerminalLines(output, maxLines: lineLimit)
-        }
-
         let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
-        return "OK \(base64)"
+        return .success(TerminalTextPayload(text: output, base64: base64))
+    }
+
+    nonisolated private static func terminalTextCandidateScore(_ text: String) -> (lines: Int, bytes: Int) {
+        if text.isEmpty { return (0, 0) }
+        var newlineCount = 0
+        var byteCount = 0
+        for byte in text.utf8 {
+            byteCount += 1
+            if byte == 0x0A {
+                newlineCount += 1
+            }
+        }
+        return (newlineCount + 1, byteCount)
     }
 
     private struct PasteboardItemSnapshot {
@@ -9534,7 +10481,7 @@ class TerminalController {
             return nil
         }
         if let lineLimit {
-            output = tailTerminalLines(output, maxLines: lineLimit)
+            output = Self.tailTerminalLines(output, maxLines: lineLimit)
         }
         return output
     }
@@ -11597,12 +12544,19 @@ class TerminalController {
             let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
             let insertFirst = (direction == .left || direction == .up)
 
+            if params["font_size"] != nil, v2Double(params, "font_size") == nil {
+                result = .err(code: "invalid_params", message: "Invalid 'font_size' (expected a number)", data: nil)
+                return
+            }
+            let fontSize = v2Double(params, "font_size").map { MarkdownFontSizeSettings.clamp($0) }
+
             let createdPanel = ws.newMarkdownSplit(
                 from: sourceSurfaceId,
                 orientation: orientation,
                 insertFirst: insertFirst,
                 filePath: filePath,
-                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false),
+                fontSize: fontSize
             )
 
             guard let markdownPanelId = createdPanel?.id else {
@@ -11633,6 +12587,182 @@ class TerminalController {
         return result
     }
 
+    // MARK: - Project
+
+    private func v2ProjectOpen(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let rawPath = v2String(params, "path") else {
+            return .err(code: "invalid_params", message: "Missing 'path' parameter", data: nil)
+        }
+        let expanded = (rawPath as NSString).expandingTildeInPath
+        let resolved: String
+        if expanded.hasPrefix("/") {
+            resolved = expanded
+        } else {
+            resolved = (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent(expanded)
+        }
+        guard FileManager.default.fileExists(atPath: resolved) else {
+            return .err(code: "not_found", message: "Project not found at \(resolved)", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to create project panel", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+            guard let paneId = ws.bonsplitController.focusedPaneId else {
+                result = .err(code: "not_found", message: "No focused pane to open project in", data: nil)
+                return
+            }
+
+            guard let panel = ws.newProjectSurface(
+                inPane: paneId,
+                projectPath: resolved,
+                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+            ) else {
+                result = .err(code: "internal_error", message: "Failed to create project panel", data: nil)
+                return
+            }
+            let targetPaneUUID = ws.paneId(forPanelId: panel.id)?.id
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "workspace_id": ws.id.uuidString,
+                "pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                "surface_id": panel.id.uuidString,
+                "path": resolved
+            ])
+        }
+        return result
+    }
+
+    // MARK: - Project state driving (debug RPC for autonomous iteration)
+
+    private func v2ResolveProjectPanel(params: [String: Any]) -> (Workspace, ProjectPanel)? {
+        guard let tabManager = v2ResolveTabManager(params: params) else { return nil }
+        var result: (Workspace, ProjectPanel)?
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId,
+                  let panel = ws.panels[surfaceId] as? ProjectPanel else { return }
+            result = (ws, panel)
+        }
+        return result
+    }
+
+    private func v2ProjectSetTab(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        guard let raw = v2String(params, "tab"),
+              let tab = ProjectPanelTab(rawValue: raw) else {
+            return .err(code: "invalid_params", message: "tab must be one of files|targets|buildSettings|schemes", data: nil)
+        }
+        v2MainSync { panel.activeTab = tab }
+        return .ok(["tab": tab.rawValue])
+    }
+
+    private func v2ProjectSetScheme(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let name = v2String(params, "name")
+        v2MainSync { panel.selectedSchemeName = name }
+        return .ok(["scheme": name ?? ""])
+    }
+
+    private func v2ProjectSetConfiguration(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let name = v2String(params, "name")
+        v2MainSync { panel.selectedConfigurationName = name }
+        return .ok(["configuration": name ?? ""])
+    }
+
+    private func v2ProjectSetSelectedTarget(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let name = v2String(params, "name")
+        var resolvedID: String?
+        v2MainSync {
+            if let name, !name.isEmpty,
+               let module = panel.loadState.model?.modules.first,
+               let target = module.targets.first(where: { $0.displayName == name }) {
+                panel.selectedTargetID = target.id
+                resolvedID = target.id.rawValue
+            } else {
+                panel.selectedTargetID = nil
+            }
+        }
+        return .ok(["target_name": name ?? "", "target_id": resolvedID ?? ""])
+    }
+
+    private func v2ProjectSetSelectedFile(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let path = v2String(params, "path")
+        v2MainSync { panel.selectedFilePath = path }
+        return .ok(["selected_file": path ?? ""])
+    }
+
+    private func v2ProjectSetSettingsFilter(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let text = v2String(params, "text") ?? ""
+        v2MainSync { panel.settingsSearchText = text }
+        return .ok(["filter": text])
+    }
+
+    private func v2ProjectGetState(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        var snapshot: [String: Any] = [:]
+        v2MainSync {
+            snapshot["surface_id"] = panel.id.uuidString
+            snapshot["project_url"] = panel.projectURL.path
+            snapshot["active_tab"] = panel.activeTab.rawValue
+            snapshot["selected_scheme"] = panel.selectedSchemeName ?? ""
+            snapshot["selected_configuration"] = panel.selectedConfigurationName ?? ""
+            snapshot["selected_target_id"] = panel.selectedTargetID?.rawValue ?? ""
+            snapshot["selected_file"] = panel.selectedFilePath ?? ""
+            snapshot["settings_filter"] = panel.settingsSearchText
+            switch panel.loadState {
+            case .idle:
+                snapshot["load_state"] = "idle"
+            case .loading:
+                snapshot["load_state"] = "loading"
+            case let .failed(reason):
+                snapshot["load_state"] = "failed"
+                snapshot["load_error"] = reason
+            case let .loaded(model):
+                snapshot["load_state"] = "loaded"
+                snapshot["module_count"] = model.modules.count
+                if let module = model.modules.first {
+                    snapshot["module_name"] = module.displayName
+                    snapshot["target_count"] = module.targets.count
+                    snapshot["target_names"] = module.targets.map(\.displayName)
+                    snapshot["scheme_count"] = module.schemes.count
+                    snapshot["scheme_names"] = module.schemes.map(\.name)
+                    snapshot["configuration_names"] = module.configurationNames
+                    snapshot["root_group_children"] = module.rootGroup.children.count
+                }
+            }
+        }
+        return .ok(snapshot)
+    }
+
     // MARK: - Browser
 
     private func v2BrowserOpenSplit(params: [String: Any]) -> V2CallResult {
@@ -11642,9 +12772,14 @@ class TerminalController {
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
-
         if BrowserAvailabilitySettings.isDisabled() {
+            if v2IsDiffViewerURL(url) {
+                return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
+            }
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
+        if let error = v2RegisterDiffViewerURLIfNeeded(params: params, url: url) {
+            return error
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
@@ -11696,6 +12831,9 @@ class TerminalController {
 
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+            let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
+            let transparentBackground = v2Bool(params, "transparent_background") ?? false
+            let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
 
             var createdSplit = true
             var placementStrategy = "split_right"
@@ -11705,7 +12843,11 @@ class TerminalController {
                     inPane: targetPane,
                     url: url,
                     focus: focus,
-                    creationPolicy: .automationPreload
+                    selectWhenNotFocused: true,
+                    creationPolicy: .automationPreload,
+                    omnibarVisible: omnibarVisible,
+                    transparentBackground: transparentBackground,
+                    bypassRemoteProxy: bypassRemoteProxy
                 )
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
@@ -11715,7 +12857,10 @@ class TerminalController {
                     orientation: .horizontal,
                     url: url,
                     focus: focus,
-                    creationPolicy: .automationPreload
+                    creationPolicy: .automationPreload,
+                    omnibarVisible: omnibarVisible,
+                    transparentBackground: transparentBackground,
+                    bypassRemoteProxy: bypassRemoteProxy
                 )
             }
 
@@ -11742,10 +12887,53 @@ class TerminalController {
                 "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
                 "created_split": createdSplit,
-                "placement_strategy": placementStrategy
+                "placement_strategy": placementStrategy,
+                "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
+                "transparent_background": transparentBackground,
+                "bypass_remote_proxy": bypassRemoteProxy
             ])
         }
         return result
+    }
+
+    private func v2IsDiffViewerURL(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
+            return true
+        }
+        return url.scheme?.lowercased() == "http" &&
+            url.host == "127.0.0.1" &&
+            url.fragment == "cmux-diff-viewer"
+    }
+
+    private func v2RegisterDiffViewerURLIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {
+        guard let url,
+              url.scheme == CmuxDiffViewerURLSchemeHandler.scheme else {
+            return nil
+        }
+        guard let token = v2String(params, "diff_viewer_token"),
+              token == url.host,
+              let rawFiles = params["diff_viewer_files"] as? [[String: Any]],
+              !rawFiles.isEmpty,
+              rawFiles.count <= CmuxDiffViewerURLSchemeHandler.maxRegisteredFiles else {
+            return .err(code: "invalid_params", message: "Missing or invalid trusted diff viewer allowlist", data: nil)
+        }
+
+        let files = rawFiles.compactMap(CmuxDiffViewerURLSchemeHandler.registeredFile(from:))
+        guard files.count == rawFiles.count else {
+            return .err(code: "invalid_params", message: "Invalid trusted diff viewer allowlist", data: nil)
+        }
+
+        do {
+            try CmuxDiffViewerURLSchemeHandler.shared.register(token: token, files: files)
+            return nil
+        } catch {
+            return .err(
+                code: "invalid_params",
+                message: "Invalid trusted diff viewer allowlist",
+                data: ["details": error.localizedDescription]
+            )
+        }
     }
 
     private func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
@@ -15625,6 +16813,228 @@ class TerminalController {
         }
         return result
     }
+
+    /// Drives `SidebarDragState.draggedTabId` and `dropIndicator` mutations
+    /// across N steps from a starting workspace toward a target neighbor.
+    /// External profilers (e.g. the `profile-pr` skill driving `xctrace`)
+    /// invoke this between `xctrace record --launch` and `xctrace stop` to
+    /// generate a deterministic 60Hz-style drag load without HID synthesis.
+    /// Never commits the reorder; calls back with the synthesized step path.
+    ///
+    /// Runs on the socket worker (see `socketWorkerV2Methods`) so the
+    /// inter-tick `Thread.sleep` doesn't block the main actor — every
+    /// dragState mutation hops to main via `v2MainSync`.
+    private nonisolated func v2DebugSidebarSimulateDrag(params: [String: Any]) -> V2CallResult {
+        // Dispatched on the socket worker (see socketWorkerV2Methods) so the
+        // inter-tick Thread.sleep doesn't block the main actor. All parameter
+        // resolution (including workspace:N -> UUID ref-resolution) and the
+        // SidebarDragState mutations hop to main via v2MainSync.
+
+        enum PlanResult {
+            case ok(
+                windowId: UUID,
+                fromTabId: UUID,
+                toTabId: UUID,
+                tabIds: [UUID],
+                fromIndex: Int,
+                toIndex: Int,
+                durationMs: Int,
+                requestedSteps: Int?
+            )
+            case err(code: String, message: String, data: [String: Any]?)
+        }
+
+        let planResult: PlanResult = v2MainSync {
+            guard let windowId = v2UUID(params, "window_id") else {
+                return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+            }
+            // Scope to the requested window. self.tabManager is the controller's
+            // primary tabManager; in multi-window runs that's the wrong list for
+            // a window_id other than the primary.
+            guard let windowTabManager = AppDelegate.shared?.tabManagerFor(windowId: windowId) else {
+                return .err(
+                    code: "not_found",
+                    message: "No TabManager for window_id",
+                    data: ["window_id": windowId.uuidString]
+                )
+            }
+            guard let fromTabId = v2UUID(params, "from_tab_id") else {
+                return .err(code: "invalid_params", message: "Missing or invalid from_tab_id", data: nil)
+            }
+            guard let toTabId = v2UUID(params, "to_tab_id") else {
+                return .err(code: "invalid_params", message: "Missing or invalid to_tab_id", data: nil)
+            }
+            let durationMs: Int
+            if v2HasNonNullParam(params, "duration_ms") {
+                guard let value = v2Int(params, "duration_ms"), value > 0 else {
+                    return .err(code: "invalid_params", message: "duration_ms must be a positive integer", data: nil)
+                }
+                durationMs = value
+            } else {
+                durationMs = 1000
+            }
+            let requestedSteps: Int?
+            if v2HasNonNullParam(params, "steps") {
+                guard let value = v2Int(params, "steps"), value > 0 else {
+                    return .err(code: "invalid_params", message: "steps must be a positive integer", data: nil)
+                }
+                requestedSteps = value
+            } else {
+                requestedSteps = nil
+            }
+            guard SidebarDragStateRegistry.state(forWindowId: windowId) != nil else {
+                return .err(
+                    code: "not_found",
+                    message: "No mounted sidebar for window_id",
+                    data: ["window_id": windowId.uuidString]
+                )
+            }
+            let tabIds = windowTabManager.tabs.map(\.id)
+            guard let fromIndex = tabIds.firstIndex(of: fromTabId) else {
+                return .err(
+                    code: "not_found",
+                    message: "from_tab_id not in window's workspace list",
+                    data: ["from_tab_id": fromTabId.uuidString]
+                )
+            }
+            guard let toIndex = tabIds.firstIndex(of: toTabId) else {
+                return .err(
+                    code: "not_found",
+                    message: "to_tab_id not in window's workspace list",
+                    data: ["to_tab_id": toTabId.uuidString]
+                )
+            }
+            guard fromIndex != toIndex else {
+                return .err(code: "invalid_params", message: "from_tab_id and to_tab_id must differ", data: nil)
+            }
+            return .ok(
+                windowId: windowId,
+                fromTabId: fromTabId,
+                toTabId: toTabId,
+                tabIds: tabIds,
+                fromIndex: fromIndex,
+                toIndex: toIndex,
+                durationMs: durationMs,
+                requestedSteps: requestedSteps
+            )
+        }
+
+        let windowId: UUID
+        let fromTabId: UUID
+        let toTabId: UUID
+        let tabIds: [UUID]
+        let fromIndex: Int
+        let toIndex: Int
+        let durationMs: Int
+        let requestedSteps: Int?
+        switch planResult {
+        case let .err(code, message, data):
+            return .err(code: code, message: message, data: data)
+        case let .ok(w, f, t, ids, fi, ti, dur, steps):
+            windowId = w; fromTabId = f; toTabId = t; tabIds = ids
+            fromIndex = fi; toIndex = ti; durationMs = dur; requestedSteps = steps
+        }
+
+        let stride = fromIndex < toIndex ? 1 : -1
+        let pathIndices = Swift.stride(from: fromIndex + stride, through: toIndex, by: stride).map { $0 }
+        guard !pathIndices.isEmpty else {
+            return .err(code: "invalid_params", message: "Empty drag path", data: nil)
+        }
+        // Allow requestedSteps > pathIndices.count: profiling at high tick
+        // rates (e.g. 60Hz over a short row span) is a documented use case.
+        // The resampling formula picks the same indicator value multiple
+        // times in that regime, which is exactly the SwiftUI invalidation
+        // load the skill measures.
+        let steps = max(1, requestedSteps ?? pathIndices.count)
+        // Resampler closure: maps step number (0..<steps) -> path index.
+        // Not pre-materialized; computed inline in the simulation loop so
+        // arbitrarily large --steps (e.g. 60Hz over hours) doesn't allocate
+        // a giant [Int] up front.
+        let pathCount = pathIndices.count
+        let stepDivisor = Double(max(1, steps - 1))
+        let resolveStepIndex: (Int) -> Int = { stepNumber in
+            let position = Int(round(Double(stepNumber) * Double(pathCount - 1) / stepDivisor))
+            return pathIndices[max(0, min(pathCount - 1, position))]
+        }
+        let stepIntervalMs = max(1, durationMs / steps)
+        let edge: SidebarDropEdge = fromIndex < toIndex ? .bottom : .top
+        // Cap the response payload's path array so very large --steps don't
+        // serialize a giant JSON UUID list. The simulation still runs every
+        // requested step; the response is just informational.
+        let pathSampleLimit = 64
+
+        // Start the drag. If the sidebar has already unregistered, fail loud
+        // instead of silently sleeping through a no-op simulation.
+        let startedOK: Bool = v2MainSync {
+            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+            // Mark the drag as simulator-driven so VerticalTabsSidebar skips
+            // starting SidebarDragFailsafeMonitor — it would otherwise post
+            // mouse_up_failsafe immediately because no real mouse is pressed.
+            dragState.isSimulated = true
+            dragState.beginDragging(tabId: fromTabId)
+            return true
+        }
+        guard startedOK else {
+            return .err(
+                code: "not_found",
+                message: "Sidebar unregistered before simulation could start",
+                data: ["window_id": windowId.uuidString]
+            )
+        }
+
+        var aborted = false
+        var pathSample: [String] = []
+        pathSample.reserveCapacity(min(steps, pathSampleLimit))
+        for stepNumber in 0..<steps {
+            let tabIndex = resolveStepIndex(stepNumber)
+            let targetTabId = tabIds[tabIndex]
+            if pathSample.count < pathSampleLimit {
+                pathSample.append(targetTabId.uuidString)
+            }
+            let tickOK: Bool = v2MainSync {
+                guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+                dragState.setDropIndicator(SidebarDropIndicator(tabId: targetTabId, edge: edge))
+                return true
+            }
+            if !tickOK {
+                aborted = true
+                break
+            }
+            if stepIntervalMs > 0 {
+                Thread.sleep(forTimeInterval: TimeInterval(stepIntervalMs) / 1000.0)
+            }
+        }
+
+        v2MainSync {
+            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
+            dragState.clearDrag()
+            dragState.isSimulated = false
+        }
+
+        if aborted {
+            return .err(
+                code: "aborted",
+                message: "Sidebar unregistered mid-simulation",
+                data: ["window_id": windowId.uuidString]
+            )
+        }
+
+        var payload: [String: Any] = [
+            "window_id": windowId.uuidString,
+            "from_tab_id": fromTabId.uuidString,
+            "to_tab_id": toTabId.uuidString,
+            "steps": steps,
+            "step_interval_ms": stepIntervalMs,
+            "duration_ms": stepIntervalMs * steps,
+            "edge": edge == .top ? "top" : "bottom",
+            "path": pathSample
+        ]
+        if steps > pathSampleLimit {
+            payload["path_truncated"] = true
+            payload["path_full_size"] = steps
+        }
+        return .ok(payload)
+    }
 #endif
 
     private func v2DebugReadTerminalText(params: [String: Any]) -> V2CallResult {
@@ -15818,11 +17228,21 @@ class TerminalController {
         )
     }
 
-    private func tailTerminalLines(_ text: String, maxLines: Int) -> String {
+    nonisolated static func tailTerminalLines(_ text: String, maxLines: Int) -> String {
         guard maxLines > 0 else { return "" }
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        guard lines.count > maxLines else { return text }
-        return lines.suffix(maxLines).joined(separator: "\n")
+        var newlineCount = 0
+        var index = text.endIndex
+        while index > text.startIndex {
+            let previous = text.index(before: index)
+            if text[previous] == "\n" {
+                newlineCount += 1
+                if newlineCount == maxLines {
+                    return String(text[index...])
+                }
+            }
+            index = previous
+        }
+        return text
     }
 
     private func readTerminalTextBase64(surfaceArg: String, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
@@ -15915,7 +17335,7 @@ class TerminalController {
 
         Input commands:
           send <text>                     - Send text to current terminal
-          send_key <key>                  - Send special key (ctrl-c, ctrl-d, enter, tab, escape)
+          send_key <key>                  - Send special key (ctrl-c, ctrl-d, ctrl-f, enter, tab, escape)
           send_surface <id|idx> <text>    - Send text to a specific terminal
           send_key_surface <id|idx> <key> - Send special key to a specific terminal
           read_screen [id|idx] [--scrollback] [--lines N] - Read terminal text (plain text)
@@ -19821,7 +21241,7 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
-            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
@@ -20058,7 +21478,7 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
-            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
@@ -20380,7 +21800,11 @@ class TerminalController {
         }
 
         v2MainSync {
-            GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.reloadConfiguration(source: "socket.reload_config")
+            } else {
+                GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
+            }
         }
         return "OK Reloaded config"
     }
