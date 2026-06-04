@@ -7,6 +7,23 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
     override var safeAreaRect: NSRect { bounds }
     override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    /// Lets a click on an interactive titlebar control (the sidebar toggle, the
+    /// right-sidebar mode bar, the session-index header controls, etc.) both
+    /// activate the window and trigger the control in a single click when the
+    /// window is inactive — matching how macOS services controls in the titlebar.
+    ///
+    /// Scoped to registered ``MinimalModeTitlebarControlHitRegionRegistry`` regions
+    /// (the regions `titlebarInteractiveControl()` registers) so clicking inactive
+    /// *content* still only activates the window. This recovers the first-mouse
+    /// behavior the previous nested-`NSHostingView` host provided, without
+    /// reparenting the control (which dropped active-window clicks in the
+    /// full-size-content titlebar band — issue #5099).
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        guard let event, let window else { return false }
+        return isMinimalModeTitlebarControlHit(window: window, locationInWindow: event.locationInWindow)
+    }
 
     required init(rootView: Content) {
         super.init(rootView: rootView)
@@ -25,6 +42,12 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+}
+
+@MainActor
+func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
+    window.isMovableByWindowBackground = false
+    window.isMovable = false
 }
 
 @MainActor

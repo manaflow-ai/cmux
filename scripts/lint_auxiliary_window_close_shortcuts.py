@@ -17,7 +17,11 @@ OWNER_LIST_NAME = "cmuxAuxiliaryWindowIdentifiers"
 # main window. Add to this set only when a window is intentionally not user
 # closable.
 IGNORED_IDENTIFIERS = {
+    # Hidden WebKit preload host; it is not user closable and must not own Cmd+W.
+    "cmux.browserBackgroundPreload",
     "cmux.bootstrap",
+    # Cursor-anchored textbox completion popup; it never becomes key/main.
+    "cmux.textbox.mentionCompletionPanel",
 }
 
 IDENTIFIER_ASSIGNMENT_RE = re.compile(
