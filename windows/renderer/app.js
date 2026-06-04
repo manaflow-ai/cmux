@@ -13342,6 +13342,26 @@ function renderSettingsInspector(options = {}) {
       true,
       "workspace color custom hex picker palette swatch reset default clear"
     ));
+    const paneColorSuggestion = workspacePaneColorSuggestion(workspace);
+    const workspaceColorSyncActions = document.createElement("div");
+    workspaceColorSyncActions.className = "settings-actions";
+    workspaceColorSyncActions.dataset.settingsSearch = normalizeSettingsQuery("workspace color sync active pane tab use pane color match");
+    const usePaneColor = settingsActionButton("Use pane color", () => setWorkspaceColorFromActivePane(workspace), "", "workspace color sync active pane tab match use pane color");
+    usePaneColor.disabled = !workspace || !paneColorSuggestion || paneColorSuggestion === workspace.color;
+    usePaneColor.title = !workspace
+      ? "Open a workspace before syncing colors."
+      : !paneColorSuggestion
+        ? "Give the active pane a custom color before using it for the workspace."
+        : paneColorSuggestion === workspace.color
+          ? "Workspace already uses the active pane color."
+          : "Set the workspace color from the active pane.";
+    workspaceColorSyncActions.append(usePaneColor);
+    workspaceSection.append(settingRow(
+      "Color sync",
+      workspaceColorSyncActions,
+      true,
+      "workspace color sync active pane tab use pane color match"
+    ));
     const workspaceActions = document.createElement("div");
     workspaceActions.className = "settings-actions";
     workspaceActions.dataset.settingsSearch = normalizeSettingsQuery("workspace setup copy paste rename name color folder directory cwd clipboard json");
@@ -30298,6 +30318,40 @@ async function setWorkspaceColor(color, workspaceId = activeWorkspace()?.id) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return;
   return await updateWorkspace(workspace.id, { color });
+}
+
+function workspaceColorSourcePane(workspace = activeWorkspace()) {
+  if (!workspace) return null;
+  const panels = workspace.panels || [];
+  return panels.find((panel) => panel.id === workspace.activePanelId)
+    || panels[0]
+    || null;
+}
+
+function workspacePaneColorSuggestion(workspace = activeWorkspace()) {
+  return String(workspaceColorSourcePane(workspace)?.color || "").trim();
+}
+
+async function setWorkspaceColorFromActivePane(workspace = activeWorkspace()) {
+  const target = workspace?.id
+    ? state.data?.workspaces.find((candidate) => candidate.id === workspace.id)
+    : null;
+  if (!target) {
+    toast("Open a workspace before syncing colors.");
+    return false;
+  }
+  const color = workspacePaneColorSuggestion(target);
+  if (!color) {
+    toast("Give the active pane a custom color before using it for the workspace.");
+    return false;
+  }
+  if (target.color === color) {
+    toast("Workspace already uses the active pane color.");
+    return false;
+  }
+  await setWorkspaceColor(color, target.id);
+  toast("Workspace color set from active pane.");
+  return true;
 }
 
 async function clearWorkspaceColor(workspace = activeWorkspace()) {
