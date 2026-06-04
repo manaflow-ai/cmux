@@ -6542,6 +6542,7 @@ const commands = [
   { id: "settings.pastePaneSetup", label: "Paste Active Pane Setup", shortcut: "", run: () => pasteActivePaneSetup() },
   { id: "settings.copyPaneLook", label: "Copy Active Pane Look", shortcut: "", run: () => copyActivePaneLook() },
   { id: "settings.pastePaneLook", label: "Paste Active Pane Look", shortcut: "", run: () => pasteActivePaneLook() },
+  { id: "settings.savePaneLook", label: "Save Active Pane Look", shortcut: "", run: () => saveActivePaneLook() },
   { id: "settings.resetPaneSetup", label: "Reset Active Pane Setup", shortcut: "", run: () => resetActivePaneSetup() },
   { id: "settings.syncPaneLook", label: "Sync Active Pane Look", shortcut: "", run: () => syncActivePaneLook() },
   { id: "settings.resetAppearance", label: "Reset Look Settings", shortcut: "", run: () => resetAppearanceSettings() },
@@ -6894,6 +6895,7 @@ const corePaletteCommandIds = new Set([
   "settings.pastePaneSetup",
   "settings.copyPaneLook",
   "settings.pastePaneLook",
+  "settings.savePaneLook",
   "settings.resetPaneSetup",
   "settings.syncPaneLook",
   "layout.activePercent",
@@ -6921,6 +6923,10 @@ function coreCommandPaletteSignature() {
   appendSignatureValue(parts, panel?.type === "terminal" ? normalizeBackgroundValue(panel.backgroundImage) : "");
   appendSignatureValue(parts, panel?.type === "terminal" ? normalizeTerminalFontSize(panel.terminalFontSize, 0) : 0);
   appendSignatureValue(parts, paneLookSyncTargetPanels(panel, workspace).length);
+  const paneLookSave = paneLookSaveModel(panel);
+  appendSignatureValue(parts, Boolean(paneLookSave.disabled));
+  appendSignatureValue(parts, Boolean(paneLookSave.active));
+  appendSignatureValue(parts, paneLookSave.title || "");
   appendSignatureValue(parts, minimizedPanelCount(workspace));
   appendSignatureValue(parts, state.closedPanels.length);
   appendSignatureValue(parts, Boolean(state.settings.focusMode));
@@ -7119,9 +7125,10 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       search: `active pane duplicate clone ${panelTitle} ${panelKind}`
     };
   }
-  if (["settings.pane", "settings.renamePane", "settings.copyPaneSetup", "settings.pastePaneSetup", "settings.copyPaneLook", "settings.pastePaneLook", "settings.resetPaneSetup", "settings.syncPaneLook"].includes(commandId)) {
+  if (["settings.pane", "settings.renamePane", "settings.copyPaneSetup", "settings.pastePaneSetup", "settings.copyPaneLook", "settings.pastePaneLook", "settings.savePaneLook", "settings.resetPaneSetup", "settings.syncPaneLook"].includes(commandId)) {
     const paneSetupDefault = paneSetupResetIsDefault(panel);
     const syncTargetCount = paneLookSyncTargetPanels(panel, workspace).length;
+    const saveLook = paneLookSaveModel(panel);
     const shortcutById = {
       "settings.pane": "Settings",
       "settings.renamePane": "Edit",
@@ -7129,6 +7136,7 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       "settings.pastePaneSetup": "Paste",
       "settings.copyPaneLook": "Copy look",
       "settings.pastePaneLook": "Paste look",
+      "settings.savePaneLook": "Save look",
       "settings.resetPaneSetup": "Reset",
       "settings.syncPaneLook": "Sync"
     };
@@ -7143,17 +7151,20 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       "settings.pastePaneLook": panel?.type === "terminal"
         ? "Paste copied pane color, background, and text size without renaming the pane."
         : "Paste copied pane color without renaming the pane or changing its URL.",
+      "settings.savePaneLook": saveLook.title,
       "settings.resetPaneSetup": paneSetupResetTitle(panel),
       "settings.syncPaneLook": paneLookSyncTitle(panel, workspace)
     };
     const disabled = !readyPanel
+      || (commandId === "settings.savePaneLook" && saveLook.disabled)
       || (commandId === "settings.resetPaneSetup" && paneSetupDefault)
       || (commandId === "settings.syncPaneLook" && syncTargetCount === 0);
     return {
       meta: paneMeta,
       shortcut: shortcutById[commandId],
       active: readyPanel && (
-        (commandId === "settings.resetPaneSetup" && paneSetupDefault)
+        (commandId === "settings.savePaneLook" && saveLook.active)
+        || (commandId === "settings.resetPaneSetup" && paneSetupDefault)
         || (commandId === "settings.syncPaneLook" && paneLookSyncPeerPanels(panel, workspace).length > 0 && syncTargetCount === 0)
       ),
       disabled,
@@ -18137,6 +18148,87 @@ async function pasteActivePaneLook(panel = focusedPanel() || activePanel()) {
   }
 }
 
+function paneLookSaveModel(panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  if (!target) {
+    return {
+      target: null,
+      disabled: true,
+      active: false,
+      title: "Open a pane before saving its look.",
+      color: "",
+      backgroundImage: ""
+    };
+  }
+  const color = normalizeCustomPaletteColor(target.color);
+  const backgroundImage = target.type === "terminal" ? normalizeBackgroundValue(target.backgroundImage) : "";
+  const colorSaved = Boolean(color && customColorPaletteHasColor(color));
+  const backgroundSaved = Boolean(backgroundImage && savedBackgroundImageExists(backgroundImage));
+  const colorNeedsSave = Boolean(color && !colorSaved);
+  const backgroundNeedsSave = Boolean(backgroundImage && !backgroundSaved);
+  const canSaveColor = Boolean(colorNeedsSave && !customColorPaletteFull());
+  const canSaveBackground = Boolean(backgroundNeedsSave && !savedBackgroundImagesFull());
+  const hasAssets = Boolean(color || backgroundImage);
+  const disabled = !canSaveColor && !canSaveBackground;
+  let title = "";
+  if (!hasAssets) {
+    title = target.type === "terminal"
+      ? "Set a pane marker color or background before saving this look."
+      : "Set a pane marker color before saving this look.";
+  } else if (!colorNeedsSave && !backgroundNeedsSave) {
+    title = "Pane look is already saved.";
+  } else if (colorNeedsSave && customColorPaletteFull() && (!backgroundNeedsSave || savedBackgroundImagesFull())) {
+    title = customColorPaletteLimitTitle();
+  } else if (backgroundNeedsSave && savedBackgroundImagesFull() && (!colorNeedsSave || customColorPaletteFull())) {
+    title = savedBackgroundImageLimitTitle();
+  } else {
+    title = target.type === "terminal"
+      ? "Save this pane color and background to the reusable libraries."
+      : "Save this pane color to the reusable palette.";
+  }
+  return {
+    target,
+    disabled,
+    active: hasAssets && !colorNeedsSave && !backgroundNeedsSave,
+    title,
+    color,
+    backgroundImage,
+    canSaveColor,
+    canSaveBackground,
+    colorNeedsSave,
+    backgroundNeedsSave
+  };
+}
+
+async function saveActivePaneLook(panel = focusedPanel() || activePanel()) {
+  const model = paneLookSaveModel(panel);
+  if (!model.target) {
+    toast(model.title);
+    return false;
+  }
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  let savedColor = false;
+  let savedBackground = false;
+  if (model.canSaveColor) {
+    savedColor = upsertCustomColorPalette(model.color, { render: false, toast: false });
+  }
+  if (model.canSaveBackground) {
+    savedBackground = Boolean(await saveCustomBackgroundImage({ url: model.backgroundImage }, { render: false, toast: false }));
+  }
+  if (!savedColor && !savedBackground) {
+    toast("Pane look is already saved.");
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (savedColor && savedBackground) toast("Pane color and background saved.");
+  else if (savedColor) toast("Pane color saved.");
+  else toast("Pane background saved.");
+  return true;
+}
+
 function paneSetupResetUpdates(panel = focusedPanel() || activePanel()) {
   const target = paneSetupTarget(panel);
   if (!target) return null;
@@ -18805,19 +18897,24 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
 
   const actions = document.createElement("div");
   actions.className = "settings-actions active-pane-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery("active pane focus duplicate split reset sync default color text browser terminal actions copy paste setup look clipboard json");
+  actions.dataset.settingsSearch = normalizeSettingsQuery("active pane focus duplicate split reset sync save default color text browser terminal actions copy paste setup look clipboard json reusable library palette");
   const resetPaneSetup = settingsActionButton("Reset setup", () => resetActivePaneSetup(panel), "", "active pane setup reset default title color background text size");
   resetPaneSetup.disabled = paneSetupResetIsDefault(panel);
   resetPaneSetup.title = paneSetupResetTitle(panel);
   const syncPaneLook = settingsActionButton("Sync look", () => syncActivePaneLook(panel, workspace), "", "active pane look sync color background text size matching panes");
   syncPaneLook.disabled = paneLookSyncTargetPanels(panel, workspace).length === 0;
   syncPaneLook.title = paneLookSyncTitle(panel, workspace);
+  const savePaneLook = settingsActionButton("Save look", () => saveActivePaneLook(panel), "", "active pane look save color background reusable library palette");
+  const savePaneLookModel = paneLookSaveModel(panel);
+  savePaneLook.disabled = savePaneLookModel.disabled;
+  savePaneLook.title = savePaneLookModel.title;
   actions.append(
     settingsActionButton("Focus pane", () => focusPanel(panel.id), "", "active pane focus"),
     settingsActionButton("Copy setup", () => copyActivePaneSetup(panel), "", "active pane setup copy title color background text url clipboard json"),
     settingsActionButton("Paste setup", () => pasteActivePaneSetup(panel), "", "active pane setup paste title color background text url clipboard json"),
     settingsActionButton("Copy look", () => copyActivePaneLook(panel), "", "active pane look copy color background text clipboard json"),
     settingsActionButton("Paste look", () => pasteActivePaneLook(panel), "", "active pane look paste color background text clipboard json"),
+    savePaneLook,
     resetPaneSetup,
     syncPaneLook,
     settingsActionButton("Duplicate", () => duplicatePanel(panel), "", "active pane duplicate"),
@@ -21013,6 +21110,7 @@ function quickPaneControlsPanel(panel) {
   };
   const paneSetupDefault = paneSetupResetIsDefault(panel);
   const syncLookTargets = paneLookSyncTargetPanels(panel).length;
+  const saveLook = paneLookSaveModel(panel);
   const actions = [
     quickOverviewControlButton("Rename", () => renameActivePanel(panel), {
       disabled: !ready,
@@ -21044,6 +21142,11 @@ function quickPaneControlsPanel(panel) {
       title: ready ? paneSetupResetTitle(panel) : unavailableTitle,
       search: "quick setup active pane reset default color title background text size"
     }),
+    quickOverviewControlButton("Save look", () => saveActivePaneLook(panel), {
+      disabled: !ready || saveLook.disabled,
+      title: ready ? saveLook.title : unavailableTitle,
+      search: "quick setup active pane save look color background reusable palette library"
+    }),
     quickOverviewControlButton("Sync look", () => syncActivePaneLook(panel), {
       disabled: !ready || syncLookTargets === 0,
       title: ready ? paneLookSyncTitle(panel) : unavailableTitle,
@@ -21059,7 +21162,7 @@ function quickPaneControlsPanel(panel) {
     className: "quick-overview-pane",
     title: "Active pane controls",
     meta,
-    search: `quick setup active pane controls rename duplicate split copy paste reset sync default appearance ${paneTitle} ${typeLabel}`,
+    search: `quick setup active pane controls rename duplicate split copy paste save reset sync default appearance ${paneTitle} ${typeLabel}`,
     actions
   });
 }
