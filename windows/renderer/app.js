@@ -21834,8 +21834,8 @@ function quickSetupOverviewPanel() {
           <em data-quick-library-summary></em>
         </span>
         <span class="quick-overview-library-actions">
-          <button class="quick-overview-library-action" type="button" data-quick-library-action="copy">Copy</button>
-          <button class="quick-overview-library-action" type="button" data-quick-library-action="paste">Paste</button>
+          <button class="quick-overview-library-action" type="button" data-quick-library-action="copy">Copy saved</button>
+          <button class="quick-overview-library-action" type="button" data-quick-library-action="paste">Paste saved</button>
           <button class="quick-overview-library-action" type="button" data-quick-library-action="data">Manage</button>
         </span>
       </div>
