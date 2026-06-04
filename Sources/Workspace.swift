@@ -18654,7 +18654,18 @@ extension Workspace: BonsplitDelegate {
         let tabCloseButtonClose = tabCloseButtonCloseTabIds.remove(tab.id) != nil
         let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabCloseButtonClose
 
-        if forceCloseTabIds.contains(tab.id) {
+        let forceCloseRequested = forceCloseTabIds.contains(tab.id)
+        let forceCloseHasUnauthorizedBlockWorktree: Bool = {
+            guard forceCloseRequested,
+                  let panelId = panelIdFromSurfaceId(tab.id),
+                  shouldConfirmEphemeralWorktreeClose(panelId: panelId) else {
+                return false
+            }
+            return !ephemeralWorktreeManager.isTabCleanupAuthorized(tab.id)
+        }()
+        if forceCloseRequested && forceCloseHasUnauthorizedBlockWorktree {
+            forceCloseTabIds.remove(tab.id)
+        } else if forceCloseRequested {
             if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
                 stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             } else {

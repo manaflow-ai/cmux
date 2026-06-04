@@ -107,6 +107,10 @@ final class WorkspaceEphemeralWorktreeManager {
         cleanupAuthorizedTabIds.remove(tabId)
     }
 
+    func isTabCleanupAuthorized(_ tabId: TabID) -> Bool {
+        cleanupAuthorizedTabIds.contains(tabId)
+    }
+
     func consumeTabCleanupAuthorization(_ tabId: TabID) -> Bool {
         cleanupAuthorizedTabIds.remove(tabId) != nil
     }
