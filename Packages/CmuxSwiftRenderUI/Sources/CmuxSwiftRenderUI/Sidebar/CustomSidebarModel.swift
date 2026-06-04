@@ -83,7 +83,7 @@ final class CustomSidebarModel {
             do {
                 state = .swiftSource(try String(contentsOf: fileURL, encoding: .utf8))
             } catch {
-                state = .failed(CustomSidebarValidation.describe(error))
+                state = .failed(CustomSidebarValidator().describe(error))
             }
             return
         }
@@ -92,7 +92,7 @@ final class CustomSidebarModel {
             let document = try JSONDecoder().decode(DSLDocument.self, from: data)
             state = .json(document)
         } catch {
-            state = .failed(CustomSidebarValidation.describe(error))
+            state = .failed(CustomSidebarValidator().describe(error))
         }
     }
 

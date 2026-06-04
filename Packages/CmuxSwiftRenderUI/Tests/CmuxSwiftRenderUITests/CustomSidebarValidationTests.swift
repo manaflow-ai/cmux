@@ -4,6 +4,8 @@ import Testing
 
 @Suite("Custom sidebar validation")
 struct CustomSidebarValidationTests {
+    private let validator = CustomSidebarValidator()
+
     @Test("discovers one file per sidebar name and prefers Swift")
     func discoversSwiftBeforeJSON() throws {
         let directory = try temporaryDirectory()
@@ -14,7 +16,7 @@ struct CustomSidebarValidationTests {
         {"version":1,"root":{"type":"text","text":"JSON"}}
         """.write(to: directory.appendingPathComponent("finder.json"), atomically: true, encoding: .utf8)
 
-        let urls = CustomSidebarValidation.discover(in: directory)
+        let urls = validator.discover(in: directory)
 
         #expect(urls.map(\.lastPathComponent) == ["finder.swift"])
     }
@@ -26,7 +28,7 @@ struct CustomSidebarValidationTests {
         {"root":{"type":"text","text":"Missing version"}}
         """.write(to: directory.appendingPathComponent("broken.json"), atomically: true, encoding: .utf8)
 
-        let report = CustomSidebarValidation.validate(directory: directory)
+        let report = validator.validate(directory: directory)
 
         #expect(report.validCount == 0)
         #expect(report.errorCount == 1)
@@ -40,11 +42,23 @@ struct CustomSidebarValidationTests {
         let answer = 42
         """.write(to: directory.appendingPathComponent("broken.swift"), atomically: true, encoding: .utf8)
 
-        let report = CustomSidebarValidation.validate(directory: directory)
+        let report = validator.validate(directory: directory)
 
         #expect(report.validCount == 0)
         #expect(report.errorCount == 1)
         #expect(report.entries.first?.errorMessage == "No supported SwiftUI view found.")
+    }
+
+    @Test("reports a missing requested sidebar name")
+    func reportsMissingRequestedName() throws {
+        let directory = try temporaryDirectory()
+
+        let report = validator.validate(directory: directory, name: "missing")
+
+        #expect(report.validCount == 0)
+        #expect(report.errorCount == 1)
+        #expect(report.entries.first?.name == "missing")
+        #expect(report.entries.first?.errorMessage == "Sidebar file is missing.")
     }
 
     private func temporaryDirectory() throws -> URL {

@@ -2290,6 +2290,9 @@ class TerminalController {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        "sidebar.custom.validate",
+        "sidebar.custom.reload",
+        "sidebar.custom.select",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via
@@ -2429,6 +2432,12 @@ class TerminalController {
             return v2Result(id: request.id, v2WorkspaceRemotePTYBridge(params: request.params))
         case "workspace.remote.pty_resize":
             return v2Result(id: request.id, v2WorkspaceRemotePTYResize(params: request.params))
+        case "sidebar.custom.validate":
+            return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
+        case "sidebar.custom.reload":
+            return v2Result(id: request.id, v2CustomSidebarReload(params: request.params))
+        case "sidebar.custom.select":
+            return v2Result(id: request.id, v2CustomSidebarSelect(params: request.params))
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
@@ -3388,12 +3397,6 @@ class TerminalController {
             return v2Ok(id: id, result: v2Identify(params: params))
         case "system.tree":
             return v2Result(id: id, self.v2SystemTree(params: params))
-        case "sidebar.custom.validate":
-            return v2Result(id: id, self.v2CustomSidebarValidate(params: params))
-        case "sidebar.custom.reload":
-            return v2Result(id: id, self.v2CustomSidebarReload(params: params))
-        case "sidebar.custom.select":
-            return v2Result(id: id, self.v2CustomSidebarSelect(params: params))
 #if DEBUG
         case "debug.session_snapshot_benchmark":
             return v2Result(id: id, self.v2DebugSessionSnapshotBenchmark(params: params))
@@ -5551,7 +5554,7 @@ class TerminalController {
         ])
     }
 
-    private func v2CustomSidebarValidate(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2CustomSidebarValidate(params: [String: Any]) -> V2CallResult {
         let name = v2CustomSidebarName(params: params)
         if let name, name.isEmpty {
             return .err(
@@ -5567,7 +5570,7 @@ class TerminalController {
         return .ok(v2CustomSidebarReportPayload(report))
     }
 
-    private func v2CustomSidebarReload(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2CustomSidebarReload(params: [String: Any]) -> V2CallResult {
         let name = v2CustomSidebarName(params: params)
         if let name, name.isEmpty {
             return .err(
@@ -5582,11 +5585,13 @@ class TerminalController {
         let report = v2CustomSidebarValidationReport(name: name)
         let validNames = report.validNames
         if !validNames.isEmpty {
-            NotificationCenter.default.post(
-                name: .customSidebarReloadRequested,
-                object: nil,
-                userInfo: ["names": validNames]
-            )
+            v2MainSync {
+                NotificationCenter.default.post(
+                    name: .customSidebarReloadRequested,
+                    object: nil,
+                    userInfo: ["names": validNames]
+                )
+            }
         }
         var payload = v2CustomSidebarReportPayload(report)
         payload["reloaded_count"] = validNames.count
@@ -5594,7 +5599,7 @@ class TerminalController {
         return .ok(payload)
     }
 
-    private func v2CustomSidebarSelect(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2CustomSidebarSelect(params: [String: Any]) -> V2CallResult {
         guard let name = v2CustomSidebarName(params: params), !name.isEmpty else {
             return .err(
                 code: "invalid_params",
@@ -5617,44 +5622,32 @@ class TerminalController {
         }
 
         let providerId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
-        UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
-        CmuxExtensionSidebarSelection.setProviderId(providerId)
-        NotificationCenter.default.post(
-            name: .customSidebarReloadRequested,
-            object: nil,
-            userInfo: ["names": [name]]
-        )
+        v2MainSync {
+            UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
+            CmuxExtensionSidebarSelection.setProviderId(providerId)
+            NotificationCenter.default.post(
+                name: .customSidebarReloadRequested,
+                object: nil,
+                userInfo: ["names": [name]]
+            )
+        }
         var payload = v2CustomSidebarReportPayload(report)
         payload["selected_provider_id"] = providerId
         payload["selected_name"] = name
         return .ok(payload)
     }
 
-    private func v2CustomSidebarName(params: [String: Any]) -> String? {
+    private nonisolated func v2CustomSidebarName(params: [String: Any]) -> String? {
         guard let raw = params["name"] as? String else { return nil }
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func v2CustomSidebarValidationReport(name: String?) -> CustomSidebarValidationReport {
+    private nonisolated func v2CustomSidebarValidationReport(name: String?) -> CustomSidebarValidationReport {
         let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
-        let report = CustomSidebarValidation.validate(directory: directory, name: name)
-        guard let name, report.entries.isEmpty else { return report }
-        let swiftURL = directory.appendingPathComponent("\(name).swift")
-        let jsonURL = directory.appendingPathComponent("\(name).json")
-        let missingURL = FileManager.default.fileExists(atPath: swiftURL.path) ? swiftURL : jsonURL
-        let entry = CustomSidebarValidationEntry(
-            name: name,
-            fileURL: missingURL,
-            kind: missingURL.pathExtension.lowercased() == "swift" ? .swift : .json,
-            errorMessage: String(
-                localized: "socket.sidebar.custom.missing",
-                defaultValue: "Sidebar file is missing."
-            )
-        )
-        return CustomSidebarValidationReport(entries: [entry])
+        return CustomSidebarValidator().validate(directory: directory, name: name)
     }
 
-    private func v2CustomSidebarReportPayload(_ report: CustomSidebarValidationReport) -> [String: Any] {
+    private nonisolated func v2CustomSidebarReportPayload(_ report: CustomSidebarValidationReport) -> [String: Any] {
         [
             "directory": CmuxExtensionSidebarSelection.customSidebarsDirectory.path,
             "valid_count": report.validCount,

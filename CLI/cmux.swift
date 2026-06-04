@@ -14927,19 +14927,13 @@ struct CMUXCLI {
     }
 
     private func intValue(_ raw: Any?) -> Int {
-        if let value = raw as? Int { return value }
-        if let value = raw as? NSNumber { return value.intValue }
+        if let value = Self.intValue(raw) { return value }
         if let value = raw as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0 }
         return 0
     }
 
     private func boolValue(_ raw: Any?) -> Bool {
-        if let value = raw as? Bool { return value }
-        if let value = raw as? NSNumber { return value.boolValue }
-        if let value = raw as? String {
-            return ["1", "true", "yes"].contains(value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
-        }
-        return false
+        Self.boolValue(raw)
     }
 
     private func parseRightSidebarCLIArguments(_ args: [String]) throws -> RightSidebarCLIArguments {
@@ -26850,6 +26844,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return number.intValue
         }
         return nil
+    }
+
+    private static func boolValue(_ value: Any?) -> Bool {
+        if let boolValue = value as? Bool {
+            return boolValue
+        }
+        if let number = value as? NSNumber {
+            return number.boolValue
+        }
+        if let string = value as? String {
+            return ["1", "true", "yes"].contains(string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        }
+        return false
     }
 
     private static func tomlBasicStringContent(_ value: String) -> String {
