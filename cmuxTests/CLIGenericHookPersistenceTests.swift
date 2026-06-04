@@ -3516,4 +3516,95 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "PID/TTY ground truth must override the leaked env CMUX_SURFACE_ID; params=\(params)"
         )
     }
+
+    /// G3 stale-env variant (https://github.com/manaflow-ai/cmux/issues/5333): when the ambient
+    /// CMUX_SURFACE_ID is stale/invalid (the surface was closed, or belongs to another workspace) it no
+    /// longer resolves to an accessible surface. That must NOT abort hook routing — the agent's own
+    /// TTY-bound pane is valid, so the hook recovers and still publishes the resume binding there
+    /// instead of no-op'ing (which would silently lose the session across reload).
+    func testCodexHookRecoversFromStaleEnvSurfaceViaProcessTTYBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-stale")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-stale-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let staleSurfaceId = "22222222-2222-2222-2222-222222222222"   // env CMUX_SURFACE_ID, no longer exists
+        let ttySurfaceId = "33333333-3333-3333-3333-333333333333"      // the agent's real, live pane
+        let sessionId = "codex-stale-session"
+        let ttyName = "ttys303"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                // The stale env surface is NOT listed — only the live TTY pane is accessible.
+                return self.surfaceListResponse(id: id, surfaceId: ttySurfaceId)
+            case "debug.terminals":
+                return self.v2Response(
+                    id: id, ok: true,
+                    result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": ttySurfaceId]]]
+                )
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id, ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = staleSurfaceId
+        environment["CMUX_CLI_TTY_NAME"] = ttyName
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(["/usr/local/bin/codex"])
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let resumeRequests = state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else { return nil }
+            return payload["params"] as? [String: Any]
+        }
+        let params = try XCTUnwrap(
+            resumeRequests.last,
+            "stale ambient surface must not drop the hook; expected a surface.resume.set, saw \(state.snapshot())"
+        )
+        XCTAssertEqual(
+            params["surface_id"] as? String, ttySurfaceId,
+            "a stale ambient CMUX_SURFACE_ID must fall through to the TTY pane; params=\(params)"
+        )
+    }
 }
