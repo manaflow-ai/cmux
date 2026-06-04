@@ -1,173 +1,93 @@
-import CmuxFileWatch
 import CmuxSettings
 import CmuxSwiftRender
 import Foundation
 
-/// Loads a named custom sidebar file, hot-reloads it on change, and reloads it
-/// on explicit request.
+/// Loads a named custom sidebar file and reloads it on explicit request.
 ///
 /// The file is either an interpreted `.swift` view or a declarative `.json`
-/// document, resolved by name (`.swift` preferred when both exist). Reload
-/// triggers:
-/// - the file changing on disk, via ``CmuxFileWatch/FileWatcher``
-///   (kqueue-backed) — safe to act on because rendering is last-good sticky
-///   (a broken mid-edit save never replaces a working sidebar; see
-///   ``renderSwift(dataContext:)`` and the remote worker's refresh);
-/// - an explicit `customSidebarReloadRequested` notification (posted for the
-///   CLI's `sidebar reload`), optionally filtered by sidebar name.
+/// document. The model stores raw Swift source so the view can re-interpret it
+/// against the live data context without re-reading the file on every render.
 @MainActor
 @Observable
-public final class CustomSidebarModel {
+final class CustomSidebarModel {
     /// The loaded state of the sidebar file.
-    public enum State: Equatable, Sendable {
-        /// The file does not exist (or is empty).
+    enum State: Equatable {
         case missing
-        /// A declarative JSON sidebar document.
         case json(DSLDocument)
-        /// Raw interpreted-Swift sidebar source.
         case swiftSource(String)
-        /// The file exists but could not be loaded/decoded.
         case failed(String)
     }
 
-    /// The current loaded state of the watched file.
-    public private(set) var state: State = .missing
-    /// The currently resolved sidebar file (extension can flip between
-    /// `.swift`/`.json` across reloads when both exist by name).
-    public private(set) var fileURL: URL
+    private(set) var state: State = .missing
+    private var fileURL: URL
     private let directoryURL: URL
     private let sidebarName: String
     private let fileManager: FileManager
 
-    private var watchTask: Task<Void, Never>?
-    private var watcher: FileWatcher?
     private var reloadObserver: NSObjectProtocol?
 
-    /// The interpreter the source is rendered through. Defaults to the
-    /// in-process implementation; the app injects an out-of-process,
-    /// crash-isolating ``SidebarInterpreting`` so an interpreter fault from an
-    /// untrusted sidebar can't take down the host.
-    private let interpreter: any SidebarInterpreting
+    private let interpreter = SwiftViewInterpreter()
+    // Cache the parsed Swift program so re-rendering against live data (the
+    // host re-evaluates each `TimelineView` tick) does not re-parse unchanged
+    // source. Keyed by the source string; `reload()` swaps in new source on
+    // file change, which invalidates the cache on the next `renderNode` call.
+    private var cachedSource: String?
+    private var cachedProgram: ParsedProgram?
 
-    /// Latest interpreted view for `.swiftSource`, updated only when a render
-    /// completes so live re-renders don't flash empty between ticks.
-    public private(set) var swiftRender: RenderNode?
-    /// True once the first `.swiftSource` render completes, letting the view
-    /// distinguish "still rendering" from "rendered, no view" (error state).
-    public private(set) var hasRenderedSwift = false
-    /// Bumps when the loaded source changes, so the view's render trigger
-    /// re-fires on file reload even when the data context is unchanged.
-    public private(set) var sourceRevision = 0
-
-    /// Creates a model for `fileURL` rendering through `interpreter`.
-    public init(
-        fileURL: URL,
-        interpreter: any SidebarInterpreting = InProcessSidebarInterpreter(),
-        fileManager: FileManager = .default
-    ) {
+    init(fileURL: URL, fileManager: FileManager = .default) {
         self.fileURL = fileURL
         directoryURL = fileURL.deletingLastPathComponent()
         sidebarName = fileURL.deletingPathExtension().lastPathComponent
-        self.interpreter = interpreter
         self.fileManager = fileManager
     }
 
-    /// Interprets the current `.swiftSource` against `dataContext` through the
-    /// injected interpreter and publishes the result. No-op for other states.
+    /// Interprets the current Swift source against `dataContext`, reusing a
+    /// cached parse so the expensive AST parse/fold runs only when the source
+    /// changes (not on every render).
     ///
-    /// Drive this from the view's `.task(id:)` so it re-runs on each data-
-    /// context change and on source reload; cancellation (a newer trigger
-    /// superseding this one) discards the stale result instead of publishing it.
-    public func renderSwift(dataContext: [String: SwiftValue]) async {
-        guard case let .swiftSource(source) = state else { return }
-        let node = await interpreter.render(source: source, state: dataContext)
-        if Task.isCancelled { return }
-        // Last-good sticky: a broken mid-edit save (nil node) keeps the
-        // previous working render instead of flashing the error state; the
-        // error still shows when there was never a good render.
-        if node != nil || swiftRender == nil {
-            swiftRender = node
+    /// Returns `nil` when the current state is not `.swiftSource` or the source
+    /// produces no supported view. The view layer maps `nil` to its error UI.
+    func renderNode(dataContext: [String: SwiftValue]) -> RenderNode? {
+        guard case let .swiftSource(source) = state else { return nil }
+        let program: ParsedProgram
+        if cachedSource == source, let cached = cachedProgram {
+            program = cached
+        } else {
+            program = interpreter.parse(source)
+            cachedSource = source
+            cachedProgram = program
         }
-        hasRenderedSwift = true
+        return interpreter.evaluate(program, state: dataContext)
     }
 
-    /// Loads the file once, starts watching it, and listens for explicit
-    /// reload requests. Idempotent.
-    public func start() {
+    /// Loads the file once and listens for explicit reload requests.
+    /// Idempotent.
+    func start() {
         reload()
-        startWatcher()
-        if reloadObserver == nil {
-            reloadObserver = NotificationCenter.default.addObserver(
-                forName: .customSidebarReloadRequested,
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
-                let names = notification.userInfo?["names"] as? [String]
-                Task { @MainActor [weak self] in
-                    self?.requestReload(names: names)
-                }
+        guard reloadObserver == nil else { return }
+        reloadObserver = NotificationCenter.default.addObserver(
+            forName: .customSidebarReloadRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let names = notification.userInfo?["names"] as? [String]
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard self.matchesReloadRequest(names: names) else { return }
+                self.reload()
             }
         }
     }
 
-    /// Stops watching the file and listening for reloads. Safe to call
-    /// repeatedly.
-    public func stop() {
-        stopWatcher()
+    func stop() {
         if let reloadObserver {
             NotificationCenter.default.removeObserver(reloadObserver)
             self.reloadObserver = nil
         }
     }
 
-    /// Reloads when `names` is empty/absent or contains this sidebar's name.
-    /// The explicit-reload entry point shared by the in-process notification
-    /// path and the out-of-process worker (which receives forwarded reload
-    /// requests over its channel; host notifications don't cross processes).
-    public func requestReload(names: [String]?) {
-        if let names, !names.isEmpty, !names.contains(sidebarName) { return }
-        reload()
-    }
-
-    /// (Re)arms the kqueue watcher on the currently resolved file. Reload can
-    /// flip the resolved extension (`name.swift` <-> `name.json`); the watcher
-    /// must follow or hot reload silently stops after a flip.
-    private var watchedPath: String?
-
-    private func startWatcher() {
-        let path = fileURL.path
-        guard watchedPath != path else { return }
-        stopWatcher()
-        watchedPath = path
-        // Leading-edge throttle coalesces the burst of kqueue events an
-        // atomic save emits into one reload.
-        let watcher = FileWatcher(path: path, throttle: .milliseconds(150))
-        self.watcher = watcher
-        watchTask = Task { [weak self] in
-            for await _ in watcher.events {
-                guard let self else { return }
-                self.reload()
-            }
-        }
-    }
-
-    private func stopWatcher() {
-        watchTask?.cancel()
-        watchTask = nil
-        watchedPath = nil
-        if let watcher {
-            self.watcher = nil
-            Task { await watcher.stop() }
-        }
-    }
-
     /// Re-reads the file: stores `.swift` source verbatim, decodes `.json`.
-    public func reload() {
-        defer {
-            sourceRevision += 1 // re-fire the view's render trigger
-            // Follow extension flips with the watcher; no-op when unchanged.
-            if watchTask != nil || watchedPath != nil { startWatcher() }
-        }
+    func reload() {
         fileURL = preferredFileURL()
         guard fileManager.fileExists(atPath: fileURL.path) else {
             state = .missing
@@ -188,6 +108,13 @@ public final class CustomSidebarModel {
         } catch {
             state = .failed(CustomSidebarValidator().describe(error))
         }
+    }
+
+    private func matchesReloadRequest(names: [String]?) -> Bool {
+        guard let names, !names.isEmpty else {
+            return true
+        }
+        return names.contains(sidebarName)
     }
 
     private func preferredFileURL() -> URL {
