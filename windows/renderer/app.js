@@ -26025,7 +26025,7 @@ function terminalReadabilityPresetGrid() {
     const savedProfile = savedSettingsProfileForTerminalReadabilityPreset(preset);
     const summary = terminalSetupSummaryForSettings(settings);
     const colors = terminalTheme();
-    const search = terminalReadabilityPresetSearchText(preset, settings);
+    const search = terminalReadabilityPresetSearchText(preset, settings, active, savedProfile);
     const card = document.createElement("div");
     card.className = `terminal-readability-preset-card${active ? " is-active" : ""}`;
     card.dataset.settingsSearch = search;
@@ -26035,7 +26035,7 @@ function terminalReadabilityPresetGrid() {
     button.disabled = active;
     button.title = terminalReadabilityPresetTitle(preset, active);
     button.dataset.terminalReadabilityPreset = preset.id;
-    button.dataset.settingsSearch = search;
+    button.dataset.settingsSearch = terminalReadabilityPresetApplySearchText(preset, settings, active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
     button.innerHTML = `
       <span class="terminal-readability-preview" aria-hidden="true">
@@ -26076,13 +26076,14 @@ function terminalReadabilityPresetGrid() {
       savedProfile ? "Saved" : "Save",
       () => saveTerminalReadabilityPresetProfile(preset.id),
       savedProfile ? "primary" : "",
-      `terminal readability preset save profile reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body}`
+      terminalReadabilityPresetProfileSaveSearchText(preset, settings, savedProfile)
     );
     save.dataset.terminalReadabilitySave = preset.id;
     save.disabled = Boolean(savedProfile) || savedSettingsProfilesFull();
     save.title = terminalReadabilityPresetProfileSaveTitle(preset, savedProfile);
-    const copy = settingsActionButton("Copy", () => copyTerminalReadabilityPresetSetup(preset.id), "", `terminal readability preset copy setup clipboard json ${preset.label} ${preset.body}`);
-    copy.title = "Copy this terminal readability preset as terminal setup JSON.";
+    const copy = settingsActionButton("Copy", () => copyTerminalReadabilityPresetSetup(preset.id), "", terminalReadabilityPresetCopySearchText(preset, settings));
+    copy.dataset.terminalReadabilityCopy = preset.id;
+    copy.title = terminalReadabilityPresetCopyTitle(preset);
     actions.append(save, copy);
     card.append(button, actions);
     grid.append(card);
@@ -26152,22 +26153,7 @@ function refreshTerminalSettingsPreview() {
   const preview = elements.inspectorBody.querySelector(".terminal-settings-preview");
   if (preview) preview.replaceWith(terminalSettingsPreviewPanel());
   refreshTerminalReadabilityPresetGrid();
-  for (const button of elements.inspectorBody.querySelectorAll("[data-terminal-color-preset]")) {
-    const preset = terminalColorPresets.find((candidate) => candidate.id === button.dataset.terminalColorPreset);
-    if (!preset) continue;
-    const active = isActiveTerminalColorPreset(preset);
-    button.classList.toggle("is-active", active);
-    setDisabledIfChanged(button, active);
-    setTitleIfChanged(button, terminalColorPresetTitle(preset, active));
-    setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
-    const status = button.querySelector(".terminal-color-preset-status");
-    if (status) setTextIfChanged(status, active ? "Active" : "");
-    const search = normalizeSettingsQuery(`terminal color preset theme ${active ? "active current " : ""}${preset.label} ${preset.body}`);
-    if (button.dataset.settingsSearch !== search) {
-      button.dataset.settingsSearch = search;
-      updateSettingsSearchIndexItemSearch(button, search);
-    }
-  }
+  refreshTerminalColorPresetGrid();
   const cursorSelect = elements.inspectorBody.querySelector('[data-setting-control="terminalCursorStyle"]');
   if (cursorSelect && cursorSelect.value !== state.settings.terminalCursorStyle) {
     cursorSelect.value = state.settings.terminalCursorStyle;
@@ -27108,6 +27094,52 @@ function terminalColorPresetProfileSaveTitle(preset, savedProfile = savedSetting
   return "Save this terminal color preset as a reusable profile.";
 }
 
+function terminalColorPresetBaseSearchText(preset) {
+  return [
+    "terminal colors theme preset palette background foreground text cursor powershell high contrast solarized light warm graphite default",
+    preset?.label || "",
+    preset?.body || "",
+    preset?.background || "",
+    preset?.foreground || "",
+    preset?.cursor || ""
+  ].join(" ");
+}
+
+function terminalColorPresetApplySearchText(preset, active = false) {
+  return normalizeSettingsQuery([
+    terminalColorPresetBaseSearchText(preset),
+    "apply use",
+    active ? "active current unavailable already applied" : "ready available"
+  ].join(" "));
+}
+
+function terminalColorPresetProfileSaveSearchText(preset, savedProfile = null) {
+  return normalizeSettingsQuery([
+    terminalColorPresetBaseSearchText(preset),
+    "save profile reusable settings",
+    settingsProfileSaveStateSearch(savedProfile),
+    savedProfile ? "saved unavailable" : savedSettingsProfilesFull() ? "limit full unavailable" : "ready"
+  ].join(" "));
+}
+
+function terminalColorPresetCopySearchText(preset) {
+  return normalizeSettingsQuery([
+    terminalColorPresetBaseSearchText(preset),
+    "copy palette clipboard json background foreground text cursor"
+  ].join(" "));
+}
+
+function terminalColorPresetSearchText(preset, active = false, savedProfile = null) {
+  return normalizeSettingsQuery([
+    terminalColorPresetBaseSearchText(preset),
+    terminalColorPresetApplySearchText(preset, active),
+    terminalColorPresetProfileSaveSearchText(preset, savedProfile),
+    terminalColorPresetCopySearchText(preset),
+    active ? "active current" : "",
+    savedProfile ? "saved" : ""
+  ].join(" "));
+}
+
 function isActiveTerminalColorPreset(preset) {
   return state.settings.terminalBackground === preset.background
     && state.settings.terminalForeground === preset.foreground
@@ -27120,7 +27152,13 @@ function isTerminalColorPresetIdActive(presetId) {
 }
 
 function terminalColorPresetTitle(preset, active) {
+  if (!preset) return "Choose a terminal color preset first.";
   return active ? `${preset.label} terminal colors already active.` : preset.body;
+}
+
+function terminalColorPresetCopyTitle(preset) {
+  if (!preset) return "Choose a terminal color preset first.";
+  return `Copy ${preset.label} terminal colors as JSON.`;
 }
 
 const terminalSetupSettings = [
@@ -27410,9 +27448,9 @@ function savedSettingsProfileForTerminalReadabilityPreset(preset) {
   return state.savedSettingsProfiles.find((profile) => settingsProfileMatchesSettings(profile, settings)) || null;
 }
 
-function terminalReadabilityPresetSearchText(preset, settings = terminalReadabilityPresetSettings(preset)) {
+function terminalReadabilityPresetBaseSearchText(preset, settings = terminalReadabilityPresetSettings(preset)) {
   const summary = terminalSetupSummaryForSettings(settings || {});
-  return normalizeSettingsQuery([
+  return [
     "terminal readability typography preset font size line height padding history cursor apply save copy setup profile",
     preset?.label,
     preset?.body,
@@ -27421,6 +27459,41 @@ function terminalReadabilityPresetSearchText(preset, settings = terminalReadabil
     summary.padding,
     summary.history,
     summary.cursor
+  ].join(" ");
+}
+
+function terminalReadabilityPresetApplySearchText(preset, settings = terminalReadabilityPresetSettings(preset), active = false) {
+  return normalizeSettingsQuery([
+    terminalReadabilityPresetBaseSearchText(preset, settings),
+    "apply use",
+    active ? "active current unavailable already applied" : "ready available"
+  ].join(" "));
+}
+
+function terminalReadabilityPresetProfileSaveSearchText(preset, settings = terminalReadabilityPresetSettings(preset), savedProfile = null) {
+  return normalizeSettingsQuery([
+    terminalReadabilityPresetBaseSearchText(preset, settings),
+    "save profile reusable settings",
+    settingsProfileSaveStateSearch(savedProfile),
+    savedProfile ? "saved unavailable" : savedSettingsProfilesFull() ? "limit full unavailable" : "ready"
+  ].join(" "));
+}
+
+function terminalReadabilityPresetCopySearchText(preset, settings = terminalReadabilityPresetSettings(preset)) {
+  return normalizeSettingsQuery([
+    terminalReadabilityPresetBaseSearchText(preset, settings),
+    "copy setup clipboard json cmux terminal setup"
+  ].join(" "));
+}
+
+function terminalReadabilityPresetSearchText(preset, settings = terminalReadabilityPresetSettings(preset), active = false, savedProfile = null) {
+  return normalizeSettingsQuery([
+    terminalReadabilityPresetBaseSearchText(preset, settings),
+    terminalReadabilityPresetApplySearchText(preset, settings, active),
+    terminalReadabilityPresetProfileSaveSearchText(preset, settings, savedProfile),
+    terminalReadabilityPresetCopySearchText(preset, settings),
+    active ? "active current" : "",
+    savedProfile ? "saved" : ""
   ].join(" "));
 }
 
@@ -27443,6 +27516,11 @@ function terminalReadabilityPresetProfileSaveTitle(preset, savedProfile = savedS
   return "Save this terminal readability preset as a reusable profile.";
 }
 
+function terminalReadabilityPresetCopyTitle(preset) {
+  if (!preset) return "Choose a terminal readability preset first.";
+  return `Copy ${preset.label} terminal readability as terminal setup JSON.`;
+}
+
 function updateTerminalReadabilityPresetButton(button, preset) {
   const settings = terminalReadabilityPresetSettings(preset);
   if (!settings) return false;
@@ -27454,20 +27532,21 @@ function updateTerminalReadabilityPresetButton(button, preset) {
   if (card) changed = toggleClassIfChanged(card, "is-active", active) || changed;
   changed = setDisabledIfChanged(button, active) || changed;
   changed = setTitleIfChanged(button, terminalReadabilityPresetTitle(preset, active)) || changed;
-  setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
+  changed = setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false") || changed;
   const status = button.querySelector(".terminal-readability-preset-status");
   if (status) changed = setTextIfChanged(status, active ? "Active" : "") || changed;
   changed = setStylePropertyIfChanged(button, "--terminal-readability-background", colors.background) || changed;
   changed = setStylePropertyIfChanged(button, "--terminal-readability-foreground", colors.foreground) || changed;
-  const search = terminalReadabilityPresetSearchText(preset, settings);
+  const search = terminalReadabilityPresetApplySearchText(preset, settings, active);
   if (button.dataset.settingsSearch !== search) {
     button.dataset.settingsSearch = search;
     updateSettingsSearchIndexItemSearch(button, search);
     changed = true;
   }
-  if (card && card.dataset.settingsSearch !== search) {
-    card.dataset.settingsSearch = search;
-    updateSettingsSearchIndexItemSearch(card, search);
+  const cardSearch = terminalReadabilityPresetSearchText(preset, settings, active, savedProfile);
+  if (card && card.dataset.settingsSearch !== cardSearch) {
+    card.dataset.settingsSearch = cardSearch;
+    updateSettingsSearchIndexItemSearch(card, cardSearch);
     changed = true;
   }
   const save = card?.querySelector("[data-terminal-readability-save]");
@@ -27476,6 +27555,22 @@ function updateTerminalReadabilityPresetButton(button, preset) {
     changed = setDisabledIfChanged(save, Boolean(savedProfile) || savedSettingsProfilesFull()) || changed;
     changed = setTitleIfChanged(save, terminalReadabilityPresetProfileSaveTitle(preset, savedProfile)) || changed;
     changed = toggleClassIfChanged(save, "primary", Boolean(savedProfile)) || changed;
+    const saveSearch = terminalReadabilityPresetProfileSaveSearchText(preset, settings, savedProfile);
+    if (save.dataset.settingsSearch !== saveSearch) {
+      save.dataset.settingsSearch = saveSearch;
+      updateSettingsSearchIndexItemSearch(save, saveSearch);
+      changed = true;
+    }
+  }
+  const copy = card?.querySelector("[data-terminal-readability-copy]");
+  if (copy) {
+    changed = setTitleIfChanged(copy, terminalReadabilityPresetCopyTitle(preset)) || changed;
+    const copySearch = terminalReadabilityPresetCopySearchText(preset, settings);
+    if (copy.dataset.settingsSearch !== copySearch) {
+      copy.dataset.settingsSearch = copySearch;
+      updateSettingsSearchIndexItemSearch(copy, copySearch);
+      changed = true;
+    }
   }
   return changed;
 }
@@ -27701,8 +27796,9 @@ function terminalColorPresetGrid() {
     const active = isActiveTerminalColorPreset(preset);
     const savedProfile = savedSettingsProfileForTerminalColorPreset(preset);
     const card = document.createElement("div");
-    card.className = "terminal-color-preset-card";
-    card.dataset.settingsSearch = normalizeSettingsQuery(`terminal color preset theme save profile copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${preset.label} ${preset.body}`);
+    card.className = `terminal-color-preset-card${active ? " is-active" : ""}`;
+    card.dataset.terminalColorPresetCard = preset.id;
+    card.dataset.settingsSearch = terminalColorPresetSearchText(preset, active, savedProfile);
     const button = document.createElement("button");
     button.className = `terminal-color-preset${active ? " is-active" : ""}`;
     button.type = "button";
@@ -27710,7 +27806,7 @@ function terminalColorPresetGrid() {
     button.title = terminalColorPresetTitle(preset, active);
     button.dataset.terminalColorPreset = preset.id;
     button.setAttribute("aria-pressed", String(active));
-    button.dataset.settingsSearch = normalizeSettingsQuery(`terminal color preset theme ${active ? "active current " : ""}${preset.label} ${preset.body}`);
+    button.dataset.settingsSearch = terminalColorPresetApplySearchText(preset, active);
     button.style.setProperty("--terminal-preset-background", preset.background || terminalColorDefaults.background);
     button.style.setProperty("--terminal-preset-foreground", preset.foreground || terminalColorDefaults.foreground);
     button.style.setProperty("--terminal-preset-cursor", preset.cursor || state.settings.accent || terminalColorDefaults.cursor);
@@ -27741,17 +27837,82 @@ function terminalColorPresetGrid() {
       savedProfile ? "Saved" : "Save",
       () => saveTerminalColorPresetProfile(preset.id),
       savedProfile ? "primary" : "",
-      `terminal color preset save profile reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body}`
+      terminalColorPresetProfileSaveSearchText(preset, savedProfile)
     );
+    save.dataset.terminalColorSave = preset.id;
     save.disabled = Boolean(savedProfile) || savedSettingsProfilesFull();
     save.title = terminalColorPresetProfileSaveTitle(preset, savedProfile);
-    const copy = settingsActionButton("Copy", () => copyTerminalColorPresetPalette(preset.id), "", `terminal color preset copy palette clipboard json ${preset.label} ${preset.body}`);
-    copy.title = "Copy these terminal colors as JSON.";
+    const copy = settingsActionButton("Copy", () => copyTerminalColorPresetPalette(preset.id), "", terminalColorPresetCopySearchText(preset));
+    copy.dataset.terminalColorCopy = preset.id;
+    copy.title = terminalColorPresetCopyTitle(preset);
     actions.append(save, copy);
     card.append(button, actions);
     grid.append(card);
   }
   return grid;
+}
+
+function updateTerminalColorPresetCard(card, preset) {
+  if (!card || !preset) return false;
+  const active = isActiveTerminalColorPreset(preset);
+  const savedProfile = savedSettingsProfileForTerminalColorPreset(preset);
+  let changed = toggleClassIfChanged(card, "is-active", active);
+  const cardSearch = terminalColorPresetSearchText(preset, active, savedProfile);
+  if (card.dataset.settingsSearch !== cardSearch) {
+    card.dataset.settingsSearch = cardSearch;
+    updateSettingsSearchIndexItemSearch(card, cardSearch);
+    changed = true;
+  }
+  const button = card.querySelector("[data-terminal-color-preset]");
+  if (button) {
+    changed = toggleClassIfChanged(button, "is-active", active) || changed;
+    changed = setDisabledIfChanged(button, active) || changed;
+    changed = setTitleIfChanged(button, terminalColorPresetTitle(preset, active)) || changed;
+    changed = setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false") || changed;
+    const status = button.querySelector(".terminal-color-preset-status");
+    if (status) changed = setTextIfChanged(status, active ? "Active" : "") || changed;
+    const buttonSearch = terminalColorPresetApplySearchText(preset, active);
+    if (button.dataset.settingsSearch !== buttonSearch) {
+      button.dataset.settingsSearch = buttonSearch;
+      updateSettingsSearchIndexItemSearch(button, buttonSearch);
+      changed = true;
+    }
+  }
+  const save = card.querySelector("[data-terminal-color-save]");
+  if (save) {
+    changed = setTextIfChanged(save, savedProfile ? "Saved" : "Save") || changed;
+    changed = setDisabledIfChanged(save, Boolean(savedProfile) || savedSettingsProfilesFull()) || changed;
+    changed = toggleClassIfChanged(save, "primary", Boolean(savedProfile)) || changed;
+    changed = setTitleIfChanged(save, terminalColorPresetProfileSaveTitle(preset, savedProfile)) || changed;
+    const saveSearch = terminalColorPresetProfileSaveSearchText(preset, savedProfile);
+    if (save.dataset.settingsSearch !== saveSearch) {
+      save.dataset.settingsSearch = saveSearch;
+      updateSettingsSearchIndexItemSearch(save, saveSearch);
+      changed = true;
+    }
+  }
+  const copy = card.querySelector("[data-terminal-color-copy]");
+  if (copy) {
+    changed = setTitleIfChanged(copy, terminalColorPresetCopyTitle(preset)) || changed;
+    const copySearch = terminalColorPresetCopySearchText(preset);
+    if (copy.dataset.settingsSearch !== copySearch) {
+      copy.dataset.settingsSearch = copySearch;
+      updateSettingsSearchIndexItemSearch(copy, copySearch);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function refreshTerminalColorPresetGrid(root = elements.inspectorBody) {
+  if (!root?.querySelectorAll) return false;
+  let changed = false;
+  for (const card of root.querySelectorAll("[data-terminal-color-preset-card]")) {
+    const preset = terminalColorPresetById(card.dataset.terminalColorPresetCard);
+    if (!preset) continue;
+    changed = updateTerminalColorPresetCard(card, preset) || changed;
+  }
+  return changed;
 }
 
 function recentFoldersSettings() {
@@ -32090,17 +32251,17 @@ function paletteEntries() {
       active,
       disabled: active,
       title: terminalReadabilityPresetTitle(preset, active),
-      search: terminalReadabilityPresetSearchText(preset, settings),
+      search: terminalReadabilityPresetApplySearchText(preset, settings, active),
       run: () => applyTerminalReadabilityPreset(preset.id)
     });
     entries.push({
       id: `terminalReadabilityPreset.save.${preset.id}`,
       label: `Save terminal profile: ${preset.label}`,
-      meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
+      meta: settingsProfileSaveStateMeta(savedProfile),
       shortcut: savedProfile ? "Saved" : "Save",
       disabled: Boolean(savedProfile) || savedSettingsProfilesFull(),
       title: terminalReadabilityPresetProfileSaveTitle(preset, savedProfile),
-      search: normalizeSettingsQuery(`terminal readability typography preset save profile reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${summary.font} ${summary.lineHeight} ${summary.padding} ${summary.history}`),
+      search: terminalReadabilityPresetProfileSaveSearchText(preset, settings, savedProfile),
       run: () => saveTerminalReadabilityPresetProfile(preset.id)
     });
     entries.push({
@@ -32108,8 +32269,8 @@ function paletteEntries() {
       label: `Copy terminal setup: ${preset.label}`,
       meta: `${summary.font} / ${summary.history}`,
       shortcut: "Copy",
-      title: "Copy this terminal readability preset as terminal setup JSON.",
-      search: normalizeSettingsQuery(`terminal readability typography preset copy setup clipboard json ${preset.label} ${preset.body} ${summary.font} ${summary.lineHeight} ${summary.padding} ${summary.history}`),
+      title: terminalReadabilityPresetCopyTitle(preset),
+      search: terminalReadabilityPresetCopySearchText(preset, settings),
       run: () => copyTerminalReadabilityPresetSetup(preset.id)
     });
   }
@@ -32142,17 +32303,17 @@ function paletteEntries() {
       active,
       disabled: active,
       title: terminalColorPresetTitle(preset, active),
-      search: normalizeSettingsQuery(`terminal colors theme preset apply active ${preset.label} ${preset.body}`),
+      search: terminalColorPresetApplySearchText(preset, active),
       run: () => applyTerminalColorPreset(preset)
     });
     entries.push({
       id: `terminalColor.save.${preset.id}`,
       label: `Save terminal profile: ${preset.label}`,
-      meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
+      meta: settingsProfileSaveStateMeta(savedProfile),
       shortcut: savedProfile ? "Saved" : "Save",
       disabled: Boolean(savedProfile) || savedSettingsProfilesFull(),
       title: terminalColorPresetProfileSaveTitle(preset, savedProfile),
-      search: normalizeSettingsQuery(`terminal colors theme preset save profile reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body}`),
+      search: terminalColorPresetProfileSaveSearchText(preset, savedProfile),
       run: () => saveTerminalColorPresetProfile(preset.id)
     });
     entries.push({
@@ -32160,8 +32321,8 @@ function paletteEntries() {
       label: `Copy terminal colors: ${preset.label}`,
       meta: preset.body,
       shortcut: "Copy",
-      title: "Copy these terminal colors as JSON.",
-      search: normalizeSettingsQuery(`terminal colors theme preset copy palette clipboard json ${preset.label} ${preset.body}`),
+      title: terminalColorPresetCopyTitle(preset),
+      search: terminalColorPresetCopySearchText(preset),
       run: () => copyTerminalColorPresetPalette(preset.id)
     });
   }
