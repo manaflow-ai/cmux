@@ -16013,7 +16013,7 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
   panel.append(paneShapePanel(workspace));
   const layoutActions = document.createElement("div");
   layoutActions.className = "settings-actions";
-  layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar top bar style button style ghost filled tab bar quiet banded sidebar style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus mode simple clean copy paste clipboard json");
+  layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar top bar style button style ghost filled tab bar quiet banded sidebar width settings panel width style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus mode simple clean copy paste clipboard json");
   const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", "save current split pane layout workspace blueprint reusable");
   applyWorkspaceBlueprintSaveLimit(saveLayoutAction, workspace, "Save the current workspace pane layout as a reusable blueprint.");
   const copyLayoutAction = settingsActionButton("Copy layout", copyCurrentWorkspaceBlueprint, "", "copy current split pane layout workspace blueprint clipboard json");
@@ -16038,6 +16038,13 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
   resetChromeAction.title = workspaceChromeDefault
     ? "Workspace chrome already matches the default setup."
     : "Reset toolbar mode, label mode, top bar style, button style, sidebar style, rail tools, home screen, and width, settings panel style, overlay style, switcher style, toast placement, command palette density, quick actions, details, result cap, and placement, workspace row size, active workspace style, workspace color style, tabs, tab bar style, active tab style, status bar detail and style, corner style, pane dividers, divider style, new pane placement, pane surface, pane spacing, active pane highlight, and panel widths.";
+  const panelWidthsDefault = state.settings.sidebarWidth === defaultSettings.sidebarWidth
+    && state.settings.inspectorWidth === defaultSettings.inspectorWidth;
+  const resetWidthsAction = settingsActionButton("Reset widths", resetWorkspacePanelWidths, "", `workspace chrome layout sidebar width settings panel inspector width reset default ${panelWidthsDefault ? "active current " : ""}`);
+  resetWidthsAction.disabled = panelWidthsDefault;
+  resetWidthsAction.title = panelWidthsDefault
+    ? "Sidebar and settings panel widths already use defaults."
+    : "Reset only sidebar and settings panel widths.";
   const canResetSplitLayout = Boolean(workspace?.panels?.length > 1);
   const resetSplitAction = settingsActionButton("Reset split layout", resetActivePaneLayout, "", `split layout pane splitter resize reset equal ${canResetSplitLayout ? "" : "disabled no panes "}`);
   resetSplitAction.disabled = !canResetSplitLayout;
@@ -16054,6 +16061,7 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
     copyChromeAction,
     pasteChromeAction,
     settingsActionButton("Blueprints", () => openSettingsCategory("blueprints"), "", "open saved workspace blueprints layout templates"),
+    resetWidthsAction,
     resetSplitAction,
     resetChromeAction
   );
@@ -32981,6 +32989,20 @@ function resetWorkspaceChrome() {
   }
   refreshLayoutSettings();
   toast("Workspace chrome reset.");
+}
+
+function resetWorkspacePanelWidths() {
+  const changed = updateSettings({
+    sidebarWidth: defaultSettings.sidebarWidth,
+    inspectorWidth: defaultSettings.inspectorWidth
+  }, { immediate: true });
+  if (!changed) {
+    toast("Panel widths already use defaults.");
+    return false;
+  }
+  refreshLayoutSettings();
+  toast("Panel widths reset.");
+  return true;
 }
 
 function resetActivePaneLayout() {
