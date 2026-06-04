@@ -1054,38 +1054,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastTypingActivityAt: TimeInterval = 0
-    private struct SavedDisplayWindowFrame {
-        let windowId: UUID
-        let frame: SessionRectSnapshot
-        let display: SessionDisplaySnapshot
-    }
-    private enum MainWindowDisplayGeometryPhase {
-        case stable
-        case volatile(MainWindowDisplayGeometryTransitionReason)
-    }
-    enum MainWindowDisplayGeometryTransitionReason: Equatable, Sendable {
-        case sleepWake
-        case displayReconfiguration
-    }
-    private enum MainWindowDisplayGeometryChangeSource: String {
-        case applicationDidChangeScreenParameters = "app.didChangeScreenParameters"
-        case workspaceDidWake = "workspace.didWake"
-        case workspaceScreensDidWake = "workspace.screensDidWake"
-        case workspaceSessionDidBecomeActive = "workspace.sessionDidBecomeActive"
-
-        var endsVolatilePhase: Bool {
-            switch self {
-            case .workspaceDidWake, .workspaceScreensDidWake, .workspaceSessionDidBecomeActive:
-                return true
-            case .applicationDidChangeScreenParameters:
-                return false
-            }
-        }
-    }
-    private var lastKnownDisplayIDs: Set<UInt32> = []
-    private var savedDisplayWindowFrames: [UInt32: [SavedDisplayWindowFrame]] = [:]
-    private var isApplyingCachedMainWindowGeometry = false
-    private var mainWindowDisplayGeometryPhase: MainWindowDisplayGeometryPhase = .stable
+    private typealias MainWindowDisplayGeometryChangeSource = MainWindowDisplayGeometryCoordinator.ChangeSource
+    private typealias MainWindowDisplayGeometryTransitionReason = MainWindowDisplayGeometryCoordinator.TransitionReason
+    private typealias MainWindowDisplayGeometryTransitionSource = MainWindowDisplayGeometryCoordinator.TransitionSource
+    private let mainWindowDisplayGeometryCoordinator = MainWindowDisplayGeometryCoordinator()
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
@@ -3664,7 +3636,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.beginMainWindowDisplayGeometryTransition(
-                    source: "workspace.sessionDidResignActive",
+                    source: .workspaceSessionDidResignActive,
                     reason: .sleepWake
                 )
                 if self.isTerminatingApp {
@@ -3684,7 +3656,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.beginMainWindowDisplayGeometryTransition(
-                    source: "workspace.screensDidSleep",
+                    source: .workspaceScreensDidSleep,
                     reason: .sleepWake
                 )
             }
@@ -3726,8 +3698,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         lifecycleSnapshotObservers.append(sessionBecomeActiveObserver)
 
-        lastKnownDisplayIDs = currentConnectedDisplayIDs()
-        updateSavedDisplayWindowFrames()
+        mainWindowDisplayGeometryCoordinator.prime(current: currentMainWindowDisplayGeometry())
 
         let appCenter = NotificationCenter.default
         let screenChangeObserver = appCenter.addObserver(
@@ -3738,7 +3709,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.beginMainWindowDisplayGeometryTransition(
-                    source: MainWindowDisplayGeometryChangeSource.applicationDidChangeScreenParameters.rawValue,
+                    source: .applicationDidChangeScreenParameters,
                     reason: .displayReconfiguration,
                     trustCurrentGeometry: false
                 )
@@ -3774,352 +3745,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Set(NSScreen.screens.compactMap { $0.cmuxDisplayID })
     }
 
-    private var isMainWindowDisplayGeometryVolatile: Bool {
-        switch mainWindowDisplayGeometryPhase {
-        case .stable:
-            return false
-        case .volatile:
-            return true
-        }
+    private func currentMainWindowDisplayGeometry() -> MainWindowDisplayGeometryCoordinator.CurrentGeometry {
+        let displays = currentDisplayGeometries()
+        return MainWindowDisplayGeometryCoordinator.CurrentGeometry(
+            connectedDisplayIDs: currentConnectedDisplayIDs(),
+            availableDisplays: displays.available,
+            fallbackDisplay: displays.fallback,
+            windows: mainWindowContexts.values.map { liveMainWindowGeometry(for: $0) }
+        )
     }
 
-    private var mainWindowDisplayGeometryTransitionReason: MainWindowDisplayGeometryTransitionReason? {
-        switch mainWindowDisplayGeometryPhase {
-        case .stable:
-            return nil
-        case .volatile(let reason):
-            return reason
-        }
+    private func liveMainWindowGeometry(
+        for context: MainWindowContext,
+        window suppliedWindow: NSWindow? = nil
+    ) -> MainWindowDisplayGeometryCoordinator.LiveWindowGeometry {
+        let window = suppliedWindow ?? context.window ?? windowForMainWindowId(context.windowId)
+        return MainWindowDisplayGeometryCoordinator.LiveWindowGeometry(
+            windowId: context.windowId,
+            frame: window?.frame,
+            displayID: window?.screen?.cmuxDisplayID,
+            display: displaySnapshot(for: window)
+        )
     }
 
     private func beginMainWindowDisplayGeometryTransition(
-        source: String,
+        source: MainWindowDisplayGeometryTransitionSource,
         reason: MainWindowDisplayGeometryTransitionReason,
         trustCurrentGeometry: Bool = true
     ) {
-        if case .volatile(let currentReason) = mainWindowDisplayGeometryPhase {
-            if currentReason == .displayReconfiguration && reason == .sleepWake {
-                mainWindowDisplayGeometryPhase = .volatile(reason)
-            }
-            return
-        }
-        if trustCurrentGeometry {
-            updateSavedDisplayWindowFrames()
-        }
-        mainWindowDisplayGeometryPhase = .volatile(reason)
-        if !trustCurrentGeometry {
-            updateSavedDisplayWindowFrames()
-        }
-#if DEBUG
-        cmuxDebugLog("window.geometry.transition.begin source=\(source)")
-#endif
+        mainWindowDisplayGeometryCoordinator.beginTransition(
+            source: source,
+            reason: reason,
+            trustCurrentGeometry: trustCurrentGeometry,
+            current: currentMainWindowDisplayGeometry()
+        )
     }
 
     private func updateSavedDisplayWindowFrameFromUserWindowChange(_ window: NSWindow?) {
-        guard !isApplyingCachedMainWindowGeometry, let window else { return }
+        guard let window else { return }
         guard isMainTerminalWindow(window) else { return }
         guard let context = contextForMainTerminalWindow(window, reindex: false) else { return }
-        let displays = currentDisplayGeometries().available
-        if isMainWindowDisplayGeometryVolatile,
-           let entry = savedDisplayWindowFrame(forWindowId: context.windowId, liveWindow: window),
-           shouldKeepCachedFrameDuringDisplayTransition(entry, liveWindow: window, displays: displays) {
-            return
-        }
-        if isMainWindowDisplayGeometryVolatile,
-           let displayID = window.screen?.cmuxDisplayID,
-           let entry = savedDisplayWindowFrames[displayID]?.first(where: { $0.windowId == context.windowId }),
-           shouldRestoreCachedFrameForCurrentDisplay(entry, liveWindow: window, displays: displays) {
-            return
-        }
-        updateSavedDisplayWindowFrames(invalidateDisconnectedDisplayFramesForUpdatedWindows: true)
-    }
-
-    private func updateSavedDisplayWindowFrames(
-        excluding excludedWindowIDs: Set<UUID> = [],
-        invalidateDisconnectedDisplayFramesForUpdatedWindows: Bool = false
-    ) {
-        let connectedDisplayIDs = currentConnectedDisplayIDs()
-        let displays = currentDisplayGeometries().available
-        for context in mainWindowContexts.values {
-            guard !excludedWindowIDs.contains(context.windowId) else { continue }
-            guard let window = context.window ?? windowForMainWindowId(context.windowId),
-                  let displayID = window.screen?.cmuxDisplayID,
-                  let display = displaySnapshot(for: window) else {
-                continue
-            }
-            if isMainWindowDisplayGeometryVolatile,
-               let entry = savedDisplayWindowFrame(forWindowId: context.windowId, liveWindow: window),
-               shouldKeepCachedFrameDuringDisplayTransition(entry, liveWindow: window, displays: displays) {
-                continue
-            }
-
-            for (otherDisplayID, entries) in Array(savedDisplayWindowFrames)
-            where otherDisplayID != displayID
-                && (connectedDisplayIDs.contains(otherDisplayID)
-                    || invalidateDisconnectedDisplayFramesForUpdatedWindows) {
-                let filtered = entries.filter { $0.windowId != context.windowId }
-                if filtered.isEmpty {
-                    savedDisplayWindowFrames.removeValue(forKey: otherDisplayID)
-                } else if filtered.count != entries.count {
-                    savedDisplayWindowFrames[otherDisplayID] = filtered
-                }
-            }
-
-            let entry = SavedDisplayWindowFrame(
-                windowId: context.windowId,
-                frame: SessionRectSnapshot(window.frame),
-                display: display
-            )
-            var entries = savedDisplayWindowFrames[displayID] ?? []
-            entries.removeAll { $0.windowId == context.windowId }
-            entries.append(entry)
-            savedDisplayWindowFrames[displayID] = entries
-        }
+        mainWindowDisplayGeometryCoordinator.recordUserWindowChange(
+            liveWindow: liveMainWindowGeometry(for: context, window: window),
+            current: currentMainWindowDisplayGeometry()
+        )
     }
 
     private func handleMainWindowDisplayGeometryChange(source: MainWindowDisplayGeometryChangeSource) {
-        let currentIDs = currentConnectedDisplayIDs()
-        let appearedIDs = currentIDs.subtracting(lastKnownDisplayIDs)
-        lastKnownDisplayIDs = currentIDs
-
-        let displays = currentDisplayGeometries()
+        let requests = mainWindowDisplayGeometryCoordinator.restoreRequests(
+            source: source,
+            current: currentMainWindowDisplayGeometry()
+        )
         var restoredWindowIDs = Set<UUID>()
 
-        func restore(_ entry: SavedDisplayWindowFrame, displayID: UInt32) {
-            guard let context = mainWindowContexts.values.first(where: { $0.windowId == entry.windowId }),
-                  let window = context.window ?? windowForMainWindowId(context.windowId),
-                  let restoredFrame = Self.resolvedWindowFrame(
-                      from: entry.frame,
-                      display: entry.display,
-                      availableDisplays: displays.available,
-                      fallbackDisplay: displays.fallback
-                  ),
-                  !Self.rectApproximatelyEqual(window.frame, restoredFrame) else {
-                return
+        for request in requests {
+            guard let context = mainWindowContexts.values.first(where: { $0.windowId == request.windowId }),
+                  let window = context.window ?? windowForMainWindowId(context.windowId) else {
+                continue
             }
 
-            isApplyingCachedMainWindowGeometry = true
-            defer { isApplyingCachedMainWindowGeometry = false }
-            window.setFrame(restoredFrame, display: true)
-            restoredWindowIDs.insert(entry.windowId)
-
-            if let display = displaySnapshot(for: window) {
-                var bucket = savedDisplayWindowFrames[displayID] ?? []
-                bucket.removeAll { $0.windowId == entry.windowId }
-                bucket.append(SavedDisplayWindowFrame(
-                    windowId: entry.windowId,
-                    frame: SessionRectSnapshot(window.frame),
-                    display: display
-                ))
-                savedDisplayWindowFrames[displayID] = bucket
+            mainWindowDisplayGeometryCoordinator.withApplyingCachedGeometry {
+                window.setFrame(request.frame, display: true)
             }
+            restoredWindowIDs.insert(request.windowId)
+
+            mainWindowDisplayGeometryCoordinator.recordAppliedRestore(
+                windowId: request.windowId,
+                displayID: request.displayID,
+                frame: SessionRectSnapshot(window.frame),
+                display: displaySnapshot(for: window)
+            )
 
 #if DEBUG
             cmuxDebugLog(
-                "window.geometry.restore source=\(source.rawValue) window=\(entry.windowId.uuidString.prefix(8)) " +
-                    "display=\(displayID) frame={\(debugNSRectDescription(window.frame))}"
+                "window.geometry.restore source=\(source.rawValue) window=\(request.windowId.uuidString.prefix(8)) " +
+                    "display=\(request.displayID) frame={\(debugNSRectDescription(window.frame))}"
             )
 #endif
         }
 
-        for displayID in appearedIDs {
-            for entry in savedDisplayWindowFrames[displayID] ?? [] {
-                restore(entry, displayID: displayID)
-            }
-        }
-
-        for context in mainWindowContexts.values {
-            guard let window = context.window ?? windowForMainWindowId(context.windowId),
-                  let liveDisplayID = window.screen?.cmuxDisplayID,
-                  let entry = savedDisplayWindowFrame(forWindowId: context.windowId, liveWindow: window) else {
-                continue
-            }
-            let restoreDisplayID = entry.display.displayID ?? liveDisplayID
-            let shouldRestoreCachedFrame = shouldRestoreCachedFrameForCurrentDisplay(
-                entry,
-                liveWindow: window,
-                displays: displays.available
-            ) || (isMainWindowDisplayGeometryVolatile
-                && currentIDs.contains(restoreDisplayID)
-                && shouldKeepCachedFrameDuringDisplayTransition(
-                    entry,
-                    liveWindow: window,
-                    displays: displays.available
-            ))
-            guard shouldRestoreCachedFrame else { continue }
-            restore(entry, displayID: restoreDisplayID)
-        }
-
-        updateSavedDisplayWindowFrames(excluding: restoredWindowIDs)
-        if source.endsVolatilePhase || !hasVolatileMainWindowGeometry(displays: displays.available) {
-            mainWindowDisplayGeometryPhase = .stable
-        }
+        mainWindowDisplayGeometryCoordinator.finishDisplayGeometryChange(
+            source: source,
+            current: currentMainWindowDisplayGeometry(),
+            restoredWindowIDs: restoredWindowIDs
+        )
         if !restoredWindowIDs.isEmpty {
             _ = saveSessionSnapshot(includeScrollback: false)
         }
     }
 
-    private func savedDisplayWindowFrame(
-        forWindowId windowId: UUID,
-        liveWindow: NSWindow?
-    ) -> SavedDisplayWindowFrame? {
-        let liveDisplayID = liveWindow?.screen?.cmuxDisplayID
-        let connectedDisplayIDs = currentConnectedDisplayIDs()
-        if isMainWindowDisplayGeometryVolatile,
-           let liveDisplayID {
-            for (displayID, entries) in savedDisplayWindowFrames
-            where displayID != liveDisplayID && connectedDisplayIDs.contains(displayID) {
-                if let entry = entries.first(where: { $0.windowId == windowId }) {
-                    return entry
-                }
-            }
-        }
-
-        if let liveDisplayID,
-           let entry = savedDisplayWindowFrames[liveDisplayID]?.first(where: { $0.windowId == windowId }) {
-            return entry
-        }
-
-        for (displayID, entries) in savedDisplayWindowFrames where !connectedDisplayIDs.contains(displayID) {
-            if let entry = entries.first(where: { $0.windowId == windowId }) {
-                return entry
-            }
-        }
-        for (displayID, entries) in savedDisplayWindowFrames where displayID != liveDisplayID {
-            if let entry = entries.first(where: { $0.windowId == windowId }) {
-                return entry
-            }
-        }
-        return nil
-    }
-
-    private func hasVolatileMainWindowGeometry(displays: [SessionDisplayGeometry]) -> Bool {
-        guard isMainWindowDisplayGeometryVolatile else { return false }
-        for context in mainWindowContexts.values {
-            guard let window = context.window ?? windowForMainWindowId(context.windowId),
-                  let entry = savedDisplayWindowFrame(forWindowId: context.windowId, liveWindow: window),
-                  shouldKeepCachedFrameDuringDisplayTransition(entry, liveWindow: window, displays: displays) else {
-                continue
-            }
-            return true
-        }
-        return false
-    }
-
-    private func shouldRestoreCachedFrameForCurrentDisplay(
-        _ entry: SavedDisplayWindowFrame,
-        liveWindow: NSWindow,
-        displays: [SessionDisplayGeometry]
-    ) -> Bool {
-        guard let displayID = liveWindow.screen?.cmuxDisplayID,
-              let currentDisplay = displays.first(where: { $0.displayID == displayID }) else {
-            return false
-        }
-        guard entry.display.displayID == displayID else { return false }
-        guard let cachedFrame = entry.display.frame?.cgRect,
-              let cachedVisibleFrame = entry.display.visibleFrame?.cgRect else {
-            return false
-        }
-        let displayChanged = !Self.rectApproximatelyEqual(cachedFrame, currentDisplay.frame)
-            || !Self.rectApproximatelyEqual(cachedVisibleFrame, currentDisplay.visibleFrame)
-        guard displayChanged else { return false }
-
-        let savedFrame = entry.frame.cgRect
-        let liveFrame = liveWindow.frame
-        return liveFrame.width < savedFrame.width || liveFrame.height < savedFrame.height
-    }
-
-    private func shouldKeepCachedFrameDuringDisplayTransition(
-        _ entry: SavedDisplayWindowFrame,
-        liveWindow: NSWindow,
-        displays: [SessionDisplayGeometry]
-    ) -> Bool {
-        guard let reason = mainWindowDisplayGeometryTransitionReason else {
-            return false
-        }
-        return Self.shouldUseCachedWindowFrameDuringDisplayTransition(
-            savedFrame: entry.frame.cgRect,
-            liveFrame: liveWindow.frame,
-            cachedDisplay: entry.display,
-            liveDisplayID: liveWindow.screen?.cmuxDisplayID,
-            displays: displays,
-            reason: reason
-        )
-    }
-
-    nonisolated static func shouldUseCachedWindowFrameDuringDisplayTransition(
-        savedFrame: CGRect,
-        liveFrame: CGRect,
-        cachedDisplay: SessionDisplaySnapshot,
-        liveDisplayID: UInt32?,
-        displays: [SessionDisplayGeometry],
-        reason: MainWindowDisplayGeometryTransitionReason
-    ) -> Bool {
-        let liveFrameShrank = liveFrame.width < savedFrame.width || liveFrame.height < savedFrame.height
-        if reason == .sleepWake && liveFrameShrank {
-            return true
-        }
-
-        guard let liveDisplayID,
-              let cachedDisplayID = cachedDisplay.displayID else {
-            return false
-        }
-        if cachedDisplayID != liveDisplayID {
-            return true
-        }
-
-        guard let currentDisplay = displays.first(where: { $0.displayID == liveDisplayID }),
-              let cachedFrame = cachedDisplay.frame?.cgRect,
-              let cachedVisibleFrame = cachedDisplay.visibleFrame?.cgRect else {
-            return false
-        }
-        let displayChanged = !Self.rectApproximatelyEqual(cachedFrame, currentDisplay.frame)
-            || !Self.rectApproximatelyEqual(cachedVisibleFrame, currentDisplay.visibleFrame)
-        return displayChanged && !Self.rectApproximatelyEqual(liveFrame, savedFrame)
-    }
-
     private func removeSavedDisplayWindowFrames(forWindowId windowId: UUID) {
-        for (displayID, entries) in Array(savedDisplayWindowFrames) {
-            let filtered = entries.filter { $0.windowId != windowId }
-            if filtered.isEmpty {
-                savedDisplayWindowFrames.removeValue(forKey: displayID)
-            } else if filtered.count != entries.count {
-                savedDisplayWindowFrames[displayID] = filtered
-            }
-        }
-    }
-
-    private func savedFrameForVolatileWindow(
-        windowId: UUID,
-        liveWindow: NSWindow?
-    ) -> (frame: SessionRectSnapshot, display: SessionDisplaySnapshot)? {
-        guard isMainWindowDisplayGeometryVolatile else {
-            return nil
-        }
-
-        let connectedDisplayIDs = currentConnectedDisplayIDs()
-        for (displayID, entries) in savedDisplayWindowFrames where !connectedDisplayIDs.contains(displayID) {
-            if let entry = entries.first(where: { $0.windowId == windowId }) {
-                return (entry.frame, entry.display)
-            }
-        }
-
-        guard let liveWindow,
-              let liveDisplayID = liveWindow.screen?.cmuxDisplayID,
-              let entry = savedDisplayWindowFrames[liveDisplayID]?.first(where: { $0.windowId == windowId }) else {
-            return nil
-        }
-        let displays = currentDisplayGeometries().available
-        let shouldUseCachedFrame = shouldRestoreCachedFrameForCurrentDisplay(
-            entry,
-            liveWindow: liveWindow,
-            displays: displays
-        ) || (isMainWindowDisplayGeometryVolatile
-            && shouldKeepCachedFrameDuringDisplayTransition(entry, liveWindow: liveWindow, displays: displays))
-        guard shouldUseCachedFrame else {
-            return nil
-        }
-        return (entry.frame, entry.display)
+        mainWindowDisplayGeometryCoordinator.removeWindowFrames(forWindowId: windowId)
     }
 
     private func snapshotGeometry(for context: MainWindowContext) -> (
@@ -4127,13 +3843,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         display: SessionDisplaySnapshot?
     ) {
         let window = context.window ?? windowForMainWindowId(context.windowId)
-        if let cached = savedFrameForVolatileWindow(windowId: context.windowId, liveWindow: window) {
-            return (cached.frame, cached.display)
-        }
-        return (
-            window.map { SessionRectSnapshot($0.frame) },
-            displaySnapshot(for: window)
+        let geometry = mainWindowDisplayGeometryCoordinator.snapshotGeometry(
+            windowId: context.windowId,
+            liveFrame: window?.frame,
+            liveDisplayID: window?.screen?.cmuxDisplayID,
+            liveDisplay: displaySnapshot(for: window),
+            current: currentMainWindowDisplayGeometry()
         )
+        return (geometry.frame, geometry.display)
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
@@ -4900,7 +4617,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
-        updateSavedDisplayWindowFrames()
+        mainWindowDisplayGeometryCoordinator.recordCurrentGeometry(current: currentMainWindowDisplayGeometry())
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,

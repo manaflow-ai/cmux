@@ -1180,7 +1180,7 @@ final class SessionPersistenceTests: XCTestCase {
             visibleFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_410)
         )
 
-        let shouldUseCachedFrame = AppDelegate.shouldUseCachedWindowFrameDuringDisplayTransition(
+        let shouldUseCachedFrame = MainWindowDisplayGeometryCoordinator.shouldUseCachedWindowFrameDuringDisplayTransition(
             savedFrame: CGRect(x: 120, y: 80, width: 1_200, height: 900),
             liveFrame: CGRect(x: 120, y: 80, width: 900, height: 700),
             cachedDisplay: savedDisplay,
@@ -1207,7 +1207,7 @@ final class SessionPersistenceTests: XCTestCase {
             visibleFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_410)
         )
 
-        let shouldUseCachedFrame = AppDelegate.shouldUseCachedWindowFrameDuringDisplayTransition(
+        let shouldUseCachedFrame = MainWindowDisplayGeometryCoordinator.shouldUseCachedWindowFrameDuringDisplayTransition(
             savedFrame: CGRect(x: 120, y: 80, width: 1_200, height: 900),
             liveFrame: CGRect(x: 120, y: 80, width: 900, height: 700),
             cachedDisplay: savedDisplay,
@@ -1234,7 +1234,7 @@ final class SessionPersistenceTests: XCTestCase {
             visibleFrame: CGRect(x: 0, y: 0, width: 1_920, height: 1_050)
         )
 
-        let shouldUseCachedFrame = AppDelegate.shouldUseCachedWindowFrameDuringDisplayTransition(
+        let shouldUseCachedFrame = MainWindowDisplayGeometryCoordinator.shouldUseCachedWindowFrameDuringDisplayTransition(
             savedFrame: CGRect(x: 120, y: 80, width: 1_200, height: 900),
             liveFrame: CGRect(x: 120, y: 80, width: 900, height: 700),
             cachedDisplay: savedDisplay,

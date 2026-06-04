@@ -332,6 +332,7 @@
 		A17110000000000000000001 /* KeyboardShortcutSpaceKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */; };
 		C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
+		D53200010000000000000001 /* MainWindowDisplayGeometryCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53200010000000000000002 /* MainWindowDisplayGeometryCoordinator.swift */; };
 		2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000001 /* MainWindowFocusController.swift */; };
 		B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000006 /* MainWindowFocusTypes.swift */; };
 		2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C06000000000000000001 /* MainWindowVisibilityController.swift */; };
@@ -984,6 +985,7 @@
 		A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSpaceKeyTests.swift; sourceTree = "<group>"; };
 		C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTestSettingsIsolation.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		D53200010000000000000002 /* MainWindowDisplayGeometryCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowDisplayGeometryCoordinator.swift; sourceTree = "<group>"; };
 		2F0C05000000000000000001 /* MainWindowFocusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusController.swift; sourceTree = "<group>"; };
 		B37A00000000000000000006 /* MainWindowFocusTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusTypes.swift; sourceTree = "<group>"; };
 		2F0C06000000000000000001 /* MainWindowVisibilityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibilityController.swift; sourceTree = "<group>"; };
@@ -1538,6 +1540,7 @@
 				C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */,
 				2F0C07000000000000000001 /* CmuxMainWindow.swift */,
 				AA5269A0C0DE0001FACE0001 /* ForeignFirstResponderPolicy.swift */,
+				D53200010000000000000002 /* MainWindowDisplayGeometryCoordinator.swift */,
 				2F0C06000000000000000001 /* MainWindowVisibilityController.swift */,
 				A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */,
 				D35B71010000000000000002 /* StartupBreadcrumbLog.swift */,
@@ -2422,9 +2425,9 @@
 				C0DEFF200000000000000001 /* CommandPaletteOverlay.swift in Sources */,
 				A8CBA43C2DA5AB9E3A1E65A4 /* CommandPaletteSearch.swift in Sources */,
 				C0DEFF300000000000000001 /* CommandPaletteSearchOrchestrator.swift in Sources */,
-				C0DEF4110000000000000001 /* CommandPaletteSettingsToggle.swift in Sources */,
-				C1713002C1713002C1713002 /* CommandPaletteShortcutRouting.swift in Sources */,
-				3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */,
+					C0DEF4110000000000000001 /* CommandPaletteSettingsToggle.swift in Sources */,
+					C1713002C1713002C1713002 /* CommandPaletteShortcutRouting.swift in Sources */,
+					3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */,
 				3023A1003023A1003023A100 /* ConfigSource.swift in Sources */,
 				C0DEF0A90000000000000001 /* ContentView+ForkAgentConversation.swift in Sources */,
 				D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */,
@@ -2503,9 +2506,10 @@
 				A5F10013A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift in Sources */,
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
 					C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */,
+					D53200010000000000000001 /* MainWindowDisplayGeometryCoordinator.swift in Sources */,
 					2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */,
 					B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */,
-				2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
+					2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
 					F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */,
 					F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */,
 					F5168A030000000000000001 /* MarkdownFontSizeSettings.swift in Sources */,
