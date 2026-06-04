@@ -609,6 +609,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastInputTimestamp: CFTimeInterval = 0
     private var latencySamples: [Double] = []
     var onOutputProcessedForTesting: (() -> Void)?
+    /// DEBUG/UI-test accessibility carrier for the rendered terminal text.
+    ///
+    /// The surface itself must NOT be an accessibility leaf: a leaf hides its
+    /// subviews from the accessibility tree, which made the docked accessory
+    /// toolbar's zoom buttons (`terminal.inputAccessory.zoomOut/In`)
+    /// unreachable to XCUITest. Instead this non-interactive, full-bounds child
+    /// carries the `MobileTerminalSurface` identifier and the rendered-text
+    /// label, leaving the toolbar (a sibling subview) individually accessible.
+    private lazy var debugAccessibilityProxy: UIView = {
+        let proxy = UIView()
+        proxy.backgroundColor = .clear
+        proxy.isUserInteractionEnabled = false
+        proxy.isAccessibilityElement = true
+        proxy.accessibilityIdentifier = "MobileTerminalSurface"
+        return proxy
+    }()
     #endif
     private let snapshotFallbackView: UITextView = {
         let view = UITextView()
@@ -787,11 +803,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         backgroundColor = .black
         isOpaque = true
         #if DEBUG
-        accessibilityIdentifier = "MobileTerminalSurface"
-        isAccessibilityElement = true
+        // The surface is a container, not a leaf, so the docked toolbar's
+        // buttons stay accessible. `debugAccessibilityProxy` carries the
+        // `MobileTerminalSurface` identifier + rendered-text label instead.
+        isAccessibilityElement = false
         #endif
         addSubview(snapshotFallbackView)
         addSubview(inputProxy)
+        #if DEBUG
+        addSubview(debugAccessibilityProxy)
+        #endif
         installPersistentToolbar()
         initializeSurface()
 
@@ -1294,6 +1315,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public override func layoutSubviews() {
         super.layoutSubviews()
         snapshotFallbackView.frame = bounds
+        #if DEBUG
+        debugAccessibilityProxy.frame = bounds
+        #endif
         inputProxy.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         inputProxy.updateAccessoryLayoutInsets()
         layoutDockedToolbar()
@@ -1398,7 +1422,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
                 #if DEBUG
                 if let accessibilityText, !accessibilityText.isEmpty {
-                    self.accessibilityLabel = accessibilityText
+                    self.debugAccessibilityProxy.accessibilityLabel = accessibilityText
                 }
                 self.onOutputProcessedForTesting?()
                 #endif
