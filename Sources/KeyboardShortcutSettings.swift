@@ -1648,13 +1648,11 @@ struct ShortcutStroke: Equatable, Hashable {
         } ?? true
         let shortcutKeyIsDigit = shortcutKey.count == 1 && shortcutKey.first?.isNumber == true
         let shortcutKeyIsLetter = shortcutKey.count == 1 && shortcutKey.first?.isLetter == true
-        let eventCharacterIsLetterOrNumber = eventCharacter?.count == 1 &&
-            (eventCharacter?.first?.isLetter == true || eventCharacter?.first?.isNumber == true)
         let commandPrintableCharacterShouldBlockFallback = flags.contains(.command) &&
             hasEventChars &&
             eventCharsArePrintableASCII &&
             (!flags.contains(.control) || !shortcutKeyIsLetter) &&
-            (shortcutKeyIsLetter || eventCharacterIsLetterOrNumber)
+            Self.shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
         if shortcutKeyIsDigit,
            hasEventChars,
            eventCharsAreASCII,
