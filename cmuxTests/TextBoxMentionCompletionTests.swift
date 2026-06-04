@@ -141,6 +141,30 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxSubmitIsDisabledDuringActiveIMEMarkedText() {
+        #expect(!shouldEnableTextBoxSubmit(
+            text: "に",
+            attachmentCount: 0,
+            hasPendingAttachmentUpload: false,
+            hasMarkedText: true
+        ))
+        #expect(!shouldSubmitTextBox(
+            hasPendingAttachmentUpload: false,
+            hasMarkedText: true
+        ))
+        #expect(shouldEnableTextBoxSubmit(
+            text: "send",
+            attachmentCount: 0,
+            hasPendingAttachmentUpload: false,
+            hasMarkedText: false
+        ))
+        #expect(shouldSubmitTextBox(
+            hasPendingAttachmentUpload: false,
+            hasMarkedText: false
+        ))
+    }
+
+    @Test
     func testTextBoxStandardEditShortcutUsesTranslatedCommandCharacter() {
         guard let event = makeKeyDownEvent(
             key: "c",
