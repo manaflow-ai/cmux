@@ -65,6 +65,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     case androidStudio
     case antigravity
     case cursor
+    case devin
     case finder
     case ghostty
     case intellij
@@ -112,6 +113,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return String(localized: "menu.openInAntigravity", defaultValue: "Open Current Directory in Antigravity")
         case .cursor:
             return String(localized: "menu.openInCursor", defaultValue: "Open Current Directory in Cursor")
+        case .devin:
+            return String(localized: "menu.openInDevin", defaultValue: "Open Current Directory in Devin")
         case .finder:
             return String(localized: "menu.openInFinder", defaultValue: "Open Current Directory in Finder")
         case .ghostty:
@@ -148,6 +151,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return common + ["antigravity"]
         case .cursor:
             return common + ["cursor"]
+        case .devin:
+            return common + ["devin", "cognition"]
         case .finder:
             return common + ["finder", "file", "manager", "reveal"]
         case .ghostty:
@@ -243,6 +248,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
                 "/Applications/Cursor Preview.app",
                 "/Applications/Cursor Nightly.app",
             ]
+        case .devin:
+            return ["/Applications/Devin.app"]
         case .finder:
             return ["/System/Library/CoreServices/Finder.app"]
         case .ghostty:
@@ -571,12 +578,14 @@ final class VSCodeServeWebController {
 
         let collector = ServeWebOutputCollector()
         let outputReader: (FileHandle) -> Void = { fileHandle in
-            let data = fileHandle.availableData
-            guard !data.isEmpty else {
-                fileHandle.readabilityHandler = nil
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            case .data(let data):
+                collector.append(data)
+            case .wouldBlock:
                 return
+            case .endOfFile:
+                fileHandle.readabilityHandler = nil
             }
-            collector.append(data)
         }
         stdoutPipe.fileHandleForReading.readabilityHandler = outputReader
         stderrPipe.fileHandleForReading.readabilityHandler = outputReader
@@ -663,9 +672,12 @@ final class VSCodeServeWebController {
 
     private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
         while true {
-            let data = fileHandle.availableData
-            guard !data.isEmpty else { return }
-            collector.append(data)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            case .data(let data):
+                collector.append(data)
+            case .wouldBlock, .endOfFile:
+                return
+            }
         }
     }
 
