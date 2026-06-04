@@ -29267,10 +29267,18 @@ function savedBackgroundImagesPanel() {
   refreshTypedSaveState();
   input.addEventListener("input", refreshTypedSaveState);
   input.addEventListener("change", refreshTypedSaveState);
+  const currentBackground = activeBackgroundPanelViewModel(targetStatus.scope, workspace);
+  const copyTarget = settingsActionButton("Copy target", () => copyBackgroundImageSource(currentBackground.background, `${addTargetOption.label} background source copied.`), "", `saved background copy current target source clipboard url file path ${targetLabel} ${currentBackground.label}`);
+  copyTarget.disabled = !targetStatus.canTarget || currentBackground.mixed || !canCopyBackgroundImageSource(currentBackground.background);
+  copyTarget.title = !targetStatus.canTarget
+    ? `${addTargetOption.label} cannot use a background right now.`
+    : currentBackground.mixed
+      ? "Terminal backgrounds are mixed. Choose one background first."
+      : backgroundImageCopyTitle(currentBackground.background, `Copy ${addTargetOption.label.toLowerCase()} background source.`);
   const saveCurrent = settingsActionButton("Save selected", () => saveCustomBackgroundImage({
-    url: activeBackgroundPanelViewModel().background
+    url: activeBackgroundPanelViewModel(targetStatus.scope, workspace).background
   }), "", "saved background image current selected target");
-  applySavedBackgroundImageSaveLimit(saveCurrent, activeBackgroundPanelViewModel().background, "Save the currently selected background without changing the target.");
+  applySavedBackgroundImageSaveLimit(saveCurrent, currentBackground.background, "Save the currently selected background without changing the target.");
   const backgroundSetModel = currentBackgroundSetSaveModel();
   const saveBackgroundSet = settingsActionButton("Save current set", () => saveCurrentBackgroundSetToLibrary(), "", `saved background image current set app terminal panes reusable library ${backgroundSetModel.search}`);
   saveBackgroundSet.disabled = backgroundSetModel.disabled;
@@ -29292,6 +29300,7 @@ function savedBackgroundImagesPanel() {
     : "Merge copied saved backgrounds into the library.";
   actions.append(
     applyAndSave,
+    copyTarget,
     saveCurrent,
     saveBackgroundSet,
     applyEverywhere,
