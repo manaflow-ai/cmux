@@ -31352,12 +31352,18 @@ function paletteEntries() {
     });
   }
   const browserSessions = browserTabSessionEntries();
+  const browserTabPasteTarget = resolveBrowserPanel(focusedPanel());
+  const browserTabPasteTargetHost = browserTabPasteTarget
+    ? hostnameOf(browserPanelUrl(browserTabPasteTarget)) || panelDisplayTitle(browserTabPasteTarget, true)
+    : "";
+  const browserTabPasteDisabled = !browserTabPasteTarget && (!paletteWorkspace || recentBrowserQueueFull);
   entries.push({
     id: "browser.tabs.copyAll",
     label: "Copy all browser tab sessions",
     meta: browserTabSessionsMeta(browserSessions),
     shortcut: "Copy",
     disabled: browserSessions.length === 0,
+    icon: "browser",
     title: browserSessions.length === 0 ? "Open a browser pane before copying tab sessions." : "Copy all browser tab sessions as JSON.",
     search: normalizeSettingsQuery("browser tabs sessions saved copy all clipboard json restore panes"),
     run: copyBrowserTabSessions
@@ -31365,29 +31371,51 @@ function paletteEntries() {
   entries.push({
     id: "browser.tabs.paste",
     label: "Paste browser tabs",
-    meta: "Apply to focused browser or restore panes",
-    shortcut: "Paste",
-    title: "Paste copied browser tabs.",
-    search: normalizeSettingsQuery("browser tabs sessions paste restore import clipboard json active pane"),
+    meta: browserTabPasteTarget
+      ? `Active browser / ${browserTabPasteTargetHost}`
+      : paletteWorkspace
+        ? `${recentBrowserWorkspaceTitle} / ${recentBrowserQueueLabel || "restore panes"}`
+        : "No workspace or browser",
+    shortcut: browserTabPasteTarget ? "Apply" : browserTabPasteDisabled ? "Unavailable" : "Restore",
+    disabled: browserTabPasteDisabled,
+    icon: browserTabPasteTarget ? "browser" : "browserPlus",
+    title: browserTabPasteTarget
+      ? "Paste copied tabs into the active browser pane."
+      : !paletteWorkspace
+        ? "Open a workspace or focus a browser pane before restoring browser tabs."
+        : recentBrowserQueueFull
+          ? paneCreationLimitLabel()
+          : "Paste copied browser tabs as new panes in the active workspace.",
+    search: normalizeSettingsQuery(`browser tabs sessions paste restore import clipboard json active pane ${browserTabPasteTarget ? "active browser apply " : "new panes restore "}${browserTabPasteTargetHost} ${recentBrowserWorkspaceTitle} ${recentBrowserQueueLabel}`),
     run: pasteBrowserTabSessions
   });
   for (const entry of browserSessions) {
+    const entryWorkspaceTitle = workspaceDisplayTitle(entry.workspace, "Workspace");
+    const entryTabCount = browserTabSessionCountLabel(entry.snapshot);
+    const duplicateDisabled = !entry.workspace || recentBrowserQueueFull;
     entries.push({
       id: `browser.tabs.copy.${entry.id}`,
       label: `Copy browser tabs: ${entry.label}`,
-      meta: `${entry.workspace?.title || "Workspace"} / ${browserTabSessionCountLabel(entry.snapshot)}`,
+      meta: `${entryWorkspaceTitle} / ${entryTabCount} / ${entry.activeHost}`,
       shortcut: "Copy",
+      icon: "browser",
       title: `Copy ${entry.label} browser tabs as JSON.`,
-      search: normalizeSettingsQuery(`browser tabs session copy saved clipboard json ${entry.label} ${entry.workspace?.title || ""} ${entry.activeUrl}`),
+      search: normalizeSettingsQuery(`browser tabs session copy saved clipboard json ${entry.label} ${entryWorkspaceTitle} ${entryTabCount} ${entry.activeHost} ${entry.activeUrl}`),
       run: () => copyBrowserTabSessionByPanelId(entry.id)
     });
     entries.push({
       id: `browser.tabs.duplicate.${entry.id}`,
       label: `Duplicate browser tabs: ${entry.label}`,
-      meta: `${entry.workspace?.title || "Workspace"} / ${entry.activeHost}`,
-      shortcut: "Browser",
-      title: `Open a new browser pane with ${entry.label} tabs.`,
-      search: normalizeSettingsQuery(`browser tabs session duplicate restore open pane ${entry.label} ${entry.workspace?.title || ""} ${entry.activeUrl}`),
+      meta: `${entryWorkspaceTitle} / ${entryTabCount} / ${entry.activeHost}`,
+      shortcut: duplicateDisabled ? "Queue full" : "Browser",
+      disabled: duplicateDisabled,
+      icon: "browserPlus",
+      title: !entry.workspace
+        ? "Open a workspace before duplicating browser tab sessions."
+        : recentBrowserQueueFull
+          ? paneCreationLimitLabel()
+          : `Open a new browser pane with ${entry.label} tabs.`,
+      search: normalizeSettingsQuery(`browser tabs session duplicate restore open pane ${duplicateDisabled ? "unavailable " : "ready "}${entry.label} ${entryWorkspaceTitle} ${entryTabCount} ${entry.activeHost} ${entry.activeUrl} ${recentBrowserQueueLabel}`),
       run: () => duplicateBrowserTabSessionByPanelId(entry.id)
     });
   }
