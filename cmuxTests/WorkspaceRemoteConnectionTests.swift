@@ -3688,6 +3688,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -3756,6 +3757,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CODEX_HOME"] = codexHome.path
 
         let hookInput = """
@@ -3833,6 +3835,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-3","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null}
@@ -3911,6 +3914,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CODEX_HOME"] = codexHome.path
 
         let unavailableTranscriptURL = root.appendingPathComponent("missing-\(sessionId).jsonl")
@@ -3986,6 +3990,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
 
         let firstInput = """
@@ -4062,6 +4067,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-4","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null,"message":"Try again later.","codex_error_info":"server_overloaded"}
@@ -4125,6 +4131,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-structured","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null,"message":"Try again later.","codex_error_info":{"code":"server_overloaded","retryable":true}}
@@ -4188,6 +4195,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-5","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null,"message":"Try again later.","codexErrorInfo":"server_overloaded"}
@@ -4251,6 +4259,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-6","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null,"type":"error","message":"Try again later."}
@@ -4314,6 +4323,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-explicit-error","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null,"error":"quota exceeded"}
@@ -4391,6 +4401,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-2","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":"Done"}
@@ -4470,6 +4481,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-payload-error","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":"Partial answer","type":"error","message":"Try again later."}
@@ -4546,6 +4558,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-no-final","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null}
@@ -4623,6 +4636,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-scoped-assistant","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null}
@@ -4695,6 +4709,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let hookInput = """
         {"session_id":"\(sessionId)","turn_id":"turn-current","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null}
@@ -4766,6 +4781,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4848,6 +4864,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4931,6 +4948,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let process = Process()
         let stdoutPipe = Pipe()
@@ -5033,6 +5051,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let process = Process()
         let stdoutPipe = Pipe()
@@ -5137,6 +5156,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CODEX_HOME"] = codexHome.path
 
         let result = runProcess(
@@ -5219,6 +5239,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
 
         let process = Process()
         let stdoutPipe = Pipe()
@@ -6090,6 +6111,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6163,6 +6185,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6271,6 +6294,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6371,6 +6395,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6505,6 +6530,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6602,6 +6628,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6678,6 +6705,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6812,6 +6840,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -6957,6 +6986,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
