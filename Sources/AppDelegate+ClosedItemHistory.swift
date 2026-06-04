@@ -37,7 +37,7 @@ extension AppDelegate {
                         entry,
                         preferredTabManager: preferredTabManager,
                         shouldActivate: shouldActivate
-                    )
+                    ) != nil
                 }
             )
         }
@@ -89,7 +89,7 @@ extension AppDelegate {
         _ entry: ClosedItemHistoryEntry,
         preferredTabManager: TabManager? = nil,
         shouldActivate: Bool
-    ) -> Bool {
+    ) -> ReopenedItemRef? {
         switch entry {
         case .panel(let panelEntry):
             let manager =
@@ -97,24 +97,24 @@ extension AppDelegate {
                 ?? preferredTabManager
                 ?? tabManager
             guard let manager, let panelId = manager.restoreClosedPanel(panelEntry) else {
-                return false
+                return nil
             }
             ClosedItemHistoryStore.shared.noteReopened(
                 .panel(workspaceId: panelEntry.workspaceId, panelId: panelId)
             )
             activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)
-            return true
+            return .panel(workspaceId: panelEntry.workspaceId, panelId: panelId)
         case .workspace(let workspaceEntry):
             let manager =
                 workspaceEntry.windowId.flatMap { tabManagerFor(windowId: $0) }
                 ?? preferredTabManager
                 ?? tabManager
             guard let manager, let restoredWorkspaceId = manager.restoreClosedWorkspace(workspaceEntry) else {
-                return false
+                return nil
             }
             ClosedItemHistoryStore.shared.noteReopened(.workspace(workspaceId: restoredWorkspaceId))
             activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)
-            return true
+            return .workspace(workspaceId: restoredWorkspaceId)
         case .window(let windowEntry):
             var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
             var restoredTabManager: TabManager?
@@ -150,13 +150,13 @@ extension AppDelegate {
                     ClosedItemHistoryStore.shared.flushPendingSaves()
                 }
                 discardMainWindowWithoutClosedHistory(windowId: windowId)
-                return false
+                return nil
             }
             restoredTabManager?.remapClosedPanelHistoryAfterSessionRestore(
                 originalWorkspaceIds: originalWorkspaceIdsByIndex,
                 restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
             )
-            return true
+            return .window(windowId: windowId)
         }
     }
 
@@ -176,11 +176,17 @@ extension AppDelegate {
             return false
         }
 
-        return restoreClosedItem(
+        guard let ref = restoreClosedItem(
             record.entry,
             preferredTabManager: preferredTabManager,
             shouldActivate: shouldActivate
-        )
+        ) else {
+            return false
+        }
+        // Mark restored so the immutable log shows it as already-open and
+        // restore-remaining / undo skip it (single liveness source of truth).
+        ClosedItemHistoryStore.shared.markRestored(recordId: record.id, ref: ref)
+        return true
     }
 
     /// Re-closes the item most recently reopened from history ("redo" of an
@@ -208,6 +214,29 @@ extension AppDelegate {
             }
             manager.closeWorkspace(workspace, recordHistory: true)
             return true
+        case .window:
+            // Window re-close is not supported for redo; clear the target.
+            ClosedItemHistoryStore.shared.clearRedoTarget()
+            return false
+        }
+    }
+
+    /// The single liveness source of truth for "already restored": is the live
+    /// item a reopen produced still present? Wired into `ClosedItemHistoryStore`
+    /// at launch. Best-effort scan over the active tab managers; only called on
+    /// snapshot / undo / redo paths, never a hot path.
+    func closedItemTargetIsLive(_ ref: ReopenedItemRef) -> Bool {
+        switch ref {
+        case .panel(let workspaceId, let panelId):
+            guard let manager = tabManagerFor(tabId: workspaceId),
+                  let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else {
+                return false
+            }
+            return workspace.panels[panelId] != nil
+        case .workspace(let workspaceId):
+            return tabManagerFor(tabId: workspaceId) != nil
+        case .window(let windowId):
+            return tabManagerFor(windowId: windowId) != nil
         }
     }
 

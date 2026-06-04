@@ -74,6 +74,7 @@ enum ClosedItemHistoryEntry: Codable {
 enum ReopenedItemRef: Equatable, Sendable {
     case panel(workspaceId: UUID, panelId: UUID)
     case workspace(workspaceId: UUID)
+    case window(windowId: UUID)
 }
 
 struct ClosedItemHistoryRecord: Identifiable, Codable {
@@ -236,7 +237,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     /// Injected liveness check (set by AppDelegate at startup): is this restored
     /// target still a live panel/workspace/window? Single source of truth for
     /// "already restored", so restore-remaining and undo never duplicate a live item.
-    var isTargetLive: ((ReopenedItemRef) -> Bool)?
+    var isTargetLive: (@MainActor (ReopenedItemRef) -> Bool)?
     private let capacity: Int?
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool

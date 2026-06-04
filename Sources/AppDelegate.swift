@@ -1202,6 +1202,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Single liveness source of truth for the closed-item history: lets the
+        // store tell which restored items are currently live, so restore-remaining
+        // and undo never duplicate something already open. Not persisted, so it is
+        // empty after launch (the reset-on-launch undo behavior).
+        ClosedItemHistoryStore.shared.isTargetLive = { [weak self] ref in
+            self?.closedItemTargetIsLive(ref) ?? false
+        }
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
