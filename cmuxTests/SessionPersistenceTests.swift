@@ -731,6 +731,26 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testTerminationSessionPersistencePolicyKeepsNormalQuitLightweight() {
+        for reason in [
+            AppDelegate.TerminationSessionPersistenceReason.applicationWillTerminate,
+            .workspaceWillPowerOff,
+            .sessionDidResignWhileTerminating,
+        ] {
+            let plan = AppDelegate.terminationSessionPersistencePlan(reason: reason)
+            XCTAssertTrue(plan.saveSnapshot)
+            XCTAssertFalse(plan.includeScrollback)
+            XCTAssertFalse(plan.flushClosedItemHistory)
+        }
+    }
+
+    func testTerminationSessionPersistencePolicyKeepsUpdateRelaunchFull() {
+        let plan = AppDelegate.terminationSessionPersistencePlan(reason: .updateRelaunch)
+        XCTAssertTrue(plan.saveSnapshot)
+        XCTAssertTrue(plan.includeScrollback)
+        XCTAssertTrue(plan.flushClosedItemHistory)
+    }
+
     func testSessionSnapshotSynchronousWritePolicy() {
         XCTAssertFalse(
             AppDelegate.shouldWriteSessionSnapshotSynchronously(
@@ -744,7 +764,7 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: true
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             AppDelegate.shouldWriteSessionSnapshotSynchronously(
                 isTerminatingApp: true,
                 includeScrollback: false

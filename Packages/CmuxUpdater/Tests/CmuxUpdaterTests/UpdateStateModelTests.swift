@@ -69,7 +69,12 @@ import Testing
     }
 
     @Test func startupDoesNotProbeForUpdatesImmediately() {
-        #expect(!UpdateController.shouldProbeImmediatelyOnLaunch(automaticallyChecksForUpdates: true))
-        #expect(!UpdateController.shouldProbeImmediatelyOnLaunch(automaticallyChecksForUpdates: false))
+        let enabledPlan = UpdateController.launchProbePlan(automaticallyChecksForUpdates: true)
+        #expect(!enabledPlan.probesImmediately)
+        #expect(enabledPlan.schedulesPeriodicProbes)
+
+        let disabledPlan = UpdateController.launchProbePlan(automaticallyChecksForUpdates: false)
+        #expect(!disabledPlan.probesImmediately)
+        #expect(!disabledPlan.schedulesPeriodicProbes)
     }
 }

@@ -667,6 +667,19 @@ final class CmuxMainThreadTurnProfiler {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate {
     nonisolated(unsafe) static var shared: AppDelegate?
+
+    enum TerminationSessionPersistenceReason: Sendable {
+        case applicationWillTerminate
+        case workspaceWillPowerOff
+        case sessionDidResignWhileTerminating
+        case updateRelaunch
+    }
+
+    struct TerminationSessionPersistencePlan: Equatable, Sendable {
+        let saveSnapshot: Bool
+        let includeScrollback: Bool
+        let flushClosedItemHistory: Bool
+    }
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -1832,8 +1845,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        ClosedItemHistoryStore.shared.flushPendingSaves()
+        persistSessionForTermination(reason: .applicationWillTerminate)
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
@@ -1862,8 +1874,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        ClosedItemHistoryStore.shared.flushPendingSaves()
+        persistSessionForTermination(reason: .updateRelaunch)
     }
 
     func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState, settingsRuntime: SettingsRuntime) {
@@ -3587,8 +3598,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
-                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-                ClosedItemHistoryStore.shared.flushPendingSaves()
+                self.persistSessionForTermination(reason: .workspaceWillPowerOff)
             }
         }
         lifecycleSnapshotObservers.append(powerOffObserver)
@@ -3601,8 +3611,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.isTerminatingApp {
-                    _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-                    ClosedItemHistoryStore.shared.flushPendingSaves()
+                    self.persistSessionForTermination(reason: .sessionDidResignWhileTerminating)
                 } else {
                     self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
                 }
@@ -3884,6 +3893,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         !isTerminatingApp
     }
 
+    nonisolated static func terminationSessionPersistencePlan(
+        reason: TerminationSessionPersistenceReason
+    ) -> TerminationSessionPersistencePlan {
+        switch reason {
+        case .applicationWillTerminate, .workspaceWillPowerOff, .sessionDidResignWhileTerminating:
+            TerminationSessionPersistencePlan(
+                saveSnapshot: true,
+                includeScrollback: false,
+                flushClosedItemHistory: false
+            )
+        case .updateRelaunch:
+            TerminationSessionPersistencePlan(
+                saveSnapshot: true,
+                includeScrollback: true,
+                flushClosedItemHistory: true
+            )
+        }
+    }
+
     nonisolated static func shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp _: Bool) -> Bool {
         // App switching must stay cheap. The autosave timer, window/session lifecycle,
         // power-off, update relaunch, and termination paths still persist session state.
@@ -4049,6 +4077,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func persistSessionForTermination(reason: TerminationSessionPersistenceReason) {
+        let plan = Self.terminationSessionPersistencePlan(reason: reason)
+        if plan.saveSnapshot {
+            _ = saveSessionSnapshotIncludingProcessDetectedIndexes(
+                includeScrollback: plan.includeScrollback,
+                removeWhenEmpty: false
+            )
+        }
+        if plan.flushClosedItemHistory {
+            ClosedItemHistoryStore.shared.flushPendingSaves()
+        }
+    }
+
     @discardableResult
     private func nextProcessDetectedSessionSaveGeneration() -> UInt64 {
         processDetectedSessionSaveGeneration &+= 1
@@ -4067,7 +4108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp: Bool,
         includeScrollback: Bool
     ) -> Bool {
-        isTerminatingApp && includeScrollback
+        isTerminatingApp
     }
 
     nonisolated static func shouldSkipSessionAutosaveForUnchangedFingerprint(
@@ -15775,9 +15816,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             activateMainWindowContext(nextContext)
         }
 
-        // During app termination we already persisted a full snapshot (with scrollback)
-        // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
-        // overwrite it as windows tear down one-by-one, dropping closed windows and replay.
+        // During app termination we already persisted a final snapshot in
+        // applicationWillTerminate. Saving again here would overwrite it as
+        // windows tear down one-by-one, dropping closed windows and replay.
         if Self.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false, removeWhenEmpty: false)
         }

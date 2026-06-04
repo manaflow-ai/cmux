@@ -17,6 +17,11 @@ public import Foundation
 /// concrete ``UpdateLogging`` and ``UpdateActionDelegate``.
 @MainActor
 public final class UpdateController {
+    nonisolated public struct LaunchProbePlan: Equatable, Sendable {
+        public let probesImmediately: Bool
+        public let schedulesPeriodicProbes: Bool
+    }
+
     private let updater: SPUUpdater
     private let driver: UpdateDriver
     private let log: any UpdateLogging
@@ -337,17 +342,21 @@ public final class UpdateController {
         }
     }
 
-    nonisolated static func shouldProbeImmediatelyOnLaunch(automaticallyChecksForUpdates: Bool) -> Bool {
-        false
+    nonisolated public static func launchProbePlan(automaticallyChecksForUpdates: Bool) -> LaunchProbePlan {
+        LaunchProbePlan(
+            probesImmediately: false,
+            schedulesPeriodicProbes: automaticallyChecksForUpdates
+        )
     }
 
     private func startBackgroundUpdateProbeIfNeeded() {
-        guard updater.automaticallyChecksForUpdates else {
+        let plan = Self.launchProbePlan(automaticallyChecksForUpdates: updater.automaticallyChecksForUpdates)
+        guard plan.schedulesPeriodicProbes else {
             log.append("background update probe skipped (automatic checks disabled)")
             return
         }
 
-        if Self.shouldProbeImmediatelyOnLaunch(automaticallyChecksForUpdates: updater.automaticallyChecksForUpdates) {
+        if plan.probesImmediately {
             log.append("starting launch update probe")
             updater.checkForUpdateInformation()
         } else {
