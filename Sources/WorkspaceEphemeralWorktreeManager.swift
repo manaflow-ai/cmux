@@ -126,6 +126,10 @@ final class WorkspaceEphemeralWorktreeManager {
         windowCloseCleanupAuthorizedPanelIds.subtract(panelIds)
     }
 
+    func unauthorizedWindowClosePanelIds(panelIds: Set<UUID>) -> Set<UUID> {
+        panelIds.subtracting(windowCloseCleanupAuthorizedPanelIds)
+    }
+
     func consumeWindowCloseAuthorizedPanelIds(additionalPanelIds: Set<UUID>) -> Set<UUID> {
         let authorized = additionalPanelIds.union(windowCloseCleanupAuthorizedPanelIds)
         windowCloseCleanupAuthorizedPanelIds.removeAll()

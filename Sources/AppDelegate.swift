@@ -5532,6 +5532,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return alert.runModal() == .alertFirstButtonReturn
     }
 
+    private func unauthorizedBlockPolicyEphemeralWorktreePanelIdsByWorkspace(
+        in tabManager: TabManager
+    ) -> [(workspace: Workspace, panelIds: Set<UUID>)] {
+        tabManager.tabs.compactMap { workspace -> (workspace: Workspace, panelIds: Set<UUID>)? in
+            let blockPolicyPanelIds = Set(workspace.ephemeralWorktreesByPanelId.compactMap { panelId, record -> UUID? in
+                record.cleanupPolicy == .block ? panelId : nil
+            })
+            let unauthorizedPanelIds = workspace.unauthorizedEphemeralWorktreeCleanupPanelIdsForWindowClose(
+                panelIds: blockPolicyPanelIds
+            )
+            guard !unauthorizedPanelIds.isEmpty else { return nil }
+            return (workspace, unauthorizedPanelIds)
+        }
+    }
+
+    private func confirmAndAuthorizeEphemeralWorktreeCleanupForWindow(tabManager: TabManager) -> Bool {
+        let unauthorizedPanelIdsByWorkspace = unauthorizedBlockPolicyEphemeralWorktreePanelIdsByWorkspace(
+            in: tabManager
+        )
+        let affectedCount = unauthorizedPanelIdsByWorkspace.reduce(0) { $0 + $1.panelIds.count }
+        guard affectedCount > 0 else { return true }
+
+        let copy = WorkspaceEphemeralWorktreeManager.closeConfirmationCopy(affectedCount: affectedCount)
+        guard tabManager.confirmClose(title: copy.title, message: copy.message, acceptCmdD: false) else {
+            return false
+        }
+
+        for (workspace, panelIds) in unauthorizedPanelIdsByWorkspace {
+            workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: panelIds)
+        }
+        return true
+    }
+
     @discardableResult
     func closeWindowWithConfirmation(_ window: NSWindow) -> Bool {
         guard isMainTerminalWindow(window) else {
@@ -8094,7 +8127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
         controller.shouldClose = { [weak self] in
-            let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
+            let shouldClose = self?.handleMainTerminalWindowShouldClose(windowId: windowId) ?? true
             if !shouldClose {
                 self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
                 tabManager.cancelEphemeralWorktreeCleanupForAbortedWindowClose()
@@ -15759,10 +15792,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func handleMainTerminalWindowShouldClose() -> Bool {
+    private func handleMainTerminalWindowShouldClose(windowId: UUID) -> Bool {
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
+        if let tabManager = tabManagerFor(windowId: windowId),
+           !confirmAndAuthorizeEphemeralWorktreeCleanupForWindow(tabManager: tabManager) {
+            return false
+        }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
         _ = handleQuitShortcutWarning()
         return false

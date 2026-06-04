@@ -5772,7 +5772,22 @@ class TerminalController {
         guard let windowId = v2UUID(params, "window_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
         }
-        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
+        var blockedWorktreeError: V2CallResult?
+        let ok = v2MainSync {
+            guard let app = AppDelegate.shared,
+                  app.windowForMainWindowId(windowId) != nil else { return false }
+            if let tabManager = app.tabManagerFor(windowId: windowId),
+               let worktreeError = v2BlockedEphemeralWorktreeError(
+                   for: v2EphemeralWorktreeRecords(in: tabManager)
+               ) {
+                blockedWorktreeError = worktreeError
+                return false
+            }
+            return app.closeMainWindow(windowId: windowId)
+        }
+        if let blockedWorktreeError {
+            return blockedWorktreeError
+        }
         return ok
             ? .ok([
                 "window_id": windowId.uuidString,
@@ -6156,6 +6171,10 @@ class TerminalController {
             ),
             data: nil
         )
+    }
+
+    private func v2EphemeralWorktreeRecords(in tabManager: TabManager) -> [EphemeralWorktreeRecord] {
+        tabManager.tabs.flatMap { Array($0.ephemeralWorktreesByPanelId.values) }
     }
 
     private func v2WorkspaceCreate(params: [String: Any]) -> V2CallResult {
@@ -18779,7 +18798,24 @@ class TerminalController {
     private func closeWindow(_ arg: String) -> String {
         let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
-        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
+        var requiresWorktreeConfirmation = false
+        let ok = v2MainSync {
+            guard let app = AppDelegate.shared,
+                  app.windowForMainWindowId(windowId) != nil else { return false }
+            if let tabManager = app.tabManagerFor(windowId: windowId),
+               v2BlockedEphemeralWorktreeError(for: v2EphemeralWorktreeRecords(in: tabManager)) != nil {
+                requiresWorktreeConfirmation = true
+                return false
+            }
+            return app.closeMainWindow(windowId: windowId)
+        }
+        if requiresWorktreeConfirmation {
+            let message = String(
+                localized: "error.ephemeralWorktree.dirtyRequiresConfirmation",
+                defaultValue: "This worktree cleanup policy requires confirmation before removal."
+            )
+            return "ERROR: \(message)"
+        }
         return ok ? "OK" : "ERROR: Window not found"
     }
 

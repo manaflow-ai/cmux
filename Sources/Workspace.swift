@@ -14387,6 +14387,10 @@ final class Workspace: Identifiable, ObservableObject {
         ephemeralWorktreeManager.cancelWindowClose(panelIds: panelIds)
     }
 
+    func unauthorizedEphemeralWorktreeCleanupPanelIdsForWindowClose(panelIds: Set<UUID>) -> Set<UUID> {
+        ephemeralWorktreeManager.unauthorizedWindowClosePanelIds(panelIds: panelIds)
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
