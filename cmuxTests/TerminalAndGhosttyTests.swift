@@ -5139,11 +5139,9 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
         try "print(\"hello\")\n".write(to: fileURL, atomically: true, encoding: .utf8)
 
-        let originalDirectory = FileManager.default.currentDirectoryPath
-        XCTAssertTrue(FileManager.default.changeCurrentDirectoryPath(root.path))
-        defer { FileManager.default.changeCurrentDirectoryPath(originalDirectory) }
-
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("Sources/App.swift:1"))
+        let target = try XCTUnwrap(
+            resolveTerminalOpenURLTarget("Sources/App.swift:1", cwd: root.path)
+        )
         switch target {
         case let .external(url):
             XCTAssertTrue(url.isFileURL)
