@@ -1155,6 +1155,49 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionRefreshClearsFilteredRowsWhenQueryReturnsToBareTrigger() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$it"
+        textView.setSelectedRange(NSRange(location: 3, length: 0))
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/agent-browser/SKILL.md",
+            title: "$agent-browser",
+            subtitle: "/tmp/agent-browser/SKILL.md",
+            insertionText: "$agent-browser",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+        let currentSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/iterate-pr/SKILL.md",
+            title: "$iterate-pr",
+            subtitle: "/tmp/iterate-pr/SKILL.md",
+            insertionText: "$iterate-pr",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 3),
+                query: "it",
+                trigger: "$"
+            ),
+            suggestions: [staleSuggestion, currentSuggestion]
+        )
+
+        textView.string = "$iterate-pr"
+        textView.setSelectedRange(NSRange(location: 11, length: 0))
+        textView.refreshMentionCompletions()
+        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+
+        textView.string = "$"
+        textView.setSelectedRange(NSRange(location: 1, length: 0))
+        textView.refreshMentionCompletions()
+        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(!textView.debugAcceptMentionCompletion())
+    }
+
+    @Test
     func testTextBoxMentionRootDirectoryChangeClearsActiveFileSuggestions() throws {
         let fileManager = FileManager.default
         let oldRoot = fileManager.temporaryDirectory.appendingPathComponent(

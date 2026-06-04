@@ -64,22 +64,24 @@ final class TextBoxMentionCompletionController {
         activeRootDirectory = rootDirectory
         selectionIndex = 0
         isLoadingSuggestions = true
-        // Once the user has typed a non-empty query, stale bare-trigger rows
-        // read as wrong fuzzy results. Show the loading row until the exact
-        // query finishes instead.
+        // Moving between a bare trigger and typed query changes the expected
+        // result shape. Show the loading row until that exact query finishes.
         let previousQueryWasEmpty = previousActiveQuery?.query
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty ?? true
+        let queryIsEmpty = query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let queryChangedToNonEmpty = previousQueryWasEmpty &&
-            !query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            !queryIsEmpty
+        let queryChangedToEmpty = !previousQueryWasEmpty && queryIsEmpty
         if previousActiveQuery?.trigger != query.trigger ||
             previousRootDirectory != rootDirectory ||
-            queryChangedToNonEmpty {
+            queryChangedToNonEmpty ||
+            queryChangedToEmpty {
             suggestions = []
             suggestionsQuery = nil
             suggestionsRootDirectory = nil
         } else if previousActiveQuery?.query != query.query,
-                  !query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                  !queryIsEmpty {
             filterVisibleStaleSuggestions(matching: query.query)
         }
         lookupTask?.cancel()
