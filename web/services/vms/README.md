@@ -194,8 +194,8 @@ Set these Vercel environment variables per production/staging environment:
 - `E2B_CMUXD_WS_TEMPLATE`, E2B template alias/name for WebSocket PTY sandboxes.
 - `FREESTYLE_SANDBOX_SNAPSHOT`, Freestyle snapshot id.
 - `CMUX_VM_DEFAULT_PROVIDER`, `freestyle` or `e2b`.
-- `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID`, optional Stack Auth team item used as the free-plan create-credit bucket. Leave unset to skip free-plan create-credit accounting; set to `none`, `disabled`, `off`, or `false` to explicitly opt out.
-- `CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST`, optional free-plan per-create cost. Defaults to `1`.
+- `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID`, Stack Auth team item used as the free-plan create-credit bucket. Required by the production env audit; set to a real item id to enable accounting, or `none`, `disabled`, `off`, or `false` to explicitly opt out.
+- `CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST`, free-plan per-create cost. Required by the production env audit; set to a positive integer when accounting is enabled, or pair with the explicit opt-out item value above.
 - `CMUX_VM_PLAN_FREE_INITIAL_CREATE_CREDITS`, optional first-use seed for the free-plan Stack Auth create-credit item. Defaults to `20`.
 - `CMUX_VM_CREATE_CREDIT_ITEM_ID`, optional global Stack Auth item used as a prepaid create-credit bucket for every plan without a plan-specific item. Set to `none`, `disabled`, `off`, or `false` to opt out of create credits for plans without a plan-specific value.
 - `CMUX_VM_CREATE_CREDIT_COST`, default `1`.
@@ -314,6 +314,6 @@ Operational note: Freestyle is the intended default when `CMUX_VM_DEFAULT_PROVID
 
 ## Usage, limits, and pricing
 
-The usage ledger is in Postgres. VM create pricing gates can use Stack Auth payment items, but free-plan create credits are opt-in. Configure `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID` only when the free plan should consume a prepaid create-credit bucket. When enabled, the create workflow records a one-time local grant row, seeds the configured Stack Auth item credits once per billing team, reserves one create credit only for a newly inserted row, calls the provider, and refunds the credit if provisioning fails before a usable VM exists.
+The usage ledger is in Postgres. VM create pricing gates can use Stack Auth payment items, but free-plan create credits are opt-in at runtime. Production must still configure `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID` and `CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST` so the audit proves an intentional choice: a real item id enables the prepaid create-credit bucket, while `none`, `disabled`, `off`, or `false` opts out explicitly. When enabled, the create workflow records a one-time local grant row, seeds the configured Stack Auth item credits once per billing team, reserves one create credit only for a newly inserted row, calls the provider, and refunds the credit if provisioning fails before a usable VM exists.
 
 Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows five active VMs at a time by default. Paused and destroyed VMs do not count against the active limit. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata, then configure the matching `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` env var. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.

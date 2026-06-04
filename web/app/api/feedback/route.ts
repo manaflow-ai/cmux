@@ -14,6 +14,7 @@ const maxAttachmentCount = 10;
 const maxAttachmentBytes = 4 * 1024 * 1024;
 // Keep multipart requests below Vercel Functions' 4.5 MB request-body limit.
 const maxTotalAttachmentBytes = 4 * 1024 * 1024;
+let testFeedbackRateLimitId: string | null = null;
 const allowedImageTypes = new Set([
   "image/gif",
   "image/heic",
@@ -62,9 +63,10 @@ export async function POST(request: Request) {
         return jsonError("Feedback endpoint is not configured", 503);
       }
 
-      if (process.env.VERCEL === "1") {
+      const rateLimitId = resolveFeedbackRateLimitId(feedbackConfig.rateLimitId);
+      if (rateLimitId) {
         const { error, rateLimited } = await checkRateLimit(
-          feedbackConfig.rateLimitId,
+          rateLimitId,
           { request },
         );
 
@@ -73,14 +75,14 @@ export async function POST(request: Request) {
           return jsonError("Rate limit exceeded", 429);
         }
 
-        if (error === "not-found") {
-          console.error(
-            "feedback.route.rate_limit_not_found",
-            feedbackConfig.rateLimitId,
-          );
-        } else if (error) {
-          console.error("feedback.route.rate_limit_error", error);
+        if (error) {
+          console.error("feedback.route.rate_limit_unavailable", error);
+          return jsonError("rate_limiter_unavailable", 503);
         }
+      }
+
+      if (!isMultipartFormData(request)) {
+        return jsonError("Invalid multipart payload", 415);
       }
 
       let formData: FormData;
@@ -209,6 +211,19 @@ function resolveFeedbackConfig() {
     fromEmail,
     rateLimitId,
   };
+}
+
+export function configureFeedbackRateLimitForTests(rateLimitId: string | null) {
+  testFeedbackRateLimitId = rateLimitId;
+}
+
+function resolveFeedbackRateLimitId(rateLimitId: string) {
+  return process.env.VERCEL === "1" ? rateLimitId : testFeedbackRateLimitId;
+}
+
+function isMultipartFormData(request: Request) {
+  const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+  return contentType === "multipart/form-data" || contentType.startsWith("multipart/form-data;");
 }
 
 function getString(formData: FormData, key: string) {

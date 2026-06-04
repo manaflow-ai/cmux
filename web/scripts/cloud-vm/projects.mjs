@@ -30,6 +30,8 @@ export const requiredRuntimeEnvKeys = [
   "CMUX_VM_DEFAULT_PROVIDER",
   "CMUX_VM_E2B_ENABLED",
   "CMUX_VM_FREESTYLE_ENABLED",
+  "CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST",
+  "CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID",
   "E2B_API_KEY",
   "E2B_CMUXD_WS_TEMPLATE",
   "FREESTYLE_API_KEY",
@@ -41,6 +43,11 @@ export const requiredRuntimeEnvKeys = [
   "PGPORT",
   "PGUSER",
   "STACK_SECRET_SERVER_KEY",
+];
+
+export const nonBlankRequiredRuntimeEnvKeys = [
+  "CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST",
+  "CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID",
 ];
 
 export const recommendedRuntimeEnvKeys = [

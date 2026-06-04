@@ -93,7 +93,10 @@ export async function withAuthedVmApiRoute(
 export function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: {
+      "cache-control": "private, no-store",
+      "content-type": "application/json",
+    },
   });
 }
 

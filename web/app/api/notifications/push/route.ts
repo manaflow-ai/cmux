@@ -23,6 +23,9 @@ import { summarizeApnsSendResults } from "../../../../services/apns/response";
 
 export const runtime = "nodejs"; // http2 + node:crypto, not edge
 export const dynamic = "force-dynamic";
+const isVercelRuntime = process.env.VERCEL === "1";
+let testPushRateLimitId: string | null = null;
+let testPushRateLimitRequired = false;
 
 function apnsConfig(): ApnsConfig | null {
   const keyP8 = env.CMUX_APNS_KEY_P8;
@@ -53,8 +56,13 @@ async function sendPush(request: Request): Promise<Response> {
   const user = await verifyRequest(request, { allowCookie: false });
   if (!user) return unauthorized();
 
-  if (process.env.VERCEL === "1" && env.CMUX_PUSH_RATE_LIMIT_ID) {
-    const { error, rateLimited } = await checkRateLimit(env.CMUX_PUSH_RATE_LIMIT_ID, {
+  const rateLimitId = resolvePushRateLimitId();
+  if (isPushRateLimitRequired() && !rateLimitId) {
+    console.error("notifications.push.rate_limit_unavailable", "missing_rate_limit_id");
+    return jsonResponse({ error: "rate_limiter_unavailable" }, 503);
+  }
+  if (rateLimitId) {
+    const { error, rateLimited } = await checkRateLimit(rateLimitId, {
       request,
       rateLimitKey: user.id,
     });
@@ -64,8 +72,9 @@ async function sendPush(request: Request): Promise<Response> {
         headers: { "content-type": "application/json" },
       });
     }
-    if (error === "not-found") {
-      console.error("notifications.push.rate_limit_not_found", env.CMUX_PUSH_RATE_LIMIT_ID);
+    if (error) {
+      console.error("notifications.push.rate_limit_unavailable", error, rateLimitId);
+      return jsonResponse({ error: "rate_limiter_unavailable" }, 503);
     }
   }
 
@@ -116,4 +125,20 @@ async function sendPush(request: Request): Promise<Response> {
   }
 
   return jsonResponse(summarizeApnsSendResults(results));
+}
+
+export function configurePushRateLimitForTests(
+  rateLimitId: string | null,
+  options: { required?: boolean } = {},
+) {
+  testPushRateLimitId = rateLimitId;
+  testPushRateLimitRequired = options.required ?? false;
+}
+
+function resolvePushRateLimitId() {
+  return isVercelRuntime ? env.CMUX_PUSH_RATE_LIMIT_ID : testPushRateLimitId;
+}
+
+function isPushRateLimitRequired() {
+  return isVercelRuntime || testPushRateLimitRequired;
 }

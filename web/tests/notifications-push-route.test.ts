@@ -1,8 +1,7 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const envKeys = [
   "SKIP_ENV_VALIDATION",
-  "VERCEL",
   "CMUX_PUSH_RATE_LIMIT_ID",
 ] as const;
 const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]])) as Record<
@@ -11,7 +10,6 @@ const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[ke
 >;
 
 process.env.SKIP_ENV_VALIDATION = "1";
-process.env.VERCEL = "1";
 process.env.CMUX_PUSH_RATE_LIMIT_ID = "cmux-push-test";
 
 const getUser = mock(async () => ({
@@ -20,7 +18,23 @@ const getUser = mock(async () => ({
   primaryEmail: null,
   selectedTeam: null,
 }));
-const checkRateLimit = mock(async () => ({ rateLimited: true, error: null }));
+type CheckRateLimitOptions = { request?: Request; rateLimitKey?: string };
+type CheckRateLimitResult = { rateLimited: boolean; error: string | null };
+type CheckRateLimitHandler = (
+  id: string,
+  options: CheckRateLimitOptions,
+) => Promise<CheckRateLimitResult>;
+const checkRateLimit = mock(async (...args: unknown[]): Promise<CheckRateLimitResult> => {
+  void args;
+  return { rateLimited: true, error: null };
+});
+const checkRateLimitHandler: CheckRateLimitHandler = (id, options) =>
+  checkRateLimit(id, options) as Promise<CheckRateLimitResult>;
+const firewallState = globalThis as typeof globalThis & {
+  __cmuxFirewallCheckRateLimits?: Map<string, CheckRateLimitHandler>;
+};
+firewallState.__cmuxFirewallCheckRateLimits ??= new Map();
+firewallState.__cmuxFirewallCheckRateLimits.set("cmux-push-test", checkRateLimitHandler);
 const cloudDb = mock(() => {
   throw new Error("cloudDb should not be reached after a push rate-limit block");
 });
@@ -31,7 +45,8 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 mock.module("@vercel/firewall", () => ({
-  checkRateLimit,
+  checkRateLimit: (id: string, options: CheckRateLimitOptions) =>
+    (firewallState.__cmuxFirewallCheckRateLimits?.get(id) ?? checkRateLimitHandler)(id, options),
 }));
 
 mock.module("../db/client", () => ({
@@ -51,7 +66,17 @@ afterAll(() => {
   }
 });
 
+afterEach(() => {
+  pushRoute.configurePushRateLimitForTests(null);
+  firewallState.__cmuxFirewallCheckRateLimits?.delete("cmux-push-test");
+  checkRateLimit.mockClear();
+  cloudDb.mockClear();
+});
+
 beforeEach(() => {
+  pushRoute.configurePushRateLimitForTests("cmux-push-test");
+  firewallState.__cmuxFirewallCheckRateLimits ??= new Map();
+  firewallState.__cmuxFirewallCheckRateLimits.set("cmux-push-test", checkRateLimitHandler);
   getUser.mockClear();
   checkRateLimit.mockClear();
   checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
@@ -82,6 +107,46 @@ describe("notifications push route", () => {
     expect(calls[0]?.[1]).toMatchObject({
       rateLimitKey: "user-1",
     });
+    expect(cloudDb).not.toHaveBeenCalled();
+  });
+
+  test("fails closed when the Vercel user limiter is unavailable", async () => {
+    checkRateLimit.mockResolvedValue({ rateLimited: false, error: "not-found" });
+
+    const response = await pushRoute.POST(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: "{}",
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "rate_limiter_unavailable" });
+    expect(checkRateLimit).toHaveBeenCalledTimes(1);
+    expect(cloudDb).not.toHaveBeenCalled();
+  });
+
+  test("fails closed when the production user limiter id is missing", async () => {
+    pushRoute.configurePushRateLimitForTests(null, { required: true });
+
+    const response = await pushRoute.POST(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: "{}",
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "rate_limiter_unavailable" });
+    expect(checkRateLimit).not.toHaveBeenCalled();
     expect(cloudDb).not.toHaveBeenCalled();
   });
 });
