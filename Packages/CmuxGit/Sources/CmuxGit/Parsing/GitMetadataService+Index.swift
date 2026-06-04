@@ -1,5 +1,27 @@
 import Foundation
 
+/// Lowercase-hex digit table used by ``lowercaseHexString(_:)``.
+private let lowercaseHexDigits: [UInt8] = Array("0123456789abcdef".utf8)
+
+/// Lowercase hex encoding of a byte collection, without `String(format:)`.
+///
+/// `String(format: "%02x", byte)` acquires a process-global locale lock
+/// (`localeconv_l` / `os_unfair_lock`) on every call. Encoding a 20-byte
+/// object ID for every index entry, across thousands of entries and many git
+/// probes running in parallel, turned that lock into a multi-core CPU storm
+/// (https://github.com/manaflow-ai/cmux/issues/4639). This table-based encoder
+/// produces byte-identical output, allocation-light and lock-free.
+func lowercaseHexString<Bytes: Collection>(_ bytes: Bytes) -> String
+where Bytes.Element == UInt8 {
+    var ascii = [UInt8]()
+    ascii.reserveCapacity(bytes.count * 2)
+    for byte in bytes {
+        ascii.append(lowercaseHexDigits[Int(byte >> 4)])
+        ascii.append(lowercaseHexDigits[Int(byte & 0x0f)])
+    }
+    return String(decoding: ascii, as: UTF8.self)
+}
+
 extension GitMetadataService {
     /// Compares the working tree against the parsed index to decide dirtiness,
     /// returning the index signatures alongside.
@@ -86,9 +108,7 @@ extension GitMetadataService {
             let mtimeNanoseconds = readBigEndianUInt32(bytes, at: offset + 12)
             let mode = readBigEndianUInt32(bytes, at: offset + 24)
             let size = readBigEndianUInt32(bytes, at: offset + 36)
-            let objectID = bytes[(offset + 40)..<(offset + 60)].map {
-                String(format: "%02x", $0)
-            }.joined()
+            let objectID = lowercaseHexString(bytes[(offset + 40)..<(offset + 60)])
             let flags = readBigEndianUInt16(bytes, at: offset + 60)
             let pathLength = Int(flags & 0x0fff)
             let hasExtendedFlags = version >= 3 && (flags & 0x4000) != 0
@@ -157,7 +177,7 @@ extension GitMetadataService {
             }
         }
 
-        let checksum = bytes[(bytes.count - 20)..<bytes.count].map { String(format: "%02x", $0) }.joined()
+        let checksum = lowercaseHexString(bytes[(bytes.count - 20)..<bytes.count])
         return GitIndexSnapshot(
             entries: entries,
             signature: checksum,
@@ -198,7 +218,8 @@ extension GitMetadataService {
             appendString(entry.objectID)
             appendByte(0)
         }
-        return String(format: "%016llx", CUnsignedLongLong(hash))
+        let hashBytes = (0..<8).map { UInt8(truncatingIfNeeded: hash >> (8 * (7 - $0))) }
+        return lowercaseHexString(hashBytes)
     }
 
     /// The submodule's currently checked-out commit for a parent gitlink entry,
@@ -251,7 +272,7 @@ extension GitMetadataService {
         guard let data = try? Data(contentsOf: indexURL), data.count >= 20 else {
             return nil
         }
-        return data.suffix(20).map { String(format: "%02x", $0) }.joined()
+        return lowercaseHexString(data.suffix(20))
     }
 
     /// Decodes a git index v4 path strip-length varint, advancing `offset`.
