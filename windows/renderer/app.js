@@ -30042,7 +30042,7 @@ function paletteEntryKind(entry) {
   if (id.startsWith("terminal.") || id.startsWith("terminalReadabilityPreset.") || id.startsWith("recentCommand.") || id.startsWith("commandSnippet.")) return "terminal";
   if (id.startsWith("browser.") || id.startsWith("recentBrowser.") || id.startsWith("browserHomePreset.") || id.startsWith("browserWorkflowPreset.")) return "browser";
   if (id.startsWith("workspace.") || id.startsWith("recentFolder.") || id.startsWith("workspaceBlueprint.") || id.startsWith("workspaceStarter.")) return "workspace";
-  if (id.startsWith("actionWorkflow.") || id.startsWith("quickSetupAction.") || id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.") || id.startsWith("performanceHealth.") || id.startsWith("performanceTunePreset.")) return "settings";
+  if (id.startsWith("actionWorkflow.") || id.startsWith("quickSetupAction.") || id.startsWith("settings.") || id.startsWith("settingsCategory.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.") || id.startsWith("performanceHealth.") || id.startsWith("performanceTunePreset.")) return "settings";
   if (id.startsWith("layout.") || id.startsWith("paneLayoutPreset.") || id.startsWith("paneSetupPreset.") || id.startsWith("workspaceChromePreset.")) return "layout";
   if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
   if (id.startsWith("lookPack.") || id.startsWith("themeChoice.") || id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("savedColorPalette.") || id.startsWith("terminalColor.")) return "color";
