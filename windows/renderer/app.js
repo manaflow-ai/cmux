@@ -7437,6 +7437,18 @@ const workspaceStarterCommandIds = new Map([
   ["workspace.newStarterFullStack", { starterId: "fullStack", mode: "new" }]
 ]);
 
+const terminalSnippetCommandIds = new Map([
+  ["terminal.runListFiles", "listFiles"],
+  ["terminal.runGitStatus", "gitStatus"],
+  ["terminal.runGitPull", "gitPull"],
+  ["terminal.runGitPush", "gitPush"],
+  ["terminal.runNpmScripts", "npmScripts"],
+  ["terminal.runGhPrStatus", "ghPrStatus"],
+  ["terminal.runGhPrChecks", "ghPrChecks"],
+  ["terminal.runGhPrViewWeb", "ghPrViewWeb"],
+  ["terminal.runGhPrMergeHelp", "ghPrMergeHelp"]
+]);
+
 const corePaletteCommandIds = new Set([
   "workspace.rename",
   "workspace.changeFolder",
@@ -7450,6 +7462,8 @@ const corePaletteCommandIds = new Set([
   "workspace.closeEmpty",
   "workspace.close",
   "terminal.new",
+  "terminal.runCommand",
+  ...terminalSnippetCommandIds.keys(),
   "terminal.splitRight",
   "terminal.splitDown",
   "terminal.duplicate",
@@ -7536,6 +7550,11 @@ function coreCommandPaletteSignature() {
   const browserUrl = browserPanel ? browserPanelUrl(browserPanel) : "";
   appendSignatureValue(parts, browserUrl);
   appendSignatureValue(parts, Boolean(browserUrl && browserHomeKey(browserUrl) === browserHomeKey(state.settings.browserHomeUrl)));
+  const terminalPanel = activeTerminalPanelForSettings();
+  appendSignatureValue(parts, terminalPanel?.id || "");
+  appendSignatureValue(parts, terminalPanel ? panelDisplayTitle(terminalPanel, true) : "");
+  appendSignatureValue(parts, terminalPanel?.cwdShort || terminalPanel?.cwd || "");
+  appendSignatureValue(parts, isPendingPanel(terminalPanel));
   appendSignatureValue(parts, savedSettingsProfilesFull());
   appendSignatureValue(parts, state.browserTabSnapshots.size);
   appendSignatureValue(parts, browserTabSnapshotCount());
@@ -7696,6 +7715,27 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       icon: "terminalPlus",
       title: !hasWorkspace ? noWorkspaceTitle : creationTitle("Start a terminal pane in the active workspace.", "Uses the selected terminal profile."),
       search: `terminal new pane shell add workspace ${workspaceTitle} ${paneCreationQueueStatusLabel()}`
+    };
+  }
+  if (commandId === "terminal.runCommand" || terminalSnippetCommandIds.has(commandId)) {
+    const commandSnippetId = terminalSnippetCommandIds.get(commandId);
+    const snippet = commandSnippetId ? findTerminalCommandSnippet(commandSnippetId) : null;
+    const terminalReady = Boolean(terminalPanel && !isPendingPanel(terminalPanel));
+    const terminalTitle = terminalPanel ? panelDisplayTitle(terminalPanel, true) : "No terminal";
+    const terminalLocation = terminalPanel?.cwdShort || terminalPanel?.cwd || "~";
+    const terminalMeta = terminalReady ? `${terminalTitle} / ${terminalLocation}` : "No active terminal";
+    const commandText = snippet?.command || "Custom command";
+    return {
+      meta: snippet ? `${commandText} / ${terminalMeta}` : terminalMeta,
+      shortcut: "Run",
+      disabled: !terminalReady,
+      icon: "terminal",
+      title: terminalReady
+        ? snippet
+          ? `Run ${snippet.command} in ${terminalTitle}.`
+          : "Prompt for a command and send it to the active terminal."
+        : "Focus or create a terminal pane first.",
+      search: normalizeSettingsQuery(`terminal command run active shell prompt snippet ${snippet?.label || ""} ${commandText} ${terminalTitle} ${terminalLocation}`)
     };
   }
   if (commandId === "browser.new" || commandId === "browser.homeExternal") {
