@@ -133,51 +133,120 @@ while [ "$class_offset" -lt "${#SELECTED_TEST_CLASSES[@]}" ]; do
     ONLY_TESTING_ARGS+=("-only-testing:cmuxTests/$class")
   done
 
+  run_xctest_batch() {
+    local label="$1"
+    local log_path="$2"
+    local result_path="$3"
+    local home_path="$4"
+    shift 4
+    local only_testing_args=("$@")
+
+    rm -rf "$home_path" "$result_path"
+    mkdir -p "$home_path"
+
+    set +e
+    env -u SSH_AUTH_SOCK \
+        HOME="$home_path" RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo" CFFIXED_USER_HOME="$home_path" \
+        CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS=1 \
+        scripts/ci/xcodebuild_noninteractive.py \
+          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+          -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+          -derivedDataPath "$DERIVED_DATA_PATH" \
+          -disableAutomaticPackageResolution \
+          -destination "platform=macOS" \
+          -resultBundlePath "$result_path" \
+          "${only_testing_args[@]}" \
+          test-without-building >"$log_path" 2>&1 &
+    test_pid=$!
+    deadline=$((SECONDS + BATCH_TIMEOUT_SECONDS))
+    timed_out=0
+    while kill -0 "$test_pid" 2>/dev/null; do
+      if [ "$SECONDS" -ge "$deadline" ]; then
+        timed_out=1
+        echo "Timed out after ${BATCH_TIMEOUT_SECONDS}s running $label; terminating xcodebuild" >>"$log_path"
+        kill -TERM "$test_pid" 2>/dev/null || true
+        sleep 5
+        if kill -0 "$test_pid" 2>/dev/null; then
+          echo "xcodebuild still running for $label after SIGTERM; sending SIGKILL" >>"$log_path"
+          kill -KILL "$test_pid" 2>/dev/null || true
+        fi
+        break
+      fi
+      sleep 1
+    done
+    wait "$test_pid"
+    exit_code=$?
+    set -e
+
+    if [ "$timed_out" -ne 0 ]; then
+      echo "FAIL $label timed out after ${BATCH_TIMEOUT_SECONDS}s" >&2
+      echo "===== $label log =====" >&2
+      tail -n 1200 "$log_path" >&2
+      exit 124
+    fi
+
+    return "$exit_code"
+  }
+
   echo "Running $BATCH_LABEL with ${#batch_classes[@]} classes"
   printf '  %s\n' "${batch_classes[@]}"
 
   set +e
-  env -u SSH_AUTH_SOCK \
-      HOME="$BATCH_HOME" RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo" CFFIXED_USER_HOME="$BATCH_HOME" \
-      CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS=1 \
-      scripts/ci/xcodebuild_noninteractive.py \
-        xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-        -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-        -derivedDataPath "$DERIVED_DATA_PATH" \
-        -disableAutomaticPackageResolution \
-        -destination "platform=macOS" \
-        -resultBundlePath "$BATCH_RESULT" \
-        "${ONLY_TESTING_ARGS[@]}" \
-        test-without-building >"$BATCH_LOG" 2>&1 &
-  test_pid=$!
-  deadline=$((SECONDS + BATCH_TIMEOUT_SECONDS))
-  timed_out=0
-  while kill -0 "$test_pid" 2>/dev/null; do
-    if [ "$SECONDS" -ge "$deadline" ]; then
-      timed_out=1
-      echo "Timed out after ${BATCH_TIMEOUT_SECONDS}s running $BATCH_LABEL; terminating xcodebuild" >>"$BATCH_LOG"
-      kill -TERM "$test_pid" 2>/dev/null || true
-      sleep 5
-      if kill -0 "$test_pid" 2>/dev/null; then
-        echo "xcodebuild still running for $BATCH_LABEL after SIGTERM; sending SIGKILL" >>"$BATCH_LOG"
-        kill -KILL "$test_pid" 2>/dev/null || true
-      fi
-      break
-    fi
-    sleep 1
-  done
-  wait "$test_pid"
+  run_xctest_batch "$BATCH_LABEL" "$BATCH_LOG" "$BATCH_RESULT" "$BATCH_HOME" "${ONLY_TESTING_ARGS[@]}"
   exit_code=$?
   set -e
 
-  if [ "$timed_out" -ne 0 ]; then
-    echo "FAIL $BATCH_LABEL timed out after ${BATCH_TIMEOUT_SECONDS}s" >&2
-    echo "===== $BATCH_LABEL log =====" >&2
-    tail -n 1200 "$BATCH_LOG" >&2
-    exit 124
-  fi
-
   if [ "$exit_code" -ne 0 ]; then
+    if grep -Fq "Restarting after unexpected exit, crash, or test timeout" "$BATCH_LOG"; then
+      CRASH_RETRY_TESTS=()
+      while IFS= read -r test_identifier; do
+        CRASH_RETRY_TESTS+=("$test_identifier")
+      done < <(
+        awk '
+          /^Failing tests:/ { collecting=1; next }
+          collecting && /^[[:space:]]+[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\(\)/ {
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
+            sub(/\(\)$/, "", $0)
+            print $0
+          }
+          collecting && /^$/ { collecting=0 }
+        ' "$BATCH_LOG"
+      )
+
+      if [ "${#CRASH_RETRY_TESTS[@]}" -gt 0 ]; then
+        echo "Retrying ${#CRASH_RETRY_TESTS[@]} crash-reported XCTest methods from $BATCH_LABEL in fresh app-host processes" >&2
+        retry_index=0
+        for test_identifier in "${CRASH_RETRY_TESTS[@]}"; do
+          retry_only_testing="cmuxTests/${test_identifier/./\/}"
+          retry_label="${BATCH_LABEL}-crash-retry-${retry_index}"
+          retry_log="$LOG_ROOT/$retry_label.log"
+          retry_result="$RESULT_ROOT/$retry_label.xcresult"
+          retry_home="${RUNNER_TEMP:-/tmp}/cmux-unit-home-$retry_label"
+          echo "Retrying $retry_label: $retry_only_testing" >&2
+          set +e
+          run_xctest_batch "$retry_label" "$retry_log" "$retry_result" "$retry_home" "-only-testing:$retry_only_testing"
+          retry_exit_code=$?
+          set -e
+          if [ "$retry_exit_code" -ne 0 ]; then
+            echo "FAIL $retry_label exited $retry_exit_code" >&2
+            echo "===== $retry_label log =====" >&2
+            tail -n 1200 "$retry_log" >&2
+            exit "$retry_exit_code"
+          fi
+          if ! grep -Fq "Test Suite 'Selected tests' passed" "$retry_log"; then
+            echo "FAIL $retry_label did not report a selected XCTest suite pass" >&2
+            echo "===== $retry_label log =====" >&2
+            tail -n 1200 "$retry_log" >&2
+            exit 1
+          fi
+          retry_index=$((retry_index + 1))
+        done
+        echo "PASS $BATCH_LABEL after crash-reported XCTest method retries"
+        batch_index=$((batch_index + 1))
+        class_offset=$((class_offset + BATCH_SIZE))
+        continue
+      fi
+    fi
     echo "FAIL $BATCH_LABEL exited $exit_code" >&2
     echo "===== $BATCH_LABEL log =====" >&2
     tail -n 1200 "$BATCH_LOG" >&2

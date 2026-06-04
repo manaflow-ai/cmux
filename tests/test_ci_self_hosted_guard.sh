@@ -582,16 +582,16 @@ check_cmux_unit_isolated_runner() {
     '"${ONLY_TESTING_ARGS[@]}"' \
     'env -u SSH_AUTH_SOCK' \
     'CMUX_UNIT_TEST_BATCH_SIZE must be a positive integer' \
-    'HOME="$BATCH_HOME"' \
-    'CFFIXED_USER_HOME="$BATCH_HOME"' \
+    'HOME="$home_path"' \
+    'CFFIXED_USER_HOME="$home_path"' \
     'CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS=1' \
     'RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo"' \
     'SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"' \
     'SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"' \
     'BATCH_SIZE="${CMUX_UNIT_TEST_BATCH_SIZE:-1}"' \
     'BATCH_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_BATCH_TIMEOUT_SECONDS:-900}"' \
-    'Timed out after ${BATCH_TIMEOUT_SECONDS}s running $BATCH_LABEL; terminating xcodebuild' \
-    'FAIL $BATCH_LABEL timed out after ${BATCH_TIMEOUT_SECONDS}s' \
+    'Timed out after ${BATCH_TIMEOUT_SECONDS}s running $label; terminating xcodebuild' \
+    'FAIL $label timed out after ${BATCH_TIMEOUT_SECONDS}s' \
     'tail -n 1200 "$BATCH_LOG"' \
     'exit 124' \
     "All \${#SELECTED_TEST_CLASSES[@]} selected cmuxTests XCTestCase classes passed in \$SHARD_LABEL batches"
