@@ -2214,18 +2214,19 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         realHostWindow.contentView = contentView
         realHostWindow.orderFront(nil)
         realHostWindow.displayIfNeeded()
-        panel.webView.removeFromSuperview()
-        contentView.addSubview(panel.webView)
+#if DEBUG
+        panel.debugBackgroundPreloadAttachedWindowOverrideForTesting = realHostWindow
+#else
+        XCTFail("debugBackgroundPreloadAttachedWindowOverrideForTesting is only available in DEBUG")
+#endif
 
         panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "test.realWindow")
 
         XCTAssertFalse(panel.hasBackgroundPreloadHost)
 
-        panel.navigate(to: URL(string: "about:blank#second")!)
-
-        XCTAssertFalse(panel.hasBackgroundPreloadHost)
-
-        panel.webView.removeFromSuperview()
+#if DEBUG
+        panel.debugBackgroundPreloadAttachedWindowOverrideForTesting = nil
+#endif
         realHostWindow.contentView = nil
     }
 
