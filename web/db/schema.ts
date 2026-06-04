@@ -103,6 +103,48 @@ export const cloudVmUsageEvents = pgTable(
   ],
 );
 
+/**
+ * APNs device tokens for iOS push notifications. A row exists only after the
+ * user explicitly opts in on their device (the feature is off by default), so
+ * the mere presence of a row for a user means "this user wants phone pushes".
+ * Keyed unique by `deviceToken` so a device re-registering (e.g. after an
+ * account switch) updates its `userId` instead of duplicating.
+ */
+export const deviceTokens = pgTable(
+  "device_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    deviceToken: text("device_token").notNull(),
+    platform: text("platform").notNull().default("ios"),
+    // The APNs topic the token belongs to (the iOS bundle id, which varies by
+    // build: dev.cmux.ios.<tag>, dev.cmux.app.beta, com.cmuxterm.app).
+    bundleId: text("bundle_id").notNull(),
+    // "sandbox" for development builds, "production" for TestFlight/App Store —
+    // selects which APNs host the sender uses.
+    environment: text("environment").notNull().default("production"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("device_tokens_user_idx").on(table.userId),
+    uniqueIndex("device_tokens_device_token_unique").on(table.deviceToken),
+  ],
+);
+
+export const notificationSendEvents = pgTable(
+  "notification_send_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    deviceCount: integer("device_count").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("notification_send_events_user_created_idx").on(table.userId, table.createdAt),
+  ],
+);
+
 export const cloudVmBillingGrants = pgTable(
   "cloud_vm_billing_grants",
   {

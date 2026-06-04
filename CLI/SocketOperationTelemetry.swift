@@ -1,14 +1,14 @@
 import Foundation
 
-struct CLISocketOperationTelemetry {
-    enum Phase: String {
+nonisolated struct CLISocketOperationTelemetry: Sendable {
+    nonisolated enum Phase: String, Sendable {
         case writeRequest = "write_request"
         case waitForResponse = "wait_for_response"
         case readMultilineResponse = "read_multiline_response"
         case completed
     }
 
-    struct State {
+    nonisolated struct State: Sendable {
         let name: String
         var timeout: TimeInterval
         let startedAt: Date
