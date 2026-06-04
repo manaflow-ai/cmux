@@ -28367,6 +28367,10 @@ function savedColorPalettePanel() {
   pasteColor.title = targetOption.disabled
     ? `${targetOption.label}: ${targetOption.meta}.`
     : `Paste a copied color to ${targetOption.label.toLowerCase()}.`;
+  const currentEverywhere = currentColorEverywhereModel(colorTarget, workspace);
+  const applyEverywhere = settingsActionButton("Apply everywhere", () => applyCurrentColorEverywhere(state.colorApplyTarget, workspace), "", `saved color current target apply everywhere accent workspace pane all ${currentEverywhere.search}`);
+  applyEverywhere.disabled = currentEverywhere.disabled;
+  applyEverywhere.title = currentEverywhere.title;
   const targetDefault = colorTargetDefault(colorTarget, workspace);
   const resetTarget = settingsActionButton("Reset target", () => resetColorTarget(state.colorApplyTarget), "", `saved color reset selected target default accent workspace pane all ${targetDefault ? "active current " : ""}`);
   resetTarget.disabled = Boolean(targetOption.disabled) || targetDefault;
@@ -28404,7 +28408,7 @@ function savedColorPalettePanel() {
     : clearPanes.disabled
       ? "Pane colors are already default."
       : "Clear pane colors in the active workspace.";
-  actions.append(copyPalette, pastePalette, pasteColor, resetTarget, saveAccent, saveWorkspace, savePane, saveColorSet, clearWorkspace, clearPanes);
+  actions.append(copyPalette, pastePalette, pasteColor, applyEverywhere, resetTarget, saveAccent, saveWorkspace, savePane, saveColorSet, clearWorkspace, clearPanes);
   panel.append(actions);
 
   if (state.customColorPalette.length === 0) {
