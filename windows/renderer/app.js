@@ -296,6 +296,7 @@ const performanceGuardSlowPaneCreateMs = 2000;
 const performanceGuardSlowTerminalConnectMs = 1500;
 const performanceHealthBackgroundOpacityLimit = 16;
 const performanceHealthScrollbackLimit = 10000;
+const settingsDisclosureSearchMountBatchSize = 4;
 const toastVisibleLimit = 4;
 const toastDurationMs = 3200;
 const performanceSetupSettings = [
@@ -21873,25 +21874,43 @@ function scrollSettingsSearchTargetIntoView(target) {
 function syncSettingsDisclosuresForSearch(query) {
   if (!query) {
     state.settingsSearchDisclosuresOpenVersion = 0;
-    return false;
+    return { mountedContent: false, complete: true };
   }
-  if (state.settingsSearchDisclosuresOpenVersion === state.settingsSearchIndexVersion) return false;
+  if (state.settingsSearchDisclosuresOpenVersion === state.settingsSearchIndexVersion) {
+    return { mountedContent: false, complete: true };
+  }
   let mountedContent = false;
+  let mountedThisPass = 0;
+  let remaining = 0;
   for (const disclosure of elements.inspectorBody.querySelectorAll(".settings-disclosure")) {
+    if (disclosure.dataset.disclosureMounted === "true") continue;
+    if (mountedThisPass >= settingsDisclosureSearchMountBatchSize) {
+      remaining += 1;
+      continue;
+    }
+    const wasMounted = disclosure.dataset.disclosureMounted === "true";
     if (!disclosure.open) disclosure.open = true;
-    mountedContent = ensureSettingsDisclosureContent(disclosure) || mountedContent;
+    const mounted = ensureSettingsDisclosureContent(disclosure)
+      || (!wasMounted && disclosure.dataset.disclosureMounted === "true");
+    mountedContent = mounted || mountedContent;
+    mountedThisPass += 1;
   }
-  return mountedContent;
+  if (remaining > 0) scheduleSettingsFilter();
+  return {
+    mountedContent,
+    complete: remaining === 0
+  };
 }
 
 function applySettingsFilter() {
   const query = normalizeSettingsQuery(state.settingsQuery);
   const tokens = settingsSearchTokens(query);
-  const mountedDisclosureContent = syncSettingsDisclosuresForSearch(query);
+  const disclosureSync = syncSettingsDisclosuresForSearch(query);
+  const mountedDisclosureContent = disclosureSync.mountedContent;
   const sections = state.settingsSearchIndex.length && !mountedDisclosureContent
     ? state.settingsSearchIndex
     : rebuildSettingsSearchIndex();
-  if (query) state.settingsSearchDisclosuresOpenVersion = state.settingsSearchIndexVersion;
+  if (query && disclosureSync.complete) state.settingsSearchDisclosuresOpenVersion = state.settingsSearchIndexVersion;
   const pendingAutoScroll = query && state.settingsSearchAutoScrollQuery === query;
   const filterSignature = `${query}\u001e${state.settingsSearchIndexVersion}\u001e${pendingAutoScroll ? "scroll" : ""}`;
   if (filterSignature === state.settingsSearchLastFilterSignature) return;
@@ -25934,10 +25953,8 @@ function ensureSettingsDisclosureContent(disclosure) {
 }
 
 function settingsDisclosurePanel({ className, content, searchTerms, title, body, meta }) {
-  const shouldMount = Boolean(normalizeSettingsQuery(state.settingsQuery));
   const details = document.createElement("details");
   details.className = `settings-disclosure ${className}`.trim();
-  details.open = shouldMount;
   details.dataset.disclosureContent = content;
   details.dataset.disclosureMounted = "false";
   details.dataset.settingsSearch = normalizeSettingsQuery(searchTerms);
@@ -25954,7 +25971,6 @@ function settingsDisclosurePanel({ className, content, searchTerms, title, body,
   setTextIfChanged(summary.querySelector(".settings-disclosure-body"), body);
   setTextIfChanged(summary.querySelector(".settings-disclosure-meta"), meta);
   details.append(summary);
-  if (shouldMount) ensureSettingsDisclosureContent(details);
   details.addEventListener("toggle", () => {
     if (details.open) ensureSettingsDisclosureContent(details);
     else if (normalizeSettingsQuery(state.settingsQuery)) state.settingsSearchDisclosuresOpenVersion = 0;
