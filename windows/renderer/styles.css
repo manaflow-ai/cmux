@@ -13964,6 +13964,22 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   min-width: 0;
 }
 
+.saved-color-actions {
+  grid-template-columns: repeat(auto-fit, minmax(min(104px, 100%), 1fr));
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
+}
+
+.saved-color-actions .settings-action {
+  height: 30px;
+  min-width: 0;
+  padding-inline: var(--space-1);
+  font-size: 11px;
+}
+
 .saved-color-empty {
   padding: var(--space-2);
   border: 1px dashed var(--color-line);
@@ -15050,6 +15066,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .saved-background-actions {
   grid-template-columns: repeat(auto-fit, minmax(min(108px, 100%), 1fr));
   gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
 }
 
 .saved-background-actions .settings-action {
