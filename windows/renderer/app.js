@@ -4376,6 +4376,85 @@ function canSaveBackgroundImage(value) {
   return Boolean(key && (savedBackgroundImageExists(key) || !savedBackgroundImagesFull()));
 }
 
+function currentBackgroundSetSources(workspace = activeWorkspace()) {
+  return uniqueColors([
+    state.settings.backgroundImage,
+    ...workspaceTerminalPanels(workspace).map((panel) => panel.backgroundImage)
+  ].map(normalizedSavedBackgroundValue).filter(Boolean));
+}
+
+function currentBackgroundSetSaveModel(workspace = activeWorkspace()) {
+  const backgrounds = currentBackgroundSetSources(workspace);
+  const newBackgrounds = backgrounds.filter((background) => !savedBackgroundImageExists(background));
+  const remaining = Math.max(0, savedBackgroundImagesLimit - state.savedBackgroundImages.length);
+  const saved = backgrounds.length > 0 && newBackgrounds.length === 0;
+  const backgroundCount = backgrounds.length;
+  const newCount = newBackgrounds.length;
+  if (backgroundCount === 0) {
+    return {
+      backgrounds,
+      newBackgrounds,
+      saved: false,
+      disabled: true,
+      meta: "No current backgrounds",
+      title: "Choose an app or terminal background before saving a set.",
+      search: "no current app terminal background"
+    };
+  }
+  if (newCount > remaining) {
+    return {
+      backgrounds,
+      newBackgrounds,
+      saved: false,
+      disabled: true,
+      meta: `${backgroundCount} in use / ${remaining} slots`,
+      title: remaining
+        ? `Saved background library has room for ${remaining} more background${remaining === 1 ? "" : "s"}.`
+        : savedBackgroundImageLimitTitle(),
+      search: `${backgroundCount} current ${newCount} new ${remaining} slots limit full`
+    };
+  }
+  return {
+    backgrounds,
+    newBackgrounds,
+    saved,
+    disabled: saved,
+    meta: saved
+      ? `${backgroundCount} background${backgroundCount === 1 ? "" : "s"} saved`
+      : `${newCount} new / ${backgroundCount} in use`,
+    title: saved
+      ? "Current background set is already saved."
+      : "Save current app and terminal backgrounds to the reusable library.",
+    search: `${backgroundCount} current ${newCount} new ${backgrounds.join(" ")}`
+  };
+}
+
+async function saveCurrentBackgroundSetToLibrary(workspace = activeWorkspace()) {
+  const model = currentBackgroundSetSaveModel(workspace);
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  let savedCount = 0;
+  let failedCount = 0;
+  for (const background of model.newBackgrounds) {
+    const saved = await saveCustomBackgroundImage({ url: background }, { render: false, toast: false });
+    if (saved) savedCount += 1;
+    else failedCount += 1;
+  }
+  if (savedCount === 0) {
+    toast(failedCount ? "Current backgrounds could not be saved." : "Current background set is already saved.");
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (failedCount) {
+    toast(`${savedCount} background${savedCount === 1 ? "" : "s"} saved. ${failedCount} could not be loaded.`);
+  } else {
+    toast(`${savedCount} current background${savedCount === 1 ? "" : "s"} saved.`);
+  }
+  return true;
+}
+
 function savedBackgroundImageSaveTitle(value, availableTitle = "Save this image to the reusable background library.") {
   const key = savedBackgroundImageKey(value);
   if (!key) return "Choose a custom background image first.";
@@ -7201,6 +7280,7 @@ const commands = [
   { id: "settings.saveCurrentColorSet", label: "Save Current Color Set", shortcut: "", run: () => saveCurrentColorSetToPalette() },
   { id: "settings.backgrounds", label: "Open Background Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "background", focusSearch: true }) },
   { id: "settings.saveBackground", label: "Save Current Background", shortcut: "", run: () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }) },
+  { id: "settings.saveCurrentBackgroundSet", label: "Save Current Background Set", shortcut: "", run: () => saveCurrentBackgroundSetToLibrary() },
   { id: "settings.copySavedBackgrounds", label: "Copy Saved Backgrounds", shortcut: "", run: () => copySavedBackgroundImages() },
   { id: "settings.pasteSavedBackgrounds", label: "Paste Saved Backgrounds", shortcut: "", run: () => pasteSavedBackgroundImages() },
   { id: "background.chooseApp", label: "Choose App Background", shortcut: "", run: () => chooseBackgroundImageForTarget({ target: "app" }) },
@@ -7309,6 +7389,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.saveAllPaneColors",
   "settings.saveCurrentColorSet",
   "settings.saveBackground",
+  "settings.saveCurrentBackgroundSet",
   "settings.copySavedBackgrounds",
   "settings.pasteSavedBackgrounds"
 ]);
@@ -7371,6 +7452,11 @@ function customizationCommandPaletteSignature() {
   appendSignatureValue(parts, terminalBackground.background || "");
   appendSignatureValue(parts, Boolean(terminalBackground.saved));
   appendSignatureValue(parts, Boolean(terminalBackground.disabled));
+  const backgroundSet = currentBackgroundSetSaveModel();
+  appendSignatureValue(parts, backgroundSet.backgrounds.join(","));
+  appendSignatureValue(parts, backgroundSet.newBackgrounds.join(","));
+  appendSignatureValue(parts, Boolean(backgroundSet.disabled));
+  appendSignatureValue(parts, backgroundSet.title || "");
   return parts.join("");
 }
 
@@ -8019,6 +8105,18 @@ function customizationCommandPaletteState(commandId) {
       icon: "background",
       title: model.title,
       search: "saved background image wallpaper save current app reusable library"
+    };
+  }
+  if (commandId === "settings.saveCurrentBackgroundSet") {
+    const model = currentBackgroundSetSaveModel();
+    return {
+      meta: model.meta,
+      shortcut: model.saved ? "Saved" : "Save",
+      active: model.saved,
+      disabled: model.disabled,
+      icon: "background",
+      title: model.title,
+      search: normalizeSettingsQuery(`saved background image wallpaper save current set app terminal panes reusable library ${model.search}`)
     };
   }
   if (commandId === "settings.copySavedBackgrounds") {
@@ -28563,6 +28661,10 @@ function savedBackgroundImagesPanel() {
     url: activeBackgroundPanelViewModel().background
   }), "", "saved background image current selected target");
   applySavedBackgroundImageSaveLimit(saveCurrent, activeBackgroundPanelViewModel().background, "Save the currently selected background without changing the target.");
+  const backgroundSetModel = currentBackgroundSetSaveModel();
+  const saveBackgroundSet = settingsActionButton("Save current set", () => saveCurrentBackgroundSetToLibrary(), "", `saved background image current set app terminal panes reusable library ${backgroundSetModel.search}`);
+  saveBackgroundSet.disabled = backgroundSetModel.disabled;
+  saveBackgroundSet.title = backgroundSetModel.title;
   const pasteSave = settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input, target: () => state.backgroundApplyTarget, save: true }), "", "saved background image paste clipboard copied image apply save selected target wallpaper");
   applyUnknownBackgroundSaveLimit(pasteSave, `Paste, apply, and save an image to ${targetLabel}`);
   const chooseSave = settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "saved background image choose local file selected target wallpaper");
@@ -28577,6 +28679,7 @@ function savedBackgroundImagesPanel() {
   actions.append(
     applyAndSave,
     saveCurrent,
+    saveBackgroundSet,
     pasteSave,
     chooseSave,
     copyLibrary,
