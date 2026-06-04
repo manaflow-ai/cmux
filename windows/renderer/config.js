@@ -22,6 +22,7 @@ export const defaultSettings = {
   density: "comfortable",
   paneHeaderMode: "compact",
   paneActionMode: "essential",
+  paneSurfaceStyle: "subtle",
   sidebarDetailMode: "compact",
   sidebarBranchMode: "hidden",
   sidebarFooterMode: "workspace",
@@ -424,6 +425,12 @@ export const paneActionOptions = [
   ["full", label("paneAction.full", "Full")]
 ];
 
+export const paneSurfaceStyleOptions = [
+  ["subtle", label("paneSurfaceStyle.subtle", "Subtle"), label("paneSurfaceStyle.subtle.body", "Default pane weight")],
+  ["quiet", label("paneSurfaceStyle.quiet", "Quiet"), label("paneSurfaceStyle.quiet.body", "Lower contrast pane edges")],
+  ["solid", label("paneSurfaceStyle.solid", "Solid"), label("paneSurfaceStyle.solid.body", "Stronger pane separation")]
+];
+
 export const tabSizeOptions = [
   ["compact", label("tabSize.compact", "Compact")],
   ["balanced", label("tabSize.balanced", "Balanced")],
@@ -621,6 +628,7 @@ export const settingsPresets = [
       density: "comfortable",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
+      paneSurfaceStyle: "subtle",
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
@@ -690,6 +698,7 @@ export const settingsPresets = [
       density: "compact",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
+      paneSurfaceStyle: "quiet",
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "compact",
@@ -759,6 +768,7 @@ export const settingsPresets = [
       density: "compact",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
+      paneSurfaceStyle: "quiet",
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "compact",
@@ -829,6 +839,7 @@ export const settingsPresets = [
       density: "compact",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
+      paneSurfaceStyle: "quiet",
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
@@ -898,6 +909,7 @@ export const settingsPresets = [
       density: "compact",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
+      paneSurfaceStyle: "quiet",
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
@@ -967,6 +979,7 @@ export const settingsPresets = [
       density: "comfortable",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
+      paneSurfaceStyle: "solid",
       sidebarDetailMode: "balanced",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
@@ -1036,6 +1049,7 @@ export const settingsPresets = [
       density: "comfortable",
       paneHeaderMode: "full",
       paneActionMode: "full",
+      paneSurfaceStyle: "solid",
       sidebarDetailMode: "detailed",
       sidebarBranchMode: "all",
       sidebarFooterMode: "compact",

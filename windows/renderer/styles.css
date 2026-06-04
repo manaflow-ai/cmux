@@ -3564,6 +3564,46 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   font-family: var(--terminal-font-family, var(--font-mono));
 }
 
+.shell.pane-surface-quiet .pane {
+  outline-color: color-mix(in oklch, var(--color-line) 44%, transparent);
+  background: color-mix(in oklch, var(--color-pane-surface) 76%, var(--color-canvas-surface) 24%);
+  box-shadow: none;
+}
+
+.shell.pane-surface-quiet .pane.is-active,
+.shell.pane-surface-quiet .pane.is-zoomed {
+  outline-color: color-mix(in oklch, var(--color-line) 66%, transparent);
+}
+
+.shell.pane-surface-quiet .pane-header {
+  border-bottom-color: color-mix(in oklch, var(--color-line) 42%, transparent);
+  background: color-mix(in oklch, var(--color-pane-surface) 82%, var(--color-canvas-surface) 18%);
+}
+
+.shell.pane-surface-quiet .terminal-host {
+  background: color-mix(in oklch, var(--color-pane-surface) 82%, var(--color-canvas-surface) 18%);
+}
+
+.shell.pane-surface-solid .pane {
+  outline-color: color-mix(in oklch, var(--color-line-strong) 82%, var(--color-accent) 18%);
+  background: color-mix(in oklch, var(--color-pane-surface) 94%, var(--color-chrome-surface) 6%);
+  box-shadow: var(--depth-pane-shadow);
+}
+
+.shell.pane-surface-solid .pane.is-active,
+.shell.pane-surface-solid .pane.is-zoomed {
+  outline-color: color-mix(in oklch, var(--color-accent) 52%, var(--color-line-strong) 48%);
+}
+
+.shell.pane-surface-solid .pane-header {
+  border-bottom-color: color-mix(in oklch, var(--color-line-strong) 76%, var(--color-accent) 24%);
+  background: color-mix(in oklch, var(--color-pane-warm-surface) 92%, var(--color-chrome-surface) 8%);
+}
+
+.shell.pane-surface-solid .terminal-host {
+  background: color-mix(in oklch, var(--color-pane-surface) 96%, var(--color-canvas-surface) 4%);
+}
+
 .pane.has-pane-background .terminal-host {
   background: color-mix(in oklch, var(--color-pane-surface) 88%, transparent);
 }
@@ -8178,6 +8218,30 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .layout-settings-preview.pane-spacing-roomy .layout-preview-pane {
   margin: 11px;
+}
+
+.layout-settings-preview.pane-surface-quiet .layout-preview-pane {
+  border-color: color-mix(in oklch, var(--color-line) 44%, transparent);
+  background: color-mix(in oklch, var(--color-terminal-gutter) 76%, var(--color-canvas) 24%);
+}
+
+.layout-settings-preview.pane-surface-quiet .layout-preview-pane-header::before,
+.layout-settings-preview.pane-surface-quiet .layout-preview-pane-header::after {
+  background: color-mix(in oklch, var(--color-text) 10%, transparent);
+}
+
+.layout-settings-preview.pane-surface-solid .layout-preview-pane {
+  border-color: color-mix(in oklch, var(--color-line-strong) 78%, var(--color-accent) 22%);
+  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-terminal-gutter) 12%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-text) 5%, transparent);
+}
+
+.layout-settings-preview.pane-surface-solid .layout-preview-pane-header::before {
+  background: color-mix(in oklch, var(--color-accent) 24%, var(--color-pane) 76%);
+}
+
+.layout-settings-preview.pane-surface-solid .layout-preview-pane-header::after {
+  background: color-mix(in oklch, var(--color-text) 18%, transparent);
 }
 
 .layout-settings-preview.active-pane-line .layout-preview-pane {
