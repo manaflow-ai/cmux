@@ -156,17 +156,9 @@ extension VerticalTabsSidebar {
         .id(group.anchorWorkspaceId)
         .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
         .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
-
-        if shouldCollectWorkspaceDropTargets {
-            header
-                .anchorPreference(
-                    key: SidebarWorkspaceRowFramePreferenceKey.self,
-                    value: .bounds
-                ) { [anchorId = group.anchorWorkspaceId] anchor in
-                    [anchorId: anchor]
-                }
-        } else {
-            header
-        }
+        .sidebarWorkspaceFrameAnchor(
+            id: group.anchorWorkspaceId,
+            isEnabled: shouldCollectWorkspaceDropTargets
+        )
     }
 }
