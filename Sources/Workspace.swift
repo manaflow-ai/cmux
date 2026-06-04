@@ -11774,7 +11774,9 @@ final class Workspace: Identifiable, ObservableObject {
                     hasCustomTitle: self.panelCustomTitles[markdownPanel.id] != nil,
                     isDirty: dirtyUpdate
                 )
-                self.notifyFocusedSurfaceTitleDidChangeIfNeeded(panelId: markdownPanel.id)
+                if titleUpdate != nil {
+                    self.notifyFocusedSurfaceTitleDidChangeIfNeeded(panelId: markdownPanel.id)
+                }
             }
         panelSubscriptions[markdownPanel.id] = subscription
     }
@@ -11812,6 +11814,9 @@ final class Workspace: Identifiable, ObservableObject {
                 hasCustomTitle: self.panelCustomTitles[filePreviewPanel.id] != nil,
                 isDirty: dirtyUpdate
             )
+            if titleUpdate != nil {
+                self.notifyFocusedSurfaceTitleDidChangeIfNeeded(panelId: filePreviewPanel.id)
+            }
         }
         panelSubscriptions[filePreviewPanel.id] = subscription
     }

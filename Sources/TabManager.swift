@@ -6675,7 +6675,8 @@ class TabManager: ObservableObject {
     }
 
     private func windowTitle(for tab: Workspace?) -> String {
-        guard let tab else { return "cmux" }
+        let fallbackTitle = String(localized: "window.title.appName", defaultValue: "cmux")
+        guard let tab else { return fallbackTitle }
         let focusedPanelTitle = tab.focusedPanelId.flatMap { panelId in
             tab.panelTitle(panelId: panelId)?.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -6690,10 +6691,11 @@ class TabManager: ObservableObject {
             components.append(focusedPanelTitle)
         }
         if !components.isEmpty {
-            return components.joined(separator: " - ")
+            let separator = String(localized: "window.title.separator", defaultValue: " - ")
+            return components.joined(separator: separator)
         }
         let trimmedDirectory = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory
+        return trimmedDirectory.isEmpty ? fallbackTitle : trimmedDirectory
     }
 
     func focusTab(
