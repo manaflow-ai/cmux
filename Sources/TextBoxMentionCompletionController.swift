@@ -135,6 +135,8 @@ final class TextBoxMentionCompletionController {
         suggestions = suggestions.filter { suggestion in
             Self.title(suggestion.title, matches: trimmedQuery)
         }
+        suggestionsQuery = nil
+        suggestionsRootDirectory = nil
         selectionIndex = suggestions.isEmpty ? 0 : min(selectionIndex, suggestions.count - 1)
     }
 
