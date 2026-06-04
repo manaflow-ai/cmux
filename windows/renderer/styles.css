@@ -3056,6 +3056,59 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   transform: translate(-50%, -50%) scale(1.03);
 }
 
+.shell.pane-divider-style-line .pane-splitter::before {
+  inset: 0 calc(50% - .5px);
+  border-radius: 0;
+  background: color-mix(in oklch, var(--color-line-strong) 54%, transparent);
+  opacity: .46;
+}
+
+.shell.pane-divider-style-line .pane-splitter[data-orientation="down"]::before,
+.shell.pane-divider-style-line .pane-split.direction-down > .pane-splitter::before,
+.shell.pane-divider-style-line .pane-grid.direction-down > .pane-splitter::before {
+  inset: calc(50% - .5px) 0;
+}
+
+.shell.pane-divider-style-line .pane-splitter:hover,
+.shell.pane-divider-style-line .pane-splitter:focus-visible,
+.shell.pane-divider-style-line .pane-splitter.is-dragging {
+  background: color-mix(in oklch, var(--color-terminal-gutter) 16%, transparent);
+  box-shadow: none;
+}
+
+.shell.pane-divider-style-line .pane-splitter:hover::before,
+.shell.pane-divider-style-line .pane-splitter:focus-visible::before,
+.shell.pane-divider-style-line .pane-splitter.is-dragging::before {
+  background: var(--color-accent);
+  opacity: .82;
+  box-shadow: none;
+}
+
+.shell.pane-divider-style-line .pane-splitter:focus-visible {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 70%, transparent);
+}
+
+.shell.pane-divider-style-minimal .pane-splitter::before {
+  opacity: 0;
+}
+
+.shell.pane-divider-style-minimal .pane-splitter:hover,
+.shell.pane-divider-style-minimal .pane-splitter:focus-visible,
+.shell.pane-divider-style-minimal .pane-splitter.is-dragging {
+  background: color-mix(in oklch, var(--color-terminal-gutter) 14%, transparent);
+  box-shadow: none;
+}
+
+.shell.pane-divider-style-minimal .pane-splitter:hover::before,
+.shell.pane-divider-style-minimal .pane-splitter:focus-visible::before,
+.shell.pane-divider-style-minimal .pane-splitter.is-dragging::before {
+  opacity: .9;
+}
+
+.shell.pane-divider-style-minimal .pane-splitter:focus-visible {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 64%, transparent);
+}
+
 .shell.pane-resizing,
 .shell.pane-resizing * {
   user-select: none;
@@ -8596,6 +8649,50 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border-radius: var(--radius-1);
   background: var(--color-terminal-gutter);
   overflow: hidden;
+}
+
+.layout-settings-preview.pane-divider-slim {
+  --layout-preview-divider-width: 3px;
+}
+
+.layout-settings-preview.pane-divider-balanced {
+  --layout-preview-divider-width: 5px;
+}
+
+.layout-settings-preview.pane-divider-wide {
+  --layout-preview-divider-width: 7px;
+}
+
+.layout-preview-pane::before {
+  content: "";
+  position: absolute;
+  top: 32px;
+  bottom: 8px;
+  left: 50%;
+  z-index: 1;
+  width: var(--layout-preview-divider-width, 5px);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--color-line-strong) 64%, transparent);
+  opacity: .52;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.layout-settings-preview.pane-divider-style-grip .layout-preview-pane::before {
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-line) 30%, transparent);
+}
+
+.layout-settings-preview.pane-divider-style-line .layout-preview-pane::before {
+  width: 1px;
+  border-radius: 0;
+  opacity: .5;
+  box-shadow: none;
+}
+
+.layout-settings-preview.pane-divider-style-minimal .layout-preview-pane::before {
+  width: 3px;
+  opacity: .18;
+  box-shadow: none;
 }
 
 .layout-settings-preview.pane-spacing-none .layout-preview-pane {
