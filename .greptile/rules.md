@@ -17,6 +17,7 @@ Review production Swift and runtime changes for:
 - SwiftUI state and layout patterns that cause stale state, broad invalidation, or render-time mutation.
 - Architectural fixes that patch symptoms while leaving bad state representable.
 - User-facing errors, alerts, command output, API error bodies, and recovery copy that expose implementation details.
+- Algorithmic complexity regressions on scalable user-owned collections.
 
 ## Runtime No Hacky Sleeps
 
@@ -41,3 +42,9 @@ For production user-facing errors, alerts, command output, API error bodies, and
 Flag copy that includes upstream vendor or service names, internal provider names, provider-specific flags, templates, snapshots, manifests, environment variable names, database or migration details, raw upstream error messages, stack traces, request ids from third-party systems unless the user supplied that exact id, billing item ids, billing customer ids, team ids not supplied by the user, credentials, tokens, headers, private keys, refresh tokens, session ids, or unredacted payload dumps.
 
 Error copy should say what happened in cmux terms, provide concrete user actionables, and keep only safe minimal diagnostics in `details`. Provider, billing, database, and auth implementation details belong in sanitized logs or internal telemetry.
+
+## Algorithmic Complexity
+
+For production code over scalable user-owned collections, flag nested full-collection scans, per-target rescans for batch actions, repeated sort/filter/map work in hot UI/socket/search/process paths, in-memory joins that belong in the data store, and unbenchmarked slower algorithms for paths expected to handle about 1000 workspaces or similar records.
+
+Pass for tiny fixed-size collections, tests, benchmark harnesses, existing inefficient code not worsened by the PR, and documented bounds backed by measurements.
