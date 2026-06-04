@@ -13873,8 +13873,9 @@ function renderSettingsInspector(options = {}) {
     ));
     const colorActions = document.createElement("div");
     colorActions.className = "settings-actions";
-    colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color reset default background foreground cursor save copy paste terminal profile setup reusable clipboard json font size line height padding history shell");
+    colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color text typography reset default background foreground cursor save copy paste terminal profile setup reusable clipboard json font size line height padding history shell cursor blink shape");
     const terminalColorsReset = isTerminalColorPresetIdActive("cmux");
+    const terminalTextDefault = terminalTextSettings.every((key) => state.settings[key] === defaultSettings[key]);
     const copyTerminalSetupAction = settingsActionButton("Copy setup", copyTerminalSetup, "", "terminal setup copy font size line height padding history color cursor shell clipboard json");
     copyTerminalSetupAction.title = "Copy the current terminal font, spacing, colors, cursor, and shell setup.";
     const pasteTerminalSetupAction = settingsActionButton("Paste setup", pasteTerminalSetup, "", "terminal setup paste font size line height padding history color cursor shell clipboard json");
@@ -13883,6 +13884,11 @@ function renderSettingsInspector(options = {}) {
     copyTerminalColors.title = "Copy the current terminal background, text, and cursor color setup.";
     const pasteTerminalColors = settingsActionButton("Paste colors", pasteTerminalColorPalette, "", "terminal color paste palette json clipboard background foreground cursor");
     pasteTerminalColors.title = "Apply terminal colors copied from cmux.";
+    const resetTerminalText = settingsActionButton("Reset text", resetTerminalTextSettings, "", `terminal text typography font size line height padding cursor blink shape reset default ${terminalTextDefault ? "active current " : ""}`);
+    resetTerminalText.disabled = terminalTextDefault;
+    resetTerminalText.title = terminalTextDefault
+      ? "Terminal text and cursor already use defaults."
+      : "Reset terminal font, spacing, cursor shape, and cursor blink.";
     const resetTerminalColors = settingsActionButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), "", `terminal color reset default background foreground cursor ${terminalColorsReset ? "active current " : ""}`);
     resetTerminalColors.disabled = terminalColorsReset;
     resetTerminalColors.title = terminalColorsReset
@@ -13897,6 +13903,7 @@ function renderSettingsInspector(options = {}) {
       pasteTerminalSetupAction,
       copyTerminalColors,
       pasteTerminalColors,
+      resetTerminalText,
       resetTerminalColors
     );
     terminalSection.append(colorActions);
@@ -24841,6 +24848,15 @@ const terminalSetupSettings = [
   "terminalCustomShell"
 ];
 
+const terminalTextSettings = [
+  "terminalFontFamily",
+  "terminalFontSize",
+  "terminalLineHeight",
+  "terminalPadding",
+  "terminalCursorStyle",
+  "terminalCursorBlink"
+];
+
 const terminalSetupColorSettings = new Set([
   "terminalBackground",
   "terminalForeground",
@@ -25033,6 +25049,19 @@ function applyTerminalSetupUpdates(updates, options = {}) {
   }
   if (state.inspectorMode === "settings") renderSettingsInspector();
   toast(options.toastText || "Terminal setup applied.");
+  return true;
+}
+
+function resetTerminalTextSettings() {
+  const updates = {};
+  for (const key of terminalTextSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates);
+  if (!changed) {
+    toast("Terminal text already uses defaults.");
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast("Terminal text reset.");
   return true;
 }
 
