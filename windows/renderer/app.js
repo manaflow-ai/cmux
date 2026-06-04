@@ -25897,13 +25897,17 @@ function colorControlPanel({
 function savedColorPalettePanel() {
   const panel = document.createElement("div");
   panel.className = "saved-color-panel";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("saved color palette custom accent workspace tab pane color save delete");
   const workspace = activeWorkspace();
   const colorTarget = normalizeColorApplyTarget(state.colorApplyTarget);
   const targetOption = colorApplyTargetOption(colorTarget, workspace);
+  const targetLabel = colorApplyTargetActionLabel(colorTarget, workspace);
+  const savedCountLabel = `${state.customColorPalette.length}/${customColorPaletteLimit} saved colors`;
+  const paletteFull = customColorPaletteFull();
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette custom accent workspace tab pane all color apply save copy paste delete ${targetOption.disabled ? "unavailable " : "ready "}${targetLabel} ${targetOption.status} ${savedCountLabel}`);
 
   const addRow = document.createElement("div");
   addRow.className = "saved-color-add";
+  addRow.dataset.settingsSearch = normalizeSettingsQuery(`saved color custom picker apply save selected target accent workspace pane all ${targetOption.disabled ? "unavailable " : "ready "}${targetLabel} ${targetOption.status} ${savedCountLabel}`);
   const colorInput = document.createElement("input");
   colorInput.className = "saved-color-input";
   colorInput.type = "color";
@@ -25913,8 +25917,8 @@ function savedColorPalettePanel() {
     if (!savedColorActiveForTarget(colorInput.value, state.colorApplyTarget)) {
       applySavedColorToTarget(colorInput.value, state.colorApplyTarget);
     }
-  }, "primary", "saved color custom picker apply selected target accent workspace pane all");
-  const savePicked = settingsActionButton("Save color", () => upsertCustomColorPalette(colorInput.value), "", "saved color custom palette add");
+  }, "primary", `saved color custom picker apply selected target accent workspace pane all ${targetOption.disabled ? "unavailable " : "ready "}${targetLabel}`);
+  const savePicked = settingsActionButton("Save color", () => upsertCustomColorPalette(colorInput.value), "", `saved color custom palette add ${paletteFull ? "limit full " : ""}${savedCountLabel}`);
   const refreshApplyPickedState = () => {
     const active = savedColorActiveForTarget(colorInput.value, colorTarget, workspace);
     applyPicked.disabled = Boolean(targetOption.disabled) || active;
@@ -25933,12 +25937,15 @@ function savedColorPalettePanel() {
 
   const actions = document.createElement("div");
   actions.className = "settings-actions saved-color-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery("saved color palette copy paste clipboard apply save current accent workspace reusable colors json");
-  const copyPalette = settingsActionButton("Copy palette", copySavedColorPalette, "", "saved color palette copy reusable colors clipboard json");
-  copyPalette.title = "Copy the saved color palette as JSON.";
-  const pastePalette = settingsActionButton("Paste palette", pasteSavedColorPalette, "", "saved color palette paste reusable colors clipboard json");
-  pastePalette.title = "Merge copied saved colors into the palette.";
-  const pasteColor = settingsActionButton("Paste color", () => pasteColorToTarget(state.colorApplyTarget), "", "saved color paste clipboard apply selected target accent workspace pane all hex oklch");
+  actions.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette copy paste clipboard apply save current accent workspace reusable colors json ${targetLabel} ${targetOption.status} ${savedCountLabel}`);
+  const copyPalette = settingsActionButton("Copy palette", copySavedColorPalette, "", `saved color palette copy reusable colors clipboard json ${savedCountLabel}`);
+  copyPalette.disabled = state.customColorPalette.length === 0;
+  copyPalette.title = copyPalette.disabled ? "Save a color before copying the palette." : "Copy the saved color palette as JSON.";
+  const pastePalette = settingsActionButton("Paste palette", pasteSavedColorPalette, "", `saved color palette paste reusable colors clipboard json import ${paletteFull ? "limit full " : ""}${savedCountLabel}`);
+  pastePalette.title = paletteFull
+    ? "Merge copied saved colors. New colors may be limited by the palette capacity."
+    : "Merge copied saved colors into the palette.";
+  const pasteColor = settingsActionButton("Paste color", () => pasteColorToTarget(state.colorApplyTarget), "", `saved color paste clipboard apply selected target accent workspace pane all hex oklch ${targetOption.disabled ? "unavailable " : "ready "}${targetLabel}`);
   pasteColor.disabled = Boolean(targetOption.disabled);
   pasteColor.title = targetOption.disabled
     ? `${targetOption.label}: ${targetOption.meta}.`
@@ -26000,6 +26007,7 @@ function savedColorPalettePanel() {
           : activeAccent;
     const targetDisabled = Boolean(targetOption.disabled) || activeTarget;
     const applyTitle = savedColorApplyTitle(color, targetOption, activeTarget);
+    const activeSearch = `${activeAccent ? "accent active " : ""}${activeWorkspace ? "workspace active " : ""}${activePaneColor ? "pane active " : ""}${activeAllPanes ? "all panes active " : ""}`;
     const card = document.createElement("div");
     card.className = [
       "saved-color-card",
@@ -26009,7 +26017,7 @@ function savedColorPalettePanel() {
       activePaneColor ? "is-active-pane" : "",
       activeAllPanes ? "is-active-all" : ""
     ].filter(Boolean).join(" ");
-    card.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette custom accent workspace pane all ${color}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette custom accent workspace pane all apply copy delete ${activeTarget ? "active current unavailable " : targetDisabled ? "unavailable " : "ready "}${activeSearch}${targetLabel} ${color}`);
     const swatch = document.createElement("button");
     swatch.className = "saved-color-swatch";
     swatch.type = "button";
@@ -26026,7 +26034,7 @@ function savedColorPalettePanel() {
     value.textContent = color;
     const scope = document.createElement("div");
     scope.className = "background-preset-scope saved-color-scope";
-    scope.dataset.settingsSearch = normalizeSettingsQuery(`saved color scope accent workspace pane all ${color}`);
+    scope.dataset.settingsSearch = normalizeSettingsQuery(`saved color scope accent workspace pane all ${activeSearch}${color}`);
     const addScopeChip = (labelText, active, muted = false) => {
       const chip = document.createElement("span");
       chip.className = [
@@ -26045,12 +26053,13 @@ function savedColorPalettePanel() {
     cardActions.className = "saved-color-card-actions";
     const apply = settingsActionButton(colorApplyTargetPrimaryLabel(colorTarget), () => {
       if (!savedColorActiveForTarget(color, colorTarget)) applySavedColorToTarget(color, colorTarget);
-    }, "primary", `saved color apply selected target ${targetOption.label} ${color}`);
+    }, "primary", `saved color apply selected target ${targetDisabled ? "unavailable " : "ready "}${targetOption.label} ${color}`);
     apply.disabled = targetDisabled;
     apply.title = applyTitle;
     const copy = settingsActionButton("Copy", () => copyCustomColorValue(color, "Saved color copied."), "", `saved color copy hex clipboard ${color}`);
     copy.title = customColorCopyTitle(color, "Copy this saved color hex value.");
-    const more = settingsActionButton("More", (event) => showSavedColorMenu(event, color), "", `saved color more actions accent workspace pane all delete ${color}`);
+    const more = settingsActionButton("More", (event) => showSavedColorMenu(event, color), "", `saved color more actions accent workspace pane all copy delete ${color}`);
+    more.title = `More actions for ${color.toUpperCase()}.`;
     cardActions.append(apply, copy, more);
     card.append(swatch, value, scope, cardActions);
     list.append(card);
