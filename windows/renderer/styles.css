@@ -8720,6 +8720,42 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   transform: translateX(-50%);
 }
 
+.layout-preview-new-pane {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  border: 1px dashed color-mix(in oklch, var(--color-accent) 48%, var(--color-line) 52%);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane) 90%);
+  pointer-events: none;
+}
+
+.layout-preview-new-pane span {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background:
+    linear-gradient(var(--color-accent), var(--color-accent)) center / 8px 2px no-repeat,
+    linear-gradient(var(--color-accent), var(--color-accent)) center / 2px 8px no-repeat,
+    color-mix(in oklch, var(--color-accent) 14%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-accent) 40%, transparent);
+}
+
+.layout-settings-preview.new-pane-placement-right .layout-preview-new-pane {
+  top: 34px;
+  right: 8px;
+  bottom: 8px;
+  width: 24px;
+}
+
+.layout-settings-preview.new-pane-placement-down .layout-preview-new-pane {
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  height: 22px;
+}
+
 .layout-settings-preview.pane-divider-style-grip .layout-preview-pane::before {
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-line) 30%, transparent);
 }

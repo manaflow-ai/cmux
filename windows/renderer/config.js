@@ -23,6 +23,7 @@ export const defaultSettings = {
   density: "comfortable",
   paneHeaderMode: "compact",
   paneActionMode: "essential",
+  newPanePlacement: "right",
   paneSurfaceStyle: "subtle",
   sidebarDetailMode: "compact",
   sidebarBranchMode: "hidden",
@@ -508,6 +509,11 @@ export const paneActionOptions = [
   ["full", label("paneAction.full", "Full")]
 ];
 
+export const newPanePlacementOptions = [
+  ["right", label("newPanePlacement.right", "Right"), label("newPanePlacement.right.body", "Add new panes beside the active pane")],
+  ["down", label("newPanePlacement.down", "Below"), label("newPanePlacement.down.body", "Add new panes below the active pane")]
+];
+
 export const paneSurfaceStyleOptions = [
   ["subtle", label("paneSurfaceStyle.subtle", "Subtle"), label("paneSurfaceStyle.subtle.body", "Default pane weight")],
   ["quiet", label("paneSurfaceStyle.quiet", "Quiet"), label("paneSurfaceStyle.quiet.body", "Lower contrast pane edges")],
@@ -718,6 +724,7 @@ export const settingsPresets = [
       density: "comfortable",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
+      newPanePlacement: "right",
       paneSurfaceStyle: "subtle",
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
@@ -801,6 +808,7 @@ export const settingsPresets = [
       density: "compact",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
+      newPanePlacement: "right",
       paneSurfaceStyle: "quiet",
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
@@ -884,6 +892,7 @@ export const settingsPresets = [
       density: "compact",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
+      newPanePlacement: "right",
       paneSurfaceStyle: "quiet",
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
@@ -968,6 +977,7 @@ export const settingsPresets = [
       density: "compact",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
+      newPanePlacement: "right",
       paneSurfaceStyle: "quiet",
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
@@ -1051,6 +1061,7 @@ export const settingsPresets = [
       density: "compact",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
+      newPanePlacement: "right",
       paneSurfaceStyle: "quiet",
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
@@ -1134,6 +1145,7 @@ export const settingsPresets = [
       density: "comfortable",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
+      newPanePlacement: "right",
       paneSurfaceStyle: "solid",
       sidebarDetailMode: "balanced",
       sidebarBranchMode: "hidden",
@@ -1217,6 +1229,7 @@ export const settingsPresets = [
       density: "comfortable",
       paneHeaderMode: "full",
       paneActionMode: "full",
+      newPanePlacement: "right",
       paneSurfaceStyle: "solid",
       sidebarDetailMode: "detailed",
       sidebarBranchMode: "all",
