@@ -226,7 +226,8 @@ public func terminalKeyboardCopyModeResolve(
             state.reset()
             return .perform(.copyLineAndExit, count: count)
         }
-        state.pendingYankLine = false
+        state.reset()
+        return .consume
     }
 
     if state.pendingG {
@@ -236,7 +237,8 @@ public func terminalKeyboardCopyModeResolve(
             state.reset()
             return .perform(action, count: count)
         }
-        state.pendingG = false
+        state.reset()
+        return .consume
     }
 
     if normalized.isEmpty,

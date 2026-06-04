@@ -86,6 +86,36 @@ struct TerminalKeyboardCopyModeResolverTests {
         )
         #expect(state == TerminalKeyboardCopyModeInputState())
     }
+
+    @Test func unmatchedGPrefixConsumesFollowupAndClearsCount() {
+        var state = TerminalKeyboardCopyModeInputState(countPrefix: 3, pendingG: true)
+
+        #expect(
+            terminalKeyboardCopyModeResolve(
+                keyCode: 38,
+                charactersIgnoringModifiers: "j",
+                modifiers: [],
+                hasSelection: false,
+                state: &state
+            ) == .consume
+        )
+        #expect(state == TerminalKeyboardCopyModeInputState())
+    }
+
+    @Test func unmatchedYankLinePrefixConsumesFollowupAndClearsCount() {
+        var state = TerminalKeyboardCopyModeInputState(countPrefix: 3, pendingYankLine: true)
+
+        #expect(
+            terminalKeyboardCopyModeResolve(
+                keyCode: 40,
+                charactersIgnoringModifiers: "k",
+                modifiers: [],
+                hasSelection: false,
+                state: &state
+            ) == .consume
+        )
+        #expect(state == TerminalKeyboardCopyModeInputState())
+    }
 }
 
 @Suite("Terminal keyboard copy mode cursor")
