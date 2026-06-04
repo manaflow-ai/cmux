@@ -2877,11 +2877,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
         let restoredInitialCommand = restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
         XCTAssertNil(restoredInitialCommand)
-        XCTAssertNil(restoredWorkspace.terminalPanel(for: restoredPanelId)?.requestedWorkingDirectory)
-        XCTAssertNil(
+        let restoredPanelSnapshot = try XCTUnwrap(
             restoredWorkspace.sessionSnapshot(includeScrollback: false)
-                .panels.first { $0.id == restoredPanelId }?.terminal?.remotePTYSessionID
+                .panels.first { $0.id == restoredPanelId }?.terminal
         )
+        XCTAssertEqual(restoredPanelSnapshot.isRemoteTerminal, false)
+        XCTAssertNil(restoredPanelSnapshot.workingDirectory)
+        XCTAssertNil(restoredPanelSnapshot.remotePTYSessionID)
     }
 
     func testPersistentSSHPTYRestorePreservesLocalTerminalWorkingDirectory() throws {

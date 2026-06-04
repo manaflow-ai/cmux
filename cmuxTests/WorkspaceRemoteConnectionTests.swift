@@ -61,6 +61,20 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    private func waitForSignalPumpingMainRunLoop(
+        _ semaphore: DispatchSemaphore,
+        timeout: TimeInterval
+    ) -> DispatchTimeoutResult {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while Date() < deadline {
+            if semaphore.wait(timeout: .now()) == .success {
+                return .success
+            }
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        return semaphore.wait(timeout: .now())
+    }
+
     private func writeShellFile(at url: URL, lines: [String]) throws {
         try lines.joined(separator: "\n")
             .appending("\n")
@@ -1838,7 +1852,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(waitForSignalPumpingMainRunLoop(scpInvoked, timeout: 5), .success)
         lock.lock()
         let capturedDestination = scpDestination
         lock.unlock()
@@ -1946,7 +1960,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(waitForSignalPumpingMainRunLoop(scpInvoked, timeout: 5), .success)
         lock.lock()
         let capturedDestination = scpDestination
         lock.unlock()
