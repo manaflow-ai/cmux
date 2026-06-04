@@ -12246,14 +12246,36 @@ struct VerticalTabsSidebar: View {
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
 
-        let rowsWithDropOverlay = rows
-            .overlay {
-                bonsplitWorkspaceDropOverlay()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+        // Gate ONLY the per-row frame-anchor *reader* (the virtualization-defeating
+        // work) behind the drag-active check, and keep the Bonsplit drop-capture
+        // overlay mounted *outside* that conditional. Returning the overlay from both
+        // branches of an `if`/`else` gives it distinct SwiftUI identity, so flipping the
+        // gate mid-drag (draggingEntered -> shouldCollect=true) tore down and recreated
+        // the drop NSView, orphaning the in-flight drag. Applying it at the stable outer
+        // level keeps the NSView identity-stable across gate flips. (#5325 review)
+        rowsWithGatedDropTargetReader(
+            rows: rows,
+            renderContext: renderContext,
+            shouldCollect: shouldCollectWorkspaceDropTargets
+        )
+        .overlay {
+            bonsplitWorkspaceDropOverlay()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
 
-        if shouldCollectWorkspaceDropTargets {
-            rowsWithDropOverlay
+    /// Conditionally installs the row-frame `overlayPreferenceValue` reader (the part
+    /// that defeats `LazyVStack` virtualization) only while a drag is collecting drop
+    /// targets. Kept separate from the always-mounted drop-capture overlay so the gate
+    /// flip never changes the drop NSView's identity. (#5325 review)
+    @ViewBuilder
+    private func rowsWithGatedDropTargetReader<Rows: View>(
+        rows: Rows,
+        renderContext: WorkspaceListRenderContext,
+        shouldCollect: Bool
+    ) -> some View {
+        if shouldCollect {
+            rows
                 .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
                     GeometryReader { proxy in
                         SidebarBonsplitTabWorkspaceDropOverlay.TargetWriter(
@@ -12270,7 +12292,7 @@ struct VerticalTabsSidebar: View {
                     }
                 }
         } else {
-            rowsWithDropOverlay
+            rows
         }
     }
 
