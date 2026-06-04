@@ -176,7 +176,6 @@ while [ "$class_offset" -lt "${#SELECTED_TEST_CLASSES[@]}" ]; do
     done
     wait "$test_pid"
     exit_code=$?
-    set -e
 
     if [ "$timed_out" -ne 0 ]; then
       echo "FAIL $label timed out after ${BATCH_TIMEOUT_SECONDS}s" >&2
