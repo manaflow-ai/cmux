@@ -5038,11 +5038,23 @@ function backgroundCommandPaletteState(commandId, workspace = activeWorkspace())
   const terminal = activeTerminalPanelForSettings();
   const terminalBackground = normalizeBackgroundValue(terminal?.backgroundImage);
   const terminalLabel = terminal ? panelDisplayTitle(terminal, true) : "Select a terminal";
-  const terminalCount = workspaceTerminalPanels(workspace).length;
-  const allClear = terminalBackgroundsMatch(workspace, "");
-  const allUseApp = Boolean(appBackground && terminalBackgroundsMatch(workspace, appBackground));
   const terminalMeta = terminal ? terminalLabel : "No terminal";
-  const allMeta = terminalCount ? `${terminalCount} terminal${terminalCount === 1 ? "" : "s"}` : "No terminals";
+  const allChoose = workspaceTerminalBackgroundActionModel("choose", workspace, {
+    availableTitle: "Choose one background image for every terminal pane.",
+    noTerminalTitle: "Open a terminal pane before setting terminal backgrounds."
+  });
+  const allPaste = workspaceTerminalBackgroundActionModel("paste", workspace, {
+    availableTitle: "Paste one background image for every terminal pane.",
+    noTerminalTitle: "Open a terminal pane before pasting terminal backgrounds."
+  });
+  const allUseApp = workspaceTerminalBackgroundActionModel("useApp", workspace, {
+    noTerminalTitle: "Open a terminal pane before applying the app background."
+  });
+  const allClear = workspaceTerminalBackgroundActionModel("clear", workspace, {
+    availableTitle: "Clear every terminal pane background.",
+    emptyTitle: "Terminal backgrounds are already clear.",
+    noTerminalTitle: "Open a terminal pane before clearing terminal backgrounds."
+  });
   const base = {
     meta: "Background",
     shortcut: "Background",
@@ -5100,47 +5112,41 @@ function backgroundCommandPaletteState(commandId, workspace = activeWorkspace())
     return {
       ...base,
       icon: "terminalGroup",
-      meta: allMeta,
-      disabled: terminalCount === 0,
-      title: terminalCount ? "Choose one background image for every terminal pane." : "Open a terminal pane before setting terminal backgrounds.",
-      search: `${base.search} all terminals choose workspace`
+      meta: allChoose.meta,
+      disabled: allChoose.disabled,
+      title: allChoose.title,
+      search: `${base.search} ${allChoose.search}`
     };
   }
   if (commandId === "background.pasteAllTerminals") {
     return {
       ...base,
       icon: "terminalGroup",
-      meta: allMeta,
-      disabled: terminalCount === 0,
-      title: terminalCount ? "Paste one background image for every terminal pane." : "Open a terminal pane before pasting terminal backgrounds.",
-      search: `${base.search} all terminals paste clipboard workspace`
+      meta: allPaste.meta,
+      disabled: allPaste.disabled,
+      title: allPaste.title,
+      search: `${base.search} ${allPaste.search}`
     };
   }
   if (commandId === "background.useAppForAllTerminals") {
     return {
       ...base,
       icon: "terminalGroup",
-      meta: allUseApp ? "App background active" : allMeta,
-      active: allUseApp,
-      disabled: terminalCount === 0 || !appBackground || allUseApp,
-      title: terminalCount === 0
-        ? "Open a terminal pane before applying the app background."
-        : !appBackground
-          ? "Choose an app background first."
-          : allUseApp ? "All terminal panes already use the app background." : "Apply the app background to every terminal pane.",
-      search: `${base.search} all terminals use app active workspace`
+      meta: allUseApp.meta,
+      active: allUseApp.active,
+      disabled: allUseApp.disabled,
+      title: allUseApp.title,
+      search: `${base.search} ${allUseApp.search}`
     };
   }
   if (commandId === "background.clearAllTerminals") {
     return {
       ...base,
       icon: "terminalGroup",
-      meta: allClear ? "All terminal backgrounds clear" : allMeta,
-      disabled: terminalCount === 0 || allClear,
-      title: terminalCount === 0
-        ? "Open a terminal pane before clearing terminal backgrounds."
-        : allClear ? "Terminal backgrounds are already clear." : "Clear every terminal pane background.",
-      search: `${base.search} all terminals clear remove workspace`
+      meta: allClear.meta,
+      disabled: allClear.disabled,
+      title: allClear.title,
+      search: `${base.search} ${allClear.search}`
     };
   }
   return base;
@@ -23747,9 +23753,10 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
   const paneTitle = paneOption.disabled
     ? "Focus a terminal pane before choosing its background."
     : `Choose a background image for ${paneOption.meta}.`;
-  const allTitle = allOption.disabled
-    ? "Open a terminal pane before choosing all terminal backgrounds."
-    : `Choose one background image for ${allOption.meta}.`;
+  const allChoose = workspaceTerminalBackgroundActionModel("choose", workspace, {
+    availableTitle: `Choose one background image for ${allOption.meta}.`,
+    noTerminalTitle: "Open a terminal pane before choosing all terminal backgrounds."
+  });
   const actions = [
     quickOverviewControlButton("Choose app", () => chooseBackgroundImageForTarget({ target: "app" }), {
       title: "Choose a background image for the whole app.",
@@ -23770,9 +23777,9 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
       search: `quick setup background active terminal pane image choose wallpaper ${paneOption.meta}`
     }),
     quickOverviewControlButton("All terminals", () => chooseWorkspaceTerminalBackground(workspace), {
-      disabled: allOption.disabled,
-      title: allTitle,
-      search: `quick setup background all terminals panes image choose wallpaper ${allOption.meta}`
+      disabled: allChoose.disabled,
+      title: allChoose.title,
+      search: `quick setup background ${allChoose.search} ${allOption.meta}`
     }),
     quickOverviewControlButton("Save terminal", () => saveCustomBackgroundImage({ url: terminalSave.background }), {
       disabled: terminalSave.disabled,
@@ -27529,6 +27536,93 @@ function terminalBackgroundsMatch(workspace, value) {
   return terminals.length > 0 && terminals.every((panel) => panelBackgroundMatches(panel, value));
 }
 
+function workspaceTerminalBackgroundState(workspace = activeWorkspace(), appBackground = state.settings.backgroundImage) {
+  const terminals = workspaceTerminalPanels(workspace);
+  const terminalCount = terminals.length;
+  const normalizedAppBackground = normalizeBackgroundValue(appBackground);
+  const matches = (value) => terminalCount > 0 && terminals.every((panel) => panelBackgroundMatches(panel, value));
+  return {
+    terminals,
+    terminalCount,
+    hasTerminalPanes: terminalCount > 0,
+    appBackground: normalizedAppBackground,
+    allMeta: terminalCount ? `${terminalCount} terminal${terminalCount === 1 ? "" : "s"}` : "No terminals",
+    useAppActive: Boolean(normalizedAppBackground && matches(normalizedAppBackground)),
+    clearActive: matches("")
+  };
+}
+
+function workspaceTerminalBackgroundActionTitle(actionId, workspace = activeWorkspace(), options = {}) {
+  const model = workspaceTerminalBackgroundState(workspace, options.appBackground ?? state.settings.backgroundImage);
+  const terminalRequiredTitle = options.terminalRequiredTitle || "Open a terminal pane first.";
+  const noTerminalTitle = options.noTerminalTitle || terminalRequiredTitle;
+  if (actionId === "choose") {
+    return model.hasTerminalPanes
+      ? options.availableTitle || "Choose an image for every terminal pane in this workspace."
+      : noTerminalTitle;
+  }
+  if (actionId === "paste") {
+    return model.hasTerminalPanes
+      ? options.availableTitle || "Paste an image URL, path, or copied image for every terminal pane in this workspace."
+      : noTerminalTitle;
+  }
+  if (actionId === "useApp") {
+    if (!model.hasTerminalPanes) return noTerminalTitle;
+    if (!model.appBackground) return options.noAppTitle || "Choose an app background first.";
+    if (model.useAppActive) return options.activeTitle || "All terminal panes already use the app background.";
+    return options.availableTitle || "Apply the app background to every terminal pane.";
+  }
+  if (actionId === "clear") {
+    if (!model.hasTerminalPanes) return noTerminalTitle;
+    if (model.clearActive) return options.emptyTitle || "Terminal pane backgrounds are already clear.";
+    return options.availableTitle || "Clear every terminal pane background.";
+  }
+  return options.availableTitle || "Update every terminal pane background in this workspace.";
+}
+
+function workspaceTerminalBackgroundActionSearchText(actionId, workspace = activeWorkspace(), extra = "") {
+  const model = workspaceTerminalBackgroundState(workspace);
+  const actionTerms = {
+    choose: "choose browse local file picker wallpaper",
+    paste: "paste clipboard copied image url local path",
+    useApp: "use app whole window global image active",
+    clear: "clear remove reset default no image"
+  };
+  return normalizeSettingsQuery([
+    "workspace all terminals terminal panes background image wallpaper",
+    model.allMeta,
+    model.appBackground ? `app background ${appearanceBackgroundLabel(model.appBackground)} ${model.appBackground}` : "no app background",
+    model.useAppActive ? "app background active current" : "",
+    model.clearActive ? "clear default no image active current" : "",
+    actionTerms[actionId] || actionId,
+    extra
+  ].join(" "));
+}
+
+function workspaceTerminalBackgroundActionModel(actionId, workspace = activeWorkspace(), options = {}) {
+  const model = workspaceTerminalBackgroundState(workspace, options.appBackground ?? state.settings.backgroundImage);
+  let disabled = !model.hasTerminalPanes;
+  let active = false;
+  let meta = model.allMeta;
+  if (actionId === "useApp") {
+    active = model.useAppActive;
+    disabled = !model.hasTerminalPanes || !model.appBackground || model.useAppActive;
+    meta = model.useAppActive ? "App background active" : model.allMeta;
+  } else if (actionId === "clear") {
+    active = model.clearActive;
+    disabled = !model.hasTerminalPanes || model.clearActive;
+    meta = model.clearActive ? "All terminal backgrounds clear" : model.allMeta;
+  }
+  return {
+    ...model,
+    disabled,
+    active,
+    meta,
+    title: workspaceTerminalBackgroundActionTitle(actionId, workspace, options),
+    search: workspaceTerminalBackgroundActionSearchText(actionId, workspace, options.extraSearch || "")
+  };
+}
+
 function backgroundPresetActiveForTarget(value, target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
   const scope = normalizeBackgroundApplyTarget(target);
   if (scope === "pane") {
@@ -31217,38 +31311,27 @@ function showWorkspaceContextMenu(event, workspace) {
   const paneColorsDirty = workspacePaneColorsDirty(workspace);
   const clearPaneColors = contextMenuButton("Clear pane colors", () => clearWorkspacePaneColors(workspace), !paneColorsDirty, "danger");
   clearPaneColors.title = workspacePaneColorSyncActionTitle("resetPanes", workspace);
-  const terminalPanels = workspaceTerminalPanels(workspace);
-  const hasTerminalPanes = terminalPanels.length > 0;
-  const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
-  const terminalBackgroundsUseApp = Boolean(appBackground && terminalBackgroundsMatch(workspace, appBackground));
-  const terminalBackgroundsClear = terminalBackgroundsMatch(workspace, "");
+  const chooseTerminalBackgroundModel = workspaceTerminalBackgroundActionModel("choose", workspace);
+  const pasteTerminalBackgroundModel = workspaceTerminalBackgroundActionModel("paste", workspace);
+  const useAppBackgroundModel = workspaceTerminalBackgroundActionModel("useApp", workspace);
+  const clearTerminalBackgroundsModel = workspaceTerminalBackgroundActionModel("clear", workspace);
   const useAppBackground = contextMenuButton(
-    terminalBackgroundsUseApp ? "App background active" : t("workspace.useAppBackground"),
-    () => applyWorkspaceBackgroundImageToTerminals(appBackground, workspace),
-    !hasTerminalPanes || !appBackground || terminalBackgroundsUseApp
+    useAppBackgroundModel.active ? "App background active" : t("workspace.useAppBackground"),
+    () => applyWorkspaceBackgroundImageToTerminals(useAppBackgroundModel.appBackground, workspace),
+    useAppBackgroundModel.disabled
   );
-  useAppBackground.title = !hasTerminalPanes
-    ? "Open a terminal pane first."
-    : !appBackground
-      ? "Choose an app background first."
-      : terminalBackgroundsUseApp
-        ? "All terminal panes already use the app background."
-        : "Apply the app background to every terminal pane.";
+  useAppBackground.title = useAppBackgroundModel.title;
   const clearTerminalBackgrounds = contextMenuButton(
     t("workspace.clearTerminalBackgrounds"),
     () => applyWorkspaceBackgroundImageToTerminals("", workspace),
-    !hasTerminalPanes || terminalBackgroundsClear,
+    clearTerminalBackgroundsModel.disabled,
     "danger"
   );
-  clearTerminalBackgrounds.title = !hasTerminalPanes
-    ? "Open a terminal pane first."
-    : terminalBackgroundsClear
-      ? "Terminal pane backgrounds are already clear."
-      : "Clear every terminal pane background.";
-  const chooseTerminalBackground = contextMenuButton(t("workspace.chooseTerminalBackground"), () => chooseWorkspaceTerminalBackground(workspace), !hasTerminalPanes);
-  chooseTerminalBackground.title = hasTerminalPanes ? "Choose an image for every terminal pane in this workspace." : "Open a terminal pane first.";
-  const pasteTerminalBackground = contextMenuButton(t("workspace.pasteTerminalBackground"), () => pasteWorkspaceTerminalBackgroundFromClipboard(workspace), !hasTerminalPanes);
-  pasteTerminalBackground.title = hasTerminalPanes ? "Paste an image URL, path, or copied image for every terminal pane in this workspace." : "Open a terminal pane first.";
+  clearTerminalBackgrounds.title = clearTerminalBackgroundsModel.title;
+  const chooseTerminalBackground = contextMenuButton(t("workspace.chooseTerminalBackground"), () => chooseWorkspaceTerminalBackground(workspace), chooseTerminalBackgroundModel.disabled);
+  chooseTerminalBackground.title = chooseTerminalBackgroundModel.title;
+  const pasteTerminalBackground = contextMenuButton(t("workspace.pasteTerminalBackground"), () => pasteWorkspaceTerminalBackgroundFromClipboard(workspace), pasteTerminalBackgroundModel.disabled);
+  pasteTerminalBackground.title = pasteTerminalBackgroundModel.title;
   const backgroundActions = contextMenuActionGroup(
     chooseTerminalBackground,
     pasteTerminalBackground,
@@ -31331,10 +31414,10 @@ function showToolbarMenu(event) {
   const browserSetupDefault = browserSetupSettingsAreDefault();
   const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
   const terminalBackground = terminalActive ? normalizeBackgroundValue(panel.backgroundImage) : "";
-  const terminalPanels = workspaceTerminalPanels(workspace);
-  const hasTerminalPanes = terminalPanels.length > 0;
-  const terminalBackgroundsUseApp = Boolean(appBackground && terminalBackgroundsMatch(workspace, appBackground));
-  const terminalBackgroundsClear = terminalBackgroundsMatch(workspace, "");
+  const allTerminalChooseBackground = workspaceTerminalBackgroundActionModel("choose", workspace);
+  const allTerminalPasteBackground = workspaceTerminalBackgroundActionModel("paste", workspace);
+  const allTerminalUseAppBackground = workspaceTerminalBackgroundActionModel("useApp", workspace);
+  const allTerminalClearBackgrounds = workspaceTerminalBackgroundActionModel("clear", workspace);
   const minimizedPanes = minimizedPanelCount(workspace);
   const cleanFastActive = isSettingsPresetIdActive("simpleFast");
   const speedPresetActive = isSettingsPresetIdActive("performance");
@@ -31504,25 +31587,21 @@ function showToolbarMenu(event) {
         availableTitle: "Clear the focused terminal background.",
         emptyTitle: "Focused terminal background is already clear."
       })),
-      toolbarAction("Choose all terminal backgrounds", () => chooseWorkspaceTerminalBackground(workspace), !hasTerminalPanes, "Choose an image for every terminal pane in this workspace.", "Open a terminal pane first."),
-      toolbarAction("Paste all terminal backgrounds", () => pasteWorkspaceTerminalBackgroundFromClipboard(workspace), !hasTerminalPanes, "Paste an image URL, path, or copied image for every terminal pane in this workspace.", "Open a terminal pane first."),
+      toolbarAction("Choose all terminal backgrounds", () => chooseWorkspaceTerminalBackground(workspace), allTerminalChooseBackground.disabled, allTerminalChooseBackground.title, allTerminalChooseBackground.title),
+      toolbarAction("Paste all terminal backgrounds", () => pasteWorkspaceTerminalBackgroundFromClipboard(workspace), allTerminalPasteBackground.disabled, allTerminalPasteBackground.title, allTerminalPasteBackground.title),
       toolbarAction(
-        terminalBackgroundsUseApp ? "App background active for all" : "Use app background for all terminals",
+        allTerminalUseAppBackground.active ? "App background active for all" : "Use app background for all terminals",
         () => useAppBackgroundForWorkspaceTerminals(workspace),
-        !hasTerminalPanes || !appBackground || terminalBackgroundsUseApp,
-        "Apply the app background to every terminal pane.",
-        !hasTerminalPanes
-          ? "Open a terminal pane first."
-          : !appBackground
-            ? "Choose an app background first."
-            : "All terminal panes already use the app background."
+        allTerminalUseAppBackground.disabled,
+        allTerminalUseAppBackground.title,
+        allTerminalUseAppBackground.title
       ),
       toolbarAction(
         "Clear all terminal backgrounds",
         () => clearWorkspaceTerminalBackgrounds(workspace),
-        !hasTerminalPanes || terminalBackgroundsClear,
-        "Clear every terminal pane background.",
-        !hasTerminalPanes ? "Open a terminal pane first." : "Terminal pane backgrounds are already clear.",
+        allTerminalClearBackgrounds.disabled,
+        allTerminalClearBackgrounds.title,
+        allTerminalClearBackgrounds.title,
         "danger"
       ),
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
