@@ -751,8 +751,8 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
         let firstRequest = panel.requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
         let secondRequest = panel.requestAddressBarFocus(selectionIntent: .selectAll)
 
-        XCTAssertEqual(firstRequest, secondRequest)
-        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, firstRequest)
+        XCTAssertNotEqual(firstRequest, secondRequest)
+        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, secondRequest)
         XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .selectAll)
     }
 
@@ -3923,7 +3923,6 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
             state: &state,
             event: .focusReasserted(
                 shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
-                    isUserEditing: state.isUserEditing,
                     selectionIntent: .preserveFieldEditorSelection
                 )
             )

@@ -7650,8 +7650,18 @@ extension BrowserPanel {
         invalidateSearchFocusRequests(reason: "requestAddressBarFocus")
         beginSuppressWebViewFocusForAddressBar()
         if let pendingAddressBarFocusRequestId {
-            if selectionIntent == .selectAll {
+            if selectionIntent == .selectAll,
+               pendingAddressBarFocusSelectionIntent != .selectAll {
+                let requestId = UUID()
                 pendingAddressBarFocusSelectionIntent = .selectAll
+                self.pendingAddressBarFocusRequestId = requestId
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.focus.addressBar.request panel=\(id.uuidString.prefix(5)) " +
+                    "request=\(requestId.uuidString.prefix(8)) result=upgrade_to_select_all"
+                )
+#endif
+                return requestId
             }
 #if DEBUG
             cmuxDebugLog(

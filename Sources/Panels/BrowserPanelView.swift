@@ -2040,7 +2040,6 @@ struct BrowserPanelView: View {
                 state: &omnibarState,
                 event: .focusReasserted(
                     shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
-                        isUserEditing: omnibarState.isUserEditing,
                         selectionIntent: selectionIntent
                     )
                 )
@@ -3842,10 +3841,9 @@ func browserOmnibarShouldReacquireFocusAfterEndEditing(
 }
 
 func browserOmnibarShouldSelectAllOnFocusReassertion(
-    isUserEditing: Bool,
     selectionIntent: BrowserAddressBarFocusSelectionIntent
 ) -> Bool {
-    selectionIntent.shouldSelectAll && !isUserEditing
+    selectionIntent.shouldSelectAll
 }
 
 final class OmnibarNativeTextField: NSTextField {

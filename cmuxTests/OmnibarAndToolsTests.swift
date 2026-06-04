@@ -412,7 +412,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertFalse(effects.shouldSelectAll)
     }
 
-    func testRefocusRequestPreservesEditingBuffer() throws {
+    func testExplicitRefocusRequestPreservesEditingBufferAndSelectsAll() throws {
         var state = OmnibarState()
 
         _ = omnibarReduce(
@@ -425,7 +425,6 @@ final class OmnibarStateMachineTests: XCTestCase {
             state: &state,
             event: .focusReasserted(
                 shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
-                    isUserEditing: state.isUserEditing,
                     selectionIntent: .selectAll
                 )
             )
@@ -435,25 +434,17 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertTrue(state.isUserEditing)
         XCTAssertEqual(state.currentURLString, "https://example.com/")
         XCTAssertEqual(state.buffer, "abcdef")
-        XCTAssertFalse(effects.shouldSelectAll)
+        XCTAssertTrue(effects.shouldSelectAll)
     }
 
-    func testFocusReassertionDoesNotSelectAllDuringUserEdit() throws {
-        XCTAssertFalse(
-            browserOmnibarShouldSelectAllOnFocusReassertion(
-                isUserEditing: true,
-                selectionIntent: .selectAll
-            )
-        )
+    func testFocusReassertionHonorsSelectionIntent() throws {
         XCTAssertTrue(
             browserOmnibarShouldSelectAllOnFocusReassertion(
-                isUserEditing: false,
                 selectionIntent: .selectAll
             )
         )
         XCTAssertFalse(
             browserOmnibarShouldSelectAllOnFocusReassertion(
-                isUserEditing: false,
                 selectionIntent: .preserveFieldEditorSelection
             )
         )
