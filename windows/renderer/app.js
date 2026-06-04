@@ -29990,6 +29990,24 @@ function paletteEntries() {
       search: normalizeSettingsQuery(`change choose set folder directory cwd workspace ${workspaceIndex + 1} ${workspace.title} ${workspace.cwdShort} ${workspace.cwd}`),
       run: () => chooseWorkspaceFolder(workspace)
     });
+    entries.push({
+      id: `workspace.copySetup.${workspace.id}`,
+      label: `Copy setup: ${workspace.title || "Workspace"}`,
+      meta: workspace.cwdShort || workspace.cwd || "No folder",
+      shortcut: "Copy",
+      title: "Copy this workspace name, color, and folder as JSON.",
+      search: normalizeSettingsQuery(`copy setup workspace name color folder directory cwd clipboard json ${workspaceIndex + 1} ${workspace.title} ${workspace.cwdShort} ${workspace.cwd}`),
+      run: () => copyWorkspaceSetup(workspace)
+    });
+    entries.push({
+      id: `workspace.pasteSetup.${workspace.id}`,
+      label: `Paste setup: ${workspace.title || "Workspace"}`,
+      meta: workspace.cwdShort || workspace.cwd || "No folder",
+      shortcut: "Paste",
+      title: "Apply copied cmux workspace setup to this workspace.",
+      search: normalizeSettingsQuery(`paste setup workspace name color folder directory cwd clipboard json ${workspaceIndex + 1} ${workspace.title} ${workspace.cwdShort} ${workspace.cwd}`),
+      run: () => pasteWorkspaceSetup(workspace)
+    });
     for (const [panelIndex, panel] of workspace.panels.entries()) {
       const label = panel.type === "browser" ? hostnameOf(panel.url) : panel.title || "Terminal";
       entries.push({
