@@ -13565,6 +13565,13 @@ function renderSettingsInspector(options = {}) {
     resetBrowserHomeAction.title = browserHomeDefault
       ? "Browser home already uses the default page."
       : "Reset the browser home page to the default.";
+    const browserPaneViewDefault = state.settings.browserChromeMode === defaultSettings.browserChromeMode
+      && state.settings.browserZoom === defaultSettings.browserZoom;
+    const resetBrowserPaneViewAction = settingsActionButton("Reset pane view", resetBrowserPaneView, "", `browser pane chrome zoom reset default full 100 ${browserPaneViewDefault ? "active current " : ""}`);
+    resetBrowserPaneViewAction.disabled = browserPaneViewDefault;
+    resetBrowserPaneViewAction.title = browserPaneViewDefault
+      ? "Browser pane chrome and zoom already use defaults."
+      : "Reset browser pane chrome and zoom to defaults.";
     const copyBrowser = settingsActionButton("Copy setup", copyBrowserSetup, "", "browser setup copy home launch external profile suspend pane chrome tabs address controls full compact content zoom scale clipboard json");
     copyBrowser.title = "Copy browser home, launch mode, external profile, suspend setting, pane chrome, and pane zoom as JSON.";
     const pasteBrowser = settingsActionButton("Paste setup", pasteBrowserSetup, "", "browser setup paste home launch external profile suspend pane chrome tabs address controls full compact content zoom scale clipboard json");
@@ -13579,6 +13586,7 @@ function renderSettingsInspector(options = {}) {
       settingsActionButton("Open pane", () => createPanel("browser", newPaneDirection(), { url: state.settings.browserHomeUrl })),
       settingsActionButton("Open external", () => openExternalBrowser(state.settings.browserHomeUrl, { toast: true }), "", "browser system chrome edge brave profile external"),
       settingsActionButton("Refresh profiles", () => refreshBrowserProfiles({ render: true }), "", "browser chrome edge brave profile detect refresh reload"),
+      resetBrowserPaneViewAction,
       resetBrowserHomeAction
     );
     browserSection.append(homeActions);
@@ -16675,6 +16683,20 @@ function resetBrowserHome() {
   }
   if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
   toast("Browser home reset.");
+  return true;
+}
+
+function resetBrowserPaneView() {
+  const changed = updateSettings({
+    browserChromeMode: defaultSettings.browserChromeMode,
+    browserZoom: defaultSettings.browserZoom
+  });
+  if (!changed) {
+    toast("Browser pane view already uses defaults.");
+    return false;
+  }
+  if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
+  toast("Browser pane view reset.");
   return true;
 }
 
