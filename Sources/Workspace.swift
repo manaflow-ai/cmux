@@ -314,6 +314,7 @@ extension Workspace {
         if !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
         }
+        setTerminalScrollBarHidden(snapshot.terminalScrollBarHidden == true)
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let layoutSnapshots = restoreLayoutTabSnapshots(from: snapshot)
