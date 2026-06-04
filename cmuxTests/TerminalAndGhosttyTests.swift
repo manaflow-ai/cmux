@@ -3647,6 +3647,53 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    func testSearchOverlayMouseReleaseClearsSelectionDragAfterSurfaceRelease() throws {
+        let surface = makeTrackedTerminalSurface()
+        let hostedView = surface.hostedView
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
+        waitUntil(description: "search overlay to mount") {
+            hostedView.debugHasSearchOverlay()
+        }
+
+        let terminalView = try XCTUnwrap(surfaceView(in: hostedView) as? GhosttyNSView)
+        let overlay = try XCTUnwrap(hostedView.debugSearchOverlayHostingViewForTesting())
+
+        let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
+        terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))
+        XCTAssertTrue(hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting())
+
+        surface.releaseSurfaceForTesting()
+        XCTAssertNil(surface.surface)
+
+        let overlayLocation = overlay.convert(NSPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: nil)
+        overlay.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: overlayLocation, window: window))
+        XCTAssertFalse(
+            hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
+            "The pending terminal release state must clear even if the Ghostty surface is gone"
+        )
+    }
+
     func testRapidSearchOverlayToggleDoesNotLeaveStaleOverlayMounted() {
         let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView

@@ -10042,7 +10042,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @discardableResult
-    fileprivate func forwardPendingLeftMouseDrag(with event: NSEvent) -> Bool {
+    func forwardPendingLeftMouseDrag(with event: NSEvent) -> Bool {
         guard hasPendingLeftMouseRelease, let surface else { return false }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
@@ -10051,9 +10051,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @discardableResult
-    fileprivate func completePendingLeftMouseRelease(with event: NSEvent) -> Bool {
-        guard hasPendingLeftMouseRelease, let surface else { return false }
+    func completePendingLeftMouseRelease(with event: NSEvent) -> Bool {
+        guard hasPendingLeftMouseRelease else { return false }
         hasPendingLeftMouseRelease = false
+        guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
         let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
         _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
@@ -11374,35 +11375,6 @@ private final class GhosttyFlashOverlayView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
-    }
-}
-
-private final class TerminalSearchOverlayHostingView: NSHostingView<SurfaceSearchOverlay> {
-    private weak var surfaceView: GhosttyNSView?
-
-    init(rootView: SurfaceSearchOverlay, surfaceView: GhosttyNSView) {
-        self.surfaceView = surfaceView
-        super.init(rootView: rootView)
-    }
-
-    @available(*, unavailable)
-    required init(rootView: SurfaceSearchOverlay) {
-        fatalError("init(rootView:) has not been implemented")
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard surfaceView?.forwardPendingLeftMouseDrag(with: event) != true else { return }
-        super.mouseDragged(with: event)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        guard surfaceView?.completePendingLeftMouseRelease(with: event) != true else { return }
-        super.mouseUp(with: event)
     }
 }
 
