@@ -5181,7 +5181,9 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         )
         switch target {
         case let .embeddedBrowser(url):
-            XCTAssertEqual(url.absoluteString, "http://localhost:3000")
+            XCTAssertEqual(url.scheme, "http")
+            XCTAssertEqual(url.host, "localhost")
+            XCTAssertEqual(url.port, 3000)
         case let .external(url):
             XCTFail("Expected HTTP URL with port to stay browser-routable, not resolve as a file: \(url)")
         }
@@ -5200,9 +5202,10 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         switch target {
         case let .external(url):
             XCTAssertFalse(url.isFileURL)
+            XCTAssertEqual(url.scheme, "config")
             XCTAssertEqual(url.absoluteString, "config:8080")
         case let .embeddedBrowser(url):
-            XCTAssertFalse(url.isFileURL)
+            XCTFail("Expected non-web scheme to resolve as external, not embedded browser: \(url)")
         }
     }
 
