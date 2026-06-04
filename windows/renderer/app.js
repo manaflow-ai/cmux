@@ -16437,6 +16437,30 @@ function themeChoiceProfileSaveTitle(theme, savedProfile = savedSettingsProfileF
   return "Save this theme and accent as a reusable profile.";
 }
 
+function themeChoiceCardSearchText(theme, active = isActiveThemeChoice(theme), savedProfile = savedSettingsProfileForThemeChoice(theme)) {
+  const label = themeChoiceLabel(theme);
+  return normalizeSettingsQuery(`theme visual gallery appearance look preview apply save profile copy accent ${active ? "active current unavailable " : "ready "}${savedProfile ? "saved reusable " : ""}${settingsProfileSaveStateSearch(savedProfile)} ${label} ${theme?.id || ""}`);
+}
+
+function themeChoiceApplySearchText(theme, active = isActiveThemeChoice(theme)) {
+  const label = themeChoiceLabel(theme);
+  return normalizeSettingsQuery(`theme visual gallery appearance look apply accent ${active ? "active current unavailable " : "ready "}${label} ${theme?.id || ""}`);
+}
+
+function themeChoiceSaveSearchText(theme, savedProfile = savedSettingsProfileForThemeChoice(theme)) {
+  const label = themeChoiceLabel(theme);
+  return normalizeSettingsQuery(`theme visual gallery appearance look save profile reusable accent ${savedProfile ? "saved reusable unavailable " : savedSettingsProfilesFull() ? "limit full unavailable " : "ready "}${settingsProfileSaveStateSearch(savedProfile)} ${label} ${theme?.id || ""}`);
+}
+
+function themeChoiceCopySearchText(theme) {
+  const label = themeChoiceLabel(theme);
+  return normalizeSettingsQuery(`theme visual gallery appearance look copy profile clipboard json accent ${label} ${theme?.id || ""}`);
+}
+
+function themeChoiceCopyTitle(theme) {
+  return `Copy ${themeChoiceLabel(theme)} theme and accent as a Settings profile JSON.`;
+}
+
 function applyThemeChoice(theme, options = {}) {
   if (!theme) {
     toast("Theme not found.");
@@ -16634,6 +16658,56 @@ function copyLookPackProfile(packId) {
   }, `${pack.label} look profile copied.`);
 }
 
+function updateThemeChoiceCard(card, theme) {
+  if (!card || !theme) return;
+  const active = isActiveThemeChoice(theme);
+  const savedProfile = savedSettingsProfileForThemeChoice(theme);
+  const label = themeChoiceLabel(theme);
+  card.classList.toggle("is-active", active);
+  const cardSearch = themeChoiceCardSearchText(theme, active, savedProfile);
+  if (card.dataset.settingsSearch !== cardSearch) {
+    card.dataset.settingsSearch = cardSearch;
+    updateSettingsSearchIndexItemSearch(card, cardSearch);
+  }
+
+  const button = card.querySelector("[data-theme-choice]");
+  if (button) {
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    setTitleIfChanged(button, active ? `${label} theme already active.` : `Apply ${label} theme and accent.`);
+    const status = button.querySelector(".theme-choice-status");
+    if (status) setTextIfChanged(status, active ? "Active" : "");
+    const buttonSearch = themeChoiceApplySearchText(theme, active);
+    if (button.dataset.settingsSearch !== buttonSearch) {
+      button.dataset.settingsSearch = buttonSearch;
+      updateSettingsSearchIndexItemSearch(button, buttonSearch);
+    }
+  }
+
+  const save = card.querySelector("[data-theme-choice-save]");
+  if (save) {
+    setSettingsActionLabel(save, savedProfile ? "Saved" : "Save");
+    save.classList.toggle("primary", Boolean(savedProfile));
+    setDisabledIfChanged(save, Boolean(savedProfile) || savedSettingsProfilesFull());
+    setTitleIfChanged(save, themeChoiceProfileSaveTitle(theme, savedProfile));
+    const saveSearch = themeChoiceSaveSearchText(theme, savedProfile);
+    if (save.dataset.settingsSearch !== saveSearch) {
+      save.dataset.settingsSearch = saveSearch;
+      updateSettingsSearchIndexItemSearch(save, saveSearch);
+    }
+  }
+
+  const copy = card.querySelector("[data-theme-choice-copy]");
+  if (copy) {
+    setTitleIfChanged(copy, themeChoiceCopyTitle(theme));
+    const copySearch = themeChoiceCopySearchText(theme);
+    if (copy.dataset.settingsSearch !== copySearch) {
+      copy.dataset.settingsSearch = copySearch;
+      updateSettingsSearchIndexItemSearch(copy, copySearch);
+    }
+  }
+}
+
 function refreshAppearancePreview() {
   const preview = elements.inspectorBody.querySelector(".appearance-preview");
   if (preview) preview.replaceWith(appearancePreviewPanel());
@@ -16645,22 +16719,9 @@ function refreshAppearancePreview() {
   const themeSelect = elements.inspectorBody.querySelector('[data-setting-control="theme"]');
   if (themeSelect && themeSelect.value !== state.settings.theme) themeSelect.value = state.settings.theme;
   refreshThemeAccentControl();
-  for (const button of elements.inspectorBody.querySelectorAll("[data-theme-choice]")) {
-    const theme = themeChoiceById(button.dataset.themeChoice);
-    const active = isActiveThemeChoice(theme);
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-pressed", active ? "true" : "false");
-    const status = button.querySelector(".theme-choice-status");
-    if (status) setTextIfChanged(status, active ? "Active" : "");
-    if (theme) {
-      const label = themeChoiceLabel(theme);
-      const savedProfile = savedSettingsProfileForThemeChoice(theme);
-      const search = normalizeSettingsQuery(`theme visual gallery preview save profile copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${label} ${theme.id}`);
-      if (button.dataset.settingsSearch !== search) {
-        button.dataset.settingsSearch = search;
-        updateSettingsSearchIndexItemSearch(button, search);
-      }
-    }
+  for (const card of elements.inspectorBody.querySelectorAll("[data-theme-choice-card]")) {
+    const theme = themeChoiceById(card.dataset.themeChoiceCard);
+    updateThemeChoiceCard(card, theme);
   }
   for (const card of elements.inspectorBody.querySelectorAll("[data-look-pack]")) {
     const pack = lookPackById(card.dataset.lookPack);
@@ -16679,13 +16740,14 @@ function themeChoiceGrid() {
     const savedProfile = savedSettingsProfileForThemeChoice(theme);
     const card = document.createElement("div");
     card.className = "theme-choice-card";
-    card.dataset.settingsSearch = normalizeSettingsQuery(`theme visual gallery preview save profile copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${label} ${theme.id}`);
+    card.dataset.themeChoiceCard = theme.id;
+    card.dataset.settingsSearch = themeChoiceCardSearchText(theme, active, savedProfile);
     const button = document.createElement("button");
     button.className = `theme-choice${active ? " is-active" : ""}`;
     button.type = "button";
     button.title = active ? `${label} theme already active.` : `Apply ${label} theme and accent.`;
     button.dataset.themeChoice = theme.id;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`theme visual gallery preview save profile copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${label} ${theme.id}`);
+    button.dataset.settingsSearch = themeChoiceApplySearchText(theme, active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
     button.style.setProperty("--theme-preview-canvas", theme.canvas);
     button.style.setProperty("--theme-preview-pane", theme.pane);
@@ -16714,14 +16776,17 @@ function themeChoiceGrid() {
       savedProfile ? "Saved" : "Save",
       () => saveThemeChoiceProfile(theme.id),
       savedProfile ? "primary" : "",
-      `theme visual gallery save profile reusable ${savedProfile ? "saved active current " : ""}${label} ${theme.id}`
+      themeChoiceSaveSearchText(theme, savedProfile)
     );
+    save.dataset.themeChoiceSave = theme.id;
     save.disabled = Boolean(savedProfile) || savedSettingsProfilesFull();
     save.title = themeChoiceProfileSaveTitle(theme, savedProfile);
-    const copy = settingsActionButton("Copy", () => copyThemeChoiceProfile(theme.id), "", `theme visual gallery copy settings profile clipboard json ${label} ${theme.id}`);
-    copy.title = "Copy this theme as a Settings profile JSON.";
+    const copy = settingsActionButton("Copy", () => copyThemeChoiceProfile(theme.id), "", themeChoiceCopySearchText(theme));
+    copy.dataset.themeChoiceCopy = theme.id;
+    copy.title = themeChoiceCopyTitle(theme);
     actions.append(save, copy);
     card.append(button, actions);
+    updateThemeChoiceCard(card, theme);
     grid.append(card);
   }
   return grid;
@@ -16774,7 +16839,9 @@ function updateLookPackCard(card, pack) {
   const savedProfile = savedSettingsProfileForLookPack(pack);
   const summary = lookPackSummary(pack);
   card.classList.toggle("is-active", active);
-  const search = normalizeSettingsQuery(`look pack appearance theme accent intensity surface tint background chrome readable soft immersive terminal color profile apply save copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${pack.label} ${pack.body} ${summary}`);
+  const profileSearch = settingsProfileSaveStateSearch(savedProfile);
+  const saveLimitSearch = !savedProfile && savedSettingsProfilesFull() ? "limit full unavailable " : "";
+  const search = normalizeSettingsQuery(`look pack appearance theme accent intensity surface tint background chrome readable soft immersive terminal color profile apply save copy ${active ? "active current unavailable " : "ready "}${savedProfile ? "saved reusable " : ""}${saveLimitSearch}${profileSearch} ${pack.label} ${pack.body} ${summary}`);
   if (card.dataset.settingsSearch !== search) {
     card.dataset.settingsSearch = search;
     updateSettingsSearchIndexItemSearch(card, search);
@@ -16787,17 +16854,35 @@ function updateLookPackCard(card, pack) {
   card.style.setProperty("--look-pack-terminal", settings.terminalBackground || terminalColorDefaults.background);
   setTextIfChanged(card.querySelector(".look-pack-status"), active ? "Active" : savedProfile ? "Saved" : "");
   setTextIfChanged(card.querySelector(".look-pack-meta"), summary);
-  const [apply, save] = card.querySelectorAll(".look-pack-actions .settings-action");
+  const [apply, save, copy] = card.querySelectorAll(".look-pack-actions .settings-action");
   if (apply) {
     setSettingsActionLabel(apply, active ? "Active" : "Apply");
     setDisabledIfChanged(apply, active);
     setTitleIfChanged(apply, active ? `${pack.label} look already active.` : `Apply ${pack.label} look.`);
+    const applySearch = normalizeSettingsQuery(`look pack appearance theme accent intensity surface tint background chrome readable soft immersive terminal color apply ${active ? "active current unavailable " : "ready "}${pack.label} ${pack.body} ${summary}`);
+    if (apply.dataset.settingsSearch !== applySearch) {
+      apply.dataset.settingsSearch = applySearch;
+      updateSettingsSearchIndexItemSearch(apply, applySearch);
+    }
   }
   if (save) {
     setSettingsActionLabel(save, savedProfile ? "Saved" : "Save");
     save.classList.toggle("primary", Boolean(savedProfile));
     setDisabledIfChanged(save, Boolean(savedProfile) || savedSettingsProfilesFull());
     setTitleIfChanged(save, lookPackProfileSaveTitle(pack, savedProfile));
+    const saveSearch = normalizeSettingsQuery(`look pack appearance theme accent intensity surface tint background chrome readable soft immersive terminal color save profile reusable ${savedProfile ? "saved reusable unavailable " : saveLimitSearch}${profileSearch} ${pack.label} ${pack.body} ${summary}`);
+    if (save.dataset.settingsSearch !== saveSearch) {
+      save.dataset.settingsSearch = saveSearch;
+      updateSettingsSearchIndexItemSearch(save, saveSearch);
+    }
+  }
+  if (copy) {
+    setTitleIfChanged(copy, `Copy ${pack.label} look pack as a Settings profile JSON.`);
+    const copySearch = normalizeSettingsQuery(`look pack appearance theme accent intensity surface tint background chrome readable soft immersive terminal color copy profile clipboard json ${pack.label} ${pack.body} ${summary}`);
+    if (copy.dataset.settingsSearch !== copySearch) {
+      copy.dataset.settingsSearch = copySearch;
+      updateSettingsSearchIndexItemSearch(copy, copySearch);
+    }
   }
 }
 
@@ -21827,6 +21912,16 @@ function activeSettingsSetupLabel() {
 
 function savedSettingsProfileCountLabel() {
   return `${state.savedSettingsProfiles.length}/${savedSettingsProfilesLimit}`;
+}
+
+function settingsProfileSaveStateMeta(savedProfile = null) {
+  if (savedProfile) return `Already saved / ${savedProfile.label}`;
+  return savedSettingsProfileCountLabel();
+}
+
+function settingsProfileSaveStateSearch(savedProfile = null) {
+  if (savedProfile) return `${savedSettingsProfileCountLabel()} profiles saved reusable unavailable ${savedProfile.label}`;
+  return `${savedSettingsProfileCountLabel()} profiles ${savedSettingsProfilesFull() ? "limit full unavailable" : "capacity ready"}`;
 }
 
 function saveQuickSetupProfile() {
@@ -31880,17 +31975,17 @@ function paletteEntries() {
       active,
       disabled: active,
       title: active ? `${label} theme already active.` : `Apply ${label} theme and accent.`,
-      search: normalizeSettingsQuery(`theme visual gallery appearance look apply active accent ${label} ${theme.id}`),
+      search: themeChoiceApplySearchText(theme, active),
       run: () => applyThemeChoice(theme, { toast: true })
     });
     entries.push({
       id: `themeChoice.save.${theme.id}`,
       label: `Save theme profile: ${label}`,
-      meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
+      meta: settingsProfileSaveStateMeta(savedProfile),
       shortcut: savedProfile ? "Saved" : "Save",
       disabled: Boolean(savedProfile) || appearanceProfilesFull,
       title: themeChoiceProfileSaveTitle(theme, savedProfile),
-      search: normalizeSettingsQuery(`theme visual gallery appearance look save profile reusable accent ${savedProfile ? "saved active current " : ""}${label} ${theme.id}`),
+      search: themeChoiceSaveSearchText(theme, savedProfile),
       run: () => saveThemeChoiceProfile(theme.id)
     });
     entries.push({
@@ -31898,8 +31993,8 @@ function paletteEntries() {
       label: `Copy theme profile: ${label}`,
       meta: "Settings profile JSON",
       shortcut: "Copy",
-      title: "Copy this theme as a Settings profile JSON.",
-      search: normalizeSettingsQuery(`theme visual gallery appearance look copy profile clipboard json accent ${label} ${theme.id}`),
+      title: themeChoiceCopyTitle(theme),
+      search: themeChoiceCopySearchText(theme),
       run: () => copyThemeChoiceProfile(theme.id)
     });
   }
@@ -31916,18 +32011,18 @@ function paletteEntries() {
       disabled: active,
       icon: "appearance",
       title: active ? `${pack.label} look already active.` : `Apply ${pack.label} look.`,
-      search: normalizeSettingsQuery(`look pack appearance theme accent background chrome readable soft immersive terminal color apply active ${pack.label} ${pack.body} ${summary}`),
+      search: normalizeSettingsQuery(`look pack appearance theme accent background chrome readable soft immersive terminal color apply ${active ? "active current unavailable " : "ready "}${pack.label} ${pack.body} ${summary}`),
       run: () => applyLookPack(pack.id)
     });
     entries.push({
       id: `lookPack.save.${pack.id}`,
       label: `Save look profile: ${pack.label}`,
-      meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
+      meta: settingsProfileSaveStateMeta(savedProfile),
       shortcut: savedProfile ? "Saved" : "Save",
       disabled: Boolean(savedProfile) || appearanceProfilesFull,
       icon: "profiles",
       title: lookPackProfileSaveTitle(pack, savedProfile),
-      search: normalizeSettingsQuery(`look pack appearance theme accent background chrome readable soft immersive terminal color save profile reusable ${savedProfile ? "saved active current " : ""}${pack.label} ${pack.body} ${summary}`),
+      search: normalizeSettingsQuery(`look pack appearance theme accent background chrome readable soft immersive terminal color save profile reusable ${savedProfile ? "saved reusable unavailable " : appearanceProfilesFull ? "limit full unavailable " : "ready "}${settingsProfileSaveStateSearch(savedProfile)} ${pack.label} ${pack.body} ${summary}`),
       run: () => saveLookPackProfile(pack.id)
     });
     entries.push({
@@ -31936,7 +32031,7 @@ function paletteEntries() {
       meta: "Settings profile JSON",
       shortcut: "Copy",
       icon: "appearance",
-      title: "Copy this look pack as a Settings profile JSON.",
+      title: `Copy ${pack.label} look pack as a Settings profile JSON.`,
       search: normalizeSettingsQuery(`look pack appearance theme accent background chrome readable soft immersive terminal color copy profile clipboard json ${pack.label} ${pack.body} ${summary}`),
       run: () => copyLookPackProfile(pack.id)
     });
