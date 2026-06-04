@@ -9772,7 +9772,7 @@ struct ContentView: View {
 
     private func focusFocusedBrowserAddressBar() -> Bool {
         guard let panel = tabManager.focusedBrowserPanel else { return false }
-        _ = panel.requestAddressBarFocus()
+        _ = panel.requestAddressBarFocus(selectionIntent: .selectAll)
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)
         return true
     }

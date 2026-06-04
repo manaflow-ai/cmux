@@ -722,7 +722,7 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
         let requestId = panel.requestAddressBarFocus()
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, requestId)
-        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .selectAll)
+        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
         XCTAssertTrue(panel.shouldSuppressWebViewFocus())
 
         panel.acknowledgeAddressBarFocusRequest(requestId)
@@ -740,6 +740,16 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
         let panel = BrowserPanel(workspaceId: UUID())
         let firstRequest = panel.requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
         let secondRequest = panel.requestAddressBarFocus()
+
+        XCTAssertEqual(firstRequest, secondRequest)
+        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, firstRequest)
+        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
+    }
+
+    func testExplicitSelectAllRequestUpgradesPendingPreserveRequest() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let firstRequest = panel.requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
+        let secondRequest = panel.requestAddressBarFocus(selectionIntent: .selectAll)
 
         XCTAssertEqual(firstRequest, secondRequest)
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, firstRequest)

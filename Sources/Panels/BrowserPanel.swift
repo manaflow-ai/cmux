@@ -7642,7 +7642,7 @@ extension BrowserPanel {
 
     @discardableResult
     func requestAddressBarFocus(
-        selectionIntent: BrowserAddressBarFocusSelectionIntent = .selectAll
+        selectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
     ) -> UUID {
         clearBrowserFocusMode(reason: "requestAddressBarFocus")
         setOmnibarVisible(true)
