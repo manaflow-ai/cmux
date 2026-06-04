@@ -1197,6 +1197,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
     private var shortcutRoutingPreferredWindowOverride: NSWindow?
+#if DEBUG
+    var suppressNotificationWindowFocusForTesting = false
+#endif
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
@@ -17063,7 +17066,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         context.sidebarSelectionState.selection = .tabs
+#if DEBUG
+        if !suppressNotificationWindowFocusForTesting {
+            bringToFront(window)
+        }
+#else
         bringToFront(window)
+#endif
         guard context.tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
 #if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(

@@ -4108,8 +4108,9 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         contentView.addSubview(anchor2)
         portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true)
 
-        XCTAssertEqual(portal.debugEntryCount(), 1, "Only the live anchored hosted view should remain tracked")
-        XCTAssertEqual(portal.debugHostedSubviewCount(), 1, "Stale anchorless hosted views should be detached from hostView")
+        let stats = portal.debugStats()
+        XCTAssertEqual(stats.entryCount, 1, "Only the live anchored hosted view should remain tracked")
+        XCTAssertEqual(stats.terminalSubviewCount, 1, "Stale anchorless hosted views should be detached from hostView")
     }
 
     func testDeferredSyncHidesVisibleHostedViewAfterAnchorDisappears() {
@@ -4489,8 +4490,6 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             window.displayIfNeeded()
         }
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
         let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
         XCTAssertGreaterThan(
             shiftedAnchorFrameInWindow.minX,
@@ -4510,14 +4509,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             x: (originalAnchorFrameInWindow.maxX + shiftedAnchorFrameInWindow.maxX) / 2,
             y: shiftedAnchorFrameInWindow.midY
         )
-        XCTAssertNil(
-            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window),
-            "The queued external sync should wait until the later layout shift settles, clearing the stale portal location"
-        )
-        XCTAssertNotNil(
-            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window),
-            "The delayed external sync should move the portal-hosted terminal to the queued layout shift position"
-        )
+        waitUntil(description: "queued external sync to settle after layout shift") {
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window) == nil &&
+                TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window) != nil
+        }
     }
 
     func testScheduledExternalGeometrySyncKeepsDragDrivenResizeResponsive() {

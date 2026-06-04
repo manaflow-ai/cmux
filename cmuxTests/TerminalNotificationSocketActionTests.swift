@@ -247,6 +247,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let originalTabManager: TabManager?
         let originalNotificationStore: TerminalNotificationStore?
         let originalAppFocusOverride: Bool?
+        let originalSuppressNotificationWindowFocus: Bool
 
         @MainActor
         func notification(_ id: UUID) -> TerminalNotification? {
@@ -269,6 +270,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
             AppFocusState.overrideIsFocused = originalAppFocusOverride
+            appDelegate.suppressNotificationWindowFocusForTesting = originalSuppressNotificationWindowFocus
             AppDelegate.shared = previousShared
             unlink(socketPath)
         }
@@ -283,6 +285,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalSuppressNotificationWindowFocus = appDelegate.suppressNotificationWindowFocusForTesting
 
         AppDelegate.shared = appDelegate
         store.replaceNotificationsForTesting([])
@@ -291,6 +294,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
+        appDelegate.suppressNotificationWindowFocusForTesting = true
 
         let workspace = manager.addWorkspace(title: "Socket Notifications", select: true)
         let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
@@ -306,7 +310,6 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
                 defer: false
             )
             testWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(registeredWindowId.uuidString)")
-            testWindow.makeKeyAndOrderFront(nil)
             windowId = registeredWindowId
             window = testWindow
         } else {
@@ -333,7 +336,8 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             window: window,
             originalTabManager: originalTabManager,
             originalNotificationStore: originalNotificationStore,
-            originalAppFocusOverride: originalAppFocusOverride
+            originalAppFocusOverride: originalAppFocusOverride,
+            originalSuppressNotificationWindowFocus: originalSuppressNotificationWindowFocus
         )
     }
 

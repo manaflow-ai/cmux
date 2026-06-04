@@ -11,18 +11,24 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+    private var originalApplicationAppearance: NSAppearance?
 
     override func setUp() {
         super.setUp()
+        drainMainQueueForSettingsFileTests()
+        originalApplicationAppearance = NSApplication.shared.appearance
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         KeyboardShortcutSettings.resetAll()
     }
 
     override func tearDown() {
+        drainMainQueueForSettingsFileTests()
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppIconSettings.resetLiveEnvironmentProviderForTesting()
         AppearanceSettings.resetLiveEnvironmentProviderForTesting()
+        NSApplication.shared.appearance = originalApplicationAppearance
         KeyboardShortcutSettings.resetAll()
+        drainMainQueueForSettingsFileTests()
         super.tearDown()
     }
 
@@ -1372,5 +1378,13 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             }
         }
         try body()
+    }
+
+    private func drainMainQueueForSettingsFileTests() {
+        let expectation = XCTestExpectation(description: "drain settings file main queue")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        XCTWaiter().wait(for: [expectation], timeout: 1.0)
     }
 }

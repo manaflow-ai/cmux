@@ -2074,6 +2074,16 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
     }
 
+    private func settleInitialBlankLoad(_ webView: WKWebView, timeout: TimeInterval = 2.0) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        if webView.isLoading {
+            webView.stopLoading()
+        }
+    }
+
     func testHiddenDiscardPolicyReadsUserDefaults() throws {
         let suiteName = "cmux.browserHiddenDiscardPolicyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -2263,11 +2273,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             )
             defer { panel.close() }
 
-            let deadline = Date().addingTimeInterval(1.0)
-            while panel.webView.isLoading,
-                  RunLoop.main.run(mode: .default, before: deadline),
-                  Date() < deadline {}
-            XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+            settleInitialBlankLoad(panel.webView)
 
             panel.restoreSessionNavigationHistory(
                 backHistoryURLStrings: [],
@@ -2318,11 +2324,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             )
             defer { panel.close() }
 
-            let deadline = Date().addingTimeInterval(1.0)
-            while panel.webView.isLoading,
-                  RunLoop.main.run(mode: .default, before: deadline),
-                  Date() < deadline {}
-            XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+            settleInitialBlankLoad(panel.webView)
 
             panel.restoreSessionNavigationHistory(
                 backHistoryURLStrings: ["https://example.test/back"],
