@@ -61,6 +61,7 @@ TRANSIENT_SOCKET_ERRORS = SOCKET_UNAVAILABLE_ERRORS + (
     "Socket closed before reply",
     "Socket closed before complete reply",
 )
+AUTO_RESUME_AGENT_SESSIONS_KEY = "terminal.autoResumeAgentSessions"
 
 
 def has_socket_error(stderr: str, needles: tuple[str, ...]) -> bool:
@@ -73,6 +74,7 @@ class CmuxPerfRunner:
         self.tag = args.tag
         self.tag_slug = sanitize_path(args.tag)
         self.tag_id = sanitize_bundle(args.tag)
+        self.bundle_id = f"com.cmuxterm.app.debug.{self.tag_id}"
         self.socket_path = pathlib.Path(f"/tmp/cmux-debug-{self.tag_slug}.sock")
         self.cmuxd_socket_path = pathlib.Path(
             os.path.expanduser(f"~/Library/Application Support/cmux/cmuxd-dev-{self.tag_slug}.sock")
@@ -118,16 +120,31 @@ class CmuxPerfRunner:
 
     def clean_persisted_state(self) -> None:
         app_support = pathlib.Path.home() / "Library/Application Support/cmux"
-        bundle_id = f"com.cmuxterm.app.debug.{self.tag_id}"
         for suffix in ("", "-previous"):
-            (app_support / f"session-{bundle_id}{suffix}.json").unlink(missing_ok=True)
+            (app_support / f"session-{self.bundle_id}{suffix}.json").unlink(missing_ok=True)
         self.socket_path.unlink(missing_ok=True)
         self.cmuxd_socket_path.unlink(missing_ok=True)
         self.debug_log_path.unlink(missing_ok=True)
         self.stdout_path.unlink(missing_ok=True)
+        self.clear_benchmark_defaults()
         if self.fixture_root.exists():
             shutil.rmtree(self.fixture_root)
         self.fixture_root.mkdir(parents=True, exist_ok=True)
+
+    def run_defaults(self, args: list[str]) -> None:
+        subprocess.run(
+            ["defaults", *args],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+
+    def clear_benchmark_defaults(self) -> None:
+        self.run_defaults(["delete", self.bundle_id, AUTO_RESUME_AGENT_SESSIONS_KEY])
+
+    def configure_benchmark_defaults(self) -> None:
+        self.run_defaults(["write", self.bundle_id, AUTO_RESUME_AGENT_SESSIONS_KEY, "-bool", "false"])
+        self.result["fixture"]["auto_resume_agent_sessions"] = False
 
     def app_env(self) -> dict[str, str]:
         env = os.environ.copy()
@@ -163,7 +180,7 @@ class CmuxPerfRunner:
                 "CMUXD_UNIX_PATH": str(self.cmuxd_socket_path),
                 "CMUX_DEBUG_LOG": str(self.debug_log_path),
                 "CMUX_TAG": self.tag,
-                "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{self.tag_id}",
+                "CMUX_BUNDLE_ID": self.bundle_id,
             }
         )
         return env
@@ -173,7 +190,7 @@ class CmuxPerfRunner:
         env["CMUX_SOCKET"] = str(self.socket_path)
         env["CMUX_SOCKET_PATH"] = str(self.socket_path)
         env["CMUX_TAG"] = self.tag
-        env["CMUX_BUNDLE_ID"] = f"com.cmuxterm.app.debug.{self.tag_id}"
+        env["CMUX_BUNDLE_ID"] = self.bundle_id
         env["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = str(max(15, int(self.args.snapshot_timeout)))
         return env
 
@@ -773,6 +790,7 @@ class CmuxPerfRunner:
         self.check_paths()
         self.stop_app()
         self.clean_persisted_state()
+        self.configure_benchmark_defaults()
         try:
             self.launch("launch")
             terminals = self.create_fixture()
@@ -790,6 +808,7 @@ class CmuxPerfRunner:
             return self.result
         finally:
             self.stop_app()
+            self.clear_benchmark_defaults()
             if not self.args.keep_fixture and self.fixture_root.exists():
                 shutil.rmtree(self.fixture_root, ignore_errors=True)
 

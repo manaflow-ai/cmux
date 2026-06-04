@@ -154,7 +154,7 @@ def test_post_restore_snapshot_uses_transient_socket_retries() -> None:
     runner = object.__new__(perf_activation_session.CmuxPerfRunner)
     runner.args = types.SimpleNamespace(snapshot_timeout=120)
     runner.result = {"measurements": {}, "fixture": {}}
-    socket_retries: list[int] = []
+    observed_socket_retries: list[int] = []
 
     def stop_app() -> None:
         pass
@@ -169,7 +169,7 @@ def test_post_restore_snapshot_uses_transient_socket_retries() -> None:
         timeout: float = 60,
         socket_retries: int = 0,
     ) -> dict:
-        socket_retries.append(socket_retries)
+        observed_socket_retries.append(socket_retries)
         assert method == "debug.session_snapshot_benchmark"
         assert params == {"include_scrollback": False, "persist": False}
         assert timeout == 120
@@ -181,5 +181,41 @@ def test_post_restore_snapshot_uses_transient_socket_retries() -> None:
 
     runner.benchmark_restore()
 
-    assert socket_retries == [3]
+    assert observed_socket_retries == [3]
     assert runner.result["fixture"]["post_restore_shape"] == {"workspaces": 12, "terminals": 66}
+
+
+def test_benchmark_defaults_disable_agent_auto_resume() -> None:
+    runner = object.__new__(perf_activation_session.CmuxPerfRunner)
+    runner.bundle_id = "com.cmuxterm.app.debug.perfci"
+    runner.result = {"fixture": {}}
+    calls: list[list[str]] = []
+
+    def fake_run(args: list[str], **kwargs: object) -> object:
+        assert kwargs["stdout"] is perf_activation_session.subprocess.DEVNULL
+        assert kwargs["stderr"] is perf_activation_session.subprocess.DEVNULL
+        assert kwargs["check"] is False
+        calls.append(args)
+        return perf_activation_session.subprocess.CompletedProcess(args, 0)
+
+    with mock.patch.object(perf_activation_session.subprocess, "run", side_effect=fake_run):
+        runner.configure_benchmark_defaults()
+        runner.clear_benchmark_defaults()
+
+    assert calls == [
+        [
+            "defaults",
+            "write",
+            "com.cmuxterm.app.debug.perfci",
+            "terminal.autoResumeAgentSessions",
+            "-bool",
+            "false",
+        ],
+        [
+            "defaults",
+            "delete",
+            "com.cmuxterm.app.debug.perfci",
+            "terminal.autoResumeAgentSessions",
+        ],
+    ]
+    assert runner.result["fixture"]["auto_resume_agent_sessions"] is False
