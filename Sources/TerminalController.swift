@@ -2525,12 +2525,12 @@ class TerminalController {
         pending: String,
         authenticated: Bool
     ) {
-        Task { [weak self] in
+        socketListenerQueue.async { [weak self] in
             guard let self else {
                 close(socket)
                 return
             }
-            await self.handleSocketWorkerV2WorktreeClient(
+            self.handleSocketWorkerV2WorktreeClient(
                 initialCommand: command,
                 socket: socket,
                 pending: pending,
@@ -2544,19 +2544,19 @@ class TerminalController {
         socket: Int32,
         pending initialPending: String,
         authenticated initialAuthenticated: Bool
-    ) async {
+    ) {
         defer { close(socket) }
 
         var pending = initialPending
         var authenticated = initialAuthenticated
-        guard await writeSocketWorkerV2WorktreeResponse(command: initialCommand, to: socket) else {
+        guard writeSocketWorkerV2WorktreeResponse(command: initialCommand, to: socket) else {
             return
         }
 
         var buffer = [UInt8](repeating: 0, count: 4096)
         while withListenerState({ isRunning }) {
             if pending.contains("\n") {
-                guard await drainSocketClientPendingLines(
+                guard drainSocketClientPendingLines(
                     &pending,
                     authenticated: &authenticated,
                     socket: socket
@@ -2578,7 +2578,7 @@ class TerminalController {
         _ pending: inout String,
         authenticated: inout Bool,
         socket: Int32
-    ) async -> Bool {
+    ) -> Bool {
         while let newlineIndex = pending.firstIndex(of: "\n") {
             let line = String(pending[..<newlineIndex])
             pending = String(pending[pending.index(after: newlineIndex)...])
@@ -2609,7 +2609,7 @@ class TerminalController {
             authenticated = nextAuthenticated
 
             if socketWorkerV2WorktreeRequestIfNeeded(for: trimmed) != nil {
-                guard await writeSocketWorkerV2WorktreeResponse(command: trimmed, to: socket) else {
+                guard writeSocketWorkerV2WorktreeResponse(command: trimmed, to: socket) else {
                     return false
                 }
                 continue
@@ -2632,11 +2632,31 @@ class TerminalController {
     private nonisolated func writeSocketWorkerV2WorktreeResponse(
         command: String,
         to socket: Int32
-    ) async -> Bool {
-        let response = await socketWorkerV2WorktreeResponse(command: command)
+    ) -> Bool {
+        let response = blockingSocketWorkerV2WorktreeResponse(command: command)
         let didWriteResponse = writeSocketResponse(response, to: socket)
         publishSocketEvents(command: command, response: response)
         return didWriteResponse
+    }
+
+    private nonisolated func blockingSocketWorkerV2WorktreeResponse(command: String) -> String {
+        // Called from socketListenerQueue, so this blocks a dedicated socket worker
+        // while async worktree setup hops through MainActor and other services.
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var response = v2Error(
+            id: nil,
+            code: "internal_error",
+            message: String(
+                localized: "error.socket.invalidWorktreeRequest",
+                defaultValue: "Invalid worktree request"
+            )
+        )
+        Task {
+            response = await self.socketWorkerV2WorktreeResponse(command: command)
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return response
     }
 
     private func socketWorkerV2WorktreeResponse(command: String) async -> String {
