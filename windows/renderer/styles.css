@@ -10573,6 +10573,21 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   pointer-events: none;
 }
 
+.quick-overview-controls.has-scroll-actions::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset: 1px 1px 1px auto;
+  width: 34px;
+  border-radius: 0 var(--radius-1) var(--radius-1) 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%) 72%
+  );
+  pointer-events: none;
+}
+
 .quick-overview-controls-copy {
   position: relative;
   z-index: 1;
@@ -10612,9 +10627,16 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   flex-wrap: nowrap;
   gap: 4px;
   max-width: min(62vw, 620px);
+  padding: 1px 0 2px;
   overflow-x: auto;
   overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scroll-padding-inline: 4px 24px;
   scrollbar-width: thin;
+}
+
+.quick-overview-controls.has-scroll-actions .quick-overview-controls-actions {
+  padding-right: 24px;
 }
 
 .quick-overview-controls-actions .settings-action {
@@ -11733,7 +11755,16 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
     justify-content: flex-start;
     flex-wrap: wrap;
     max-width: none;
+    padding: 0;
     overflow: visible;
+  }
+
+  .quick-overview-controls.has-scroll-actions::after {
+    display: none;
+  }
+
+  .quick-overview-controls.has-scroll-actions .quick-overview-controls-actions {
+    padding-right: 0;
   }
 
   .quick-overview-controls-actions .settings-action {

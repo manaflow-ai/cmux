@@ -20949,7 +20949,12 @@ function quickOverviewControlButton(label, run, options = {}) {
 
 function quickOverviewControlsPanel(options = {}) {
   const panel = document.createElement("div");
-  panel.className = ["quick-overview-controls", options.className || ""].filter(Boolean).join(" ");
+  const actions = options.actions || [];
+  panel.className = [
+    "quick-overview-controls",
+    actions.length > 5 ? "has-scroll-actions" : "",
+    options.className || ""
+  ].filter(Boolean).join(" ");
   panel.dataset.settingsSearch = normalizeSettingsQuery(options.search || "");
   panel.innerHTML = `
     <span class="quick-overview-controls-copy">
@@ -20960,7 +20965,7 @@ function quickOverviewControlsPanel(options = {}) {
   `;
   panel.querySelector("b").textContent = options.title || "";
   panel.querySelector("em").textContent = options.meta || "";
-  panel.querySelector(".quick-overview-controls-actions").append(...(options.actions || []));
+  panel.querySelector(".quick-overview-controls-actions").append(...actions);
   return panel;
 }
 
