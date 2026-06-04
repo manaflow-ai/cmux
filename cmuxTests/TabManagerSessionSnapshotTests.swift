@@ -732,6 +732,56 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(store.lastRestoredOperationId)
     }
 
+    func testRedoRestoredPanelUsesSynchronousCloseConfirmation() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer {
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true))
+        workspace.setPanelCustomTitle(panelId: panel.id, title: "Prompted Redo")
+        workspace.markCloseHistoryEligible(panelId: panel.id)
+        XCTAssertTrue(workspace.closePanel(panel.id, force: true))
+        drainMainQueue()
+
+        let record = try XCTUnwrap(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
+        XCTAssertTrue(appDelegate.reopenClosedHistoryItem(
+            id: record.id,
+            preferredTabManager: manager,
+            shouldActivate: false
+        ))
+        guard case .panel(_, let restoredPanelId) = ClosedItemHistoryStore.shared.restoredRef(for: record.id) else {
+            XCTFail("Expected restored panel ref")
+            return
+        }
+        let restoredTerminal = try XCTUnwrap(workspace.terminalPanel(for: restoredPanelId))
+        restoredTerminal.surface.setNeedsConfirmCloseOverrideForTesting(true)
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            promptCount += 1
+            XCTAssertEqual(title, String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"))
+            XCTAssertTrue(message.contains("Prompted Redo"))
+            XCTAssertFalse(acceptCmdD)
+            return true
+        }
+
+        XCTAssertTrue(appDelegate.redoLastDestructiveAction(preferredTabManager: manager))
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertNil(workspace.panels[restoredPanelId])
+        XCTAssertNil(ClosedItemHistoryStore.shared.lastRestoredOperationId)
+    }
+
     func testClosingRestoredItemClearsOriginalRestoredRef() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)

@@ -15490,6 +15490,35 @@ final class Workspace: Identifiable, ObservableObject {
         return closed
     }
 
+    @discardableResult
+    func closePanelForHistoryRedo(_ panelId: UUID, operationId: UUID, force: Bool = false) -> Bool {
+        guard let tabId = surfaceIdFromPanelId(panelId) else {
+            return closePanel(panelId, force: force, operationId: operationId)
+        }
+        guard panels[panelId] != nil else { return false }
+
+        if force {
+            return closePanel(panelId, force: true, operationId: operationId)
+        }
+
+        if CloseTabConfirmationPolicy.shouldConfirm(
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+            source: .shortcut
+        ) {
+            let prompt = closePanelConfirmationPrompt(for: tabId)
+            let confirmationManager = owningTabManager
+                ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+                ?? AppDelegate.shared?.tabManager
+            guard let confirmationManager,
+                  confirmationManager.confirmClose(title: prompt.title, message: prompt.message, acceptCmdD: false) else {
+                clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
+                return false
+            }
+        }
+
+        return closePanel(panelId, force: true, operationId: operationId)
+    }
+
     func requestCloseTab(_ tabId: TabID, force: Bool) -> Bool {
         if force { forceCloseTabIds.insert(tabId) }
         let closed = bonsplitController.closeTab(tabId); if force && !closed { forceCloseTabIds.remove(tabId) }
@@ -18072,8 +18101,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     @MainActor
-    private func confirmClosePanel(for tabId: TabID) async -> Bool {
-        let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
+    private func closePanelConfirmationPrompt(for tabId: TabID) -> (title: String, message: String) {
         let panelName: String? = {
             guard let panelId = panelIdFromSurfaceId(tabId) else { return nil }
             if let custom = panelCustomTitles[panelId], !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -18088,24 +18116,29 @@ extension Workspace: BonsplitDelegate {
             return nil
         }()
 
-        let message: String
-        if let panelName {
-            message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
-        } else {
-            message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
-        }
+        return (
+            String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
+            panelName.map {
+                String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\($0)\".")
+            } ?? String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
+        )
+    }
+
+    @MainActor
+    private func confirmClosePanel(for tabId: TabID) async -> Bool {
+        let prompt = closePanelConfirmationPrompt(for: tabId)
 
         if let confirmCloseHandler = (
             owningTabManager
             ?? AppDelegate.shared?.tabManagerFor(tabId: id)
             ?? AppDelegate.shared?.tabManager
         )?.confirmCloseHandler {
-            return confirmCloseHandler(title, message, false)
+            return confirmCloseHandler(prompt.title, prompt.message, false)
         }
 
         let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
+        alert.messageText = prompt.title
+        alert.informativeText = prompt.message
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))

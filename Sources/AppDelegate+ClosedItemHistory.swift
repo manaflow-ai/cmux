@@ -284,7 +284,7 @@ extension AppDelegate {
         case .panel(let workspaceId, let panelId):
             guard let manager = tabManagerFor(tabId: workspaceId),
                   let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
-            return workspace.closePanel(panelId, force: force, operationId: operationId)
+            return workspace.closePanelForHistoryRedo(panelId, operationId: operationId, force: force)
         case .workspace(let workspaceId):
             guard let manager = tabManagerFor(tabId: workspaceId),
                   let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
@@ -309,7 +309,7 @@ extension AppDelegate {
                 ClosedItemHistoryStore.shared.clearRedoTarget()
                 return false
             }
-            return workspace.closePanel(panelId, force: force, operationId: UUID())
+            return workspace.closePanelForHistoryRedo(panelId, operationId: UUID(), force: force)
         case .workspace(let workspaceId):
             guard let manager = tabManagerFor(tabId: workspaceId) ?? preferredTabManager ?? tabManager,
                   let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else {
