@@ -29,20 +29,40 @@ public struct AgentSpawnIdentity: Sendable, Equatable {
     /// for launches that have no own identity (e.g. started outside a cmux-managed terminal). Inputs are
     /// trimmed and empty values are treated as absent.
     ///
+    /// The result is always a *coherent pair*: the surface always belongs to the resolved workspace. The
+    /// focused surface is borrowed only when the focused pane is in that same workspace, so a launcher
+    /// that inherits only `CMUX_WORKSPACE_ID` (no surface) while focus is in a *different* workspace
+    /// never produces an impossible `(own workspace, focused surface)` pair — which the daemon would
+    /// reject, dropping the hook. In that partial case the surface is left `nil` so the hook's PID/TTY
+    /// resolution picks the agent's real pane.
+    ///
     /// - Parameters:
     ///   - ownWorkspaceId: the launching process's inherited `CMUX_WORKSPACE_ID` (the launch surface).
     ///   - ownSurfaceId: the launching process's inherited `CMUX_SURFACE_ID` (the launch surface).
     ///   - focusedWorkspaceId: the operator's currently focused workspace id (fallback only).
     ///   - focusedSurfaceId: the operator's currently focused surface id (fallback only).
-    /// - Returns: the workspace/surface ids to stamp; either element is `nil` when neither source has it.
+    /// - Returns: the workspace/surface ids to stamp; either element is `nil` when no source provides a
+    ///   value that pairs coherently with the resolved workspace.
     public func resolve(
         ownWorkspaceId: String?,
         ownSurfaceId: String?,
         focusedWorkspaceId: String?,
         focusedSurfaceId: String?
     ) -> (workspaceId: String?, surfaceId: String?) {
-        let workspaceId = normalized(ownWorkspaceId) ?? normalized(focusedWorkspaceId)
-        let surfaceId = normalized(ownSurfaceId) ?? normalized(focusedSurfaceId)
+        let ownSurface = normalized(ownSurfaceId)
+        let focusedWorkspace = normalized(focusedWorkspaceId)
+        let workspaceId = normalized(ownWorkspaceId) ?? focusedWorkspace
+
+        let surfaceId: String?
+        if let ownSurface {
+            surfaceId = ownSurface
+        } else if let focusedSurface = normalized(focusedSurfaceId), focusedWorkspace == workspaceId {
+            // Borrow the focused surface only when the focused pane is in the resolved workspace, so we
+            // never stamp a surface from a different workspace. Otherwise leave it for PID/TTY resolution.
+            surfaceId = focusedSurface
+        } else {
+            surfaceId = nil
+        }
         return (workspaceId, surfaceId)
     }
 

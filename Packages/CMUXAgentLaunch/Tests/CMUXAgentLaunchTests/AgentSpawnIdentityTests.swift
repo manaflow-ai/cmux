@@ -35,14 +35,27 @@ struct AgentSpawnIdentityTests {
         #expect(resolved.surfaceId == "A")
     }
 
-    @Test("Per-element independence: own workspace + focused-only surface")
-    func perElementIndependence() {
-        // Own workspace present but no own surface, focused has both: workspace from own, surface from focused.
+    @Test("Own workspace + focused surface in a DIFFERENT workspace yields a nil surface, not an impossible pair")
+    func partialOwnDoesNotBorrowCrossWorkspaceSurface() {
+        // Own workspace present but no own surface; focus is a pane in a different workspace. Stamping
+        // (WS-B, A) would be an impossible pair the daemon rejects (dropping the hook), so the surface
+        // is left nil for the hook's PID/TTY resolution. The own workspace is still kept.
         let resolved = AgentSpawnIdentity().resolve(
             ownWorkspaceId: "WS-B", ownSurfaceId: nil,
             focusedWorkspaceId: "WS-A", focusedSurfaceId: "A"
         )
         #expect(resolved.workspaceId == "WS-B")
+        #expect(resolved.surfaceId == nil)
+    }
+
+    @Test("Own workspace + focused surface in the SAME workspace borrows the focused surface")
+    func partialOwnBorrowsSameWorkspaceFocusedSurface() {
+        // No own surface, but the focused pane is in the resolved workspace, so the pair is coherent.
+        let resolved = AgentSpawnIdentity().resolve(
+            ownWorkspaceId: "WS-A", ownSurfaceId: nil,
+            focusedWorkspaceId: "WS-A", focusedSurfaceId: "A"
+        )
+        #expect(resolved.workspaceId == "WS-A")
         #expect(resolved.surfaceId == "A")
     }
 
