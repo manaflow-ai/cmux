@@ -14,6 +14,14 @@ private struct HorizontalWorkspaceTabSnapshot: Identifiable, Equatable {
     let accessibilityTitle: String
 }
 
+private struct HorizontalWorkspaceTabRenderModel {
+    let snapshots: [HorizontalWorkspaceTabSnapshot]
+    let renderedIds: [UUID]
+    let renderedIndexById: [UUID: Int]
+    let workspaceById: [UUID: Workspace]
+    let closeableIds: Set<UUID>
+}
+
 struct HorizontalTabsSidebar: View {
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
@@ -24,7 +32,7 @@ struct HorizontalTabsSidebar: View {
     @EnvironmentObject private var notificationStore: TerminalNotificationStore
 
     var body: some View {
-        let snapshots = workspaceSnapshots
+        let renderModel = workspaceRenderModel
         let selectedWorkspaceId = tabManager.selectedTabId
 
         HStack(spacing: 8) {
@@ -40,14 +48,14 @@ struct HorizontalTabsSidebar: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
-                        ForEach(snapshots) { snapshot in
+                        ForEach(renderModel.snapshots) { snapshot in
                             HorizontalWorkspaceTabItem(
                                 snapshot: snapshot,
                                 onSelect: {
-                                    selectWorkspace(snapshot.id)
+                                    selectWorkspace(snapshot.id, renderModel: renderModel)
                                 },
                                 onClose: {
-                                    closeWorkspace(snapshot.id)
+                                    closeWorkspace(snapshot.id, renderModel: renderModel)
                                 },
                                 onCopyWorkspaceID: {
                                     WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceIds([snapshot.id], includeRefs: false)
@@ -65,8 +73,8 @@ struct HorizontalTabsSidebar: View {
                 .onChange(of: selectedWorkspaceId) { _, newValue in
                     scrollToSelectedWorkspace(proxy, selectedWorkspaceId: newValue)
                 }
-                .onChange(of: snapshots.map(\.id)) { _, _ in
-                    reconcileSelectionWithRenderedOrder()
+                .onChange(of: renderModel.renderedIds) { _, newRenderedIds in
+                    reconcileSelectionWithRenderedOrder(renderedWorkspaceIds: newRenderedIds)
                     scrollToSelectedWorkspace(proxy, selectedWorkspaceId: tabManager.selectedTabId)
                 }
             }
@@ -85,7 +93,7 @@ struct HorizontalTabsSidebar: View {
         .accessibilityIdentifier("Sidebar")
     }
 
-    private var workspaceSnapshots: [HorizontalWorkspaceTabSnapshot] {
+    private var workspaceRenderModel: HorizontalWorkspaceTabRenderModel {
         let tabs = tabManager.tabs
         let workspaceCount = tabs.count
         let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
@@ -98,30 +106,41 @@ struct HorizontalTabsSidebar: View {
             groupsById: groupsById
         )
         let shortcut = KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
-        return renderItems.compactMap { item in
+        var snapshots: [HorizontalWorkspaceTabSnapshot] = []
+        var renderedIds: [UUID] = []
+        var renderedIndexById: [UUID: Int] = [:]
+        var closeableIds: Set<UUID> = []
+        snapshots.reserveCapacity(renderItems.count)
+        renderedIds.reserveCapacity(renderItems.count)
+
+        for item in renderItems {
+            let snapshot: HorizontalWorkspaceTabSnapshot?
             switch item {
             case .groupHeader(let group, let memberWorkspaceIds):
-                guard let anchorWorkspace = workspaceById[group.anchorWorkspaceId] else { return nil }
-                let anchorUnreadCount: Int
-                if group.isCollapsed {
-                    anchorUnreadCount = memberWorkspaceIds.reduce(0) { partial, workspaceId in
-                        partial + notificationStore.unreadCount(forTabId: workspaceId)
+                if let anchorWorkspace = workspaceById[group.anchorWorkspaceId] {
+                    let anchorUnreadCount: Int
+                    if group.isCollapsed {
+                        anchorUnreadCount = memberWorkspaceIds.reduce(0) { partial, workspaceId in
+                            partial + notificationStore.unreadCount(forTabId: workspaceId)
+                        }
+                    } else {
+                        anchorUnreadCount = notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
                     }
+                    snapshot = workspaceSnapshot(
+                        workspace: anchorWorkspace,
+                        title: group.name,
+                        index: tabIndexById[group.anchorWorkspaceId] ?? 0,
+                        workspaceCount: workspaceCount,
+                        shortcut: shortcut,
+                        isPinned: group.isPinned,
+                        customColorHex: group.customColor ?? anchorWorkspace.customColor,
+                        unreadCount: anchorUnreadCount
+                    )
                 } else {
-                    anchorUnreadCount = notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
+                    snapshot = nil
                 }
-                return workspaceSnapshot(
-                    workspace: anchorWorkspace,
-                    title: group.name,
-                    index: tabIndexById[group.anchorWorkspaceId] ?? 0,
-                    workspaceCount: workspaceCount,
-                    shortcut: shortcut,
-                    isPinned: group.isPinned,
-                    customColorHex: group.customColor ?? anchorWorkspace.customColor,
-                    unreadCount: anchorUnreadCount
-                )
             case .workspace(let workspace):
-                return workspaceSnapshot(
+                snapshot = workspaceSnapshot(
                     workspace: workspace,
                     title: workspace.title,
                     index: tabIndexById[workspace.id] ?? 0,
@@ -132,7 +151,23 @@ struct HorizontalTabsSidebar: View {
                     unreadCount: notificationStore.unreadCount(forTabId: workspace.id)
                 )
             }
+
+            guard let snapshot else { continue }
+            snapshots.append(snapshot)
+            renderedIndexById[snapshot.id] = renderedIds.count
+            renderedIds.append(snapshot.id)
+            if snapshot.canCloseWorkspace {
+                closeableIds.insert(snapshot.id)
+            }
         }
+
+        return HorizontalWorkspaceTabRenderModel(
+            snapshots: snapshots,
+            renderedIds: renderedIds,
+            renderedIndexById: renderedIndexById,
+            workspaceById: workspaceById,
+            closeableIds: closeableIds
+        )
     }
 
     private func workspaceSnapshot(
@@ -180,10 +215,13 @@ struct HorizontalTabsSidebar: View {
         proxy.scrollTo(selectedWorkspaceId)
     }
 
-    private func selectWorkspace(_ workspaceId: UUID) {
-        let renderedWorkspaceIds = workspaceSnapshots.map(\.id)
-        guard let index = renderedWorkspaceIds.firstIndex(of: workspaceId),
-              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+    private func selectWorkspace(
+        _ workspaceId: UUID,
+        renderModel: HorizontalWorkspaceTabRenderModel
+    ) {
+        let renderedWorkspaceIds = renderModel.renderedIds
+        guard let index = renderModel.renderedIndexById[workspaceId],
+              let workspace = renderModel.workspaceById[workspaceId] else {
             lastSidebarSelectionIndex = nil
             return
         }
@@ -228,23 +266,21 @@ struct HorizontalTabsSidebar: View {
         selection = .tabs
     }
 
-    private func closeWorkspace(_ workspaceId: UUID) {
-        let closeableWorkspaceIds = Set(
-            workspaceSnapshots
-                .filter(\.canCloseWorkspace)
-                .map(\.id)
-        )
-        guard closeableWorkspaceIds.contains(workspaceId),
-              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+    private func closeWorkspace(
+        _ workspaceId: UUID,
+        renderModel: HorizontalWorkspaceTabRenderModel
+    ) {
+        guard renderModel.closeableIds.contains(workspaceId),
+              let workspace = renderModel.workspaceById[workspaceId],
               tabManager.closeWorkspaceWithConfirmation(workspace) else { return }
         reconcileSelectionWithRenderedOrder()
     }
 
-    private func reconcileSelectionWithRenderedOrder() {
-        let renderedWorkspaceIds = workspaceSnapshots.map(\.id)
+    private func reconcileSelectionWithRenderedOrder(renderedWorkspaceIds: [UUID]? = nil) {
+        let liveRenderedIds = renderedWorkspaceIds ?? workspaceRenderModel.renderedIds
         let nextSelectionIds = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
             previousSelectionIds: selectedTabIds,
-            liveWorkspaceIds: renderedWorkspaceIds,
+            liveWorkspaceIds: liveRenderedIds,
             fallbackSelectedWorkspaceId: tabManager.selectedTabId
         )
         if selectedTabIds != nextSelectionIds {
@@ -253,7 +289,7 @@ struct HorizontalTabsSidebar: View {
         let nextAnchorIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndex(
             preferredWorkspaceId: tabManager.selectedTabId,
             selectedWorkspaceIds: nextSelectionIds,
-            liveWorkspaceIds: renderedWorkspaceIds
+            liveWorkspaceIds: liveRenderedIds
         )
         if lastSidebarSelectionIndex != nextAnchorIndex {
             lastSidebarSelectionIndex = nextAnchorIndex
