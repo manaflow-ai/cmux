@@ -162,6 +162,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const highlighterOptions = workerHighlighterOptions(state.options, appearance);
+  const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
 
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch);
@@ -229,7 +230,7 @@ export function App({ config, initialStatus }: ConfigProps) {
                 className="code-view-root"
                 containerRef={viewerContainerRef}
                 items={state.items}
-                options={codeViewOptions(state.options, appearance)}
+                options={renderedCodeViewOptions}
               />
             </WorkerPoolContextProvider>
           ) : null}
@@ -675,6 +676,7 @@ function PierreFileTree({
 }) {
   const latest = useSyncedRef({ label, onSelectItem, source });
   const [initialPreparedInput] = useState(() => preparePresortedFileTreeInput(source.paths));
+  const preparedInput = preparePresortedFileTreeInput(source.paths);
   const { model } = useFileTree({
     flattenEmptyDirectories: false,
     id: "cmux-diff-file-tree",
@@ -712,7 +714,7 @@ function PierreFileTree({
     },
   });
 
-  usePierreFileTreeSource(model, source);
+  usePierreFileTreeSource(model, source, preparedInput);
   usePierreFileTreeSearch(model, fileSearchOpen);
   usePierreFileTreeSelection(model, selectedPath);
 
@@ -818,6 +820,7 @@ function sameThemeOption(
 function usePierreFileTreeSource(
   model: ReturnType<typeof useFileTree>["model"],
   source: FileTreeSource,
+  preparedInput: ReturnType<typeof preparePresortedFileTreeInput>,
 ): void {
   const previousSource = useRef<FileTreeSource | null>(null);
   useEffect(() => {
@@ -830,16 +833,16 @@ function usePierreFileTreeSource(
         try {
           model.batch(plan.addedPaths.map((path) => ({ type: "add", path })));
         } catch {
-          model.resetPaths(source.paths, { preparedInput: preparePresortedFileTreeInput(source.paths) });
+          model.resetPaths(source.paths, { preparedInput });
           resetTree = true;
         }
       }
     } else {
-      model.resetPaths(source.paths, { preparedInput: preparePresortedFileTreeInput(source.paths) });
+      model.resetPaths(source.paths, { preparedInput });
       resetTree = true;
     }
     applyPierreFileTreeGitStatus(model as any, source, resetTree);
-  }, [model, source]);
+  }, [model, preparedInput, source]);
 }
 
 function usePierreFileTreeSearch(model: ReturnType<typeof useFileTree>["model"], fileSearchOpen: boolean): void {
