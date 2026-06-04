@@ -6,7 +6,8 @@ extension VerticalTabsSidebar {
     func sidebarWorkspaceGroupHeader(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
-        renderContext: WorkspaceListRenderContext
+        renderContext: WorkspaceListRenderContext,
+        shouldCollectWorkspaceDropTargets: Bool
     ) -> some View {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
@@ -39,10 +40,6 @@ extension VerticalTabsSidebar {
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
             tabIds: renderContext.sidebarReorderIds
-        )
-        let shouldCollectWorkspaceDropTargets = SidebarDropPlanner.shouldCollectWorkspaceDropTargets(
-            draggedTabId: dragState.draggedTabId,
-            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive
         )
         let onDragStart: () -> NSItemProvider = { [anchorId = group.anchorWorkspaceId] in
             #if DEBUG

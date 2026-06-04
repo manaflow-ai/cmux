@@ -12,6 +12,7 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     @Binding var dropIndicator: SidebarDropIndicator?
     let updateAutoscroll: () -> Void
     let setWorkspaceDropTargetCollectionActive: (Bool) -> Void
+    let isWorkspaceDropTargetCollectionActive: Bool
     let targets: [SidebarDropPlanner.WorkspaceDropTarget]
 
     func makeNSView(context: Context) -> SidebarBonsplitTabWorkspaceDropView {
@@ -51,6 +52,9 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
             selectedTabIds = [destinationWorkspaceId]
             syncSidebarSelection(preferredSelectedTabId: destinationWorkspaceId)
             return true
+        }
+        if !isWorkspaceDropTargetCollectionActive {
+            nsView.clearPendingDrop()
         }
         nsView.performPendingDropIfPossible()
     }
@@ -192,6 +196,11 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 #endif
     }
 
+    func clearPendingDrop() {
+        pendingDrop = nil
+        isRequestingWorkspaceDropTargets = false
+    }
+
     private func perform(
         action: SidebarDropPlanner.WorkspaceDropAction,
         transfer: BonsplitTabDragPayload.Transfer
@@ -262,6 +271,9 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         let shouldRequestTargets = isActive && BonsplitTabDragPayload.canRouteWorkspaceDrop(
             pasteboardTypes: sender?.draggingPasteboard.types
         )
+        if !shouldRequestTargets {
+            pendingDrop = nil
+        }
         isRequestingWorkspaceDropTargets = shouldRequestTargets
         setWorkspaceDropTargetCollectionActive(shouldRequestTargets)
     }

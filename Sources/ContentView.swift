@@ -10449,7 +10449,7 @@ struct VerticalTabsSidebar: View {
     @State var dragState = SidebarDragState()
     // Bonsplit tab drags arrive through AppKit pasteboard callbacks, not
     // `SidebarDragState`, so they need a separate transient collection flag.
-    @State var isBonsplitWorkspaceDropTargetCollectionActive = false
+    @State private var isBonsplitWorkspaceDropTargetCollectionActive = false
     // Freezes `showsModifierShortcutHints` for the workspace whose context menu
     // is open. Set on the row's contextMenu.onAppear and cleared on
     // .onDisappear so modifier-key transitions don't flip the badges on the
@@ -12230,10 +12230,15 @@ struct VerticalTabsSidebar: View {
                     sidebarWorkspaceGroupHeader(
                         group: group,
                         memberWorkspaceIds: memberWorkspaceIds,
-                        renderContext: renderContext
+                        renderContext: renderContext,
+                        shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
                     )
                 case .workspace(let tab):
-                    workspaceRow(tab, renderContext: renderContext)
+                    workspaceRow(
+                        tab,
+                        renderContext: renderContext,
+                        shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+                    )
                 }
             }
         }
@@ -12307,6 +12312,7 @@ struct VerticalTabsSidebar: View {
                 guard isBonsplitWorkspaceDropTargetCollectionActive != isActive else { return }
                 isBonsplitWorkspaceDropTargetCollectionActive = isActive
             },
+            isWorkspaceDropTargetCollectionActive: isBonsplitWorkspaceDropTargetCollectionActive,
             targets: targets
         )
     }
@@ -12314,7 +12320,8 @@ struct VerticalTabsSidebar: View {
     @ViewBuilder
     private func workspaceRow(
         _ tab: Workspace,
-        renderContext: WorkspaceListRenderContext
+        renderContext: WorkspaceListRenderContext,
+        shouldCollectWorkspaceDropTargets: Bool
     ) -> some View {
         let index = renderContext.tabIndexById[tab.id] ?? 0
         let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
@@ -12374,10 +12381,6 @@ struct VerticalTabsSidebar: View {
         // Equatable conformance ignores closures, so rows whose snapshot is
         // unchanged skip re-render when drag state moves.
         let isBeingDragged = dragState.draggedTabId == tab.id
-        let shouldCollectWorkspaceDropTargets = SidebarDropPlanner.shouldCollectWorkspaceDropTargets(
-            draggedTabId: dragState.draggedTabId,
-            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive
-        )
         let sidebarReorderIds = renderContext.sidebarReorderIds
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
             forTabId: tab.id,
