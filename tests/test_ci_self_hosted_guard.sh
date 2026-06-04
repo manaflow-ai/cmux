@@ -402,8 +402,8 @@ check_web_db_behavior_test_coverage() {
     exit 1
   fi
 
-  if ! grep -Fq 'find tests -name "*.test.ts" -print | sort' "$script"; then
-    echo "FAIL: run-db-behavior-tests.sh must discover DB-gated web test files instead of relying on a hand-maintained list"
+  if ! grep -Fq 'find tests \( -name "*.test.ts" -o -name "*.test.tsx" \) -print | sort' "$script"; then
+    echo "FAIL: run-db-behavior-tests.sh must discover DB-gated .test.ts and .test.tsx files instead of relying on a hand-maintained list"
     exit 1
   fi
 

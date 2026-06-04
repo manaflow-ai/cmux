@@ -16,7 +16,7 @@ while IFS= read -r test_file; do
   if grep -q "process\\.env\\.CMUX_DB_TEST" "$test_file"; then
     test_files+=("$test_file")
   fi
-done < <(find tests -name "*.test.ts" -print | sort)
+done < <(find tests \( -name "*.test.ts" -o -name "*.test.tsx" \) -print | sort)
 
 if [[ "${#test_files[@]}" -eq 0 ]]; then
   echo "No CMUX_DB_TEST-gated test files found" >&2
