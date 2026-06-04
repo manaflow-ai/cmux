@@ -33702,9 +33702,7 @@ function renderPalette() {
 
   const query = normalizeSettingsQuery(elements.paletteInput.value);
   const tokens = settingsSearchTokens(query);
-  const allMatches = paletteEntriesForOpenSession()
-    .filter((entry) => paletteEntryMatches(entry, tokens))
-    .sort((left, right) => paletteEntryScore(right, query, tokens) - paletteEntryScore(left, query, tokens));
+  const allMatches = paletteEntriesForQuery(query, tokens);
   const matches = allMatches.slice(0, paletteVisibleResultLimit());
   state.paletteIndex = Math.min(state.paletteIndex, Math.max(0, matches.length - 1));
   if (matches[state.paletteIndex]?.disabled) {
@@ -33761,6 +33759,23 @@ function renderPalette() {
     nodes.push(more);
   }
   elements.paletteList.replaceChildren(...nodes);
+}
+
+function paletteEntriesForQuery(query, tokens) {
+  const entries = paletteEntriesForOpenSession();
+  if (!query) return entries;
+  return entries
+    .map((entry, index) => {
+      if (!paletteEntryMatches(entry, tokens)) return null;
+      return {
+        entry,
+        index,
+        score: paletteEntryScore(entry, query, tokens)
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map(({ entry }) => entry);
 }
 
 function paletteListSignature(query, entries, totalCount = entries.length) {
