@@ -30,6 +30,9 @@ public actor RenderWorkerClient {
     nonisolated let extraEnvironment: [String: String]
     /// How long to wait for a scene ack before declaring the worker hung.
     nonisolated let ackTimeout: Duration
+    /// Synchronously readable mirror of the live worker's context id, so a
+    /// remounting sidebar surface can adopt the layer without an async hop.
+    public nonisolated let contextCache = RemoteContextCache()
 
     private var subscribers: [Int: AsyncStream<RenderWorkerEvent>.Continuation] = [:]
     private var nextSubscriberID = 0
@@ -276,6 +279,7 @@ public actor RenderWorkerClient {
         switch message {
         case let .context(contextId):
             currentContextId = contextId
+            Task { @MainActor [contextCache] in contextCache.contextId = contextId }
             broadcast(.context(contextId))
         case let .ack(seq):
             acked(seq, generation: gen)
@@ -294,6 +298,7 @@ public actor RenderWorkerClient {
         ackWatchdog = nil
         pendingAckSeq = nil
         currentContextId = nil // the layer died with the worker
+        Task { @MainActor [contextCache] in contextCache.contextId = nil }
     }
 
     private func workerEnded(generation gen: Int) {
@@ -303,6 +308,7 @@ public actor RenderWorkerClient {
         ackWatchdog = nil
         pendingAckSeq = nil
         currentContextId = nil // the layer died with the worker
+        Task { @MainActor [contextCache] in contextCache.contextId = nil }
     }
 }
 

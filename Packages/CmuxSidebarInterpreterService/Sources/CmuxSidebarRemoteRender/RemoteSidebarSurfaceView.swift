@@ -31,6 +31,13 @@ final class RemoteSidebarSurfaceView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
 
+        // Adopt the live worker's layer synchronously so a remounting surface
+        // (provider switches, sidebar toggles) shows the last rendered frame
+        // immediately; the subscription below swaps in any newer context.
+        if let contextId = client.contextCache.contextId {
+            adopt(contextId: contextId)
+        }
+
         // Single ordered pipe to the actor: synchronous yields from the main
         // thread keep scene/geometry/pointer ordering intact (independent
         // `Task { await client... }` hops would not guarantee FIFO).
