@@ -5286,6 +5286,32 @@ async function applyCurrentBackgroundToTarget() {
   return applyBackgroundValueToTarget(state.settings.backgroundImage, target, { toast: true });
 }
 
+async function applyPaneBackgroundToApp(panel = activeTerminalPanelForSettings()) {
+  const terminalPanel = resolveTerminalPanel(panel);
+  if (!terminalPanel) {
+    toast("Select a terminal pane first.");
+    return null;
+  }
+  const background = normalizeBackgroundValue(terminalPanel.backgroundImage);
+  if (!background) {
+    toast("Choose a pane background first.");
+    return false;
+  }
+  if (normalizeBackgroundValue(state.settings.backgroundImage) === background) {
+    toast("App already uses this pane background.");
+    return false;
+  }
+  const validated = await validateBackgroundImageValue(background);
+  if (!validated.ok) {
+    toast("Pane background image could not be loaded.");
+    return null;
+  }
+  const changed = updateSettings(backgroundImageSettings(validated.url), { immediate: true });
+  if (changed && state.inspectorMode === "settings") renderSettingsInspector();
+  toast(changed ? "App background set from pane." : "App already uses this pane background.");
+  return changed;
+}
+
 async function clearBackgroundApplyTarget() {
   return applyBackgroundValueToTarget("", state.backgroundApplyTarget, { toast: true });
 }
@@ -17427,6 +17453,13 @@ function paneBackgroundControlPanel(panel) {
   const choose = settingsActionButton("Choose", () => choosePanelBackgroundImage(panel), "", "active pane terminal background choose local image");
   const useApp = settingsActionButton("Use app", () => applyPanelBackgroundImage(state.settings.backgroundImage, panel), "", "active pane terminal background use app global image");
   useApp.disabled = !state.settings.backgroundImage;
+  const useAsApp = settingsActionButton("Use as app", () => applyPaneBackgroundToApp(panel), "", "active pane terminal background use as app whole window image");
+  useAsApp.disabled = !hasBackground || normalizeBackgroundValue(state.settings.backgroundImage) === background;
+  useAsApp.title = !hasBackground
+    ? "Choose a pane background before using it for the app."
+    : normalizeBackgroundValue(state.settings.backgroundImage) === background
+      ? "The app already uses this pane background."
+      : "Use this pane background for the whole app.";
   const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: background }), "", "active pane terminal background save image wallpaper library");
   applySavedBackgroundImageSaveLimit(save, background, "Save this pane background image.");
   const copySource = settingsActionButton("Copy", () => copyBackgroundImageSource(background, "Pane background source copied."), "", "active pane terminal background copy source url file path");
@@ -17439,7 +17472,7 @@ function paneBackgroundControlPanel(panel) {
   clear.disabled = !hasBackground;
   actions.append(
     backgroundActionGroup("Image source", "active pane terminal background image choose paste apply", [apply, paste, choose]),
-    backgroundActionGroup("Pane image", "active pane terminal background use app save copy open clear", [useApp, save, copySource, open, clear])
+    backgroundActionGroup("Pane image", "active pane terminal background use app use as app save copy open clear", [useApp, useAsApp, save, copySource, open, clear])
   );
 
   control.append(preview, copy, input, actions);
