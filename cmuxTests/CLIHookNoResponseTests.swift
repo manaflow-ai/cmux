@@ -193,8 +193,8 @@ struct CLIHookNoResponseTests {
         )
 
         #expect(server.wait(timeout: 5), "socket server did not observe lifecycle feed.push")
-        #expect(!result.timedOut, result.stderr)
-        #expect(result.status == 0, result.stderr)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
         #expect(
             state.snapshot().contains { $0.contains(#""method":"feed.push""#) },
