@@ -38,13 +38,13 @@ final class FeedCoordinator: @unchecked Sendable {
         label: "cmux.feed.pidWatcher", qos: .utility
     )
 
-    /// Number of in-flight blocking decisions whose needs-input overlay is
-    /// currently lit, keyed by ``AttentionTarget``. The overlay is cleared
-    /// only when the last overlapping decision for a target concludes, so two
-    /// simultaneous decisions on the same panel can't clear each other's
-    /// badge. Main-actor isolated: read/written only from the `@MainActor`
-    /// attention methods.
-    @MainActor private var pendingAttentionCounts: [AttentionTarget: Int] = [:]
+    /// In-flight blocking decisions whose needs-input overlay is currently lit,
+    /// keyed by ``AttentionTarget``. Each state keeps the workspace object that
+    /// was mutated when surfacing attention, so cleanup does not depend on
+    /// resolving a live window route after the decision has already ended.
+    /// Main-actor isolated: read/written only from the `@MainActor` attention
+    /// methods.
+    @MainActor private var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
 
     private init() {}
 
@@ -379,7 +379,10 @@ extension FeedCoordinator {
             panelId: panelId,
             statusKey: statusKey
         )
-        pendingAttentionCounts[target, default: 0] += 1
+        let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(workspace: tab)
+        attentionState.workspace = tab
+        attentionState.count += 1
+        pendingAttentionStates[target] = attentionState
 
         // Needs-input lifecycle drives the sidebar badge + hibernation state.
         tab.setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .needsInput)
@@ -412,16 +415,13 @@ extension FeedCoordinator {
     /// running/idle/needs-input update from the agent always wins.
     @MainActor
     func concludeBlockingDecisionAttention(_ target: AttentionTarget) {
-        guard let count = pendingAttentionCounts[target] else { return }
-        if count > 1 {
-            pendingAttentionCounts[target] = count - 1
+        guard let attentionState = pendingAttentionStates[target] else { return }
+        if attentionState.count > 1 {
+            attentionState.count -= 1
             return
         }
-        pendingAttentionCounts.removeValue(forKey: target)
-
-        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: target.workspaceId),
-              let tab = tabManager.tabs.first(where: { $0.id == target.workspaceId })
-        else { return }
+        pendingAttentionStates.removeValue(forKey: target)
+        let tab = attentionState.workspace
 
         // Lifecycle is per-panel, so clearing this panel's needs-input is
         // safe even if another panel still needs input.
@@ -435,7 +435,7 @@ extension FeedCoordinator {
         // no other panel in this workspace still has a pending decision under
         // the same key — otherwise concluding one panel would wipe another
         // panel's active "Needs input" badge.
-        let anotherPanelStillPending = pendingAttentionCounts.keys.contains {
+        let anotherPanelStillPending = pendingAttentionStates.keys.contains {
             $0.workspaceId == target.workspaceId && $0.statusKey == target.statusKey
         }
         if !anotherPanelStillPending,
@@ -482,6 +482,17 @@ extension FeedCoordinator {
         guard let surfaceId else { return nil }
         if tab.panels[surfaceId] != nil { return surfaceId }
         return tab.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+    }
+}
+
+@MainActor
+private final class AttentionOverlayState {
+    var count: Int
+    var workspace: Workspace
+
+    init(workspace: Workspace) {
+        self.count = 0
+        self.workspace = workspace
     }
 }
 
