@@ -893,6 +893,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         try XCTUnwrap(workspace.terminalPanel(for: firstPanelId))
             .surface
             .setNeedsConfirmCloseOverrideForTesting(true)
+        try XCTUnwrap(workspace.terminalPanel(for: secondPanelId))
+            .surface
+            .setNeedsConfirmCloseOverrideForTesting(true)
 
         let snapshots = workspace.sessionSnapshot(includeScrollback: false).panels
         let firstSnapshot = try XCTUnwrap(snapshots.first { $0.id == firstPanelId })
@@ -933,17 +936,17 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         var promptCount = 0
         manager.confirmCloseHandler = { _, _, _ in
             promptCount += 1
-            return false
+            return promptCount == 1
         }
 
         XCTAssertFalse(appDelegate.redoLastDestructiveAction(preferredTabManager: manager))
-        XCTAssertEqual(promptCount, 1)
+        XCTAssertEqual(promptCount, 2)
         XCTAssertNotNil(workspace.panels[firstPanelId])
         XCTAssertNotNil(workspace.panels[secondPanelId])
         XCTAssertEqual(ClosedItemHistoryStore.shared.lastRestoredOperationId, operationId)
     }
 
-    func testGroupedRedoUsesSingleConfirmationBeforeClosingPanels() throws {
+    func testGroupedRedoPreflightsPanelConfirmationsBeforeClosingPanels() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -1009,14 +1012,18 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         var promptCount = 0
         manager.confirmCloseHandler = { title, message, acceptCmdD in
             promptCount += 1
-            XCTAssertEqual(title, String(localized: "dialog.historyRedo.group.title", defaultValue: "Close reopened items?"))
-            XCTAssertTrue(message.contains("2"))
+            XCTAssertEqual(title, String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"))
+            if promptCount == 1 {
+                XCTAssertTrue(message.contains("First Redo"))
+            } else {
+                XCTAssertTrue(message.contains("Second Redo"))
+            }
             XCTAssertFalse(acceptCmdD)
             return true
         }
 
         XCTAssertTrue(appDelegate.redoLastDestructiveAction(preferredTabManager: manager))
-        XCTAssertEqual(promptCount, 1)
+        XCTAssertEqual(promptCount, 2)
         XCTAssertNil(workspace.panels[firstPanelId])
         XCTAssertNil(workspace.panels[secondPanelId])
         XCTAssertNil(ClosedItemHistoryStore.shared.lastRestoredOperationId)

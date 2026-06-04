@@ -15519,6 +15519,30 @@ final class Workspace: Identifiable, ObservableObject {
         return closePanel(panelId, force: true, operationId: operationId)
     }
 
+    func confirmPanelCloseForHistoryRedo(_ panelId: UUID, force: Bool = false) -> Bool {
+        guard let tabId = surfaceIdFromPanelId(panelId) else {
+            return panels[panelId] != nil
+        }
+        guard panels[panelId] != nil else { return false }
+        guard !force else { return true }
+
+        guard CloseTabConfirmationPolicy.shouldConfirm(
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+            source: .shortcut
+        ) else { return true }
+
+        let prompt = closePanelConfirmationPrompt(for: tabId)
+        let confirmationManager = owningTabManager
+            ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+            ?? AppDelegate.shared?.tabManager
+        guard let confirmationManager else { return false }
+        return confirmationManager.confirmCloseForHistoryRedoPreflight(
+            title: prompt.title,
+            message: prompt.message,
+            acceptCmdD: false
+        )
+    }
+
     func requestCloseTab(_ tabId: TabID, force: Bool) -> Bool {
         if force { forceCloseTabIds.insert(tabId) }
         let closed = bonsplitController.closeTab(tabId); if force && !closed { forceCloseTabIds.remove(tabId) }

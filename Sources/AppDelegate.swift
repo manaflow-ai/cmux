@@ -5488,6 +5488,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return tabManagerFor(windowId: windowId) == nil
     }
 
+    func confirmMainWindowForHistoryRedo(windowId: UUID, force: Bool = false) -> Bool {
+        guard let window = windowForMainWindowId(windowId) else { return false }
+        return force || confirmCloseMainWindow(window)
+    }
+
     func discardMainWindowWithoutClosedHistory(windowId: UUID) {
         guard let window = windowForMainWindowId(windowId) else { return }
         closedWindowHistorySuppressedWindowIds.insert(windowId)

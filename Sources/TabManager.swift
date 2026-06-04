@@ -7110,6 +7110,36 @@ class TabManager: ObservableObject {
         }
     }
 
+    func confirmWorkspaceCloseForHistoryRedo(_ workspace: Workspace, force: Bool = false) -> Bool {
+        guard tabs.contains(where: { $0.id == workspace.id }) else { return false }
+        guard !force else { return true }
+        if workspace.isPinned {
+            guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
+        }
+        if let groupId = workspace.groupId,
+           let group = workspaceGroups.first(where: { $0.id == groupId }),
+           group.anchorWorkspaceId == workspace.id {
+            let otherMemberCount = tabs.reduce(0) { partial, tab in
+                tab.groupId == groupId && tab.id != workspace.id ? partial + 1 : partial
+            }
+            guard confirmAnchorWorkspaceClose(
+                groupName: group.name,
+                otherMemberCount: otherMemberCount
+            ) else { return false }
+        }
+        guard !workspace.isPinned else { return true }
+        let willCloseWindow = tabs.count <= 1
+        let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
+        guard shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: .workspace) else {
+            return true
+        }
+        return confirmCloseForHistoryRedoPreflight(
+            title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
+            message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
+            acceptCmdD: willCloseWindow
+        )
+    }
+
     @discardableResult
     func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
@@ -7262,6 +7292,32 @@ class TabManager: ObservableObject {
             "closeConfirmationMessage": message,
         ])
         #endif
+
+        return runCloseConfirmationAlert(alert) == .alertFirstButtonReturn
+    }
+
+    func confirmCloseForHistoryRedoPreflight(title: String, message: String, acceptCmdD: Bool) -> Bool {
+        if let confirmCloseHandler {
+            return confirmCloseHandler(title, message, acceptCmdD)
+        }
+        _ = acceptCmdD
+
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
+        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
+
+        if let closeButton = alert.buttons.first {
+            closeButton.keyEquivalent = "\r"
+            closeButton.keyEquivalentModifierMask = []
+            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
+            alert.window.initialFirstResponder = closeButton
+        }
+        if let cancelButton = alert.buttons.dropFirst().first {
+            cancelButton.keyEquivalent = "\u{1b}"
+        }
 
         return runCloseConfirmationAlert(alert) == .alertFirstButtonReturn
     }

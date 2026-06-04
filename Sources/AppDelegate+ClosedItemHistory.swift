@@ -268,21 +268,20 @@ extension AppDelegate {
             ClosedItemHistoryStore.shared.setLastRestoredOperation(nil)
             return redoLastReopen(preferredTabManager: preferredTabManager, force: force)
         }
-        if liveRecords.count > 1, !force {
-            guard confirmGroupedHistoryRedoClose(
-                itemCount: liveRecords.count,
-                preferredTabManager: preferredTabManager,
-                refs: liveRecords.map(\.1)
-            ) else {
-                ClosedItemHistoryStore.shared.setLastRestoredOperation(opId)
-                return false
+        if liveRecords.count > 1 {
+            for (_, ref) in liveRecords {
+                guard confirmReopenedRefCanClose(ref, force: force) else {
+                    ClosedItemHistoryStore.shared.setLastRestoredOperation(opId)
+                    return false
+                }
             }
         }
         let redoOperationId = UUID()
-        let closeForce = force || liveRecords.count > 1
         var closedCount = 0
         for (_, ref) in liveRecords {
-            guard closeReopenedRef(ref, operationId: redoOperationId, force: closeForce) else {
+            // Grouped redo preflights every close above before mutating; force
+            // here prevents duplicate prompts during the actual close pass.
+            guard closeReopenedRef(ref, operationId: redoOperationId, force: force || liveRecords.count > 1) else {
                 ClosedItemHistoryStore.shared.setLastRestoredOperation(opId)
                 return false
             }
@@ -291,38 +290,6 @@ extension AppDelegate {
         let closedAll = closedCount == liveRecords.count
         ClosedItemHistoryStore.shared.setLastRestoredOperation(closedAll ? nil : opId)
         return closedAll
-    }
-
-    private func confirmGroupedHistoryRedoClose(
-        itemCount: Int,
-        preferredTabManager: TabManager?,
-        refs: [ReopenedItemRef]
-    ) -> Bool {
-        let title = String(localized: "dialog.historyRedo.group.title", defaultValue: "Close reopened items?")
-        let format = String(
-            localized: "dialog.historyRedo.group.message",
-            defaultValue: "%d reopened items will be closed again."
-        )
-        let message = String.localizedStringWithFormat(format, itemCount)
-        let confirmationManager = preferredTabManager ?? refs.compactMap { ref -> TabManager? in
-            switch ref {
-            case .panel(let workspaceId, _), .workspace(let workspaceId):
-                return tabManagerFor(tabId: workspaceId)
-            case .window(let windowId):
-                return tabManagerFor(windowId: windowId)
-            }
-        }.first
-        if let confirmationManager {
-            return confirmationManager.confirmClose(title: title, message: message, acceptCmdD: false)
-        }
-
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = title
-        alert.informativeText = message
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
-        return alert.runModal() == .alertFirstButtonReturn
     }
 
     @discardableResult
@@ -340,6 +307,23 @@ extension AppDelegate {
             return manager.closeWorkspaceForHistoryRedo(workspace, operationId: operationId, force: force)
         case .window(let windowId):
             return closeMainWindowForHistoryRedo(windowId: windowId, operationId: operationId, force: force)
+        }
+    }
+
+    private func confirmReopenedRefCanClose(_ ref: ReopenedItemRef, force: Bool = false) -> Bool {
+        switch ref {
+        case .panel(let workspaceId, let panelId):
+            guard let (workspace, _) = workspaceContainingPanel(
+                panelId: panelId,
+                preferredWorkspaceId: workspaceId
+            ) else { return false }
+            return workspace.confirmPanelCloseForHistoryRedo(panelId, force: force)
+        case .workspace(let workspaceId):
+            guard let manager = tabManagerFor(tabId: workspaceId),
+                  let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
+            return manager.confirmWorkspaceCloseForHistoryRedo(workspace, force: force)
+        case .window(let windowId):
+            return confirmMainWindowForHistoryRedo(windowId: windowId, force: force)
         }
     }
 
