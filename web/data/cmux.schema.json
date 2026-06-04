@@ -292,6 +292,7 @@
         "singleWindowMode": {
           "type": "boolean",
           "default": false,
+          "descriptionKey": "schemaDescriptions.app.singleWindowMode",
           "description": "When true, automatic workspace requests reuse an existing main window instead of creating a fallback window. Explicit New Window commands still create windows."
         },
         "minimalMode": {

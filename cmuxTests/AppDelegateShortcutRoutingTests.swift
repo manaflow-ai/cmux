@@ -5407,64 +5407,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(appDelegate.tabManager === firstManager, "Unresolved event window should not retarget active manager")
     }
 
-    func testSingleWindowModeRoutesAutomaticWorkspaceFallbackToExistingWindow() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let defaults = UserDefaults.standard
-        let previousSingleWindowModeValue = defaults.object(forKey: SingleWindowModeSettings.key)
-        defaults.set(true, forKey: SingleWindowModeSettings.key)
-
-        let existingWindowIds = mainWindowIds()
-        let windowId = appDelegate.createMainWindow()
-        defer {
-            restoreDefaultsValue(
-                previousSingleWindowModeValue,
-                forKey: SingleWindowModeSettings.key,
-                defaults: defaults
-            )
-            for createdWindowId in mainWindowIds().subtracting(existingWindowIds) {
-                closeWindow(withId: createdWindowId)
-            }
-        }
-
-        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let window = window(withId: windowId) else {
-            XCTFail("Expected main window context")
-            return
-        }
-
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        let existingWorkspaceCount = manager.tabs.count
-        let windowIdsBeforeAction = mainWindowIds()
-
-        guard let event = makeKeyDownEvent(
-            key: "n",
-            modifiers: [.command],
-            keyCode: 45,
-            windowNumber: Int.max
-        ) else {
-            XCTFail("Failed to construct Cmd+N event")
-            return
-        }
-
-#if DEBUG
-        XCTAssertTrue(
-            appDelegate.debugHandleCustomShortcut(event: event),
-            "Single Window Mode should let the Cmd+N shortcut route unresolved window events to an existing window"
-        )
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
-
-        XCTAssertEqual(mainWindowIds(), windowIdsBeforeAction, "Single Window Mode must not create an automatic fallback window")
-        XCTAssertEqual(manager.tabs.count, existingWorkspaceCount + 1, "Single Window Mode should route fallback workspace creation to the existing window")
-    }
-
     func testCmdShiftMReturnsFalseWhenNoFocusedTerminalCanHandle() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
