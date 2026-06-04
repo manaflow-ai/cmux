@@ -1600,6 +1600,9 @@ final class CmuxSettingsFileStore {
         source: String,
         synchronizeAppearanceTerminalTheme: Bool
     ) -> ManagedDefaultBatchSideEffects {
+        guard defaultsKey != AppearanceSettings.appearanceModeKey else {
+            return ManagedDefaultBatchSideEffects()
+        }
         var sideEffects = ManagedDefaultBatchSideEffects()
         sideEffects.append(
             defaultsKey: defaultsKey,

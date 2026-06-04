@@ -526,7 +526,7 @@ final class MarkdownPanelTests: XCTestCase {
 
     func testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate() async throws {
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
-        let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
+        let webView = WKWebView(frame: frame, configuration: makeMarkdownTestWebViewConfiguration())
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
         window.orderFrontRegardless()
@@ -608,7 +608,7 @@ final class MarkdownPanelTests: XCTestCase {
         """.write(to: markdownURL, atomically: true, encoding: .utf8)
 
         let frame = NSRect(x: 0, y: 0, width: 320, height: 240)
-        let configuration = WKWebViewConfiguration()
+        let configuration = makeMarkdownTestWebViewConfiguration()
         let coordinator = MarkdownWebRenderer.Coordinator()
         coordinator.filePath = markdownURL.path
         configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
@@ -711,7 +711,7 @@ final class MarkdownPanelTests: XCTestCase {
             .appendingPathComponent("cmux-markdown-data-image-\(UUID().uuidString).md")
 
         let frame = NSRect(x: 0, y: 0, width: 320, height: 240)
-        let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
+        let webView = WKWebView(frame: frame, configuration: makeMarkdownTestWebViewConfiguration())
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
         window.orderFrontRegardless()
@@ -747,7 +747,7 @@ final class MarkdownPanelTests: XCTestCase {
             .appendingPathComponent("cmux-markdown-remote-image-\(UUID().uuidString).md")
 
         let frame = NSRect(x: 0, y: 0, width: 420, height: 260)
-        let configuration = WKWebViewConfiguration()
+        let configuration = makeMarkdownTestWebViewConfiguration()
         let coordinator = MarkdownWebRenderer.Coordinator()
         let remoteImageHandler = MarkdownRemoteImageHoldingSchemeHandler()
         coordinator.filePath = markdownURL.path
@@ -1432,6 +1432,13 @@ final class MarkdownPanelTests: XCTestCase {
             }
         }
         return lines.joined(separator: "\n")
+    }
+
+    private func makeMarkdownTestWebViewConfiguration() -> WKWebViewConfiguration {
+        let configuration = WKWebViewConfiguration()
+        configuration.processPool = WKProcessPool()
+        configuration.websiteDataStore = .nonPersistent()
+        return configuration
     }
 
     private static func cssRGBAComponents(_ css: String) -> (red: Int, green: Int, blue: Int, alpha: Double)? {

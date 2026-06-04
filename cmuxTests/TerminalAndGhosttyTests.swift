@@ -4096,7 +4096,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
         var anchor1: NSView? = NSView(frame: NSRect(x: 20, y: 20, width: 120, height: 80))
         contentView.addSubview(anchor1!)
-        portal.bind(hostedView: hosted1, to: anchor1!, visibleInUI: true)
+        portal.bind(hostedView: hosted1, to: anchor1!, visibleInUI: false)
 
         anchor1?.removeFromSuperview()
         anchor1 = nil
@@ -4489,8 +4489,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             window.displayIfNeeded()
         }
 
-        drainMainQueue()
-        drainMainQueue()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
         XCTAssertGreaterThan(

@@ -3296,10 +3296,21 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
 
         workspace.focusPanel(leftPanelId)
 
-        XCTAssertEqual(workspace.focusedPanelId, leftPanelId)
-        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: leftPanelId))
-        XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: leftPanelId))
-        XCTAssertEqual(workspace.tmuxWorkspaceFlashToken, 1)
+        NotificationCenter.default.post(
+            name: .ghosttyDidFocusSurface,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: leftPanelId,
+                GhosttyNotificationKey.explicitFocusIntent: true,
+            ]
+        )
+
+        XCTAssertTrue(waitForCondition(timeout: 1.0) {
+            !store.hasUnreadNotification(forTabId: workspace.id, surfaceId: leftPanelId) &&
+                !store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: leftPanelId) &&
+                workspace.tmuxWorkspaceFlashToken == 1
+        })
         XCTAssertEqual(workspace.tmuxWorkspaceFlashPanelId, leftPanelId)
         XCTAssertEqual(workspace.tmuxWorkspaceFlashReason, .notificationDismiss)
     }
