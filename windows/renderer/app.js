@@ -6658,8 +6658,13 @@ const customizationPaletteCommandIds = new Set([
   "settings.pasteAppSetup",
   "settings.copyRecentActivity",
   "settings.pasteRecentActivity",
+  "terminal.copyRecentCommands",
+  "terminal.pasteRecentCommands",
+  "browser.copyRecentPages",
+  "browser.pasteRecentPages",
   "settings.copySavedLibrary",
   "settings.pasteSavedLibrary",
+  "settings.pasteCommandSnippet",
   "settings.clearSavedLibrary",
   "settings.clearRecentActivity",
   "settings.saveProfile",
@@ -6707,6 +6712,10 @@ function customizationCommandPaletteSignature() {
   appendSignatureValue(parts, totalDataStorageBytes());
   appendSignatureValue(parts, savedDataItemCount());
   appendSignatureValue(parts, recentDataItemCount());
+  appendSignatureValue(parts, state.recentCommands.length);
+  appendSignatureValue(parts, state.recentBrowserPages.length);
+  appendSignatureValue(parts, state.customCommandSnippets.length);
+  appendSignatureValue(parts, customCommandSnippetsFull());
   appendSignatureValue(parts, state.savedSettingsProfiles.length);
   appendSignatureValue(parts, activeSettingsSetupLabel());
   appendSignatureValue(parts, settingsProfileSummary(state.settings));
@@ -6861,6 +6870,54 @@ function customizationCommandPaletteState(commandId) {
       icon: "data",
       title: recentCount ? "Clear recent folders, commands, browser pages, and saved browser tabs." : "Recent activity is already clear.",
       search: "recent activity clear privacy folders commands browser pages tabs history"
+    };
+  }
+  if (commandId === "terminal.copyRecentCommands" || commandId === "terminal.pasteRecentCommands") {
+    const count = state.recentCommands.length;
+    const countLabel = `${count}/${recentCommandsLimit} commands`;
+    const isPaste = commandId === "terminal.pasteRecentCommands";
+    return {
+      meta: countLabel,
+      shortcut: isPaste ? "Paste" : "Copy",
+      disabled: !isPaste && count === 0,
+      icon: "terminal",
+      title: isPaste
+        ? "Merge copied terminal commands into recent commands."
+        : count
+          ? "Copy recent terminal commands as JSON."
+          : "Recent commands are empty.",
+      search: normalizeSettingsQuery(`recent terminal commands shell ${isPaste ? "paste import" : "copy export"} clipboard json history ${countLabel}`)
+    };
+  }
+  if (commandId === "browser.copyRecentPages" || commandId === "browser.pasteRecentPages") {
+    const count = state.recentBrowserPages.length;
+    const countLabel = `${count}/${recentBrowserPagesLimit} pages`;
+    const isPaste = commandId === "browser.pasteRecentPages";
+    return {
+      meta: countLabel,
+      shortcut: isPaste ? "Paste" : "Copy",
+      disabled: !isPaste && count === 0,
+      icon: "browser",
+      title: isPaste
+        ? "Merge copied browser pages into recent pages."
+        : count
+          ? "Copy recent browser pages as JSON."
+          : "Recent browser pages are empty.",
+      search: normalizeSettingsQuery(`recent browser pages web urls ${isPaste ? "paste import" : "copy export"} clipboard json history ${countLabel}`)
+    };
+  }
+  if (commandId === "settings.pasteCommandSnippet") {
+    const count = state.customCommandSnippets.length;
+    const countLabel = `${count}/${customCommandSnippetsLimit} snippets`;
+    const full = customCommandSnippetsFull();
+    return {
+      meta: full ? `Full / ${countLabel}` : countLabel,
+      shortcut: "Paste",
+      icon: "commands",
+      title: full
+        ? "Paste a copied command snippet or command. New snippets need an open slot."
+        : "Paste a copied command snippet or command.",
+      search: normalizeSettingsQuery(`terminal command snippet paste import clipboard json saved custom shell ${full ? "limit full " : ""}${countLabel}`)
     };
   }
   if (commandId === "settings.saveProfile" || commandId === "settings.copyCurrentProfile" || commandId === "settings.pasteProfile" || commandId === "settings.saveTerminalProfile") {
