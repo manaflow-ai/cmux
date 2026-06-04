@@ -938,6 +938,18 @@ body.reduce-motion *::after {
   color: var(--color-text);
 }
 
+.shell.workspace-active-subtle .workspace-row.is-active {
+  border-color: color-mix(in oklch, var(--color-line) 74%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 72%, transparent);
+  box-shadow: none;
+}
+
+.shell.workspace-active-line .workspace-row.is-active {
+  border-color: color-mix(in oklch, var(--color-line) 68%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 64%, transparent);
+  box-shadow: inset 3px 0 0 var(--workspace-color, var(--color-accent));
+}
+
 .workspace-row:focus-visible,
 .icon-button:focus-visible,
 .tool-button:focus-visible,
@@ -7655,6 +7667,17 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .layout-preview-workspace.active {
   background: color-mix(in oklch, var(--color-accent) 18%, var(--color-pane) 82%);
   border: 1px solid color-mix(in oklch, var(--color-accent) 54%, var(--color-line) 46%);
+}
+
+.layout-settings-preview.workspace-active-subtle .layout-preview-workspace.active {
+  background: color-mix(in oklch, var(--color-text) 8%, var(--color-pane) 92%);
+  border-color: color-mix(in oklch, var(--color-line) 72%, transparent);
+}
+
+.layout-settings-preview.workspace-active-line .layout-preview-workspace.active {
+  background: color-mix(in oklch, var(--color-pane) 86%, transparent);
+  border-color: color-mix(in oklch, var(--color-line) 78%, transparent);
+  box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
 .layout-preview-footer {

@@ -25,6 +25,7 @@ export const defaultSettings = {
   sidebarDetailMode: "compact",
   sidebarBranchMode: "hidden",
   sidebarFooterMode: "workspace",
+  workspaceActiveStyle: "filled",
   toolbarMode: "minimal",
   tabSize: "balanced",
   tabCloseMode: "hover",
@@ -375,6 +376,12 @@ export const sidebarFooterOptions = [
   ["full", label("sidebarFooter.full", "Workspace + reset")]
 ];
 
+export const workspaceActiveStyleOptions = [
+  ["subtle", label("workspaceActiveStyle.subtle", "Subtle"), label("workspaceActiveStyle.subtle.body", "Quiet active row")],
+  ["filled", label("workspaceActiveStyle.filled", "Filled"), label("workspaceActiveStyle.filled.body", "Classic selected row")],
+  ["line", label("workspaceActiveStyle.line", "Line"), label("workspaceActiveStyle.line.body", "Accent side line")]
+];
+
 export const paneHeaderOptions = [
   ["compact", label("paneHeader.compact", "Compact")],
   ["full", label("paneHeader.full", "Full")],
@@ -575,6 +582,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
+      workspaceActiveStyle: "filled",
       toolbarMode: "minimal",
       tabSize: "balanced",
       tabCloseMode: "hover",
@@ -637,6 +645,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "compact",
+      workspaceActiveStyle: "subtle",
       toolbarMode: "minimal",
       tabSize: "compact",
       tabCloseMode: "minimal",
@@ -699,6 +708,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "compact",
+      workspaceActiveStyle: "subtle",
       toolbarMode: "minimal",
       tabSize: "compact",
       tabCloseMode: "minimal",
@@ -762,6 +772,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
+      workspaceActiveStyle: "line",
       toolbarMode: "minimal",
       tabSize: "balanced",
       tabCloseMode: "minimal",
@@ -824,6 +835,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
+      workspaceActiveStyle: "subtle",
       toolbarMode: "minimal",
       tabSize: "compact",
       tabCloseMode: "minimal",
@@ -886,6 +898,7 @@ export const settingsPresets = [
       sidebarDetailMode: "balanced",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
+      workspaceActiveStyle: "line",
       toolbarMode: "minimal",
       tabSize: "balanced",
       tabCloseMode: "hover",
@@ -948,6 +961,7 @@ export const settingsPresets = [
       sidebarDetailMode: "detailed",
       sidebarBranchMode: "all",
       sidebarFooterMode: "compact",
+      workspaceActiveStyle: "filled",
       toolbarMode: "standard",
       tabSize: "roomy",
       tabCloseMode: "always",
