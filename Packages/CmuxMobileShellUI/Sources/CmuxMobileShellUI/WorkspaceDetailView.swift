@@ -61,6 +61,15 @@ struct WorkspaceDetailView: View {
                 // avoidance; otherwise the view ALSO shrinks for the keyboard
                 // and the reservation double-counts (extra gap when open).
                 .ignoresSafeArea(.keyboard, edges: .bottom)
+                // The surface also owns its bottom chrome: `GhosttySurfaceView`
+                // docks the accessory toolbar above the home indicator and
+                // reserves its height in the grid itself. Expand the hosted
+                // surface under the bottom container safe area directly (the
+                // outer `mobileTerminalSafeAreaExpansion` only extends the
+                // surrounding container, not the already-laid-out
+                // UIViewRepresentable), so the live area reaches the screen
+                // bottom edge instead of leaving an empty home-indicator strip.
+                .ignoresSafeArea(.container, edges: .bottom)
             } else {
                 TerminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
