@@ -1526,7 +1526,7 @@ function backgroundRepeatCss(value) {
 }
 
 function backgroundPositionCss(value) {
-  if (["top", "bottom", "left", "right", "center"].includes(value)) return value;
+  if (["top", "bottom", "left", "right", "center", "top left", "top right", "bottom left", "bottom right"].includes(value)) return value;
   return "center";
 }
 

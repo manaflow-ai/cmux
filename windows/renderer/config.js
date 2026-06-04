@@ -286,7 +286,11 @@ export const backgroundPositionOptions = [
   ["top", label("backgroundPosition.top", "Top")],
   ["bottom", label("backgroundPosition.bottom", "Bottom")],
   ["left", label("backgroundPosition.left", "Left")],
-  ["right", label("backgroundPosition.right", "Right")]
+  ["right", label("backgroundPosition.right", "Right")],
+  ["top left", label("backgroundPosition.topLeft", "Top left")],
+  ["top right", label("backgroundPosition.topRight", "Top right")],
+  ["bottom left", label("backgroundPosition.bottomLeft", "Bottom left")],
+  ["bottom right", label("backgroundPosition.bottomRight", "Bottom right")]
 ];
 
 export const backgroundEffectsOptions = [
