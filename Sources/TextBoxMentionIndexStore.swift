@@ -101,12 +101,26 @@ actor TextBoxMentionIndexStore {
         let index = await fileIndex(rootDirectory: rootDirectory, now: now)
         if Task.isCancelled { return [] }
 
-        let matches = index.rankedCandidates(
+        var matches = index.rankedCandidates(
             matching: query.query,
             limit: Self.suggestionLimit,
             shouldCancel: { Task.isCancelled }
         )
         if Task.isCancelled { return [] }
+        if matches.isEmpty {
+            let refreshed = await refreshFileIndex(
+                rootDirectory: rootDirectory,
+                now: Date(),
+                minimumStartedAt: now
+            )
+            if Task.isCancelled { return [] }
+            matches = refreshed.rankedCandidates(
+                matching: query.query,
+                limit: Self.suggestionLimit,
+                shouldCancel: { Task.isCancelled }
+            )
+            if Task.isCancelled { return [] }
+        }
         return matches
             .map { $0.suggestion(trigger: query.trigger) }
     }
