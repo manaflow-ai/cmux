@@ -8187,7 +8187,7 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            syncSidebarSelectedWorkspaceIds()
+            reconcileSidebarSelectionAfterWorkspaceVisibilityChange()
         }
         registry.register(commandId: "palette.wakeWorkspace") {
             guard let workspace = tabManager.hiddenWorkspaceTabs.first,
@@ -9646,6 +9646,22 @@ struct ContentView: View {
 
     private func syncSidebarSelectedWorkspaceIds() {
         tabManager.setSidebarSelectedWorkspaceIds(selectedTabIds)
+    }
+
+    private func reconcileSidebarSelectionAfterWorkspaceVisibilityChange() {
+        let liveWorkspaceIds = tabManager.visibleWorkspaceTabs.map(\.id)
+        let nextSelectionIds = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+            previousSelectionIds: selectedTabIds,
+            liveWorkspaceIds: liveWorkspaceIds,
+            fallbackSelectedWorkspaceId: tabManager.selectedTabId
+        )
+        selectedTabIds = nextSelectionIds
+        lastSidebarSelectionIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndex(
+            preferredWorkspaceId: tabManager.selectedTabId,
+            selectedWorkspaceIds: nextSelectionIds,
+            liveWorkspaceIds: liveWorkspaceIds
+        )
+        syncSidebarSelectedWorkspaceIds()
     }
 
     private func applyUITestSidebarSelectionIfNeeded(tabs: [Workspace]) {
