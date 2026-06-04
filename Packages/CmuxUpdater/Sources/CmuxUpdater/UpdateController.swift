@@ -345,6 +345,10 @@ public final class UpdateController {
         }
     }
 
+    /// Returns the passive update-probe plan for the updater's automatic-check setting.
+    ///
+    /// - Parameter automaticallyChecksForUpdates: Whether Sparkle automatic update checks are enabled.
+    /// - Returns: A plan describing immediate and periodic passive update metadata checks.
     nonisolated public static func launchProbePlan(automaticallyChecksForUpdates: Bool) -> LaunchProbePlan {
         LaunchProbePlan(
             probesImmediately: false,
