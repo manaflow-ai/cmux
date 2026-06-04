@@ -1162,7 +1162,14 @@ class TabManager: ObservableObject {
     private nonisolated static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
     private nonisolated static let workspaceGitMetadataFallbackRefreshInterval: TimeInterval = 5 * 60
     private nonisolated static let backgroundPollInterval: TimeInterval = 60
-    private nonisolated static let selectedPollInterval: TimeInterval = 10
+    private nonisolated static let selectedPollInterval: TimeInterval = 15
+    // No-PR branches gain a PR via local action that fires its own event-driven refresh, so poll rarely here (issue #3136).
+    // Coincides with backgroundPollInterval today but is intentionally its own constant: the no-PR rationale is
+    // event-driven coverage, not the unfocused-watch cadence, so the two are free to diverge.
+    private nonisolated static let workspacePullRequestNoPullRequestPollInterval: TimeInterval = 60
+    private nonisolated static let workspacePullRequestUnsupportedRepositoryPollInterval: TimeInterval = 5 * 60
+    // Transient failures keep their own short retry so they don't ride the open-PR cadence (which is intentionally relaxed to 15s).
+    private nonisolated static let workspacePullRequestTransientFailurePollInterval: TimeInterval = 10
     private nonisolated static let workspacePullRequestRepoCacheLifetime: TimeInterval = 15
     private nonisolated static let workspacePullRequestRepoCachePruneLifetime: TimeInterval = 60
     private nonisolated static let workspacePullRequestRepoPageSize = 100
@@ -1229,6 +1236,7 @@ class TabManager: ObservableObject {
                 }
             }
             publishCmuxWorkspaceSelectedChange(from: previousTabId)
+            rescheduleWorkspacePullRequestPollsForFocusChange()
             let notificationDismissalContext = pendingSelectedTabNotificationDismissContext ?? .activeFocus
             pendingSelectedTabNotificationDismissContext = nil
 #if DEBUG
@@ -1310,6 +1318,7 @@ class TabManager: ObservableObject {
     private var workspacePullRequestNextPollAtByKey: [WorkspaceGitProbeKey: Date] = [:]
     private var workspacePullRequestLastTerminalStateRefreshAtByKey: [WorkspaceGitProbeKey: Date] = [:]
     private var workspacePullRequestTransientFailureCountByKey: [WorkspaceGitProbeKey: Int] = [:]
+    private var workspacePullRequestLastOutcomeByKey: [WorkspaceGitProbeKey: WorkspacePullRequestPollOutcome] = [:]
     private var workspacePullRequestRepoCacheBySlug: [String: WorkspacePullRequestRepoCacheEntry] = [:]
     private var workspacePullRequestPollTimer: DispatchSourceTimer?
     private var workspacePullRequestRefreshTask: Task<Void, Never>?
@@ -2114,31 +2123,111 @@ class TabManager: ObservableObject {
             workspacePullRequestLastTerminalStateRefreshAtByKey[key] = now
         }
 
-        if case .resolved(let resolvedPullRequest) = resolution,
-           let status = SidebarPullRequestStatus(rawValue: resolvedPullRequest.statusRawValue),
-           status != .open {
+        let outcome = classifyWorkspacePullRequestPollOutcome(key: key, resolution: resolution)
+        switch outcome {
+        case .terminalPullRequest:
             workspacePullRequestLastTerminalStateRefreshAtByKey[key] = now
-            workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.workspacePullRequestTerminalStateSweepInterval)
-            return
-        }
-
-        if case .transientFailure = resolution,
-           workspacePullRequestLastTerminalStateRefreshAtByKey[key] != nil {
-            workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.workspacePullRequestTerminalStateSweepInterval)
-            return
-        }
-
-        if case .unsupportedRepository = resolution {
+        case .openPullRequest, .noPullRequest, .unsupportedRepository:
             workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
-            workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.jitteredPollInterval(base: Self.backgroundPollInterval))
+        case .transientFailure:
+            break
+        }
+        workspacePullRequestLastOutcomeByKey[key] = outcome
+
+        let isFocused = isSelectedFocusedPanel(workspace: workspace, panelId: panelId)
+        workspacePullRequestNextPollAtByKey[key] = Self.nextWorkspacePullRequestPollAt(
+            from: now,
+            outcome: outcome,
+            isFocused: isFocused
+        )
+    }
+
+    private func classifyWorkspacePullRequestPollOutcome(
+        key: WorkspaceGitProbeKey,
+        resolution: WorkspacePullRequestRefreshResult.Resolution
+    ) -> WorkspacePullRequestPollOutcome {
+        switch resolution {
+        case .resolved(let resolvedPullRequest):
+            if let status = SidebarPullRequestStatus(rawValue: resolvedPullRequest.statusRawValue),
+               status != .open {
+                return .terminalPullRequest
+            }
+            return .openPullRequest
+        case .notFound:
+            return .noPullRequest
+        case .unsupportedRepository:
+            return .unsupportedRepository
+        case .transientFailure:
+            return .transientFailure(hadTerminalState: workspacePullRequestLastTerminalStateRefreshAtByKey[key] != nil)
+        }
+    }
+
+    /// Brings the newly-focused panel's next-poll deadline forward when the focused cadence would fire sooner than
+    /// the previously scheduled (unfocused) deadline. Called when `selectedTabId` changes so the focused cadence
+    /// asymmetry takes effect immediately. The previously-focused key keeps its existing deadline — it fires on the
+    /// already-shorter focused schedule and is rescheduled to the unfocused cadence afterwards. Within-tab panel
+    /// focus changes are not currently hooked.
+    private func rescheduleWorkspacePullRequestPollsForFocusChange() {
+        guard let workspace = selectedWorkspace,
+              let panelId = workspace.focusedPanelId else { return }
+        let key = WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId)
+        guard let outcome = workspacePullRequestLastOutcomeByKey[key],
+              Self.workspacePullRequestPollOutcomeIsFocusSensitive(outcome) else { return }
+        let now = Date()
+        // The newly-selected workspace's focused panel is by definition focused — we resolved it via selectedWorkspace.
+        let target = Self.nextWorkspacePullRequestPollAt(from: now, outcome: outcome, isFocused: true)
+        if let current = workspacePullRequestNextPollAtByKey[key], current <= target {
             return
         }
+        workspacePullRequestNextPollAtByKey[key] = target
+        updateWorkspacePullRequestPollTimer()
+    }
 
-        workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
-        let baseInterval = isSelectedFocusedPanel(workspace: workspace, panelId: panelId)
-            ? Self.selectedPollInterval
-            : Self.backgroundPollInterval
-        workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.jitteredPollInterval(base: baseInterval))
+    private nonisolated static func workspacePullRequestPollOutcomeIsFocusSensitive(
+        _ outcome: WorkspacePullRequestPollOutcome
+    ) -> Bool {
+        switch outcome {
+        case .openPullRequest, .transientFailure(hadTerminalState: false):
+            return true
+        case .terminalPullRequest, .noPullRequest, .unsupportedRepository, .transientFailure(hadTerminalState: true):
+            return false
+        }
+    }
+
+    enum WorkspacePullRequestPollOutcome: Sendable, Equatable {
+        case openPullRequest
+        case terminalPullRequest
+        case noPullRequest
+        case unsupportedRepository
+        case transientFailure(hadTerminalState: Bool)
+    }
+
+    /// Returns the next-poll Date for a key given its last classified outcome and current focus state. Jitter is
+    /// applied uniformly so simultaneous transitions (e.g. ten PRs merging in one sweep) don't converge on a single
+    /// wake-up.
+    nonisolated static func nextWorkspacePullRequestPollAt(
+        from now: Date,
+        outcome: WorkspacePullRequestPollOutcome,
+        isFocused: Bool
+    ) -> Date {
+        let base: TimeInterval
+        switch outcome {
+        case .terminalPullRequest:
+            base = workspacePullRequestTerminalStateSweepInterval
+        case .transientFailure(let hadTerminalState):
+            if hadTerminalState {
+                base = workspacePullRequestTerminalStateSweepInterval
+            } else {
+                base = isFocused ? workspacePullRequestTransientFailurePollInterval : backgroundPollInterval
+            }
+        case .noPullRequest:
+            base = workspacePullRequestNoPullRequestPollInterval
+        case .unsupportedRepository:
+            base = workspacePullRequestUnsupportedRepositoryPollInterval
+        case .openPullRequest:
+            base = isFocused ? selectedPollInterval : backgroundPollInterval
+        }
+        return now.addingTimeInterval(jitteredPollInterval(base: base))
     }
 
     private func pruneWorkspacePullRequestTracking(validKeys: Set<WorkspaceGitProbeKey>) {
@@ -2146,6 +2235,7 @@ class TabManager: ObservableObject {
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestTransientFailureCountByKey = workspacePullRequestTransientFailureCountByKey.filter { validKeys.contains($0.key) }
+        workspacePullRequestLastOutcomeByKey = workspacePullRequestLastOutcomeByKey.filter { validKeys.contains($0.key) }
         let repoCacheCutoff = Date().addingTimeInterval(-Self.workspacePullRequestRepoCachePruneLifetime)
         workspacePullRequestRepoCacheBySlug = workspacePullRequestRepoCacheBySlug.filter {
             $0.value.fetchedAt >= repoCacheCutoff
@@ -2158,6 +2248,7 @@ class TabManager: ObservableObject {
         workspacePullRequestProbeStateByKey.removeValue(forKey: key)
         workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
         workspacePullRequestTransientFailureCountByKey.removeValue(forKey: key)
+        workspacePullRequestLastOutcomeByKey.removeValue(forKey: key)
         updateWorkspacePullRequestPollTimer()
     }
 
@@ -2166,6 +2257,7 @@ class TabManager: ObservableObject {
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestTransientFailureCountByKey = workspacePullRequestTransientFailureCountByKey.filter { $0.key.workspaceId != workspaceId }
+        workspacePullRequestLastOutcomeByKey = workspacePullRequestLastOutcomeByKey.filter { $0.key.workspaceId != workspaceId }
         updateWorkspacePullRequestPollTimer()
     }
 
@@ -2184,6 +2276,7 @@ class TabManager: ObservableObject {
         workspacePullRequestNextPollAtByKey.removeAll()
         workspacePullRequestLastTerminalStateRefreshAtByKey.removeAll()
         workspacePullRequestTransientFailureCountByKey.removeAll()
+        workspacePullRequestLastOutcomeByKey.removeAll()
         workspacePullRequestRepoCacheBySlug.removeAll()
         workspacePullRequestFollowUpShouldBypassRepoCache = false
         updateWorkspacePullRequestPollTimer()
@@ -2236,7 +2329,8 @@ class TabManager: ObservableObject {
     }
 
     private func isSelectedFocusedPanel(workspace: Workspace, panelId: UUID) -> Bool {
-        selectedWorkspace?.id == workspace.id && selectedWorkspace?.focusedPanelId == panelId
+        guard let selected = selectedWorkspace else { return false }
+        return selected.id == workspace.id && selected.focusedPanelId == panelId
     }
 
     private nonisolated static func jitteredPollInterval(base: TimeInterval) -> TimeInterval {
