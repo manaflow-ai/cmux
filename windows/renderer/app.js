@@ -5572,6 +5572,45 @@ function savedColorApplyTitle(color, targetOption, active) {
   return `Apply ${label} to ${targetOption.label.toLowerCase()}.`;
 }
 
+function savedColorEverywhereModel(color, workspace = activeWorkspace()) {
+  const normalized = normalizeCustomPaletteColor(color);
+  const label = normalized ? normalized.toUpperCase() : "saved color";
+  const paneCount = workspace?.panels?.length || 0;
+  const colorValue = colorKey(normalized);
+  const accentActive = Boolean(normalized) && colorKey(state.settings.accent) === colorValue;
+  const workspaceActive = Boolean(normalized && workspace) && colorKey(workspace.color) === colorValue;
+  const panesActive = Boolean(normalized) && (
+    paneCount === 0 || workspace.panels.every((panel) => colorKey(panel.color) === colorValue)
+  );
+  const active = Boolean(normalized && workspace && accentActive && workspaceActive && panesActive);
+  const disabled = !normalized || !workspace || active;
+  const paneLabel = paneCount ? `${paneCount} pane${paneCount === 1 ? "" : "s"}` : "no panes";
+  const meta = workspace
+    ? `Accent + ${workspaceDisplayTitle(workspace)} + ${paneLabel}`
+    : "No workspace";
+  const title = !normalized
+    ? "Choose a saved color first."
+    : !workspace
+      ? "Open a workspace before applying a color everywhere."
+      : active
+        ? `${label} is already applied everywhere.`
+        : paneCount
+          ? `Apply ${label} to the app accent, active workspace, and ${paneLabel}.`
+          : `Apply ${label} to the app accent and active workspace.`;
+  return {
+    normalized,
+    active,
+    disabled,
+    title,
+    meta,
+    paneCount,
+    accentActive,
+    workspaceActive,
+    panesActive,
+    search: normalizeSettingsQuery(`saved color palette custom apply everywhere all scopes accent workspace all panes app chrome tab markers ${active ? "active current " : disabled ? "unavailable " : "ready "}${label} ${meta}`)
+  };
+}
+
 function colorTargetDefault(target = state.colorApplyTarget, workspace = activeWorkspace()) {
   const scope = normalizeColorApplyTarget(target);
   if (scope === "accent") return colorKey(state.settings.accent) === colorKey(defaultSettings.accent);
@@ -5666,6 +5705,47 @@ async function applySavedColorToTarget(color, target = state.colorApplyTarget) {
     return true;
   }
   return setWorkspacePaneColors(normalized);
+}
+
+async function applySavedColorEverywhere(color, workspace = activeWorkspace()) {
+  const model = savedColorEverywhereModel(color, workspace);
+  if (!model.normalized) {
+    toast("Choose a saved color first.");
+    return false;
+  }
+  if (!workspace) {
+    toast("Open a workspace before applying a color everywhere.");
+    return false;
+  }
+  if (model.active) {
+    toast(`${model.normalized.toUpperCase()} is already applied everywhere.`);
+    return false;
+  }
+  const changed = [];
+  if (!model.accentActive && updateSettings({ accent: model.normalized })) {
+    changed.push("accent");
+  }
+  if (!model.workspaceActive) {
+    await setWorkspaceColor(model.normalized, workspace.id);
+    changed.push("workspace");
+  }
+  const paneUpdates = (workspace.panels || [])
+    .filter((panel) => colorKey(panel.color) !== colorKey(model.normalized))
+    .map((panel) => ({
+      panelId: panel.id,
+      updates: { color: model.normalized }
+    }));
+  if (paneUpdates.length > 0) {
+    await updatePanels(paneUpdates);
+    changed.push(`${paneUpdates.length} pane${paneUpdates.length === 1 ? "" : "s"}`);
+  }
+  if (changed.length === 0) {
+    toast(`${model.normalized.toUpperCase()} is already applied everywhere.`);
+    return false;
+  }
+  refreshAppearanceSettingsForColorChange();
+  toast(`Color applied to ${changed.join(", ")}.`);
+  return true;
 }
 
 async function pasteColorToTarget(target = state.colorApplyTarget) {
@@ -28134,6 +28214,7 @@ function savedColorPalettePanel() {
     const activeWorkspace = savedColorActiveForTarget(color, "workspace", workspace);
     const activePaneColor = savedColorActiveForTarget(color, "pane", workspace);
     const activeAllPanes = savedColorActiveForTarget(color, "all", workspace);
+    const activeEverywhere = savedColorEverywhereModel(color, workspace);
     const activeTarget = colorTarget === "workspace"
       ? activeWorkspace
       : colorTarget === "pane"
@@ -28143,7 +28224,7 @@ function savedColorPalettePanel() {
           : activeAccent;
     const targetDisabled = Boolean(targetOption.disabled) || activeTarget;
     const applyTitle = savedColorApplyTitle(color, targetOption, activeTarget);
-    const activeSearch = `${activeAccent ? "accent active " : ""}${activeWorkspace ? "workspace active " : ""}${activePaneColor ? "pane active " : ""}${activeAllPanes ? "all panes active " : ""}`;
+    const activeSearch = `${activeAccent ? "accent active " : ""}${activeWorkspace ? "workspace active " : ""}${activePaneColor ? "pane active " : ""}${activeAllPanes ? "all panes active " : ""}${activeEverywhere.active ? "everywhere active " : ""}`;
     const card = document.createElement("div");
     card.className = [
       "saved-color-card",
@@ -28151,9 +28232,10 @@ function savedColorPalettePanel() {
       activeAccent ? "is-active-accent" : "",
       activeWorkspace ? "is-active-workspace" : "",
       activePaneColor ? "is-active-pane" : "",
-      activeAllPanes ? "is-active-all" : ""
+      activeAllPanes ? "is-active-all" : "",
+      activeEverywhere.active ? "is-active-everywhere" : ""
     ].filter(Boolean).join(" ");
-    card.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette custom accent workspace pane all apply copy delete ${activeTarget ? "active current unavailable " : targetDisabled ? "unavailable " : "ready "}${activeSearch}${targetLabel} ${color}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette custom accent workspace pane all everywhere apply copy delete ${activeTarget ? "active current unavailable " : targetDisabled ? "unavailable " : "ready "}${activeSearch}${activeEverywhere.search} ${targetLabel} ${color}`);
     const swatch = document.createElement("button");
     swatch.className = "saved-color-swatch";
     swatch.type = "button";
@@ -28170,7 +28252,7 @@ function savedColorPalettePanel() {
     value.textContent = color;
     const scope = document.createElement("div");
     scope.className = "background-preset-scope saved-color-scope";
-    scope.dataset.settingsSearch = normalizeSettingsQuery(`saved color scope accent workspace pane all ${activeSearch}${color}`);
+    scope.dataset.settingsSearch = normalizeSettingsQuery(`saved color scope accent workspace pane all everywhere ${activeSearch}${color}`);
     const addScopeChip = (labelText, active, muted = false) => {
       const chip = document.createElement("span");
       chip.className = [
@@ -28185,6 +28267,7 @@ function savedColorPalettePanel() {
     addScopeChip("Workspace", activeWorkspace, !workspace);
     addScopeChip("Pane", activePaneColor, !activePane);
     addScopeChip(workspace?.panels?.length ? `All ${workspace.panels.length}` : "All", activeAllPanes, !workspace?.panels?.length);
+    addScopeChip("Everywhere", activeEverywhere.active, !workspace);
     const cardActions = document.createElement("div");
     cardActions.className = "saved-color-card-actions";
     const apply = settingsActionButton(colorApplyTargetPrimaryLabel(colorTarget), () => {
@@ -28194,7 +28277,7 @@ function savedColorPalettePanel() {
     apply.title = applyTitle;
     const copy = settingsActionButton("Copy", () => copyCustomColorValue(color, "Saved color copied."), "", `saved color copy hex clipboard ${color}`);
     copy.title = customColorCopyTitle(color, "Copy this saved color hex value.");
-    const more = settingsActionButton("More", (event) => showSavedColorMenu(event, color), "", `saved color more actions accent workspace pane all copy delete ${color}`);
+    const more = settingsActionButton("More", (event) => showSavedColorMenu(event, color), "", `saved color more actions accent workspace pane all everywhere copy delete ${color}`);
     more.title = `More actions for ${color.toUpperCase()}.`;
     cardActions.append(apply, copy, more);
     card.append(swatch, value, scope, cardActions);
@@ -28279,6 +28362,7 @@ function showSavedColorMenu(event, color) {
   const activeWorkspace = savedColorActiveForTarget(normalized, "workspace", workspace);
   const activePane = savedColorActiveForTarget(normalized, "pane", workspace);
   const activeAll = savedColorActiveForTarget(normalized, "all", workspace);
+  const activeEverywhere = savedColorEverywhereModel(normalized, workspace);
   const menu = ensureContextMenu();
   menu.className = "context-menu";
   const title = document.createElement("div");
@@ -28293,6 +28377,13 @@ function showSavedColorMenu(event, color) {
     contextMenuButton(activePane ? "Pane active" : "Apply to active pane", () => applySavedColorToTarget(normalized, "pane"), !panel || activePane),
     contextMenuButton(activeAll ? "All panes active" : "Apply to all panes", () => applySavedColorToTarget(normalized, "all"), !hasPanes || activeAll)
   );
+  const everywhere = contextMenuButton(
+    activeEverywhere.active ? "Everywhere active" : "Apply everywhere",
+    () => applySavedColorEverywhere(normalized, workspace),
+    activeEverywhere.disabled
+  );
+  everywhere.title = activeEverywhere.title;
+  applyActions.append(everywhere);
   const copy = contextMenuButton("Copy hex", () => copyCustomColorValue(normalized, "Saved color copied."), false, "", { icon: "clipboard" });
   copy.title = customColorCopyTitle(normalized, "Copy this saved color hex value.");
   const manageActions = contextMenuActionGroup(
@@ -34829,6 +34920,7 @@ function paletteEntries() {
     const activePaneColor = colorKey(paletteActivePane?.color) === colorValue;
     const activeAllPaneColors = Boolean(paletteWorkspace?.panels?.length)
       && paletteWorkspace.panels.every((panel) => colorKey(panel.color) === colorValue);
+    const activeEverywhere = savedColorEverywhereModel(color, paletteWorkspace);
     const workspaceMeta = paletteWorkspace?.title || "Active workspace";
     entries.push({
       id: `savedColor.copy.${color.slice(1)}`,
@@ -34882,6 +34974,17 @@ function paletteEntries() {
       title: savedColorApplyTitle(color, colorAllTargetOption, activeAllPaneColors),
       search: normalizeSettingsQuery(`saved color palette custom active all panes workspace ${color}`),
       run: () => applySavedColorToTarget(color, "all")
+    });
+    entries.push({
+      id: `savedColor.everywhere.${color.slice(1)}`,
+      label: `Apply color everywhere: ${color}`,
+      meta: activeEverywhere.active ? "Active / Accent, workspace, panes" : activeEverywhere.meta,
+      shortcut: activeEverywhere.active ? "Active" : "Color",
+      active: activeEverywhere.active,
+      disabled: activeEverywhere.disabled,
+      title: activeEverywhere.title,
+      search: activeEverywhere.search,
+      run: () => applySavedColorEverywhere(color, paletteWorkspace)
     });
   }
   entries.push({
