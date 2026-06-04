@@ -38,6 +38,17 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
         XCTAssertEqual(closedTitles, ["Tab 1", "Tab 3", "Tab 4"])
     }
 
+    func testCloseOthersRecordsTargetedTabsAsOneHistoryOperation() throws {
+        let fixture = try makeWorkspaceWithFourConfirmingTabs()
+        let anchorTabId = fixture.tabIds[1]
+
+        try invoke(.closeOthers, anchorTabId: anchorTabId, fixture: fixture)
+
+        let operation = try XCTUnwrap(ClosedItemHistoryStore.shared.operationSnapshot().first)
+        XCTAssertEqual(ClosedItemHistoryStore.shared.operationSnapshot().count, 1)
+        XCTAssertEqual(operation.items.map(\.title), ["Tab 1", "Tab 3", "Tab 4"])
+    }
+
     func testCloseToRightClosesAllTargetedTabsWhenEveryPanelNeedsConfirmation() throws {
         let fixture = try makeWorkspaceWithFourConfirmingTabs()
         let anchorTabId = fixture.tabIds[0]

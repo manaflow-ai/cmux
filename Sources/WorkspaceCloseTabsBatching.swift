@@ -78,8 +78,9 @@ extension Workspace {
             ) else { return }
         }
 
+        let operationId = UUID()
         for candidate in candidates {
-            _ = requestCloseTabRecordingHistory(candidate.tabId, force: needsConfirmation)
+            _ = requestCloseTabRecordingHistory(candidate.tabId, force: needsConfirmation, operationId: operationId)
         }
     }
 }
