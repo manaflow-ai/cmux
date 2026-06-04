@@ -16259,6 +16259,7 @@ function quickWorkspaceSettingsSignature(workspace = activeWorkspace()) {
     appendSignatureValue(nextParts, panel.color || "");
     appendSignatureValue(nextParts, panel.cwdShort || "");
     appendSignatureValue(nextParts, panel.type === "browser" ? panel.url || "" : "");
+    appendSignatureValue(nextParts, panel.type === "browser" ? browserPanePageTitleSuggestion(panel) : "");
     appendSignatureValue(nextParts, panel.type === "terminal" ? panel.backgroundImage || "" : "");
     appendSignatureValue(nextParts, panel.type === "terminal" ? panel.terminalFontSize || 0 : 0);
     appendSignatureValue(nextParts, isPendingPanel(panel));
@@ -24021,6 +24022,7 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
   const workspaceName = workspaceDisplayTitle(workspace, "No workspace");
   const folderTitle = workspace ? folderName(workspace.cwd) : "";
   const paneTitle = workspacePaneSuggestedTitle(workspace);
+  const pageTitle = workspaceBrowserPageTitleSuggestion(workspace);
   const paneSummary = `${terminalCount} terminal${terminalCount === 1 ? "" : "s"} / ${browserCount} browser${browserCount === 1 ? "" : "s"}`;
   const disabledTitle = "Open a workspace before changing workspace setup.";
   const refreshQuick = (result) => {
@@ -24053,6 +24055,16 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
       title: workspaceUsePaneNameTitle(workspace),
       search: workspaceRenameActionSearchText("usePane", workspace, "quick setup")
     }),
+    quickOverviewControlButton("Use page", async () => {
+      if (!workspace || !pageTitle) return false;
+      const changed = await renameWorkspaceTo(pageTitle, workspace.id);
+      toast(changed ? "Workspace name set from page title." : "Workspace already uses this page title.");
+      return refreshQuick(changed);
+    }, {
+      disabled: !hasWorkspace || !pageTitle || pageTitle === workspace?.title,
+      title: workspaceUseBrowserPageTitleTitle(workspace, pageTitle),
+      search: workspaceRenameActionSearchText("usePageTitle", workspace, "quick setup browser page title")
+    }),
     quickOverviewControlButton("Folder", () => chooseWorkspaceFolder(workspace), {
       disabled: !hasWorkspace,
       title: hasWorkspace ? "Choose the active workspace folder." : disabledTitle,
@@ -24078,7 +24090,7 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
     className: "quick-overview-workspace",
     title: "Workspace controls",
     meta: hasWorkspace ? `${workspaceName} / ${paneSummary}` : "Open a workspace first",
-    search: workspaceRenameActionSearchText("actions", workspace, `quick setup workspace controls rename folder active pane layout copy paste setup ${workspaceName} ${folderTitle} ${paneTitle} ${paneSummary}`),
+    search: workspaceRenameActionSearchText("actions", workspace, `quick setup workspace controls rename folder active pane browser page title layout copy paste setup ${workspaceName} ${folderTitle} ${paneTitle} ${pageTitle} ${paneSummary}`),
     actions
   });
 }
@@ -33563,6 +33575,7 @@ function appendPalettePaneTargetSignature(parts) {
   appendSignatureValue(parts, panel?.type === "terminal" ? normalizeBackgroundValue(panel.backgroundImage) : "");
   appendSignatureValue(parts, panel?.type === "terminal" ? normalizeTerminalFontSize(panel.terminalFontSize, 0) : 0);
   appendSignatureValue(parts, panel?.type === "browser" ? browserPanelUrl(panel) || panel.url || "" : "");
+  appendSignatureValue(parts, panel?.type === "browser" ? browserPanePageTitleSuggestion(panel) : "");
 }
 
 function paletteQuickActions() {
@@ -34178,6 +34191,7 @@ function paletteEntries() {
     });
     const folderTitle = workspace.cwd ? folderName(workspace.cwd) : "";
     const paneTitle = workspace.panels?.length ? workspacePaneSuggestedTitle(workspace) : "";
+    const pageTitle = workspaceBrowserPageTitleSuggestion(workspace);
     entries.push({
       id: `workspace.useFolderName.${workspace.id}`,
       label: `Use folder name: ${workspaceLabel}`,
@@ -34205,6 +34219,21 @@ function paletteEntries() {
         if (!paneTitle) return false;
         const changed = await renameWorkspaceTo(paneTitle, workspace.id);
         toast(changed ? "Workspace name set from the active pane." : "Workspace already uses the active pane name.");
+        return changed;
+      }
+    });
+    entries.push({
+      id: `workspace.usePageTitle.${workspace.id}`,
+      label: `Use page title: ${workspaceLabel}`,
+      meta: pageTitle || "No browser title",
+      shortcut: "Name",
+      disabled: !pageTitle || pageTitle === workspace.title,
+      title: workspaceUseBrowserPageTitleTitle(workspace, pageTitle, "Rename this workspace from its active browser page title."),
+      search: workspaceRenameActionSearchText("usePageTitle", workspace, `command palette workspace ${workspaceIndex + 1}`),
+      run: async () => {
+        if (!pageTitle) return false;
+        const changed = await renameWorkspaceTo(pageTitle, workspace.id);
+        toast(changed ? "Workspace name set from page title." : "Workspace already uses this page title.");
         return changed;
       }
     });
