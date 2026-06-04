@@ -21127,15 +21127,25 @@ function quickPaneControlsPanel(panel) {
       title: creationTitle("Split this pane to the right.", "Creates a terminal pane beside it."),
       search: "quick setup active pane split right terminal add"
     }),
-    quickOverviewControlButton("Copy", () => copyActivePaneSetup(panel), {
+    quickOverviewControlButton("Copy setup", () => copyActivePaneSetup(panel), {
       disabled: !ready,
       title: ready ? "Copy the active pane setup as JSON." : unavailableTitle,
       search: "quick setup active pane copy setup export color title background text url clipboard json"
     }),
-    quickOverviewControlButton("Paste", () => pasteActivePaneSetup(panel), {
+    quickOverviewControlButton("Paste setup", () => pasteActivePaneSetup(panel), {
       disabled: !ready,
       title: ready ? "Paste copied pane setup into the active pane." : unavailableTitle,
       search: "quick setup active pane paste setup import color title background text url clipboard json"
+    }),
+    quickOverviewControlButton("Copy look", () => copyActivePaneLook(panel), {
+      disabled: !ready,
+      title: ready ? "Copy the active pane look as JSON without name or URL." : unavailableTitle,
+      search: "quick setup active pane copy look export color background text clipboard json"
+    }),
+    quickOverviewControlButton("Paste look", () => pasteActivePaneLook(panel), {
+      disabled: !ready,
+      title: ready ? "Paste copied pane look without renaming or changing URLs." : unavailableTitle,
+      search: "quick setup active pane paste look import color background text clipboard json"
     }),
     quickOverviewControlButton("Reset", () => resetActivePaneSetup(panel), {
       disabled: !ready || paneSetupDefault,
@@ -21162,7 +21172,7 @@ function quickPaneControlsPanel(panel) {
     className: "quick-overview-pane",
     title: "Active pane controls",
     meta,
-    search: `quick setup active pane controls rename duplicate split copy paste save reset sync default appearance ${paneTitle} ${typeLabel}`,
+    search: `quick setup active pane controls rename duplicate split copy paste setup look save reset sync default appearance ${paneTitle} ${typeLabel}`,
     actions
   });
 }
