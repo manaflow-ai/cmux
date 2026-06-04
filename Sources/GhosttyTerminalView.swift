@@ -8107,7 +8107,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func currentKeyboardCopyModeViewportRow(surface: ghostty_surface_t) -> Int {
-        let rows = max(Int(ghostty_surface_size(surface).rows), 1)
+        let rows = keyboardCopyModeGridMetrics(surface: surface)?.rows
+            ?? max(Int(ghostty_surface_size(surface).rows), 1)
         let fallback = rows - 1
         return max(0, min(rows - 1, keyboardCopyModeCursor?.row ?? fallback))
     }
@@ -8132,9 +8133,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         func appKitRect(for cursor: TerminalKeyboardCopyModeCursor) -> CGRect {
             let topOrigin = topOriginRect(for: cursor)
+            let rawY = viewHeight - topOrigin.maxY
+            let maxY = max(viewHeight - topOrigin.height, 0)
             return CGRect(
                 x: topOrigin.minX,
-                y: viewHeight - topOrigin.maxY,
+                y: min(max(rawY, 0), maxY),
                 width: topOrigin.width,
                 height: topOrigin.height
             )
@@ -8143,12 +8146,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func keyboardCopyModeGridMetrics(surface: ghostty_surface_t) -> KeyboardCopyModeGridMetrics? {
         let size = ghostty_surface_size(surface)
-        let rows = max(Int(size.rows), 1)
+        let backingRows = max(Int(size.rows), 1)
         let columns = max(Int(size.columns), 1)
         let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
         let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
         guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
 
+        let rows = terminalKeyboardCopyModeVisibleViewportRows(
+            backingRows: backingRows,
+            viewHeight: Double(bounds.height),
+            cellHeight: Double(resolvedCellHeight)
+        )
         let terminalWidth = CGFloat(columns) * resolvedCellWidth
         let terminalHeight = CGFloat(rows) * resolvedCellHeight
         return KeyboardCopyModeGridMetrics(

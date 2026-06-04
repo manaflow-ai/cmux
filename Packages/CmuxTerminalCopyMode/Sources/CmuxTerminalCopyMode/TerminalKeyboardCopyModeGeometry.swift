@@ -1,5 +1,37 @@
 import Foundation
 
+/// Resolves the row count that is actually visible in the terminal host view.
+///
+/// Ghostty can report a backing grid that is taller than the clipped AppKit
+/// host view by a small number of rows. Vim-mode cursor movement should use the
+/// visible rows so edge scrolling begins when the cursor reaches the visible
+/// edge rather than after it moves into clipped backing rows.
+///
+/// ```swift
+/// let rows = terminalKeyboardCopyModeVisibleViewportRows(
+///     backingRows: 42,
+///     viewHeight: 720,
+///     cellHeight: 18
+/// )
+/// ```
+///
+/// - Parameters:
+///   - backingRows: The row count reported by the terminal surface.
+///   - viewHeight: The AppKit host view height in points.
+///   - cellHeight: The terminal cell height in points.
+/// - Returns: A positive row count constrained to the visible host viewport.
+public func terminalKeyboardCopyModeVisibleViewportRows(
+    backingRows: Int,
+    viewHeight: Double,
+    cellHeight: Double
+) -> Int {
+    let clampedBackingRows = max(backingRows, 1)
+    guard viewHeight > 0, cellHeight > 0 else { return clampedBackingRows }
+
+    let fittedRows = max(Int(floor(viewHeight / cellHeight)), 1)
+    return min(clampedBackingRows, fittedRows)
+}
+
 /// Resolves the initial copy-mode cursor row from Ghostty's IME point.
 ///
 /// Ghostty exposes the live cursor as an IME rectangle rather than as viewport
