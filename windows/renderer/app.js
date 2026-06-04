@@ -6570,6 +6570,7 @@ const commands = [
   { id: "settings.savePerformanceProfile", label: "Save Performance Profile", shortcut: "", run: () => saveCurrentPerformanceProfile() },
   { id: "settings.copyPerformanceSetup", label: "Copy Performance Setup", shortcut: "", run: () => copyPerformanceSetup() },
   { id: "settings.pastePerformanceSetup", label: "Paste Performance Setup", shortcut: "", run: () => pastePerformanceSetup() },
+  { id: "settings.resetPerformanceSetup", label: "Reset Performance Setup", shortcut: "", run: () => resetPerformanceSetupSettings() },
   { id: "settings.copyDiagnostics", label: "Copy Performance Diagnostics", shortcut: "", run: () => copyPerformanceDiagnostics() },
   { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
@@ -6658,7 +6659,8 @@ const customizationPaletteCommandIds = new Set([
   "settings.saveAllPaneColors",
   "settings.saveBackground",
   "settings.copySavedBackgrounds",
-  "settings.pasteSavedBackgrounds"
+  "settings.pasteSavedBackgrounds",
+  "settings.resetPerformanceSetup"
 ]);
 
 function customizationCommandPaletteSignature() {
@@ -6666,6 +6668,7 @@ function customizationCommandPaletteSignature() {
   appendSignatureValue(parts, totalDataStorageBytes());
   appendSignatureValue(parts, savedDataItemCount());
   appendSignatureValue(parts, recentDataItemCount());
+  appendSignatureValue(parts, settingsKeysSignature(performanceSetupSettings));
   appendSignatureValue(parts, state.customColorPalette.length);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
   for (const target of ["accent", "workspace", "pane", "all"]) {
@@ -6792,6 +6795,21 @@ function customizationCommandPaletteState(commandId) {
       icon: "data",
       title: recentCount ? "Clear recent folders, commands, browser pages, and saved browser tabs." : "Recent activity is already clear.",
       search: "recent activity clear privacy folders commands browser pages tabs history"
+    };
+  }
+  if (commandId === "settings.resetPerformanceSetup") {
+    const setupDefault = performanceSetupSettingsAreDefault();
+    const summary = performanceSetupSummaryForSettings(state.settings);
+    return {
+      meta: setupDefault ? "Defaults active" : summary,
+      shortcut: setupDefault ? "Default" : "Reset",
+      active: setupDefault,
+      disabled: setupDefault,
+      icon: "speed",
+      title: setupDefault
+        ? "Performance setup already uses defaults."
+        : "Reset performance tuning, motion, output, browser, lightweight chrome, and history settings to defaults.",
+      search: normalizeSettingsQuery(`performance setup reset defaults speed lag smooth tune motion output terminal browser chrome history workspace palette toast background ${setupDefault ? "active current " : ""}${summary}`)
     };
   }
   if (commandId === "settings.copySavedColors") {
