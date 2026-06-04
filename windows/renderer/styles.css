@@ -7330,11 +7330,30 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   position: relative;
   width: 52px;
   height: 42px;
+  padding: 0;
   overflow: hidden;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
+  appearance: none;
   background:
     linear-gradient(135deg, color-mix(in oklch, var(--color-pane) 82%, var(--color-rail) 18%), var(--color-pane-warm));
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.workspace-background-preview:hover:not(:disabled) {
+  border-color: var(--color-line-strong);
+}
+
+.workspace-background-preview:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.workspace-background-preview:disabled {
+  cursor: not-allowed;
+  opacity: .72;
 }
 
 .workspace-background-control.has-image .workspace-background-preview {

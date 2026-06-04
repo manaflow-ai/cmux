@@ -19426,7 +19426,7 @@ function workspaceTerminalBackgroundSettingsPanel(workspace = activeWorkspace())
   control.style.setProperty("--workspace-background-size", model.size);
   control.style.setProperty("--workspace-background-position", model.position);
   control.innerHTML = `
-    <span class="workspace-background-preview" aria-hidden="true"></span>
+    <button class="workspace-background-preview" type="button"></button>
     <span class="workspace-background-status">
       <b>All terminals</b>
       <em></em>
@@ -19441,6 +19441,12 @@ function workspaceTerminalBackgroundSettingsPanel(workspace = activeWorkspace())
       : chooseModel.hasTerminalPanes ? "No terminal backgrounds" : "Open a terminal pane first";
   status.title = model.source;
   status.querySelector("em").textContent = statusValue;
+
+  const preview = control.querySelector(".workspace-background-preview");
+  preview.disabled = chooseModel.disabled;
+  preview.title = chooseModel.title;
+  preview.setAttribute("aria-label", chooseModel.title);
+  preview.onclick = () => chooseWorkspaceTerminalBackground(workspace);
 
   const choose = settingsActionButton("Choose", () => chooseWorkspaceTerminalBackground(workspace), "", chooseModel.search);
   choose.disabled = chooseModel.disabled;
