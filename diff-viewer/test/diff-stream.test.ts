@@ -69,6 +69,7 @@ test("streamPatch uses localized fallback for unnamed file tree paths", async ()
 
   const label = createDiffViewerLabelResolver({ untitled: "Localized untitled" });
   const treePaths: string[][] = [];
+  const treeSources: any[] = [];
 
   await streamPatch({
     getCollapsed: () => false,
@@ -78,7 +79,10 @@ test("streamPatch uses localized fallback for unnamed file tree paths", async ()
     onComplete: () => {},
     onMetrics: () => {},
     onRename: () => {},
-    onTreeSource: (source) => treePaths.push(source.paths),
+    onTreeSource: (source) => {
+      treePaths.push(source.paths);
+      treeSources.push(source);
+    },
     parsePatchFiles: () => [{
       files: [
         { type: "modified", hunks: [] },
@@ -89,4 +93,5 @@ test("streamPatch uses localized fallback for unnamed file tree paths", async ()
   });
 
   expect(treePaths.at(-1)).toEqual(["Localized untitled"]);
+  expect(treeSources.at(-1)?.preparedInput).toBeUndefined();
 });

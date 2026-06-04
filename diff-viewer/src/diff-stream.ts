@@ -1,5 +1,4 @@
 import type { CodeViewItem } from "@pierre/diffs";
-import { preparePresortedFileTreeInput, type FileTreePreparedInput } from "@pierre/trees";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { FileTreeRefreshSource } from "./file-tree-refresh";
 
@@ -40,7 +39,6 @@ export type FileTreeSource = FileTreeRefreshSource & {
   pathCount: number;
   paths: string[];
   pathToItemId: Map<string, string>;
-  preparedInput?: FileTreePreparedInput;
   previousSource?: FileTreeSource;
   statsChanged?: boolean;
   statsByPath: Map<string, FileStats>;
@@ -413,7 +411,6 @@ function createFileTreeSourceFromModel(model: StreamingDiffModel): FileTreeSourc
     pathCount: paths.length,
     paths,
     pathToItemId: new Map(model.pathToItemId),
-    preparedInput: preparePresortedFileTreeInput(paths),
     previousSource,
     statsChanged: model.pendingStatsChanged,
     statsByPath: new Map(model.statsByPath),
