@@ -2205,7 +2205,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
 
         let command = startupInput.trimmingCharacters(in: .newlines)
-        let cdCommand = try leadingCdCommand(from: command)
+        let cdCommand = try leadingCdCommand(from: command, workingDirectory: cwdURL.path)
         try assertZshCommandChangesDirectory(cdCommand, expectedPath: cwdURL.path)
     }
 
@@ -2279,13 +2279,14 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "Terminal startup input must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
         )
 
-        let cdCommand = try leadingCdCommand(from: command)
+        let cdCommand = try leadingCdCommand(from: command, workingDirectory: cwdURL.path)
         try assertZshCommandChangesDirectory(cdCommand, expectedPath: cwdURL.path)
     }
 
-    private func leadingCdCommand(from command: String) throws -> String {
-        let separator = try XCTUnwrap(command.range(of: " && "))
-        return String(command[..<separator.lowerBound])
+    private func leadingCdCommand(from command: String, workingDirectory: String) throws -> String {
+        let prefix = try XCTUnwrap(TerminalStartupWorkingDirectoryPrefix.optionalChangeDirectoryPrefix(for: workingDirectory))
+        XCTAssertTrue(command.hasPrefix(prefix), command)
+        return String(prefix.dropLast(" && ".count))
     }
 
     private func assertZshCommandChangesDirectory(

@@ -21,7 +21,7 @@ final class SettingsWindowPresenterTests: XCTestCase {
     }
 
     func testConfigureWindowLeavesPendingNavigationForSettingsViews() {
-        let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+        let settingsWindow = makeWindow(identifier: "cmux.pending-settings.\(UUID().uuidString)")
         var didOpen = false
         defer {
             settingsWindow.orderOut(nil)
