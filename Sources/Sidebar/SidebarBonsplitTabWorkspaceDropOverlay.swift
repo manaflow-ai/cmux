@@ -56,7 +56,11 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
         if !isWorkspaceDropTargetCollectionActive, targets.isEmpty {
             nsView.clearPendingDrop()
         }
-        nsView.performPendingDropIfPossible()
+        if !targets.isEmpty {
+            DispatchQueue.main.async { [weak nsView] in
+                nsView?.performPendingDropIfPossible()
+            }
+        }
     }
 
     private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {

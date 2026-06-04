@@ -12245,12 +12245,12 @@ struct VerticalTabsSidebar: View {
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
 
-        rows
-            .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
-                GeometryReader { proxy in
-                    bonsplitWorkspaceDropOverlay(
-                        targets: shouldCollectWorkspaceDropTargets
-                            ? renderContext.tabs.compactMap { tab in
+        if shouldCollectWorkspaceDropTargets {
+            rows
+                .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
+                    GeometryReader { proxy in
+                        bonsplitWorkspaceDropOverlay(
+                            targets: renderContext.tabs.compactMap { tab in
                                 guard let anchor = anchors[tab.id] else { return nil }
                                 return SidebarDropPlanner.WorkspaceDropTarget(
                                     workspaceId: tab.id,
@@ -12258,10 +12258,17 @@ struct VerticalTabsSidebar: View {
                                     frame: proxy[anchor]
                                 )
                             }
-                            : []
-                    )
+                        )
+                    }
                 }
-            }
+        } else {
+            // Keep Bonsplit drag capture available without collecting per-row bounds anchors at rest.
+            rows
+                .overlay {
+                    bonsplitWorkspaceDropOverlay(targets: [])
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+        }
     }
 
     private func bonsplitWorkspaceDropOverlay(
