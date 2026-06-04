@@ -1564,6 +1564,10 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
             modifierFlags: [.shift]
         )
         XCTAssertTrue(sent, "Expected synthetic Shift+backquote event to be dispatched")
+        let inputDeadline = Date().addingTimeInterval(2)
+        while Date() < inputDeadline, pressText == nil {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
         XCTAssertEqual(pressText, "~")
         XCTAssertEqual(pressUnshiftedCodepoint, "`".unicodeScalars.first?.value)
     }

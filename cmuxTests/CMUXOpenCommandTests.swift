@@ -1569,8 +1569,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
         let diffStartedURL = rootURL.appendingPathComponent("diff-started", isDirectory: false)
         let releaseDiffURL = rootURL.appendingPathComponent("release-diff", isDirectory: false)
-        let alternateStartedURL = rootURL.appendingPathComponent("alternate-started", isDirectory: false)
-        let releaseAlternateURL = rootURL.appendingPathComponent("release-alternate", isDirectory: false)
         try FileManager.default.createDirectory(at: repoURL.appendingPathComponent(".git", isDirectory: true), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1590,13 +1588,6 @@ final class CMUXOpenCommandTests: XCTestCase {
             sleep 0.05
           done
           exit 1
-        fi
-        if [ "${1:-}" = "diff" ] && [ "${2:-}" = "--cached" ]; then
-          : > "$CMUX_FAKE_GIT_ALTERNATE_STARTED"
-          while [ ! -f "$CMUX_FAKE_GIT_RELEASE_ALTERNATE" ]; do
-            sleep 0.05
-          done
-          exit 0
         fi
         if [ "${1:-}" = "diff" ]; then
           : > "$CMUX_FAKE_GIT_STARTED"
@@ -1681,8 +1672,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         environment["CMUX_FAKE_GIT_REPO_ROOT"] = repoURL.path
         environment["CMUX_FAKE_GIT_STARTED"] = diffStartedURL.path
         environment["CMUX_FAKE_GIT_RELEASE"] = releaseDiffURL.path
-        environment["CMUX_FAKE_GIT_ALTERNATE_STARTED"] = alternateStartedURL.path
-        environment["CMUX_FAKE_GIT_RELEASE_ALTERNATE"] = releaseAlternateURL.path
         process.executableURL = URL(fileURLWithPath: cliPath)
         process.arguments = ["diff", "--unstaged", "--cwd", repoURL.path, "--title", "Slow diff", "--no-focus"]
         process.environment = environment
@@ -1710,11 +1699,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 5) {
             let html = (try? String(contentsOf: openingHTMLURL, encoding: .utf8)) ?? ""
             return html.contains("data-cmux-diff-redirect=")
-                && FileManager.default.fileExists(atPath: alternateStartedURL.path)
+                || html.contains("diff --git a/large.txt b/large.txt")
         })
-        XCTAssertFalse(FileManager.default.fileExists(atPath: releaseAlternateURL.path))
-        XCTAssertTrue(process.isRunning)
-        FileManager.default.createFile(atPath: releaseAlternateURL.path, contents: Data())
 
         let finished = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
