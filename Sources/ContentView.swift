@@ -10026,6 +10026,9 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
 }
 
 private enum SidebarFontSizeProvider {
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     static func loadFromGhosttyConfig() async -> CGFloat {
         await Task.detached(priority: .utility) {
             GhosttyConfig.load().sidebarFontSize
