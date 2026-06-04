@@ -13574,351 +13574,7 @@ function renderSettingsInspector(options = {}) {
       true,
       "pane surface visual weight quiet subtle solid framed terminal browser panel contrast"
     ));
-    const sidebarDetailSelect = document.createElement("select");
-    sidebarDetailSelect.className = "setting-select";
-    for (const [value, label] of sidebarDetailOptions) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      sidebarDetailSelect.append(option);
-    }
-    sidebarDetailSelect.value = state.settings.sidebarDetailMode;
-    sidebarDetailSelect.onchange = () => updateSettings({ sidebarDetailMode: sidebarDetailSelect.value });
-    layoutSection.append(settingRow("Workspace rows", sidebarDetailSelect, false, "sidebar workspace row detail compact folder counts metadata"));
-    layoutSection.append(settingRow(
-      "Workspace size",
-      settingSegmentedControl("workspaceRowSize", workspaceRowSizeOptions, "sidebar workspace row size density compact roomy click target list visible auto", { compact: true }),
-      true,
-      "sidebar workspace row size density compact roomy click target list visible auto"
-    ));
-    const sidebarBranchSelect = document.createElement("select");
-    sidebarBranchSelect.className = "setting-select";
-    for (const [value, label] of sidebarBranchOptions) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      sidebarBranchSelect.append(option);
-    }
-    sidebarBranchSelect.value = state.settings.sidebarBranchMode;
-    sidebarBranchSelect.onchange = () => updateSettings({ sidebarBranchMode: sidebarBranchSelect.value });
-    layoutSection.append(settingRow("Git branches", sidebarBranchSelect, false, "sidebar workspace git branch branch name hide active all detailed rows"));
-    const sidebarFooterSelect = document.createElement("select");
-    sidebarFooterSelect.className = "setting-select";
-    for (const [value, label] of sidebarFooterOptions) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      sidebarFooterSelect.append(option);
-    }
-    sidebarFooterSelect.value = state.settings.sidebarFooterMode;
-    sidebarFooterSelect.onchange = () => updateSettings({ sidebarFooterMode: sidebarFooterSelect.value });
-    layoutSection.append(settingRow("Sidebar footer", sidebarFooterSelect, false, "sidebar footer new workspace reset session danger buttons compact clean"));
-    layoutSection.append(settingRow(
-      "Rail tools",
-      settingSegmentedControl("sidebarToolMode", sidebarToolOptions, "sidebar rail tools workspaces notifications session settings hide primary clean clutter", { compact: true }),
-      true,
-      "sidebar rail tools workspaces notifications session settings hide primary clean clutter"
-    ));
-    layoutSection.append(settingRow(
-      "Sidebar style",
-      settingSegmentedControl("sidebarStyle", sidebarStyleOptions, "sidebar rail visual weight quiet subtle solid contrast separation workspace chrome", { compact: true }),
-      true,
-      "sidebar rail visual weight quiet subtle solid contrast separation workspace chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Settings panel style",
-      settingSegmentedControl("inspectorStyle", inspectorStyleOptions, "settings panel inspector visual weight quiet subtle solid contrast separation workspace chrome", { compact: true }),
-      true,
-      "settings panel inspector visual weight quiet subtle solid contrast separation workspace chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Overlay style",
-      settingSegmentedControl("overlayStyle", overlayStyleOptions, "overlay style command palette menus dialogs toast visual weight quiet subtle solid workspace chrome", { compact: true }),
-      true,
-      "overlay style command palette menus dialogs toast visual weight quiet subtle solid workspace chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Switcher style",
-      settingSegmentedControl("switcherStyle", switcherStyleOptions, "switcher style workspace pane keyboard hud visual weight quiet subtle solid workspace chrome", { compact: true }),
-      true,
-      "switcher style workspace pane keyboard hud visual weight quiet subtle solid workspace chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Toast placement",
-      settingSegmentedControl("toastPlacement", toastPlacementOptions, "toast notification feedback placement position bottom right left top terminal output status overlay", { compact: true }),
-      true,
-      "toast notification feedback placement position bottom right left top terminal output status overlay"
-    ));
-    layoutSection.append(settingRow(
-      "Palette density",
-      settingSegmentedControl("paletteDensity", paletteDensityOptions, "command palette density compact balanced roomy commands search results quick actions workspace chrome", { compact: true }),
-      true,
-      "command palette density compact balanced roomy commands search results quick actions workspace chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Palette quick actions",
-      settingSegmentedControl("paletteQuickActionsMode", paletteQuickActionsModeOptions, "command palette quick actions auto hidden command results search empty clean clutter workspace chrome", { compact: true }),
-      true,
-      "command palette quick actions auto hidden command results search empty clean clutter workspace chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Palette details",
-      settingSegmentedControl("paletteDetailMode", paletteDetailModeOptions, "command palette details metadata shortcuts compact labels only simple clean clutter workspace chrome", { compact: true }),
-      true,
-      "command palette details metadata shortcuts compact labels only simple clean clutter workspace chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Palette results",
-      settingSegmentedControl("paletteResultLimit", paletteResultLimitOptions, "command palette result limit focused balanced extended search matches render performance speed clutter workspace chrome", { compact: true }),
-      true,
-      "command palette result limit focused balanced extended search matches render performance speed clutter workspace chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Palette placement",
-      settingSegmentedControl("palettePlacement", palettePlacementOptions, "command palette placement position top center wide command search overlay workspace chrome", { compact: true }),
-      true,
-      "command palette placement position top center wide command search overlay workspace chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Active workspace",
-      settingSegmentedControl("workspaceActiveStyle", workspaceActiveStyleOptions, "sidebar workspace active selected current row subtle filled line highlight accent", { compact: true }),
-      true,
-      "sidebar workspace active selected current row subtle filled line highlight accent"
-    ));
-    layoutSection.append(settingRow(
-      "Workspace colors",
-      settingSegmentedControl("workspaceColorStyle", workspaceColorStyleOptions, "sidebar workspace color marker dot edge tint identity project accent row", { compact: true }),
-      true,
-      "sidebar workspace color marker dot edge tint identity project accent row"
-    ));
-    layoutSection.append(settingRow(
-      "Toolbar",
-      settingSegmentedControl("toolbarMode", toolbarModeOptions, "top bar command strip compact standard expanded shortcuts actions"),
-      true,
-      "top bar command strip compact standard expanded shortcuts actions"
-    ));
-    layoutSection.append(settingRow(
-      "Toolbar labels",
-      settingSegmentedControl("toolbarLabelMode", toolbarLabelModeOptions, "top bar command strip label mode text icons auto labels hide show compact readable clean clutter", { compact: true }),
-      true,
-      "top bar command strip label mode text icons auto labels hide show compact readable clean clutter"
-    ));
-    layoutSection.append(settingRow(
-      "Top bar style",
-      settingSegmentedControl("topbarStyle", topbarStyleOptions, "top bar command strip surface visual weight quiet subtle solid chrome divider", { compact: true }),
-      true,
-      "top bar command strip surface visual weight quiet subtle solid chrome divider"
-    ));
-    layoutSection.append(settingRow(
-      "Toolbar buttons",
-      settingSegmentedControl("toolbarButtonStyle", toolbarButtonStyleOptions, "top bar command strip button style visual weight ghost subtle filled cleaner stronger chrome", { compact: true }),
-      true,
-      "top bar command strip button style visual weight ghost subtle filled cleaner stronger chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Tab bar",
-      settingSegmentedControl("tabBarStyle", tabBarStyleOptions, "surface tab bar strip visual weight quiet subtle banded divider chrome", { compact: true }),
-      true,
-      "surface tab bar strip visual weight quiet subtle banded divider chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Tab width",
-      settingSegmentedControl("tabSize", tabSizeOptions.map(([value, label]) => [
-        value,
-        label,
-        value === "compact" ? "More tabs fit" : value === "balanced" ? "Default width" : "Longer names"
-      ]), "surface tab chrome tab width compact balanced roomy", { compact: true }),
-      true,
-      "surface tab chrome tab width compact balanced roomy"
-    ));
-    layoutSection.append(settingRow(
-      "Tab close",
-      settingSegmentedControl("tabCloseMode", tabCloseModeOptions, "surface browser tab close button visibility minimal hover always clutter clean discoverable", { compact: true }),
-      true,
-      "surface browser tab close button visibility minimal hover always clutter clean discoverable"
-    ));
-    layoutSection.append(settingRow(
-      "Active tab",
-      settingSegmentedControl("tabActiveStyle", tabActiveStyleOptions, "surface tab active selected current emphasis subtle filled line underline highlight", { compact: true }),
-      true,
-      "surface tab active selected current emphasis subtle filled line underline highlight"
-    ));
-    layoutSection.append(settingRow(
-      "Add tabs",
-      settingSegmentedControl("addTabStyle", addTabStyleOptions.map(([value, label]) => [
-        value,
-        label,
-        value === "labeled" ? "Text buttons" : value === "compact" ? "Small + buttons" : "Hide from tabs"
-      ]), "surface tab add terminal browser plus button labeled compact hidden simple chrome", { compact: true }),
-      true,
-      "surface tab add terminal browser plus button labeled compact hidden simple chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Corner style",
-      settingSegmentedControl("cornerStyle", cornerStyleOptions, "corner radius shape rounded soft crisp sharp panels controls tabs chrome", { compact: true }),
-      true,
-      "corner radius shape rounded soft crisp sharp panels controls tabs chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Pane dividers",
-      settingSegmentedControl("paneDividerSize", paneDividerSizeOptions, "pane split divider resize grip slim balanced wide easier drag workspace spacing", { compact: true }),
-      true,
-      "pane split divider resize grip slim balanced wide easier drag workspace spacing"
-    ));
-    layoutSection.append(settingRow(
-      "Divider style",
-      settingSegmentedControl("paneDividerStyle", paneDividerStyleOptions, "pane split divider resize handle style grip line minimal quiet hidden visual clutter", { compact: true }),
-      true,
-      "pane split divider resize handle style grip line minimal quiet hidden visual clutter"
-    ));
-    layoutSection.append(settingRow(
-      "Pane spacing",
-      settingSegmentedControl("paneSpacing", paneSpacingOptions, "pane spacing gap gutter breathing room none tight roomy workspace polish compact", { compact: true }),
-      true,
-      "pane spacing gap gutter breathing room none tight roomy workspace polish compact"
-    ));
-    layoutSection.append(settingRow(
-      "Active pane",
-      settingSegmentedControl("activePaneEmphasis", activePaneEmphasisOptions, "active pane current focus highlight border outline edge quiet line strong accent", { compact: true }),
-      true,
-      "active pane current focus highlight border outline edge quiet line strong accent"
-    ));
-    layoutSection.append(settingRow(
-      "Inactive panes",
-      settingSegmentedControl("inactivePaneDimming", inactivePaneDimmingOptions, "inactive pane dimming normal soft muted quiet focus reduce clutter workspace", { compact: true }),
-      true,
-      "inactive pane dimming normal soft muted quiet focus reduce clutter workspace"
-    ));
-    const titleDetailSelect = document.createElement("select");
-    titleDetailSelect.className = "setting-select";
-    for (const [value, label] of titleDetailOptions) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      titleDetailSelect.append(option);
-    }
-    titleDetailSelect.value = state.settings.titleDetailMode;
-    titleDetailSelect.onchange = () => updateSettings({ titleDetailMode: titleDetailSelect.value });
-    layoutSection.append(settingRow("Title detail", titleDetailSelect, false, "pane tab title name folder directory detail label terminal browser"));
-    layoutSection.append(settingRow(
-      "Pane color markers",
-      toggleInput(state.settings.paneColorMarkers, (checked) => updateSettings({ paneColorMarkers: checked })),
-      false,
-      "pane tab color markers colored dots border accent strip quiet simple terminal chrome"
-    ));
-    layoutSection.append(settingRow(
-      "Marker style",
-      settingSegmentedControl("paneMarkerStyle", paneMarkerStyleOptions, "pane tab color marker style dot edge tint stripe fill identity busy workspace", { compact: true }),
-      true,
-      "pane tab color marker style dot edge tint stripe fill identity busy workspace"
-    ));
-    const sidebarWidthRange = document.createElement("input");
-    sidebarWidthRange.className = "setting-control";
-    sidebarWidthRange.type = "range";
-    sidebarWidthRange.min = "188";
-    sidebarWidthRange.max = "304";
-    sidebarWidthRange.step = "4";
-    sidebarWidthRange.value = String(state.settings.sidebarWidth);
-    const sidebarWidthRow = settingRow(`Sidebar ${state.settings.sidebarWidth}px`, sidebarWidthRange);
-    bindDeferredSettingRange(sidebarWidthRange, sidebarWidthRow, {
-      settingKey: "sidebarWidth",
-      formatLabel: (value) => `Sidebar ${value}px`,
-      preview: (value) => elements.shell.style.setProperty("--sidebar-width", `${value}px`)
-    });
-    layoutSection.append(sidebarWidthRow);
-    const inspectorWidthRange = document.createElement("input");
-    inspectorWidthRange.className = "setting-control";
-    inspectorWidthRange.type = "range";
-    inspectorWidthRange.min = "300";
-    inspectorWidthRange.max = "480";
-    inspectorWidthRange.step = "4";
-    inspectorWidthRange.value = String(state.settings.inspectorWidth);
-    const inspectorWidthRow = settingRow(`Settings panel ${state.settings.inspectorWidth}px`, inspectorWidthRange, false, "settings inspector right panel width preferences customization");
-    bindDeferredSettingRange(inspectorWidthRange, inspectorWidthRow, {
-      settingKey: "inspectorWidth",
-      formatLabel: (value) => `Settings panel ${value}px`,
-      preview: (value) => elements.shell.style.setProperty("--inspector-width", `${value}px`)
-    });
-    layoutSection.append(inspectorWidthRow);
-    layoutSection.append(paneShapePanel(workspace));
-    const layoutActions = document.createElement("div");
-    layoutActions.className = "settings-actions";
-    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar top bar style button style ghost filled tab bar quiet banded sidebar style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus mode simple clean copy paste clipboard json");
-    const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", "save current split pane layout workspace blueprint reusable");
-    applyWorkspaceBlueprintSaveLimit(saveLayoutAction, workspace, "Save the current workspace pane layout as a reusable blueprint.");
-    const copyLayoutAction = settingsActionButton("Copy layout", copyCurrentWorkspaceBlueprint, "", "copy current split pane layout workspace blueprint clipboard json");
-    copyLayoutAction.disabled = !workspace?.panels?.length;
-    copyLayoutAction.title = workspace?.panels?.length ? "Copy the current workspace pane layout as JSON." : "Open panes before copying a layout.";
-    const pasteLayoutAction = settingsActionButton("Paste blueprint", pasteWorkspaceBlueprint, "", "paste workspace blueprint split pane layout clipboard json reusable");
-    pasteLayoutAction.disabled = workspaceBlueprintsFull();
-    pasteLayoutAction.title = pasteLayoutAction.disabled ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint into the reusable layout library.";
-    const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
-    const copySetupAction = settingsActionButton("Copy setup", copyLayoutSetup, "", "layout setup copy workspace chrome blueprint pane split toolbar top bar style button style ghost filled tab bar quiet banded sidebar style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus clipboard json");
-    copySetupAction.title = workspace?.panels?.length
-      ? "Copy the current pane layout and workspace chrome as JSON."
-      : "Copy workspace chrome as JSON. Open panes to include a pane layout.";
-    const pasteSetupAction = settingsActionButton("Paste setup", pasteLayoutSetup, "", "layout setup paste workspace chrome blueprint pane split toolbar top bar style button style ghost filled tab bar quiet banded sidebar style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus clipboard json");
-    pasteSetupAction.title = "Apply copied layout setup and save any included pane blueprint.";
-    const copyChromeAction = settingsActionButton("Copy chrome", copyWorkspaceChromeSettings, "", "workspace chrome layout copy toolbar label mode icons labels top bar style button style ghost filled tab bar quiet banded sidebar rail tools home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus mode clipboard json");
-    copyChromeAction.title = "Copy toolbar mode, label mode, top bar style, button style, sidebar style, rail tools, home screen, and width, settings panel style, overlay style, switcher style, toast placement, command palette density, quick actions, details, result cap, and placement, workspace row size, active workspace style, workspace color style, tabs, tab bar style, active tab style, status bar detail and style, corner style, pane dividers, divider style, new pane placement, pane surface, pane spacing, active pane highlight, marker style, and panel widths as JSON.";
-    const pasteChromeAction = settingsActionButton("Paste chrome", pasteWorkspaceChromeSettings, "", "workspace chrome layout paste toolbar label mode icons labels top bar style button style ghost filled tab bar quiet banded sidebar rail tools home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus mode clipboard json");
-    pasteChromeAction.title = "Apply copied cmux workspace chrome JSON.";
-    const resetChromeAction = settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", `workspace chrome toolbar label mode icons labels top bar style button style ghost filled tab bar quiet banded sidebar rail tools home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color reset ${workspaceChromeDefault ? "active current " : ""}`);
-    resetChromeAction.disabled = workspaceChromeDefault;
-    resetChromeAction.title = workspaceChromeDefault
-      ? "Workspace chrome already matches the default setup."
-      : "Reset toolbar mode, label mode, top bar style, button style, sidebar style, rail tools, home screen, and width, settings panel style, overlay style, switcher style, toast placement, command palette density, quick actions, details, result cap, and placement, workspace row size, active workspace style, workspace color style, tabs, tab bar style, active tab style, status bar detail and style, corner style, pane dividers, divider style, new pane placement, pane surface, pane spacing, active pane highlight, and panel widths.";
-    const canResetSplitLayout = Boolean(workspace?.panels?.length > 1);
-    const resetSplitAction = settingsActionButton("Reset split layout", resetActivePaneLayout, "", `split layout pane splitter resize reset equal ${canResetSplitLayout ? "" : "disabled no panes "}`);
-    resetSplitAction.disabled = !canResetSplitLayout;
-    resetSplitAction.title = canResetSplitLayout
-      ? "Reset split sizes for the active workspace."
-      : "Open another pane before resetting the split layout.";
-    layoutActions.append(
-      settingsActionButton(state.settings.focusMode ? "Leave focus" : "Focus mode", () => toggleFocusMode(), "", "focus mode simple clean hide chrome"),
-      saveLayoutAction,
-      copyLayoutAction,
-      pasteLayoutAction,
-      copySetupAction,
-      pasteSetupAction,
-      copyChromeAction,
-      pasteChromeAction,
-      settingsActionButton("Blueprints", () => openSettingsCategory("blueprints"), "", "open saved workspace blueprints layout templates"),
-      resetSplitAction,
-      resetChromeAction
-    );
-    layoutSection.append(layoutActions);
-    layoutSection.append(paneLayoutPresetsDisclosurePanel());
-    layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
-    layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
-    const statusDetailSelect = document.createElement("select");
-    statusDetailSelect.className = "setting-select";
-    statusDetailSelect.dataset.settingControl = "statusDetailMode";
-    for (const [value, label] of statusDetailOptions) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      statusDetailSelect.append(option);
-    }
-    statusDetailSelect.value = state.settings.statusDetailMode;
-    statusDetailSelect.disabled = !state.settings.showStatusbar;
-    statusDetailSelect.title = state.settings.showStatusbar
-      ? "Choose how much runtime information the status bar shows."
-      : "Enable the status bar before changing its detail level.";
-    statusDetailSelect.onchange = () => updateSettings({ statusDetailMode: statusDetailSelect.value });
-    layoutSection.append(settingRow("Status detail", statusDetailSelect, false, "status bar compact runtime full performance pipe shell readiness diagnostics render output lag clean"));
-    const statusbarStyleControl = settingSegmentedControl("statusbarStyle", statusbarStyleOptions, "status bar footer style visual weight quiet subtle solid contrast badges runtime", { compact: true });
-    for (const button of statusbarStyleControl.querySelectorAll("button")) button.disabled = !state.settings.showStatusbar;
-    statusbarStyleControl.title = state.settings.showStatusbar
-      ? "Choose the status bar visual weight."
-      : "Enable the status bar before changing its style.";
-    layoutSection.append(settingRow(
-      "Status style",
-      statusbarStyleControl,
-      true,
-      "status bar footer style visual weight quiet subtle solid contrast badges runtime"
-    ));
-    layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
+    layoutSection.append(layoutAdvancedDisclosurePanel());
     nodes.push(layoutSection);
   }
 
@@ -15846,6 +15502,358 @@ function workspaceChromePresetGrid() {
     grid.append(card);
   }
   return grid;
+}
+
+function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
+  const panel = document.createElement("div");
+  panel.className = "layout-advanced-settings";
+  panel.dataset.settingsSearch = normalizeSettingsQuery("advanced layout workspace chrome sidebar rail tools git branch footer settings panel overlay switcher toast command palette tabs dividers pane spacing active pane inactive panes title detail marker widths split blueprint status detail performance mode");
+  const sidebarDetailSelect = document.createElement("select");
+  sidebarDetailSelect.className = "setting-select";
+  for (const [value, label] of sidebarDetailOptions) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    sidebarDetailSelect.append(option);
+  }
+  sidebarDetailSelect.value = state.settings.sidebarDetailMode;
+  sidebarDetailSelect.onchange = () => updateSettings({ sidebarDetailMode: sidebarDetailSelect.value });
+  panel.append(settingRow("Workspace rows", sidebarDetailSelect, false, "sidebar workspace row detail compact folder counts metadata"));
+  panel.append(settingRow(
+    "Workspace size",
+    settingSegmentedControl("workspaceRowSize", workspaceRowSizeOptions, "sidebar workspace row size density compact roomy click target list visible auto", { compact: true }),
+    true,
+    "sidebar workspace row size density compact roomy click target list visible auto"
+  ));
+  const sidebarBranchSelect = document.createElement("select");
+  sidebarBranchSelect.className = "setting-select";
+  for (const [value, label] of sidebarBranchOptions) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    sidebarBranchSelect.append(option);
+  }
+  sidebarBranchSelect.value = state.settings.sidebarBranchMode;
+  sidebarBranchSelect.onchange = () => updateSettings({ sidebarBranchMode: sidebarBranchSelect.value });
+  panel.append(settingRow("Git branches", sidebarBranchSelect, false, "sidebar workspace git branch branch name hide active all detailed rows"));
+  const sidebarFooterSelect = document.createElement("select");
+  sidebarFooterSelect.className = "setting-select";
+  for (const [value, label] of sidebarFooterOptions) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    sidebarFooterSelect.append(option);
+  }
+  sidebarFooterSelect.value = state.settings.sidebarFooterMode;
+  sidebarFooterSelect.onchange = () => updateSettings({ sidebarFooterMode: sidebarFooterSelect.value });
+  panel.append(settingRow("Sidebar footer", sidebarFooterSelect, false, "sidebar footer new workspace reset session danger buttons compact clean"));
+  panel.append(settingRow(
+    "Rail tools",
+    settingSegmentedControl("sidebarToolMode", sidebarToolOptions, "sidebar rail tools workspaces notifications session settings hide primary clean clutter", { compact: true }),
+    true,
+    "sidebar rail tools workspaces notifications session settings hide primary clean clutter"
+  ));
+  panel.append(settingRow(
+    "Sidebar style",
+    settingSegmentedControl("sidebarStyle", sidebarStyleOptions, "sidebar rail visual weight quiet subtle solid contrast separation workspace chrome", { compact: true }),
+    true,
+    "sidebar rail visual weight quiet subtle solid contrast separation workspace chrome"
+  ));
+  panel.append(settingRow(
+    "Settings panel style",
+    settingSegmentedControl("inspectorStyle", inspectorStyleOptions, "settings panel inspector visual weight quiet subtle solid contrast separation workspace chrome", { compact: true }),
+    true,
+    "settings panel inspector visual weight quiet subtle solid contrast separation workspace chrome"
+  ));
+  panel.append(settingRow(
+    "Overlay style",
+    settingSegmentedControl("overlayStyle", overlayStyleOptions, "overlay style command palette menus dialogs toast visual weight quiet subtle solid workspace chrome", { compact: true }),
+    true,
+    "overlay style command palette menus dialogs toast visual weight quiet subtle solid workspace chrome"
+  ));
+  panel.append(settingRow(
+    "Switcher style",
+    settingSegmentedControl("switcherStyle", switcherStyleOptions, "switcher style workspace pane keyboard hud visual weight quiet subtle solid workspace chrome", { compact: true }),
+    true,
+    "switcher style workspace pane keyboard hud visual weight quiet subtle solid workspace chrome"
+  ));
+  panel.append(settingRow(
+    "Toast placement",
+    settingSegmentedControl("toastPlacement", toastPlacementOptions, "toast notification feedback placement position bottom right left top terminal output status overlay", { compact: true }),
+    true,
+    "toast notification feedback placement position bottom right left top terminal output status overlay"
+  ));
+  panel.append(settingRow(
+    "Palette density",
+    settingSegmentedControl("paletteDensity", paletteDensityOptions, "command palette density compact balanced roomy commands search results quick actions workspace chrome", { compact: true }),
+    true,
+    "command palette density compact balanced roomy commands search results quick actions workspace chrome"
+  ));
+  panel.append(settingRow(
+    "Palette quick actions",
+    settingSegmentedControl("paletteQuickActionsMode", paletteQuickActionsModeOptions, "command palette quick actions auto hidden command results search empty clean clutter workspace chrome", { compact: true }),
+    true,
+    "command palette quick actions auto hidden command results search empty clean clutter workspace chrome"
+  ));
+  panel.append(settingRow(
+    "Palette details",
+    settingSegmentedControl("paletteDetailMode", paletteDetailModeOptions, "command palette details metadata shortcuts compact labels only simple clean clutter workspace chrome", { compact: true }),
+    true,
+    "command palette details metadata shortcuts compact labels only simple clean clutter workspace chrome"
+  ));
+  panel.append(settingRow(
+    "Palette results",
+    settingSegmentedControl("paletteResultLimit", paletteResultLimitOptions, "command palette result limit focused balanced extended search matches render performance speed clutter workspace chrome", { compact: true }),
+    true,
+    "command palette result limit focused balanced extended search matches render performance speed clutter workspace chrome"
+  ));
+  panel.append(settingRow(
+    "Palette placement",
+    settingSegmentedControl("palettePlacement", palettePlacementOptions, "command palette placement position top center wide command search overlay workspace chrome", { compact: true }),
+    true,
+    "command palette placement position top center wide command search overlay workspace chrome"
+  ));
+  panel.append(settingRow(
+    "Active workspace",
+    settingSegmentedControl("workspaceActiveStyle", workspaceActiveStyleOptions, "sidebar workspace active selected current row subtle filled line highlight accent", { compact: true }),
+    true,
+    "sidebar workspace active selected current row subtle filled line highlight accent"
+  ));
+  panel.append(settingRow(
+    "Workspace colors",
+    settingSegmentedControl("workspaceColorStyle", workspaceColorStyleOptions, "sidebar workspace color marker dot edge tint identity project accent row", { compact: true }),
+    true,
+    "sidebar workspace color marker dot edge tint identity project accent row"
+  ));
+  panel.append(settingRow(
+    "Toolbar",
+    settingSegmentedControl("toolbarMode", toolbarModeOptions, "top bar command strip compact standard expanded shortcuts actions"),
+    true,
+    "top bar command strip compact standard expanded shortcuts actions"
+  ));
+  panel.append(settingRow(
+    "Toolbar labels",
+    settingSegmentedControl("toolbarLabelMode", toolbarLabelModeOptions, "top bar command strip label mode text icons auto labels hide show compact readable clean clutter", { compact: true }),
+    true,
+    "top bar command strip label mode text icons auto labels hide show compact readable clean clutter"
+  ));
+  panel.append(settingRow(
+    "Top bar style",
+    settingSegmentedControl("topbarStyle", topbarStyleOptions, "top bar command strip surface visual weight quiet subtle solid chrome divider", { compact: true }),
+    true,
+    "top bar command strip surface visual weight quiet subtle solid chrome divider"
+  ));
+  panel.append(settingRow(
+    "Toolbar buttons",
+    settingSegmentedControl("toolbarButtonStyle", toolbarButtonStyleOptions, "top bar command strip button style visual weight ghost subtle filled cleaner stronger chrome", { compact: true }),
+    true,
+    "top bar command strip button style visual weight ghost subtle filled cleaner stronger chrome"
+  ));
+  panel.append(settingRow(
+    "Tab bar",
+    settingSegmentedControl("tabBarStyle", tabBarStyleOptions, "surface tab bar strip visual weight quiet subtle banded divider chrome", { compact: true }),
+    true,
+    "surface tab bar strip visual weight quiet subtle banded divider chrome"
+  ));
+  panel.append(settingRow(
+    "Tab width",
+    settingSegmentedControl("tabSize", tabSizeOptions.map(([value, label]) => [
+      value,
+      label,
+      value === "compact" ? "More tabs fit" : value === "balanced" ? "Default width" : "Longer names"
+    ]), "surface tab chrome tab width compact balanced roomy", { compact: true }),
+    true,
+    "surface tab chrome tab width compact balanced roomy"
+  ));
+  panel.append(settingRow(
+    "Tab close",
+    settingSegmentedControl("tabCloseMode", tabCloseModeOptions, "surface browser tab close button visibility minimal hover always clutter clean discoverable", { compact: true }),
+    true,
+    "surface browser tab close button visibility minimal hover always clutter clean discoverable"
+  ));
+  panel.append(settingRow(
+    "Active tab",
+    settingSegmentedControl("tabActiveStyle", tabActiveStyleOptions, "surface tab active selected current emphasis subtle filled line underline highlight", { compact: true }),
+    true,
+    "surface tab active selected current emphasis subtle filled line underline highlight"
+  ));
+  panel.append(settingRow(
+    "Add tabs",
+    settingSegmentedControl("addTabStyle", addTabStyleOptions.map(([value, label]) => [
+      value,
+      label,
+      value === "labeled" ? "Text buttons" : value === "compact" ? "Small + buttons" : "Hide from tabs"
+    ]), "surface tab add terminal browser plus button labeled compact hidden simple chrome", { compact: true }),
+    true,
+    "surface tab add terminal browser plus button labeled compact hidden simple chrome"
+  ));
+  panel.append(settingRow(
+    "Corner style",
+    settingSegmentedControl("cornerStyle", cornerStyleOptions, "corner radius shape rounded soft crisp sharp panels controls tabs chrome", { compact: true }),
+    true,
+    "corner radius shape rounded soft crisp sharp panels controls tabs chrome"
+  ));
+  panel.append(settingRow(
+    "Pane dividers",
+    settingSegmentedControl("paneDividerSize", paneDividerSizeOptions, "pane split divider resize grip slim balanced wide easier drag workspace spacing", { compact: true }),
+    true,
+    "pane split divider resize grip slim balanced wide easier drag workspace spacing"
+  ));
+  panel.append(settingRow(
+    "Divider style",
+    settingSegmentedControl("paneDividerStyle", paneDividerStyleOptions, "pane split divider resize handle style grip line minimal quiet hidden visual clutter", { compact: true }),
+    true,
+    "pane split divider resize handle style grip line minimal quiet hidden visual clutter"
+  ));
+  panel.append(settingRow(
+    "Pane spacing",
+    settingSegmentedControl("paneSpacing", paneSpacingOptions, "pane spacing gap gutter breathing room none tight roomy workspace polish compact", { compact: true }),
+    true,
+    "pane spacing gap gutter breathing room none tight roomy workspace polish compact"
+  ));
+  panel.append(settingRow(
+    "Active pane",
+    settingSegmentedControl("activePaneEmphasis", activePaneEmphasisOptions, "active pane current focus highlight border outline edge quiet line strong accent", { compact: true }),
+    true,
+    "active pane current focus highlight border outline edge quiet line strong accent"
+  ));
+  panel.append(settingRow(
+    "Inactive panes",
+    settingSegmentedControl("inactivePaneDimming", inactivePaneDimmingOptions, "inactive pane dimming normal soft muted quiet focus reduce clutter workspace", { compact: true }),
+    true,
+    "inactive pane dimming normal soft muted quiet focus reduce clutter workspace"
+  ));
+  const titleDetailSelect = document.createElement("select");
+  titleDetailSelect.className = "setting-select";
+  for (const [value, label] of titleDetailOptions) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    titleDetailSelect.append(option);
+  }
+  titleDetailSelect.value = state.settings.titleDetailMode;
+  titleDetailSelect.onchange = () => updateSettings({ titleDetailMode: titleDetailSelect.value });
+  panel.append(settingRow("Title detail", titleDetailSelect, false, "pane tab title name folder directory detail label terminal browser"));
+  panel.append(settingRow(
+    "Pane color markers",
+    toggleInput(state.settings.paneColorMarkers, (checked) => updateSettings({ paneColorMarkers: checked })),
+    false,
+    "pane tab color markers colored dots border accent strip quiet simple terminal chrome"
+  ));
+  panel.append(settingRow(
+    "Marker style",
+    settingSegmentedControl("paneMarkerStyle", paneMarkerStyleOptions, "pane tab color marker style dot edge tint stripe fill identity busy workspace", { compact: true }),
+    true,
+    "pane tab color marker style dot edge tint stripe fill identity busy workspace"
+  ));
+  const sidebarWidthRange = document.createElement("input");
+  sidebarWidthRange.className = "setting-control";
+  sidebarWidthRange.type = "range";
+  sidebarWidthRange.min = "188";
+  sidebarWidthRange.max = "304";
+  sidebarWidthRange.step = "4";
+  sidebarWidthRange.value = String(state.settings.sidebarWidth);
+  const sidebarWidthRow = settingRow(`Sidebar ${state.settings.sidebarWidth}px`, sidebarWidthRange);
+  bindDeferredSettingRange(sidebarWidthRange, sidebarWidthRow, {
+    settingKey: "sidebarWidth",
+    formatLabel: (value) => `Sidebar ${value}px`,
+    preview: (value) => elements.shell.style.setProperty("--sidebar-width", `${value}px`)
+  });
+  panel.append(sidebarWidthRow);
+  const inspectorWidthRange = document.createElement("input");
+  inspectorWidthRange.className = "setting-control";
+  inspectorWidthRange.type = "range";
+  inspectorWidthRange.min = "300";
+  inspectorWidthRange.max = "480";
+  inspectorWidthRange.step = "4";
+  inspectorWidthRange.value = String(state.settings.inspectorWidth);
+  const inspectorWidthRow = settingRow(`Settings panel ${state.settings.inspectorWidth}px`, inspectorWidthRange, false, "settings inspector right panel width preferences customization");
+  bindDeferredSettingRange(inspectorWidthRange, inspectorWidthRow, {
+    settingKey: "inspectorWidth",
+    formatLabel: (value) => `Settings panel ${value}px`,
+    preview: (value) => elements.shell.style.setProperty("--inspector-width", `${value}px`)
+  });
+  panel.append(inspectorWidthRow);
+  panel.append(paneShapePanel(workspace));
+  const layoutActions = document.createElement("div");
+  layoutActions.className = "settings-actions";
+  layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar top bar style button style ghost filled tab bar quiet banded sidebar style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus mode simple clean copy paste clipboard json");
+  const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", "save current split pane layout workspace blueprint reusable");
+  applyWorkspaceBlueprintSaveLimit(saveLayoutAction, workspace, "Save the current workspace pane layout as a reusable blueprint.");
+  const copyLayoutAction = settingsActionButton("Copy layout", copyCurrentWorkspaceBlueprint, "", "copy current split pane layout workspace blueprint clipboard json");
+  copyLayoutAction.disabled = !workspace?.panels?.length;
+  copyLayoutAction.title = workspace?.panels?.length ? "Copy the current workspace pane layout as JSON." : "Open panes before copying a layout.";
+  const pasteLayoutAction = settingsActionButton("Paste blueprint", pasteWorkspaceBlueprint, "", "paste workspace blueprint split pane layout clipboard json reusable");
+  pasteLayoutAction.disabled = workspaceBlueprintsFull();
+  pasteLayoutAction.title = pasteLayoutAction.disabled ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint into the reusable layout library.";
+  const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
+  const copySetupAction = settingsActionButton("Copy setup", copyLayoutSetup, "", "layout setup copy workspace chrome blueprint pane split toolbar top bar style button style ghost filled tab bar quiet banded sidebar style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus clipboard json");
+  copySetupAction.title = workspace?.panels?.length
+    ? "Copy the current pane layout and workspace chrome as JSON."
+    : "Copy workspace chrome as JSON. Open panes to include a pane layout.";
+  const pasteSetupAction = settingsActionButton("Paste setup", pasteLayoutSetup, "", "layout setup paste workspace chrome blueprint pane split toolbar top bar style button style ghost filled tab bar quiet banded sidebar style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus clipboard json");
+  pasteSetupAction.title = "Apply copied layout setup and save any included pane blueprint.";
+  const copyChromeAction = settingsActionButton("Copy chrome", copyWorkspaceChromeSettings, "", "workspace chrome layout copy toolbar label mode icons labels top bar style button style ghost filled tab bar quiet banded sidebar rail tools home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus mode clipboard json");
+  copyChromeAction.title = "Copy toolbar mode, label mode, top bar style, button style, sidebar style, rail tools, home screen, and width, settings panel style, overlay style, switcher style, toast placement, command palette density, quick actions, details, result cap, and placement, workspace row size, active workspace style, workspace color style, tabs, tab bar style, active tab style, status bar detail and style, corner style, pane dividers, divider style, new pane placement, pane surface, pane spacing, active pane highlight, marker style, and panel widths as JSON.";
+  const pasteChromeAction = settingsActionButton("Paste chrome", pasteWorkspaceChromeSettings, "", "workspace chrome layout paste toolbar label mode icons labels top bar style button style ghost filled tab bar quiet banded sidebar rail tools home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus mode clipboard json");
+  pasteChromeAction.title = "Apply copied cmux workspace chrome JSON.";
+  const resetChromeAction = settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", `workspace chrome toolbar label mode icons labels top bar style button style ghost filled tab bar quiet banded sidebar rail tools home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color reset ${workspaceChromeDefault ? "active current " : ""}`);
+  resetChromeAction.disabled = workspaceChromeDefault;
+  resetChromeAction.title = workspaceChromeDefault
+    ? "Workspace chrome already matches the default setup."
+    : "Reset toolbar mode, label mode, top bar style, button style, sidebar style, rail tools, home screen, and width, settings panel style, overlay style, switcher style, toast placement, command palette density, quick actions, details, result cap, and placement, workspace row size, active workspace style, workspace color style, tabs, tab bar style, active tab style, status bar detail and style, corner style, pane dividers, divider style, new pane placement, pane surface, pane spacing, active pane highlight, and panel widths.";
+  const canResetSplitLayout = Boolean(workspace?.panels?.length > 1);
+  const resetSplitAction = settingsActionButton("Reset split layout", resetActivePaneLayout, "", `split layout pane splitter resize reset equal ${canResetSplitLayout ? "" : "disabled no panes "}`);
+  resetSplitAction.disabled = !canResetSplitLayout;
+  resetSplitAction.title = canResetSplitLayout
+    ? "Reset split sizes for the active workspace."
+    : "Open another pane before resetting the split layout.";
+  layoutActions.append(
+    settingsActionButton(state.settings.focusMode ? "Leave focus" : "Focus mode", () => toggleFocusMode(), "", "focus mode simple clean hide chrome"),
+    saveLayoutAction,
+    copyLayoutAction,
+    pasteLayoutAction,
+    copySetupAction,
+    pasteSetupAction,
+    copyChromeAction,
+    pasteChromeAction,
+    settingsActionButton("Blueprints", () => openSettingsCategory("blueprints"), "", "open saved workspace blueprints layout templates"),
+    resetSplitAction,
+    resetChromeAction
+  );
+  panel.append(layoutActions);
+  panel.append(paneLayoutPresetsDisclosurePanel());
+  panel.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
+  panel.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
+  const statusDetailSelect = document.createElement("select");
+  statusDetailSelect.className = "setting-select";
+  statusDetailSelect.dataset.settingControl = "statusDetailMode";
+  for (const [value, label] of statusDetailOptions) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    statusDetailSelect.append(option);
+  }
+  statusDetailSelect.value = state.settings.statusDetailMode;
+  statusDetailSelect.disabled = !state.settings.showStatusbar;
+  statusDetailSelect.title = state.settings.showStatusbar
+    ? "Choose how much runtime information the status bar shows."
+    : "Enable the status bar before changing its detail level.";
+  statusDetailSelect.onchange = () => updateSettings({ statusDetailMode: statusDetailSelect.value });
+  panel.append(settingRow("Status detail", statusDetailSelect, false, "status bar compact runtime full performance pipe shell readiness diagnostics render output lag clean"));
+  const statusbarStyleControl = settingSegmentedControl("statusbarStyle", statusbarStyleOptions, "status bar footer style visual weight quiet subtle solid contrast badges runtime", { compact: true });
+  for (const button of statusbarStyleControl.querySelectorAll("button")) button.disabled = !state.settings.showStatusbar;
+  statusbarStyleControl.title = state.settings.showStatusbar
+    ? "Choose the status bar visual weight."
+    : "Enable the status bar before changing its style.";
+  panel.append(settingRow(
+    "Status style",
+    statusbarStyleControl,
+    true,
+    "status bar footer style visual weight quiet subtle solid contrast badges runtime"
+  ));
+  panel.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
+  return panel;
 }
 
 function layoutSettingsPreviewPanel() {
@@ -21619,6 +21627,7 @@ function ensureSettingsDisclosureContent(disclosure) {
     "command-snippets": commandSnippetsSettings,
     "data-recent-commands": recentCommandsSettings,
     "data-storage-breakdown": dataStorageBreakdownPanel,
+    "layout-advanced": layoutAdvancedSettingsPanel,
     "layout-pane-presets": paneLayoutPresetGrid,
     "quick-actions": quickSetupActionGrid,
     "quick-categories": quickSettingsShortcutGrid,
@@ -21882,6 +21891,17 @@ function browserTabSessionsDisclosurePanel() {
     title: "Browser tab sessions",
     body: "Copy, paste, and duplicate saved browser tab groups.",
     meta: browserTabSessionsMeta(entries)
+  });
+}
+
+function layoutAdvancedDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "layout-advanced-disclosure",
+    content: "layout-advanced",
+    searchTerms: "layout advanced chrome sidebar rail git branches footer settings panel overlay switcher toast command palette tabs dividers pane spacing active pane inactive panes title detail marker widths split blueprint status detail performance mode surface tabs",
+    title: "Advanced layout",
+    body: "Chrome, tabs, palette, status, widths, and split tools.",
+    meta: "Deep controls"
   });
 }
 

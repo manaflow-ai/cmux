@@ -6810,6 +6810,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .settings-disclosure[open] > .browser-home-preset-grid,
 .settings-disclosure[open] > .command-snippet-list,
 .settings-disclosure[open] > .data-storage-breakdown,
+.settings-disclosure[open] > .layout-advanced-settings,
 .settings-disclosure[open] > .pane-layout-preset-grid,
 .settings-disclosure[open] > .quick-settings-shortcut-grid,
 .settings-disclosure[open] > .recent-folder-list,
@@ -6824,6 +6825,12 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .settings-disclosure[open] > .workspace-starter-list,
 .settings-disclosure[open] > .workspace-blueprint-list {
   margin-top: var(--space-1);
+}
+
+.layout-advanced-settings {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
 }
 
 .settings-empty {
