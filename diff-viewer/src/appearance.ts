@@ -97,6 +97,10 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   rootStyle.setProperty("--cmux-diff-bg-dark", colorString(darkTheme.background, "#000000"));
   rootStyle.setProperty("--cmux-diff-fg-light", colorString(lightTheme.foreground, "#000000"));
   rootStyle.setProperty("--cmux-diff-fg-dark", colorString(darkTheme.foreground, "#ffffff"));
+  rootStyle.setProperty("--cmux-diff-addition-fg-light", semanticPaletteColor(lightTheme, ["10", "2"], "#257a3e"));
+  rootStyle.setProperty("--cmux-diff-addition-fg-dark", semanticPaletteColor(darkTheme, ["10", "2"], "#8fd88f"));
+  rootStyle.setProperty("--cmux-diff-deletion-fg-light", semanticPaletteColor(lightTheme, ["9", "1"], "#b42318"));
+  rootStyle.setProperty("--cmux-diff-deletion-fg-dark", semanticPaletteColor(darkTheme, ["9", "1"], "#ff8a80"));
   rootStyle.setProperty("--cmux-diff-selection-bg-light", colorString(lightTheme.selectionBackground, "#abd8ff"));
   rootStyle.setProperty("--cmux-diff-selection-bg-dark", colorString(darkTheme.selectionBackground, "#3f638b"));
   rootStyle.setProperty("--cmux-diff-code-font-family", codeFontFamily(appearance.fontFamily));
@@ -128,6 +132,18 @@ export function readableColor(value: unknown, background: unknown, fallback: str
   return contrastRatio(black, parsedBackground) >= contrastRatio(white, parsedBackground) ? "#000000" : "#ffffff";
 }
 
+function semanticPaletteColor(theme: DiffViewerTheme, paletteKeys: string[], fallback: string): string {
+  const palette = theme.palette ?? {};
+  const candidate = paletteKeys.map((key) => palette[key]).find((value) => typeof value === "string" && value.trim() !== "");
+  if (meetsContrast(candidate, theme.background, 4.5)) {
+    return colorString(candidate, fallback);
+  }
+  if (meetsContrast(fallback, theme.background, 4.5)) {
+    return fallback;
+  }
+  return readableColor(candidate, theme.background, fallback);
+}
+
 function colorString(value: unknown, fallback: string) {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : fallback;
 }
@@ -146,6 +162,12 @@ function normalizedOpacity(value: unknown) {
     return 1;
   }
   return Math.max(0, Math.min(1, value));
+}
+
+function meetsContrast(value: unknown, background: unknown, minimumRatio: number): boolean {
+  const parsedColor = parseHexColor(colorString(value, ""));
+  const parsedBackground = parseHexColor(colorString(background, "#000000"));
+  return Boolean(parsedColor && parsedBackground && contrastRatio(parsedColor, parsedBackground) >= minimumRatio);
 }
 
 type RGBColor = {

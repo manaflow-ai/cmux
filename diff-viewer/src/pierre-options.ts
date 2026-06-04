@@ -52,9 +52,27 @@ export function workerHighlighterOptions(
 
 export function codeViewUnsafeCSS(): string {
   return `
+    :host {
+      --diffs-addition-color-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+      --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+      --diffs-fg-number-addition-override: var(--diffs-addition-base);
+      --diffs-fg-number-deletion-override: var(--diffs-deletion-base);
+    }
     [data-diffs-header] {
       container-type: scroll-state;
       container-name: sticky-header;
+    }
+    [data-line-type='change-addition'] {
+      color: var(--diffs-addition-base);
+    }
+    [data-line-type='change-deletion'] {
+      color: var(--diffs-deletion-base);
+    }
+    [data-line-type='change-addition'] span {
+      color: var(--diffs-addition-base) !important;
+    }
+    [data-line-type='change-deletion'] span {
+      color: var(--diffs-deletion-base) !important;
     }
     @container sticky-header scroll-state(stuck: top) {
       [data-diffs-header]::after {
@@ -103,8 +121,21 @@ export function fileTreeUnsafeCSS(): string {
       margin-inline-end: 2px;
       scrollbar-gutter: stable;
     }
-    [data-item-contains-git-change='true'] > [data-item-section='git'] {
-      display: none;
+    [data-item-section='content'] {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    [data-item-section='decoration'] {
+      flex: 0 0 56px;
+      width: 56px;
+      min-width: 56px;
+      margin-inline-start: 4px;
+    }
+    [data-item-section='decoration'] > span {
+      font-variant-numeric: tabular-nums;
+    }
+    [data-item-section='git'] {
+      opacity: 0.75;
     }
     [data-item-type='folder'] {
       color: color-mix(in lab, var(--trees-fg) 85%, var(--trees-bg));

@@ -1,5 +1,19 @@
-import { describe, expect, test } from "bun:test";
-import { appearanceBackgroundColor, readableColor, resolveDiffViewerAppearance } from "../src/appearance";
+import { afterEach, describe, expect, test } from "bun:test";
+import { JSDOM } from "jsdom";
+import { applyDiffViewerAppearance, appearanceBackgroundColor, readableColor, resolveDiffViewerAppearance } from "../src/appearance";
+
+let dom: JSDOM | null = null;
+const originalDocument = globalThis.document;
+
+afterEach(() => {
+  dom?.window.close();
+  dom = null;
+  if (originalDocument === undefined) {
+    delete (globalThis as any).document;
+  } else {
+    (globalThis as any).document = originalDocument;
+  }
+});
 
 describe("appearanceBackgroundColor", () => {
   test("returns transparent for transparent themes so the window backdrop shows", () => {
@@ -41,5 +55,35 @@ describe("appearanceBackgroundColor", () => {
   test("falls back to the readable endpoint when a color is too close to the background", () => {
     expect(readableColor("#eeeeee", "#ffffff", "#000000")).toBe("#000000");
     expect(readableColor("#111111", "#000000", "#ffffff")).toBe("#ffffff");
+  });
+
+  test("applies readable semantic diff colors from the terminal palette", () => {
+    dom = new JSDOM("<!doctype html><html><body></body></html>");
+    (globalThis as any).document = dom.window.document;
+
+    applyDiffViewerAppearance(resolveDiffViewerAppearance({
+      themes: {
+        light: {
+          background: "#ffffff",
+          palette: {
+            "1": "#cc0000",
+            "2": "#007a00",
+          },
+        },
+        dark: {
+          background: "#272822",
+          palette: {
+            "9": "#f92672",
+            "10": "#a6e22e",
+          },
+        },
+      },
+    }));
+
+    const style = dom.window.document.documentElement.style;
+    expect(style.getPropertyValue("--cmux-diff-deletion-fg-light")).toBe("#cc0000");
+    expect(style.getPropertyValue("--cmux-diff-addition-fg-light")).toBe("#007a00");
+    expect(style.getPropertyValue("--cmux-diff-deletion-fg-dark")).toBe("#ff8a80");
+    expect(style.getPropertyValue("--cmux-diff-addition-fg-dark")).toBe("#a6e22e");
   });
 });
