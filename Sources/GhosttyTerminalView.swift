@@ -7402,6 +7402,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModePendingViewportJumpSync = false
     private var keyboardCopyModePendingViewportJumpScrollbarOffset: UInt64?
     private var keyboardCopyModePendingViewportJumpGeneration = 0
+    private var keyboardCopyModePendingViewportJumpFallbackLineDelta: Int?
+    private var keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
     /// Tracks whether the user has explicitly entered visual selection mode (v).
     /// Separate from Ghostty's `has_selection` because non-visual copy mode keeps
     /// the cursor in AppKit overlay state until visual selection starts.
@@ -8083,6 +8085,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModePendingViewportJumpGeneration += 1
         keyboardCopyModePendingViewportJumpSync = false
         keyboardCopyModePendingViewportJumpScrollbarOffset = nil
+        keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
+        keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
         keyboardCopyModeActive = active
         if active, let surface {
             _ = ghostty_surface_clear_selection_compat(surface)
@@ -8231,10 +8235,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncKeyboardCopyModeCursorOverlay(surface: surface)
     }
 
-    private func beginKeyboardCopyModeViewportJumpCursorSync() {
+    private func beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: Int? = nil) {
         keyboardCopyModePendingViewportJumpGeneration += 1
         keyboardCopyModePendingViewportJumpSync = true
         keyboardCopyModePendingViewportJumpScrollbarOffset = scrollbar?.offset
+        keyboardCopyModePendingViewportJumpFallbackLineDelta = fallbackLineDelta
+        keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
     }
 
     private func scheduleKeyboardCopyModeViewportJumpCursorSyncFallback() {
@@ -8257,6 +8263,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
+        if let lineDelta = keyboardCopyModePendingViewportJumpFallbackLineDelta,
+           lineDelta != 0,
+           keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta == 0 {
+            shiftKeyboardCopyModeCursorForViewportScroll(lineDelta: lineDelta, surface: surface)
+            keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = lineDelta
+            return
+        }
+
         clampKeyboardCopyModeCursor(surface: surface)
     }
 
@@ -8266,12 +8280,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         keyboardCopyModePendingViewportJumpSync = false
         keyboardCopyModePendingViewportJumpScrollbarOffset = nil
+        keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
+        keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
     }
 
     private func finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded(newScrollbar: GhosttyScrollbar? = nil) {
         guard keyboardCopyModePendingViewportJumpSync else { return }
         keyboardCopyModePendingViewportJumpSync = false
-        defer { keyboardCopyModePendingViewportJumpScrollbarOffset = nil }
+        defer {
+            keyboardCopyModePendingViewportJumpScrollbarOffset = nil
+            keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
+            keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
+        }
 
         guard keyboardCopyModeActive, let surface else { return }
         let resolvedNewOffset = newScrollbar?.offset ?? scrollbar?.offset
@@ -8281,8 +8301,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 from: previousOffset,
                 to: resolvedNewOffset
             )
-            if lineDelta != 0 {
-                shiftKeyboardCopyModeCursorForViewportScroll(lineDelta: lineDelta, surface: surface)
+            let remainingLineDelta = lineDelta - keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta
+            if remainingLineDelta != 0 {
+                shiftKeyboardCopyModeCursorForViewportScroll(lineDelta: remainingLineDelta, surface: surface)
                 return
             }
         }
@@ -8463,28 +8484,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             setKeyboardCopyModeActive(false)
         case let .scrollLines(delta):
             let lineDelta = delta * terminalKeyboardCopyModeClampCount(count)
+            beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: lineDelta)
             _ = performBindingAction("scroll_page_lines:\(lineDelta)")
-            shiftKeyboardCopyModeCursorForViewportScroll(lineDelta: lineDelta, surface: surface)
+            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case let .scrollPage(delta):
             let clampedCount = terminalKeyboardCopyModeClampCount(count)
-            performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: clampedCount)
             let rows = keyboardCopyModeGridMetrics(surface: surface)?.rows
                 ?? max(Int(ghostty_surface_size(surface).rows), 1)
-            shiftKeyboardCopyModeCursorForViewportScroll(
-                lineDelta: delta * rows * clampedCount,
-                surface: surface
-            )
+            beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: delta * rows * clampedCount)
+            performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: clampedCount)
+            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case let .scrollHalfPage(delta):
             let clampedCount = terminalKeyboardCopyModeClampCount(count)
             let fraction = delta > 0 ? 0.5 : -0.5
-            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: clampedCount)
             let rows = keyboardCopyModeGridMetrics(surface: surface)?.rows
                 ?? max(Int(ghostty_surface_size(surface).rows), 1)
             let linesPerScroll = Int((Double(rows) * 0.5).rounded(.towardZero))
-            shiftKeyboardCopyModeCursorForViewportScroll(
-                lineDelta: delta * linesPerScroll * clampedCount,
-                surface: surface
-            )
+            beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: delta * linesPerScroll * clampedCount)
+            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: clampedCount)
+            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case .scrollToTop:
             if var cursor = keyboardCopyModeCursor {
                 if let metrics = keyboardCopyModeGridMetrics(surface: surface) {
