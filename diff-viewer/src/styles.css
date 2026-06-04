@@ -90,7 +90,8 @@ body {
 #toolbar {
   position: relative;
   flex: 0 0 auto;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(124px, 0.9fr) auto;
   align-items: center;
   gap: 7px;
   min-height: 32px;
@@ -109,14 +110,13 @@ body {
   min-width: 0;
 }
 .toolbar-left {
-  flex: 0 1 36%;
+  justify-self: stretch;
 }
 .toolbar-middle {
-  flex: 1 1 auto;
   justify-content: center;
 }
 .toolbar-actions {
-  flex: 0 0 auto;
+  justify-self: end;
 }
 #source-select,
 #repo-select,
@@ -124,8 +124,8 @@ body {
 #jump-select {
   appearance: none;
   height: 24px;
-  min-width: 118px;
-  max-width: min(30vw, 320px);
+  min-width: 0;
+  max-width: 100%;
   padding: 0 24px 0 9px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -135,6 +135,9 @@ body {
     color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
   color: inherit;
   font: inherit;
+}
+#source-select {
+  flex: 0 1 118px;
 }
 #source-select:hover,
 #repo-select:hover,
@@ -150,15 +153,13 @@ body {
   display: none;
 }
 #jump-select {
-  min-width: min(250px, 30vw);
+  width: 100%;
 }
 #repo-select {
-  min-width: 132px;
-  max-width: min(26vw, 320px);
+  flex: 0 1 132px;
 }
 #base-select {
-  min-width: 120px;
-  max-width: min(22vw, 260px);
+  flex: 0 1 120px;
 }
 #source-select:focus,
 #repo-select:focus,
@@ -171,11 +172,33 @@ body {
   outline-offset: 1px;
 }
 #source-detail {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--cmux-diff-text-muted);
+}
+@media (max-width: 760px) {
+  #toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "source actions"
+      "jump actions";
+  }
+  .toolbar-left {
+    grid-area: source;
+  }
+  .toolbar-middle {
+    grid-area: jump;
+    justify-content: stretch;
+  }
+  .toolbar-actions {
+    grid-area: actions;
+  }
+  #source-detail {
+    display: none;
+  }
 }
 .toolbar-icon {
   width: 28px;
