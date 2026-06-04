@@ -6582,6 +6582,7 @@ const commands = [
   { id: "settings.terminal", label: "Open Terminal Settings", shortcut: "", run: () => openSettingsCategory("terminal") },
   { id: "settings.copyTerminalSetup", label: "Copy Terminal Setup", shortcut: "", run: () => copyTerminalSetup() },
   { id: "settings.pasteTerminalSetup", label: "Paste Terminal Setup", shortcut: "", run: () => pasteTerminalSetup() },
+  { id: "settings.resetTerminalSetup", label: "Reset Terminal Setup", shortcut: "", run: () => resetTerminalSetupSettings() },
   { id: "settings.terminalColors", label: "Reset Terminal Colors", shortcut: "", run: () => applyTerminalColorPresetById("cmux") },
   { id: "settings.saveTerminalProfile", label: "Save Terminal Profile", shortcut: "", run: () => saveCurrentTerminalProfile() },
   { id: "settings.colors", label: "Open Color Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "color", focusSearch: true }) },
@@ -7312,7 +7313,7 @@ const actionWorkflowDefinitions = [
     id: "terminalTools",
     label: "Terminal tools",
     body: "Run commands, search output, and carry terminal setup between sessions.",
-    commandIds: ["terminal.runCommand", "terminal.find", "settings.copyTerminalSetup", "settings.terminal"]
+    commandIds: ["terminal.runCommand", "terminal.find", "settings.copyTerminalSetup", "settings.resetTerminalSetup", "settings.terminal"]
   },
   {
     id: "speedTune",
@@ -21235,6 +21236,7 @@ function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount
       : snippetsFull
         ? commandSnippetLimitTitle()
         : "Save the latest recent terminal command as a reusable snippet.";
+  const setupDefault = terminalSetupSettingsAreDefault();
   const actions = [
     quickOverviewControlButton("New terminal", () => createTerminalPanel(newPaneDirection(), { workspaceId: workspace?.id }), {
       disabled: !hasWorkspace || creationDisabled,
@@ -21274,6 +21276,13 @@ function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount
     quickOverviewControlButton("Paste setup", pasteTerminalSetup, {
       title: "Apply a copied cmux terminal setup.",
       search: "quick setup terminal paste setup font size line height colors cursor shell clipboard json"
+    }),
+    quickOverviewControlButton("Reset setup", resetTerminalSetupSettings, {
+      disabled: setupDefault,
+      title: setupDefault
+        ? "Terminal setup already uses defaults."
+        : "Reset terminal font, spacing, history, colors, cursor, and default shell.",
+      search: `quick setup terminal reset setup default font size line height padding history color cursor shell ${setupDefault ? "active current " : ""}`
     }),
     quickOverviewControlButton("Save profile", saveCurrentTerminalProfile, {
       disabled: profilesFull,
@@ -28591,6 +28600,7 @@ function showToolbarMenu(event) {
   const blueprintsFull = workspaceBlueprintsFull();
   const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
   const terminalColorsDefault = isTerminalColorPresetIdActive("cmux");
+  const terminalSetupDefault = terminalSetupSettingsAreDefault();
   const paneRequiredTitle = "Focus or create a pane first.";
   const multiPaneRequiredTitle = "Focus a workspace with at least two panes first.";
   const workspaceRequiredTitle = "Open a workspace first.";
@@ -28727,6 +28737,7 @@ function showToolbarMenu(event) {
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
       toolbarAction("Copy terminal setup", copyTerminalSetup, false, "Copy the current terminal font, spacing, colors, cursor, and shell setup."),
       toolbarAction("Paste terminal setup", pasteTerminalSetup, false, "Apply a copied cmux terminal setup."),
+      toolbarAction("Reset terminal setup", resetTerminalSetupSettings, terminalSetupDefault, "Reset terminal font, spacing, history, colors, cursor, and default shell.", "Terminal setup already uses defaults."),
       toolbarAction("Copy terminal colors", copyTerminalColorPalette, false, "Copy the current terminal color setup."),
       toolbarAction("Paste terminal colors", pasteTerminalColorPalette, false, "Apply terminal colors copied from cmux."),
       toolbarAction("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), terminalColorsDefault, "Reset background, text, and cursor colors to the cmux default.", "Terminal colors already match the cmux default.")
@@ -30108,6 +30119,19 @@ function paletteEntries() {
     title: "Apply a terminal setup copied from cmux.",
     search: normalizeSettingsQuery("terminal setup paste apply font size line height padding history scrollback colors cursor shell profile json clipboard settings"),
     run: pasteTerminalSetup
+  });
+  const terminalSetupDefault = terminalSetupSettingsAreDefault();
+  entries.push({
+    id: "terminal.resetSetup",
+    label: "Reset terminal setup",
+    meta: terminalSetupDefault ? "Already using defaults" : "Font, spacing, history, colors, cursor, and shell",
+    shortcut: terminalSetupDefault ? "Default" : "Reset",
+    disabled: terminalSetupDefault,
+    title: terminalSetupDefault
+      ? "Terminal setup already uses defaults."
+      : "Reset terminal font, spacing, history, colors, cursor, and default shell.",
+    search: normalizeSettingsQuery(`terminal setup reset default font size line height padding history scrollback colors cursor shell profile settings ${terminalSetupDefault ? "active current " : ""}`),
+    run: resetTerminalSetupSettings
   });
   for (const preset of terminalReadabilityPresets) {
     const settings = terminalReadabilityPresetSettings(preset);
