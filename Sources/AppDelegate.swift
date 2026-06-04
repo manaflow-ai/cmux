@@ -4404,9 +4404,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
-        if didFinishStartupSessionRestoreAttempt, !isApplyingSessionRestore {
-            scheduleEphemeralWorktreeStartupReconciliation(reason: "mainWindowRegistered")
-        }
     }
 
 #if DEBUG

@@ -102,23 +102,40 @@ extension TerminalController {
         sourceDirectory: String,
         cleanupPolicy: EphemeralWorktreeCleanupPolicy
     ) async throws -> EphemeralWorktreeRecord {
+        let createTask = Task {
+            try await EphemeralWorktreeRegistry.shared.createAsync(
+                sourceDirectory: sourceDirectory,
+                cleanupPolicy: cleanupPolicy
+            )
+        }
         try await withThrowingTaskGroup(of: EphemeralWorktreeRecord.self) { group in
             defer { group.cancelAll() }
             group.addTask {
-                try await EphemeralWorktreeRegistry.shared.createAsync(
-                    sourceDirectory: sourceDirectory,
-                    cleanupPolicy: cleanupPolicy
-                )
+                try await createTask.value
             }
             group.addTask {
                 try await Task.sleep(nanoseconds: AsyncWorktreeV2Message.worktreeCreateTimeoutNanoseconds)
                 throw AsyncWorktreeV2Error.requestTimedOut
             }
 
-            guard let record = try await group.next() else {
+            do {
+                guard let record = try await group.next() else {
+                    throw AsyncWorktreeV2Error.requestTimedOut
+                }
+                return record
+            } catch AsyncWorktreeV2Error.requestTimedOut {
+                cleanupTimedOutAsyncWorktree(createTask)
                 throw AsyncWorktreeV2Error.requestTimedOut
             }
-            return record
+        }
+    }
+
+    private func cleanupTimedOutAsyncWorktree(_ createTask: Task<EphemeralWorktreeRecord, Error>) {
+        createTask.cancel()
+        Task {
+            if let record = try? await createTask.value {
+                EphemeralWorktreeRegistry.shared.cleanupInBackground(record, userConfirmed: true)
+            }
         }
     }
 

@@ -55,9 +55,30 @@ final class WorkspaceEphemeralWorktreeManager {
         savedWorkingDirectory: String?,
         worktree: EphemeralWorktreeRecord?
     ) -> String? {
+        if let worktree {
+            let restoredDirectory = Self.nonEmptyPath(savedWorkingDirectory)
+            let worktreeDirectory = Self.nonEmptyPath(worktree.worktreePath)
+            if let restoredDirectory,
+               let worktreeDirectory,
+               Self.isPath(restoredDirectory, inside: worktreeDirectory) {
+                return restoredDirectory
+            }
+
+            let mappedDirectory = worktree.matchingWorktreeDirectory(
+                forSourceDirectory: restoredDirectory
+            )
+            return resolvedWorkingDirectory(
+                explicitWorkingDirectory: nil,
+                worktree: worktree,
+                panelDirectory: mappedDirectory,
+                requestedWorkingDirectory: nil,
+                workspaceDirectory: savedWorkingDirectory
+            )
+        }
+
         resolvedWorkingDirectory(
             explicitWorkingDirectory: nil,
-            worktree: worktree,
+            worktree: nil,
             panelDirectory: savedWorkingDirectory,
             requestedWorkingDirectory: nil,
             workspaceDirectory: savedWorkingDirectory
@@ -164,6 +185,9 @@ final class WorkspaceEphemeralWorktreeManager {
     private nonisolated static func isPath(_ candidate: String, inside root: String) -> Bool {
         let candidatePath = (candidate as NSString).standardizingPath
         let rootPath = (root as NSString).standardizingPath
+        if rootPath == "/" {
+            return candidatePath.hasPrefix("/")
+        }
         return candidatePath == rootPath || candidatePath.hasPrefix(rootPath + "/")
     }
 }
