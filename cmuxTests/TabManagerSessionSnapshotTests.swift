@@ -671,6 +671,35 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(ClosedItemHistoryStore.shared.record(id: recordId))
     }
 
+    func testRemovingRestoredHistoryRecordClearsRedoState() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        let record = ClosedItemHistoryRecord(entry: .panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+        let ref = ReopenedItemRef.panel(workspaceId: workspace.id, panelId: panelSnapshot.id)
+        let store = ClosedItemHistoryStore(capacity: 10)
+        store.isTargetLive = { _ in true }
+        store.push(record)
+        store.markRestored(recordId: record.id, ref: ref)
+        store.noteReopened(ref)
+        store.setLastRestoredOperation(record.operationId)
+
+        XCTAssertTrue(store.isRecordRestored(record.id))
+        XCTAssertEqual(store.redoTarget, ref)
+        XCTAssertEqual(store.lastRestoredOperationId, record.operationId)
+
+        XCTAssertNotNil(store.removeRecord(id: record.id))
+
+        XCTAssertNil(store.restoredRef(for: record.id))
+        XCTAssertNil(store.redoTarget)
+        XCTAssertNil(store.lastRestoredOperationId)
+    }
+
     func testReopenClosedBrowserSplitFromClosedItemHistoryRestoresCollapsedPane() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -1548,7 +1577,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
         XCTAssertTrue(manager.tabs.contains { $0.customTitle == "Closing Workspace" })
-        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount, 1)
     }
 
     func testReopenSkipsInvalidRecentRecordButKeepsItInHistory() throws {
@@ -1578,7 +1607,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
         XCTAssertTrue(workspace.panelCustomTitles.values.contains("Restorable Tab"))
-        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title), ["Invalid Newest Tab"])
+        XCTAssertEqual(
+            ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title),
+            ["Invalid Newest Tab", "Restorable Tab"]
+        )
     }
 
     func testSkippedClosedPanelIsRemappedWhenOlderWorkspaceRestores() throws {
@@ -1614,11 +1646,14 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoreManager.reopenMostRecentlyClosedItem())
         let restoredWorkspace = try XCTUnwrap(restoreManager.tabs.first { $0.customTitle == "Recovered Parent" })
         XCTAssertNotEqual(restoredWorkspace.id, sourceWorkspace.id)
-        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title), ["Remapped Skipped Tab"])
+        XCTAssertEqual(
+            ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title),
+            ["Remapped Skipped Tab", "Recovered Parent"]
+        )
 
         XCTAssertTrue(restoreManager.reopenMostRecentlyClosedItem())
         XCTAssertTrue(restoredWorkspace.panelCustomTitles.values.contains("Remapped Skipped Tab"))
-        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount, 2)
     }
 
     func testNoOpClosedPanelRemapDoesNotAdvanceRevision() throws {

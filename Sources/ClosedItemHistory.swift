@@ -338,6 +338,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         let candidates = records.enumerated()
             .filter { _, record in
                 guard !excludedRecordIds.contains(record.id) else { return false }
+                guard !isRecordRestored(record.id) else { return false }
                 guard let cutoff else { return true }
                 return record.closedAt >= cutoff
             }
@@ -353,11 +354,39 @@ final class ClosedItemHistoryStore: ObservableObject {
                 onFailure?(candidate.id)
                 continue
             }
-            if let index = records.firstIndex(where: { $0.id == candidate.id }) {
-                records.remove(at: index)
-                revision &+= 1
-                persistRecords()
+            return true
+        }
+        return false
+    }
+
+    @discardableResult
+    func restoreFirstRestorableRef(
+        newerThan cutoff: Date? = nil,
+        excluding excludedRecordIds: Set<UUID> = [],
+        onFailure: ((UUID) -> Void)? = nil,
+        using restore: (ClosedItemHistoryRecord) -> ReopenedItemRef?
+    ) -> Bool {
+        let candidates = records.enumerated()
+            .filter { _, record in
+                guard !excludedRecordIds.contains(record.id) else { return false }
+                guard !isRecordRestored(record.id) else { return false }
+                guard let cutoff else { return true }
+                return record.closedAt >= cutoff
             }
+            .sorted { lhs, rhs in
+                if lhs.element.closedAt != rhs.element.closedAt {
+                    return lhs.element.closedAt > rhs.element.closedAt
+                }
+                return lhs.offset > rhs.offset
+            }
+            .map { _, record in record }
+        for candidate in candidates {
+            guard let ref = restore(candidate) else {
+                onFailure?(candidate.id)
+                continue
+            }
+            markRestored(recordId: candidate.id, ref: ref)
+            setLastRestoredOperation(candidate.operationId)
             return true
         }
         return false
@@ -376,6 +405,14 @@ final class ClosedItemHistoryStore: ObservableObject {
             return nil
         }
         let record = records.remove(at: index)
+        if let ref = restoredRefByRecordId.removeValue(forKey: id),
+           redoTarget == ref {
+            redoTarget = nil
+        }
+        if lastRestoredOperationId == record.operationId,
+           !records.contains(where: { $0.operationId == record.operationId }) {
+            lastRestoredOperationId = nil
+        }
         revision &+= 1
         persistRecords()
         return (record, index)
@@ -478,7 +515,14 @@ final class ClosedItemHistoryStore: ObservableObject {
     /// source of truth for "already restored").
     func isRecordRestored(_ recordId: UUID) -> Bool {
         guard let ref = restoredRefByRecordId[recordId], let isTargetLive else { return false }
-        return isTargetLive(ref)
+        guard isTargetLive(ref) else {
+            restoredRefByRecordId.removeValue(forKey: recordId)
+            if redoTarget == ref {
+                redoTarget = nil
+            }
+            return false
+        }
+        return true
     }
 
     /// Records that `recordId` was restored into the live item `ref`.

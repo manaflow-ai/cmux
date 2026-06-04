@@ -15855,11 +15855,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspaceForMainActor(tabId: tabId)
     }
 
-    func closeMainWindowContainingTabId(_ tabId: UUID, recordHistory: Bool = true, operationId: UUID? = nil) {
+    @discardableResult
+    func closeMainWindowContainingTabId(_ tabId: UUID, recordHistory: Bool = true, operationId: UUID? = nil) -> Bool {
 #if DEBUG
         closeMainWindowContainingTabIdObserverForTesting?(tabId, recordHistory)
 #endif
-        guard let context = contextContainingTabId(tabId) else { return }
+        guard let context = contextContainingTabId(tabId) else { return false }
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         if !recordHistory {
@@ -15873,9 +15874,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 closedWindowHistorySuppressedWindowIds.remove(context.windowId)
             }
             closedWindowHistoryOperationIdsByWindowId.removeValue(forKey: context.windowId)
-            return
+            return false
         }
         window.performClose(nil)
+        return true
     }
 
     @discardableResult

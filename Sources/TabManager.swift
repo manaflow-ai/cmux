@@ -6891,54 +6891,53 @@ class TabManager: ObservableObject {
     }
 
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true, operationId: UUID? = nil) {
+        guard let index = tabs.firstIndex(where: { $0.id == workspace.id }) else { return }
+        let liveWorkspace = tabs[index]
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         if recordHistory,
-           workspace.isRestorableInSessionSnapshot,
-           let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            let snapshot = workspace.sessionSnapshot(
+           liveWorkspace.isRestorableInSessionSnapshot {
+            let snapshot = liveWorkspace.sessionSnapshot(
                 includeScrollback: true,
                 restorableAgentIndex: RestorableAgentSessionIndex.load()
             )
             ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
-                workspaceId: workspace.id,
+                workspaceId: liveWorkspace.id,
                 windowId: AppDelegate.shared?.windowId(for: self),
                 workspaceIndex: index,
                 snapshot: snapshot
             )), operationId: operationId)
         }
-        clearWorkspaceGitProbes(workspaceId: workspace.id)
-        clearWorkspacePullRequestTracking(workspaceId: workspace.id)
-        sidebarSelectedWorkspaceIds.remove(workspace.id)
-        invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
+        clearWorkspaceGitProbes(workspaceId: liveWorkspace.id)
+        clearWorkspacePullRequestTracking(workspaceId: liveWorkspace.id)
+        sidebarSelectedWorkspaceIds.remove(liveWorkspace.id)
+        invalidateFocusHistoryTarget(workspaceId: liveWorkspace.id, panelId: nil)
 
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
-        workspace.withClosedPanelHistorySuppressed {
-            workspace.teardownAllPanels()
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: liveWorkspace.id)
+        liveWorkspace.withClosedPanelHistorySuppressed {
+            liveWorkspace.teardownAllPanels()
         }
-        workspace.teardownRemoteConnection()
-        unwireClosedBrowserTracking(for: workspace)
-        recentlyClosedBrowsers.removeSnapshots(forWorkspaceId: workspace.id)
-        workspace.owningTabManager = nil
+        liveWorkspace.teardownRemoteConnection()
+        unwireClosedBrowserTracking(for: liveWorkspace)
+        recentlyClosedBrowsers.removeSnapshots(forWorkspaceId: liveWorkspace.id)
+        liveWorkspace.owningTabManager = nil
 
-        if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            tabs.remove(at: index)
-            // Real-close path: if the closed workspace anchored a group, the
-            // group dissolves now and its remaining members survive as
-            // ungrouped workspaces. This lives at the explicit close site (not
-            // in the tabs didSet) so transient remove/insert reorders never
-            // trigger dissolve.
-            dissolveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
+        tabs.remove(at: index)
+        // Real-close path: if the closed workspace anchored a group, the
+        // group dissolves now and its remaining members survive as
+        // ungrouped workspaces. This lives at the explicit close site (not
+        // in the tabs didSet) so transient remove/insert reorders never
+        // trigger dissolve.
+        dissolveGroupsAnchoredBy(closedWorkspaceId: liveWorkspace.id)
 
-            if selectedTabId == workspace.id {
-                // Keep the "focused index" stable when possible:
-                // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
-                // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
-                let newIndex = min(index, max(0, tabs.count - 1))
-                selectedTabId = tabs[newIndex].id
-            }
+        if selectedTabId == liveWorkspace.id {
+            // Keep the "focused index" stable when possible:
+            // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
+            // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
+            let newIndex = min(index, max(0, tabs.count - 1))
+            selectedTabId = tabs[newIndex].id
         }
-        publishCmuxWorkspaceClosed(workspace)
+        publishCmuxWorkspaceClosed(liveWorkspace)
     }
 
     /// If `closedWorkspaceId` was the anchor of any group, dissolve that group:
@@ -7082,11 +7081,9 @@ class TabManager: ObservableObject {
     func closeWorkspaceWithConfirmation(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
             guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
-            return true
+            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
-        closeWorkspaceIfRunningProcess(workspace)
-        return true
+        return closeWorkspaceIfRunningProcess(workspace)
     }
 
     @discardableResult
@@ -7094,22 +7091,19 @@ class TabManager: ObservableObject {
         guard tabs.contains(where: { $0.id == workspace.id }) else { return false }
         if workspace.isPinned {
             guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false, operationId: operationId)
+            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false, operationId: operationId)
         } else {
-            closeWorkspaceIfRunningProcess(workspace, operationId: operationId)
+            return closeWorkspaceIfRunningProcess(workspace, operationId: operationId)
         }
-        return !tabs.contains(where: { $0.id == workspace.id })
     }
 
     @discardableResult
     func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
             guard confirmPinnedWorkspaceClose(source: .tabClose) else { return false }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
-            return true
+            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
-        closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
-        return true
+        return closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
     }
 
     @discardableResult
@@ -7396,12 +7390,13 @@ class TabManager: ObservableObject {
         return String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
     }
 
+    @discardableResult
     private func closeWorkspaceIfRunningProcess(
         _ workspace: Workspace,
         requiresConfirmation: Bool = true,
         source: CloseConfirmationSource = .workspace,
         operationId: UUID? = nil
-    ) {
+    ) -> Bool {
         // Anchor-close ALWAYS prompts (subject to its own
         // WorkspaceGroupAnchorCloseSettings.suppressed flag), regardless of
         // requiresConfirmation. Batch-close paths set requiresConfirmation=false
@@ -7416,7 +7411,7 @@ class TabManager: ObservableObject {
                 tab.groupId == groupId && tab.id != workspace.id ? partial + 1 : partial
             }
             if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) {
-                return
+                return false
             }
         }
         let willCloseWindow = tabs.count <= 1
@@ -7428,20 +7423,22 @@ class TabManager: ObservableObject {
                message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
                acceptCmdD: willCloseWindow
            ) {
-            return
+            return false
         }
         if tabs.count <= 1 {
             // Last workspace in this window: match Close Workspace shortcut behavior.
             if let operationId,
                let windowId = AppDelegate.shared?.windowId(for: self) {
-                AppDelegate.shared?.closeMainWindow(windowId: windowId, operationId: operationId)
+                return AppDelegate.shared?.closeMainWindow(windowId: windowId, operationId: operationId) ?? false
             } else if let window {
                 window.performClose(nil)
+                return true
             } else {
-                AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id, operationId: operationId)
+                return AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id, operationId: operationId) ?? false
             }
         } else {
             closeWorkspace(workspace, operationId: operationId)
+            return !tabs.contains(where: { $0.id == workspace.id })
         }
     }
 
@@ -9415,14 +9412,16 @@ class TabManager: ObservableObject {
             return appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: self)
         }
 
-        if ClosedItemHistoryStore.shared.restoreFirstRestorable(using: { entry in
-            switch entry {
+        if ClosedItemHistoryStore.shared.restoreFirstRestorableRef(using: { record in
+            switch record.entry {
             case .panel(let panelEntry):
-                return restoreClosedPanel(panelEntry) != nil
+                guard let panelId = restoreClosedPanel(panelEntry) else { return nil }
+                return .panel(workspaceId: panelEntry.workspaceId, panelId: panelId)
             case .workspace(let workspaceEntry):
-                return restoreClosedWorkspace(workspaceEntry) != nil
+                guard let workspaceId = restoreClosedWorkspace(workspaceEntry) else { return nil }
+                return .workspace(workspaceId: workspaceId)
             case .window:
-                return false
+                return nil
             }
         }) {
             return true
@@ -9445,9 +9444,18 @@ class TabManager: ObservableObject {
 
         switch record.entry {
         case .panel(let panelEntry):
-            return restoreClosedPanel(panelEntry) != nil
+            guard let panelId = restoreClosedPanel(panelEntry) else { return false }
+            ClosedItemHistoryStore.shared.markRestored(
+                recordId: record.id,
+                ref: .panel(workspaceId: panelEntry.workspaceId, panelId: panelId)
+            )
+            ClosedItemHistoryStore.shared.setLastRestoredOperation(record.operationId)
+            return true
         case .workspace(let workspaceEntry):
-            return restoreClosedWorkspace(workspaceEntry) != nil
+            guard let workspaceId = restoreClosedWorkspace(workspaceEntry) else { return false }
+            ClosedItemHistoryStore.shared.markRestored(recordId: record.id, ref: .workspace(workspaceId: workspaceId))
+            ClosedItemHistoryStore.shared.setLastRestoredOperation(record.operationId)
+            return true
         case .window:
             return false
         }

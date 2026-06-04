@@ -28,16 +28,16 @@ extension AppDelegate {
     ) -> Bool {
         var failedStoreRecordIds: Set<UUID> = []
         let restoreStoreItem: (Date?) -> Bool = { cutoff in
-            ClosedItemHistoryStore.shared.restoreFirstRestorable(
+            ClosedItemHistoryStore.shared.restoreFirstRestorableRef(
                 newerThan: cutoff,
                 excluding: failedStoreRecordIds,
                 onFailure: { failedStoreRecordIds.insert($0) },
-                using: { entry in
+                using: { record in
                     self.restoreClosedItem(
-                        entry,
+                        record.entry,
                         preferredTabManager: preferredTabManager,
                         shouldActivate: shouldActivate
-                    ) != nil
+                    )
                 }
             )
         }
@@ -50,6 +50,7 @@ extension AppDelegate {
                 return true
             }
             if manager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
+                ClosedItemHistoryStore.shared.clearRedoTarget()
                 return true
             }
         }
@@ -207,6 +208,7 @@ extension AppDelegate {
            let legacyClosedAt = legacyManager.mostRecentLegacyClosedBrowserPanelClosedAt(),
            undoableOperation.map({ legacyClosedAt > $0.closedAt }) ?? true,
            legacyManager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
+            ClosedItemHistoryStore.shared.clearRedoTarget()
             return true
         }
         guard let op = undoableOperation else {
@@ -215,25 +217,27 @@ extension AppDelegate {
             // duplicate something already on screen).
             for manager in legacyManagers {
                 if manager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
+                    ClosedItemHistoryStore.shared.clearRedoTarget()
                     return true
                 }
             }
             return false
         }
-        var restoredAny = false
+        let unrestoredItems = op.items.filter { !$0.isRestored }
+        var restoredCount = 0
         for item in op.items where !item.isRestored {
             if reopenClosedHistoryItem(
                 id: item.id,
                 preferredTabManager: preferredTabManager,
                 shouldActivate: shouldActivate
             ) {
-                restoredAny = true
+                restoredCount += 1
             }
         }
-        if restoredAny {
+        if restoredCount > 0 {
             ClosedItemHistoryStore.shared.setLastRestoredOperation(op.id)
         }
-        return restoredAny
+        return restoredCount == unrestoredItems.count
     }
 
     /// Op-atomic redo: re-closes the live items of the most recently restored
@@ -244,22 +248,23 @@ extension AppDelegate {
         guard let opId = ClosedItemHistoryStore.shared.lastRestoredOperationId else {
             return redoLastReopen(preferredTabManager: preferredTabManager)
         }
-        let liveRefs = ClosedItemHistoryStore.shared.recordsForOperation(opId).compactMap { record -> ReopenedItemRef? in
+        let liveRecords = ClosedItemHistoryStore.shared.recordsForOperation(opId).compactMap { record -> (ClosedItemHistoryRecord, ReopenedItemRef)? in
             guard let ref = ClosedItemHistoryStore.shared.restoredRef(for: record.id),
                   closedItemTargetIsLive(ref) else { return nil }
-            return ref
+            return (record, ref)
         }
-        guard !liveRefs.isEmpty else {
+        guard !liveRecords.isEmpty else {
             ClosedItemHistoryStore.shared.setLastRestoredOperation(nil)
             return redoLastReopen(preferredTabManager: preferredTabManager)
         }
         let redoOperationId = UUID()
-        var closedAny = false
-        for ref in liveRefs where closeReopenedRef(ref, operationId: redoOperationId) {
-            closedAny = true
+        var closedCount = 0
+        for (_, ref) in liveRecords where closeReopenedRef(ref, operationId: redoOperationId) {
+            closedCount += 1
         }
-        ClosedItemHistoryStore.shared.setLastRestoredOperation(nil)
-        return closedAny
+        let closedAll = closedCount == liveRecords.count
+        ClosedItemHistoryStore.shared.setLastRestoredOperation(closedAll ? nil : opId)
+        return closedAll
     }
 
     @discardableResult
@@ -275,7 +280,6 @@ extension AppDelegate {
             return manager.closeWorkspaceForHistoryRedo(workspace, operationId: operationId)
         case .window(let windowId):
             return closeMainWindow(windowId: windowId, operationId: operationId)
-                && tabManagerFor(windowId: windowId) == nil
         }
     }
 
@@ -294,21 +298,20 @@ extension AppDelegate {
                 ClosedItemHistoryStore.shared.clearRedoTarget()
                 return false
             }
-            return workspace.closePanel(panelId)
+            return workspace.closePanel(panelId, operationId: UUID())
         case .workspace(let workspaceId):
             guard let manager = tabManagerFor(tabId: workspaceId) ?? preferredTabManager ?? tabManager,
                   let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else {
                 ClosedItemHistoryStore.shared.clearRedoTarget()
                 return false
             }
-            manager.closeWorkspace(workspace, recordHistory: true)
-            return !manager.tabs.contains(where: { $0.id == workspaceId })
+            return manager.closeWorkspaceForHistoryRedo(workspace, operationId: UUID())
         case .window(let windowId):
             guard closeMainWindow(windowId: windowId) else {
                 ClosedItemHistoryStore.shared.clearRedoTarget()
                 return false
             }
-            return tabManagerFor(windowId: windowId) == nil
+            return true
         }
     }
 
