@@ -11,7 +11,9 @@ import Foundation
 /// owned by the surface (`GhosttySurfaceView.liveFontSize`) and is intentionally
 /// NOT persisted across launches: a persisted zoom is what made a fresh launch
 /// open with an oversized font. ``minimumSize``/``maximumSize`` bound the zoom.
-public enum MobileTerminalFontPreference {
+public struct MobileTerminalFontPreference {
+    private init() {}
+
     /// Point size every terminal opens at. Smaller than the macOS terminal
     /// default (`font-size = 12`) so the phone's narrow screen fits more columns
     /// and rows at launch. iOS renders at the same 72 points-per-inch logical

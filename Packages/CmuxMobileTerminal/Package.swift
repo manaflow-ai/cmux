@@ -6,7 +6,6 @@ let package = Package(
     name: "CmuxMobileTerminal",
     platforms: [
         .iOS(.v18),
-        .macOS(.v14),
     ],
     products: [
         .library(
@@ -16,6 +15,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CMUXMobileCore"),
+        .package(path: "../CmuxMobileDiagnostics"),
+        .package(path: "../CmuxMobileTerminalKit"),
     ],
     targets: [
         // The same libghostty the Mac links; iOS feeds raw PTY bytes straight
@@ -28,6 +29,8 @@ let package = Package(
             name: "CmuxMobileTerminal",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxMobileDiagnostics",
+                "CmuxMobileTerminalKit",
                 "GhosttyKit",
             ],
             swiftSettings: [

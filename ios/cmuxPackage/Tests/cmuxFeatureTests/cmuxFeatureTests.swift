@@ -1,13 +1,42 @@
 import CMUXMobileCore
-@testable import CmuxMobileAuth
+import CmuxAuthRuntime
+import CmuxMobilePairedMac
+import CmuxMobileRPC
+@testable import CmuxMobileShell
+@testable import CmuxMobileShellUI
+import CmuxMobileShellModel
+import CmuxMobileWorkspace
 import Foundation
 import StackAuth
-import SwiftUI
 import Testing
 #if canImport(UIKit)
 import UIKit
 #endif
 @testable import cmuxFeature
+
+/// Test collector that mounts a surface's ``CMUXMobileShellStore`` output stream
+/// and accumulates each chunk's UTF-8 text, mirroring what a mounted
+/// `GhosttySurfaceView` would feed into libghostty.
+@MainActor
+final class TerminalOutputCollector {
+    private(set) var lines: [String] = []
+    private var task: Task<Void, Never>?
+
+    /// Begin consuming the surface's output stream into ``lines``.
+    func mount(store: CMUXMobileShellStore, surfaceID: String) {
+        task = Task { @MainActor [weak self] in
+            for await data in store.terminalOutputStream(surfaceID: surfaceID) {
+                self?.lines.append(String(data: data, encoding: .utf8) ?? "")
+            }
+        }
+    }
+
+    /// Stop consuming the stream, unregistering the surface from the store.
+    func unmount() {
+        task?.cancel()
+        task = nil
+    }
+}
 
 @MainActor
 @Test func startsAtSignInWithoutConnection() {
@@ -23,18 +52,16 @@ import UIKit
 
 @Test func authBuildPolicyCompilesDevShortcutOnlyForDebug() {
     #if CMUX_DEV_AUTH
-    #expect(MobileAuthBuildPolicy.includesFortyTwoShortcut)
+    #expect(MobileAuthBuildPolicy.current.includesFortyTwoShortcut)
     #else
-    #expect(!MobileAuthBuildPolicy.includesFortyTwoShortcut)
+    #expect(!MobileAuthBuildPolicy.current.includesFortyTwoShortcut)
     #endif
 }
 
 @Test func authAutoLoginPolicyUsesRealStoredTokenState() {
-    let credentials = AuthAutoLoginCredentials(email: "test@example.com", password: "pass")
-
-    #expect(MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: credentials, hasStoredTokens: false))
-    #expect(!MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: credentials, hasStoredTokens: true))
-    #expect(!MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: nil, hasStoredTokens: false))
+    #expect(AuthLaunchOptions.shouldStartAutoLogin(hasCredentials: true, hasStoredTokens: false))
+    #expect(!AuthLaunchOptions.shouldStartAutoLogin(hasCredentials: true, hasStoredTokens: true))
+    #expect(!AuthLaunchOptions.shouldStartAutoLogin(hasCredentials: false, hasStoredTokens: false))
 }
 
 #if DEBUG
@@ -49,184 +76,10 @@ import UIKit
 }
 #endif
 
-@Test func signInCodeInputPolicyNormalizesPastedCodesBeforeVerifying() {
-    #expect(SignInCodeInputPolicy.action(for: "12345") == .none)
-    #expect(SignInCodeInputPolicy.action(for: "123456") == .verify)
-    #expect(SignInCodeInputPolicy.action(for: "123456\n") == .assign("123456"))
-    #expect(SignInCodeInputPolicy.action(for: "1234567") == .assign("123456"))
-}
-
-@Test func authDisplaySafeErrorPreservesUserFacingStackErrors() throws {
-    let userFacingCodes = [
-        "SCHEMA_ERROR",
-        "USER_EMAIL_ALREADY_EXISTS",
-        "VERIFICATION_CODE_ERROR",
-        "INVALID_OTP",
-        "OTP_EXPIRED",
-        "RATE_LIMIT",
-        "EMAIL_PASSWORD_MISMATCH",
-        "USER_NOT_FOUND",
-        "PASSKEY_AUTHENTICATION_FAILED",
-        "PASSKEY_WEBAUTHN_ERROR",
-        "INVALID_TOTP_CODE",
-        "REDIRECT_URL_NOT_WHITELISTED",
-        "OAUTH_PROVIDER_ACCOUNT_ID_ALREADY_USED_FOR_SIGN_IN",
-        "INVALID_APPLE_CREDENTIALS",
-    ]
-
-    for code in userFacingCodes {
-        let mapped = AuthManager.displaySafeAuthError(StackAuthError(code: code, message: "message"))
-        let stackError = try #require(mapped as? StackAuthErrorProtocol)
-        #expect(stackError.code == code)
-    }
-}
-
-@Test func authDisplaySafeErrorMapsCancellationAndUnknownStackErrors() throws {
-    let cancelled = AuthManager.displaySafeAuthError(StackAuthError(code: "oauth_cancelled", message: "cancelled"))
-    guard case AuthError.cancelled = cancelled else {
-        Issue.record("Expected OAuth cancellation to map to AuthError.cancelled")
-        return
-    }
-
-    let unknown = AuthManager.displaySafeAuthError(StackAuthError(code: "UNEXPECTED", message: "raw server detail"))
-    guard case AuthError.serverError(0, "auth_failed") = unknown else {
-        Issue.record("Expected unknown Stack errors to use the generic auth failure")
-        return
-    }
-}
-
-@Test func cachedSessionValidationClearsOnlyDefinitiveUnauthorizedFailures() {
-    #expect(
-        AuthManager.cachedSessionValidationFailureAction(
-            for: StackAuthError(code: "UNAUTHORIZED", message: "expired")
-        ) == .clearSession
-    )
-    #expect(
-        AuthManager.cachedSessionValidationFailureAction(
-            for: StackAuthError(code: "INVALID_TOKEN", message: "invalid")
-        ) == .clearSession
-    )
-    #expect(
-        AuthManager.cachedSessionValidationFailureAction(
-            for: URLError(.notConnectedToInternet)
-        ) == .preserveCachedSession
-    )
-    #expect(
-        AuthManager.cachedSessionValidationFailureAction(
-            for: StackAuthError(code: "RATE_LIMIT", message: "try later")
-        ) == .preserveCachedSession
-    )
-}
-
-@Test func rpcRequestTimeoutCancelsOperationWhenCallerIsCancelled() async throws {
-    let started = AsyncFlag()
-    let cancelled = AsyncFlag()
-    let task = Task {
-        try await MobileCoreRPCClient.debugWithRequestTimeout(
-            timeoutNanoseconds: 60 * 1_000_000_000
-        ) {
-            await started.set()
-            do {
-                try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
-                return "completed"
-            } catch {
-                await cancelled.set()
-                throw error
-            }
-        }
-    }
-
-    for _ in 0..<100 {
-        if await started.isSet() {
-            break
-        }
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
-    #expect(await started.isSet())
-
-    task.cancel()
-
-    do {
-        _ = try await task.value
-        Issue.record("Expected cancelled RPC timeout wrapper to throw")
-    } catch is CancellationError {
-    } catch {
-        Issue.record("Expected CancellationError, got \(error)")
-    }
-
-    for _ in 0..<100 {
-        if await cancelled.isSet() {
-            break
-        }
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
-    #expect(await cancelled.isSet())
-}
-
-@Test func cancelledQueuedRPCIsNotWrittenAfterEarlierSendCompletes() async throws {
-    let transport = QueuedCancellationProbeTransport()
-    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59123)
-    let runtime = testRuntime(
-        transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
-        rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: "workspace-main",
-        terminalID: "terminal-main",
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60),
-        authToken: "ticket-secret"
-    )
-    let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
-    let firstRequest = try MobileCoreRPCClient.requestData(
-        method: "terminal.input",
-        params: [
-            "workspace_id": "workspace-main",
-            "terminal_id": "terminal-main",
-            "text": "first",
-        ],
-        id: "first-input"
-    )
-    let queuedRequest = try MobileCoreRPCClient.requestData(
-        method: "workspace.create",
-        params: ["title": "queued-workspace"],
-        id: "queued-create"
-    )
-
-    let firstTask = Task {
-        try await client.sendRequest(firstRequest)
-    }
-    let firstSent = try await transport.waitForSentRequestCount(1)
-    #expect(firstSent.map(\.method) == ["terminal.input"])
-
-    let queuedTask = Task {
-        try await client.sendRequest(queuedRequest)
-    }
-    for _ in 0..<100 {
-        await Task.yield()
-    }
-    queuedTask.cancel()
-    do {
-        _ = try await queuedTask.value
-        Issue.record("Expected queued RPC cancellation to throw")
-    } catch {
-    }
-
-    await transport.releaseFirstSend()
-    for _ in 0..<100 {
-        if try await transport.sentRequests().count > 1 {
-            break
-        }
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
-
-    let sent = try await transport.sentRequests()
-    #expect(sent.map(\.method) == ["terminal.input"])
-    firstTask.cancel()
-    _ = try? await firstTask.value
-}
+// Auth error mapping + cached-session recovery are now owned and tested by
+// CmuxAuthRuntime (AuthErrorMapperTests). The display-safe error and
+// cached-session-validation assertions moved there with the AuthCoordinator
+// lift; see Packages/CmuxAuthRuntime/Tests.
 
 @Test func mobileRuntimeDefaultsToThirtySecondRPCTimeout() {
     let runtime = CMUXMobileRuntime(
@@ -237,61 +90,6 @@ import UIKit
 
     #expect(runtime.rpcRequestTimeoutNanoseconds == 30 * 1_000_000_000)
     #expect(runtime.pairingRequestTimeoutNanoseconds == 8 * 1_000_000_000)
-}
-
-@Test func manualRouteAuthPolicyAllowsStackAuthOnlyForTrustedManualHostPortRoutes() throws {
-    let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
-    let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
-    let lanIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
-    let localDNS = try hostPortRoute(kind: .tailscale, host: "devbox.local", port: CmxMobileDefaults.defaultHostPort)
-    let tailscaleMagicDNS = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
-    let pretendLoopback = try hostPortRoute(kind: .debugLoopback, host: "127.attacker.example", port: CmxMobileDefaults.defaultHostPort)
-
-    #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
-    #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
-    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
-    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
-    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
-    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
-    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
-    #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
-    #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))
-    #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
-    #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
-    #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("192.168.1.77"))
-    #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
-}
-
-@Test func pairedMacStorePersistsActiveMacsScopedByStackUser() async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let store = try MobilePairedMacStore(databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"))
-    let userARoute = try hostPortRoute(kind: .tailscale, host: "work-a.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
-    let userBRoute = try hostPortRoute(kind: .tailscale, host: "work-b.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
-    let now = Date(timeIntervalSince1970: 1_000)
-
-    try await store.upsert(
-        macDeviceID: "mac-a",
-        displayName: "Work A",
-        routes: [userARoute],
-        markActive: true,
-        stackUserID: "user-a",
-        now: now
-    )
-    try await store.upsert(
-        macDeviceID: "mac-b",
-        displayName: "Work B",
-        routes: [userBRoute],
-        markActive: true,
-        stackUserID: "user-b",
-        now: now.addingTimeInterval(10)
-    )
-
-    #expect(try await store.activeMac(stackUserID: "user-a")?.macDeviceID == "mac-a")
-    #expect(try await store.activeMac(stackUserID: "user-b")?.macDeviceID == "mac-b")
-    #expect(try await store.activeMac(stackUserID: "missing") == nil)
-    #expect(try await store.loadAll(stackUserID: "user-a").map(\.routes).first == [userARoute])
 }
 
 @MainActor
@@ -308,27 +106,6 @@ import UIKit
     #expect(route?.1 == CmxMobileDefaults.defaultHostPort)
 }
 
-@Test func compactHeightUsesStackWorkspaceNavigation() {
-    #expect(
-        MobileWorkspaceShellLayoutPolicy.usesCompactStack(
-            horizontalSizeClass: .regular,
-            verticalSizeClass: .compact
-        )
-    )
-    #expect(
-        MobileWorkspaceShellLayoutPolicy.usesCompactStack(
-            horizontalSizeClass: .compact,
-            verticalSizeClass: .regular
-        )
-    )
-    #expect(
-        !MobileWorkspaceShellLayoutPolicy.usesCompactStack(
-            horizontalSizeClass: .regular,
-            verticalSizeClass: .regular
-        )
-    )
-}
-
 @MainActor
 @Test func rootAuthGateIgnoresLegacyShellSignInState() {
     let store = CMUXMobileShellStore.preview()
@@ -337,48 +114,6 @@ import UIKit
 
     #expect(store.isSignedIn)
     #expect(!MobileRootAuthGate.isAuthenticated(stackAuthenticated: false))
-}
-
-@Test func rootAuthGateAllowsAttachTicketAuthenticationWithoutStackAuth() throws {
-    #expect(MobileRootAuthGate.isAuthenticated(
-        stackAuthenticated: false,
-        attachTicketAuthenticated: true
-    ))
-    #expect(!MobileRootAuthGate.isAuthenticated(
-        stackAuthenticated: false,
-        attachTicketAuthenticated: false
-    ))
-
-    let attachURL = try #require(URL(string: "cmux-ios://attach?v=1&payload=test"))
-    let authURL = try #require(URL(string: "stack-auth-mobile-oauth-url://callback?code=test"))
-    let otherURL = try #require(URL(string: "cmux-ios://oauth?v=1"))
-
-    #expect(MobileRootAuthGate.isAttachURL(attachURL))
-    #expect(!MobileRootAuthGate.isAttachURL(authURL))
-    #expect(!MobileRootAuthGate.isAttachURL(otherURL))
-}
-
-@Test func rootAuthGateShowsRestoringSessionOnlyBeforeAuthentication() {
-    #expect(MobileRootAuthGate.shouldShowRestoringSession(
-        stackAuthenticated: false,
-        attachTicketAuthenticated: false,
-        isRestoringSession: true
-    ))
-    #expect(!MobileRootAuthGate.shouldShowRestoringSession(
-        stackAuthenticated: true,
-        attachTicketAuthenticated: false,
-        isRestoringSession: true
-    ))
-    #expect(!MobileRootAuthGate.shouldShowRestoringSession(
-        stackAuthenticated: false,
-        attachTicketAuthenticated: true,
-        isRestoringSession: true
-    ))
-    #expect(!MobileRootAuthGate.shouldShowRestoringSession(
-        stackAuthenticated: false,
-        attachTicketAuthenticated: false,
-        isRestoringSession: false
-    ))
 }
 
 @MainActor
@@ -407,49 +142,6 @@ import UIKit
     )
 
     #expect(store.isSignedIn)
-}
-
-@Test func rootAuthGateClearsOnlyStaleTemporaryAttachAuthentication() {
-    #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
-        pairingResult: .failed,
-        connectionState: .disconnected,
-        hasActiveUnexpiredTicket: false
-    ))
-    #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
-        pairingResult: .superseded,
-        connectionState: .disconnected,
-        hasActiveUnexpiredTicket: false
-    ))
-    #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
-        pairingResult: .superseded,
-        connectionState: .connected,
-        hasActiveUnexpiredTicket: true
-    ))
-    #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
-        pairingResult: .connected,
-        connectionState: .connected,
-        hasActiveUnexpiredTicket: true
-    ))
-    #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
-        pairingResult: .connected,
-        connectionState: .connected,
-        hasActiveUnexpiredTicket: false
-    ))
-    #expect(MobileRootAuthGate.shouldReconnectStoredMac(
-        stackAuthenticated: true,
-        attachTicketAuthenticated: false,
-        connectionState: .disconnected
-    ))
-    #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
-        stackAuthenticated: true,
-        attachTicketAuthenticated: true,
-        connectionState: .disconnected
-    ))
-    #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
-        stackAuthenticated: false,
-        attachTicketAuthenticated: true,
-        connectionState: .disconnected
-    ))
 }
 
 @MainActor
@@ -1950,118 +1642,6 @@ import UIKit
     #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
 }
 
-@Test func compactNavigationDoesNotAutoPushWhenAttachSelectsWorkspace() {
-    let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
-        currentPath: [MobileWorkspacePreview.ID](),
-        selectedWorkspaceID: .init(rawValue: "workspace-a")
-    )
-
-    #expect(path.isEmpty)
-}
-
-@Test func compactNavigationPushesNewlyCreatedWorkspaceFromList() {
-    let path = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
-        currentPath: [MobileWorkspacePreview.ID](),
-        selectedWorkspaceID: .init(rawValue: "workspace-created"),
-        existingWorkspaceIDs: [
-            .init(rawValue: "workspace-a"),
-            .init(rawValue: "workspace-b"),
-        ]
-    )
-
-    #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-created")])
-}
-
-@Test func compactNavigationDoesNotTreatExistingSelectionAsCreatedWorkspace() {
-    let path = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
-        currentPath: [MobileWorkspacePreview.ID](),
-        selectedWorkspaceID: .init(rawValue: "workspace-a"),
-        existingWorkspaceIDs: [
-            .init(rawValue: "workspace-a"),
-            .init(rawValue: "workspace-b"),
-        ]
-    )
-
-    #expect(path == nil)
-}
-
-@Test func compactNavigationIgnoresCreatedWorkspaceSelectionWhenNoCreateIsPending() {
-    let path = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
-        currentPath: [MobileWorkspacePreview.ID](),
-        selectedWorkspaceID: .init(rawValue: "workspace-created"),
-        existingWorkspaceIDs: nil
-    )
-
-    #expect(path == nil)
-}
-
-@Test func compactNavigationTracksSelectionAfterUserOpenedWorkspace() {
-    let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
-        currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
-        selectedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-b")
-    )
-
-    #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-b")])
-}
-
-@Test func compactNavigationClearsWhenSelectedWorkspaceDisappears() {
-    let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
-        currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
-        selectedWorkspaceID: nil
-    )
-
-    #expect(path.isEmpty)
-}
-
-@Test func rawTerminalInputSendBufferBatchesPendingInputInOrder() {
-    var buffer = MobileTerminalInputSendBuffer()
-    let workspaceA = MobileWorkspacePreview.ID(rawValue: "workspace-a")
-    let terminalA = MobileTerminalPreview.ID(rawValue: "terminal-a")
-    let terminalB = MobileTerminalPreview.ID(rawValue: "terminal-b")
-
-    let startsDrain = buffer.enqueue("p", workspaceID: workspaceA, terminalID: terminalA)
-    let appendsWhileDraining = buffer.enqueue("rint", workspaceID: workspaceA, terminalID: terminalA)
-    let appendsFinalCharacter = buffer.enqueue("f", workspaceID: workspaceA, terminalID: terminalA)
-    #expect(startsDrain == .startDraining)
-    #expect(appendsWhileDraining == .queued)
-    #expect(appendsFinalCharacter == .queued)
-    let firstBatch = buffer.nextBatch()
-    #expect(firstBatch?.workspaceID == workspaceA)
-    #expect(firstBatch?.terminalID == terminalA)
-    #expect(firstBatch?.text == "printf")
-
-    let appendsSecondBatch = buffer.enqueue(" 'one'", workspaceID: workspaceA, terminalID: terminalA)
-    #expect(appendsSecondBatch == .queued)
-    #expect(buffer.nextBatch()?.text == " 'one'")
-    #expect(buffer.nextBatch() == nil)
-
-    let restartsDrain = buffer.enqueue("\r", workspaceID: workspaceA, terminalID: terminalB)
-    #expect(restartsDrain == .startDraining)
-    let terminalBBatch = buffer.nextBatch()
-    #expect(terminalBBatch?.terminalID == terminalB)
-    #expect(terminalBBatch?.text == "\r")
-}
-
-@Test func rawTerminalInputSendBufferRejectsOverflowUntilPendingInputDrains() {
-    var buffer = MobileTerminalInputSendBuffer()
-    let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
-    let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
-    let fullBufferText = String(repeating: "a", count: MobileTerminalInputSendBuffer.maximumPendingByteCount)
-
-    #expect(buffer.enqueue(fullBufferText, workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
-    #expect(buffer.pendingByteCount == MobileTerminalInputSendBuffer.maximumPendingByteCount)
-    #expect(buffer.enqueue("b", workspaceID: workspaceID, terminalID: terminalID) == .rejected)
-    #expect(buffer.pendingByteCount == MobileTerminalInputSendBuffer.maximumPendingByteCount)
-
-    let batch = buffer.nextBatch()
-    #expect(batch?.text == fullBufferText)
-    #expect(buffer.pendingByteCount == 0)
-    #expect(buffer.enqueue("b", workspaceID: workspaceID, terminalID: terminalID) == .queued)
-    #expect(buffer.nextBatch()?.text == "b")
-    #expect(buffer.nextBatch() == nil)
-    #expect(buffer.enqueue("c", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
-}
-
 @MainActor
 @Test func submittedTerminalInputIncludesClientViewportAndCarriageReturn() async throws {
     let route = try CmxAttachRoute(
@@ -2169,18 +1749,16 @@ import UIKit
         supportsServerPushEvents: true
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
-    var deliveredText: [String] = []
+    let collector = TerminalOutputCollector()
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    store.registerTerminalByteSink(surfaceID: "live-terminal") { data in
-        deliveredText.append(String(data: data, encoding: .utf8) ?? "")
-    }
+    collector.mount(store: store, surfaceID: "live-terminal")
     let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    for _ in 0..<200 where deliveredText.count < 1 {
+    for _ in 0..<200 where collector.lines.count < 1 {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
@@ -2188,14 +1766,15 @@ import UIKit
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    for _ in 0..<200 where deliveredText.isEmpty {
+    for _ in 0..<200 where collector.lines.isEmpty {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
-    #expect(deliveredText == [
+    #expect(collector.lines == [
         oldGridText,
         currentGridText,
     ])
+    collector.unmount()
 }
 
 @MainActor
@@ -2220,14 +1799,12 @@ import UIKit
         supportsServerPushEvents: true
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
-    var deliveredText: [String] = []
+    let collector = TerminalOutputCollector()
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
-    store.registerTerminalByteSink(surfaceID: "live-terminal") { data in
-        deliveredText.append(String(data: data, encoding: .utf8) ?? "")
-    }
+    collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
@@ -2239,10 +1816,11 @@ import UIKit
 
     let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
-    #expect(deliveredText == [
+    #expect(collector.lines == [
         oldGridText,
         currentGridText,
     ])
+    collector.unmount()
 }
 
 @MainActor
@@ -2267,7 +1845,7 @@ import UIKit
         supportsServerPushEvents: true
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
-    var deliveredText: [String] = []
+    let collector = TerminalOutputCollector()
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
@@ -2275,121 +1853,17 @@ import UIKit
     let subscribeRequests = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
     #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid"])
 
-    store.registerTerminalByteSink(surfaceID: "live-terminal") { data in
-        deliveredText.append(String(data: data, encoding: .utf8) ?? "")
-    }
+    collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    for _ in 0..<200 where deliveredText.count < 2 {
+    for _ in 0..<200 where collector.lines.count < 2 {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
     let liveText = try terminalRenderGridStyledReplacementText(seq: 2, text: "live")
-    #expect(deliveredText == [liveText])
+    #expect(collector.lines == [liveText])
     #expect(liveText.contains("\u{1B}[0;1;4;38;2;255;0;0;48;2;0;0;255mlive"))
     #expect(liveText.contains("\u{1B}[6 q\u{1B}[?25h\u{1B}[2;3H"))
-}
-
-@Test func terminalSafeAreaExpansionAccountsForIPadSidebarVisibility() {
-    #expect(
-        MobileTerminalSafeAreaExpansionPolicy.edges(
-            context: .fullWidth,
-            hasCompactVerticalSize: true
-        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: true, bottom: true)
-    )
-    #expect(
-        MobileTerminalSafeAreaExpansionPolicy.edges(
-            context: .fullWidth,
-            hasCompactVerticalSize: false
-        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: true)
-    )
-    #expect(
-        MobileTerminalSafeAreaExpansionPolicy.edges(
-            context: .splitSidebarVisible,
-            hasCompactVerticalSize: true
-        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: true)
-    )
-    #expect(
-        MobileTerminalSafeAreaExpansionPolicy.edges(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            includesBottom: false
-        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: true, bottom: false)
-    )
-}
-
-@Test func terminalContentSafeAreaInsetsProtectLandscapeCameraArea() {
-    let landscapeInsets = SwiftUI.EdgeInsets(top: 0, leading: 54, bottom: 0, trailing: 21)
-
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: landscapeInsets
-        ) == MobileTerminalContentInsets(leading: 33, trailing: 0)
-    )
-
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59)
-        ) == MobileTerminalContentInsets(leading: 0, trailing: 59)
-    )
-
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
-            symmetricCameraEdge: .leading
-        ) == MobileTerminalContentInsets(leading: 59, trailing: 0)
-    )
-
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
-            symmetricCameraEdge: .none
-        ) == .zero
-    )
-
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 21, bottom: 0, trailing: 54)
-        ) == MobileTerminalContentInsets(leading: 0, trailing: 33)
-    )
-
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 8)
-        ) == .zero
-    )
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: false,
-            safeAreaInsets: landscapeInsets
-        ) == .zero
-    )
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .splitSidebarVisible,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: landscapeInsets
-        ) == .zero
-    )
-}
-
-@Test func terminalLandscapeCameraEdgeFollowsWindowOrientation() {
-    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .landscapeLeft) == .trailing)
-    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .landscapeRight) == .leading)
-    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .portrait) == .trailing)
-    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .unknown) == .trailing)
+    collector.unmount()
 }
 
 private struct MissingTestStackAccessToken: Error {}
@@ -2760,14 +2234,6 @@ private struct ScriptedTransportFactory: CmxByteTransportFactory {
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         ScriptedTransport(responses: responses)
-    }
-}
-
-private struct QueuedCancellationProbeTransportFactory: CmxByteTransportFactory {
-    let transport: QueuedCancellationProbeTransport
-
-    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        transport
     }
 }
 
@@ -3286,18 +2752,6 @@ private struct RecordedRPCRequest: Sendable {
     var stackAccessToken: String?
 }
 
-private actor AsyncFlag {
-    private var value = false
-
-    func set() {
-        value = true
-    }
-
-    func isSet() -> Bool {
-        value
-    }
-}
-
 private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest {
     let request = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
     let params = request["params"] as? [String: Any] ?? [:]
@@ -3406,68 +2860,6 @@ private actor ScriptedTransport: CmxByteTransport {
         for waiter in waiters {
             waiter.resume(returning: nil)
         }
-    }
-}
-
-private actor QueuedCancellationProbeTransport: CmxByteTransport {
-    private var sentPayloads: [Data] = []
-    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
-    private var firstSendRelease: CheckedContinuation<Void, Never>?
-    private var shouldBlockFirstSend = true
-    private var isClosed = false
-
-    func connect() async throws {}
-
-    func receive() async throws -> Data? {
-        if isClosed {
-            return nil
-        }
-        return await withCheckedContinuation { continuation in
-            receiveWaiters.append(continuation)
-        }
-    }
-
-    func send(_ data: Data) async throws {
-        var buffer = data
-        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
-        sentPayloads.append(contentsOf: payloads)
-        if shouldBlockFirstSend {
-            shouldBlockFirstSend = false
-            await withCheckedContinuation { continuation in
-                firstSendRelease = continuation
-            }
-        }
-    }
-
-    func close() async {
-        isClosed = true
-        let waiters = receiveWaiters
-        receiveWaiters = []
-        for waiter in waiters {
-            waiter.resume(returning: nil)
-        }
-        releaseFirstSend()
-    }
-
-    func releaseFirstSend() {
-        firstSendRelease?.resume()
-        firstSendRelease = nil
-    }
-
-    func sentRequests() throws -> [RecordedRPCRequest] {
-        try sentPayloads.map(recordedRPCRequest(from:))
-    }
-
-    func waitForSentRequestCount(_ count: Int) async throws -> [RecordedRPCRequest] {
-        var requests: [RecordedRPCRequest] = []
-        for _ in 0..<200 {
-            requests = try sentRequests()
-            if requests.count >= count {
-                return requests
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        return requests
     }
 }
 

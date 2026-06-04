@@ -11,15 +11,12 @@ import Foundation
 /// built-in ``MobileTerminalFontPreference/defaultSize``.
 ///
 /// ```swift
-/// let zoom = MobileTerminalZoomPreference.shared
+/// let zoom = MobileTerminalZoomPreference()
 /// zoom.save(16)          // remember 16pt as the default
 /// let target = zoom.savedFontSize ?? MobileTerminalFontPreference.defaultSize
 /// ```
 @MainActor
 public final class MobileTerminalZoomPreference {
-    /// Shared instance backing the terminal surface's zoom-control overlay.
-    public static let shared = MobileTerminalZoomPreference()
-
     private static let savedSizeKey = "cmux.terminal.zoom.userDefaultSize.v1"
 
     private let defaults: UserDefaults

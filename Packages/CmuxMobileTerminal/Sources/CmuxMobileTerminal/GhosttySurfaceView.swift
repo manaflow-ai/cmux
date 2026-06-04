@@ -1,13 +1,17 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxMobileDiagnostics
+import CmuxMobileTerminalKit
 import GhosttyKit
 import OSLog
 import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
+// lint:allow namespace-enum — file-local DEBUG input-trace logger on the off-limits typing-latency render path; type reshape deferred to the GhosttySurfaceView UI-god-object split wave.
 enum TerminalInputDebugLog {
     private static let isEnabled = ProcessInfo.processInfo.environment["CMUX_INPUT_DEBUG"] == "1"
+    private static let logger = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.input")
 
     static func log(_ message: String) {
         #if DEBUG
@@ -16,7 +20,7 @@ enum TerminalInputDebugLog {
         }
         #endif
         guard isEnabled else { return }
-        TerminalSidebarStore.debugLog("input: \(message)")
+        logger.debug("input: \(message, privacy: .public)")
     }
 
     static func textSummary(_ text: String) -> String {
@@ -60,7 +64,6 @@ protocol TerminalSurfaceHosting: AnyObject {
     var currentGridSize: TerminalGridSize { get }
     func processOutput(_ data: Data)
     func focusInput()
-    func updateRemotePlatform(_ platform: RemotePlatform)
     /// Apply the daemon's authoritative rendering grid. Unconditional —
     /// implementations render at exactly cols × rows and letterbox any
     /// remaining container area. The daemon broadcasts this on every
@@ -75,7 +78,6 @@ protocol TerminalSurfaceHosting: AnyObject {
 
 extension TerminalSurfaceHosting {
     func focusInput() {}
-    func updateRemotePlatform(_ platform: RemotePlatform) {}
     func applyViewSize(cols _: Int, rows _: Int) {}
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)? {
@@ -93,6 +95,7 @@ extension TerminalSurfaceHosting {
 /// actor, which lets us conform to `Sendable` for the `Task { @MainActor }`
 /// hops below.
 final class GhosttySurfaceBridge: @unchecked Sendable {
+    // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding a single weak ref on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
     private let lock = NSLock()
     private var _surfaceView: GhosttySurfaceView?
 
@@ -141,6 +144,7 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
     }
 }
 
+// lint:allow namespace-enum — surface-teardown helper on the off-limits render path; its serial DispatchQueue is the sanctioned libghostty free-after-detach carve-out. Reshape deferred to the GhosttySurfaceView split wave.
 private enum GhosttySurfaceDisposer {
     static let queue = DispatchQueue(label: "GhosttySurfaceDisposer.queue")
 
@@ -153,57 +157,14 @@ private enum GhosttySurfaceDisposer {
     }
 }
 
-struct TerminalTextInputPipeline {
-    struct Result: Equatable {
-        var committedText: String?
-        var nextBufferText: String
-    }
-
-    static func process(text: String, isComposing: Bool) -> Result {
-        guard !isComposing else {
-            return Result(committedText: nil, nextBufferText: text)
-        }
-        guard !text.isEmpty else {
-            return Result(committedText: nil, nextBufferText: "")
-        }
-        return Result(committedText: text, nextBufferText: "")
-    }
-}
-
-struct TerminalCursorBlinkState: Equatable {
-    static let interval: CFTimeInterval = 0.5
-
-    private(set) var isVisible = true
-    private var lastToggle: CFTimeInterval = 0
-
-    mutating func start(now: CFTimeInterval) {
-        isVisible = true
-        lastToggle = now
-    }
-
-    mutating func reset(now: CFTimeInterval) {
-        isVisible = true
-        lastToggle = now
-    }
-
-    mutating func advance(now: CFTimeInterval) -> Bool {
-        let elapsed = now - lastToggle
-        guard elapsed >= Self.interval else { return false }
-        let intervals = max(1, Int(elapsed / Self.interval))
-        if intervals % 2 == 1 {
-            isVisible.toggle()
-        }
-        lastToggle += CFTimeInterval(intervals) * Self.interval
-        return true
-    }
-}
-
 struct TerminalHardwareKeyCommand: Sendable {
     let input: String
     let modifierFlags: UIKeyModifierFlags
 }
 
-enum TerminalHardwareKeyResolver {
+struct TerminalHardwareKeyResolver {
+    private init() {}
+
     private static let supportedModifierFlags: UIKeyModifierFlags = [.shift, .control, .alternate]
     private static let keyCommands: [TerminalHardwareKeyCommand] = {
         let navigation = [
@@ -240,90 +201,40 @@ enum TerminalHardwareKeyResolver {
         }
     }
 
-    static func data(input: String, modifierFlags: UIKeyModifierFlags) -> Data? {
-        let normalizedFlags = modifierFlags.intersection(supportedModifierFlags)
-
-        switch (input, normalizedFlags) {
-        case (UIKeyCommand.inputLeftArrow, [.alternate]):
-            return Data([0x1B, 0x62])
-        case (UIKeyCommand.inputRightArrow, [.alternate]):
-            return Data([0x1B, 0x66])
-        case (UIKeyCommand.inputUpArrow, []):
-            return Data([0x1B, 0x5B, 0x41])
-        case (UIKeyCommand.inputDownArrow, []):
-            return Data([0x1B, 0x5B, 0x42])
-        case (UIKeyCommand.inputRightArrow, []):
-            return Data([0x1B, 0x5B, 0x43])
-        case (UIKeyCommand.inputLeftArrow, []):
-            return Data([0x1B, 0x5B, 0x44])
-        case (UIKeyCommand.inputHome, []):
-            return Data([0x1B, 0x5B, 0x48])
-        case (UIKeyCommand.inputEnd, []):
-            return Data([0x1B, 0x5B, 0x46])
-        case (UIKeyCommand.inputPageUp, []):
-            return Data([0x1B, 0x5B, 0x35, 0x7E])
-        case (UIKeyCommand.inputPageDown, []):
-            return Data([0x1B, 0x5B, 0x36, 0x7E])
-        case (UIKeyCommand.inputDelete, []):
-            return Data([0x1B, 0x5B, 0x33, 0x7E])
-        case (UIKeyCommand.inputDelete, [.alternate]):
-            return Data([0x1B, 0x7F])
-        case (UIKeyCommand.inputEscape, []):
-            return Data([0x1B])
-        case ("\t", []):
-            return Data([0x09])
-        case ("\t", [.shift]):
-            return Data([0x1B, 0x5B, 0x5A])
-        case let (input, flags) where flags == [.control] || flags == [.control, .shift]:
-            return controlCharacter(for: input)
-        default:
-            return nil
-        }
-    }
-
-    private static func controlCharacter(for input: String) -> Data? {
+    /// Maps a `UIKeyCommand.input*` string to a platform-neutral special key.
+    /// Returns `nil` for ordinary character inputs.
+    private static func specialKey(for input: String) -> TerminalSpecialKey? {
         switch input {
-        case " ":
-            return Data([0x00])
-        case "2":
-            return Data([0x00])
-        case "3":
-            return Data([0x1B])
-        case "4":
-            return Data([0x1C])
-        case "5":
-            return Data([0x1D])
-        case "6":
-            return Data([0x1E])
-        case "7":
-            return Data([0x1F])
-        case "/":
-            return Data([0x1F])
-        case "?":
-            return Data([0x7F])
-        default:
-            break
+        case UIKeyCommand.inputUpArrow: return .upArrow
+        case UIKeyCommand.inputDownArrow: return .downArrow
+        case UIKeyCommand.inputLeftArrow: return .leftArrow
+        case UIKeyCommand.inputRightArrow: return .rightArrow
+        case UIKeyCommand.inputHome: return .home
+        case UIKeyCommand.inputEnd: return .end
+        case UIKeyCommand.inputPageUp: return .pageUp
+        case UIKeyCommand.inputPageDown: return .pageDown
+        case UIKeyCommand.inputDelete: return .delete
+        case UIKeyCommand.inputEscape: return .escape
+        case "\t": return .tab
+        default: return nil
         }
-
-        guard let scalar = input.uppercased().unicodeScalars.first,
-              input.unicodeScalars.count == 1 else { return nil }
-
-        guard (0x40...0x5F).contains(scalar.value) else { return nil }
-        return Data([UInt8(scalar.value & 0x1F)])
     }
-}
 
-enum TerminalFontZoomDirection: Equatable {
-    case decrease
-    case increase
+    /// Translates `UIKeyModifierFlags` into the kit's platform-neutral set.
+    private static func kitModifiers(_ flags: UIKeyModifierFlags) -> TerminalKeyModifier {
+        var result: TerminalKeyModifier = []
+        if flags.contains(.shift) { result.insert(.shift) }
+        if flags.contains(.control) { result.insert(.control) }
+        if flags.contains(.alternate) { result.insert(.alternate) }
+        return result
+    }
 
-    var bindingAction: String {
-        switch self {
-        case .decrease:
-            return "decrease_font_size:1"
-        case .increase:
-            return "increase_font_size:1"
+    static func data(input: String, modifierFlags: UIKeyModifierFlags) -> Data? {
+        let modifiers = kitModifiers(modifierFlags)
+        if let key = specialKey(for: input) {
+            return TerminalKeyEncoder.encode(specialKey: key, modifiers: modifiers)
         }
+        return TerminalKeyEncoder.encode(character: input, modifiers: modifiers)
     }
 }
 
@@ -362,9 +273,9 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
     func title(isMacRemote: Bool) -> String {
         switch self {
         case .control:
-            return isMacRemote ? "⌃" : "Ctrl"
+            return isMacRemote ? "⌃" : String(localized: "terminal.input_accessory.title.control", defaultValue: "Ctrl")
         case .alternate:
-            return isMacRemote ? "⌥" : "Alt"
+            return isMacRemote ? "⌥" : String(localized: "terminal.input_accessory.title.alt", defaultValue: "Alt")
         case .command:
             return "⌘"
         case .shift:
@@ -374,9 +285,9 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         case .zoomIn:
             return ""
         case .escape:
-            return "Esc"
+            return String(localized: "terminal.input_accessory.title.escape", defaultValue: "Esc")
         case .tab:
-            return "Tab"
+            return String(localized: "terminal.input_accessory.title.tab", defaultValue: "Tab")
         case .ctrlC:
             return "^C"
         case .ctrlD:
@@ -398,11 +309,11 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         case .codex:
             return "Codex"
         case .home:
-            return "Home"
+            return String(localized: "terminal.input_accessory.title.home", defaultValue: "Home")
         case .end:
-            return "End"
+            return String(localized: "terminal.input_accessory.title.end", defaultValue: "End")
         case .pageUp:
-            return "PgUp"
+            return String(localized: "terminal.input_accessory.title.pageUp", defaultValue: "PgUp")
         case .tilde:
             return "~"
         case .pipe:
@@ -414,7 +325,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         case .atSign:
             return "@"
         case .pageDown:
-            return "PgDn"
+            return String(localized: "terminal.input_accessory.title.pageDown", defaultValue: "PgDn")
         }
     }
 
@@ -621,6 +532,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// elapsed time regardless of frame rate.
     private var zoomOverlayLastInteraction: CFTimeInterval = 0
     private static let zoomOverlayVisibleDuration: CFTimeInterval = 2.5
+    /// Persisted user "default zoom" backing the zoom-control overlay's
+    /// reset/save/restore actions. Owned by the surface (constructed at init)
+    /// rather than reached through a singleton, so it is injectable in tests.
+    private let zoomPreference = MobileTerminalZoomPreference()
     private let bridge = GhosttySurfaceBridge()
     private let prefersSnapshotFallbackRendering = false
     var onFocusInputRequestedForTesting: (() -> Void)?
@@ -694,6 +609,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastInputTimestamp: CFTimeInterval = 0
     private var latencySamples: [Double] = []
     var onOutputProcessedForTesting: (() -> Void)?
+    /// DEBUG/UI-test accessibility carrier for the rendered terminal text.
+    ///
+    /// The surface itself must NOT be an accessibility leaf: a leaf hides its
+    /// subviews from the accessibility tree, which made the docked accessory
+    /// toolbar's zoom buttons (`terminal.inputAccessory.zoomOut/In`)
+    /// unreachable to XCUITest. Instead this non-interactive, full-bounds child
+    /// carries the `MobileTerminalSurface` identifier and the rendered-text
+    /// label, leaving the toolbar (a sibling subview) individually accessible.
+    private lazy var debugAccessibilityProxy: UIView = {
+        let proxy = UIView()
+        proxy.backgroundColor = .clear
+        proxy.isUserInteractionEnabled = false
+        proxy.isAccessibilityElement = true
+        proxy.accessibilityIdentifier = "MobileTerminalSurface"
+        return proxy
+    }()
     #endif
     private let snapshotFallbackView: UITextView = {
         let view = UITextView()
@@ -872,11 +803,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         backgroundColor = .black
         isOpaque = true
         #if DEBUG
-        accessibilityIdentifier = "MobileTerminalSurface"
-        isAccessibilityElement = true
+        // The surface is a container, not a leaf, so the docked toolbar's
+        // buttons stay accessible. `debugAccessibilityProxy` carries the
+        // `MobileTerminalSurface` identifier + rendered-text label instead.
+        isAccessibilityElement = false
         #endif
         addSubview(snapshotFallbackView)
         addSubview(inputProxy)
+        #if DEBUG
+        addSubview(debugAccessibilityProxy)
+        #endif
         installPersistentToolbar()
         initializeSurface()
 
@@ -1107,6 +1043,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var pinchAccumulatedScale: CGFloat = 1.0
 
     @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
+        if gesture.state == .began || gesture.state == .changed || gesture.state == .ended {
+            MobileDebugLog.anchormux("scroll.pan state=\(gesture.state.rawValue) ty=\(Int(gesture.translation(in: self).y))")
+        }
         // Forward scroll to the MAC's real surface instead of scrolling this
         // display-only mirror. The Mac owns scrollback (normal screen) and the
         // program owns alt-screen scroll (mouse-wheel to the PTY); a single
@@ -1154,7 +1093,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let lines = pendingScrollLines
         let cell = pendingScrollCell
         pendingScrollLines = 0
-        liveAnchormuxLog("scroll.forward lines=\(String(format: "%.2f", lines)) cell=\(cell.col)x\(cell.row)")
+        MobileDebugLog.anchormux("scroll.forward lines=\(String(format: "%.2f", lines)) cell=\(cell.col)x\(cell.row)")
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
     }
 
@@ -1212,13 +1151,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let target = base + delta
         guard target >= MobileTerminalFontPreference.minimumSize,
               target <= MobileTerminalFontPreference.maximumSize else {
-            liveAnchormuxLog("zoom.clamp dir=\(direction) base=\(base) target=\(target) range=[\(MobileTerminalFontPreference.minimumSize),\(MobileTerminalFontPreference.maximumSize)]")
+            MobileDebugLog.anchormux("zoom.clamp dir=\(direction) base=\(base) target=\(target) range=[\(MobileTerminalFontPreference.minimumSize),\(MobileTerminalFontPreference.maximumSize)]")
             return false
         }
         guard surface != nil else { return false }
 
         pendingFontSize = target
-        liveAnchormuxLog("zoom.queue dir=\(direction) \(base)->\(target) live=\(liveFontSize)")
+        MobileDebugLog.anchormux("zoom.queue dir=\(direction) \(base)->\(target) live=\(liveFontSize)")
         scheduleDisplayLinkWork()
         showZoomOverlay()
         return true
@@ -1246,7 +1185,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingFontSize = nil
         guard target != liveFontSize else { return false }
         liveFontSize = target
-        liveAnchormuxLog("zoom.apply \(target) eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")")
+        MobileDebugLog.anchormux("zoom.apply \(target) eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")")
         // Absolute set: the prior `±1` binding action drove libghostty's own
         // font counter independently of our clamp, so a fast burst could push
         // it past `maximumSize` toward the 255pt ceiling and collapse the grid.
@@ -1278,7 +1217,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             MobileTerminalFontPreference.maximumSize
         )
         pendingFontSize = clamped
-        liveAnchormuxLog("zoom.absolute target=\(target) clamped=\(clamped) live=\(liveFontSize)")
+        MobileDebugLog.anchormux("zoom.absolute target=\(target) clamped=\(clamped) live=\(liveFontSize)")
         scheduleDisplayLinkWork()
     }
 
@@ -1320,18 +1259,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         overlay.onResetToDefault = { [weak self] in
             guard let self else { return }
-            let target = MobileTerminalZoomPreference.shared.savedFontSize
+            let target = self.zoomPreference.savedFontSize
                 ?? MobileTerminalFontPreference.defaultSize
             self.applyAbsoluteFontSize(target)
             self.zoomOverlay?.updateZoom(points: target)
         }
         overlay.onSaveAsDefault = { [weak self] in
             guard let self else { return }
-            MobileTerminalZoomPreference.shared.save(self.pendingFontSize ?? self.liveFontSize)
+            self.zoomPreference.save(self.pendingFontSize ?? self.liveFontSize)
         }
         overlay.onRestoreBuiltIn = { [weak self] in
             guard let self else { return }
-            MobileTerminalZoomPreference.shared.clear()
+            self.zoomPreference.clear()
             self.applyAbsoluteFontSize(MobileTerminalFontPreference.defaultSize)
             self.zoomOverlay?.updateZoom(points: MobileTerminalFontPreference.defaultSize)
         }
@@ -1376,18 +1315,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public override func layoutSubviews() {
         super.layoutSubviews()
         snapshotFallbackView.frame = bounds
+        #if DEBUG
+        debugAccessibilityProxy.frame = bounds
+        #endif
         inputProxy.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         inputProxy.updateAccessoryLayoutInsets()
         layoutDockedToolbar()
         layoutZoomOverlay()
-        liveAnchormuxLog("surface.layout bounds=\(Int(bounds.width))x\(Int(bounds.height)) window=\(window != nil)")
+        MobileDebugLog.anchormux("surface.layout bounds=\(Int(bounds.width))x\(Int(bounds.height)) window=\(window != nil)")
         setNeedsGeometrySync()
         syncSurfaceVisibility()
     }
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
-        liveAnchormuxLog("surface.didMoveToWindow window=\(window != nil)")
+        MobileDebugLog.anchormux("surface.didMoveToWindow window=\(window != nil)")
         syncSurfaceVisibility()
         if window != nil {
             setNeedsGeometrySync()
@@ -1480,7 +1422,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
                 #if DEBUG
                 if let accessibilityText, !accessibilityText.isEmpty {
-                    self.accessibilityLabel = accessibilityText
+                    self.debugAccessibilityProxy.accessibilityLabel = accessibilityText
                 }
                 self.onOutputProcessedForTesting?()
                 #endif
@@ -1521,28 +1463,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// (hide). The last occurrence wins, so a delta that toggles ends on the
     /// applied state.
     nonisolated static func lastCursorVisibility(in data: Data) -> Bool? {
-        // ESC [ ? 2 5 (h|l)
-        let prefix: [UInt8] = [0x1B, 0x5B, 0x3F, 0x32, 0x35]
-        guard data.count >= 6 else { return nil }
-        var result: Bool?
-        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-            let bytes = raw.bindMemory(to: UInt8.self)
-            var i = 0
-            let end = bytes.count - 5
-            while i < end {
-                if bytes[i] == prefix[0],
-                   bytes[i + 1] == prefix[1],
-                   bytes[i + 2] == prefix[2],
-                   bytes[i + 3] == prefix[3],
-                   bytes[i + 4] == prefix[4] {
-                    let final = bytes[i + 5]
-                    if final == 0x68 { result = true; i += 6; continue }   // 'h'
-                    if final == 0x6C { result = false; i += 6; continue }  // 'l'
-                }
-                i += 1
-            }
-        }
-        return result
+        TerminalDECTCEMCursorScanner.lastVisibility(in: data)
     }
 
     @objc
@@ -1551,10 +1472,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setNeedsGeometrySync()
         inputProxy.updateAccessoryLayoutInsets()
         inputProxy.becomeFirstResponder()
-    }
-
-    func updateRemotePlatform(_ platform: RemotePlatform) {
-        inputProxy.updateModifierLabels(isMacRemote: platform.goOS == "darwin")
     }
 
     func simulateTextInputForTesting(_ text: String) {
@@ -1768,7 +1685,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let sinceOutputMs = lastOutputAppliedTime > 0
                 ? Int((nowHeartbeat - lastOutputAppliedTime) * 1000)
                 : -1
-            liveAnchormuxLog(
+            MobileDebugLog.anchormux(
                 "tick.alive win=\(window != nil) renderInFlight=\(renderInFlight) "
                 + "needsDraw=\(needsDraw) contents=\(renderLayer?.contents != nil) "
                 + "surf=\(Int(renderSize.width))x\(Int(renderSize.height)) "
@@ -1843,7 +1760,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 if viewportReportSettleFrames >= Self.viewportReportSettleThreshold {
                     pendingViewportReport = nil
                     viewportReportSettleFrames = 0
-                    liveAnchormuxLog("zoom.report grid=\(pending.columns)x\(pending.rows)")
+                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows)")
                     delegate?.ghosttySurfaceView(self, didResize: pending)
                 }
             }
@@ -1896,7 +1813,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // Queue LAG = how long this render waited behind other ops. If this
             // climbs into hundreds of ms the queue is backlogged (the freeze).
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
-            if lagMs > 150 { liveAnchormuxLog("oq.render.LAG \(Int(lagMs))ms") }
+            if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
             ghostty_surface_render_now(surface)
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -2032,7 +1949,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             alpha > 0.01 &&
             bounds.width > 0 &&
             bounds.height > 0
-        liveAnchormuxLog("surface.occlusion visible=\(visible) window=\(window != nil) hidden=\(isHidden) alpha=\(alpha)")
+        MobileDebugLog.anchormux("surface.occlusion visible=\(visible) window=\(window != nil) hidden=\(isHidden) alpha=\(alpha)")
         ghostty_surface_set_occlusion(surface, visible)
         if visible {
             updateCursorOverlay()
@@ -2050,7 +1967,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard viewportReportRetries < Self.maxViewportReportRetries,
               let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
         viewportReportRetries += 1
-        liveAnchormuxLog(
+        MobileDebugLog.anchormux(
             "zoom.viewport.retry \(viewportReportRetries)/\(Self.maxViewportReportRetries) "
             + "grid=\(pending.columns)x\(pending.rows)"
         )
@@ -2063,7 +1980,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // A value came back from the Mac, so the round-trip recovered.
         viewportReportRetries = 0
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
-        liveAnchormuxLog("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
+        MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
         effectiveGrid = (cols, rows)
         // Mark dirty instead of recomputing synchronously. This breaks the
         // feedback loop (didResize → updateTerminalViewport RPC → applyViewSize
@@ -2228,7 +2145,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let renderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
             ?? CGRect(origin: .zero, size: naturalRenderSize)
         lastRenderRect = renderRect
-        liveAnchormuxLog(
+        MobileDebugLog.anchormux(
             "geom container=\(Int(containerW))x\(Int(containerH)) scale=\(scale) "
             + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
             + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
@@ -2362,7 +2279,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let childSummaries = (hostLayer.sublayers ?? []).prefix(4).enumerated().map { index, sublayer in
             "\(index):\(type(of: sublayer)) bounds=\(sublayer.bounds.integral.debugDescription) frame=\(sublayer.frame.integral.debugDescription) hidden=\(sublayer.isHidden) contents=\(sublayer.contents != nil) scale=\(sublayer.contentsScale)"
         }.joined(separator: " | ")
-        liveAnchormuxLog("surface.layers reason=\(reason) host=\(hostSummary) children=[\(childSummaries)] fallbackHidden=\(snapshotFallbackView.isHidden) fallbackChars=\(snapshotFallbackView.text.count)")
+        MobileDebugLog.anchormux("surface.layers reason=\(reason) host=\(hostSummary) children=[\(childSummaries)] fallbackHidden=\(snapshotFallbackView.isHidden) fallbackChars=\(snapshotFallbackView.text.count)")
     }
 
     private func makeSurface(app: ghostty_app_t) -> ghostty_surface_t? {
@@ -2621,7 +2538,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // whole app exactly when the user taps Copy Debug Logs to capture that
         // bug. Time out and ship the logs without the snapshot instead.
         let holder = VisibleSnapshotHolder()
-        let done = DispatchSemaphore(value: 0)  // one-shot completion signal, not a lock
+        // This synchronous DEV-only "Copy Debug Logs" path reads the viewport off
+        // the serial output queue and must give up after a deadline if a render
+        // wedge holds it; an actor/await cannot express the bounded synchronous
+        // wait the synchronous caller needs.
+        // carve-out justification: one-shot cross-queue completion signal with a
+        // bounded wait, not a lock guarding shared state.
+        let done = DispatchSemaphore(value: 0)
         outputQueue.async {
             var built: [String] = []
             for item in pending {
@@ -2744,10 +2667,15 @@ final class TerminalArrowNubView: UIView {
 
     private let nubSize: CGFloat = 34
     private let deadZone: CGFloat = 8
-    private let repeatInterval: TimeInterval = 0.08
+    private let repeatInterval: Duration = .milliseconds(80)
     private let innerDot = UIView()
     private var dragOrigin: CGPoint = .zero
-    private var repeatTimer: Timer?
+    /// Drives the immediate + interval arrow repeats off an injected `Clock`
+    /// (replacing the run-loop `Timer`); cancellation is wired to the gesture.
+    private let arrowRepeatService = TerminalArrowRepeatService()
+    /// The in-flight repeat stream consumer. Cancelled on direction change /
+    /// gesture end, which terminates the service stream's cadence.
+    private var repeatTask: Task<Void, Never>?
     private var lastDirection: Direction?
     private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
 
@@ -2759,6 +2687,15 @@ final class TerminalArrowNubView: UIView {
             case .down:  return Data([0x1B, 0x5B, 0x42])
             case .right: return Data([0x1B, 0x5B, 0x43])
             case .left:  return Data([0x1B, 0x5B, 0x44])
+            }
+        }
+
+        var repeatDirection: TerminalArrowRepeatService.Direction {
+            switch self {
+            case .up:    return .upArrow
+            case .down:  return .downArrow
+            case .right: return .rightArrow
+            case .left:  return .leftArrow
             }
         }
     }
@@ -2787,7 +2724,7 @@ final class TerminalArrowNubView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if repeatTimer == nil {
+        if repeatTask == nil {
             innerDot.center = CGPoint(x: bounds.midX, y: bounds.midY)
         }
     }
@@ -2813,7 +2750,6 @@ final class TerminalArrowNubView: UIView {
                 lastDirection = direction
                 stopRepeat()
                 if let direction {
-                    fireArrow(direction)
                     startRepeat(direction)
                 }
             }
@@ -2838,20 +2774,27 @@ final class TerminalArrowNubView: UIView {
         }
     }
 
-    private func fireArrow(_ direction: Direction) {
-        feedbackGenerator.impactOccurred()
-        onArrowKey?(direction.escapeSequence)
-    }
-
+    /// Consume the service's repeat stream for `direction`: it emits the first
+    /// arrow immediately and one per interval. Each emission fires haptics and
+    /// forwards the bytes on the main actor. Cancelled by ``stopRepeat()``.
     private func startRepeat(_ direction: Direction) {
-        repeatTimer = Timer.scheduledTimer(withTimeInterval: repeatInterval, repeats: true) { [weak self] _ in
-            self?.fireArrow(direction)
+        let stream = arrowRepeatService.repeats(
+            of: direction.repeatDirection,
+            every: repeatInterval,
+            clock: ContinuousClock()
+        )
+        repeatTask = Task { @MainActor [weak self] in
+            for await bytes in stream {
+                guard let self else { return }
+                self.feedbackGenerator.impactOccurred()
+                self.onArrowKey?(bytes)
+            }
         }
     }
 
     private func stopRepeat() {
-        repeatTimer?.invalidate()
-        repeatTimer = nil
+        repeatTask?.cancel()
+        repeatTask = nil
     }
 }
 

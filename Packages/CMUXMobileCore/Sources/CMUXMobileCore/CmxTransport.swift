@@ -160,15 +160,35 @@ public enum CmxAttachTicketError: Error, Equatable, Sendable {
 public struct CmxAttachTicket: Codable, Equatable, Sendable {
     public static let currentVersion = 1
 
+    /// The canonical on-the-wire keys. Most fields use camelCase; the auth
+    /// token field is the one historical exception (`auth_token`).
+    ///
+    /// Encoding stays byte-compatible with what the mac side of PR 5079 already
+    /// produces and decodes (this exact type is shared by both the iOS and mac
+    /// app via `CMUXMobileCore`), so the mixed convention is preserved on the
+    /// encode path. Decoding is tolerant: it accepts both the canonical
+    /// `auth_token` key and a normalized camelCase `authToken` so a future
+    /// producer can migrate the token field without breaking older clients.
+    /// See ``decodeAuthToken(from:)``.
     private enum CodingKeys: String, CodingKey {
         case version
-        case workspaceID = "workspaceID"
-        case terminalID = "terminalID"
-        case macDeviceID = "macDeviceID"
-        case macDisplayName = "macDisplayName"
+        case workspaceID
+        case terminalID
+        case macDeviceID
+        case macDisplayName
         case routes
-        case expiresAt = "expiresAt"
+        case expiresAt
         case authToken = "auth_token"
+    }
+
+    /// Tolerant decode keys for the auth-token field only.
+    ///
+    /// Holds both the canonical `auth_token` key and the normalized `authToken`
+    /// camelCase key so a payload speaking either convention decodes. The
+    /// canonical key wins when both are present.
+    private enum AuthTokenCodingKeys: String, CodingKey {
+        case canonical = "auth_token"
+        case camelCase = "authToken"
     }
 
     public let version: Int
@@ -190,9 +210,23 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
             macDisplayName: container.decodeIfPresent(String.self, forKey: .macDisplayName),
             routes: container.decode([CmxAttachRoute].self, forKey: .routes),
             expiresAt: container.decode(Date.self, forKey: .expiresAt),
-            authToken: container.decodeIfPresent(String.self, forKey: .authToken)
+            authToken: try Self.decodeAuthToken(from: decoder)
         )
         try validate(now: Date())
+    }
+
+    /// Decode the auth token tolerantly, accepting either the canonical
+    /// `auth_token` key or the normalized `authToken` key.
+    ///
+    /// - Parameter decoder: The decoder for the ticket payload.
+    /// - Returns: The auth token if present under either key (`auth_token`
+    ///   takes precedence), otherwise `nil`.
+    private static func decodeAuthToken(from decoder: Decoder) throws -> String? {
+        let container = try decoder.container(keyedBy: AuthTokenCodingKeys.self)
+        if let canonical = try container.decodeIfPresent(String.self, forKey: .canonical) {
+            return canonical
+        }
+        return try container.decodeIfPresent(String.self, forKey: .camelCase)
     }
 
     public init(

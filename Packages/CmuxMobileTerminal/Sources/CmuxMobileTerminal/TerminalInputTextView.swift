@@ -1,3 +1,4 @@
+import CmuxMobileTerminalKit
 import Foundation
 import UIKit
 
@@ -12,19 +13,25 @@ final class TerminalInputTextView: UITextView {
     /// (when the keyboard is up) and show-keyboard (when down) via
     /// ``setKeyboardShown(_:)``.
     private weak var dismissButton: UIButton?
-    private var controlAccessoryArmed = false
-    private var alternateAccessoryArmed = false
-    private var commandAccessoryArmed = false
-    private var shiftAccessoryArmed = false
-    private var controlAccessorySticky = false
-    private var alternateAccessorySticky = false
-    private var commandAccessorySticky = false
-    private var shiftAccessorySticky = false
-    private var lastControlTapTime: Date?
-    private var lastAlternateTapTime: Date?
-    private var lastCommandTapTime: Date?
-    private var lastShiftTapTime: Date?
+    /// The armed/sticky modifier state machine, extracted into the testable
+    /// ``TerminalInputModifierState`` reducer. This view is now a dumb
+    /// first-responder that forwards taps into the reducer and reads its state
+    /// back for byte encoding and button styling.
+    private var modifierState = TerminalInputModifierState()
+    private var controlAccessoryArmed: Bool { modifierState.isArmed(.control) }
+    private var alternateAccessoryArmed: Bool { modifierState.isArmed(.alternate) }
+    private var commandAccessoryArmed: Bool { modifierState.isArmed(.command) }
+    private var shiftAccessoryArmed: Bool { modifierState.isArmed(.shift) }
+    private var controlAccessorySticky: Bool { modifierState.isStickyOn(.control) }
+    private var alternateAccessorySticky: Bool { modifierState.isStickyOn(.alternate) }
+    private var commandAccessorySticky: Bool { modifierState.isStickyOn(.command) }
+    private var shiftAccessorySticky: Bool { modifierState.isStickyOn(.shift) }
     private var pendingDirectInsertMirrorText = ""
+
+    /// Monotonic-ish tap timestamp for the reducer's double-tap window. Uses
+    /// the same wall-clock source the legacy `Date()` comparisons used, so the
+    /// 0.4s sticky promotion behaves identically.
+    private static func tapNow() -> TimeInterval { Date().timeIntervalSinceReferenceDate }
     private static let directInsertMirrorTextLimit = 128
 
     override var canBecomeFirstResponder: Bool { true }
@@ -261,9 +268,11 @@ final class TerminalInputTextView: UITextView {
                 }
             }
         }
-        // Disarm command state if switching away from Mac remote
+        // Disarm command state if switching away from Mac remote (clears a
+        // sticky lock too, matching the legacy unconditional setter).
         if !isMacRemote && commandAccessoryArmed {
-            setCommandAccessoryArmed(false)
+            modifierState.disarmAll()
+            refreshAccessoryButtonStyles()
         }
     }
 
@@ -366,18 +375,8 @@ final class TerminalInputTextView: UITextView {
     }
 
     private func resetStickyTapTimeForTesting(_ action: TerminalInputAccessoryAction) {
-        switch action {
-        case .control:
-            lastControlTapTime = nil
-        case .alternate:
-            lastAlternateTapTime = nil
-        case .command:
-            lastCommandTapTime = nil
-        case .shift:
-            lastShiftTapTime = nil
-        default:
-            break
-        }
+        guard action.isModifier else { return }
+        modifierState.clearDoubleTapWindow()
     }
 
     @objc
@@ -422,8 +421,6 @@ final class TerminalInputTextView: UITextView {
         onEscapeSequence?(data)
         return true
     }
-
-    private static let stickyDoubleTapInterval: TimeInterval = 0.4
 
     private func makeAccessoryButton(for action: TerminalInputAccessoryAction) -> UIButton {
         let button = UIButton(type: .system)
@@ -513,73 +510,26 @@ final class TerminalInputTextView: UITextView {
     }
 
     private func disarmAllModifiers() {
-        controlAccessoryArmed = false; controlAccessorySticky = false; lastControlTapTime = nil
-        alternateAccessoryArmed = false; alternateAccessorySticky = false; lastAlternateTapTime = nil
-        commandAccessoryArmed = false; commandAccessorySticky = false; lastCommandTapTime = nil
-        shiftAccessoryArmed = false; shiftAccessorySticky = false; lastShiftTapTime = nil
+        modifierState.disarmAll()
     }
 
     private func toggleControlModifier() {
-        let now = Date()
-        if controlAccessorySticky {
-            disarmAllModifiers()
-        } else if controlAccessoryArmed, let last = lastControlTapTime, now.timeIntervalSince(last) < Self.stickyDoubleTapInterval {
-            controlAccessorySticky = true
-            lastControlTapTime = nil
-        } else {
-            let shouldArm = !controlAccessoryArmed
-            disarmAllModifiers()
-            controlAccessoryArmed = shouldArm
-            lastControlTapTime = shouldArm ? now : nil
-        }
+        modifierState.tap(.control, now: Self.tapNow())
         refreshAccessoryButtonStyles()
     }
 
     private func toggleAlternateModifier() {
-        let now = Date()
-        if alternateAccessorySticky {
-            disarmAllModifiers()
-        } else if alternateAccessoryArmed, let last = lastAlternateTapTime, now.timeIntervalSince(last) < Self.stickyDoubleTapInterval {
-            alternateAccessorySticky = true
-            lastAlternateTapTime = nil
-        } else {
-            let shouldArm = !alternateAccessoryArmed
-            disarmAllModifiers()
-            alternateAccessoryArmed = shouldArm
-            lastAlternateTapTime = shouldArm ? now : nil
-        }
+        modifierState.tap(.alternate, now: Self.tapNow())
         refreshAccessoryButtonStyles()
     }
 
     private func toggleCommandModifier() {
-        let now = Date()
-        if commandAccessorySticky {
-            disarmAllModifiers()
-        } else if commandAccessoryArmed, let last = lastCommandTapTime, now.timeIntervalSince(last) < Self.stickyDoubleTapInterval {
-            commandAccessorySticky = true
-            lastCommandTapTime = nil
-        } else {
-            let shouldArm = !commandAccessoryArmed
-            disarmAllModifiers()
-            commandAccessoryArmed = shouldArm
-            lastCommandTapTime = shouldArm ? now : nil
-        }
+        modifierState.tap(.command, now: Self.tapNow())
         refreshAccessoryButtonStyles()
     }
 
     private func toggleShiftModifier() {
-        let now = Date()
-        if shiftAccessorySticky {
-            disarmAllModifiers()
-        } else if shiftAccessoryArmed, let last = lastShiftTapTime, now.timeIntervalSince(last) < Self.stickyDoubleTapInterval {
-            shiftAccessorySticky = true
-            lastShiftTapTime = nil
-        } else {
-            let shouldArm = !shiftAccessoryArmed
-            disarmAllModifiers()
-            shiftAccessoryArmed = shouldArm
-            lastShiftTapTime = shouldArm ? now : nil
-        }
+        modifierState.tap(.shift, now: Self.tapNow())
         refreshAccessoryButtonStyles()
     }
 
@@ -780,44 +730,27 @@ final class TerminalInputTextView: UITextView {
         }
     }
 
-    private func setCommandAccessoryArmed(_ armed: Bool) {
-        guard commandAccessoryArmed != armed else { return }
-        commandAccessoryArmed = armed
-        if !armed {
-            commandAccessorySticky = false
-            lastCommandTapTime = nil
-        }
+    /// Consumes a one-shot modifier after it applied to a key. Only `false`
+    /// (disarm) is ever requested; a sticky lock is preserved by the reducer.
+    private func consumeModifier(_ modifier: TerminalInputModifier) {
+        modifierState.consumeIfNotSticky(modifier)
         refreshAccessoryButtonStyles()
+    }
+
+    private func setCommandAccessoryArmed(_ armed: Bool) {
+        if !armed { consumeModifier(.command) }
     }
 
     private func setControlAccessoryArmed(_ armed: Bool) {
-        guard controlAccessoryArmed != armed else { return }
-        controlAccessoryArmed = armed
-        if !armed {
-            controlAccessorySticky = false
-            lastControlTapTime = nil
-        }
-        refreshAccessoryButtonStyles()
+        if !armed { consumeModifier(.control) }
     }
 
     private func setAlternateAccessoryArmed(_ armed: Bool) {
-        guard alternateAccessoryArmed != armed else { return }
-        alternateAccessoryArmed = armed
-        if !armed {
-            alternateAccessorySticky = false
-            lastAlternateTapTime = nil
-        }
-        refreshAccessoryButtonStyles()
+        if !armed { consumeModifier(.alternate) }
     }
 
     private func setShiftAccessoryArmed(_ armed: Bool) {
-        guard shiftAccessoryArmed != armed else { return }
-        shiftAccessoryArmed = armed
-        if !armed {
-            shiftAccessorySticky = false
-            lastShiftTapTime = nil
-        }
-        refreshAccessoryButtonStyles()
+        if !armed { consumeModifier(.shift) }
     }
 }
 

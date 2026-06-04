@@ -133,7 +133,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
-SCHEME="cmux"
+SCHEME="cmux-ios"
 TAG_SLUG="$(sanitize_tag "$TAG")"
 DISPLAY_NAME="cmux DEV $TAG"
 BUNDLE_ID="dev.cmux.ios.$TAG_SLUG"

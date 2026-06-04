@@ -26,7 +26,11 @@ private let mobileTerminalByteTeeLog = Logger(
 /// publish handles the hop to the main `MobileHostService.emitEvent`.
 @MainActor
 final class MobileTerminalByteTee {
-    static let shared = MobileTerminalByteTee()
+    // nonisolated: the singleton itself is an immutable `let` constructed once;
+    // the only cross-thread entry point (`append`, from the C tee trampoline) is
+    // `nonisolated` and hops to the main actor internally, so reading the
+    // reference off the ghostty output thread is safe.
+    nonisolated static let shared = MobileTerminalByteTee()
 
     private struct SurfaceState {
         /// Monotonic byte-stream sequence. Each emitted chunk advances by
@@ -45,7 +49,10 @@ final class MobileTerminalByteTee {
         qos: .userInitiated
     )
 
-    private init() {}
+    // nonisolated: the initializer only assigns default-initialized stored
+    // properties (no main-actor work), so the `nonisolated(unsafe) static let
+    // shared` can construct it without hopping to the main actor.
+    nonisolated private init() {}
 
     /// Non-isolated entry point called from the C tee trampoline. Safe
     /// to invoke from any thread.

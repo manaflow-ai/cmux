@@ -1,10 +1,12 @@
 import CMUXMobileCore
-import CmuxMobileAuth
+import CmuxAuthRuntime
+import CmuxMobileRPC
+import CmuxMobileSupport
 import Foundation
 import Observation
 import OSLog
 
-public struct CMUXMobileRuntime: Sendable {
+public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public static let defaultRPCRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 8 * 1_000_000_000
 
@@ -26,18 +28,67 @@ public struct CMUXMobileRuntime: Sendable {
     /// 750ms poll only when a connected Mac does not support events.
     public var supportsServerPushEvents: Bool
 
-    private static var defaultStackAccessTokenProvider: @Sendable () async throws -> String {
+    /// Builds the production access-token provider over an injected
+    /// ``TokenProviding`` (the app-root ``AuthCoordinator``), honoring the DEBUG
+    /// environment-token override. Replaces the removed `AuthManager.shared`
+    /// reach-in.
+    /// - Parameter tokenProvider: The injected token source.
+    /// - Returns: A `@Sendable` provider closure for the runtime.
+    public static func stackAccessTokenProvider(
+        from tokenProvider: any TokenProviding
+    ) -> @Sendable () async throws -> String {
         {
             #if DEBUG
             if let token = MobileShellDevStackAuthTokenProvider.token() {
                 return token
             }
             #endif
-            return try await AuthManager.shared.getAccessToken()
+            do {
+                return try await tokenProvider.accessToken()
+            } catch {
+                throw Self.connectionError(forStackAuthError: error)
+            }
         }
     }
 
-    private static var defaultStackAccessTokenForceRefresher: @Sendable () async throws -> String {
+    /// Translate a Stack-auth token-fetch error into the RPC layer's connection
+    /// error so a transient failure stays retryable.
+    ///
+    /// ``AuthCoordinator`` throws ``AuthError/networkError``/``AuthError/offline``
+    /// when it has no usable access token but a refresh token is still present
+    /// (the SDK preserves the refresh token across network/server hiccups), and
+    /// ``AuthError/unauthorized`` only when the session is genuinely gone. A
+    /// transient failure maps to ``MobileShellConnectionError/connectionClosed``
+    /// (retryable, no re-auth prompt); a definitive failure maps to
+    /// ``MobileShellConnectionError/authorizationFailed(_:)`` (drives re-auth).
+    /// - Parameter error: The error thrown by the token source.
+    /// - Returns: The mapped ``MobileShellConnectionError``.
+    static func connectionError(forStackAuthError error: Error) -> MobileShellConnectionError {
+        switch error {
+        case AuthError.networkError, AuthError.offline:
+            return .connectionClosed
+        default:
+            return .authorizationFailed(
+                L10n.string(
+                    "mobile.pairing.stackAuthTokenUnavailable",
+                    defaultValue: "Sign in on your computer with the same account, then try again."
+                )
+            )
+        }
+    }
+
+    /// Builds the production force-refresher over an injected ``TokenProviding``
+    /// (the app-root ``AuthCoordinator``), honoring the DEBUG environment-token
+    /// override. Replaces the removed `AuthManager.shared` reach-in.
+    ///
+    /// The connection layer calls this exactly once after the host rejects a
+    /// request on auth grounds, so the retry presents a genuinely new credential
+    /// instead of re-sending the rejected (likely stale) token.
+    /// - Parameter tokenProvider: The injected token source.
+    /// - Returns: A `@Sendable` force-refresher closure for the runtime.
+    public static func stackAccessTokenForceRefresher(
+        from tokenProvider: any TokenProviding
+    ) -> @Sendable () async throws -> String {
         {
             #if DEBUG
             // A dev-injected token has no SDK session to refresh; return it as-is
@@ -46,7 +97,11 @@ public struct CMUXMobileRuntime: Sendable {
                 return token
             }
             #endif
-            return try await AuthManager.shared.forceRefreshAccessToken()
+            do {
+                return try await tokenProvider.forceRefreshAccessToken()
+            } catch {
+                throw Self.connectionError(forStackAuthError: error)
+            }
         }
     }
 
@@ -62,8 +117,8 @@ public struct CMUXMobileRuntime: Sendable {
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
-        self.stackAccessTokenProvider = stackAccessTokenProvider ?? Self.defaultStackAccessTokenProvider
-        self.stackAccessTokenForceRefresher = stackAccessTokenForceRefresher ?? Self.defaultStackAccessTokenForceRefresher
+        self.stackAccessTokenProvider = stackAccessTokenProvider ?? { throw AuthError.unauthorized }
+        self.stackAccessTokenForceRefresher = stackAccessTokenForceRefresher ?? { throw AuthError.unauthorized }
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.now = now
@@ -81,8 +136,8 @@ public struct CMUXMobileRuntime: Sendable {
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
-        self.stackAccessTokenProvider = stackAccessTokenProvider ?? Self.defaultStackAccessTokenProvider
-        self.stackAccessTokenForceRefresher = stackAccessTokenForceRefresher ?? Self.defaultStackAccessTokenForceRefresher
+        self.stackAccessTokenProvider = stackAccessTokenProvider ?? { throw AuthError.unauthorized }
+        self.stackAccessTokenForceRefresher = stackAccessTokenForceRefresher ?? { throw AuthError.unauthorized }
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.supportsServerPushEvents = supportsServerPushEvents
@@ -91,7 +146,9 @@ public struct CMUXMobileRuntime: Sendable {
 }
 
 #if DEBUG
-enum MobileShellDevStackAuthTokenProvider {
+struct MobileShellDevStackAuthTokenProvider {
+    private init() {}
+
     static let environmentKey = "CMUX_MOBILE_DEV_STACK_AUTH_TOKEN"
 
     static func token(

@@ -1,3 +1,4 @@
+import CmuxMobileTerminalKit
 import Foundation
 import Observation
 
@@ -16,6 +17,10 @@ import Observation
 @Observable
 public final class TerminalAccessoryConfiguration {
     /// Shared instance backing the live toolbar and the settings editor.
+    // Read from the UIKit input-accessory build path inside the off-limits
+    // surface/input view; the only two readers are TerminalInputTextView's
+    // accessory builder and TerminalShortcutsSettingsView.
+    // TRANSITIONAL — construction-at-root injection lands with the GhosttySurfaceView UI-god-object split.
     public static let shared = TerminalAccessoryConfiguration()
 
     /// Posted (on the main thread) whenever the configuration changes, so the
@@ -35,33 +40,23 @@ public final class TerminalAccessoryConfiguration {
 
     private let defaults: UserDefaults
 
+    /// Pure reducer that owns the load/merge/forward-compat, toggle, reorder, and
+    /// reset logic over the configurable actions' raw identifiers. Lives in
+    /// `CmuxMobileTerminalKit` so it is testable from `swift test`; this type is
+    /// the thin `@Observable` + persistence shell around it.
+    private let reducer = TerminalAccessoryLayoutReducer(
+        configurable: TerminalInputAccessoryAction.configurableActions.map(\.rawValue)
+    )
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        let all = TerminalInputAccessoryAction.configurableActions
 
-        // Load saved order, drop unknown raw values, append any configurable
-        // action not yet persisted (forward-compat when the enum grows).
-        let savedOrder = (defaults.array(forKey: Self.orderDefaultsKey) as? [Int] ?? [])
-            .compactMap(TerminalInputAccessoryAction.init(rawValue:))
-            .filter { $0.isUserConfigurable }
-        var order = savedOrder
-        var seen = Set(savedOrder)
-        for action in all where !seen.contains(action) {
-            order.append(action)
-            seen.insert(action)
-        }
-        displayOrder = order
-
-        if let savedEnabled = defaults.array(forKey: Self.enabledDefaultsKey) as? [Int] {
-            enabledSet = Set(
-                savedEnabled
-                    .compactMap(TerminalInputAccessoryAction.init(rawValue:))
-                    .filter { $0.isUserConfigurable }
-            )
-        } else {
-            // First launch: every configurable shortcut is shown by default.
-            enabledSet = Set(all)
-        }
+        let layout = reducer.load(
+            savedOrder: defaults.array(forKey: Self.orderDefaultsKey) as? [Int] ?? [],
+            savedEnabled: defaults.array(forKey: Self.enabledDefaultsKey) as? [Int]
+        )
+        displayOrder = layout.order.compactMap(TerminalInputAccessoryAction.init(rawValue:))
+        enabledSet = Set(layout.enabled.compactMap(TerminalInputAccessoryAction.init(rawValue:)))
     }
 
     /// The enabled actions in display order; this is exactly what the toolbar's
@@ -75,24 +70,37 @@ public final class TerminalAccessoryConfiguration {
         enabledSet.contains(action)
     }
 
+    /// Snapshot of the live state in the reducer's raw-identifier vocabulary.
+    private var currentLayout: TerminalAccessoryLayoutReducer.Layout {
+        TerminalAccessoryLayoutReducer.Layout(
+            order: displayOrder.map(\.rawValue),
+            enabled: Set(enabledSet.map(\.rawValue))
+        )
+    }
+
+    /// Project a reducer layout back onto the `@Observable` stored properties.
+    private func apply(_ layout: TerminalAccessoryLayoutReducer.Layout) {
+        displayOrder = layout.order.compactMap(TerminalInputAccessoryAction.init(rawValue:))
+        enabledSet = Set(layout.enabled.compactMap(TerminalInputAccessoryAction.init(rawValue:)))
+    }
+
     /// Show or hide `action`. No-op for non-configurable actions.
     public func setEnabled(_ action: TerminalInputAccessoryAction, _ isEnabled: Bool) {
         guard action.isUserConfigurable else { return }
-        if isEnabled { enabledSet.insert(action) } else { enabledSet.remove(action) }
+        apply(reducer.setEnabled(action.rawValue, isEnabled, in: currentLayout))
         persistAndNotify()
     }
 
     /// Reorder the configurable actions. `offsets`/`destination` are indices
     /// into ``displayOrder`` (the SwiftUI `onMove` contract).
     public func moveActions(from offsets: IndexSet, to destination: Int) {
-        displayOrder.move(fromOffsets: offsets, toOffset: destination)
+        apply(reducer.move(from: offsets, to: destination, in: currentLayout))
         persistAndNotify()
     }
 
     /// Restore the default order (enum order) with every shortcut shown.
     public func resetToDefaults() {
-        displayOrder = TerminalInputAccessoryAction.configurableActions
-        enabledSet = Set(displayOrder)
+        apply(reducer.defaultLayout())
         persistAndNotify()
     }
 

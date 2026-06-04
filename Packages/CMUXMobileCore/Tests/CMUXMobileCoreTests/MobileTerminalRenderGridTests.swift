@@ -378,3 +378,42 @@ import Testing
     #expect(!vt.contains("\u{1B}[?1049h"))
     #expect(!vt.contains("\u{1B}[?1000h"))
 }
+
+@Test func replaySynthesizerMatchesFrameForwardersAcrossFrameShapes() throws {
+    // Full primary-screen snapshot with scrollback, styles, and a cursor.
+    let fullFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 100,
+        columns: 8,
+        rows: 3,
+        cursor: .init(row: 1, column: 2, style: .bar, blinking: true),
+        full: true,
+        styles: [
+            .init(id: 0, foreground: "#C0C0C0", background: "#101010"),
+            .init(id: 1, foreground: "#FF0000", bold: true),
+        ],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 1, text: "hi"),
+            .init(row: 2, column: 1, styleID: 0, text: "bye"),
+        ],
+        terminalForeground: "#FFFFFF",
+        scrollbackRows: 1,
+        scrollbackSpans: [.init(row: 0, column: 0, styleID: 1, text: "past")]
+    )
+    // Delta frame painting only changed rows.
+    let deltaFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 101,
+        columns: 8,
+        rows: 3,
+        full: false,
+        rowSpans: [.init(row: 1, column: 0, text: "delta")]
+    )
+
+    for frame in [fullFrame, deltaFrame] {
+        let replay = MobileTerminalRenderGridReplay(frame)
+        #expect(replay.patchBytes() == frame.vtPatchBytes())
+        #expect(replay.replacementBytes() == frame.vtReplacementBytes())
+        #expect(replay.patchBytes() == replay.replacementBytes())
+    }
+}

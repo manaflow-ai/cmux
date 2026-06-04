@@ -107,7 +107,7 @@ esac
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
-SCHEME="cmux"
+SCHEME="cmux-ios"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
 OUT_DIR="${CMUX_IOS_UPLOAD_DIR:-/tmp/cmux-ios-testflight-$BUILD_NUMBER}"
 DERIVED_DATA="$OUT_DIR/DerivedData"
