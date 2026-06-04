@@ -1241,6 +1241,86 @@ function normalizeCustomPaletteColor(value) {
   return isSafeCustomColor(color) ? color : "";
 }
 
+function hexColorChannels(color) {
+  const normalized = normalizeCustomPaletteColor(color);
+  if (!normalized) return null;
+  return {
+    r: parseInt(normalized.slice(1, 3), 16),
+    g: parseInt(normalized.slice(3, 5), 16),
+    b: parseInt(normalized.slice(5, 7), 16)
+  };
+}
+
+function hexColorByte(value) {
+  return Math.round(clamp(value, 0, 255)).toString(16).padStart(2, "0");
+}
+
+function rgbToHexColor({ r, g, b }) {
+  return `#${hexColorByte(r)}${hexColorByte(g)}${hexColorByte(b)}`.toLowerCase();
+}
+
+function rgbToHsl({ r, g, b }) {
+  const red = clamp(r, 0, 255) / 255;
+  const green = clamp(g, 0, 255) / 255;
+  const blue = clamp(b, 0, 255) / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const lightness = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l: lightness };
+  const delta = max - min;
+  const saturation = lightness > 0.5
+    ? delta / (2 - max - min)
+    : delta / (max + min);
+  let hue = 0;
+  if (max === red) hue = (green - blue) / delta + (green < blue ? 6 : 0);
+  else if (max === green) hue = (blue - red) / delta + 2;
+  else hue = (red - green) / delta + 4;
+  return { h: hue * 60, s: saturation, l: lightness };
+}
+
+function hslHueChannel(p, q, t) {
+  let value = t;
+  if (value < 0) value += 1;
+  if (value > 1) value -= 1;
+  if (value < 1 / 6) return p + (q - p) * 6 * value;
+  if (value < 1 / 2) return q;
+  if (value < 2 / 3) return p + (q - p) * (2 / 3 - value) * 6;
+  return p;
+}
+
+function hslToHexColor(hue, saturation, lightness) {
+  const h = ((Number(hue) || 0) % 360 + 360) % 360 / 360;
+  const s = clamp(saturation, 0, 1);
+  const l = clamp(lightness, 0, 1);
+  if (s === 0) {
+    const grey = l * 255;
+    return rgbToHexColor({ r: grey, g: grey, b: grey });
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return rgbToHexColor({
+    r: hslHueChannel(p, q, h + 1 / 3) * 255,
+    g: hslHueChannel(p, q, h) * 255,
+    b: hslHueChannel(p, q, h - 1 / 3) * 255
+  });
+}
+
+function colorVariantPalette(color) {
+  const channels = hexColorChannels(color);
+  if (!channels) return [];
+  const { h, s, l } = rgbToHsl(channels);
+  const saturation = s > 0.02 ? clamp(s, 0.16, 0.88) : 0;
+  const complementSaturation = saturation ? clamp(saturation * 0.82, 0.16, 0.76) : 0;
+  return uniqueColors([
+    rgbToHexColor(channels),
+    hslToHexColor(h, saturation, clamp(l + (l > 0.7 ? 0.09 : 0.16), 0.14, 0.9)),
+    hslToHexColor(h, saturation, clamp(l - (l < 0.32 ? 0.1 : 0.16), 0.12, 0.84)),
+    hslToHexColor(h + 22, saturation, clamp(l + 0.04, 0.16, 0.84)),
+    hslToHexColor(h - 22, saturation, clamp(l - 0.02, 0.16, 0.82)),
+    hslToHexColor(h + 180, complementSaturation, clamp(l, 0.18, 0.78))
+  ].map(normalizeCustomPaletteColor).filter(Boolean));
+}
+
 function uniqueColors(colors = []) {
   const seen = new Set();
   const result = [];
@@ -3227,6 +3307,64 @@ function saveCurrentColorSetToPalette(workspace = activeWorkspace()) {
   saveCustomColorPalette();
   if (state.inspectorMode === "settings") renderSettingsInspector();
   toast(`${model.newColors.length} current color${model.newColors.length === 1 ? "" : "s"} saved.`);
+  return true;
+}
+
+function colorVariantSaveModel(color) {
+  const colors = colorVariantPalette(color);
+  const newColors = colors.filter((candidate) => !customColorPaletteHasColor(candidate));
+  const remaining = Math.max(0, customColorPaletteLimit - state.customColorPalette.length);
+  const savableColors = newColors.slice(0, remaining);
+  if (colors.length === 0) {
+    return {
+      colors,
+      newColors,
+      savableColors,
+      disabled: true,
+      title: "Pick a custom hex color before saving variants.",
+      search: "no custom hex color variants unavailable"
+    };
+  }
+  if (newColors.length === 0) {
+    return {
+      colors,
+      newColors,
+      savableColors,
+      disabled: true,
+      title: "This color's variants are already saved.",
+      search: `variants already saved ${colors.join(" ")}`
+    };
+  }
+  if (remaining === 0) {
+    return {
+      colors,
+      newColors,
+      savableColors,
+      disabled: true,
+      title: customColorPaletteLimitTitle(),
+      search: `variants limit full ${colors.join(" ")}`
+    };
+  }
+  return {
+    colors,
+    newColors,
+    savableColors,
+    disabled: false,
+    title: `Save ${savableColors.length} color variant${savableColors.length === 1 ? "" : "s"} to the reusable palette.`,
+    search: `variants ${savableColors.length} new ${remaining} slots ${colors.join(" ")}`
+  };
+}
+
+function saveColorVariantsToPalette(color) {
+  const model = colorVariantSaveModel(color);
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  state.customColorPalette = uniqueColors([...model.savableColors, ...state.customColorPalette]).slice(0, customColorPaletteLimit);
+  saveCustomColorPalette();
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast(`${model.savableColors.length} color variant${model.savableColors.length === 1 ? "" : "s"} saved.`);
   return true;
 }
 
@@ -7579,6 +7717,7 @@ function customizationCommandPaletteSignature() {
   appendSignatureValue(parts, settingsKeysSignature(performanceSetupSettings));
   appendSignatureValue(parts, settingsKeysSignature(browserSetupSettings));
   appendSignatureValue(parts, state.customColorPalette.length);
+  appendSignatureValue(parts, state.customColorPalette.join(","));
   appendSignatureValue(parts, state.savedBackgroundImages.length);
   for (const target of ["accent", "workspace", "pane", "all"]) {
     const model = currentColorSaveModel(target);
@@ -28437,6 +28576,20 @@ function savedColorPalettePanel() {
   const saveColorSet = settingsActionButton("Save current set", () => saveCurrentColorSetToPalette(workspace), "", `saved color save current set accent workspace pane terminal reusable palette ${colorSetModel.search}`);
   saveColorSet.disabled = colorSetModel.disabled;
   saveColorSet.title = colorSetModel.title;
+  const saveVariants = settingsActionButton("Save variants", () => saveColorVariantsToPalette(colorInput.value), "", "saved color save variants generated palette");
+  const refreshSaveVariantsState = () => {
+    const model = colorVariantSaveModel(colorInput.value);
+    saveVariants.disabled = model.disabled;
+    saveVariants.title = model.title;
+    const search = normalizeSettingsQuery(`saved color save variants generated palette picked custom hex ${model.search}`);
+    if (saveVariants.dataset.settingsSearch !== search) {
+      saveVariants.dataset.settingsSearch = search;
+      updateSettingsSearchIndexItemSearch(saveVariants, search);
+    }
+  };
+  refreshSaveVariantsState();
+  colorInput.addEventListener("input", refreshSaveVariantsState);
+  colorInput.addEventListener("change", refreshSaveVariantsState);
   const clearWorkspace = settingsActionButton("Clear workspace", () => clearWorkspaceColor(workspace), "", "saved color clear workspace color default reset");
   clearWorkspace.disabled = !workspace?.color;
   clearWorkspace.title = !workspace
@@ -28451,7 +28604,7 @@ function savedColorPalettePanel() {
     : clearPanes.disabled
       ? "Pane colors are already default."
       : "Clear pane colors in the active workspace.";
-  actions.append(copyPalette, pastePalette, copyTarget, pasteColor, applyEverywhere, resetTarget, saveAccent, saveWorkspace, savePane, saveColorSet, clearWorkspace, clearPanes);
+  actions.append(copyPalette, pastePalette, copyTarget, pasteColor, applyEverywhere, resetTarget, saveAccent, saveWorkspace, savePane, saveColorSet, saveVariants, clearWorkspace, clearPanes);
   panel.append(actions);
 
   if (state.customColorPalette.length === 0) {
@@ -35243,6 +35396,26 @@ function paletteEntries() {
         ? paneColorActionSearchText("save", paletteActivePane, paletteWorkspace, `${option.status} ${option.meta}`)
         : normalizeSettingsQuery(`save current ${label} color reusable palette custom ${option.status} ${option.meta}`),
       run: () => saveCurrentColorToPalette(id)
+    });
+  }
+  for (const [id, option] of [
+    ["accent", colorAccentTargetOption],
+    ["workspace", colorWorkspaceTargetOption],
+    ["pane", colorPaneTargetOption],
+    ["all", colorAllTargetOption]
+  ]) {
+    const label = option.label.toLowerCase();
+    const color = normalizeCustomPaletteColor(option.color);
+    const model = colorVariantSaveModel(color);
+    entries.push({
+      id: `currentColor.variants.${id}`,
+      label: `Save ${label} color variants`,
+      meta: color ? `${color.toUpperCase()} / ${option.meta}` : `${option.status} / ${option.meta}`,
+      shortcut: "Save",
+      disabled: option.disabled || model.disabled,
+      title: option.disabled ? `${option.label}: ${option.meta}.` : model.title,
+      search: normalizeSettingsQuery(`save current ${label} color variants generated palette custom ${option.status} ${option.meta} ${model.search}`),
+      run: () => saveColorVariantsToPalette(color)
     });
   }
   for (const [id, option] of [
