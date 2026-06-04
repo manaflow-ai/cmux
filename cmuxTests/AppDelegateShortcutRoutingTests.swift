@@ -10101,7 +10101,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testTextBoxContentSyncSkipsUnchangedSwiftUIBindings() {
         var text = "same"
         var attachments: [TextBoxAttachment] = []
-        var height: CGFloat = TextBoxLayout.minimumTextHeight
+        var height: CGFloat = 24
         var hasPendingAttachmentUpload = false
         var textWriteCount = 0
         var attachmentWriteCount = 0
