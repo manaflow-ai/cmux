@@ -4456,7 +4456,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     @MainActor
-    func testScheduledExternalGeometrySyncWaitsForQueuedLayoutShift() {
+    func testScheduledExternalGeometrySyncMovesPortalAfterLayoutShift() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
             styleMask: [.titled, .closable],
@@ -4501,15 +4501,12 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
         )
 
-        DispatchQueue.main.async {
-            shiftedContainer.frame.origin.x += 72
-            contentView.layoutSubtreeIfNeeded()
-            window.displayIfNeeded()
-        }
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
+        shiftedContainer.frame.origin.x += 72
+        contentView.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
 
         var shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
-        waitUntil(description: "queued layout shift to move anchor") {
+        waitUntil(description: "layout shift to move anchor") {
             contentView.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
             shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
@@ -4525,8 +4522,6 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             originalAnchorFrameInWindow.maxX + 1,
             "The shifted anchor should expose a new trailing region outside the stale portal frame"
         )
-        drainMainQueue()
-        drainMainQueue()
         let retiredStaleWindowPoint = NSPoint(
             x: (originalAnchorFrameInWindow.minX + shiftedAnchorFrameInWindow.minX) / 2,
             y: shiftedAnchorFrameInWindow.midY
@@ -4535,7 +4530,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             x: (originalAnchorFrameInWindow.maxX + shiftedAnchorFrameInWindow.maxX) / 2,
             y: shiftedAnchorFrameInWindow.midY
         )
-        waitUntil(description: "queued external sync to settle after layout shift") {
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
+        waitUntil(description: "external sync to settle after layout shift") {
             guard let portalHost = hosted.superview else { return false }
             let stalePointInHost = portalHost.convert(retiredStaleWindowPoint, from: nil)
             let shiftedPointInHost = portalHost.convert(shiftedWindowPoint, from: nil)

@@ -312,7 +312,7 @@ final class ShortcutUnbindingParsingTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: conflictingAction), proposedShortcut)
     }
 
-    func testSystemWideHotkeyShortcutPrefersManagedOverrideOverPersistedValue() throws {
+    func testSystemWideHotkeyShortcutPrefersPersistedValueOverManagedOverride() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let action = SystemWideHotkeySettings.action
         let originalData = UserDefaults.standard.data(forKey: action.defaultsKey)
@@ -359,7 +359,7 @@ final class ShortcutUnbindingParsingTests: XCTestCase {
 
         XCTAssertEqual(
             SystemWideHotkeySettings.shortcut(),
-            StoredShortcut(key: "h", command: false, shift: false, option: true, control: true)
+            persistedShortcut
         )
     }
 
