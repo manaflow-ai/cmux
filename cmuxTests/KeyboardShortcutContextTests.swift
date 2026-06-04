@@ -253,6 +253,34 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    // The "_" -> "-" normalization was also moved out of the Shift gate, so a
+    // bare "_" (no Shift) from a layout where "_" is a dedicated key must match
+    // the "-" zoom-out chord. Without this, a future refactor could re-gate "_"
+    // behind Shift with no failing test to catch it.
+    func testZoomOutMatchesBareUnderscoreOnNonUSLayout() {
+        let markdownZoomOut = KeyboardShortcutSettings.Action.markdownZoomOut.defaultShortcut
+        XCTAssertTrue(
+            markdownZoomOut.matches(
+                keyCode: 27,
+                modifierFlags: [.command],
+                eventCharacter: "_",
+                layoutCharacterProvider: { _, _ in "_" }
+            ),
+            "Cmd and a dedicated _ key should zoom markdown out (\"_\" normalizes to \"-\")"
+        )
+
+        let browserZoomOut = KeyboardShortcutSettings.Action.browserZoomOut.defaultShortcut
+        XCTAssertTrue(
+            browserZoomOut.matches(
+                keyCode: 27,
+                modifierFlags: [.command],
+                eventCharacter: "_",
+                layoutCharacterProvider: { _, _ in "_" }
+            ),
+            "Cmd and a dedicated _ key should zoom the browser out (\"_\" normalizes to \"-\")"
+        )
+    }
+
     func testZoomInDoesNotMatchUnrelatedKeyOnNonUSLayout() {
         // Guard: the layout-aware "+" handling must not make Cmd-= match keys that
         // legitimately produce other characters (e.g. a bare letter key).
