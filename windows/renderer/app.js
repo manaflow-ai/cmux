@@ -8029,8 +8029,8 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       shortcut: "Edit",
       disabled: !hasWorkspace,
       icon: "workspace",
-      title: hasWorkspace ? "Rename the active workspace." : noWorkspaceTitle,
-      search: `workspace rename title name active ${workspaceTitle}`
+      title: workspaceRenameActionTitle(workspace),
+      search: workspaceRenameActionSearchText("rename", workspace, "command palette active")
     };
   }
   if (commandId === "workspace.changeFolder") {
@@ -19309,7 +19309,7 @@ function workspaceNamingPanel(workspace) {
   const panelIsPending = Boolean(panel && isPendingPanel(panel));
   const naming = document.createElement("div");
   naming.className = "workspace-naming-panel";
-  naming.dataset.settingsSearch = normalizeSettingsQuery("workspace naming rename name title folder active pane tab default automatic generated custom");
+  naming.dataset.settingsSearch = workspaceRenameActionSearchText("panel", workspace, paneNamingBaseSearchText(panel, workspace));
   naming.innerHTML = `
     <div class="workspace-naming-head">
       <span class="workspace-naming-title">Naming</span>
@@ -19330,45 +19330,29 @@ function workspaceNamingPanel(workspace) {
 
   const actions = document.createElement("div");
   actions.className = "settings-actions workspace-naming-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery("workspace pane naming actions rename use folder active pane page tab default automatic generated");
-  const renameWorkspaceAction = settingsActionButton("Rename workspace", () => renameWorkspaceById(workspace.id, workspace.title), "", "workspace naming rename title");
+  actions.dataset.settingsSearch = workspaceRenameActionSearchText("actions", workspace, paneNamingBaseSearchText(panel, workspace));
+  const renameWorkspaceAction = settingsActionButton("Rename workspace", () => renameWorkspaceById(workspace.id, workspace.title), "", workspaceRenameActionSearchText("rename", workspace));
   renameWorkspaceAction.disabled = !workspace;
-  renameWorkspaceAction.title = workspace ? "Rename the active workspace." : "Open a workspace before renaming it.";
+  renameWorkspaceAction.title = workspaceRenameActionTitle(workspace);
   const useFolderAction = settingsActionButton("Use folder", async () => {
     if (!workspace || !folderTitle) return false;
     const changed = await renameWorkspaceTo(folderTitle, workspace.id);
     toast(changed ? "Workspace name set from folder." : "Workspace already uses the folder name.");
     return changed;
-  }, "", "workspace naming folder directory suggested title");
+  }, "", workspaceRenameActionSearchText("useFolder", workspace));
   useFolderAction.disabled = !workspace || !folderTitle || folderTitle === workspace.title;
-  useFolderAction.title = !workspace
-    ? "Open a workspace before using its folder name."
-    : !folderTitle
-      ? "Set a workspace folder before using its name."
-      : folderTitle === workspace.title
-        ? "Workspace already uses the folder name."
-        : "Rename the workspace from its folder.";
+  useFolderAction.title = workspaceUseFolderNameTitle(workspace);
   const usePaneAction = settingsActionButton("Use pane", async () => {
     if (!workspace || !paneWorkspaceTitle) return false;
     const changed = await renameWorkspaceTo(paneWorkspaceTitle, workspace.id);
     toast(changed ? "Workspace name set from the active pane." : "Workspace already uses the active pane name.");
     return changed;
-  }, "", "workspace naming active pane suggested tab title page host folder terminal browser");
+  }, "", workspaceRenameActionSearchText("usePane", workspace, paneNamingBaseSearchText(panel, workspace)));
   usePaneAction.disabled = !workspace || !paneWorkspaceTitle || paneWorkspaceTitle === workspace.title;
-  usePaneAction.title = !workspace
-    ? "Open a workspace before using its active pane name."
-    : !paneWorkspaceTitle
-      ? "Open or rename a pane before using it as the workspace name."
-      : paneWorkspaceTitle === workspace.title
-        ? "Workspace already uses the active pane name."
-        : "Rename the workspace from the active pane.";
-  const renamePaneAction = settingsActionButton("Rename pane", () => renamePanel(panel), "", "active pane naming rename tab title");
+  usePaneAction.title = workspaceUsePaneNameTitle(workspace);
+  const renamePaneAction = settingsActionButton("Rename pane", () => renamePanel(panel), "", paneNamingActionSearchText("rename", panel, workspace));
   renamePaneAction.disabled = !panel || panelIsPending;
-  renamePaneAction.title = !panel
-    ? "Open a pane before renaming it."
-    : panelIsPending
-      ? "Wait for this pane to finish opening."
-      : "Rename the active pane tab.";
+  renamePaneAction.title = paneRenameActionTitle(panel);
   const useDefaultPaneAction = settingsActionButton("Use default", async () => {
     if (!panel) return false;
     if (!panel.titleLocked) {
@@ -19378,15 +19362,9 @@ function workspaceNamingPanel(workspace) {
     await updatePanel(panel.id, { title: "" });
     toast("Pane name reset.");
     return true;
-  }, "", "active pane naming default automatic generated title reset");
+  }, "", paneNamingActionSearchText("default", panel, workspace));
   useDefaultPaneAction.disabled = !panel || panelIsPending || !panel.titleLocked;
-  useDefaultPaneAction.title = !panel
-    ? "Open a pane before resetting its name."
-    : panelIsPending
-      ? "Wait for this pane to finish opening."
-      : panel.titleLocked
-        ? "Restore the generated pane name."
-        : "Pane already uses the generated name.";
+  useDefaultPaneAction.title = paneUseDefaultNameTitle(panel);
   actions.append(renameWorkspaceAction, useFolderAction, usePaneAction, renamePaneAction, useDefaultPaneAction);
   naming.append(actions);
   return naming;
@@ -20126,6 +20104,120 @@ function workspacePaneSuggestedTitle(workspace = activeWorkspace()) {
   return suggestion.slice(0, 80);
 }
 
+function workspaceNamingBaseSearchText(workspace = activeWorkspace()) {
+  const title = workspaceDisplayTitle(workspace, "No workspace");
+  const folderTitle = workspace ? folderName(workspace.cwd) : "";
+  const paneTitle = workspace?.panels?.length ? workspacePaneSuggestedTitle(workspace) : "";
+  return [
+    "workspace naming rename name title folder active pane tab default automatic generated custom",
+    title,
+    folderTitle,
+    paneTitle,
+    workspace?.cwdShort || "",
+    workspace?.cwd || ""
+  ].join(" ");
+}
+
+function workspaceRenameActionTitle(workspace = activeWorkspace(), availableTitle = "Rename the active workspace.") {
+  return workspace ? availableTitle : "Open a workspace before renaming it.";
+}
+
+function workspaceUseFolderNameTitle(workspace = activeWorkspace(), availableTitle = "Rename the workspace from its folder.") {
+  const folderTitle = workspace ? folderName(workspace.cwd) : "";
+  if (!workspace) return "Open a workspace before using its folder name.";
+  if (!folderTitle) return "Set a workspace folder before using its name.";
+  if (folderTitle === workspace.title) return "Workspace already uses the folder name.";
+  return availableTitle;
+}
+
+function workspaceUsePaneNameTitle(workspace = activeWorkspace(), availableTitle = "Rename the workspace from the active pane.") {
+  const paneTitle = workspace?.panels?.length ? workspacePaneSuggestedTitle(workspace) : "";
+  if (!workspace) return "Open a workspace before using its active pane name.";
+  if (!paneTitle) return "Open or rename a pane before using it as the workspace name.";
+  if (paneTitle === workspace.title) return "Workspace already uses the active pane name.";
+  return availableTitle;
+}
+
+function workspaceRenameActionSearchText(actionId, workspace = activeWorkspace(), extra = "") {
+  const actionTerms = {
+    panel: "settings panel overview",
+    actions: "actions controls use folder active pane default automatic generated",
+    rename: "rename edit title name",
+    useFolder: "use folder directory cwd title suggested",
+    usePane: "use active pane tab title page host folder terminal browser suggested"
+  }[actionId] || actionId;
+  return normalizeSettingsQuery([
+    workspaceNamingBaseSearchText(workspace),
+    actionTerms,
+    extra
+  ].join(" "));
+}
+
+function paneNamingTarget(panel = focusedPanel() || activePanel()) {
+  return activePaneActionTargetPanel(panel) || null;
+}
+
+function paneNamingBaseSearchText(panel = focusedPanel() || activePanel(), workspace = activeWorkspace()) {
+  const target = paneNamingTarget(panel);
+  const suggestion = paneTitleSuggestion(target, workspace);
+  const defaultTitle = target ? editablePaneTitle({ ...target, title: "", titleLocked: false }) : "";
+  return [
+    "active pane naming rename tab title default automatic generated suggested",
+    target ? panelDisplayTitle(target, true) : "no pane",
+    !target ? "no active pane" : target.type === "browser" ? "browser page host url" : "terminal folder cwd directory",
+    !target ? "unavailable" : target.titleLocked ? "custom locked" : "automatic generated",
+    suggestion,
+    defaultTitle
+  ].join(" ");
+}
+
+function paneRenameActionTitle(panel = focusedPanel() || activePanel(), availableTitle = "Rename the active pane tab.") {
+  const target = paneNamingTarget(panel);
+  if (!target) return "Open a pane before renaming it.";
+  if (isPendingPanel(target)) return "Wait for this pane to finish opening.";
+  return availableTitle;
+}
+
+function paneUseDefaultNameTitle(panel = focusedPanel() || activePanel()) {
+  const target = paneNamingTarget(panel);
+  if (!target) return "Open a pane before resetting its name.";
+  if (isPendingPanel(target)) return "Wait for this pane to finish opening.";
+  return target.titleLocked ? "Restore the generated pane name." : "Pane already uses the generated name.";
+}
+
+function paneNameSaveTitle(panel, nextTitle, currentTitle) {
+  const target = paneNamingTarget(panel);
+  if (!target) return "Open a pane before saving its name.";
+  if (isPendingPanel(target)) return "Wait for this pane to finish opening.";
+  if (!nextTitle) return "Enter a pane name first, or use Default to clear a custom name.";
+  if (nextTitle === currentTitle) return "Pane name is already current.";
+  return "Save the active pane name.";
+}
+
+function paneNameSuggestTitle(panel, workspace, suggestion, currentTitle) {
+  const target = paneNamingTarget(panel);
+  if (!target) return "Open a pane before using a suggested name.";
+  if (isPendingPanel(target)) return "Wait for this pane to finish opening.";
+  if (!suggestion) return "No pane name suggestion is available.";
+  if (suggestion === currentTitle) return "Suggested pane name is already current.";
+  return `Save "${suggestion}" as the pane name.`;
+}
+
+function paneNamingActionSearchText(actionId, panel = focusedPanel() || activePanel(), workspace = activeWorkspace(), extra = "") {
+  const actionTerms = {
+    rename: "rename edit title name",
+    save: "save custom title name",
+    suggest: "use suggested folder page host cwd directory title",
+    default: "default automatic generated reset clear title",
+    control: "save suggested folder page host cwd default automatic clear"
+  }[actionId] || actionId;
+  return normalizeSettingsQuery([
+    paneNamingBaseSearchText(panel, workspace),
+    actionTerms,
+    extra
+  ].join(" "));
+}
+
 const paneSetupPresetDefinitions = [
   {
     id: "terminalFocusShell",
@@ -20368,7 +20460,7 @@ function activePaneSettingsActionTitle(commandId, panel = activePaneActionTarget
   const target = activePaneActionTargetPanel(panel);
   if (!target && commandId !== "settings.savePaneLook") return activePaneActionUnavailableTitle(target);
   if (commandId === "settings.pane") return "Open active pane settings.";
-  if (commandId === "settings.renamePane") return "Rename the active pane.";
+  if (commandId === "settings.renamePane") return paneRenameActionTitle(target, "Rename the active pane.");
   if (commandId === "settings.copyPaneSetup") return "Copy active pane setup as JSON.";
   if (commandId === "settings.pastePaneSetup") return "Paste copied pane setup into the active pane.";
   if (commandId === "settings.copyPaneLook") return activePaneLookCopyTitle(target);
@@ -20395,6 +20487,9 @@ function activePaneSettingsActionSearchText(commandId, panel = activePaneActionT
     "settings.resetPaneSetup": "reset default setup title color background text size",
     "settings.syncPaneLook": "sync look matching panes color background text"
   }[commandId] || "";
+  if (commandId === "settings.renamePane") {
+    return paneNamingActionSearchText("rename", target, workspace, actionTerms);
+  }
   return normalizeSettingsQuery([
     activePaneBaseSearchText(target),
     activePaneSettingsActionShortcut(commandId),
@@ -20488,7 +20583,10 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     || null;
   const wrapper = document.createElement("div");
   wrapper.className = "active-pane-panel";
-  wrapper.dataset.settingsSearch = normalizeSettingsQuery("active pane tab terminal browser rename color text size split duplicate focus controls background image wallpaper");
+  wrapper.dataset.settingsSearch = normalizeSettingsQuery([
+    "active pane tab terminal browser rename color text size split duplicate focus controls background image wallpaper",
+    paneNamingBaseSearchText(panel, workspace)
+  ].join(" "));
   if (!panel) {
     wrapper.innerHTML = `<div class="active-pane-empty">Open a terminal or browser pane to customize it here.</div>`;
     return wrapper;
@@ -20575,23 +20673,15 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     const suggestion = paneTitleSuggestion(panel, workspace);
     if (titleSave) {
       titleSave.disabled = !nextTitle || nextTitle === currentPaneTitle();
-      titleSave.title = !nextTitle
-        ? "Enter a pane name first, or use Default to clear a custom name."
-        : nextTitle === currentPaneTitle()
-          ? "Pane name is already current."
-          : "Save the active pane name.";
+      titleSave.title = paneNameSaveTitle(panel, nextTitle, currentPaneTitle());
     }
     if (titleReset) {
       titleReset.disabled = !panel.titleLocked;
-      titleReset.title = panel.titleLocked ? "Restore the automatic pane name." : "Pane already uses the automatic name.";
+      titleReset.title = paneUseDefaultNameTitle(panel);
     }
     if (titleSuggest) {
       titleSuggest.disabled = !suggestion || suggestion === currentPaneTitle();
-      titleSuggest.title = !suggestion
-        ? "No pane name suggestion is available."
-        : suggestion === currentPaneTitle()
-          ? "Suggested pane name is already current."
-          : `Save "${suggestion}" as the pane name.`;
+      titleSuggest.title = paneNameSuggestTitle(panel, workspace, suggestion, currentPaneTitle());
     }
   };
   const refreshPaneTitleActionsAfterButton = () => {
@@ -20617,7 +20707,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     const changed = await savePaneTitleInput({ toast: true });
     refreshPaneTitleActionsAfterButton();
     return changed;
-  }, "primary", "active pane rename save tab title");
+  }, "primary", paneNamingActionSearchText("save", panel, workspace));
   const titleSuggestLabel = panel.type === "browser" ? "Use page" : "Use folder";
   titleSuggest = settingsActionButton(titleSuggestLabel, async () => {
     const suggestion = paneTitleSuggestion(panel, workspace);
@@ -20629,7 +20719,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     const changed = await savePaneTitleInput({ toast: true });
     refreshPaneTitleActionsAfterButton();
     return changed;
-  }, "", `active pane rename suggested ${panel.type === "browser" ? "page host url browser" : "folder cwd directory terminal"}`);
+  }, "", paneNamingActionSearchText("suggest", panel, workspace, titleSuggestLabel));
   titleReset = settingsActionButton("Default", async () => {
     const changed = Boolean(panel.titleLocked);
     titleInput.value = defaultPaneTitle();
@@ -20637,12 +20727,12 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     else toast("Pane already uses the default name.");
     updatePaneTitleActions();
     refreshPaneTitleActionsAfterButton();
-  }, "", "active pane rename default automatic title clear");
+  }, "", paneNamingActionSearchText("default", panel, workspace));
   const titleControl = document.createElement("span");
   titleControl.className = "active-pane-title-control";
   titleControl.append(titleInput, titleSave, titleSuggest, titleReset);
   updatePaneTitleActions();
-  wrapper.append(settingRow("Pane name", titleControl, true, "active pane rename save tab title suggested folder page host cwd default automatic clear"));
+  wrapper.append(settingRow("Pane name", titleControl, true, paneNamingActionSearchText("control", panel, workspace)));
 
   const paneSizeControl = paneShapePanel(workspace);
   paneSizeControl.classList.add("is-embedded");
@@ -22975,8 +23065,8 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
   const actions = [
     quickOverviewControlButton("Rename", renameActiveWorkspace, {
       disabled: !hasWorkspace,
-      title: hasWorkspace ? "Rename the active workspace." : disabledTitle,
-      search: "quick setup workspace rename name title"
+      title: workspaceRenameActionTitle(workspace),
+      search: workspaceRenameActionSearchText("rename", workspace, "quick setup")
     }),
     quickOverviewControlButton("Use folder", async () => {
       if (!workspace || !folderTitle) return false;
@@ -22985,14 +23075,8 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
       return refreshQuick(changed);
     }, {
       disabled: !hasWorkspace || !folderTitle || folderTitle === workspace?.title,
-      title: !hasWorkspace
-        ? disabledTitle
-        : !folderTitle
-          ? "Set a workspace folder before using its name."
-          : folderTitle === workspace?.title
-            ? "Workspace already uses the folder name."
-            : "Rename the workspace from its folder.",
-      search: `quick setup workspace rename use folder directory cwd title ${folderTitle}`
+      title: workspaceUseFolderNameTitle(workspace),
+      search: workspaceRenameActionSearchText("useFolder", workspace, "quick setup")
     }),
     quickOverviewControlButton("Use pane", async () => {
       if (!workspace || !paneTitle) return false;
@@ -23001,14 +23085,8 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
       return refreshQuick(changed);
     }, {
       disabled: !hasWorkspace || !paneTitle || paneTitle === workspace?.title,
-      title: !hasWorkspace
-        ? disabledTitle
-        : !paneTitle
-          ? "Open or rename a pane before using it as the workspace name."
-          : paneTitle === workspace?.title
-            ? "Workspace already uses the active pane name."
-            : "Rename the workspace from the active pane.",
-      search: `quick setup workspace rename use active pane tab title terminal browser ${paneTitle}`
+      title: workspaceUsePaneNameTitle(workspace),
+      search: workspaceRenameActionSearchText("usePane", workspace, "quick setup")
     }),
     quickOverviewControlButton("Folder", () => chooseWorkspaceFolder(workspace), {
       disabled: !hasWorkspace,
@@ -23035,7 +23113,7 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
     className: "quick-overview-workspace",
     title: "Workspace controls",
     meta: hasWorkspace ? `${workspaceName} / ${paneSummary}` : "Open a workspace first",
-    search: `quick setup workspace controls rename folder active pane layout copy paste setup ${workspaceName} ${folderTitle} ${paneTitle} ${paneSummary}`,
+    search: workspaceRenameActionSearchText("actions", workspace, `quick setup workspace controls rename folder active pane layout copy paste setup ${workspaceName} ${folderTitle} ${paneTitle} ${paneSummary}`),
     actions
   });
 }
@@ -30783,13 +30861,21 @@ function showPanelContextMenu(event, panel) {
     return button;
   };
   const generalActions = contextMenuActionGroup(
-    contextMenuButton("Rename", () => renamePanel(panel), false, "", { icon: "rename" }),
+    paneAction(
+      "Rename",
+      () => renamePanel(panel),
+      false,
+      paneRenameActionTitle(panel),
+      "",
+      "",
+      { icon: "rename" }
+    ),
     paneAction(
       "Use default name",
       () => updatePanel(panel.id, { title: "" }),
       !panel.titleLocked,
-      "Restore the generated pane name.",
-      "Pane already uses its default name.",
+      paneUseDefaultNameTitle(panel),
+      paneUseDefaultNameTitle(panel),
       "",
       { icon: "reload" }
     ),
@@ -31042,9 +31128,11 @@ function showWorkspaceContextMenu(event, workspace) {
   meta.textContent = `${workspace.terminalCount || 0} terminals / ${workspace.browserCount || 0} browsers`;
   const actions = document.createElement("div");
   actions.className = "context-actions";
+  const renameWorkspaceAction = contextMenuButton("Rename", () => renameWorkspaceById(workspace.id, workspace.title));
+  renameWorkspaceAction.title = workspaceRenameActionTitle(workspace, "Rename this workspace.");
   actions.append(
     contextMenuButton(isActive ? "Focused" : "Focus", () => focusWorkspace(workspace.id), isActive),
-    contextMenuButton("Rename", () => renameWorkspaceById(workspace.id, workspace.title)),
+    renameWorkspaceAction,
     contextMenuButton("Change folder", () => chooseWorkspaceFolder(workspace), !workspace.id),
     contextMenuButton("Open folder", () => openWorkspaceFolder(workspace), !workspace.cwd),
     contextMenuButton("Copy setup", () => copyWorkspaceSetup(workspace)),
@@ -31437,7 +31525,7 @@ function showToolbarMenu(event) {
       toolbarAction("Next workspace", () => cycleWorkspace(1), !multiWorkspace, "Move to the next workspace.", workspaceSwitchRequiredTitle),
       toolbarAction("Previous workspace", () => cycleWorkspace(-1), !multiWorkspace, "Move to the previous workspace.", workspaceSwitchRequiredTitle),
       toolbarAction("Last workspace", focusLastWorkspace, !hasPreviousWorkspace, "Return to the last focused workspace.", "No previous workspace is available yet."),
-      contextMenuButton("Rename workspace", renameActiveWorkspace),
+      toolbarAction("Rename workspace", renameActiveWorkspace, !workspace, workspaceRenameActionTitle(workspace), workspaceRenameActionTitle(workspace)),
       contextMenuButton("Change workspace color", cycleWorkspaceColor),
       toolbarAction("Change workspace folder", () => chooseWorkspaceFolder(), !workspace, "Choose a folder for the active workspace.", workspaceRequiredTitle),
       toolbarAction("Open workspace folder", () => openWorkspaceFolder(), !workspace?.cwd, "Open this workspace folder.", workspace ? "This workspace does not have a folder yet." : workspaceRequiredTitle),
@@ -32704,12 +32792,8 @@ function paletteEntries() {
       meta: folderTitle || "No folder",
       shortcut: "Name",
       disabled: !folderTitle || folderTitle === workspace.title,
-      title: !folderTitle
-        ? "Set a workspace folder before using its name."
-        : folderTitle === workspace.title
-          ? "Workspace already uses the folder name."
-          : "Rename this workspace from its folder.",
-      search: normalizeSettingsQuery(`workspace rename use folder name title directory cwd ${workspaceIndex + 1} ${workspace.title} ${folderTitle} ${workspace.cwdShort} ${workspace.cwd}`),
+      title: workspaceUseFolderNameTitle(workspace, "Rename this workspace from its folder."),
+      search: workspaceRenameActionSearchText("useFolder", workspace, `command palette workspace ${workspaceIndex + 1}`),
       run: async () => {
         if (!folderTitle) return false;
         const changed = await renameWorkspaceTo(folderTitle, workspace.id);
@@ -32723,12 +32807,8 @@ function paletteEntries() {
       meta: paneTitle || "No pane",
       shortcut: "Name",
       disabled: !paneTitle || paneTitle === workspace.title,
-      title: !paneTitle
-        ? "Open or rename a pane before using it as the workspace name."
-        : paneTitle === workspace.title
-          ? "Workspace already uses the active pane name."
-          : "Rename this workspace from its active pane.",
-      search: normalizeSettingsQuery(`workspace rename use active pane name title terminal browser tab ${workspaceIndex + 1} ${workspace.title} ${paneTitle}`),
+      title: workspaceUsePaneNameTitle(workspace, "Rename this workspace from its active pane."),
+      search: workspaceRenameActionSearchText("usePane", workspace, `command palette workspace ${workspaceIndex + 1}`),
       run: async () => {
         if (!paneTitle) return false;
         const changed = await renameWorkspaceTo(paneTitle, workspace.id);
