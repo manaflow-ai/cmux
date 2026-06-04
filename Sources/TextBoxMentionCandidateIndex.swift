@@ -64,7 +64,7 @@ struct TextBoxMentionCandidateIndex: Sendable {
                 limit: limit,
                 shouldCancel: shouldCancel
             )
-            if !swiftMatches.isEmpty {
+            if swiftMatches.count >= min(limit, corpus.count) {
                 return swiftMatches
             }
             if shouldCancel() { return [] }
