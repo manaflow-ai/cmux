@@ -1354,8 +1354,43 @@ private func cmuxContainsTerminalPathLineSuffix(_ rawValue: String) -> Bool {
     }
 }
 
+private let cmuxKnownExtensionlessTerminalFileNames: Set<String> = [
+    "appfile",
+    "berksfile",
+    "brewfile",
+    "capfile",
+    "containerfile",
+    "dangerfile",
+    "deliverfile",
+    "dockerfile",
+    "fastfile",
+    "gemfile",
+    "gnumakefile",
+    "guardfile",
+    "gymfile",
+    "justfile",
+    "makefile",
+    "matchfile",
+    "podfile",
+    "procfile",
+    "rakefile",
+    "scanfile",
+    "snapfile",
+    "vagrantfile"
+]
+
+private func cmuxIsKnownExtensionlessTerminalFileName(_ path: String) -> Bool {
+    let name = (path as NSString).lastPathComponent
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    return cmuxKnownExtensionlessTerminalFileNames.contains(name)
+}
+
 private func cmuxLooksLikeTerminalPathReference(_ reference: TerminalLocalFileReference) -> Bool {
-    cmuxLooksLikeTerminalPath(reference.path) || reference.line != nil
+    if cmuxLooksLikeTerminalPath(reference.path) {
+        return true
+    }
+    return reference.line != nil && cmuxIsKnownExtensionlessTerminalFileName(reference.path)
 }
 
 private func cmuxStandardizedTerminalPath(_ path: String, cwd: String?) -> String? {

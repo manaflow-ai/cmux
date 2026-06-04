@@ -5187,6 +5187,25 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 
+    func testDoesNotTreatUnknownExtensionlessHostPortAsLocalFileReference() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("config", isDirectory: false)
+        try "port = 8080\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let target = try XCTUnwrap(
+            resolveTerminalOpenURLTarget("config:8080", cwd: root.path)
+        )
+        switch target {
+        case let .external(url):
+            XCTAssertFalse(url.isFileURL)
+            XCTAssertEqual(url.absoluteString, "config:8080")
+        case let .embeddedBrowser(url):
+            XCTAssertFalse(url.isFileURL)
+        }
+    }
+
     func testResolvesAbsoluteFileLineColumnReferenceWithoutKeepingSuffixInPath() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
