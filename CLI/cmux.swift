@@ -12911,6 +12911,34 @@ struct CMUXCLI {
               Double check with the end user before sending anything. Review the message and attachments for secrets,
               private code, credentials, tokens, and other sensitive information first.
             """
+        case "history":
+            return """
+            Usage: cmux history <list|reopen|undo|redo|clear> [options]
+
+            Manage closed-item history in the running app.
+
+            Subcommands:
+              list                  Print closed history records, grouped by close operation.
+              reopen <id>           Reopen a specific history record without removing it.
+              undo                  Reopen the most recent closed operation.
+              redo                  Close the most recently reopened operation again.
+              clear                 Remove all closed history records.
+
+            Options:
+              --window <id|ref|n>   Target a specific cmux window.
+            """
+        case "undo":
+            return """
+            Usage: cmux undo [--window <id|ref|n>]
+
+            Reopen the most recent closed operation.
+            """
+        case "redo":
+            return """
+            Usage: cmux redo [--window <id|ref|n>]
+
+            Close the most recently reopened operation again.
+            """
         case "feed":
             return """
             Usage: cmux feed tui [--opentui|--legacy]
