@@ -81,7 +81,7 @@ import Testing
     @Test func includeIfGitdirRecursiveMatchesNestedRepository() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
-        let condition = "gitdir:\(fixture.root.path)/"
+        let condition = "gitdir:\(fixture.gitDirectory.path)/"
         #expect(GitMetadataService.gitConfigIncludeIfConditionMatches(
             condition,
             repository: try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))

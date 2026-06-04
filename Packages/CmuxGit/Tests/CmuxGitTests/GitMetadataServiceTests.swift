@@ -21,8 +21,9 @@ import Testing
         let repo = GitMetadataService.resolveGitRepository(
             containing: FileManager.default.temporaryDirectory.path
         )
-        // The temp dir itself is not a repo; resolution must terminate at root.
-        #expect(repo == nil || repo?.workTreeRoot != FileManager.default.temporaryDirectory.path)
+        // The temp dir (/var/folders/...) is never inside a git repository;
+        // resolution must walk to the filesystem root and return nil.
+        #expect(repo == nil)
     }
 
     @Test func dotGitFilePointerResolvesGitDirectory() throws {
