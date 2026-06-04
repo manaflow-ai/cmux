@@ -2204,7 +2204,14 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "Terminal startup input must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
         )
 
-        let command = startupInput.trimmingCharacters(in: .newlines)
+        let initialCommand = startupInput.trimmingCharacters(in: .newlines)
+        let command: String
+        if initialCommand.hasPrefix("/bin/zsh ") {
+            let scriptBody = try surfaceResumeAssertionScriptBody(from: initialCommand)
+            command = try XCTUnwrap(scriptBody.split(separator: "\n").last.map(String.init))
+        } else {
+            command = initialCommand
+        }
         let cdCommand = try leadingCdCommand(from: command, workingDirectory: cwdURL.path)
         try assertZshCommandChangesDirectory(cdCommand, expectedPath: cwdURL.path)
     }

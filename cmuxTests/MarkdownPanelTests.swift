@@ -320,8 +320,10 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(panel.isFileUnavailable)
 
         let reloaded = expectation(description: "markdown file change reloaded")
+        var didFulfillReload = false
         let cancellable = panel.$content.dropFirst().sink { content in
-            if content == updatedContent {
+            if content == updatedContent, !didFulfillReload {
+                didFulfillReload = true
                 reloaded.fulfill()
             }
         }
