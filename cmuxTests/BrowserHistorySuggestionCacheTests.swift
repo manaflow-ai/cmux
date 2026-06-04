@@ -65,4 +65,20 @@ import Testing
         #expect(top.url == "https://news.ycombinator.com/news")
         #expect(top.visitCount == 6)
     }
+
+    @Test func clearingHistoryDropsResidentSuggestionCache() {
+        let (store, fileURL) = makeStore()
+        defer { store.clearHistory(); try? FileManager.default.removeItem(at: fileURL) }
+
+        store.recordVisit(url: URL(string: "https://secret.example.com/private-page"), title: "secret")
+        // Warm the cache so the parsed/lowercased URL strings become resident.
+        _ = store.suggestions(for: "secret", limit: 8)
+        #expect(store.residentSuggestionCandidateCount > 0)
+
+        // Clearing history must drop the cached candidates immediately, without
+        // waiting for the next omnibar query, so cleared browsing history is not
+        // left resident in memory.
+        store.clearHistory()
+        #expect(store.residentSuggestionCandidateCount == 0)
+    }
 }

@@ -1743,14 +1743,15 @@ final class BrowserHistoryStore: ObservableObject {
     }
 
     // Single source of truth for history. `private(set)` + `@MainActor` means
-    // every mutation runs through this setter, so `didSet` is the one enforced
-    // invalidation point for the derived `cachedSuggestionCandidates`. It must
-    // stay `@Published` for SwiftUI observation, so a memoized cache invalidated
-    // here is the idiomatic shape. Do not add a writer that bypasses the setter
-    // (e.g. an unsafe-buffer bulk write or an external `Binding<[Entry]>`)
-    // without invalidating the cache.
+    // every mutation runs through this setter, so dropping the derived
+    // suggestion cache here is the one enforced invalidation point. Setting it
+    // to nil both frees the retained Entry/URL strings promptly (so clearing
+    // history does not leave browsing history resident in the cache) and forces
+    // a rebuild on next use. It must stay `@Published` for SwiftUI observation.
+    // Do not add a writer that bypasses this setter (e.g. an unsafe-buffer bulk
+    // write or an external `Binding<[Entry]>`) without dropping the cache.
     @Published private(set) var entries: [Entry] = [] {
-        didSet { suggestionCandidatesDirty = true }
+        didSet { cachedSuggestionCandidates = nil }
     }
 
     private let fileURL: URL?
@@ -1777,20 +1778,25 @@ final class BrowserHistoryStore: ObservableObject {
         let score: Double
     }
 
-    // Precomputed, lowercased/parsed match fields for every entry. Building a
+    // Lazily built, lowercased/parsed match fields for every entry. Building a
     // SuggestionCandidate parses the URL (URLComponents) and lowercases five
     // fields; doing that for all entries on every omnibar keystroke pegged the
     // main thread once history grew to a few thousand rows (the typing
-    // beachball). The cache is rebuilt only when `entries` actually changes
-    // (via the didSet above), so steady-state typing reuses it and pays only
-    // the cheap substring scoring in `suggestionScore`.
-    private var cachedSuggestionCandidates: [SuggestionCandidate] = []
-    private var suggestionCandidatesDirty = true
+    // beachball). `nil` means "not built / just invalidated"; it is rebuilt only
+    // when `entries` changes (via the didSet above), so steady-state typing
+    // reuses it and pays only the cheap substring scoring in `suggestionScore`.
+    private var cachedSuggestionCandidates: [SuggestionCandidate]?
 
-    private func refreshSuggestionCandidatesIfNeeded() {
-        guard suggestionCandidatesDirty else { return }
-        cachedSuggestionCandidates = entries.map(makeSuggestionCandidate)
-        suggestionCandidatesDirty = false
+    /// Number of suggestion candidates currently resident in the cache, or 0
+    /// when the cache has been invalidated. Used by tests to verify that
+    /// clearing history drops the retained candidates promptly.
+    var residentSuggestionCandidateCount: Int { cachedSuggestionCandidates?.count ?? 0 }
+
+    private func suggestionCandidates() -> [SuggestionCandidate] {
+        if let cached = cachedSuggestionCandidates { return cached }
+        let built = entries.map(makeSuggestionCandidate)
+        cachedSuggestionCandidates = built
+        return built
     }
 
     init(fileURL: URL? = nil) {
@@ -1936,8 +1942,7 @@ final class BrowserHistoryStore: ObservableObject {
         let queryTokens = tokenizeSuggestionQuery(q)
         let now = Date()
 
-        refreshSuggestionCandidatesIfNeeded()
-        let matched = cachedSuggestionCandidates.compactMap { candidate -> ScoredSuggestion? in
+        let matched = suggestionCandidates().compactMap { candidate -> ScoredSuggestion? in
             guard let score = suggestionScore(candidate: candidate, query: q, queryTokens: queryTokens, now: now) else {
                 return nil
             }
