@@ -67,4 +67,9 @@ import Testing
         #expect(UpdateStateModel.normalizedDetectedUpdateVersion(from: "  1.2.3 ") == "1.2.3")
         #expect(UpdateStateModel.normalizedDetectedUpdateVersion(from: "   ") == nil)
     }
+
+    @Test func startupDoesNotProbeForUpdatesImmediately() {
+        #expect(!UpdateController.shouldProbeImmediatelyOnLaunch(automaticallyChecksForUpdates: true))
+        #expect(!UpdateController.shouldProbeImmediatelyOnLaunch(automaticallyChecksForUpdates: false))
+    }
 }

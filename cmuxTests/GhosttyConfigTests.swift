@@ -3886,6 +3886,25 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         XCTAssertTrue(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_hourly_active"))
         XCTAssertFalse(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_other_event"))
     }
+
+    func testFlushDoesNotWaitForAnalyticsQueue() {
+        let queue = DispatchQueue(label: "PostHogAnalyticsPropertiesTests.blocked")
+        let releaseQueue = DispatchSemaphore(value: 0)
+        let queueEntered = DispatchSemaphore(value: 0)
+        queue.async {
+            queueEntered.signal()
+            _ = releaseQueue.wait(timeout: .now() + 5)
+        }
+        XCTAssertEqual(queueEntered.wait(timeout: .now() + 1), .success)
+
+        let analytics = PostHogAnalytics(workQueue: queue)
+        let start = ProcessInfo.processInfo.systemUptime
+        analytics.flush()
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
+
+        releaseQueue.signal()
+        XCTAssertLessThan(elapsed, 0.1)
+    }
 }
 
 final class GhosttyMouseFocusTests: XCTestCase {
