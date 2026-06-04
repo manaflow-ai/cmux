@@ -2340,11 +2340,45 @@ class TerminalController {
                 return (true, v2Result(id: request.id, workspaceParamError))
             }
             if request.method == "feed.push", request.id == nil {
+                guard let waitTimeout = Self.feedPushWaitTimeoutSeconds(params: request.params) else {
+                    return (true, v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "feed.push wait_timeout_seconds must be numeric and between 0 and 120"
+                    ))
+                }
+                guard waitTimeout == 0 else {
+                    return (true, v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "feed.push without an id requires wait_timeout_seconds 0"
+                    ))
+                }
                 _ = socketWorkerV2Response(request)
                 return (true, nil)
             }
             return (true, socketWorkerV2Response(request))
         }
+    }
+
+    private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
+        guard let rawTimeout = params["wait_timeout_seconds"] else {
+            return 0
+        }
+        let seconds: Double?
+        if let number = rawTimeout as? NSNumber {
+            seconds = number.doubleValue
+        } else if let value = rawTimeout as? Double {
+            seconds = value
+        } else if let value = rawTimeout as? Int {
+            seconds = Double(value)
+        } else {
+            seconds = nil
+        }
+        guard let seconds, seconds.isFinite, seconds >= 0, seconds <= 120 else {
+            return nil
+        }
+        return seconds
     }
 
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {

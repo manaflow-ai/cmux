@@ -5306,13 +5306,14 @@ struct CMUXCLI {
     func authenticateClientIfNeeded(
         _ client: SocketClient,
         explicitPassword: String?,
-        socketPath: String
+        socketPath: String,
+        responseTimeout: TimeInterval? = nil
     ) throws {
         if let socketPassword = SocketPasswordResolver.resolve(
             explicit: explicitPassword,
             socketPath: socketPath
         ) {
-            let authResponse = try client.send(command: "auth \(socketPassword)")
+            let authResponse = try client.send(command: "auth \(socketPassword)", responseTimeout: responseTimeout)
             if authResponse.hasPrefix("ERROR:"),
                !authResponse.contains("Unknown command 'auth'") {
                 throw CLIError(message: authResponse)
@@ -28299,7 +28300,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         defer { oneWayClient.close() }
         do {
             try oneWayClient.connect()
-            try authenticateClientIfNeeded(oneWayClient, explicitPassword: socketPassword, socketPath: socketPath)
+            try authenticateClientIfNeeded(
+                oneWayClient,
+                explicitPassword: socketPassword,
+                socketPath: socketPath,
+                responseTimeout: 0.05
+            )
             try oneWayClient.sendOneWay(command: line, writeTimeout: 0.05)
         } catch {
             return
