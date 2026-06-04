@@ -476,6 +476,49 @@ check_web_db_behavior_test_coverage() {
   echo "PASS: web DB behavior tests run in CI with CMUX_DB_TEST and Postgres"
 }
 
+check_bundled_ghostty_helper_regression_coverage() {
+  if ! awk '
+    /^[[:space:]]*- name: Run bundled Ghostty theme picker helper regression$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /CMUX_SKIP_ZIG_BUILD=0/ { saw_real_helper=1 }
+    in_step && /\.\/tests\/test_bundled_ghostty_theme_picker_helper\.sh/ { saw_script=1 }
+    END { exit(saw_real_helper && saw_script ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ci.yml must run the bundled Ghostty theme picker helper regression with the real Zig-built helper"
+    exit 1
+  fi
+
+  if ! awk '
+    /^[[:space:]]*- name: Run bundled Ghostty theme picker helper regression$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /CMUX_APP_PATH="build-universal\/Build\/Products\/Release\/cmux\.app"/ { saw_app_path=1 }
+    in_step && /\.\/tests\/test_bundled_ghostty_theme_picker_helper\.sh/ { saw_script=1 }
+    END { exit(saw_app_path && saw_script ? 0 : 1) }
+  ' "$NIGHTLY_FILE"; then
+    echo "FAIL: nightly.yml must run the bundled Ghostty theme picker helper regression against the Release app"
+    exit 1
+  fi
+
+  if ! awk '
+    /^[[:space:]]*- name: Verify bundled Ghostty theme picker helper$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /CMUX_APP_PATH="build-universal\/Build\/Products\/Release\/cmux\.app"/ { saw_app_path=1 }
+    in_step && /\.\/tests\/test_bundled_ghostty_theme_picker_helper\.sh/ { saw_script=1 }
+    END { exit(saw_app_path && saw_script ? 0 : 1) }
+  ' "$RELEASE_FILE"; then
+    echo "FAIL: release.yml must run the bundled Ghostty theme picker helper regression against the Release app"
+    exit 1
+  fi
+
+  local script="$ROOT_DIR/tests/test_bundled_ghostty_theme_picker_helper.sh"
+  if ! grep -Fq 'bundled Ghostty helper regression cannot skip the real Zig-built helper in CI' "$script"; then
+    echo "FAIL: bundled Ghostty helper regression must fail closed instead of skipping when CMUX_SKIP_ZIG_BUILD leaks into CI"
+    exit 1
+  fi
+
+  echo "PASS: bundled Ghostty theme picker helper regression stays active in CI, nightly, and release"
+}
+
 check_swift_package_tests_require_nonzero_execution() {
   if ! awk '
     /^[[:space:]]*- name: Run Swift package unit tests$/ { in_step=1; next }
@@ -510,22 +553,22 @@ check_xcodebuild_unit_step_requires_nonzero_execution() {
   echo "PASS: $step in $(basename "$file") rejects zero-test xcodebuild runs"
 }
 
-check_xcodebuild_unit_step_allows_expected_failures() {
+check_xcodebuild_unit_step_rejects_expected_failures() {
   local file="$1" step="$2"
   if ! awk -v step="$step" '
     index($0, "- name: " step) { in_step=1; saw_step=1; next }
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
-    in_step && /grep "Executed\.\*tests\.\*with\.\*failures"/ { saw_summary=1 }
-    in_step && /\(0 unexpected\)/ { saw_expected_check=1 }
-    in_step && /All failures are expected, treating as pass/ { saw_expected_message=1 }
-    in_step && /Unexpected unit test failures detected|Unexpected test failures detected/ { saw_unexpected_message=1 }
-    END { exit(saw_step && saw_summary && saw_expected_check && saw_expected_message && saw_unexpected_message ? 0 : 1) }
+    in_step && /if \[ "\$EXIT_CODE" -ne 0 \]; then/ { saw_nonzero_branch=1 }
+    in_step && /echo "Unit tests failed"/ { saw_failure_message=1 }
+    in_step && /exit "\$EXIT_CODE"/ { saw_exit=1 }
+    in_step && /All failures are expected, treating as pass|\(0 unexpected\)/ { saw_mask=1 }
+    END { exit(saw_step && saw_nonzero_branch && saw_failure_message && saw_exit && !saw_mask ? 0 : 1) }
   ' "$file"; then
-    echo "FAIL: $step in $(basename "$file") must distinguish expected XCTest failures from unexpected failures"
+    echo "FAIL: $step in $(basename "$file") must reject broad XCTest expected-failure pass-throughs"
     exit 1
   fi
 
-  echo "PASS: $step in $(basename "$file") allows only expected XCTest failures"
+  echo "PASS: $step in $(basename "$file") rejects broad XCTest expected-failure pass-throughs"
 }
 
 check_e2e_ui_tests_require_nonzero_execution() {
@@ -776,12 +819,13 @@ check_split_theme_regression_timeout
 check_command_palette_nucleo_ffi_coverage
 check_terminal_corpus_requires_live_ghostty_surface
 check_web_db_behavior_test_coverage
+check_bundled_ghostty_helper_regression_coverage
 check_swift_package_tests_require_nonzero_execution
 check_xcodebuild_unit_step_requires_nonzero_execution "$CI_FILE" "Run unit tests" "Unit test workflow completed without executing any tests"
 check_xcodebuild_unit_step_requires_nonzero_execution "$COMPAT_FILE" "Run unit tests" "Compatibility unit tests completed without executing any tests"
 check_xcodebuild_unit_step_requires_nonzero_execution "$TERMINAL_CORPUS_NIGHTLY_FILE" "Run terminal corpus unit tests" "Terminal corpus unit tests completed without executing any tests"
-check_xcodebuild_unit_step_allows_expected_failures "$CI_FILE" "Run unit tests"
-check_xcodebuild_unit_step_allows_expected_failures "$COMPAT_FILE" "Run unit tests"
+check_xcodebuild_unit_step_rejects_expected_failures "$CI_FILE" "Run unit tests"
+check_xcodebuild_unit_step_rejects_expected_failures "$COMPAT_FILE" "Run unit tests"
 check_tests_deriveddata_cache
 check_ui_regression_budget
 check_build_and_lag_budget

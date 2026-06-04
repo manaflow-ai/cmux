@@ -467,13 +467,8 @@ jobs:
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(grep "Executed.*tests.*with.*failures" <<<"$OUTPUT" | tail -1)
-            if grep -q "(0 unexpected)" <<<"$SUMMARY"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit "$EXIT_CODE"
-            fi
+            echo "Unit tests failed"
+            exit "$EXIT_CODE"
           fi
 
           if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
@@ -484,6 +479,7 @@ jobs:
       - name: Run bundled Ghostty theme picker helper regression
         run: |
           set -euo pipefail
+          CMUX_SKIP_ZIG_BUILD=0 \
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 

@@ -9,6 +9,10 @@ TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-theme-picker-helper.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 if [ "${CMUX_SKIP_ZIG_BUILD:-0}" = "1" ]; then
+  if [ "${CI:-0}" = "1" ] || [ "${GITHUB_ACTIONS:-0}" = "true" ]; then
+    echo "FAIL: bundled Ghostty helper regression cannot skip the real Zig-built helper in CI" >&2
+    exit 1
+  fi
   echo "SKIP: bundled Ghostty helper regression requires the real Zig-built helper"
   exit 0
 fi

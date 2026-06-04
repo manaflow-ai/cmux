@@ -301,8 +301,8 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           set -euo pipefail
-          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
-          [ -x "$HELPER_BINARY" ] || { echo "Ghostty theme picker helper not found at $HELPER_BINARY" >&2; exit 1; }
+          CMUX_APP_PATH="build-universal/Build/Products/Release/cmux.app" \
+            ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
       - name: Inject Sparkle keys into Info.plist
         if: steps.guard_release_assets.outputs.skip_all != 'true'

@@ -1498,6 +1498,13 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             FileManager.default.fileExists(atPath: repoURL.appendingPathComponent("sparse-only.txt").path),
             "The sparse-checkout entry should be absent from the worktree."
         )
+        let trackedChanges = try XCTUnwrap(
+            TabManager.workspaceGitTrackedChangesForTesting(directory: repoURL.path)
+        )
+        XCTAssertFalse(
+            trackedChanges.isDirty,
+            "The git index parser should ignore absent files marked skip-worktree before async sidebar refresh."
+        )
         defer {
             try? FileManager.default.removeItem(at: repoURL)
         }

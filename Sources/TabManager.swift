@@ -4962,6 +4962,15 @@ class TabManager: ObservableObject {
         workspaceGitMetadataWatchedPaths(for: directory) ?? []
     }
 
+    nonisolated static func workspaceGitTrackedChangesForTesting(
+        directory: String
+    ) -> (isDirty: Bool, indexSignature: String?, indexContentSignature: String?)? {
+        guard let repository = resolveGitRepository(containing: directory) else {
+            return nil
+        }
+        return gitTrackedChangesSnapshot(repository: repository)
+    }
+
     nonisolated static func githubRepositorySlugs(fromGitConfigForTesting config: String) -> [String] {
         githubRepositorySlugs(fromGitRemoteVOutput: gitRemoteVLines(fromConfig: config).joined())
     }
