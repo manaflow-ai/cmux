@@ -6541,6 +6541,7 @@ const commands = [
   { id: "settings.copyPaneSetup", label: "Copy Active Pane Setup", shortcut: "", run: () => copyActivePaneSetup() },
   { id: "settings.pastePaneSetup", label: "Paste Active Pane Setup", shortcut: "", run: () => pasteActivePaneSetup() },
   { id: "settings.resetPaneSetup", label: "Reset Active Pane Setup", shortcut: "", run: () => resetActivePaneSetup() },
+  { id: "settings.syncPaneLook", label: "Sync Active Pane Look", shortcut: "", run: () => syncActivePaneLook() },
   { id: "settings.resetAppearance", label: "Reset Look Settings", shortcut: "", run: () => resetAppearanceSettings() },
   { id: "settings.copyLook", label: "Copy Look Settings", shortcut: "", run: () => copyLookSettings() },
   { id: "settings.pasteLook", label: "Paste Look Settings", shortcut: "", run: () => pasteLookSettings() },
@@ -6890,6 +6891,7 @@ const corePaletteCommandIds = new Set([
   "settings.copyPaneSetup",
   "settings.pastePaneSetup",
   "settings.resetPaneSetup",
+  "settings.syncPaneLook",
   "layout.activePercent",
   "layout.focusMode"
 ]);
@@ -6911,6 +6913,10 @@ function coreCommandPaletteSignature() {
   appendSignatureValue(parts, panel ? panelDisplayTitle(panel, true) : "");
   appendSignatureValue(parts, isPendingPanel(panel));
   appendSignatureValue(parts, paneSetupResetIsDefault(panel));
+  appendSignatureValue(parts, panel?.color || "");
+  appendSignatureValue(parts, panel?.type === "terminal" ? normalizeBackgroundValue(panel.backgroundImage) : "");
+  appendSignatureValue(parts, panel?.type === "terminal" ? normalizeTerminalFontSize(panel.terminalFontSize, 0) : 0);
+  appendSignatureValue(parts, paneLookSyncTargetPanels(panel, workspace).length);
   appendSignatureValue(parts, minimizedPanelCount(workspace));
   appendSignatureValue(parts, state.closedPanels.length);
   appendSignatureValue(parts, Boolean(state.settings.focusMode));
@@ -7109,30 +7115,39 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       search: `active pane duplicate clone ${panelTitle} ${panelKind}`
     };
   }
-  if (["settings.pane", "settings.renamePane", "settings.copyPaneSetup", "settings.pastePaneSetup", "settings.resetPaneSetup"].includes(commandId)) {
+  if (["settings.pane", "settings.renamePane", "settings.copyPaneSetup", "settings.pastePaneSetup", "settings.resetPaneSetup", "settings.syncPaneLook"].includes(commandId)) {
     const paneSetupDefault = paneSetupResetIsDefault(panel);
+    const syncTargetCount = paneLookSyncTargetPanels(panel, workspace).length;
     const shortcutById = {
       "settings.pane": "Settings",
       "settings.renamePane": "Edit",
       "settings.copyPaneSetup": "Copy",
       "settings.pastePaneSetup": "Paste",
-      "settings.resetPaneSetup": "Reset"
+      "settings.resetPaneSetup": "Reset",
+      "settings.syncPaneLook": "Sync"
     };
     const titleById = {
       "settings.pane": "Open active pane settings.",
       "settings.renamePane": "Rename the active pane.",
       "settings.copyPaneSetup": "Copy active pane setup as JSON.",
       "settings.pastePaneSetup": "Paste copied pane setup into the active pane.",
-      "settings.resetPaneSetup": paneSetupResetTitle(panel)
+      "settings.resetPaneSetup": paneSetupResetTitle(panel),
+      "settings.syncPaneLook": paneLookSyncTitle(panel, workspace)
     };
+    const disabled = !readyPanel
+      || (commandId === "settings.resetPaneSetup" && paneSetupDefault)
+      || (commandId === "settings.syncPaneLook" && syncTargetCount === 0);
     return {
       meta: paneMeta,
       shortcut: shortcutById[commandId],
-      active: commandId === "settings.resetPaneSetup" && readyPanel && paneSetupDefault,
-      disabled: !readyPanel || (commandId === "settings.resetPaneSetup" && paneSetupDefault),
+      active: readyPanel && (
+        (commandId === "settings.resetPaneSetup" && paneSetupDefault)
+        || (commandId === "settings.syncPaneLook" && paneLookSyncPeerPanels(panel, workspace).length > 0 && syncTargetCount === 0)
+      ),
+      disabled,
       icon: "paneSettings",
       title: readyPanel ? titleById[commandId] : noPaneTitle,
-      search: `settings active pane ${shortcutById[commandId]} setup rename copy paste reset default color background text ${panelTitle} ${panelKind}`
+      search: `settings active pane ${shortcutById[commandId]} setup rename copy paste reset sync default color background text ${panelTitle} ${panelKind}`
     };
   }
   if (["terminal.find", "terminal.clear", "terminal.restart", "terminal.fontUp", "terminal.fontDown", "terminal.fontReset"].includes(commandId)) {
@@ -18066,6 +18081,76 @@ async function resetActivePaneSetup(panel = focusedPanel() || activePanel()) {
   });
 }
 
+function paneLookSyncUpdates(panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  if (!target) return null;
+  const updates = {
+    color: target.color || ""
+  };
+  if (target.type === "terminal") {
+    updates.backgroundImage = normalizeBackgroundValue(target.backgroundImage);
+    updates.terminalFontSize = normalizeTerminalFontSize(target.terminalFontSize, 0);
+  }
+  return updates;
+}
+
+function paneLookSyncPeerPanels(panel = focusedPanel() || activePanel(), workspace = activeWorkspace()) {
+  const target = paneSetupTarget(panel);
+  if (!target || !workspace) return [];
+  return (workspace.panels || []).filter((candidate) => (
+    candidate.id !== target.id
+    && candidate.type === target.type
+    && !isPendingPanel(candidate)
+  ));
+}
+
+function paneLookSyncTargetPanels(panel = focusedPanel() || activePanel(), workspace = activeWorkspace()) {
+  const target = paneSetupTarget(panel);
+  const updates = paneLookSyncUpdates(target);
+  if (!target || !updates) return [];
+  return paneLookSyncPeerPanels(target, workspace)
+    .filter((candidate) => panelUpdateReconcileNeeded(candidate.id, updates));
+}
+
+function paneLookSyncTitle(panel = focusedPanel() || activePanel(), workspace = activeWorkspace()) {
+  const target = paneSetupTarget(panel);
+  if (!target) return "Open a pane before syncing its look.";
+  const peers = paneLookSyncPeerPanels(target, workspace);
+  const kind = target.type === "browser" ? "browser" : "terminal";
+  if (!peers.length) return `Open another ${kind} pane before syncing this look.`;
+  if (!paneLookSyncTargetPanels(target, workspace).length) return `Other ${kind} panes already use this look.`;
+  return target.type === "terminal"
+    ? "Apply this pane's marker color, background, and text size to other terminal panes."
+    : "Apply this pane's marker color to other browser panes.";
+}
+
+async function syncActivePaneLook(panel = focusedPanel() || activePanel(), workspace = activeWorkspace()) {
+  const target = paneSetupTarget(panel);
+  const updates = paneLookSyncUpdates(target);
+  if (!target || !updates) {
+    toast("Open a pane before syncing its look.");
+    return false;
+  }
+  const peers = paneLookSyncPeerPanels(target, workspace);
+  const kind = target.type === "browser" ? "browser" : "terminal";
+  if (!peers.length) {
+    toast(`Open another ${kind} pane before syncing this look.`);
+    return false;
+  }
+  const targets = paneLookSyncTargetPanels(target, workspace);
+  if (!targets.length) {
+    toast(`Other ${kind} panes already use this look.`);
+    return false;
+  }
+  await updatePanels(targets.map((candidate) => ({
+    panelId: candidate.id,
+    updates
+  })));
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast(`Pane look synced to ${targets.length} ${kind} pane${targets.length === 1 ? "" : "s"}.`);
+  return true;
+}
+
 function editablePaneTitle(panel) {
   return panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal");
 }
@@ -18620,15 +18705,19 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
 
   const actions = document.createElement("div");
   actions.className = "settings-actions active-pane-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery("active pane focus duplicate split reset default color text browser terminal actions copy paste setup clipboard json");
+  actions.dataset.settingsSearch = normalizeSettingsQuery("active pane focus duplicate split reset sync default color text browser terminal actions copy paste setup clipboard json");
   const resetPaneSetup = settingsActionButton("Reset setup", () => resetActivePaneSetup(panel), "", "active pane setup reset default title color background text size");
   resetPaneSetup.disabled = paneSetupResetIsDefault(panel);
   resetPaneSetup.title = paneSetupResetTitle(panel);
+  const syncPaneLook = settingsActionButton("Sync look", () => syncActivePaneLook(panel, workspace), "", "active pane look sync color background text size matching panes");
+  syncPaneLook.disabled = paneLookSyncTargetPanels(panel, workspace).length === 0;
+  syncPaneLook.title = paneLookSyncTitle(panel, workspace);
   actions.append(
     settingsActionButton("Focus pane", () => focusPanel(panel.id), "", "active pane focus"),
     settingsActionButton("Copy setup", () => copyActivePaneSetup(panel), "", "active pane setup copy title color background text url clipboard json"),
     settingsActionButton("Paste setup", () => pasteActivePaneSetup(panel), "", "active pane setup paste title color background text url clipboard json"),
     resetPaneSetup,
+    syncPaneLook,
     settingsActionButton("Duplicate", () => duplicatePanel(panel), "", "active pane duplicate"),
     settingsActionButton("Split right", () => splitPanel(panel, "right"), "", "active pane split right"),
     settingsActionButton("Split down", () => splitPanel(panel, "down"), "", "active pane split down")
@@ -20821,6 +20910,7 @@ function quickPaneControlsPanel(panel) {
     return paneCreationActionTitle(title, hint);
   };
   const paneSetupDefault = paneSetupResetIsDefault(panel);
+  const syncLookTargets = paneLookSyncTargetPanels(panel).length;
   const actions = [
     quickOverviewControlButton("Rename", () => renameActivePanel(panel), {
       disabled: !ready,
@@ -20852,6 +20942,11 @@ function quickPaneControlsPanel(panel) {
       title: ready ? paneSetupResetTitle(panel) : unavailableTitle,
       search: "quick setup active pane reset default color title background text size"
     }),
+    quickOverviewControlButton("Sync look", () => syncActivePaneLook(panel), {
+      disabled: !ready || syncLookTargets === 0,
+      title: ready ? paneLookSyncTitle(panel) : unavailableTitle,
+      search: "quick setup active pane sync look color background text matching panes"
+    }),
     quickOverviewControlButton("Pane look", () => openPaneAppearanceSettings(panel), {
       disabled: !ready,
       title: ready ? "Open appearance controls for the active pane." : unavailableTitle,
@@ -20862,7 +20957,7 @@ function quickPaneControlsPanel(panel) {
     className: "quick-overview-pane",
     title: "Active pane controls",
     meta,
-    search: `quick setup active pane controls rename duplicate split copy paste reset default appearance ${paneTitle} ${typeLabel}`,
+    search: `quick setup active pane controls rename duplicate split copy paste reset sync default appearance ${paneTitle} ${typeLabel}`,
     actions
   });
 }
