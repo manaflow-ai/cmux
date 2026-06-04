@@ -6,9 +6,9 @@
 /// layer maps each ``Kind`` to the real compiled view initializer. The set
 /// of kinds is the framework bridge that grows over time; the language
 /// coverage is what makes the approach general.
-public struct RenderNode: Sendable, Equatable {
+public struct RenderNode: Codable, Sendable, Equatable {
     /// The view primitive this node represents.
-    public enum Kind: String, Sendable {
+    public enum Kind: String, Codable, Sendable {
         case vstack
         case hstack
         case zstack

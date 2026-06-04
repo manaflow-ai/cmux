@@ -406,10 +406,14 @@ jobs:
           # app-target dependency). Add a package here once its `swift test`
           # is confirmed to resolve standalone.
           PACKAGES=(
+            CmuxFileWatch
             CmuxFoundation
+            CmuxGit
+            CmuxProcess
             CmuxSettings
             CmuxSettingsUI
             CmuxSocketControl
+            CMUXAgentLaunch
           )
           # Pre-existing failure unrelated to package correctness: the catalog
           # intentionally reuses some UserDefaults keys across sections (e.g. a
