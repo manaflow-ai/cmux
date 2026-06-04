@@ -143,18 +143,9 @@ extension VerticalTabsSidebar {
                 guard let tabManager else { return }
                 let otherMemberCount = max(memberCount - 1, 0)
                 guard confirmDeleteWorkspaceGroup(groupName: groupName, otherMemberCount: otherMemberCount) else { return }
-                let blockPolicyPanelIdsByWorkspace = tabManager.blockPolicyEphemeralWorktreePanelIdsByWorkspace(
+                guard let blockPolicyPanelIdsByWorkspace = tabManager.confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
                     inGroup: groupId
-                )
-                let affectedWorktreeCount = blockPolicyPanelIdsByWorkspace.values.reduce(0) { $0 + $1.count }
-                if affectedWorktreeCount > 0 {
-                    let copy = WorkspaceEphemeralWorktreeManager.closeConfirmationCopy(
-                        affectedCount: affectedWorktreeCount
-                    )
-                    guard tabManager.confirmClose(title: copy.title, message: copy.message, acceptCmdD: false) else {
-                        return
-                    }
-                }
+                ) else { return }
                 tabManager.deleteWorkspaceGroup(
                     groupId: groupId,
                     ephemeralWorktreeCleanupAuthorizedPanelIdsByWorkspace: blockPolicyPanelIdsByWorkspace

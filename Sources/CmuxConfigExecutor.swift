@@ -499,19 +499,13 @@ struct CmuxConfigExecutor {
         }
 
         if let existingWorkspaceToClose {
-            let blockPolicyPanelIds = Set(
-                tabManager.blockPolicyEphemeralWorktreePanelIds(in: existingWorkspaceToClose)
-            )
-            if !blockPolicyPanelIds.isEmpty {
-                let copy = WorkspaceEphemeralWorktreeManager.closeConfirmationCopy(
-                    affectedCount: blockPolicyPanelIds.count
-                )
-                guard tabManager.confirmClose(title: copy.title, message: copy.message, acceptCmdD: false) else {
-                    tabManager.selectWorkspace(existingWorkspaceToClose)
-                    return false
-                }
-                existingWorkspaceCleanupAuthorizedPanelIds = blockPolicyPanelIds
+            guard let blockPolicyPanelIds = tabManager.confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+                in: existingWorkspaceToClose
+            ) else {
+                tabManager.selectWorkspace(existingWorkspaceToClose)
+                return false
             }
+            existingWorkspaceCleanupAuthorizedPanelIds = blockPolicyPanelIds
         }
 
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)

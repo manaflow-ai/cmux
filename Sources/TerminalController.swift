@@ -108,6 +108,7 @@ class TerminalController {
     }
 
     static let shared = TerminalController()
+    private nonisolated static let socketWorkerV2WorktreeResponseTimeoutSeconds: TimeInterval = 150
 
     private nonisolated(unsafe) var socketPath = SocketControlSettings.stableDefaultSocketPath
     private nonisolated(unsafe) var boundSocketPathIdentity: SocketPathIdentity?
@@ -2651,11 +2652,21 @@ class TerminalController {
                 defaultValue: "Invalid worktree request"
             )
         )
-        Task {
+        let task = Task {
             response = await self.socketWorkerV2WorktreeResponse(command: command)
             semaphore.signal()
         }
-        semaphore.wait()
+        if semaphore.wait(timeout: .now() + Self.socketWorkerV2WorktreeResponseTimeoutSeconds) == .timedOut {
+            task.cancel()
+            return v2Error(
+                id: nil,
+                code: "timeout",
+                message: String(
+                    localized: "error.socket.worktreeRequestTimedOut",
+                    defaultValue: "worktree request timed out"
+                )
+            )
+        }
         return response
     }
 

@@ -7094,13 +7094,6 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        let blockPolicyPanelIds = blockPolicyEphemeralWorktreePanelIds(
-            in: plan.workspace,
-            panelIds: plan.panelIds
-        )
-        if !blockPolicyPanelIds.isEmpty {
-            guard confirmEphemeralWorktreeClose(affectedCount: blockPolicyPanelIds.count) else { return }
-        }
         if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true, source: .shortcut) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
@@ -7109,6 +7102,10 @@ class TabManager: ObservableObject {
                 acceptCmdD: false
             ) else { return }
         }
+        guard let blockPolicyPanelIds = confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+            in: plan.workspace,
+            panelIds: plan.panelIds
+        ) else { return }
 
         for panelId in plan.panelIds {
             plan.workspace.markCloseHistoryEligible(panelId: panelId)
@@ -7192,6 +7189,7 @@ class TabManager: ObservableObject {
         }
 
         let plan = closeWorkspacesPlan(for: workspaces)
+        let intendedToCloseWindow = plan.workspaces.count == tabs.count
         if shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
             guard confirmClose(
                 title: plan.title,
@@ -7200,19 +7198,16 @@ class TabManager: ObservableObject {
             ) else { return }
         }
 
-        let blockPolicyPanelIdsByWorkspace = Dictionary(
-            uniqueKeysWithValues: plan.workspaces.map { workspace in
-                (workspace.id, blockPolicyEphemeralWorktreePanelIds(in: workspace))
-            }
-        )
-        if plan.workspaces.count == tabs.count,
-           let firstWorkspace = plan.workspaces.first {
-            let affectedWorktreeCount = blockPolicyPanelIdsByWorkspace.values.reduce(0) { $0 + $1.count }
-            if affectedWorktreeCount > 0 {
-                guard confirmEphemeralWorktreeClose(affectedCount: affectedWorktreeCount) else { return }
-            }
-            for workspace in plan.workspaces {
-                let panelIds = Set(blockPolicyPanelIdsByWorkspace[workspace.id] ?? [])
+        let plannedWorkspaceIds = Set(plan.workspaces.map(\.id))
+        if intendedToCloseWindow,
+           !tabs.isEmpty,
+           Set(tabs.map(\.id)).isSubset(of: plannedWorkspaceIds),
+           let firstWorkspace = tabs.first {
+            guard let blockPolicyPanelIdsByWorkspace = confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+                for: tabs
+            ) else { return }
+            for workspace in tabs {
+                let panelIds = blockPolicyPanelIdsByWorkspace[workspace.id] ?? []
                 if !panelIds.isEmpty {
                     workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: panelIds)
                 }
@@ -7243,16 +7238,14 @@ class TabManager: ObservableObject {
                 if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) {
                     return
                 }
-                let blockPolicyPanelIds = blockPolicyPanelIdsByWorkspace[workspace.id] ?? []
-                if !blockPolicyPanelIds.isEmpty {
-                    guard confirmEphemeralWorktreeClose(affectedCount: blockPolicyPanelIds.count) else { return }
-                }
+                guard let blockPolicyPanelIds = confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+                    in: workspace
+                ) else { return }
                 // Anchor confirmed (or suppressed); skip the inner re-prompt
                 // by closing without going through closeWorkspaceIfRunningProcess.
                 if tabs.count <= 1 {
-                    let authorizedPanelIds = Set(blockPolicyPanelIds)
-                    if !authorizedPanelIds.isEmpty {
-                        workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: authorizedPanelIds)
+                    if !blockPolicyPanelIds.isEmpty {
+                        workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: blockPolicyPanelIds)
                     }
                     if let window {
                         window.performClose(nil)
@@ -7262,7 +7255,7 @@ class TabManager: ObservableObject {
                 } else {
                     closeWorkspace(
                         workspace,
-                        ephemeralWorktreeCleanupAuthorizedPanelIds: Set(blockPolicyPanelIds)
+                        ephemeralWorktreeCleanupAuthorizedPanelIds: blockPolicyPanelIds
                     )
                 }
                 continue
@@ -7290,9 +7283,7 @@ class TabManager: ObservableObject {
     }
 
     func endCloseConfirmationSession() {
-        DispatchQueue.main.async { [weak self] in
-            self?.closeConfirmationInFlight = false
-        }
+        closeConfirmationInFlight = false
     }
 
     func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
@@ -7492,10 +7483,6 @@ class TabManager: ObservableObject {
         }
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
-        let blockPolicyPanelIds = blockPolicyEphemeralWorktreePanelIds(in: workspace)
-        if !blockPolicyPanelIds.isEmpty {
-            guard confirmEphemeralWorktreeClose(affectedCount: blockPolicyPanelIds.count) else { return }
-        }
         if requiresConfirmation,
            shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
            !confirmClose(
@@ -7505,11 +7492,13 @@ class TabManager: ObservableObject {
            ) {
             return
         }
+        guard let blockPolicyPanelIds = confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+            in: workspace
+        ) else { return }
         if tabs.count <= 1 {
             // Last workspace in this window: match Close Workspace shortcut behavior.
-            let authorizedPanelIds = Set(blockPolicyPanelIds)
-            if !authorizedPanelIds.isEmpty {
-                workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: authorizedPanelIds)
+            if !blockPolicyPanelIds.isEmpty {
+                workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: blockPolicyPanelIds)
             }
             if let window {
                 window.performClose(nil)
@@ -7519,7 +7508,7 @@ class TabManager: ObservableObject {
         } else {
             closeWorkspace(
                 workspace,
-                ephemeralWorktreeCleanupAuthorizedPanelIds: Set(blockPolicyPanelIds)
+                ephemeralWorktreeCleanupAuthorizedPanelIds: blockPolicyPanelIds
             )
         }
     }
@@ -7559,6 +7548,42 @@ class TabManager: ObservableObject {
         Set(blockPolicyEphemeralWorktreePanelIds(in: workspace)).subtracting(authorizedPanelIds)
     }
 
+    func confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+        in workspace: Workspace,
+        panelIds candidatePanelIds: [UUID]? = nil
+    ) -> Set<UUID>? {
+        let affectedCount = blockPolicyEphemeralWorktreePanelIds(
+            in: workspace,
+            panelIds: candidatePanelIds
+        ).count
+        guard confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(affectedCount: affectedCount) else {
+            return nil
+        }
+        return Set(blockPolicyEphemeralWorktreePanelIds(
+            in: workspace,
+            panelIds: candidatePanelIds
+        ))
+    }
+
+    func confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+        for workspaces: [Workspace]
+    ) -> [UUID: Set<UUID>]? {
+        let currentPanelIdsByWorkspace = blockPolicyEphemeralWorktreePanelIdsByWorkspace(for: workspaces)
+        let affectedCount = currentPanelIdsByWorkspace.values.reduce(0) { $0 + $1.count }
+        guard confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(affectedCount: affectedCount) else {
+            return nil
+        }
+        return blockPolicyEphemeralWorktreePanelIdsByWorkspace(for: workspaces)
+    }
+
+    func confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+        inGroup groupId: UUID
+    ) -> [UUID: Set<UUID>]? {
+        confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+            for: tabs.filter { $0.groupId == groupId }
+        )
+    }
+
     func cancelEphemeralWorktreeCleanupForAbortedWindowClose() {
         for workspace in tabs {
             let panelIds = Set(workspace.ephemeralWorktreesByPanelId.keys)
@@ -7575,6 +7600,10 @@ class TabManager: ObservableObject {
             message: copy.message,
             acceptCmdD: false
         )
+    }
+
+    private func confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(affectedCount: Int) -> Bool {
+        affectedCount == 0 || confirmEphemeralWorktreeClose(affectedCount: affectedCount)
     }
 
     private func shouldConfirmClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
@@ -7603,11 +7632,8 @@ class TabManager: ObservableObject {
         }
         // Do NOT acquire beginCloseConfirmationSession here. The standard
         // close confirmation path that runs immediately after (confirmClose())
-        // gates itself with the same flag, and endCloseConfirmationSession
-        // releases the flag asynchronously on the next main-queue turn — so
-        // wrapping this dialog with begin/end would leave the flag set when
-        // the inner confirmClose runs, causing it to return false and silently
-        // refuse the close even after the user accepted both prompts.
+        // gates itself with the same flag; wrapping this dialog would make the
+        // inner confirmation look like a duplicate close request.
         let title = String(
             localized: "dialog.closeAnchor.title",
             defaultValue: "Close this workspace?"
