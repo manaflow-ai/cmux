@@ -2965,8 +2965,45 @@ final class BrowserPortalAnchorView: NSView {
     }
 }
 
+#if DEBUG
+enum BrowserHistoryTraversalRecoveryDebugAction: Equatable {
+    case goBack(URL)
+    case loadTarget(URL)
+}
+#endif
+
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
+    private enum HistoryTraversalRecoveryRequest {
+        case goBack(targetURL: URL)
+        case loadTarget(targetURL: URL)
+
+        var targetURL: URL {
+            switch self {
+            case .goBack(let targetURL), .loadTarget(let targetURL):
+                return targetURL
+            }
+        }
+    }
+
+    private enum HistoryTraversalRecoveryState {
+        case idle
+        case awaitingTarget(URL)
+
+        func isAwaitingTarget(_ url: URL?) -> Bool {
+            guard case .awaitingTarget(let targetURL) = self else { return false }
+            return url == targetURL
+        }
+
+        func recoveryRequest(committedURL: URL?, canGoBack: Bool) -> HistoryTraversalRecoveryRequest? {
+            guard case .awaitingTarget(let targetURL) = self,
+                  committedURL != targetURL else {
+                return nil
+            }
+            return canGoBack ? .goBack(targetURL: targetURL) : .loadTarget(targetURL: targetURL)
+        }
+    }
+
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
 
@@ -3432,7 +3469,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var restoredForwardHistoryStack: [URL] = []
     private var restoredHistoryCurrentURL: URL?
     private var isMainFrameProvisionalNavigationActive: Bool = false
-    private var pendingHistoryTraversalTargetAfterProvisionalCancellation: URL?
+    private var historyTraversalRecoveryState: HistoryTraversalRecoveryState = .idle
 
     /// Published estimated progress (0.0 - 1.0)
     @Published private(set) var estimatedProgress: Double = 0.0
@@ -4179,8 +4216,8 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                if self.pendingHistoryTraversalTargetAfterProvisionalCancellation == webView.url {
-                    self.pendingHistoryTraversalTargetAfterProvisionalCancellation = nil
+                if self.historyTraversalRecoveryState.isAwaitingTarget(webView.url) {
+                    self.historyTraversalRecoveryState = .idle
                 }
                 self.isMainFrameProvisionalNavigationActive = true
                 self.applyMuteState(to: webView, reason: "navigationStart")
@@ -4190,20 +4227,19 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
-                if let targetURL = self.pendingHistoryTraversalTargetAfterProvisionalCancellation,
-                   webView.url != targetURL,
-                   let request = Self.historyTraversalRecoveryRequest(
+                if let recovery = self.historyTraversalRecoveryState.recoveryRequest(
+                    committedURL: webView.url,
                     canGoBack: webView.canGoBack
-                   ) {
-                    switch request {
+                ) {
+                    switch recovery {
                     case .goBack:
                         webView.goBack()
                     case .loadTarget:
-                        webView.load(URLRequest(url: targetURL))
+                        webView.load(URLRequest(url: recovery.targetURL))
                     }
                     return
                 }
-                self.pendingHistoryTraversalTargetAfterProvisionalCancellation = nil
+                self.historyTraversalRecoveryState = .idle
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
             }
@@ -4212,8 +4248,8 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
-                if self.pendingHistoryTraversalTargetAfterProvisionalCancellation == webView.url {
-                    self.pendingHistoryTraversalTargetAfterProvisionalCancellation = nil
+                if self.historyTraversalRecoveryState.isAwaitingTarget(webView.url) {
+                    self.historyTraversalRecoveryState = .idle
                 }
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationFinish")
@@ -5357,6 +5393,30 @@ final class BrowserPanel: Panel, ObservableObject {
         return true
     }
 
+#if DEBUG
+    func debugSetHistoryTraversalRecoveryTarget(_ targetURL: URL) {
+        historyTraversalRecoveryState = .awaitingTarget(targetURL)
+    }
+
+    func debugHistoryTraversalRecoveryAction(
+        committedURL: URL?,
+        canGoBack: Bool
+    ) -> BrowserHistoryTraversalRecoveryDebugAction? {
+        guard let request = historyTraversalRecoveryState.recoveryRequest(
+            committedURL: committedURL,
+            canGoBack: canGoBack
+        ) else {
+            return nil
+        }
+        switch request {
+        case .goBack(let targetURL):
+            return .goBack(targetURL)
+        case .loadTarget(let targetURL):
+            return .loadTarget(targetURL)
+        }
+    }
+#endif
+
     private func clearWebContentTerminationRecovery() {
         pendingWebContentRecoveryURL = nil
         hasRecoverableWebContentTermination = false
@@ -6346,20 +6406,11 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 }
 
 extension BrowserPanel {
-    private enum HistoryTraversalRecoveryRequest {
-        case goBack
-        case loadTarget
-    }
-
-    private static func historyTraversalRecoveryRequest(
-        canGoBack: Bool
-    ) -> HistoryTraversalRecoveryRequest? {
-        canGoBack ? .goBack : .loadTarget
-    }
-
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
-        pendingHistoryTraversalTargetAfterProvisionalCancellation = webView.url
+        if let targetURL = webView.url {
+            historyTraversalRecoveryState = .awaitingTarget(targetURL)
+        }
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
     }

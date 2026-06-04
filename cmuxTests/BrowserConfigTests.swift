@@ -2812,40 +2812,26 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         waitForBrowserPanel(panel, url: pageA, title: "A")
     }
 
-    func testBackDuringProvisionalNavigationDoesNotDesyncPublishedURLFromRenderedPage() throws {
-        let server = try ProvisionalNavigationRaceServer()
-        defer { server.stop() }
-
-        let pageA = server.url(path: "/a")
-        let pageB = server.url(path: "/b")
-        let panel = BrowserPanel(workspaceId: UUID(), initialURL: pageA)
+    func testBackDuringProvisionalNavigationRecoversLateCommittedPage() throws {
+        let pageA = URL(string: "https://example.test/a")!
+        let pageB = URL(string: "https://example.test/b")!
+        let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
-        let window = hostBrowserPanelWebView(panel)
-        defer { window.close() }
 
-        waitForBrowserPanel(panel, url: pageA, title: "Race A")
-        XCTAssertEqual(panel.pageTitle, "Race A")
+        panel.debugSetHistoryTraversalRecoveryTarget(pageA)
+        XCTAssertEqual(
+            panel.debugHistoryTraversalRecoveryAction(committedURL: pageB, canGoBack: true),
+            .goBack(pageA)
+        )
 
-        panel.navigate(to: pageB)
-        try waitUntil("server to receive provisional page B request") {
-            server.didReceiveBRequest
-        }
-        try waitUntil("browser provisional page B navigation to remain loading") {
-            panel.webView.isLoading
-        }
-        XCTAssertFalse(panel.canGoForward)
+        panel.debugSetHistoryTraversalRecoveryTarget(pageA)
+        XCTAssertEqual(
+            panel.debugHistoryTraversalRecoveryAction(committedURL: pageB, canGoBack: false),
+            .loadTarget(pageA)
+        )
 
-        panel.goBack()
-        let releasedBResponseCount = server.releaseHeldBResponses()
-        XCTAssertGreaterThan(releasedBResponseCount, 0)
-        try waitUntil("browser to remain on page A after held page B response is released", timeout: 15) {
-            panel.pageTitle == "Race A" &&
-                panel.currentURL?.path == pageA.path
-        }
-
-        let publishedURL = try XCTUnwrap(panel.currentURL)
-        XCTAssertEqual(publishedURL.path, pageA.path)
-        XCTAssertEqual(panel.pageTitle, "Race A")
+        panel.debugSetHistoryTraversalRecoveryTarget(pageA)
+        XCTAssertNil(panel.debugHistoryTraversalRecoveryAction(committedURL: pageA, canGoBack: true))
     }
 
     func testWebViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {

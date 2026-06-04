@@ -5878,7 +5878,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     private func mockSocketResponse(for line: String, handler: @Sendable (String) -> String) -> String {
         let handlerResponse = handler(line)
         guard let defaultResponse = defaultMockSocketResponse(for: line),
-              isUnexpectedMockSocketError(handlerResponse) else {
+              isUnexpectedMockSocketError(handlerResponse) || isMissingSurfaceListResult(handlerResponse) else {
             return handlerResponse
         }
         return defaultResponse
@@ -5926,6 +5926,16 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             return message.hasPrefix("Unexpected method ") || message.hasPrefix("Unexpected payload")
         }
         return false
+    }
+
+    private func isMissingSurfaceListResult(_ response: String) -> Bool {
+        guard let data = response.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              payload["ok"] as? Bool == true,
+              let result = payload["result"] as? [String: Any] else {
+            return false
+        }
+        return result["surfaces"] == nil
     }
 
     private func runMockServer(
