@@ -655,6 +655,8 @@ final class CmuxSettingsFileStore {
             } else {
                 logInvalid("sidebar.position", sourcePath: sourcePath)
             }
+        } else if section.keys.contains("position") {
+            logInvalid("sidebar.position", sourcePath: sourcePath)
         }
         if let value = jsonBool(section["hideAllDetails"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.hideAllDetailsKey] = .bool(value)
