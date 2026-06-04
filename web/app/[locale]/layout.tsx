@@ -12,6 +12,7 @@ import { buildAlternates } from "../../i18n/seo";
 import { Providers } from "./providers";
 import { DevPanel } from "./components/spacing-control";
 import { SiteFooter } from "./components/site-footer";
+import { DOWNLOAD_URL } from "../lib/download";
 import "../globals.css";
 
 const geistSans = Geist({
@@ -96,8 +97,7 @@ export default async function LocaleLayout({
     operatingSystem: "macOS",
     applicationCategory: "DeveloperApplication",
     url: "https://cmux.com",
-    downloadUrl:
-      "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg",
+    downloadUrl: DOWNLOAD_URL,
     description:
       "Native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
     keywords:
