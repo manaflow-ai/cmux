@@ -7178,6 +7178,16 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: var(--space-1);
 }
 
+.active-pane-preset-item {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.active-pane-preset-item .active-pane-preset-card {
+  width: 100%;
+}
+
 .active-pane-preset-card {
   min-width: 0;
   min-height: 86px;
@@ -7206,6 +7216,19 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-line) 42%);
   background: color-mix(in oklch, var(--color-accent) 8%, var(--color-pane) 92%);
   box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 28%, transparent);
+}
+
+.active-pane-preset-actions {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+}
+
+.active-pane-preset-actions .settings-action {
+  height: 26px;
+  padding: 0 6px;
+  font-size: 11px;
 }
 
 .active-pane-preset-icon {

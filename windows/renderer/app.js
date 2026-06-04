@@ -21558,13 +21558,19 @@ function activePanePresetGrid(panel) {
   grid.dataset.settingsSearch = normalizeSettingsQuery("active pane presets quick setup rename color background text browser url terminal role");
   for (const preset of presets) {
     const active = paneSetupPresetActive(preset, panel);
+    const applySearchText = paneSetupPresetSearchText(preset, active, panel);
+    const copySearchText = paneSetupPresetCopySearchText(preset, panel);
+    const card = document.createElement("div");
+    card.className = `active-pane-preset-item${active ? " is-active" : ""}`;
+    card.dataset.paneSetupPresetItem = preset.id;
+    card.dataset.settingsSearch = normalizeSettingsQuery(`${applySearchText} ${copySearchText}`);
     const button = document.createElement("button");
     button.className = `active-pane-preset-card${active ? " is-active" : ""}`;
     button.type = "button";
     button.disabled = active;
     button.title = paneSetupPresetTitle(preset, active, panel);
     button.dataset.paneSetupPreset = preset.id;
-    button.dataset.settingsSearch = paneSetupPresetSearchText(preset, active, panel);
+    button.dataset.settingsSearch = applySearchText;
     button.innerHTML = `
       <span class="active-pane-preset-icon" aria-hidden="true"></span>
       <span class="active-pane-preset-copy">
@@ -21584,7 +21590,15 @@ function activePanePresetGrid(panel) {
     button.onclick = () => {
       if (!paneSetupPresetActive(preset, panel)) applyPaneSetupPreset(preset.id, panel);
     };
-    grid.append(button);
+    const actions = document.createElement("div");
+    actions.className = "active-pane-preset-actions";
+    const copyButton = settingsActionButton("Copy", () => copyPaneSetupPreset(preset.id, panel), "", copySearchText);
+    copyButton.classList.add("active-pane-preset-copy-action");
+    copyButton.dataset.paneSetupPresetCopy = preset.id;
+    copyButton.title = paneSetupPresetCopyTitle(preset, panel);
+    actions.append(copyButton);
+    card.append(button, actions);
+    grid.append(card);
   }
   return grid;
 }
