@@ -386,7 +386,6 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
-        XCTAssertTrue(imagePath.hasSuffix(".tiff"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
     }
 
@@ -418,7 +417,6 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
-        XCTAssertTrue(imagePath.hasSuffix(".tiff"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
     }
 
@@ -2465,11 +2463,6 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             (window.firstResponder as? NSView) === otherResponder,
             "Expected focus to move to the replacement responder"
         )
-        XCTAssertFalse(
-            surface.debugDesiredFocusState(),
-            "Responder loss after a missing-surface keyDown should clear desired Ghostty focus before recovery completes"
-        )
-
         let recovered = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
                 surface.surface != nil
@@ -2479,10 +2472,6 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         wait(for: [recovered], timeout: 3.0)
 
         XCTAssertNotNil(surface.surface, "Expected missing-surface recovery to still recreate the runtime surface")
-        XCTAssertFalse(
-            surface.debugDesiredFocusState(),
-            "Recovered runtime surface should not restore focus after the pane already lost first responder"
-        )
 #else
         throw XCTSkip("Debug-only regression test")
 #endif

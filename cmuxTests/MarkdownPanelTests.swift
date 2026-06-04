@@ -1473,22 +1473,29 @@ final class MarkdownPanelTests: XCTestCase {
 private final class MarkdownShellLoadDelegate: NSObject, WKNavigationDelegate {
     let expectation: XCTestExpectation
     var error: Error?
+    private var didFulfill = false
 
     init(expectation: XCTestExpectation) {
         self.expectation = expectation
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        expectation.fulfill()
+        fulfillOnce()
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         self.error = error
-        expectation.fulfill()
+        fulfillOnce()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         self.error = error
+        fulfillOnce()
+    }
+
+    private func fulfillOnce() {
+        guard !didFulfill else { return }
+        didFulfill = true
         expectation.fulfill()
     }
 }
@@ -1528,16 +1535,22 @@ private final class MarkdownURLSchemeTaskSpy: NSObject, WKURLSchemeTask {
 
     func didFinish() {
         lock.lock()
+        let shouldFulfill = !finished
         finished = true
         lock.unlock()
-        finishedExpectation.fulfill()
+        if shouldFulfill {
+            finishedExpectation.fulfill()
+        }
     }
 
     func didFailWithError(_ error: Error) {
         lock.lock()
+        let shouldFulfill = !finished && receivedError == nil
         receivedError = error
         lock.unlock()
-        finishedExpectation.fulfill()
+        if shouldFulfill {
+            finishedExpectation.fulfill()
+        }
     }
 
     func snapshot() -> Snapshot {
