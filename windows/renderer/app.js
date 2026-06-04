@@ -6864,7 +6864,8 @@ function customizationCommandPaletteState(commandId) {
   const categoryState = settingsCategoryCommandPaletteState(commandId);
   if (categoryState) return categoryState;
   const savedCount = savedDataItemCount();
-  const savedLabel = `${savedCount} saved item${savedCount === 1 ? "" : "s"}`;
+  const savedStatus = savedLibraryStatusLabel();
+  const savedSearch = savedLibrarySearchLabel();
   const recentCount = recentDataItemCount();
   const recentLabel = `${recentCount} recent item${recentCount === 1 ? "" : "s"}`;
   if (commandId === "settings.copyAppSetup") {
@@ -6906,31 +6907,31 @@ function customizationCommandPaletteState(commandId) {
   }
   if (commandId === "settings.copySavedLibrary") {
     return {
-      meta: savedCount ? savedLabel : "Library empty",
+      meta: savedStatus,
       shortcut: "Copy",
       disabled: savedCount === 0,
       icon: "data",
-      title: savedCount ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON." : "Customization library is empty.",
-      search: "saved customization library export copy snippets profiles blueprints colors backgrounds clipboard json"
+      title: savedLibraryCopyTitle(),
+      search: `saved customization library export copy snippets profiles blueprints colors backgrounds clipboard json ${savedSearch}`
     };
   }
   if (commandId === "settings.pasteSavedLibrary") {
     return {
-      meta: "Library import",
+      meta: savedLibraryCapacityLimited() ? `Library import / ${savedStatus}` : "Library import",
       shortcut: "Paste",
       icon: "data",
-      title: "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.",
-      search: "saved customization library import paste snippets profiles blueprints colors backgrounds clipboard json"
+      title: savedLibraryPasteTitle(),
+      search: `saved customization library import paste snippets profiles blueprints colors backgrounds clipboard json ${savedLibraryCapacityLimited() ? "limit full " : ""}${savedSearch}`
     };
   }
   if (commandId === "settings.clearSavedLibrary") {
     return {
-      meta: savedCount ? savedLabel : "Library clear",
+      meta: savedStatus,
       shortcut: "Clear",
       disabled: savedCount === 0,
       icon: "data",
-      title: savedCount ? "Clear saved snippets, profiles, blueprints, colors, and backgrounds." : "Customization library is already clear.",
-      search: "saved customization library clear delete snippets profiles blueprints colors backgrounds"
+      title: savedLibraryClearTitle(),
+      search: `saved customization library clear delete snippets profiles blueprints colors backgrounds ${savedSearch}`
     };
   }
   if (commandId === "settings.clearRecentActivity") {
@@ -20294,6 +20295,93 @@ function savedDataItemCount() {
     + state.savedBackgroundImages.length;
 }
 
+function savedLibraryBreakdown() {
+  return [
+    {
+      label: "snippets",
+      count: state.customCommandSnippets.length,
+      limit: customCommandSnippetsLimit,
+      full: customCommandSnippetsFull()
+    },
+    {
+      label: "profiles",
+      count: state.savedSettingsProfiles.length,
+      limit: savedSettingsProfilesLimit,
+      full: savedSettingsProfilesFull()
+    },
+    {
+      label: "blueprints",
+      count: state.workspaceBlueprints.length,
+      limit: workspaceBlueprintsLimit,
+      full: workspaceBlueprintsFull()
+    },
+    {
+      label: "colors",
+      count: state.customColorPalette.length,
+      limit: customColorPaletteLimit,
+      full: customColorPaletteFull()
+    },
+    {
+      label: "backgrounds",
+      count: state.savedBackgroundImages.length,
+      limit: savedBackgroundImagesLimit,
+      full: savedBackgroundImagesFull()
+    }
+  ];
+}
+
+function savedLibrarySummaryLabel() {
+  return savedLibraryBreakdown()
+    .map((entry) => `${entry.count}/${entry.limit} ${entry.label}`)
+    .join(" / ");
+}
+
+function savedLibrarySearchLabel() {
+  return savedLibraryBreakdown()
+    .map((entry) => `${entry.count}/${entry.limit} ${entry.label} ${entry.full ? "limit full" : "capacity ready"}`)
+    .join(" ");
+}
+
+function savedLibraryFullCategoryLabel() {
+  return savedLibraryBreakdown()
+    .filter((entry) => entry.full)
+    .map((entry) => entry.label)
+    .join(", ");
+}
+
+function savedLibraryCapacityLimited() {
+  return Boolean(savedLibraryFullCategoryLabel());
+}
+
+function savedLibraryStatusLabel() {
+  const savedCount = savedDataItemCount();
+  if (!savedCount) return "Library empty";
+  const fullCategories = savedLibraryFullCategoryLabel();
+  return fullCategories
+    ? `${savedCount} saved / ${fullCategories} full`
+    : `${savedCount} saved / capacity ready`;
+}
+
+function savedLibraryCopyTitle() {
+  const savedCount = savedDataItemCount();
+  if (!savedCount) return "Customization library is empty.";
+  return `Copy ${savedCount} saved item${savedCount === 1 ? "" : "s"} (${savedLibrarySummaryLabel()}) as JSON.`;
+}
+
+function savedLibraryPasteTitle() {
+  const fullCategories = savedLibraryFullCategoryLabel();
+  return fullCategories
+    ? `Merge copied saved items. New items may be limited because ${fullCategories} are full.`
+    : "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.";
+}
+
+function savedLibraryClearTitle() {
+  const savedCount = savedDataItemCount();
+  return savedCount
+    ? `Clear ${savedCount} saved item${savedCount === 1 ? "" : "s"} from snippets, profiles, blueprints, colors, and backgrounds.`
+    : "Customization library is already clear.";
+}
+
 function browserTabSnapshotCount() {
   let count = 0;
   for (const snapshot of state.browserTabSnapshots.values()) {
@@ -22681,7 +22769,10 @@ function quickProfileDataControlsPanel() {
   const savedItems = savedDataItemCount();
   const recentItems = recentDataItemCount();
   const hasRecent = hasRecentActivity();
-  const meta = `${savedSettingsProfileCountLabel()} profiles / ${savedItems} saved / ${recentItems} recent / ${formatBytes(totalDataStorageBytes())}`;
+  const savedSearch = savedLibrarySearchLabel();
+  const savedStatus = savedLibraryStatusLabel();
+  const savedCapacitySearch = savedLibraryCapacityLimited() ? "limit full " : "";
+  const meta = `${savedSettingsProfileCountLabel()} profiles / ${savedStatus} / ${recentItems} recent / ${formatBytes(totalDataStorageBytes())}`;
   const actions = [
     quickOverviewControlButton("Save profile", saveQuickSetupProfile, {
       disabled: profilesFull,
@@ -22694,14 +22785,12 @@ function quickProfileDataControlsPanel() {
     }),
     quickOverviewControlButton("Copy library", copySavedLibrary, {
       disabled: savedItems === 0,
-      title: savedItems
-        ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON."
-        : "Customization library is empty.",
-      search: "quick setup profile data copy saved customization library snippets profiles blueprints colors backgrounds clipboard json"
+      title: savedLibraryCopyTitle(),
+      search: `quick setup profile data copy saved customization library snippets profiles blueprints colors backgrounds clipboard json ${savedSearch}`
     }),
     quickOverviewControlButton("Paste library", pasteSavedLibrary, {
-      title: "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.",
-      search: "quick setup profile data paste saved customization library import snippets profiles blueprints colors backgrounds clipboard json"
+      title: savedLibraryPasteTitle(),
+      search: `quick setup profile data paste saved customization library import snippets profiles blueprints colors backgrounds clipboard json ${savedCapacitySearch}${savedSearch}`
     }),
     quickOverviewControlButton("Copy recent", copyRecentActivity, {
       disabled: !hasRecent,
@@ -22723,7 +22812,7 @@ function quickProfileDataControlsPanel() {
     className: "quick-overview-profile-data",
     title: "Profile and data controls",
     meta,
-    search: `quick setup profile data controls save open copy paste saved library recent activity storage import export ${setup.label} ${setup.kind} ${meta}`,
+    search: `quick setup profile data controls save open copy paste saved library recent activity storage import export ${setup.label} ${setup.kind} ${meta} ${savedSearch}`,
     actions
   });
 }
@@ -22734,6 +22823,8 @@ function quickDataMaintenanceControlsPanel() {
   const emptyTargets = emptyWorkspaceCleanupTargets();
   const hasRecent = hasRecentActivity();
   const hasSaved = savedItems > 0;
+  const savedSearch = savedLibrarySearchLabel();
+  const savedStatus = savedLibraryStatusLabel();
   const actions = [
     quickOverviewControlButton("Backup", copyAppSetup, {
       title: "Copy settings, profiles, blueprints, saved colors, backgrounds, snippets, and recent data as JSON.",
@@ -22752,10 +22843,8 @@ function quickDataMaintenanceControlsPanel() {
     }),
     quickOverviewControlButton("Clear saved", clearSavedLibrary, {
       disabled: !hasSaved,
-      title: hasSaved
-        ? "Clear saved snippets, profiles, blueprints, colors, and backgrounds."
-        : "Customization library is already clear.",
-      search: "quick setup data maintenance clear saved customization library snippets profiles blueprints colors backgrounds"
+      title: savedLibraryClearTitle(),
+      search: `quick setup data maintenance clear saved customization library snippets profiles blueprints colors backgrounds ${savedSearch}`
     }),
     quickOverviewControlButton("Close empty", closeEmptyWorkspaces, {
       disabled: emptyTargets.length === 0,
@@ -22772,8 +22861,8 @@ function quickDataMaintenanceControlsPanel() {
   return quickOverviewControlsPanel({
     className: "quick-overview-maintenance",
     title: "Data maintenance controls",
-    meta: `${formatBytes(totalDataStorageBytes())} / ${recentItems} recent / ${savedItems} saved / ${emptyTargets.length} empty`,
-    search: `quick setup data maintenance controls backup restore clear recent saved cleanup privacy storage ${recentItems} recent ${savedItems} saved ${emptyTargets.length} empty`,
+    meta: `${formatBytes(totalDataStorageBytes())} / ${recentItems} recent / ${savedStatus} / ${emptyTargets.length} empty`,
+    search: `quick setup data maintenance controls backup restore clear recent saved cleanup privacy storage ${recentItems} recent ${savedItems} saved ${emptyTargets.length} empty ${savedSearch}`,
     actions
   });
 }
@@ -23034,21 +23123,21 @@ function quickSetupOverviewPanel() {
     disabled: scope.paneCount === 0
   });
   const library = panel.querySelector("[data-quick-library]");
-  library.dataset.settingsSearch = normalizeSettingsQuery(`quick setup saved customization library ${librarySummary} profiles blueprints command snippets saved colors saved backgrounds copy paste export import`);
+  const savedSearch = savedLibrarySearchLabel();
+  const savedCapacitySearch = savedLibraryCapacityLimited() ? "limit full " : "";
+  library.dataset.settingsSearch = normalizeSettingsQuery(`quick setup saved customization library ${librarySummary} ${savedSearch} profiles blueprints command snippets saved colors saved backgrounds copy paste export import`);
   library.querySelector("[data-quick-library-summary]").textContent = librarySummary;
   const hasSavedLibrary = savedDataItemCount() > 0;
   const copyLibraryAction = library.querySelector('[data-quick-library-action="copy"]');
-  copyLibraryAction.title = hasSavedLibrary
-    ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON."
-    : "Customization library is empty.";
+  copyLibraryAction.title = savedLibraryCopyTitle();
   copyLibraryAction.setAttribute("aria-label", copyLibraryAction.title);
   copyLibraryAction.disabled = !hasSavedLibrary;
-  copyLibraryAction.dataset.settingsSearch = normalizeSettingsQuery("quick setup saved customization library copy export snippets profiles blueprints colors backgrounds clipboard json");
+  copyLibraryAction.dataset.settingsSearch = normalizeSettingsQuery(`quick setup saved customization library copy export snippets profiles blueprints colors backgrounds clipboard json ${savedSearch}`);
   copyLibraryAction.onclick = () => copySavedLibrary();
   const pasteLibraryAction = library.querySelector('[data-quick-library-action="paste"]');
-  pasteLibraryAction.title = "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.";
+  pasteLibraryAction.title = savedLibraryPasteTitle();
   pasteLibraryAction.setAttribute("aria-label", pasteLibraryAction.title);
-  pasteLibraryAction.dataset.settingsSearch = normalizeSettingsQuery("quick setup saved customization library paste import snippets profiles blueprints colors backgrounds clipboard json");
+  pasteLibraryAction.dataset.settingsSearch = normalizeSettingsQuery(`quick setup saved customization library paste import snippets profiles blueprints colors backgrounds clipboard json ${savedCapacitySearch}${savedSearch}`);
   pasteLibraryAction.onclick = () => pasteSavedLibrary();
   const libraryAction = library.querySelector('[data-quick-library-action="data"]');
   libraryAction.title = "Open Settings data for import, export, and cleanup.";
@@ -24128,7 +24217,9 @@ function quickSettingsShortcutGrid() {
 function dataSettingsOverviewPanel() {
   const panel = document.createElement("div");
   panel.className = "data-settings-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("data overview storage backup export import recent saved customization library cleanup reset local settings empty workspaces browser tabs");
+  const savedSearch = savedLibrarySearchLabel();
+  const savedCapacitySearch = savedLibraryCapacityLimited() ? "limit full " : "";
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`data overview storage backup export import recent saved customization library cleanup reset local settings empty workspaces browser tabs ${savedSearch}`);
   panel.innerHTML = `
     <div class="data-overview-heading">
       <span class="data-overview-title">Local data</span>
@@ -24152,11 +24243,11 @@ function dataSettingsOverviewPanel() {
   copySetup.title = "Copy the complete cmux Windows setup as JSON.";
   const pasteSetup = settingsActionButton("Paste setup", pasteAppSetup, "", "data overview restore import full app setup settings profiles colors backgrounds recent clipboard json");
   pasteSetup.title = "Paste exported cmux Windows app setup JSON.";
-  const copyLibrary = settingsActionButton("Copy library", copySavedLibrary, "", "data overview saved customization library export snippets profiles blueprints colors backgrounds clipboard json");
+  const copyLibrary = settingsActionButton("Copy library", copySavedLibrary, "", `data overview saved customization library export snippets profiles blueprints colors backgrounds clipboard json ${savedSearch}`);
   copyLibrary.disabled = !savedLibrary;
-  copyLibrary.title = savedLibrary ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON." : "Customization library is empty.";
-  const pasteLibrary = settingsActionButton("Paste library", pasteSavedLibrary, "", "data overview saved customization library import merge snippets profiles blueprints colors backgrounds clipboard json");
-  pasteLibrary.title = "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.";
+  copyLibrary.title = savedLibraryCopyTitle();
+  const pasteLibrary = settingsActionButton("Paste library", pasteSavedLibrary, "", `data overview saved customization library import merge snippets profiles blueprints colors backgrounds clipboard json ${savedCapacitySearch}${savedSearch}`);
+  pasteLibrary.title = savedLibraryPasteTitle();
   actions.append(copySetup, pasteSetup, copyLibrary, pasteLibrary);
   return panel;
 }
@@ -24164,6 +24255,8 @@ function dataSettingsOverviewPanel() {
 function dataMaintenanceDefinitions() {
   const recentActivity = hasRecentActivity();
   const savedLibrary = savedDataItemCount() > 0;
+  const savedSearch = savedLibrarySearchLabel();
+  const savedCapacitySearch = savedLibraryCapacityLimited() ? "limit full " : "";
   const emptyCleanupTargets = emptyWorkspaceCleanupTargets();
   return [
     {
@@ -24191,29 +24284,29 @@ function dataMaintenanceDefinitions() {
       id: "savedLibrary",
       label: "Customization library",
       body: "Move reusable snippets, profiles, blueprints, colors, and backgrounds between setups.",
-      meta: `${savedDataItemCount()} saved`,
-      search: "settings data saved customization library export import copy paste clear snippets profiles blueprints colors backgrounds",
+      meta: savedLibraryStatusLabel(),
+      search: `settings data saved customization library export import copy paste clear snippets profiles blueprints colors backgrounds ${savedSearch}`,
       actions: [
         {
           label: "Copy library",
           run: copySavedLibrary,
           disabled: !savedLibrary,
-          title: savedLibrary ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON." : "Customization library is empty.",
-          search: "settings data saved customization library export copy snippets profiles blueprints colors backgrounds clipboard json"
+          title: savedLibraryCopyTitle(),
+          search: `settings data saved customization library export copy snippets profiles blueprints colors backgrounds clipboard json ${savedSearch}`
         },
         {
           label: "Paste library",
           run: pasteSavedLibrary,
-          title: "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.",
-          search: "settings data saved customization library import paste snippets profiles blueprints colors backgrounds clipboard json"
+          title: savedLibraryPasteTitle(),
+          search: `settings data saved customization library import paste snippets profiles blueprints colors backgrounds clipboard json ${savedCapacitySearch}${savedSearch}`
         },
         {
           label: "Clear library",
           run: clearSavedLibrary,
           tone: "danger",
           disabled: !savedLibrary,
-          title: savedLibrary ? "Clear saved snippets, profiles, blueprints, colors, and backgrounds." : "Customization library is already clear.",
-          search: "settings data saved customization library clear delete snippets profiles blueprints colors backgrounds"
+          title: savedLibraryClearTitle(),
+          search: `settings data saved customization library clear delete snippets profiles blueprints colors backgrounds ${savedSearch}`
         }
       ]
     },
@@ -24281,7 +24374,7 @@ function dataMaintenanceGrid() {
   for (const item of dataMaintenanceDefinitions()) {
     const card = document.createElement("div");
     card.className = "data-maintenance-card";
-    card.dataset.settingsSearch = normalizeSettingsQuery(`settings data maintenance ${item.search} ${item.label} ${item.body}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`settings data maintenance ${item.search} ${item.label} ${item.body} ${item.meta}`);
     card.innerHTML = `
       <span class="data-maintenance-title-row">
         <span class="data-maintenance-title"></span>
@@ -30119,14 +30212,18 @@ function showToolbarMenu(event) {
       (() => {
         const savedLibrary = savedDataItemCount() > 0;
         const action = contextMenuButton("Copy customization library", copySavedLibrary, !savedLibrary);
-        action.title = savedLibrary ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON." : "Customization library is empty.";
+        action.title = savedLibraryCopyTitle();
         return action;
       })(),
-      contextMenuButton("Paste customization library", pasteSavedLibrary),
+      (() => {
+        const action = contextMenuButton("Paste customization library", pasteSavedLibrary);
+        action.title = savedLibraryPasteTitle();
+        return action;
+      })(),
       (() => {
         const savedLibrary = savedDataItemCount() > 0;
         const action = contextMenuButton("Clear customization library", clearSavedLibrary, !savedLibrary, "danger");
-        action.title = savedLibrary ? "Clear saved snippets, profiles, blueprints, colors, and backgrounds." : "Customization library is already clear.";
+        action.title = savedLibraryClearTitle();
         return action;
       })(),
       (() => {
