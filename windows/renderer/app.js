@@ -24464,6 +24464,7 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
     ? "Open performance settings and diagnostics."
     : "Apply the performance tune for lag, effects, terminal output, and browser panes.";
   const hasStats = hasPerformanceStats();
+  const healthIssueCount = performanceHealthIssueCount();
   const profilesFull = savedSettingsProfilesFull();
   const setupDefault = performanceSetupSettingsAreDefault();
   const actions = [
@@ -24477,6 +24478,13 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
     }, {
       title: tuneTitle,
       search: "quick setup performance tune speed lag smooth reduce effects hidden output"
+    }),
+    quickOverviewControlButton(healthIssueCount === 0 ? "Health ready" : "Fix health", applyPerformanceHealthFixes, {
+      disabled: healthIssueCount === 0,
+      title: healthIssueCount === 0
+        ? "Performance health is already tuned."
+        : `Apply ${performanceHealthIssueCountLabel(healthIssueCount).toLowerCase()} for a lighter workspace.`,
+      search: `quick setup performance health checklist fixes speed lag smooth tune ${performanceHealthAllSearchText(healthIssueCount)}`
     }),
     quickOverviewControlButton("Save profile", saveCurrentPerformanceProfile, {
       disabled: profilesFull,
@@ -24511,8 +24519,8 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
   return quickOverviewControlsPanel({
     className: "quick-overview-performance",
     title: "Performance controls",
-    meta: `${performance.guard} / ${performance.output} / ${performance.startup}`,
-    search: `quick setup performance controls tune save profile diagnostics copy paste reset setup stats speed lag smooth toast feedback placement bottom right left top background opacity effects chrome readable soft immersive ${performance.status} ${performance.title} ${performance.reason} ${performance.render} ${performance.output} ${performance.startup}`,
+    meta: `${performance.guard} / ${performance.health} / ${performance.output}`,
+    search: `quick setup performance controls tune health fixes save profile diagnostics copy paste reset setup stats speed lag smooth toast feedback placement bottom right left top background opacity effects chrome readable soft immersive ${performance.status} ${performance.title} ${performance.reason} ${performance.health} ${performance.render} ${performance.output} ${performance.startup}`,
     actions
   });
 }
@@ -26507,6 +26515,7 @@ function performanceOverviewModel() {
     || state.paneCreateStats.avgMs >= performanceGuardSlowPaneCreateMs;
   const slowShellConnect = state.terminalConnectStats.lastMs >= performanceGuardSlowTerminalConnectMs
     || state.terminalConnectStats.avgMs >= performanceGuardSlowTerminalConnectMs;
+  const healthIssueCount = performanceHealthIssueCount();
   const status = state.settings.performanceMode
     ? "tuned"
     : hasBacklog || verySlowRender || slowPaneAdd || slowShellConnect || liveInactiveBrowsers > 0
@@ -26535,6 +26544,7 @@ function performanceOverviewModel() {
     title,
     reason,
     guard,
+    health: performanceHealthIssueCountLabel(healthIssueCount),
     render: `${formatMs(lastRenderMs)} last / ${formatMs(avgRenderMs)} avg`,
     output: queuedBytes ? `${formatBytes(queuedBytes)} queued` : "Clean",
     shell: durationMetric(state.terminalConnectStats),
@@ -26569,19 +26579,58 @@ function performanceOverviewReason({
 }
 
 function performanceOverviewPanel() {
-  return createPerformanceOverviewPanel({
+  const panel = createPerformanceOverviewPanel({
     createActionButton: settingsActionButton,
     model: performanceOverviewModel(),
     onBalanced: () => applySettingsPresetById("balanced"),
     onSearchChange: updateSettingsSearchIndexItemSearch,
     onTune: () => tunePerformanceNow()
   });
+  const healthAction = settingsActionButton(
+    "Fix health",
+    applyPerformanceHealthFixes,
+    "",
+    performanceHealthAllSearchText()
+  );
+  healthAction.dataset.performanceOverviewHealthAction = "true";
+  const actions = panel.querySelector(".performance-overview-actions");
+  const balancedAction = actions?.lastElementChild;
+  if (actions && balancedAction) {
+    actions.insertBefore(healthAction, balancedAction);
+  } else {
+    actions?.append(healthAction);
+  }
+  refreshPerformanceOverviewHealthAction(panel);
+  return panel;
+}
+
+function refreshPerformanceOverviewHealthAction(panel = elements.inspectorBody.querySelector("[data-performance-overview]")) {
+  const action = panel?.querySelector?.("[data-performance-overview-health-action]");
+  if (!action) return false;
+  const issueCount = performanceHealthIssueCount();
+  const label = issueCount === 0 ? "Health ready" : "Fix health";
+  const title = issueCount === 0
+    ? "Performance health is already tuned."
+    : `Apply ${performanceHealthIssueCountLabel(issueCount).toLowerCase()} for a lighter workspace.`;
+  let changed = false;
+  changed = setTextIfChanged(action.querySelector(".settings-action-label") || action, label) || changed;
+  changed = setDisabledIfChanged(action, issueCount === 0) || changed;
+  changed = setTitleIfChanged(action, title) || changed;
+  const search = performanceHealthAllSearchText(issueCount);
+  if (action.dataset.settingsSearch !== search) {
+    action.dataset.settingsSearch = search;
+    updateSettingsSearchIndexItemSearch(action, search);
+    changed = true;
+  }
+  return changed;
 }
 
 function refreshPerformanceOverviewPanel(panel = elements.inspectorBody.querySelector("[data-performance-overview]")) {
-  return refreshPerformanceOverviewPanelView(panel, performanceOverviewModel(), {
+  const overviewChanged = refreshPerformanceOverviewPanelView(panel, performanceOverviewModel(), {
     onSearchChange: updateSettingsSearchIndexItemSearch
   });
+  const healthChanged = refreshPerformanceOverviewHealthAction(panel);
+  return overviewChanged || healthChanged;
 }
 
 function performanceMetricsShouldRefresh() {
