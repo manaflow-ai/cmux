@@ -2071,6 +2071,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             defer: false
         )
         routingWindow.isReleasedWhenClosed = false
+        let routingManager = makeShortcutRoutingTabManager()
+#if DEBUG
+        appDelegate.registerMainWindowContextForTesting(tabManager: routingManager, window: routingWindow)
+#endif
         routingWindow.makeKeyAndOrderFront(nil)
         defer {
             routingWindow.orderOut(nil)
@@ -2125,7 +2129,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             )
 #if DEBUG
             XCTAssertTrue(
-                appDelegate.debugHandleShortcutMonitorEvent(event: remappedCmdOptionW),
+                appDelegate.debugHandleShortcutMonitorEvent(event: remappedCmdOptionW, preferredWindow: routingWindow),
                 "The remapped Cmd+Option+W shortcut should trigger the cmux Close Tab action"
             )
 #else

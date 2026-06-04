@@ -100,6 +100,9 @@ final class ShortcutUnbindingRoutingTests: XCTestCase {
 @MainActor
 final class ShortcutRecorderEventRoutingTests: XCTestCase {
     override func tearDown() {
+#if DEBUG
+        KeyboardShortcutRecorderActivity.resetForTesting()
+#endif
         KeyboardShortcutSettings.resetAll()
         super.tearDown()
     }

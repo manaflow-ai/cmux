@@ -17,6 +17,9 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
     override func setUpWithError() throws {
         try super.setUpWithError()
         executionTimeAllowance = 30
+#if DEBUG
+        KeyboardShortcutRecorderActivity.resetForTesting()
+#endif
         let defaults = UserDefaults.standard
         savedCommandPaletteNext = defaults.object(forKey: KeyboardShortcutSettings.Action.commandPaletteNext.defaultsKey)
         savedCommandPalettePrevious = defaults.object(forKey: KeyboardShortcutSettings.Action.commandPalettePrevious.defaultsKey)
@@ -34,6 +37,9 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
     }
 
     override func tearDown() {
+#if DEBUG
+        KeyboardShortcutRecorderActivity.resetForTesting()
+#endif
         restoreDefault(savedCommandPaletteNext, forKey: KeyboardShortcutSettings.Action.commandPaletteNext.defaultsKey)
         restoreDefault(savedCommandPalettePrevious, forKey: KeyboardShortcutSettings.Action.commandPalettePrevious.defaultsKey)
         savedCommandPaletteNext = nil
