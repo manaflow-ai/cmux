@@ -1197,6 +1197,62 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    func testGitIndexParserHexEncodingIsStableUnderConcurrentSnapshots() async throws {
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebar-index-hex-concurrency-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try writeMinimalGitRepository(at: repoURL)
+        let trackedURL = repoURL.appendingPathComponent("tracked.txt")
+        try "seed\n".write(to: trackedURL, atomically: true, encoding: .utf8)
+        let objectIDBytes = Array(UInt8(0)...UInt8(19))
+        try writeGitIndexVersion2EntryFromStat(
+            at: repoURL,
+            trackedPath: "tracked.txt",
+            indexMode: 0o100644,
+            signatureByte: 0xab,
+            objectIDBytes: objectIDBytes
+        )
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        let baseline = try XCTUnwrap(
+            TabManager.gitTrackedChangesSnapshotForTesting(directory: repoURL.path)
+        )
+        XCTAssertFalse(baseline.isDirty)
+        XCTAssertEqual(
+            baseline.indexSignature,
+            "abababababababababababababababababababab",
+            "Git index checksums should be encoded as stable lowercase two-character hex bytes."
+        )
+        let baselineContentSignature = try XCTUnwrap(baseline.indexContentSignature)
+
+        let mismatchCount = await withTaskGroup(of: Int.self) { group in
+            for _ in 0..<32 {
+                group.addTask {
+                    var mismatches = 0
+                    for _ in 0..<128 {
+                        let snapshot = TabManager.gitTrackedChangesSnapshotForTesting(directory: repoURL.path)
+                        if snapshot?.isDirty != false ||
+                            snapshot?.indexSignature != baseline.indexSignature ||
+                            snapshot?.indexContentSignature != baselineContentSignature {
+                            mismatches += 1
+                        }
+                    }
+                    return mismatches
+                }
+            }
+            var total = 0
+            for await mismatches in group {
+                total += mismatches
+            }
+            return total
+        }
+        XCTAssertEqual(mismatchCount, 0)
+    }
+
     func testIndexContentChangeAfterWorktreeDirtyRemainsDirty() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
