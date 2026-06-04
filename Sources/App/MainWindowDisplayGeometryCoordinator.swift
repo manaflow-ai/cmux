@@ -106,7 +106,6 @@ final class MainWindowDisplayGeometryCoordinator {
     func beginTransition(
         source: TransitionSource,
         reason: TransitionReason,
-        trustCurrentGeometry: Bool = true,
         current: CurrentGeometry
     ) {
         if case .volatile(let currentReason) = phase {
@@ -116,13 +115,8 @@ final class MainWindowDisplayGeometryCoordinator {
             return
         }
 
-        if trustCurrentGeometry {
-            updateSavedWindowFrames(current: current)
-        }
         phase = .volatile(reason)
-        if !trustCurrentGeometry {
-            updateSavedWindowFrames(current: current)
-        }
+        updateSavedWindowFrames(current: current)
 
 #if DEBUG
         cmuxDebugLog("window.geometry.transition.begin source=\(source.rawValue)")

@@ -3710,8 +3710,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard let self else { return }
                 self.beginMainWindowDisplayGeometryTransition(
                     source: .applicationDidChangeScreenParameters,
-                    reason: .displayReconfiguration,
-                    trustCurrentGeometry: false
+                    reason: .displayReconfiguration
                 )
                 self.handleMainWindowDisplayGeometryChange(source: .applicationDidChangeScreenParameters)
             }
@@ -3770,13 +3769,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func beginMainWindowDisplayGeometryTransition(
         source: MainWindowDisplayGeometryTransitionSource,
-        reason: MainWindowDisplayGeometryTransitionReason,
-        trustCurrentGeometry: Bool = true
+        reason: MainWindowDisplayGeometryTransitionReason
     ) {
         mainWindowDisplayGeometryCoordinator.beginTransition(
             source: source,
             reason: reason,
-            trustCurrentGeometry: trustCurrentGeometry,
             current: currentMainWindowDisplayGeometry()
         )
     }
