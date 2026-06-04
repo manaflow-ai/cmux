@@ -21,6 +21,19 @@
   --color-warning: oklch(78% 0.15 82);
   --color-danger: oklch(62% 0.17 28);
   --color-selection: oklch(43% 0.12 255);
+  --surface-tint-color: var(--color-accent);
+  --surface-tint-canvas: 0%;
+  --surface-tint-chrome: 0%;
+  --surface-tint-rail: 0%;
+  --surface-tint-pane: 0%;
+  --surface-tint-active: 0%;
+  --color-canvas-surface: color-mix(in oklch, var(--color-canvas), var(--surface-tint-color) var(--surface-tint-canvas));
+  --color-chrome-surface: color-mix(in oklch, var(--color-chrome), var(--surface-tint-color) var(--surface-tint-chrome));
+  --color-rail-surface: color-mix(in oklch, var(--color-rail), var(--surface-tint-color) var(--surface-tint-rail));
+  --color-pane-surface: color-mix(in oklch, var(--color-pane), var(--surface-tint-color) var(--surface-tint-pane));
+  --color-pane-warm-surface: color-mix(in oklch, var(--color-pane-warm), var(--surface-tint-color) var(--surface-tint-pane));
+  --color-pane-active-surface: color-mix(in oklch, var(--color-pane-active), var(--surface-tint-color) var(--surface-tint-active));
+  --color-input-surface: color-mix(in oklch, var(--color-input), var(--surface-tint-color) var(--surface-tint-pane));
   --color-glass: oklch(9% 0.007 255 / 72%);
   --color-terminal-gutter: oklch(8% 0.006 255);
   --font-ui: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
@@ -85,7 +98,7 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  background: var(--color-canvas);
+  background: var(--color-canvas-surface);
   color: var(--color-text);
   font-family: var(--font-ui);
 }
@@ -224,7 +237,7 @@ button {
   grid-template-columns: var(--sidebar-width, 232px) minmax(0, 1fr) 0;
   width: 100vw;
   height: 100vh;
-  background: var(--color-canvas);
+  background: var(--color-canvas-surface);
 }
 
 .window-resize-edge {
@@ -371,7 +384,7 @@ button {
   opacity: 0;
   background:
     linear-gradient(135deg, color-mix(in oklch, var(--color-accent) 9%, transparent), transparent 44%),
-    color-mix(in oklch, var(--color-canvas) 72%, transparent);
+    color-mix(in oklch, var(--color-canvas-surface) 72%, transparent);
   transition: opacity var(--dur-med) var(--ease-out);
 }
 
@@ -388,28 +401,28 @@ button {
 .shell.has-background .surface-tabs,
 .shell.has-background .statusbar,
 .shell.has-background .inspector {
-  background: color-mix(in oklch, var(--color-chrome) 94%, transparent);
+  background: color-mix(in oklch, var(--color-chrome-surface) 94%, transparent);
 }
 
 .shell.has-background .main,
 .shell.has-background .pane-grid {
-  background: color-mix(in oklch, var(--color-canvas) 88%, transparent);
+  background: color-mix(in oklch, var(--color-canvas-surface) 88%, transparent);
 }
 
 .shell.has-background .pane,
 .shell.has-background .terminal-host {
-  background: color-mix(in oklch, var(--color-pane) 94%, transparent);
+  background: color-mix(in oklch, var(--color-pane-surface) 94%, transparent);
 }
 
 .shell.has-background .pane-header,
 .shell.has-background .browser-tabs,
 .shell.has-background .browser-bar {
-  background: color-mix(in oklch, var(--color-pane-warm) 92%, transparent);
+  background: color-mix(in oklch, var(--color-pane-warm-surface) 92%, transparent);
 }
 
 .shell.has-background .browser-tab.is-active,
 .shell.has-background .surface-tab.is-active {
-  background: color-mix(in oklch, var(--color-pane-warm) 94%, transparent);
+  background: color-mix(in oklch, var(--color-pane-warm-surface) 94%, transparent);
 }
 
 .shell.background-effects-tinted.has-background .sidebar,
@@ -417,28 +430,28 @@ button {
 .shell.background-effects-tinted.has-background .surface-tabs,
 .shell.background-effects-tinted.has-background .statusbar,
 .shell.background-effects-tinted.has-background .inspector {
-  background: color-mix(in oklch, var(--color-chrome) 98%, transparent);
+  background: color-mix(in oklch, var(--color-chrome-surface) 98%, transparent);
 }
 
 .shell.background-effects-tinted.has-background .main,
 .shell.background-effects-tinted.has-background .pane-grid {
-  background: color-mix(in oklch, var(--color-canvas) 93%, transparent);
+  background: color-mix(in oklch, var(--color-canvas-surface) 93%, transparent);
 }
 
 .shell.background-effects-tinted.has-background .pane,
 .shell.background-effects-tinted.has-background .terminal-host {
-  background: color-mix(in oklch, var(--color-pane) 97%, transparent);
+  background: color-mix(in oklch, var(--color-pane-surface) 97%, transparent);
 }
 
 .shell.background-effects-tinted.has-background .pane-header,
 .shell.background-effects-tinted.has-background .browser-tabs,
 .shell.background-effects-tinted.has-background .browser-bar {
-  background: color-mix(in oklch, var(--color-pane-warm) 97%, transparent);
+  background: color-mix(in oklch, var(--color-pane-warm-surface) 97%, transparent);
 }
 
 .shell.background-effects-tinted.has-background .browser-tab.is-active,
 .shell.background-effects-tinted.has-background .surface-tab.is-active {
-  background: color-mix(in oklch, var(--color-pane-warm) 98%, transparent);
+  background: color-mix(in oklch, var(--color-pane-warm-surface) 98%, transparent);
 }
 
 .shell.background-effects-glass.has-background .sidebar,
@@ -446,28 +459,28 @@ button {
 .shell.background-effects-glass.has-background .surface-tabs,
 .shell.background-effects-glass.has-background .statusbar,
 .shell.background-effects-glass.has-background .inspector {
-  background: color-mix(in oklch, var(--color-chrome) 94%, transparent);
+  background: color-mix(in oklch, var(--color-chrome-surface) 94%, transparent);
 }
 
 .shell.background-effects-glass.has-background .main,
 .shell.background-effects-glass.has-background .pane-grid {
-  background: color-mix(in oklch, var(--color-canvas) 82%, transparent);
+  background: color-mix(in oklch, var(--color-canvas-surface) 82%, transparent);
 }
 
 .shell.background-effects-glass.has-background .pane,
 .shell.background-effects-glass.has-background .terminal-host {
-  background: color-mix(in oklch, var(--color-pane) 90%, transparent);
+  background: color-mix(in oklch, var(--color-pane-surface) 90%, transparent);
 }
 
 .shell.background-effects-glass.has-background .pane-header,
 .shell.background-effects-glass.has-background .browser-tabs,
 .shell.background-effects-glass.has-background .browser-bar {
-  background: color-mix(in oklch, var(--color-pane-warm) 92%, transparent);
+  background: color-mix(in oklch, var(--color-pane-warm-surface) 92%, transparent);
 }
 
 .shell.background-effects-glass.has-background .browser-tab.is-active,
 .shell.background-effects-glass.has-background .surface-tab.is-active {
-  background: color-mix(in oklch, var(--color-pane-warm) 94%, transparent);
+  background: color-mix(in oklch, var(--color-pane-warm-surface) 94%, transparent);
 }
 
 .shell.performance-mode *,
@@ -500,21 +513,21 @@ button {
 .shell.performance-mode.has-background .surface-tabs,
 .shell.performance-mode.has-background .statusbar,
 .shell.performance-mode.has-background .inspector {
-  background: var(--color-chrome);
+  background: var(--color-chrome-surface);
 }
 
 .shell.performance-mode.has-background .main,
 .shell.performance-mode.has-background .pane-grid {
-  background: var(--color-canvas);
+  background: var(--color-canvas-surface);
 }
 
 .shell.performance-mode.has-background .pane,
 .shell.performance-mode.has-background .terminal-host {
-  background: var(--color-pane);
+  background: var(--color-pane-surface);
 }
 
 .shell.performance-mode .pane.has-pane-background .terminal-host {
-  background: var(--color-pane);
+  background: var(--color-pane-surface);
 }
 
 .shell.performance-mode .pane.has-pane-background .terminal-host::before {
@@ -533,7 +546,7 @@ button {
 .shell.performance-mode.has-background .pane-header,
 .shell.performance-mode.has-background .browser-tabs,
 .shell.performance-mode.has-background .browser-bar {
-  background: var(--color-pane-warm);
+  background: var(--color-pane-warm-surface);
 }
 
 body.reduce-motion *,
@@ -678,7 +691,7 @@ body.reduce-motion *::after {
   grid-template-rows: 44px 36px minmax(0, 1fr) auto;
   overflow: hidden;
   border-right: 1px solid var(--color-line);
-  background: var(--color-rail);
+  background: var(--color-rail-surface);
 }
 
 .sidebar::before {
@@ -1205,7 +1218,7 @@ body.reduce-motion *::after {
   height: 30px;
   padding: 0 var(--space-2);
   border-color: var(--color-line);
-  background: var(--color-pane);
+  background: var(--color-pane-surface);
   color: var(--color-text);
 }
 
@@ -1231,7 +1244,7 @@ body.reduce-motion *::after {
 
 .sidebar-action:hover {
   border-color: var(--color-line-strong);
-  background: var(--color-pane-active);
+  background: var(--color-pane-active-surface);
 }
 
 .sidebar-action.danger {
@@ -1243,7 +1256,7 @@ body.reduce-motion *::after {
   min-height: 0;
   display: grid;
   grid-template-rows: 44px 34px minmax(0, 1fr) 24px;
-  background: var(--color-canvas);
+  background: var(--color-canvas-surface);
 }
 
 .topbar {
@@ -1253,7 +1266,7 @@ body.reduce-motion *::after {
   min-width: 0;
   padding: 0 var(--space-2);
   border-bottom: 1px solid var(--color-line);
-  background: var(--color-chrome);
+  background: var(--color-chrome-surface);
   -webkit-app-region: drag;
 }
 
@@ -1283,7 +1296,7 @@ body.reduce-motion *::after {
   display: grid;
   place-items: center;
   border-color: var(--color-line);
-  background: var(--color-pane);
+  background: var(--color-pane-surface);
   color: var(--color-text);
 }
 
@@ -1322,7 +1335,7 @@ body.reduce-motion *::after {
 
 .icon-button:hover {
   border-color: var(--color-line-strong);
-  background: var(--color-pane-active);
+  background: var(--color-pane-active-surface);
 }
 
 .workspace-title-block {
@@ -1602,7 +1615,7 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
 }
 
 .window-control:hover {
-  background: var(--color-pane-active);
+  background: var(--color-pane-active-surface);
   color: var(--color-text);
 }
 
@@ -1611,7 +1624,7 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
 }
 
 .window-control:active {
-  background: color-mix(in oklch, var(--color-pane-active) 78%, var(--color-text) 8%);
+  background: color-mix(in oklch, var(--color-pane-active-surface) 78%, var(--color-text) 8%);
 }
 
 .window-control.close:hover {
@@ -1621,17 +1634,17 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
 
 .tool-button.primary {
   border-color: color-mix(in oklch, var(--color-accent) 68%, var(--color-line) 32%);
-  background: color-mix(in oklch, var(--color-accent) 30%, var(--color-pane) 70%);
+  background: color-mix(in oklch, var(--color-accent) 30%, var(--color-pane-surface) 70%);
   color: var(--color-accent-ink);
 }
 
 .tool-button:hover {
   border-color: var(--color-line-strong);
-  background: var(--color-pane-active);
+  background: var(--color-pane-active-surface);
 }
 
 .tool-button.primary:hover {
-  background: color-mix(in oklch, var(--color-accent) 42%, var(--color-pane-active) 58%);
+  background: color-mix(in oklch, var(--color-accent) 42%, var(--color-pane-active-surface) 58%);
 }
 
 .tool-button:disabled,
@@ -1643,7 +1656,7 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
 .tool-button:disabled:hover,
 .surface-new-tab:disabled:hover {
   border-color: var(--color-line);
-  background: var(--color-pane);
+  background: var(--color-pane-surface);
 }
 
 .surface-new-tab.is-creating.is-waiting:not(:disabled) .surface-new-icon {
@@ -1674,7 +1687,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   scroll-padding-inline: 10px var(--surface-add-reserve);
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
-  background: color-mix(in oklch, var(--color-terminal-gutter) 84%, var(--color-canvas) 16%);
+  background: color-mix(in oklch, var(--color-terminal-gutter) 84%, var(--color-canvas-surface) 16%);
   padding: 5px 6px 0;
 }
 
@@ -1683,17 +1696,17 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .surface-tabs.can-scroll-left {
-  box-shadow: inset 10px 0 10px -12px var(--color-canvas);
+  box-shadow: inset 10px 0 10px -12px var(--color-canvas-surface);
 }
 
 .surface-tabs.can-scroll-right {
-  box-shadow: inset -18px 0 14px -16px var(--color-canvas);
+  box-shadow: inset -18px 0 14px -16px var(--color-canvas-surface);
 }
 
 .surface-tabs.can-scroll-left.can-scroll-right {
   box-shadow:
-    inset 10px 0 10px -12px var(--color-canvas),
-    inset -18px 0 14px -16px var(--color-canvas);
+    inset 10px 0 10px -12px var(--color-canvas-surface),
+    inset -18px 0 14px -16px var(--color-canvas-surface);
 }
 
 .surface-tabs::-webkit-scrollbar {
@@ -1716,7 +1729,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border-bottom-color: transparent;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
   padding: 0 4px 0 6px;
-  background: color-mix(in oklch, var(--color-pane) 28%, transparent);
+  background: color-mix(in oklch, var(--color-pane-surface) 28%, transparent);
   color: var(--color-muted);
   font: inherit;
   user-select: none;
@@ -1756,13 +1769,13 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .surface-tab:hover {
   border-color: color-mix(in oklch, var(--color-line) 70%, transparent);
-  background: color-mix(in oklch, var(--color-pane) 72%, transparent);
+  background: color-mix(in oklch, var(--color-pane-surface) 72%, transparent);
 }
 
 .surface-tab.is-active {
   border-color: var(--color-line);
-  border-bottom-color: var(--color-pane);
-  background: var(--color-pane);
+  border-bottom-color: var(--color-pane-surface);
+  background: var(--color-pane-surface);
   color: var(--color-text);
   box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
 }
@@ -1774,7 +1787,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   height: 18px;
   border: 1px solid color-mix(in oklch, var(--tab-color, var(--color-faint)) 34%, var(--color-line) 66%);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--tab-color, var(--color-faint)) 12%, var(--color-pane) 88%);
+  background: color-mix(in oklch, var(--tab-color, var(--color-faint)) 12%, var(--color-pane-surface) 88%);
   color: var(--color-muted);
   font: 9px/1 var(--font-mono);
   overflow: hidden;
@@ -2404,7 +2417,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border: 0;
   outline: 1px solid color-mix(in oklch, var(--color-line) 62%, transparent);
   outline-offset: -1px;
-  background: var(--color-pane);
+  background: var(--color-pane-surface);
   box-shadow: none;
 }
 
@@ -2652,13 +2665,13 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   overflow: hidden;
   padding: 0 var(--space-2);
   border-bottom: 1px solid var(--color-line);
-  background: var(--color-pane-warm);
+  background: var(--color-pane-warm-surface);
   cursor: grab;
   user-select: none;
 }
 
 .pane.is-active .pane-header {
-  background: var(--color-pane-warm);
+  background: var(--color-pane-warm-surface);
 }
 
 .pane-header::before {
@@ -3176,12 +3189,12 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   width: 100%;
   height: 100%;
   padding: var(--terminal-padding, 8px) calc(var(--terminal-padding, 8px) + 1px);
-  background: var(--color-pane);
+  background: var(--color-pane-surface);
   font-family: var(--terminal-font-family, var(--font-mono));
 }
 
 .pane.has-pane-background .terminal-host {
-  background: color-mix(in oklch, var(--color-pane) 88%, transparent);
+  background: color-mix(in oklch, var(--color-pane-surface) 88%, transparent);
 }
 
 .pane.has-pane-background .terminal-host::before {
@@ -3663,7 +3676,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   height: 26px;
   border: 1px solid transparent;
   border-radius: var(--radius-1);
-  background: var(--color-input);
+  background: var(--color-input-surface);
   padding: 0 var(--space-2);
   color: var(--color-text);
   font: 12px/1 var(--font-ui);
@@ -3763,7 +3776,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: var(--space-1);
   padding: 3px var(--space-2) 0;
   border-bottom: 1px solid var(--color-line);
-  background: color-mix(in oklch, var(--color-terminal-gutter) 76%, var(--color-canvas) 24%);
+  background: color-mix(in oklch, var(--color-terminal-gutter) 76%, var(--color-canvas-surface) 24%);
 }
 
 .browser-tab-list {
@@ -3779,17 +3792,17 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .browser-tab-list.can-scroll-left {
-  box-shadow: inset 10px 0 10px -12px var(--color-canvas);
+  box-shadow: inset 10px 0 10px -12px var(--color-canvas-surface);
 }
 
 .browser-tab-list.can-scroll-right {
-  box-shadow: inset -18px 0 14px -16px var(--color-canvas);
+  box-shadow: inset -18px 0 14px -16px var(--color-canvas-surface);
 }
 
 .browser-tab-list.can-scroll-left.can-scroll-right {
   box-shadow:
-    inset 10px 0 10px -12px var(--color-canvas),
-    inset -18px 0 14px -16px var(--color-canvas);
+    inset 10px 0 10px -12px var(--color-canvas-surface),
+    inset -18px 0 14px -16px var(--color-canvas-surface);
 }
 
 .browser-tab-list::-webkit-scrollbar {
@@ -3814,7 +3827,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border: 1px solid transparent;
   border-bottom: 0;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
-  background: color-mix(in oklch, var(--color-pane) 42%, transparent);
+  background: color-mix(in oklch, var(--color-pane-surface) 42%, transparent);
   color: var(--color-muted);
   font-size: 11px;
   cursor: pointer;
@@ -3840,20 +3853,20 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   width: 14px;
   height: 14px;
   border-radius: 3px;
-  background: color-mix(in oklch, var(--color-line) 58%, var(--color-pane) 42%);
+  background: color-mix(in oklch, var(--color-line) 58%, var(--color-pane-surface) 42%);
   color: var(--color-text);
   font: 9px/1 var(--font-mono);
 }
 
 .browser-tab:hover {
   color: var(--color-text);
-  background: color-mix(in oklch, var(--color-pane) 76%, transparent);
+  background: color-mix(in oklch, var(--color-pane-surface) 76%, transparent);
 }
 
 .browser-tab.is-active {
   border-color: var(--color-line);
-  border-bottom-color: var(--color-pane);
-  background: var(--color-pane-warm);
+  border-bottom-color: var(--color-pane-surface);
+  background: var(--color-pane-warm-surface);
   color: var(--color-text);
   box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
 }
@@ -4222,7 +4235,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: var(--space-1);
   padding: 4px var(--space-2);
   border-bottom: 1px solid var(--color-line);
-  background: var(--color-pane-warm);
+  background: var(--color-pane-warm-surface);
 }
 
 .browser-shell.is-browser-deferred {
@@ -4266,7 +4279,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   min-width: 0;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
-  background: var(--color-input);
+  background: var(--color-input-surface);
   color: var(--color-text);
 }
 
@@ -5107,7 +5120,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   padding: 0 var(--space-2);
   border-top: 1px solid var(--color-line);
   color: var(--color-faint);
-  background: var(--color-chrome);
+  background: var(--color-chrome-surface);
   font: 11px/1 var(--font-mono);
 }
 
@@ -5174,7 +5187,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   grid-template-rows: 54px minmax(0, 1fr);
   overflow: hidden;
   border-left: 1px solid var(--color-line);
-  background: var(--color-rail);
+  background: var(--color-rail-surface);
 }
 
 .shell:not(.inspector-open) .inspector {

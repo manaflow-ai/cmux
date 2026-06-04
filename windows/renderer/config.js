@@ -6,6 +6,7 @@ export const defaultSettings = {
   theme: "cmux",
   accent: "oklch(61% 0.22 255)",
   accentIntensity: "balanced",
+  surfaceTint: "neutral",
   backgroundImage: "",
   backgroundOpacity: 16,
   backgroundBlur: 0,
@@ -175,6 +176,13 @@ export const accentIntensityOptions = [
   ["subtle", label("accentIntensity.subtle", "Subtle"), label("accentIntensity.subtle.body", "Quieter hover and focus color")],
   ["balanced", label("accentIntensity.balanced", "Balanced"), label("accentIntensity.balanced.body", "Default accent strength")],
   ["vivid", label("accentIntensity.vivid", "Vivid"), label("accentIntensity.vivid.body", "Stronger focus and selection color")]
+];
+
+export const surfaceTintOptions = [
+  ["neutral", label("surfaceTint.neutral", "Neutral"), label("surfaceTint.neutral.body", "Use the selected theme surfaces")],
+  ["cool", label("surfaceTint.cool", "Cool"), label("surfaceTint.cool.body", "Add a blue-cyan wash")],
+  ["warm", label("surfaceTint.warm", "Warm"), label("surfaceTint.warm.body", "Add a soft amber wash")],
+  ["accent", label("surfaceTint.accent", "Accent"), label("surfaceTint.accent.body", "Tint surfaces with the accent color")]
 ];
 
 export const backgroundPresets = [
@@ -509,6 +517,7 @@ export const settingsPresets = [
       theme: "cmux",
       accent: "oklch(61% 0.22 255)",
       accentIntensity: "balanced",
+      surfaceTint: "neutral",
       backgroundImage: "",
       backgroundOpacity: 16,
       backgroundBlur: 0,
@@ -564,6 +573,7 @@ export const settingsPresets = [
       theme: "graphite",
       accent: "oklch(66% 0.13 175)",
       accentIntensity: "subtle",
+      surfaceTint: "neutral",
       backgroundImage: "",
       backgroundOpacity: 12,
       backgroundBlur: 0,
@@ -619,6 +629,7 @@ export const settingsPresets = [
       theme: "graphite",
       accent: "oklch(66% 0.13 175)",
       accentIntensity: "subtle",
+      surfaceTint: "neutral",
       backgroundImage: "",
       backgroundOpacity: 6,
       backgroundBlur: 0,
@@ -675,6 +686,7 @@ export const settingsPresets = [
       theme: "harbor",
       accent: "oklch(66% 0.13 175)",
       accentIntensity: "subtle",
+      surfaceTint: "cool",
       backgroundImage: "",
       backgroundOpacity: 10,
       backgroundBlur: 0,
@@ -730,6 +742,7 @@ export const settingsPresets = [
       theme: "graphite",
       accent: "oklch(72% 0.17 230)",
       accentIntensity: "subtle",
+      surfaceTint: "neutral",
       backgroundImage: "",
       backgroundOpacity: 0,
       backgroundBlur: 0,
@@ -785,6 +798,7 @@ export const settingsPresets = [
       theme: "contrast",
       accent: "oklch(86% 0.11 70)",
       accentIntensity: "vivid",
+      surfaceTint: "neutral",
       backgroundImage: "",
       backgroundOpacity: 0,
       backgroundBlur: 0,
@@ -840,6 +854,7 @@ export const settingsPresets = [
       theme: "orchid",
       accent: "oklch(74% 0.18 305)",
       accentIntensity: "vivid",
+      surfaceTint: "accent",
       backgroundImage: "preset:soft-aurora",
       backgroundOpacity: 24,
       backgroundBlur: 4,
