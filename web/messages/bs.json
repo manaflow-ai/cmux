@@ -160,7 +160,8 @@
       "buildDistribution": "Build i distribucija",
       "upstreamDependencies": "Upstream zavisnosti",
       "archived": "Arhivirano"
-    }
+    },
+    "section": "zajednica"
   },
   "blog": {
     "title": "Blog",
@@ -1260,7 +1261,7 @@
     }
   },
   "download": {
-    "section": "Preuzimanje",
+    "section": "preuzimanje",
     "metaTitle": "Hvala što ste preuzeli cmux",
     "metaDescription": "Vaše preuzimanje cmux-a počinje. Istražite dokumentaciju, pridružite se Discordu i pratite cmux na X-u.",
     "heading": "Hvala što ste preuzeli cmux!",

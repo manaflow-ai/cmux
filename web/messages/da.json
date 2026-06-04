@@ -160,7 +160,8 @@
       "buildDistribution": "Build og distribution",
       "upstreamDependencies": "Upstream-afhængigheder",
       "archived": "Arkiveret"
-    }
+    },
+    "section": "fællesskab"
   },
   "blog": {
     "title": "Blog",
@@ -1260,7 +1261,7 @@
     }
   },
   "download": {
-    "section": "Download",
+    "section": "download",
     "metaTitle": "Tak fordi du downloadede cmux",
     "metaDescription": "Dit cmux-download starter. Udforsk dokumentationen, deltag i Discord, og følg cmux på X.",
     "heading": "Tak fordi du downloadede cmux!",

@@ -160,7 +160,8 @@
       "buildDistribution": "Build і розповсюдження",
       "upstreamDependencies": "Upstream-залежності",
       "archived": "Архівні"
-    }
+    },
+    "section": "спільнота"
   },
   "blog": {
     "title": "Блог",
@@ -1347,7 +1348,7 @@
     }
   },
   "download": {
-    "section": "Завантажити",
+    "section": "завантажити",
     "metaTitle": "Дякуємо, що завантажили cmux",
     "metaDescription": "Завантаження cmux починається. Перегляньте документацію, приєднуйтесь до Discord і стежте за cmux у X.",
     "heading": "Дякуємо, що завантажили cmux!",

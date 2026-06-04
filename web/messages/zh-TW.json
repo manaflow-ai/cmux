@@ -160,7 +160,8 @@
       "buildDistribution": "建置和發佈",
       "upstreamDependencies": "上游相依項",
       "archived": "已封存"
-    }
+    },
+    "section": "社群"
   },
   "blog": {
     "title": "部落格",

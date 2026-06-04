@@ -160,7 +160,8 @@
       "buildDistribution": "빌드 및 배포",
       "upstreamDependencies": "업스트림 의존성",
       "archived": "보관됨"
-    }
+    },
+    "section": "커뮤니티"
   },
   "blog": {
     "title": "블로그",

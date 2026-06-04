@@ -160,7 +160,8 @@
       "buildDistribution": "Сборка и распространение",
       "upstreamDependencies": "Upstream-зависимости",
       "archived": "Архивные"
-    }
+    },
+    "section": "сообщество"
   },
   "blog": {
     "title": "Блог",
@@ -1260,7 +1261,7 @@
     }
   },
   "download": {
-    "section": "Загрузка",
+    "section": "загрузка",
     "metaTitle": "Спасибо за загрузку cmux",
     "metaDescription": "Загрузка cmux начинается. Изучите документацию, присоединяйтесь к Discord и подписывайтесь на cmux в X.",
     "heading": "Спасибо за загрузку cmux!",

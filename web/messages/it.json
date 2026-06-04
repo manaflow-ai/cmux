@@ -160,7 +160,8 @@
       "buildDistribution": "Build e distribuzione",
       "upstreamDependencies": "Dipendenze upstream",
       "archived": "Archiviati"
-    }
+    },
+    "section": "community"
   },
   "blog": {
     "title": "Blog",
@@ -1260,7 +1261,7 @@
     }
   },
   "download": {
-    "section": "Scarica",
+    "section": "scarica",
     "metaTitle": "Grazie per aver scaricato cmux",
     "metaDescription": "Il download di cmux sta per iniziare. Esplora la documentazione, unisciti al Discord e segui cmux su X.",
     "heading": "Grazie per aver scaricato cmux!",

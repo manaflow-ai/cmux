@@ -160,7 +160,8 @@
       "buildDistribution": "构建和分发",
       "upstreamDependencies": "上游依赖",
       "archived": "已归档"
-    }
+    },
+    "section": "社区"
   },
   "blog": {
     "title": "博客",

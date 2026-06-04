@@ -160,7 +160,8 @@
       "buildDistribution": "Build និងការចែកចាយ",
       "upstreamDependencies": "ភាពអាស្រ័យ upstream",
       "archived": "បានរក្សាទុក"
-    }
+    },
+    "section": "សហគមន៍"
   },
   "blog": {
     "title": "ប្លក់",

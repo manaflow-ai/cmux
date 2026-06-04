@@ -160,7 +160,8 @@
       "buildDistribution": "Build ve dağıtım",
       "upstreamDependencies": "Upstream bağımlılıklar",
       "archived": "Arşivlendi"
-    }
+    },
+    "section": "topluluk"
   },
   "blog": {
     "title": "Blog",
@@ -1260,7 +1261,7 @@
     }
   },
   "download": {
-    "section": "İndir",
+    "section": "indir",
     "metaTitle": "cmux'u indirdiğiniz için teşekkürler",
     "metaDescription": "cmux indirmeniz başlıyor. Belgeleri keşfedin, Discord'a katılın ve cmux'u X'te takip edin.",
     "heading": "cmux'u indirdiğiniz için teşekkürler!",

@@ -160,7 +160,8 @@
       "buildDistribution": "ビルドと配布",
       "upstreamDependencies": "アップストリーム依存関係",
       "archived": "アーカイブ済み"
-    }
+    },
+    "section": "コミュニティ"
   },
   "blog": {
     "title": "ブログ",

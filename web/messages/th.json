@@ -160,7 +160,8 @@
       "buildDistribution": "การ build และการแจกจ่าย",
       "upstreamDependencies": "การพึ่งพา upstream",
       "archived": "เก็บถาวร"
-    }
+    },
+    "section": "ชุมชน"
   },
   "blog": {
     "title": "บล็อก",
