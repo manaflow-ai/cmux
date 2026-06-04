@@ -34828,6 +34828,7 @@ function paletteEntries() {
     const pageUrl = normalizeBrowserPageUrl(url);
     const pageHost = hostnameOf(pageUrl) || pageUrl || "Recent page";
     const savedProfile = savedSettingsProfileForBrowserHomeUrl(pageUrl);
+    const activeHome = pageUrl ? isActiveRecentBrowserHome(pageUrl) : false;
     const openDisabled = !pageUrl || !paletteWorkspace || recentBrowserQueueFull;
     entries.push({
       id: `recentBrowser.${pageIndex}`,
@@ -34847,6 +34848,22 @@ function paletteEntries() {
             : `Open ${pageHost} in a new browser pane.`,
       search: normalizeSettingsQuery(`recent browser page web url open ${openDisabled ? "unavailable " : "ready "}${pageIndex + 1} ${pageHost} ${pageUrl} ${recentBrowserWorkspaceTitle} ${recentBrowserQueueLabel}`),
       run: () => createPanel("browser", newPaneDirection(), { url: pageUrl })
+    });
+    entries.push({
+      id: `recentBrowser.home.${pageIndex}`,
+      label: `Set browser home: ${pageHost}`,
+      meta: activeHome ? "Active browser home" : pageUrl || pageHost,
+      shortcut: activeHome ? "Active" : "Home",
+      active: activeHome,
+      disabled: !pageUrl || activeHome,
+      icon: "browser",
+      title: !pageUrl
+        ? "Choose a browser page first."
+        : activeHome
+          ? "This page is already the browser home."
+          : "Set this page as the browser home.",
+      search: normalizeSettingsQuery(`${recentBrowserHomeActionSearch(pageUrl, activeHome)} ${pageIndex + 1} ${pageHost}`),
+      run: () => useBrowserPageAsHome(pageUrl)
     });
     entries.push({
       id: `recentBrowser.profile.${pageIndex}`,
@@ -34898,10 +34915,24 @@ function paletteEntries() {
     search: normalizeSettingsQuery(`browser tabs sessions paste restore import clipboard json active pane ${browserTabPasteTarget ? "active browser apply " : "new panes restore "}${browserTabPasteTargetHost} ${recentBrowserWorkspaceTitle} ${recentBrowserQueueLabel}`),
     run: pasteBrowserTabSessions
   });
+  const activeBrowserSessionPanel = activePanel();
   for (const entry of browserSessions) {
     const entryWorkspaceTitle = workspaceDisplayTitle(entry.workspace, "Workspace");
     const entryTabCount = browserTabSessionCountLabel(entry.snapshot);
     const duplicateDisabled = !entry.workspace || recentBrowserQueueFull;
+    const focusActive = entry.workspace?.id === state.data?.activeWorkspaceId && activeBrowserSessionPanel?.id === entry.id && !isPanelMinimized(entry.panel);
+    entries.push({
+      id: `browser.tabs.focus.${entry.id}`,
+      label: `Focus browser tabs: ${entry.label}`,
+      meta: `${entryWorkspaceTitle} / ${entryTabCount} / ${entry.activeHost}`,
+      shortcut: focusActive ? "Active" : "Focus",
+      active: focusActive,
+      disabled: focusActive,
+      icon: "browser",
+      title: focusActive ? `${entry.label} is already the active browser pane.` : `Focus ${entry.label}.`,
+      search: normalizeSettingsQuery(`browser tabs session focus active pane ${focusActive ? "active current " : ""}${entry.label} ${entryWorkspaceTitle} ${entryTabCount} ${entry.activeHost} ${entry.activeUrl}`),
+      run: () => focusPanel(entry.id)
+    });
     entries.push({
       id: `browser.tabs.copy.${entry.id}`,
       label: `Copy browser tabs: ${entry.label}`,
