@@ -57,7 +57,11 @@ extension TerminalController {
                 sourceDirectory: sourceDirectory,
                 cleanupPolicy: options.policy
             )
-            return (record, record.worktreePath, nil)
+            return (
+                record,
+                record.matchingWorktreeDirectory(forSourceDirectory: sourceDirectory),
+                nil
+            )
         } catch AsyncWorktreeV2Error.requestTimedOut {
             return (
                 nil,

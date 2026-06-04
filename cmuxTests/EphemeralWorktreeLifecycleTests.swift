@@ -26,6 +26,37 @@ final class EphemeralWorktreeLifecycleTests: XCTestCase {
         XCTAssertTrue(registry.records().isEmpty)
     }
 
+    func testMatchingWorktreeDirectoryPreservesSourceSubdirectory() throws {
+        let fixture = try GitFixture()
+        defer { fixture.cleanup() }
+
+        let sourceSubdirectory = fixture.repositoryURL
+            .appendingPathComponent("Sources", isDirectory: true)
+            .appendingPathComponent("App", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceSubdirectory, withIntermediateDirectories: true)
+
+        let registry = EphemeralWorktreeRegistry(storeURL: fixture.registryURL)
+        let record = try registry.create(sourceDirectory: sourceSubdirectory.path)
+
+        let expectedWorktreeSubdirectory = URL(fileURLWithPath: record.worktreePath, isDirectory: true)
+            .appendingPathComponent("Sources", isDirectory: true)
+            .appendingPathComponent("App", isDirectory: true)
+            .path
+
+        XCTAssertEqual(
+            record.matchingWorktreeDirectory(forSourceDirectory: sourceSubdirectory.path),
+            expectedWorktreeSubdirectory
+        )
+        XCTAssertEqual(
+            record.matchingWorktreeDirectory(forSourceDirectory: fixture.repositoryURL.path),
+            record.worktreePath
+        )
+        XCTAssertEqual(
+            record.matchingWorktreeDirectory(forSourceDirectory: fixture.rootURL.path),
+            record.worktreePath
+        )
+    }
+
     func testDirtyWorktreeCleanupSnapshotsChangesBeforeRemoval() throws {
         let fixture = try GitFixture()
         defer { fixture.cleanup() }

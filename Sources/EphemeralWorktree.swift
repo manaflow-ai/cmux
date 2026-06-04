@@ -33,6 +33,39 @@ nonisolated struct EphemeralWorktreeRecord: Codable, Sendable, Equatable {
     var branchName: String
     var cleanupPolicy: EphemeralWorktreeCleanupPolicy
     var createdAt: Date
+
+    func matchingWorktreeDirectory(forSourceDirectory sourceDirectory: String?) -> String {
+        guard let sourcePath = Self.standardizedNonEmptyPath(sourceDirectory),
+              let repositoryPath = Self.standardizedNonEmptyPath(sourceRepositoryPath),
+              let worktreeRoot = Self.standardizedNonEmptyPath(worktreePath),
+              Self.isPath(sourcePath, inside: repositoryPath) else {
+            return worktreePath
+        }
+
+        var relativePath = String(sourcePath.dropFirst(repositoryPath.count))
+        while relativePath.first == "/" {
+            relativePath.removeFirst()
+        }
+        guard !relativePath.isEmpty else {
+            return worktreePath
+        }
+        return URL(fileURLWithPath: worktreeRoot, isDirectory: true)
+            .appendingPathComponent(relativePath, isDirectory: true)
+            .path
+    }
+
+    private static func standardizedNonEmptyPath(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return nil }
+        return (trimmed as NSString).standardizingPath
+    }
+
+    private static func isPath(_ candidate: String, inside root: String) -> Bool {
+        if root == "/" {
+            return candidate.hasPrefix("/")
+        }
+        candidate == root || candidate.hasPrefix(root + "/")
+    }
 }
 
 nonisolated struct EphemeralWorktreeCleanupResult: Sendable, Equatable {
