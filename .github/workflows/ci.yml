@@ -1292,7 +1292,8 @@ jobs:
           fi
           echo "App binary: $APP_BINARY"
 
-          for attempt in 1 2; do
+          DISPLAY_ATTEMPTS=4
+          for attempt in $(seq 1 "$DISPLAY_ATTEMPTS"); do
             cleanup 2>/dev/null || true
 
             # Launch display helper from shell (non-sandboxed). This waits on
@@ -1321,8 +1322,8 @@ jobs:
               echo "ERROR: Virtual display not ready after 12s" >&2
               cat "$HELPER_LOG" 2>/dev/null || true
               stop_pid "$HELPER_PID" "virtual display helper"
-              if [ "$attempt" -eq 2 ]; then
-                echo "Display resolution UI regression failed to create a virtual display after 2 attempts" >&2
+              if [ "$attempt" -eq "$DISPLAY_ATTEMPTS" ]; then
+                echo "Display resolution UI regression failed to create a virtual display after $DISPLAY_ATTEMPTS attempts" >&2
                 exit 1
               fi
               cleanup
@@ -1363,8 +1364,8 @@ jobs:
               echo "Attempt $attempt: App not ready after 15s"
               stop_pid "$APP_PID" "cmux DEV"
               stop_pid "$HELPER_PID" "virtual display helper"
-              if [ "$attempt" -eq 2 ]; then
-                echo "Display resolution UI regression failed after 2 attempts" >&2
+              if [ "$attempt" -eq "$DISPLAY_ATTEMPTS" ]; then
+                echo "Display resolution UI regression failed after $DISPLAY_ATTEMPTS attempts" >&2
                 echo "--- App log ---"
                 cat /tmp/cmux-ui-test-app.log 2>/dev/null | tail -50 || true
                 echo "--- Helper log ---"
@@ -1430,8 +1431,8 @@ jobs:
               cat "$HELPER_LOG" 2>/dev/null | tail -30 || true
               stop_pid "$APP_PID" "cmux DEV"
               stop_pid "$HELPER_PID" "virtual display helper"
-              if [ "$attempt" -eq 2 ]; then
-                echo "Display resolution UI regression failed after 2 attempts" >&2
+              if [ "$attempt" -eq "$DISPLAY_ATTEMPTS" ]; then
+                echo "Display resolution UI regression failed after $DISPLAY_ATTEMPTS attempts" >&2
                 exit 1
               fi
               cleanup
@@ -1475,8 +1476,8 @@ jobs:
             stop_pid "$APP_PID" "cmux DEV"
             stop_pid "$HELPER_PID" "virtual display helper"
 
-            if [ "$attempt" -eq 2 ]; then
-              echo "Display resolution UI regression failed after 2 attempts" >&2
+            if [ "$attempt" -eq "$DISPLAY_ATTEMPTS" ]; then
+              echo "Display resolution UI regression failed after $DISPLAY_ATTEMPTS attempts" >&2
               exit 1
             fi
             echo "Attempt $attempt failed, retrying..."

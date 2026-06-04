@@ -790,6 +790,7 @@ final class TerminalNotificationStore: ObservableObject {
     private let center = UNUserNotificationCenter.current()
     private static var suppressSystemNotificationsForUITests: Bool {
         ProcessInfo.processInfo.environment["CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS"] == "1"
+            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
     private var hasRequestedAutomaticAuthorization = false
     private var hasDeferredAuthorizationRequest = false
