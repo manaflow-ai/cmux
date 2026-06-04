@@ -17352,6 +17352,30 @@ enum SidebarTabDragPayload {
         return provider
     }
 
+    /// The workspace id of the in-flight sidebar drag, read synchronously from
+    /// the drag pasteboard.
+    ///
+    /// This is the authoritative identity of a sidebar workspace drag in *any*
+    /// window — including a drag that began in a different window, whose
+    /// `SidebarDragState.draggedTabId` is therefore only set in the originating
+    /// window. A destination window's drop delegate reads this so it can act on
+    /// a workspace it does not yet own (cross-window move).
+    static func currentDraggedWorkspaceId() -> UUID? {
+        workspaceId(from: NSPasteboard(name: .drag))
+    }
+
+    static func workspaceId(from pasteboard: NSPasteboard) -> UUID? {
+        let type = NSPasteboard.PasteboardType(typeIdentifier)
+        let raw: String?
+        if let data = pasteboard.data(forType: type) {
+            raw = String(data: data, encoding: .utf8)
+        } else {
+            raw = pasteboard.string(forType: type)
+        }
+        guard let raw, raw.hasPrefix(prefix) else { return nil }
+        return UUID(uuidString: String(raw.dropFirst(prefix.count)))
+    }
+
 }
 
 enum BonsplitTabDragPayload {
@@ -17515,30 +17539,78 @@ struct SidebarTabDropDelegate: DropDelegate {
     let targetRowHeight: CGFloat?
     let dragAutoScrollController: SidebarDragAutoScrollController
 
+    /// The identity of the workspace being dragged, resolved from this window's
+    /// `SidebarDragState` first and falling back to the drag pasteboard for a
+    /// drag that originated in another window. This single resolver is the one
+    /// source of truth the drop path keys on, so an intra-window reorder and a
+    /// cross-window move share the same code instead of forking into parallel
+    /// drop delegates.
+    private var effectiveDraggedTabId: UUID? {
+        dragState.draggedTabId ?? SidebarTabDragPayload.currentDraggedWorkspaceId()
+    }
+
+    /// Whether `draggedTabId` belongs to a *different* window than this drop
+    /// target — i.e. dropping here moves the workspace into this window rather
+    /// than reordering within it.
+    private func isCrossWindowDrag(_ draggedTabId: UUID) -> Bool {
+        !tabManager.tabs.contains { $0.id == draggedTabId }
+    }
+
+    /// Mirror a foreign drag's identity into this window's `SidebarDragState`
+    /// so the existing drop-indicator, frame-anchor, and failsafe machinery —
+    /// all gated on `draggedTabId != nil` — activate unchanged. The id matches
+    /// no local row, so no row dims, and the failsafe monitor clears it on
+    /// mouse-up (and `performDrop` clears it on a successful drop).
+    private func activateForeignDragIfNeeded() {
+        guard dragState.draggedTabId == nil,
+              let foreignId = SidebarTabDragPayload.currentDraggedWorkspaceId(),
+              isCrossWindowDrag(foreignId) else { return }
+        dragState.draggedTabId = foreignId
+    }
+
     func validateDrop(info: DropInfo) -> Bool {
         let hasType = info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
-        let draggedTabId = dragState.draggedTabId
-        let hasDrag = draggedTabId != nil
-        let targetIsInReorderScope = draggedTabId.map { draggedTabId in
+        guard hasType, let draggedTabId = effectiveDraggedTabId else {
+            #if DEBUG
+            cmuxDebugLog(
+                "sidebar.validateDrop target=\(targetTabId?.uuidString.prefix(5) ?? "end") " +
+                "hasType=\(hasType) hasDrag=false"
+            )
+            #endif
+            return false
+        }
+        if isCrossWindowDrag(draggedTabId) {
+            // Foreign workspace: any row (or the end strip) in this window is a
+            // valid drop target — the workspace will be moved into this window.
+            #if DEBUG
+            cmuxDebugLog(
+                "sidebar.validateDrop target=\(targetTabId?.uuidString.prefix(5) ?? "end") " +
+                "hasType=true crossWindow=true"
+            )
+            #endif
+            return true
+        }
+        let targetIsInReorderScope: Bool = {
             guard let targetTabId else { return true }
             return tabManager.sidebarReorderWorkspaceIds(
                 forDraggedWorkspaceId: draggedTabId,
                 targetWorkspaceId: targetTabId
             ).contains(targetTabId)
-        } ?? false
+        }()
         #if DEBUG
         cmuxDebugLog(
             "sidebar.validateDrop target=\(targetTabId?.uuidString.prefix(5) ?? "end") " +
-            "hasType=\(hasType) hasDrag=\(hasDrag) inScope=\(targetIsInReorderScope)"
+            "hasType=\(hasType) hasDrag=true inScope=\(targetIsInReorderScope)"
         )
         #endif
-        return hasType && hasDrag && targetIsInReorderScope
+        return targetIsInReorderScope
     }
 
     func dropEntered(info: DropInfo) {
         #if DEBUG
         cmuxDebugLog("sidebar.dropEntered target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
         #endif
+        activateForeignDragIfNeeded()
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
     }
@@ -17553,6 +17625,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
+        activateForeignDragIfNeeded()
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
 #if DEBUG
@@ -17572,11 +17645,14 @@ struct SidebarTabDropDelegate: DropDelegate {
         #if DEBUG
         cmuxDebugLog("sidebar.drop target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
         #endif
-        guard let draggedTabId = dragState.draggedTabId else {
+        guard let draggedTabId = effectiveDraggedTabId else {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.abort reason=missingDraggedTab")
 #endif
             return false
+        }
+        if isCrossWindowDrag(draggedTabId) {
+            return performCrossWindowDrop(draggedTabId: draggedTabId)
         }
         let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedTabId,
@@ -17634,7 +17710,69 @@ struct SidebarTabDropDelegate: DropDelegate {
         return didReorder
     }
 
+    /// Move a workspace dragged in from another window into this window at the
+    /// indicated drop position. Mirrors the existing "Move Workspace to Window"
+    /// action but honors the drop index and multi-selection.
+    private func performCrossWindowDrop(draggedTabId: UUID) -> Bool {
+        guard let app = AppDelegate.shared,
+              let destinationWindowId = app.windowId(for: tabManager),
+              let sourceManager = app.tabManagerFor(tabId: draggedTabId) else {
+#if DEBUG
+            cmuxDebugLog("sidebar.drop.crossWindow.abort reason=unresolvedRoute tab=\(draggedTabId.uuidString.prefix(5))")
+#endif
+            return false
+        }
+
+        // Move the source window's whole multi-selection when the dragged
+        // workspace is part of it; otherwise just the dragged workspace.
+        let sourceSelection = sourceManager.sidebarSelectedWorkspaceIds
+        let movingIds: [UUID]
+        if sourceSelection.contains(draggedTabId), sourceSelection.count > 1 {
+            movingIds = sourceManager.tabs.compactMap { sourceSelection.contains($0.id) ? $0.id : nil }
+        } else {
+            movingIds = [draggedTabId]
+        }
+
+        let draggedIsPinned = sourceManager.tabs.first { $0.id == draggedTabId }?.isPinned ?? false
+        let insertionIndex = SidebarDropPlanner.crossWindowInsertion(
+            targetTabId: targetTabId,
+            draggedIsPinned: draggedIsPinned,
+            indicator: dragState.dropIndicator,
+            tabIds: tabManager.tabs.map(\.id),
+            pinnedTabIds: Set(tabManager.tabs.filter(\.isPinned).map(\.id))
+        ).insertionIndex
+
+#if DEBUG
+        cmuxDebugLog(
+            "sidebar.drop.crossWindow.commit count=\(movingIds.count) " +
+            "to=\(destinationWindowId.uuidString.prefix(5)) at=\(insertionIndex)"
+        )
+#endif
+        var didMove = false
+        for (offset, workspaceId) in movingIds.enumerated() {
+            let isLast = offset == movingIds.count - 1
+            if app.moveWorkspaceToWindow(
+                workspaceId: workspaceId,
+                windowId: destinationWindowId,
+                atIndex: insertionIndex + offset,
+                focus: isLast
+            ) {
+                didMove = true
+            }
+        }
+
+        if didMove {
+            selectedTabIds = Set(movingIds)
+            syncSidebarSelection()
+        }
+        return didMove
+    }
+
     private func updateDropIndicator(for info: DropInfo) {
+        if let draggedTabId = effectiveDraggedTabId, isCrossWindowDrag(draggedTabId) {
+            updateCrossWindowDropIndicator(for: info, draggedTabId: draggedTabId)
+            return
+        }
         let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: dragState.draggedTabId,
             targetWorkspaceId: targetTabId
@@ -17663,6 +17801,29 @@ struct SidebarTabDropDelegate: DropDelegate {
             return
         }
         dragState.setDropIndicator(nextIndicator, usesTopLevelRows: usesTopLevelRows)
+    }
+
+    /// Drop indicator for a foreign workspace hovering this window. The dragged
+    /// workspace is not in this window's list, so the reorder planner (which
+    /// removes a source index) does not apply — use the cross-window planner.
+    private func updateCrossWindowDropIndicator(for info: DropInfo, draggedTabId: UUID) {
+        let draggedIsPinned = AppDelegate.shared?
+            .tabManagerFor(tabId: draggedTabId)?
+            .tabs.first { $0.id == draggedTabId }?.isPinned ?? false
+        let nextIndicator = SidebarDropPlanner.crossWindowInsertion(
+            targetTabId: targetTabId,
+            draggedIsPinned: draggedIsPinned,
+            indicator: nil,
+            tabIds: tabManager.tabs.map(\.id),
+            pinnedTabIds: Set(tabManager.tabs.filter(\.isPinned).map(\.id)),
+            pointerY: targetTabId == nil ? nil : info.location.y,
+            targetHeight: targetRowHeight
+        ).indicator
+        guard dragState.dropIndicator != nextIndicator ||
+                dragState.dropIndicatorUsesTopLevelRows else {
+            return
+        }
+        dragState.setDropIndicator(nextIndicator)
     }
 
     private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {

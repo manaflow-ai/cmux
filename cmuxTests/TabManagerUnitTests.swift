@@ -3805,3 +3805,87 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertEqual(result, .completed)
     }
 }
+
+/// Behavioral coverage for the cross-window workspace move primitive that backs
+/// dragging a workspace from one window's sidebar into another window's sidebar
+/// (`AppDelegate.moveWorkspaceToWindow(workspaceId:windowId:atIndex:focus:)`).
+/// The app-level routing needs live windows, but the underlying mechanism —
+/// `detachWorkspace` from the source manager + `attachWorkspace(at:)` on the
+/// destination manager — is the move and is exercised directly here.
+@MainActor
+final class CrossWindowWorkspaceMoveTests: XCTestCase {
+    func testMoveInsertsAtDropIndexInDestination() {
+        let source = TabManager()
+        let destination = TabManager()
+        let moving = source.addWorkspace()
+        _ = source.addWorkspace()
+
+        let destFirst = destination.tabs[0]
+        let destSecond = destination.addWorkspace()
+
+        guard let detached = source.detachWorkspace(tabId: moving.id) else {
+            XCTFail("Expected to detach the dragged workspace from the source window")
+            return
+        }
+        XCTAssertEqual(detached.id, moving.id)
+        destination.attachWorkspace(detached, at: 1, select: true)
+
+        XCTAssertEqual(
+            destination.tabs.map(\.id),
+            [destFirst.id, moving.id, destSecond.id],
+            "Moved workspace should land at the requested drop index in the destination"
+        )
+        XCTAssertEqual(destination.selectedTabId, moving.id)
+        XCTAssertFalse(
+            source.tabs.contains { $0.id == moving.id },
+            "Source window must no longer contain the moved workspace"
+        )
+        XCTAssertTrue(
+            destination.tabs.allSatisfy { $0.owningTabManager === destination },
+            "Destination workspaces should be owned by the destination manager"
+        )
+    }
+
+    func testMoveAppendsWhenNoDropIndex() {
+        let source = TabManager()
+        let destination = TabManager()
+        let moving = source.addWorkspace()
+        _ = source.addWorkspace()
+
+        let existingDestIds = destination.tabs.map(\.id)
+
+        guard let detached = source.detachWorkspace(tabId: moving.id) else {
+            XCTFail("Expected to detach the dragged workspace")
+            return
+        }
+        destination.attachWorkspace(detached, at: nil, select: true)
+
+        XCTAssertEqual(
+            destination.tabs.map(\.id),
+            existingDestIds + [moving.id],
+            "With no drop index the moved workspace appends to the destination"
+        )
+    }
+
+    func testMovingLastWorkspaceKeepsSourceNonEmpty() {
+        let source = TabManager()
+        let destination = TabManager()
+        let onlyWorkspace = source.tabs[0]
+
+        guard let detached = source.detachWorkspace(tabId: onlyWorkspace.id) else {
+            XCTFail("Expected to detach the only workspace")
+            return
+        }
+        destination.attachWorkspace(detached, at: nil, select: true)
+
+        XCTAssertFalse(
+            source.tabs.isEmpty,
+            "Detaching the last workspace must leave the source window with a fresh workspace"
+        )
+        XCTAssertFalse(
+            source.tabs.contains { $0.id == onlyWorkspace.id },
+            "The moved workspace should no longer be in the source window"
+        )
+        XCTAssertTrue(destination.tabs.contains { $0.id == onlyWorkspace.id })
+    }
+}
