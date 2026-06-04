@@ -6514,6 +6514,7 @@ const commands = [
   { id: "browser.homeExternal", label: "Open Browser Home Externally", shortcut: "", run: () => openExternalBrowser(state.settings.browserHomeUrl) },
   { id: "browser.copySetup", label: "Copy Browser Setup", shortcut: "", run: () => copyBrowserSetup() },
   { id: "browser.pasteSetup", label: "Paste Browser Setup", shortcut: "", run: () => pasteBrowserSetup() },
+  { id: "browser.resetSetup", label: "Reset Browser Setup", shortcut: "", run: () => resetBrowserSetupSettings() },
   { id: "browser.copyRecentPages", label: "Copy Recent Browser Pages", shortcut: "", run: () => copyRecentBrowserPages() },
   { id: "browser.pasteRecentPages", label: "Paste Recent Browser Pages", shortcut: "", run: () => pasteRecentBrowserPages() },
   { id: "browser.copyTabs", label: "Copy Active Browser Tabs", shortcut: "", run: () => copyActiveBrowserTabSession() },
@@ -13731,6 +13732,12 @@ function renderSettingsInspector(options = {}) {
     copyBrowser.title = "Copy browser home, launch mode, external profile, suspend setting, pane chrome, and pane zoom as JSON.";
     const pasteBrowser = settingsActionButton("Paste setup", pasteBrowserSetup, "", "browser setup paste home launch external profile suspend pane chrome tabs address controls full compact content zoom scale clipboard json");
     pasteBrowser.title = "Apply copied cmux browser setup.";
+    const browserSetupDefault = browserSetupSettingsAreDefault();
+    const resetBrowserSetupAction = settingsActionButton("Reset setup", resetBrowserSetupSettings, "", `browser setup reset default home launch external profile suspend pane chrome zoom ${browserSetupDefault ? "active current " : ""}`);
+    resetBrowserSetupAction.disabled = browserSetupDefault;
+    resetBrowserSetupAction.title = browserSetupDefault
+      ? "Browser setup already uses defaults."
+      : "Reset browser home, launch mode, external profile, inactive-pane suspension, pane chrome, and zoom to defaults.";
     homeActions.append(
       applySettingsProfileSaveLimit(
         settingsActionButton("Save browser profile", saveCurrentBrowserProfile, "primary", "browser save profile home page launch external chrome edge brave pane chrome tabs address controls full compact content zoom scale reusable"),
@@ -13738,6 +13745,7 @@ function renderSettingsInspector(options = {}) {
       ),
       copyBrowser,
       pasteBrowser,
+      resetBrowserSetupAction,
       settingsActionButton("Open pane", () => createPanel("browser", newPaneDirection(), { url: state.settings.browserHomeUrl })),
       settingsActionButton("Open external", () => openExternalBrowser(state.settings.browserHomeUrl, { toast: true }), "", "browser system chrome edge brave profile external"),
       settingsActionButton("Refresh profiles", () => refreshBrowserProfiles({ render: true }), "", "browser chrome edge brave profile detect refresh reload"),
@@ -17043,6 +17051,27 @@ function resetBrowserLaunchSettings() {
   }
   if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
   toast("Browser launch settings reset.");
+  return true;
+}
+
+function browserSetupSettingsAreDefault() {
+  return browserSetupSettings.every((key) => (
+    key === "browserHomeUrl"
+      ? browserHomeKey(state.settings.browserHomeUrl) === browserHomeKey(defaultSettings.browserHomeUrl)
+      : state.settings[key] === defaultSettings[key]
+  ));
+}
+
+function resetBrowserSetupSettings() {
+  const updates = {};
+  for (const key of browserSetupSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates);
+  if (!changed) {
+    toast("Browser setup already uses defaults.");
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast("Browser setup reset.");
   return true;
 }
 
@@ -21273,6 +21302,7 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
   const tabEntries = browserTabSessionEntries();
   const hasWorkspace = Boolean(workspace);
   const profilesFull = savedSettingsProfilesFull();
+  const setupDefault = browserSetupSettingsAreDefault();
   const activeBrowserTitle = activeBrowser
     ? panelDisplayTitle(activeBrowser, true)
     : "No active browser";
@@ -21320,6 +21350,13 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
     quickOverviewControlButton("Paste setup", pasteBrowserSetup, {
       title: "Apply copied browser setup.",
       search: "quick setup browser paste setup home launch external profile suspend pane chrome tabs address controls full compact content zoom scale clipboard json"
+    }),
+    quickOverviewControlButton("Reset setup", resetBrowserSetupSettings, {
+      disabled: setupDefault,
+      title: setupDefault
+        ? "Browser setup already uses defaults."
+        : "Reset browser home, launch mode, external profile, inactive-pane suspension, pane chrome, and zoom to defaults.",
+      search: `quick setup browser reset setup default home launch external profile suspend pane chrome zoom ${setupDefault ? "active current " : ""}`
     }),
     quickOverviewControlButton("Copy tabs", () => copyActiveBrowserTabSession(activeBrowser), {
       disabled: !activeBrowser,
@@ -28528,6 +28565,7 @@ function showToolbarMenu(event) {
         : "Save the latest recent terminal command as a reusable snippet.";
   const latestBrowserPage = state.recentBrowserPages[0] || "";
   const browserSessionEntries = browserTabSessionEntries();
+  const browserSetupDefault = browserSetupSettingsAreDefault();
   const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
   const terminalBackground = terminalActive ? normalizeBackgroundValue(panel.backgroundImage) : "";
   const terminalPanels = workspaceTerminalPanels(workspace);
@@ -28713,6 +28751,7 @@ function showToolbarMenu(event) {
       toolbarAction("Copy all tab sessions", copyBrowserTabSessions, browserSessionEntries.length === 0, "Copy all browser tab sessions as JSON.", "Open a browser pane before copying tab sessions."),
       toolbarAction("Copy browser setup", copyBrowserSetup, false, "Copy browser home, launch mode, external profile, suspend setting, pane chrome, and pane zoom as JSON."),
       toolbarAction("Paste browser setup", pasteBrowserSetup, false, "Apply copied cmux browser setup."),
+      toolbarAction("Reset browser setup", resetBrowserSetupSettings, browserSetupDefault, "Reset browser home, launch mode, external profile, inactive-pane suspension, pane chrome, and zoom to defaults.", "Browser setup already uses defaults."),
       contextMenuButton("Browser settings", () => openSettingsCategory("browser"))
     ),
     contextMenuSectionTitle("Workspace"),
