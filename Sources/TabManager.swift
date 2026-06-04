@@ -17,6 +17,12 @@ typealias Tab = Workspace
 
 private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
 
+protocol WorkspaceGitMetadataReading: Sendable {
+    func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata
+}
+
+extension GitMetadataService: WorkspaceGitMetadataReading {}
+
 enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
     case top
     case afterCurrent
@@ -1200,6 +1206,7 @@ class TabManager: ObservableObject {
     // slugs) off the main actor. Stateless; the reads are pure functions of the
     // directory argument.
     private let gitMetadataService: GitMetadataService
+    private let workspaceGitMetadataReader: any WorkspaceGitMetadataReading
 
     // Resolves GitHub PR badges (slug resolution, REST fetch, candidate
     // matching). Stateless; the repo cache stays here in
@@ -1217,10 +1224,12 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
+        workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock()
     ) {
         self.commandRunner = commandRunner
         self.gitMetadataService = gitMetadataService
+        self.workspaceGitMetadataReader = workspaceGitMetadataReader ?? gitMetadataService
         self.gitPollClock = gitPollClock
 #if DEBUG
         self.pullRequestProbeService = PullRequestProbeService(
@@ -2715,8 +2724,13 @@ class TabManager: ObservableObject {
             return
         }
 
+        let reader = workspaceGitMetadataReader
         Task.detached(priority: .utility) { [weak self] in
-            guard let snapshot = await self?.initialWorkspaceGitMetadataSnapshot(for: expectedDirectory) else {
+            let snapshot = await Self.initialWorkspaceGitMetadataSnapshot(
+                for: expectedDirectory,
+                reader: reader
+            )
+            guard self != nil else {
                 return
             }
             guard !Task.isCancelled else { return }
@@ -3002,10 +3016,11 @@ class TabManager: ObservableObject {
         }
     }
 
-    private nonisolated func initialWorkspaceGitMetadataSnapshot(
-        for directory: String
+    private nonisolated static func initialWorkspaceGitMetadataSnapshot(
+        for directory: String,
+        reader: any WorkspaceGitMetadataReading
     ) async -> InitialWorkspaceGitMetadataSnapshot {
-        let metadata = await gitMetadataService.workspaceMetadata(for: directory)
+        let metadata = await reader.workspaceMetadata(for: directory)
         guard metadata.isRepository else {
             return InitialWorkspaceGitMetadataSnapshot(
                 isRepository: false,
