@@ -10318,11 +10318,20 @@ final class SidebarDragState {
     /// release flows.
     var isSimulated: Bool = false
 
+    /// True only in the window that *originated* the current drag (set via
+    /// ``beginDragging(tabId:)``). A destination window that mirrors a foreign
+    /// drag id into ``draggedTabId`` for cross-window rendering does not own the
+    /// process-wide ``SidebarWorkspaceDragRegistry`` entry, so it must not clear
+    /// it when its own local drag state is reset.
+    private var originatedActiveDrag = false
+
     init() {}
 
     func beginDragging(tabId: UUID) {
         draggedTabId = tabId
         clearDropIndicator()
+        originatedActiveDrag = true
+        SidebarWorkspaceDragRegistry.begin(workspaceId: tabId)
     }
 
     func setDropIndicator(_ indicator: SidebarDropIndicator?, usesTopLevelRows: Bool = false) {
@@ -10335,8 +10344,49 @@ final class SidebarDragState {
     }
 
     func clearDrag() {
+        if originatedActiveDrag, let draggedTabId {
+            SidebarWorkspaceDragRegistry.end(workspaceId: draggedTabId)
+        }
+        originatedActiveDrag = false
         draggedTabId = nil
         clearDropIndicator()
+    }
+}
+
+/// Process-wide identity of the workspace currently being dragged in any
+/// window's sidebar.
+///
+/// A sidebar drag is a single, process-global event: at most one workspace is
+/// being dragged at a time. The originating window records it here synchronously
+/// at drag start (``SidebarDragState/beginDragging(tabId:)``) and clears it when
+/// that drag ends. A *destination* window — which has no local
+/// ``SidebarDragState/draggedTabId`` because the drag began elsewhere — reads
+/// this to resolve the dragged workspace for a cross-window move.
+///
+/// This is deliberately not sourced from `NSPasteboard(name: .drag)`: SwiftUI's
+/// `.onDrag` registers the payload through an `NSItemProvider` whose data
+/// representation is delivered asynchronously, so a synchronous pasteboard read
+/// inside a `DropDelegate` can race and return `nil`. A plain in-process value,
+/// set synchronously on the main actor, has no such materialization race.
+@MainActor
+enum SidebarWorkspaceDragRegistry {
+    private static var activeWorkspaceId: UUID?
+
+    /// The workspace currently being sidebar-dragged anywhere in the process,
+    /// or `nil` when no sidebar drag is in flight.
+    static var currentWorkspaceId: UUID? { activeWorkspaceId }
+
+    /// Record the start of a sidebar drag. Called by the originating window.
+    static func begin(workspaceId: UUID) {
+        activeWorkspaceId = workspaceId
+    }
+
+    /// Clear the active drag, but only if `workspaceId` still matches the
+    /// in-flight drag, so a stale clear from a superseded drag is a no-op.
+    static func end(workspaceId: UUID) {
+        if activeWorkspaceId == workspaceId {
+            activeWorkspaceId = nil
+        }
     }
 }
 
@@ -17358,30 +17408,6 @@ enum SidebarTabDragPayload {
         return provider
     }
 
-    /// The workspace id of the in-flight sidebar drag, read synchronously from
-    /// the drag pasteboard.
-    ///
-    /// This is the authoritative identity of a sidebar workspace drag in *any*
-    /// window — including a drag that began in a different window, whose
-    /// `SidebarDragState.draggedTabId` is therefore only set in the originating
-    /// window. A destination window's drop delegate reads this so it can act on
-    /// a workspace it does not yet own (cross-window move).
-    static func currentDraggedWorkspaceId() -> UUID? {
-        workspaceId(from: NSPasteboard(name: .drag))
-    }
-
-    static func workspaceId(from pasteboard: NSPasteboard) -> UUID? {
-        let type = NSPasteboard.PasteboardType(typeIdentifier)
-        let raw: String?
-        if let data = pasteboard.data(forType: type) {
-            raw = String(data: data, encoding: .utf8)
-        } else {
-            raw = pasteboard.string(forType: type)
-        }
-        guard let raw, raw.hasPrefix(prefix) else { return nil }
-        return UUID(uuidString: String(raw.dropFirst(prefix.count)))
-    }
-
 }
 
 enum BonsplitTabDragPayload {
@@ -17546,13 +17572,13 @@ struct SidebarTabDropDelegate: DropDelegate {
     let dragAutoScrollController: SidebarDragAutoScrollController
 
     /// The identity of the workspace being dragged, resolved from this window's
-    /// `SidebarDragState` first and falling back to the drag pasteboard for a
-    /// drag that originated in another window. This single resolver is the one
-    /// source of truth the drop path keys on, so an intra-window reorder and a
-    /// cross-window move share the same code instead of forking into parallel
-    /// drop delegates.
+    /// `SidebarDragState` first and falling back to the process-wide
+    /// ``SidebarWorkspaceDragRegistry`` for a drag that originated in another
+    /// window. This single resolver is the one source of truth the drop path
+    /// keys on, so an intra-window reorder and a cross-window move share the same
+    /// code instead of forking into parallel drop delegates.
     private var effectiveDraggedTabId: UUID? {
-        dragState.draggedTabId ?? SidebarTabDragPayload.currentDraggedWorkspaceId()
+        dragState.draggedTabId ?? SidebarWorkspaceDragRegistry.currentWorkspaceId
     }
 
     /// Whether `draggedTabId` belongs to a *different* window than this drop
@@ -17625,7 +17651,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     /// mouse-up (and `performDrop` clears it on a successful drop).
     private func activateForeignDragIfNeeded() {
         guard dragState.draggedTabId == nil,
-              let foreignId = SidebarTabDragPayload.currentDraggedWorkspaceId(),
+              let foreignId = SidebarWorkspaceDragRegistry.currentWorkspaceId,
               isCrossWindowDrag(foreignId),
               !isCrossWindowGroupAnchorDrag(foreignId) else { return }
         dragState.draggedTabId = foreignId
