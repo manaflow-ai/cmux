@@ -132,9 +132,10 @@ public actor UserDefaultsSettingsStore {
                     continuation.finish()
                     return
                 }
-                var lastYielded = await self.value(for: key)
-                continuation.yield(lastYielded)
-
+                // Subscribe before the first read so a write landing in the gap
+                // signals this consumer (it would be missed if we yielded the
+                // initial value before registering). A change between subscribe
+                // and read buffers a signal that re-reads and dedups below.
                 let id = UUID()
                 // bufferingNewest(1): the signal carries no payload, so a burst
                 // of UserDefaults writes coalesces to a single wake; the typed
@@ -143,6 +144,9 @@ public actor UserDefaultsSettingsStore {
                     bufferingPolicy: .bufferingNewest(1)
                 )
                 await self.addSubscriber(id: id, continuation: signalContinuation)
+
+                var lastYielded = await self.value(for: key)
+                continuation.yield(lastYielded)
 
                 for await _ in signal {
                     if Task.isCancelled { break }

@@ -138,14 +138,18 @@ public actor SecretFileStore {
                     continuation.finish()
                     return
                 }
-                var lastYielded = (try? await self.value(for: key)) ?? key.defaultValue
-                continuation.yield(lastYielded)
-
+                // Subscribe before the first read so a set/reset landing in the
+                // gap signals this consumer (it would be missed if we yielded the
+                // initial value before registering). A change between subscribe
+                // and read buffers a signal that re-reads and dedups below.
                 let id = UUID()
                 let (signal, signalContinuation) = AsyncStream<Void>.makeStream(
                     bufferingPolicy: .bufferingNewest(1)
                 )
                 await self.addSubscriber(id: id, continuation: signalContinuation)
+
+                var lastYielded = (try? await self.value(for: key)) ?? key.defaultValue
+                continuation.yield(lastYielded)
 
                 for await _ in signal {
                     if Task.isCancelled { break }

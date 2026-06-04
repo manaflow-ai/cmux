@@ -50,13 +50,19 @@ import Testing
         let catalog = SettingCatalog()
 
         // Simulate many host-view remounts: spin a consumer up and tear it down.
-        for _ in 0..<50 {
+        for cycle in 0..<50 {
             let consumer = Task {
                 for await _ in store.values(for: catalog.app.appearance) {}
             }
-            _ = await eventually { await store.activeSubscriberCount >= 1 }
+            #expect(
+                await eventually { await store.activeSubscriberCount >= 1 },
+                "cycle \(cycle): consumer never registered"
+            )
             consumer.cancel()
-            _ = await eventually { await store.activeSubscriberCount == 0 }
+            #expect(
+                await eventually { await store.activeSubscriberCount == 0 },
+                "cycle \(cycle): consumer did not deregister on cancel"
+            )
         }
 
         #expect(await eventually { await store.activeSubscriberCount == 0 })
