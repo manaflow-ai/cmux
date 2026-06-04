@@ -7468,6 +7468,10 @@ const corePaletteCommandIds = new Set([
   "terminal.splitDown",
   "terminal.duplicate",
   "terminal.find",
+  "terminal.findNext",
+  "terminal.findPrevious",
+  "terminal.copySelection",
+  "terminal.pasteClipboard",
   "terminal.clear",
   "terminal.restart",
   "terminal.close",
@@ -7555,6 +7559,11 @@ function coreCommandPaletteSignature() {
   appendSignatureValue(parts, terminalPanel ? panelDisplayTitle(terminalPanel, true) : "");
   appendSignatureValue(parts, terminalPanel?.cwdShort || terminalPanel?.cwd || "");
   appendSignatureValue(parts, isPendingPanel(terminalPanel));
+  const terminalSession = terminalPanel ? state.terminals.get(terminalPanel.id) : null;
+  appendSignatureValue(parts, Boolean(terminalSession));
+  appendSignatureValue(parts, terminalSession?.searchTerm || "");
+  appendSignatureValue(parts, Boolean(terminalSession?.searchOverlay?.hidden));
+  appendSignatureValue(parts, terminalSession?.term?.getSelection?.()?.length || 0);
   appendSignatureValue(parts, savedSettingsProfilesFull());
   appendSignatureValue(parts, state.browserTabSnapshots.size);
   appendSignatureValue(parts, browserTabSnapshotCount());
@@ -7989,7 +7998,41 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       search: `settings active pane ${shortcutById[commandId]} setup look rename copy paste reset sync default color background text url ${panelTitle} ${panelKind}`
     };
   }
-  if (["terminal.find", "terminal.clear", "terminal.restart", "terminal.fontUp", "terminal.fontDown", "terminal.fontReset"].includes(commandId)) {
+  if (["terminal.find", "terminal.findNext", "terminal.findPrevious", "terminal.copySelection", "terminal.pasteClipboard"].includes(commandId)) {
+    const terminalTitle = terminalPanel ? panelDisplayTitle(terminalPanel, true) : "No terminal";
+    const terminalSession = terminalPanel ? state.terminals.get(terminalPanel.id) : null;
+    const terminalReady = Boolean(terminalPanel && terminalSession && !isPendingPanel(terminalPanel));
+    const searchOpen = Boolean(terminalSession && !terminalSession.searchOverlay?.hidden);
+    const searchTerm = terminalSession?.searchTerm || "";
+    const selectionLength = terminalSession?.term?.getSelection?.()?.length || 0;
+    const terminalMeta = terminalReady
+      ? `${terminalTitle}${searchTerm ? ` / Find "${searchTerm}"` : ""}`
+      : "No active terminal";
+    const disabled = !terminalReady || (commandId === "terminal.copySelection" && selectionLength === 0);
+    const titleById = {
+      "terminal.find": searchOpen ? "Focus the active terminal search." : "Open search in the active terminal.",
+      "terminal.findNext": searchTerm ? "Jump to the next terminal search match." : "Open terminal search and enter a query.",
+      "terminal.findPrevious": searchTerm ? "Jump to the previous terminal search match." : "Open terminal search and enter a query.",
+      "terminal.copySelection": selectionLength ? `Copy ${selectionLength} selected character${selectionLength === 1 ? "" : "s"} from the active terminal.` : "Select terminal text first.",
+      "terminal.pasteClipboard": "Paste clipboard text into the active terminal."
+    };
+    const shortcutById = {
+      "terminal.find": "Find",
+      "terminal.findNext": "Next",
+      "terminal.findPrevious": "Prev",
+      "terminal.copySelection": "Copy",
+      "terminal.pasteClipboard": "Paste"
+    };
+    return {
+      meta: terminalMeta,
+      shortcut: shortcutById[commandId],
+      disabled,
+      icon: "terminal",
+      title: terminalReady ? titleById[commandId] : terminalPanel ? "Terminal is not ready." : "Focus a terminal pane first.",
+      search: normalizeSettingsQuery(`active terminal clipboard search find selection copy paste ${terminalTitle} ${searchTerm} ${selectionLength}`)
+    };
+  }
+  if (["terminal.clear", "terminal.restart", "terminal.fontUp", "terminal.fontDown", "terminal.fontReset"].includes(commandId)) {
     const terminalTitle = terminalPanel ? panelDisplayTitle(terminalPanel, true) : "No terminal";
     return {
       meta: terminalTitle,
