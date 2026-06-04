@@ -51,6 +51,7 @@ ISOLATED_RUNNER_PATTERNS=(
   "build-for-testing"
   "test-without-building"
   '-only-testing:"cmuxTests/$class"'
+  'env -u SSH_AUTH_SOCK'
   'HOME="$test_home"'
   'CFFIXED_USER_HOME="$test_home"'
   'RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo"'

@@ -112,7 +112,8 @@ run_one_class() {
   mkdir -p "$test_home"
 
   set +e
-  HOME="$test_home" RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo" CFFIXED_USER_HOME="$test_home" \
+  env -u SSH_AUTH_SOCK \
+    HOME="$test_home" RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo" CFFIXED_USER_HOME="$test_home" \
     scripts/ci/xcodebuild_noninteractive.py \
       xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \

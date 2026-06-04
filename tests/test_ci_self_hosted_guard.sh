@@ -579,6 +579,7 @@ check_cmux_unit_isolated_runner() {
     "test-without-building" \
     '-derivedDataPath "$DERIVED_DATA_PATH"' \
     '-only-testing:"cmuxTests/$class"' \
+    'env -u SSH_AUTH_SOCK' \
     'HOME="$test_home"' \
     'CFFIXED_USER_HOME="$test_home"' \
     'RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo"' \
