@@ -29165,8 +29165,9 @@ function applyBackgroundPreset(preset, options = {}) {
 function savedBackgroundImagesPanel() {
   const panel = document.createElement("div");
   panel.className = "saved-background-panel";
-  const targetStatus = activeBackgroundTargetStatus();
-  const addTargetOption = backgroundApplyTargetOption(targetStatus.scope);
+  const workspace = activeWorkspace();
+  const targetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
+  const addTargetOption = backgroundApplyTargetOption(targetStatus.scope, workspace);
   const targetLabel = backgroundApplyTargetActionLabel(targetStatus.scope);
   const savedCountLabel = `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved backgrounds`;
   const libraryFull = savedBackgroundImagesFull();
@@ -29264,6 +29265,10 @@ function savedBackgroundImagesPanel() {
   const saveBackgroundSet = settingsActionButton("Save current set", () => saveCurrentBackgroundSetToLibrary(), "", `saved background image current set app terminal panes reusable library ${backgroundSetModel.search}`);
   saveBackgroundSet.disabled = backgroundSetModel.disabled;
   saveBackgroundSet.title = backgroundSetModel.title;
+  const currentEverywhere = currentBackgroundEverywhereModel(targetStatus.scope, workspace);
+  const applyEverywhere = settingsActionButton("Apply everywhere", () => applyCurrentBackgroundEverywhere(state.backgroundApplyTarget, workspace), "", `saved background current target apply everywhere app whole window terminal panes all ${currentEverywhere.search}`);
+  applyEverywhere.disabled = currentEverywhere.disabled;
+  applyEverywhere.title = currentEverywhere.title;
   const pasteSave = settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input, target: () => state.backgroundApplyTarget, save: true }), "", "saved background image paste clipboard copied image apply save selected target wallpaper");
   applyUnknownBackgroundSaveLimit(pasteSave, `Paste, apply, and save an image to ${targetLabel}`);
   const chooseSave = settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "saved background image choose local file selected target wallpaper");
@@ -29279,6 +29284,7 @@ function savedBackgroundImagesPanel() {
     applyAndSave,
     saveCurrent,
     saveBackgroundSet,
+    applyEverywhere,
     pasteSave,
     chooseSave,
     copyLibrary,
@@ -29298,7 +29304,6 @@ function savedBackgroundImagesPanel() {
 
   const list = document.createElement("div");
   list.className = "saved-background-list";
-  const workspace = activeWorkspace();
   const activeTerminal = activeTerminalPanelForSettings();
   const terminalPanels = workspaceTerminalPanels(workspace);
   const hasTerminalPanes = terminalPanels.length > 0;
