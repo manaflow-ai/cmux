@@ -29964,9 +29964,10 @@ function paletteEntries() {
     });
   }
   for (const [workspaceIndex, workspace] of (state.data?.workspaces || []).entries()) {
+    const workspaceLabel = workspace.title || "Workspace";
     entries.push({
       id: `workspace.${workspace.id}`,
-      label: workspace.title || "Workspace",
+      label: workspaceLabel,
       meta: workspace.cwdShort || workspace.cwd || "",
       shortcut: "Workspace",
       search: normalizeSettingsQuery(`workspace ${workspaceIndex + 1} ${workspace.title} ${workspace.cwdShort} ${workspace.cwd}`),
@@ -29975,7 +29976,7 @@ function paletteEntries() {
     if (workspace.cwd) {
       entries.push({
         id: `workspace.folder.${workspace.id}`,
-        label: `Open folder: ${workspace.title || "Workspace"}`,
+        label: `Open folder: ${workspaceLabel}`,
         meta: workspace.cwdShort || workspace.cwd,
         shortcut: "Folder",
         search: normalizeSettingsQuery(`open folder explorer directory workspace ${workspaceIndex + 1} ${workspace.title} ${workspace.cwdShort} ${workspace.cwd}`),
@@ -29984,15 +29985,55 @@ function paletteEntries() {
     }
     entries.push({
       id: `workspace.changeFolder.${workspace.id}`,
-      label: `Change folder: ${workspace.title || "Workspace"}`,
+      label: `Change folder: ${workspaceLabel}`,
       meta: workspace.cwdShort || workspace.cwd || "",
       shortcut: "Folder",
       search: normalizeSettingsQuery(`change choose set folder directory cwd workspace ${workspaceIndex + 1} ${workspace.title} ${workspace.cwdShort} ${workspace.cwd}`),
       run: () => chooseWorkspaceFolder(workspace)
     });
+    const folderTitle = workspace.cwd ? folderName(workspace.cwd) : "";
+    const paneTitle = workspace.panels?.length ? workspacePaneSuggestedTitle(workspace) : "";
+    entries.push({
+      id: `workspace.useFolderName.${workspace.id}`,
+      label: `Use folder name: ${workspaceLabel}`,
+      meta: folderTitle || "No folder",
+      shortcut: "Name",
+      disabled: !folderTitle || folderTitle === workspace.title,
+      title: !folderTitle
+        ? "Set a workspace folder before using its name."
+        : folderTitle === workspace.title
+          ? "Workspace already uses the folder name."
+          : "Rename this workspace from its folder.",
+      search: normalizeSettingsQuery(`workspace rename use folder name title directory cwd ${workspaceIndex + 1} ${workspace.title} ${folderTitle} ${workspace.cwdShort} ${workspace.cwd}`),
+      run: async () => {
+        if (!folderTitle) return false;
+        const changed = await renameWorkspaceTo(folderTitle, workspace.id);
+        toast(changed ? "Workspace name set from folder." : "Workspace already uses the folder name.");
+        return changed;
+      }
+    });
+    entries.push({
+      id: `workspace.usePaneName.${workspace.id}`,
+      label: `Use pane name: ${workspaceLabel}`,
+      meta: paneTitle || "No pane",
+      shortcut: "Name",
+      disabled: !paneTitle || paneTitle === workspace.title,
+      title: !paneTitle
+        ? "Open or rename a pane before using it as the workspace name."
+        : paneTitle === workspace.title
+          ? "Workspace already uses the active pane name."
+          : "Rename this workspace from its active pane.",
+      search: normalizeSettingsQuery(`workspace rename use active pane name title terminal browser tab ${workspaceIndex + 1} ${workspace.title} ${paneTitle}`),
+      run: async () => {
+        if (!paneTitle) return false;
+        const changed = await renameWorkspaceTo(paneTitle, workspace.id);
+        toast(changed ? "Workspace name set from the active pane." : "Workspace already uses the active pane name.");
+        return changed;
+      }
+    });
     entries.push({
       id: `workspace.copySetup.${workspace.id}`,
-      label: `Copy setup: ${workspace.title || "Workspace"}`,
+      label: `Copy setup: ${workspaceLabel}`,
       meta: workspace.cwdShort || workspace.cwd || "No folder",
       shortcut: "Copy",
       title: "Copy this workspace name, color, and folder as JSON.",
@@ -30001,7 +30042,7 @@ function paletteEntries() {
     });
     entries.push({
       id: `workspace.pasteSetup.${workspace.id}`,
-      label: `Paste setup: ${workspace.title || "Workspace"}`,
+      label: `Paste setup: ${workspaceLabel}`,
       meta: workspace.cwdShort || workspace.cwd || "No folder",
       shortcut: "Paste",
       title: "Apply copied cmux workspace setup to this workspace.",
