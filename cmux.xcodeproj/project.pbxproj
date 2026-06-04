@@ -565,6 +565,7 @@
 		A5001208 /* UpdateTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001218 /* UpdateTitlebarAccessory.swift */; };
 		B35750000000000000000006 /* VaultAgentProcessScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000005 /* VaultAgentProcessScanner.swift */; };
 		B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000001 /* VaultAgentRegistry.swift */; };
+		C0DE29190000000000000001 /* HorizontalTabsSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE29190000000000000002 /* HorizontalTabsSidebar.swift */; };
 		C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */; };
 		ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */; };
 		ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */; };
@@ -1208,6 +1209,7 @@
 		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
 			B35750000000000000000005 /* VaultAgentProcessScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentProcessScanner.swift; sourceTree = "<group>"; };
 		B35750000000000000000001 /* VaultAgentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentRegistry.swift; sourceTree = "<group>"; };
+		C0DE29190000000000000002 /* HorizontalTabsSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HorizontalTabsSidebar.swift; sourceTree = "<group>"; };
 		C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VerticalTabsSidebar+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClient.swift; sourceTree = "<group>"; };
 		9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientSocketCommands.swift; sourceTree = "<group>"; };
@@ -1513,6 +1515,7 @@
 				D5037010000000000000002 /* RenderableSystemSymbol.swift */,
 				C9A57202C9A57202C9A57202 /* SidebarWorkspaceRenderItem.swift */,
 				C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */,
+				C0DE29190000000000000002 /* HorizontalTabsSidebar.swift */,
 				C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */,
 				C9A57204C9A57204C9A57204 /* WorkspaceGroupMenuSnapshot.swift */,
 				C0DEF0A30000000000000002 /* SidebarPortDisplayText.swift */,
@@ -2650,6 +2653,7 @@
 				A5001208 /* UpdateTitlebarAccessory.swift in Sources */,
 				B35750000000000000000006 /* VaultAgentProcessScanner.swift in Sources */,
 				B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */,
+				C0DE29190000000000000001 /* HorizontalTabsSidebar.swift in Sources */,
 				C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
