@@ -17506,6 +17506,21 @@ function editablePaneTitle(panel) {
   return panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal");
 }
 
+function paneTitleSuggestion(panel, workspace = activeWorkspace()) {
+  if (!panel) return "";
+  if (panel.type === "browser") {
+    const url = browserPanelUrl(panel) || panel.url || state.settings.browserHomeUrl;
+    return hostnameOf(url) || "Browser";
+  }
+  const candidates = [
+    panel.cwd,
+    workspace?.cwd,
+    panel.cwdShort,
+    workspace?.cwdShort
+  ].map((value) => (value ? folderName(value) : ""));
+  return candidates.find((candidate) => candidate && candidate !== "~" && candidate !== "Workspace") || "Terminal";
+}
+
 const paneSetupPresetDefinitions = [
   {
     id: "terminalFocusShell",
@@ -17813,9 +17828,11 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     return true;
   };
   let titleSave = null;
+  let titleSuggest = null;
   let titleReset = null;
   const updatePaneTitleActions = () => {
     const nextTitle = titleInput.value.trim();
+    const suggestion = paneTitleSuggestion(panel, workspace);
     if (titleSave) {
       titleSave.disabled = !nextTitle || nextTitle === currentPaneTitle();
       titleSave.title = !nextTitle
@@ -17827,6 +17844,14 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     if (titleReset) {
       titleReset.disabled = !panel.titleLocked;
       titleReset.title = panel.titleLocked ? "Restore the automatic pane name." : "Pane already uses the automatic name.";
+    }
+    if (titleSuggest) {
+      titleSuggest.disabled = !suggestion || suggestion === currentPaneTitle();
+      titleSuggest.title = !suggestion
+        ? "No pane name suggestion is available."
+        : suggestion === currentPaneTitle()
+          ? "Suggested pane name is already current."
+          : `Save "${suggestion}" as the pane name.`;
     }
   };
   const refreshPaneTitleActionsAfterButton = () => {
@@ -17853,6 +17878,18 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     refreshPaneTitleActionsAfterButton();
     return changed;
   }, "primary", "active pane rename save tab title");
+  const titleSuggestLabel = panel.type === "browser" ? "Use page" : "Use folder";
+  titleSuggest = settingsActionButton(titleSuggestLabel, async () => {
+    const suggestion = paneTitleSuggestion(panel, workspace);
+    if (!suggestion) {
+      toast("No pane name suggestion is available.");
+      return false;
+    }
+    titleInput.value = suggestion;
+    const changed = await savePaneTitleInput({ toast: true });
+    refreshPaneTitleActionsAfterButton();
+    return changed;
+  }, "", `active pane rename suggested ${panel.type === "browser" ? "page host url browser" : "folder cwd directory terminal"}`);
   titleReset = settingsActionButton("Default", async () => {
     const changed = Boolean(panel.titleLocked);
     titleInput.value = defaultPaneTitle();
@@ -17863,9 +17900,9 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
   }, "", "active pane rename default automatic title clear");
   const titleControl = document.createElement("span");
   titleControl.className = "active-pane-title-control";
-  titleControl.append(titleInput, titleSave, titleReset);
+  titleControl.append(titleInput, titleSave, titleSuggest, titleReset);
   updatePaneTitleActions();
-  wrapper.append(settingRow("Pane name", titleControl, false, "active pane rename save tab title default automatic clear"));
+  wrapper.append(settingRow("Pane name", titleControl, true, "active pane rename save tab title suggested folder page host cwd default automatic clear"));
 
   const paneSizeControl = paneShapePanel(workspace);
   paneSizeControl.classList.add("is-embedded");

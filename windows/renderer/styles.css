@@ -7292,7 +7292,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .active-pane-title-control {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(58px, auto) minmax(74px, auto);
+  grid-template-columns: minmax(0, 1fr) minmax(58px, auto) minmax(82px, auto) minmax(74px, auto);
   align-items: center;
   gap: var(--space-1);
 }
