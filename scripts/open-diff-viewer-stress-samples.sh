@@ -19,7 +19,9 @@ Samples:
 
 Environment:
   CMUX_WORKSPACE_ID and CMUX_SURFACE_ID choose the target workspace/surface.
-  CMUX_DIFF_STRESS_ROOT overrides the clone cache root.
+  CMUX_DIFF_STRESS_ROOT overrides the clone cache root. Each sample family gets
+  its own parent directory so the normal cmux repo switcher does not treat
+  unrelated stress repos as sibling production repos.
 EOF
 }
 
@@ -74,9 +76,9 @@ sample_repo() {
 
 sample_dir() {
   case "$1" in
-    bun-rust) echo "bun" ;;
-    node-v8|node-v8-14-1) echo "node" ;;
-    linux-v6) echo "linux" ;;
+    bun-rust) echo "bun-rust/bun" ;;
+    node-v8|node-v8-14-1) echo "node/node" ;;
+    linux-v6) echo "linux-v6/linux" ;;
     *) return 1 ;;
   esac
 }
