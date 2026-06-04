@@ -34,11 +34,36 @@ public struct AnySettingKey: Sendable {
         case secretFile(fileName: String)
     }
 
+    /// A comparable fingerprint of a `UserDefaults`-backed entry's value
+    /// contract: the `Value` type it decodes as and the default it falls back
+    /// to (rendered in its `UserDefaults`-encoded form).
+    ///
+    /// The catalog intentionally surfaces some storage keys under two ids so
+    /// that two settings UIs stay in sync on one stored value. That aliasing is
+    /// fine *only* while both entries agree on this contract — if they
+    /// disagreed on `Value` type or default value, reading through one surface
+    /// would mis-decode or return a different fallback than the other. The
+    /// concrete `Value` type is erased by ``AnySettingKey``, so the contract is
+    /// captured at construction to make that agreement checkable.
+    public struct UserDefaultsValueContract: Sendable, Hashable {
+        /// Fully-qualified name of the entry's `Value` type.
+        public let valueTypeName: String
+
+        /// The entry's default value, rendered in its `UserDefaults`-encoded
+        /// representation.
+        public let defaultStorageRepresentation: String
+    }
+
     /// The dotted identifier from the underlying key.
     public let id: String
 
     /// Where the underlying key persists, plus backend-specific metadata.
     public let kind: Kind
+
+    /// The value contract for a ``Kind/userDefaults`` entry, or `nil` for
+    /// ``Kind/jsonConfig`` / ``Kind/secretFile`` entries. Captured at
+    /// construction because ``AnySettingKey`` erases the underlying `Value`.
+    public let userDefaultsValueContract: UserDefaultsValueContract?
 
     /// Runs legacy-key migration for this entry against a `UserDefaults`
     /// suite. The closure was captured with the underlying `Value` type, so
@@ -64,6 +89,10 @@ public struct AnySettingKey: Sendable {
             suite: key.suite,
             legacyKeys: key.legacyUserDefaultsKeys
         )
+        self.userDefaultsValueContract = UserDefaultsValueContract(
+            valueTypeName: String(reflecting: Value.self),
+            defaultStorageRepresentation: String(describing: key.defaultValue.encodeForUserDefaults())
+        )
         self.migrateUserDefaultsLegacyKeys = { defaults in
             AnySettingKey.migrateLegacyDefaultsKey(key, defaults: defaults)
         }
@@ -74,6 +103,7 @@ public struct AnySettingKey: Sendable {
     public init<Value>(_ key: JSONKey<Value>) {
         self.id = key.id
         self.kind = .jsonConfig
+        self.userDefaultsValueContract = nil
         self.migrateUserDefaultsLegacyKeys = { _ in }
         self.resetInJSON = { store in
             try? await store.reset(key)
@@ -86,6 +116,7 @@ public struct AnySettingKey: Sendable {
     public init(_ key: SecretFileKey) {
         self.id = key.id
         self.kind = .secretFile(fileName: key.fileName)
+        self.userDefaultsValueContract = nil
         self.migrateUserDefaultsLegacyKeys = { _ in }
         self.resetInJSON = { _ in }
     }

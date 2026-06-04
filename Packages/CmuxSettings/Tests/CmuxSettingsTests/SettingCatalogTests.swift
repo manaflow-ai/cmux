@@ -9,12 +9,49 @@ struct SettingCatalogTests {
         #expect(ids.count == Set(ids).count)
     }
 
-    @Test func userDefaultsStorageKeysAreUnique() {
-        let keys = SettingCatalog().all.compactMap { entry -> String? in
-            if case let .userDefaults(key, _, _) = entry.kind { return key }
-            return nil
+    @Test func aliasedUserDefaultsKeysAgreeOnValueContract() {
+        // The catalog deliberately surfaces some UserDefaults storage keys
+        // under two ids (the `automation.*` ↔ `integrations.*` reorg and the
+        // `sidebar.*` ↔ `workspaceColors.*` pairs) so two settings UIs stay in
+        // sync on one stored value. That aliasing is intentional, so a global
+        // "every storage key is unique" assertion is wrong. The real hazard is
+        // two entries sharing a (key, suite) while disagreeing on Value type or
+        // default — that lets one surface clobber or mis-decode the other.
+        // Assert agreement on the value contract instead of uniqueness.
+        var contractByStorageKey: [String: AnySettingKey.UserDefaultsValueContract] = [:]
+        for entry in SettingCatalog().all {
+            guard case let .userDefaults(key, suite, _) = entry.kind,
+                  let contract = entry.userDefaultsValueContract else { continue }
+            let storageKey = "\(suite ?? "standard")::\(key)"
+            if let existing = contractByStorageKey[storageKey] {
+                #expect(
+                    existing == contract,
+                    "UserDefaults key \(storageKey) is aliased by catalog entries that disagree on value contract: \(existing) vs \(contract)"
+                )
+            } else {
+                contractByStorageKey[storageKey] = contract
+            }
         }
-        #expect(keys.count == Set(keys).count)
+    }
+
+    @Test func valueContractDistinguishesDisagreeingAliases() {
+        // Guards that the contract above has teeth: two entries on one storage
+        // key must produce different contracts when their default or Value type
+        // differs, and equal contracts when their declarations match. Without
+        // this, `aliasedUserDefaultsKeysAgreeOnValueContract` could pass
+        // vacuously even if a real disagreement were introduced.
+        let base = AnySettingKey(
+            DefaultsKey<Bool>(id: "test.a", defaultValue: false, userDefaultsKey: "shared"))
+        let differentDefault = AnySettingKey(
+            DefaultsKey<Bool>(id: "test.b", defaultValue: true, userDefaultsKey: "shared"))
+        let differentType = AnySettingKey(
+            DefaultsKey<String>(id: "test.c", defaultValue: "", userDefaultsKey: "shared"))
+        let matching = AnySettingKey(
+            DefaultsKey<Bool>(id: "test.d", defaultValue: false, userDefaultsKey: "shared"))
+
+        #expect(base.userDefaultsValueContract != differentDefault.userDefaultsValueContract)
+        #expect(base.userDefaultsValueContract != differentType.userDefaultsValueContract)
+        #expect(base.userDefaultsValueContract == matching.userDefaultsValueContract)
     }
 
     @Test func jsonBackedKeysUseTheirIdAsPath() {
