@@ -56,9 +56,9 @@ struct CLIHookNoResponseTests {
         ]
 
         for testCase in cases {
-            let cliPath = try bundledCLIPath()
-            let socketPath = makeSocketPath("feed-no-reply-\(testCase.source.prefix(6))")
-            let listenerFD = try bindUnixSocket(at: socketPath, backlog: 1)
+            let cliPath = try Self.bundledCLIPath()
+            let socketPath = Self.makeSocketPath("feed-no-reply-\(testCase.source.prefix(6))")
+            let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 1)
             let state = MockSocketServerState()
             let root = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-feed-no-reply-\(testCase.source)-\(UUID().uuidString)", isDirectory: true)
@@ -70,16 +70,16 @@ struct CLIHookNoResponseTests {
                 try? FileManager.default.removeItem(at: root)
             }
 
-            let server = startMockServerAllowingNoResponse(
+            let server = Self.startMockServerAllowingNoResponse(
                 listenerFD: listenerFD,
                 state: state,
                 fulfillWhen: { line in
-                    jsonObject(line)?["method"] as? String == "feed.push"
+                    Self.jsonObject(line)?["method"] as? String == "feed.push"
                 }
             ) { line in
-                guard let payload = jsonObject(line),
+                guard let payload = Self.jsonObject(line),
                       payload["method"] as? String == "feed.push" else {
-                    return malformedRequestResponse(raw: line)
+                    return Self.malformedRequestResponse(raw: line)
                 }
                 return nil
             }
@@ -98,7 +98,7 @@ struct CLIHookNoResponseTests {
             let input = """
             {"hook_event_name":"\(testCase.event)","session_id":"\(testCase.source)-session-123","cwd":"\(root.path)","tool_name":"\(testCase.toolName)","tool_input":{"path":"\(root.appendingPathComponent("README.md").path)"}}
             """
-            let result = runProcess(
+            let result = Self.runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "feed", "--source", testCase.source, "--event", testCase.event],
                 environment: environment,
@@ -115,9 +115,9 @@ struct CLIHookNoResponseTests {
     }
 
     @Test func genericLifecycleFeedTelemetryDoesNotWaitForSocketResponse() throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("generic-lifecycle-no-response")
-        let listenerFD = try bindUnixSocket(at: socketPath, backlog: 8)
+        let cliPath = try Self.bundledCLIPath()
+        let socketPath = Self.makeSocketPath("generic-lifecycle-no-response")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 8)
         let state = MockSocketServerState()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-kiro-lifecycle-no-response-\(UUID().uuidString)", isDirectory: true)
@@ -131,40 +131,40 @@ struct CLIHookNoResponseTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let server = startMultiConnectionMockServerAllowingNoResponse(
+        let server = Self.startMultiConnectionMockServerAllowingNoResponse(
             listenerFD: listenerFD,
             state: state,
             connectionLimit: 8,
             fulfillWhen: { line in
-                jsonObject(line)?["method"] as? String == "feed.push"
+                Self.jsonObject(line)?["method"] as? String == "feed.push"
             }
         ) { line in
-            guard let payload = jsonObject(line) else {
+            guard let payload = Self.jsonObject(line) else {
                 return "OK"
             }
             guard let method = payload["method"] as? String else {
-                return malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                return Self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
             }
             if method == "feed.push" {
                 return nil
             }
             guard let id = payload["id"] as? String else {
-                return malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                return Self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
             }
             switch method {
             case "surface.list":
-                return surfaceListResponse(id: id, surfaceId: surfaceId)
+                return Self.surfaceListResponse(id: id, surfaceId: surfaceId)
             case "surface.resume.set":
-                return v2Response(id: id, ok: true, result: ["ok": true])
+                return Self.v2Response(id: id, ok: true, result: ["ok": true])
             default:
-                return v2Response(id: id, ok: false, error: [
+                return Self.v2Response(id: id, ok: false, error: [
                     "code": "unrecognized_method",
                     "message": "unexpected method: \(method)",
                 ])
             }
         }
 
-        let result = runProcess(
+        let result = Self.runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "kiro", "session-start"],
             environment: [
@@ -177,7 +177,7 @@ struct CLIHookNoResponseTests {
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_AGENT_LAUNCH_KIND": "kiro",
                 "CMUX_AGENT_LAUNCH_EXECUTABLE": "/Users/example/.cargo/bin/kiro-cli",
-                "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                "CMUX_AGENT_LAUNCH_ARGV_B64": Self.base64NULSeparated([
                     "/Users/example/.cargo/bin/kiro-cli",
                     "chat",
                     "--agent",
