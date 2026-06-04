@@ -664,6 +664,7 @@ final class CmuxMainThreadTurnProfiler {
 }
 #endif
 
+// Sendable because every access to `generation` is serialized by `lock`.
 final class SessionPersistenceWriteGate: @unchecked Sendable {
     private let lock = NSLock()
     private var generation: UInt64 = 0
