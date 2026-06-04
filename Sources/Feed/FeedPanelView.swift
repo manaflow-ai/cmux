@@ -51,6 +51,20 @@ private extension WorkstreamExitPlanMode {
 /// user flips the Actionable / All filter. Rows receive immutable
 /// snapshots + closure action bundles only (snapshot-boundary rule).
 struct FeedPanelView: View {
+    enum Placement {
+        case rightSidebar
+        case pane
+
+        var registersWithKeyboardFocusCoordinator: Bool {
+            switch self {
+            case .rightSidebar:
+                return true
+            case .pane:
+                return false
+            }
+        }
+    }
+
     enum Filter: String, CaseIterable, Identifiable {
         case actionable
         case activity
@@ -73,6 +87,11 @@ struct FeedPanelView: View {
 
     @State private var filter: Filter = .actionable
     @StateObject private var viewModel = FeedPanelViewModel()
+    let placement: Placement
+
+    init(placement: Placement = .rightSidebar) {
+        self.placement = placement
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,6 +101,7 @@ struct FeedPanelView: View {
                 items: viewModel.items,
                 hasMorePersistedItems: viewModel.hasMorePersistedItems,
                 isLoadingOlderItems: viewModel.isLoadingOlderItems,
+                registersWithKeyboardFocusCoordinator: placement.registersWithKeyboardFocusCoordinator,
                 onLoadOlderItems: viewModel.loadOlderItems
             )
         }
@@ -167,6 +187,7 @@ private struct FeedListView: View {
     let items: [WorkstreamItem]
     let hasMorePersistedItems: Bool
     let isLoadingOlderItems: Bool
+    let registersWithKeyboardFocusCoordinator: Bool
     let onLoadOlderItems: () -> Void
 
     @State private var focusSnapshot = FeedFocusSnapshot()
@@ -197,6 +218,7 @@ private struct FeedListView: View {
             }
             .background(
                 FeedKeyboardFocusBridge(
+                    registersWithKeyboardFocusCoordinator: registersWithKeyboardFocusCoordinator,
                     onEscape: {
                         let window = activeFeedWindow()
                         if AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() != true {
@@ -708,6 +730,7 @@ private extension View {
 }
 
 private struct FeedKeyboardFocusBridge: NSViewRepresentable {
+    let registersWithKeyboardFocusCoordinator: Bool
     let onEscape: () -> Void
     let onMoveSelection: (Int) -> Void
     let onActivateSelection: () -> Void
@@ -717,6 +740,7 @@ private struct FeedKeyboardFocusBridge: NSViewRepresentable {
 
     func makeNSView(context: Context) -> FeedKeyboardFocusView {
         let view = FeedKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+        view.registersWithKeyboardFocusCoordinator = registersWithKeyboardFocusCoordinator
         view.onEscape = onEscape
         view.onMoveSelection = onMoveSelection
         view.onActivateSelection = onActivateSelection
@@ -727,6 +751,7 @@ private struct FeedKeyboardFocusBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: FeedKeyboardFocusView, context: Context) {
+        nsView.registersWithKeyboardFocusCoordinator = registersWithKeyboardFocusCoordinator
         nsView.onEscape = onEscape
         nsView.onMoveSelection = onMoveSelection
         nsView.onActivateSelection = onActivateSelection
@@ -738,6 +763,7 @@ private struct FeedKeyboardFocusBridge: NSViewRepresentable {
 }
 
 final class FeedKeyboardFocusView: NSView {
+    var registersWithKeyboardFocusCoordinator = true
     var onEscape: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
     var onActivateSelection: (() -> Void)?
@@ -750,6 +776,7 @@ final class FeedKeyboardFocusView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        guard registersWithKeyboardFocusCoordinator else { return }
         guard let window else { return }
         AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFeedHost(self)
 #if DEBUG
@@ -758,6 +785,7 @@ final class FeedKeyboardFocusView: NSView {
     }
 
     func registerWithKeyboardFocusCoordinatorIfNeeded() {
+        guard registersWithKeyboardFocusCoordinator else { return }
         guard let window else { return }
         AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFeedHost(self)
     }

@@ -289,7 +289,7 @@ struct RightSidebarToolPanelView: View {
                     .frame(width: 0, height: 0)
             )
         case .feed:
-            FeedPanelView()
+            FeedPanelView(placement: .pane)
         case .dock:
             EmptyView()
         }
