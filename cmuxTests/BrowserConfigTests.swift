@@ -1854,6 +1854,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
                 GhosttyNotificationKey.backgroundOpacity: updatedOpacity
             ]
         )
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
               let expected = GhosttyBackgroundTheme.color(
@@ -1932,6 +1933,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
                 GhosttyNotificationKey.backgroundOpacity: NSNumber(value: 0.57),
             ]
         )
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
               let expected = GhosttyBackgroundTheme.color(
