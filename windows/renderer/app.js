@@ -16079,7 +16079,7 @@ function settingsInspectorSignature() {
     parts.push(stableJson(state.customColorPalette), stableJson(state.savedBackgroundImages));
   }
   if (searching || ["browser", "data", "actions"].includes(category)) {
-    parts.push(stableJson(state.recentBrowserPages), stableJson(state.browserTabSnapshots));
+    parts.push(stableJson(state.recentBrowserPages), browserTabSettingsSignature());
   }
   if (searching || category === "browser") {
     parts.push(stableJson(state.browserProfiles), String(state.browserProfilesLoaded), String(state.browserProfilesLoading));
@@ -16193,7 +16193,7 @@ function quickSettingsSignature(options = {}) {
   appendSignatureValue(parts, state.recentBrowserPages.length);
   appendSignatureValue(parts, state.recentBrowserPages.join(","));
   appendSignatureValue(parts, browserTabSnapshotCount());
-  appendSignatureData(parts, Object.fromEntries(state.browserTabSnapshots));
+  appendSignatureValue(parts, browserTabSettingsSignature());
   appendSignatureValue(parts, state.customCommandSnippets.length);
   appendSignatureData(parts, state.customCommandSnippets);
   appendSignatureData(parts, state.savedSettingsProfiles);
@@ -22251,6 +22251,30 @@ function browserTabSnapshotCount() {
     count += Array.isArray(snapshot?.tabs) ? snapshot.tabs.length : 0;
   }
   return count;
+}
+
+function browserTabSettingsSignature() {
+  const parts = [];
+  appendSignatureValue(parts, state.browserTabSnapshots.size);
+  appendSignatureValue(parts, browserTabSnapshotCount());
+  appendSignatureArray(parts, browserTabSessionEntries(), (nextParts, entry) => {
+    const tabs = Array.isArray(entry.snapshot?.tabs) ? entry.snapshot.tabs : [];
+    const activeTabId = entry.snapshot?.activeTabId || "";
+    const activeIndex = Math.max(0, tabs.findIndex((tab) => tab?.id === activeTabId));
+    appendSignatureValue(nextParts, entry.id);
+    appendSignatureValue(nextParts, entry.workspace?.id || "");
+    appendSignatureValue(nextParts, workspaceDisplayTitle(entry.workspace, "Workspace"));
+    appendSignatureValue(nextParts, entry.panel?.title || "");
+    appendSignatureValue(nextParts, entry.panel?.titleLocked || false);
+    appendSignatureValue(nextParts, entry.panel?.url || "");
+    appendSignatureValue(nextParts, entry.label);
+    appendSignatureValue(nextParts, entry.activeHost);
+    appendSignatureValue(nextParts, entry.activeUrl);
+    appendSignatureValue(nextParts, tabs.length);
+    appendSignatureValue(nextParts, activeTabId);
+    appendSignatureValue(nextParts, activeIndex);
+  });
+  return parts.join("");
 }
 
 function emptyWorkspaces() {
