@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import CmuxSettings
 import CmuxSocketControl
 import AppKit
