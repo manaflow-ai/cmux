@@ -15,6 +15,7 @@ import Testing
             client: client,
             sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
             userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
             launch: launch,
@@ -129,6 +130,79 @@ import Testing
         await #expect(throws: AuthError.unauthorized) {
             _ = try await coordinator.accessToken()
         }
+    }
+
+    @Test func signInRefreshesTeamsAndResolvesSelection() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setTeams([
+            CMUXAuthTeam(id: "team_a", displayName: "Alpha"),
+            CMUXAuthTeam(id: "team_b", displayName: "Beta"),
+        ])
+        let (coordinator, store) = makeCoordinator(client: client)
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        #expect(coordinator.availableTeams.count == 2)
+        // No prior selection -> resolves (and persists) the first team.
+        #expect(coordinator.resolvedTeamID == "team_a")
+        #expect(store.string(forKey: "selected_team") == "team_a")
+    }
+
+    @Test func persistedTeamSelectionSurvivesSignIn() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setTeams([
+            CMUXAuthTeam(id: "team_a", displayName: "Alpha"),
+            CMUXAuthTeam(id: "team_b", displayName: "Beta"),
+        ])
+        let (coordinator, store) = makeCoordinator(client: client)
+        coordinator.selectedTeamID = "team_b"
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        #expect(coordinator.resolvedTeamID == "team_b")
+        #expect(store.string(forKey: "selected_team") == "team_b")
+    }
+
+    @Test func staleTeamSelectionFallsBackToFirstTeam() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setTeams([CMUXAuthTeam(id: "team_a", displayName: "Alpha")])
+        let (coordinator, _) = makeCoordinator(client: client)
+        coordinator.selectedTeamID = "team_gone"
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        #expect(coordinator.resolvedTeamID == "team_a")
+        #expect(coordinator.selectedTeamID == "team_a")
+    }
+
+    @Test func teamFetchFailureDoesNotUnwindSignIn() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setThrowOnListTeams(AuthError.networkError)
+        let (coordinator, _) = makeCoordinator(client: client)
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.availableTeams.isEmpty)
+    }
+
+    @Test func signOutClearsTeamsAndSelection() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setTeams([CMUXAuthTeam(id: "team_a", displayName: "Alpha")])
+        let (coordinator, store) = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        await coordinator.signOut()
+
+        #expect(coordinator.availableTeams.isEmpty)
+        #expect(coordinator.selectedTeamID == nil)
+        #expect(coordinator.resolvedTeamID == nil)
+        #expect(store.string(forKey: "selected_team") == nil)
     }
 
     @Test func restoreWithStoredTokensValidatesSession() async throws {

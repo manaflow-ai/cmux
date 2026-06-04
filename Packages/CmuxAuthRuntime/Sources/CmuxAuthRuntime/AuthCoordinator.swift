@@ -21,6 +21,7 @@ private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 ///     client: StackAuthClient(config: config, tokenStore: .keychain),
 ///     sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "auth_has_tokens"),
 ///     userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "auth_cached_user"),
+///     teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "auth_selected_team"),
 ///     anchor: AuthPresentationContextProvider(),
 ///     config: config,
 ///     launch: launchOptions
@@ -38,10 +39,27 @@ public final class AuthCoordinator {
     public private(set) var isLoading = false
     /// Whether a cached session is being restored/validated at launch.
     public private(set) var isRestoringSession = false
+    /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
+    public private(set) var availableTeams: [CMUXAuthTeam] = []
+    /// The user's selected team id. Writes persist through the injected
+    /// ``CMUXAuthCore/CMUXAuthTeamSelectionStore``.
+    public var selectedTeamID: String? {
+        didSet {
+            guard selectedTeamID != oldValue else { return }
+            teamSelection.selectedTeamID = selectedTeamID
+        }
+    }
+
+    /// The team id API calls should target: the persisted selection while it is
+    /// still one of ``availableTeams``, else the first available team.
+    public var resolvedTeamID: String? {
+        Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: availableTeams)
+    }
 
     private let client: any AuthClient
     private let sessionCache: CMUXAuthSessionCache
     private let userCache: CMUXAuthIdentityStore
+    private let teamSelection: CMUXAuthTeamSelectionStore
     private let anchor: any AuthPresentationAnchoring
     private let config: AuthConfig
     private let launch: AuthLaunchOptions
@@ -58,6 +76,7 @@ public final class AuthCoordinator {
     ///   - client: The auth backend seam (production: ``StackAuthClient``).
     ///   - sessionCache: Persists the "has tokens" flag (injected key-value store).
     ///   - userCache: Persists the cached user (injected key-value store).
+    ///   - teamSelection: Persists the selected team id (injected key-value store).
     ///   - anchor: Presentation anchor provider for OAuth flows.
     ///   - config: Resolved auth configuration (callback URL, project, API base).
     ///   - launch: Launch-time priming inputs (UI-test fixtures, dev-auth flag).
@@ -70,6 +89,7 @@ public final class AuthCoordinator {
         client: any AuthClient,
         sessionCache: CMUXAuthSessionCache,
         userCache: CMUXAuthIdentityStore,
+        teamSelection: CMUXAuthTeamSelectionStore,
         anchor: any AuthPresentationAnchoring,
         config: AuthConfig,
         launch: AuthLaunchOptions,
@@ -79,11 +99,13 @@ public final class AuthCoordinator {
         self.client = client
         self.sessionCache = sessionCache
         self.userCache = userCache
+        self.teamSelection = teamSelection
         self.anchor = anchor
         self.config = config
         self.launch = launch
         self.isOnline = isOnline
         self.onSignedIn = onSignedIn
+        self.selectedTeamID = teamSelection.selectedTeamID
         primeSessionState()
     }
 
@@ -411,13 +433,39 @@ public final class AuthCoordinator {
         isRestoringSession = false
         saveCachedUser(user)
         sessionCache.setHasTokens(true)
+        await refreshTeams()
         await onSignedIn()
+    }
+
+    /// Refresh ``availableTeams`` from the client, tolerating failure so a
+    /// flaky team fetch never blocks or unwinds a successful sign-in.
+    private func refreshTeams() async {
+        do {
+            let teams = try await client.listTeams()
+            availableTeams = teams
+            selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
+        } catch {
+            authLog.error("Failed to list teams: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    private static func resolveTeamID(
+        selectedTeamID: String?,
+        teams: [CMUXAuthTeam]
+    ) -> String? {
+        if let selectedTeamID,
+           teams.contains(where: { $0.id == selectedTeamID }) {
+            return selectedTeamID
+        }
+        return teams.first?.id
     }
 
     private func clearAuthState() {
         pendingNonce = nil
         userCache.clear()
         sessionCache.clear()
+        availableTeams = []
+        selectedTeamID = nil
         apply(.cleared())
     }
 

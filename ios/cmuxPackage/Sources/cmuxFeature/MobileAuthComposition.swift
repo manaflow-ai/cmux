@@ -67,6 +67,10 @@ public struct MobileAuthComposition {
             keyValueStore: defaults,
             key: "auth_cached_user"
         )
+        let teamSelection = CMUXAuthTeamSelectionStore(
+            keyValueStore: defaults,
+            key: "auth_selected_team"
+        )
         let launch = AuthLaunchOptions(
             clearAuthRequested: environment["CMUX_UITEST_CLEAR_AUTH"] == "1",
             mockDataEnabled: UITestConfig.mockDataEnabled,
@@ -83,6 +87,7 @@ public struct MobileAuthComposition {
             client: client,
             sessionCache: sessionCache,
             userCache: userCache,
+            teamSelection: teamSelection,
             anchor: AuthPresentationContextProvider(),
             config: resolvedConfig,
             launch: launch,

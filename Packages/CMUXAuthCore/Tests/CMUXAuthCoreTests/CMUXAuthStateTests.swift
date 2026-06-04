@@ -229,6 +229,10 @@ private final class TestKeyValueStore: CMUXAuthKeyValueStore {
         storage[defaultName] as? Data
     }
 
+    func string(forKey defaultName: String) -> String? {
+        storage[defaultName] as? String
+    }
+
     func set(_ value: Any?, forKey defaultName: String) {
         storage[defaultName] = value
     }
