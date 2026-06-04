@@ -52,6 +52,22 @@ struct SettingCatalogTests {
         #expect(base.userDefaultsValueContract != differentDefault.userDefaultsValueContract)
         #expect(base.userDefaultsValueContract != differentType.userDefaultsValueContract)
         #expect(base.userDefaultsValueContract == matching.userDefaultsValueContract)
+
+        // Container defaults render through a canonical (sorted-keys) encoding,
+        // so two dictionaries with the same contents in a different literal
+        // order still produce equal contracts, while differing contents do not.
+        let dictOrderA = AnySettingKey(
+            DefaultsKey<[String: String]>(
+                id: "test.e", defaultValue: ["b": "2", "a": "1"], userDefaultsKey: "dict"))
+        let dictOrderB = AnySettingKey(
+            DefaultsKey<[String: String]>(
+                id: "test.f", defaultValue: ["a": "1", "b": "2"], userDefaultsKey: "dict"))
+        let dictDifferent = AnySettingKey(
+            DefaultsKey<[String: String]>(
+                id: "test.g", defaultValue: ["a": "1", "b": "3"], userDefaultsKey: "dict"))
+
+        #expect(dictOrderA.userDefaultsValueContract == dictOrderB.userDefaultsValueContract)
+        #expect(dictOrderA.userDefaultsValueContract != dictDifferent.userDefaultsValueContract)
     }
 
     @Test func jsonBackedKeysUseTheirIdAsPath() {

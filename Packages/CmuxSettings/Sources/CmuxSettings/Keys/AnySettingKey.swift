@@ -91,7 +91,9 @@ public struct AnySettingKey: Sendable {
         )
         self.userDefaultsValueContract = UserDefaultsValueContract(
             valueTypeName: String(reflecting: Value.self),
-            defaultStorageRepresentation: String(describing: key.defaultValue.encodeForUserDefaults())
+            defaultStorageRepresentation: AnySettingKey.canonicalDefaultRepresentation(
+                key.defaultValue.encodeForUserDefaults()
+            )
         )
         self.migrateUserDefaultsLegacyKeys = { defaults in
             AnySettingKey.migrateLegacyDefaultsKey(key, defaults: defaults)
@@ -119,6 +121,23 @@ public struct AnySettingKey: Sendable {
         self.userDefaultsValueContract = nil
         self.migrateUserDefaultsLegacyKeys = { _ in }
         self.resetInJSON = { _ in }
+    }
+
+    /// A canonical, order-independent string for a plist-compatible default
+    /// value, so two equal defaults always render identically regardless of
+    /// dictionary key-enumeration order. `String(describing:)` does not
+    /// guarantee that for container defaults — `Dictionary`'s description
+    /// ordering is not stable — which would let a future aliased dictionary
+    /// default false-mismatch (or false-match) in the value contract.
+    private static func canonicalDefaultRepresentation(_ value: Any) -> String {
+        if let data = value as? Data { return "data:\(data.base64EncodedString())" }
+        // Wrap in an array so scalar values are a valid top-level JSON payload;
+        // `.sortedKeys` canonicalizes dictionary ordering at every level.
+        if let data = try? JSONSerialization.data(withJSONObject: [value], options: [.sortedKeys]),
+           let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+        return String(describing: value)
     }
 
     private static func migrateLegacyDefaultsKey<Value>(
