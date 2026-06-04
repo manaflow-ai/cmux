@@ -7177,10 +7177,33 @@ class TabManager: ObservableObject {
             ) else { return }
         }
 
+        let blockPolicyPanelIdsByWorkspace = Dictionary(
+            uniqueKeysWithValues: plan.workspaces.map { workspace in
+                (workspace.id, blockPolicyEphemeralWorktreePanelIds(in: workspace))
+            }
+        )
         if plan.workspaces.count == tabs.count,
            let firstWorkspace = plan.workspaces.first {
+            let affectedWorktreeCount = blockPolicyPanelIdsByWorkspace.values.reduce(0) { $0 + $1.count }
+            if affectedWorktreeCount > 0 {
+                guard confirmEphemeralWorktreeClose(affectedCount: affectedWorktreeCount) else { return }
+            }
+            for workspace in plan.workspaces {
+                let panelIds = Set(blockPolicyPanelIdsByWorkspace[workspace.id] ?? [])
+                if !panelIds.isEmpty {
+                    workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: panelIds)
+                }
+            }
             if let window {
                 window.performClose(nil)
+                if window.isVisible {
+                    for workspace in plan.workspaces {
+                        let panelIds = Set(blockPolicyPanelIdsByWorkspace[workspace.id] ?? [])
+                        if !panelIds.isEmpty {
+                            workspace.cancelEphemeralWorktreeCleanupForWindowClose(panelIds: panelIds)
+                        }
+                    }
+                }
                 return
             }
             if AppDelegate.shared != nil {
@@ -7205,16 +7228,30 @@ class TabManager: ObservableObject {
                 if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) {
                     return
                 }
+                let blockPolicyPanelIds = blockPolicyPanelIdsByWorkspace[workspace.id] ?? []
+                if !blockPolicyPanelIds.isEmpty {
+                    guard confirmEphemeralWorktreeClose(affectedCount: blockPolicyPanelIds.count) else { return }
+                }
                 // Anchor confirmed (or suppressed); skip the inner re-prompt
                 // by closing without going through closeWorkspaceIfRunningProcess.
                 if tabs.count <= 1 {
+                    let authorizedPanelIds = Set(blockPolicyPanelIds)
+                    if !authorizedPanelIds.isEmpty {
+                        workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: authorizedPanelIds)
+                    }
                     if let window {
                         window.performClose(nil)
+                        if window.isVisible, !authorizedPanelIds.isEmpty {
+                            workspace.cancelEphemeralWorktreeCleanupForWindowClose(panelIds: authorizedPanelIds)
+                        }
                     } else {
                         AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
                     }
                 } else {
-                    closeWorkspace(workspace)
+                    closeWorkspace(
+                        workspace,
+                        ephemeralWorktreeCleanupAuthorizedPanelIds: Set(blockPolicyPanelIds)
+                    )
                 }
                 continue
             }

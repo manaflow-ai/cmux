@@ -1768,7 +1768,11 @@ extension Workspace {
             }
             if restoredEphemeralWorktree != nil,
                registeredRestoredEphemeralWorktree(restoredEphemeralWorktree) == nil {
-                _ = closePanel(terminalPanel.id, force: true)
+                _ = closePanel(
+                    terminalPanel.id,
+                    force: true,
+                    ephemeralWorktreeCleanupAuthorized: true
+                )
                 return nil
             }
             if let restoredRemotePTYSessionID {
