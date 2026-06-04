@@ -1637,8 +1637,6 @@ final class TerminalNotificationStore: ObservableObject {
             clearWorkspacePanelUnread(forTabId: tabId)
             setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
             setWorkspaceRestoredUnread(false, forTabId: tabId)
-        } else {
-            clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         }
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
