@@ -16173,7 +16173,18 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
     : "Reset status bar visibility, detail, and style.";
   statusActions.append(resetStatusAction);
   panel.append(statusActions);
-  panel.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
+  panel.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked })), false, "performance mode speed smooth lag effects reduce animation layout mode"));
+  const layoutModeDefault = layoutModeSettingsAreDefault();
+  const modeActions = document.createElement("div");
+  modeActions.className = "settings-actions";
+  modeActions.dataset.settingsSearch = normalizeSettingsQuery("layout mode reset default density comfortable compact focus mode simple clean performance mode speed smooth lag effects reduce animation");
+  const resetModeAction = settingsActionButton("Reset mode", resetLayoutModeSettings, "", `layout mode density focus performance reset default ${layoutModeDefault ? "active current " : ""}`);
+  resetModeAction.disabled = layoutModeDefault;
+  resetModeAction.title = layoutModeDefault
+    ? "Layout mode settings already use defaults."
+    : "Reset density, focus mode, and performance mode.";
+  modeActions.append(resetModeAction);
+  panel.append(modeActions);
   return panel;
 }
 
@@ -32280,6 +32291,12 @@ const commandPaletteSettings = [
   "palettePlacement"
 ];
 
+const layoutModeSettings = [
+  "density",
+  "focusMode",
+  "performanceMode"
+];
+
 const tabStripSettings = [
   "showTabs",
   "tabBarStyle",
@@ -33100,6 +33117,10 @@ function commandPaletteSettingsAreDefault() {
   return settingsKeysMatchDefaults(commandPaletteSettings);
 }
 
+function layoutModeSettingsAreDefault() {
+  return settingsKeysMatchDefaults(layoutModeSettings);
+}
+
 function tabStripSettingsAreDefault() {
   return settingsKeysMatchDefaults(tabStripSettings);
 }
@@ -33171,6 +33192,19 @@ function resetCommandPaletteSettings() {
   }
   refreshLayoutSettings();
   toast("Command palette reset.");
+  return true;
+}
+
+function resetLayoutModeSettings() {
+  const updates = {};
+  for (const key of layoutModeSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Layout mode already uses defaults.");
+    return false;
+  }
+  refreshLayoutSettings();
+  toast("Layout mode reset.");
   return true;
 }
 
