@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -24,11 +24,29 @@ public struct MobileDebugLog: Sendable {
     /// The actor that owns the ring buffer and broadcast stream.
     public let sink: MobileDebugLogSink
 
+    /// Identifies the running build so a pasted log proves which reload it came
+    /// from: the bundle name (carries the `--tag`, e.g. "cmux DEV grid") plus
+    /// the executable's build timestamp (changes on every rebuild). All dev
+    /// builds share `CFBundleVersion = 1`, so the exec mtime is the only signal
+    /// that distinguishes one reload from the next.
+    public let buildStamp: String
+
     /// Wrap an existing sink.
     ///
-    /// - Parameter sink: The actor-backed buffer to bridge synchronous calls to.
-    public init(sink: MobileDebugLogSink) {
+    /// - Parameters:
+    ///   - sink: The actor-backed buffer to bridge synchronous calls to.
+    ///   - bundle: The bundle whose name and executable timestamp identify the
+    ///     running build in pasted logs. Injected for testability; defaults to
+    ///     the app bundle.
+    ///   - fileManager: Reads the executable's modification date for the build
+    ///     stamp. Injected for testability.
+    public init(
+        sink: MobileDebugLogSink,
+        bundle: Bundle = .main,
+        fileManager: FileManager = .default
+    ) {
         self.sink = sink
+        self.buildStamp = Self.makeBuildStamp(bundle: bundle, fileManager: fileManager)
     }
 
     /// Append one line, dispatching the write into the actor.
@@ -40,24 +58,20 @@ public struct MobileDebugLog: Sendable {
         Task { await sink.append(message) }
     }
 
-    /// Identifies the running build so a pasted log proves which reload it came
-    /// from: the bundle name (carries the `--tag`, e.g. "cmux DEV grid") plus
-    /// the executable's build timestamp (changes on every rebuild). All dev
-    /// builds share `CFBundleVersion = 1`, so the exec mtime is the only signal
-    /// that distinguishes one reload from the next.
-    static let buildStamp: String = {
+    /// Compose the build stamp from the injected bundle and file manager.
+    private static func makeBuildStamp(bundle: Bundle, fileManager: FileManager) -> String {
         var parts: [String] = []
-        if let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String {
+        if let name = bundle.object(forInfoDictionaryKey: "CFBundleName") as? String {
             parts.append(name)
         }
-        if let exec = Bundle.main.executableURL,
-           let mtime = (try? FileManager.default.attributesOfItem(atPath: exec.path))?[.modificationDate] as? Date {
+        if let exec = bundle.executableURL,
+           let mtime = (try? fileManager.attributesOfItem(atPath: exec.path))?[.modificationDate] as? Date {
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
             parts.append("built \(formatter.string(from: mtime))")
         }
         return parts.isEmpty ? "build ?" : parts.joined(separator: " · ")
-    }()
+    }
 
     #if canImport(UIKit)
     /// Copy the buffer to the system pasteboard, optionally prefixed with a
@@ -69,7 +83,7 @@ public struct MobileDebugLog: Sendable {
     @discardableResult
     public func copyToPasteboard(prepending: String? = nil) async -> Int {
         let (count, body) = await sink.snapshotWithCount()
-        let header = "cmux iOS debug log — \(count) lines · \(Self.buildStamp)\n"
+        let header = "cmux iOS debug log — \(count) lines · \(buildStamp)\n"
             + String(repeating: "=", count: 40) + "\n"
         var out = ""
         if let prepending, !prepending.isEmpty {
