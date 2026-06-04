@@ -52,7 +52,10 @@ function LoadingDiffSkeleton() {
 function LoadingLayer({ config, label }: ShellProps) {
   return (
     <div id="loading-layer" aria-live="polite">
-      <div id="status">{config.payload?.statusMessage ?? label("loadingDiff")}</div>
+      <div id="status">
+        <span id="status-icon" aria-hidden="true" />
+        <span id="status-text">{config.payload?.statusMessage ?? label("loadingDiff")}</span>
+      </div>
       <LoadingDiffSkeleton />
     </div>
   );

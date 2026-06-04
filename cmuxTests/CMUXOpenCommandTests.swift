@@ -679,7 +679,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(gitLog.contains(plainSiblingURL.path), gitLog)
     }
 
-    func testDiffCommandKeepsSelectedEmptyErrorWhenFallbackProbeFails() throws {
+    func testDiffCommandShowsFriendlyEmptyStateWhenEveryGitSourceIsEmpty() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -729,11 +729,12 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertNotEqual(result.status, 0)
-        XCTAssertFalse(result.stdout.contains("OK surface="), result.stdout)
-        XCTAssertTrue(result.stderr.contains("No unstaged changes to diff."), result.stderr)
+        // Empty diffs are a friendly state, not an error: the CLI exits 0 (so the
+        // launcher never emits the "unable to click" beep) and prints nothing to
+        // stderr. (issue #5246)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(result.stderr.contains("No unstaged changes to diff."), result.stderr)
         XCTAssertFalse(result.stderr.contains("EmptyDiffSourceError"), result.stderr)
-        XCTAssertFalse(result.stderr.contains("workspace and surface"), result.stderr)
 
         let commandPayload = try XCTUnwrap(
             state.commands.compactMap { Self.v2Payload(from: $0) }.first { payload in
@@ -747,9 +748,16 @@ final class CMUXOpenCommandTests: XCTestCase {
         let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
         XCTAssertTrue(html.contains("No unstaged changes to diff."), html)
         XCTAssertFalse(html.contains("No last-turn diff baseline recorded"), html)
+        let payload = try diffViewerPayload(from: html)
+        XCTAssertEqual(payload["statusIsError"] as? Bool, false, html)
     }
 
-    func testDiffCommandDoesNotFallbackFromLastTurnBaselineError() throws {
+    func testDiffCommandShowsFriendlyEmptyStateForLastTurnWithoutBaseline() throws {
+        // Regression: a last-turn diff with no recorded baseline must render the
+        // friendly empty diff state (with the source switcher) and exit 0, not
+        // surface the raw "No last-turn diff baseline recorded" CLI error. The
+        // non-zero exit is what triggered the launcher's "unable to click" beep,
+        // so a clean exit fixes both the bad copy and the beep (issue #5246).
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -765,10 +773,12 @@ final class CMUXOpenCommandTests: XCTestCase {
         try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "story.txt"], in: repoURL)
         try runGit(["commit", "-m", "initial"], in: repoURL)
+        // Staged changes exist on another source; last turn must NOT silently fall
+        // back to them — it stays on its own empty state.
         try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "story.txt"], in: repoURL)
 
-        let result = runDiffCLIExpectingNoOpen(
+        let result = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", "--last-turn"],
             environmentOverrides: [
@@ -776,15 +786,16 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "CMUX_WORKSPACE_ID": UUID().uuidString.lowercased(),
                 "CMUX_SURFACE_ID": UUID().uuidString.lowercased()
             ],
-            currentDirectoryURL: repoURL
+            currentDirectoryURL: repoURL,
+            readPatchSidecar: false
         )
 
-        XCTAssertNotEqual(result.status, 0)
-        XCTAssertTrue(result.stderr.contains("No last-turn diff baseline recorded for this workspace and surface yet"), result.stderr)
-        XCTAssertFalse(result.stdout.contains("surface="), result.stdout)
+        try assertFriendlyLastTurnEmptyState(html: result.html)
+        // No silent fallback to the staged "+two" change.
+        XCTAssertFalse(result.html.contains("+two"), result.html)
     }
 
-    func testDiffCommandDoesNotFallbackFromEmptyLastTurnDiff() throws {
+    func testDiffCommandShowsFriendlyEmptyStateForEmptyLastTurnDiff() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -821,7 +832,7 @@ final class CMUXOpenCommandTests: XCTestCase {
             baseCommit: featureCommit
         )
 
-        let result = runDiffCLIExpectingNoOpen(
+        let result = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", "--last-turn"],
             environmentOverrides: [
@@ -829,12 +840,11 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "CMUX_WORKSPACE_ID": workspaceId,
                 "CMUX_SURFACE_ID": surfaceId
             ],
-            currentDirectoryURL: repoURL
+            currentDirectoryURL: repoURL,
+            readPatchSidecar: false
         )
 
-        XCTAssertNotEqual(result.status, 0)
-        XCTAssertTrue(result.stderr.contains("No last-turn changes to diff."), result.stderr)
-        XCTAssertFalse(result.stdout.contains("surface="), result.stdout)
+        try assertFriendlyLastTurnEmptyState(html: result.html)
     }
 
     func testDiffCommandSupportsGitSourcesAndSurfaceScopedLastTurn() throws {
@@ -1140,7 +1150,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(homeLastTurn.html.contains("Last turn diff"), homeLastTurn.html)
         XCTAssertTrue(homeLastTurn.patch.contains("new-turn-file.txt"), homeLastTurn.patch)
 
-        let wrongSurfaceResult = runDiffCLIExpectingNoOpen(
+        let wrongSurfaceResult = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", "--last-turn"],
             environmentOverrides: [
@@ -1148,10 +1158,26 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "CMUX_WORKSPACE_ID": workspaceId,
                 "CMUX_SURFACE_ID": UUID().uuidString.lowercased()
             ],
-            currentDirectoryURL: repoURL
+            currentDirectoryURL: repoURL,
+            readPatchSidecar: false
         )
-        XCTAssertNotEqual(wrongSurfaceResult.status, 0)
-        XCTAssertTrue(wrongSurfaceResult.stderr.contains("No last-turn diff baseline recorded for this workspace and surface yet"), wrongSurfaceResult.stderr)
+        try assertFriendlyLastTurnEmptyState(html: wrongSurfaceResult.html)
+    }
+
+    /// Asserts the diff viewer HTML renders the friendly, non-error last-turn empty
+    /// state: plain-language copy (never the raw baseline CLI error), `statusIsError`
+    /// false, and the source switcher still present with last turn selected.
+    private func assertFriendlyLastTurnEmptyState(html: String) throws {
+        XCTAssertFalse(html.contains("No last-turn diff baseline recorded"), html)
+        let payload = try diffViewerPayload(from: html)
+        XCTAssertEqual(payload["statusMessage"] as? String, "No last-turn changes to diff.", html)
+        XCTAssertEqual(payload["statusIsError"] as? Bool, false, html)
+        let sourceOptions = try XCTUnwrap(payload["sourceOptions"] as? [[String: Any]], html)
+        let lastTurnOption = try XCTUnwrap(
+            sourceOptions.first { $0["value"] as? String == "last-turn" },
+            html
+        )
+        XCTAssertEqual(lastTurnOption["selected"] as? Bool, true, html)
     }
 
     func testAgentTurnDiffBaselineStoresUntrackedSnapshotsOutsideGit() throws {

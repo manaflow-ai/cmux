@@ -164,6 +164,7 @@ extension CmuxSettingsFileStore {
                     "claudeBinaryPath": "",
                     "ripgrepBinaryPath": "",
                     "suppressSubagentNotifications": AgentSubagentNotificationSettings.defaultSuppressNotifications,
+                    "ampIntegration": AmpIntegrationSettings.defaultHooksEnabled,
                     "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
                     "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
                     "kiroIntegration": KiroIntegrationSettings.defaultHooksEnabled,
@@ -193,6 +194,13 @@ extension CmuxSettingsFileStore {
             [
                 "markdown": [
                     "fontSize": Int(MarkdownFontSizeSettings.defaultPointSize),
+                    "fontFamily": "",
+                    "maxWidth": Int(MarkdownMaxWidthSettings.defaultCSSPixels),
+                ],
+            ],
+            [
+                "fileEditor": [
+                    "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
                 ],
             ],
             [

@@ -464,11 +464,12 @@ struct BrowserPanelView: View {
     @State private var suppressNextFocusGainedSelectAll: Bool = false
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
-    @State private var browserChromeStyle = BrowserChromeStyle.resolve(
-        for: .light,
-        themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
-        drawsBackground: BrowserPanel.drawsConfiguredWebViewBackground(isBlankPage: true)
-    )
+    @State private var browserChromeStyle: BrowserChromeStyle
+    // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
+    // re-fire on every CoreAnimation commit (issue #5303). This guards the first-
+    // appearance view-state seed (the empty-state import list) so a spurious appear
+    // does no work. App-once settings work lives in the model bootstrap, not here.
+    @State private var didCompleteInitialBrowserPanelSetup = false
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
     private let omnibarPillCornerRadius: CGFloat = 10
@@ -476,6 +477,27 @@ struct BrowserPanelView: View {
     private let addressBarButtonHitSize: CGFloat = 26
     private let addressBarVerticalPadding: CGFloat = 4
     private let devToolsButtonIconSize: CGFloat = 11
+
+    init(
+        panel: BrowserPanel,
+        paneId: PaneID,
+        isFocused: Bool,
+        isVisibleInUI: Bool,
+        portalPriority: Int,
+        onRequestPanelFocus: @escaping () -> Void
+    ) {
+        self.panel = panel
+        self.paneId = paneId
+        self.isFocused = isFocused
+        self.isVisibleInUI = isVisibleInUI
+        self.portalPriority = portalPriority
+        self.onRequestPanelFocus = onRequestPanelFocus
+        self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
+            for: .light,
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
+        ))
+    }
 
     private var searchConfiguration: BrowserSearchConfiguration {
         BrowserSearchSettings.configuration(
@@ -663,6 +685,10 @@ struct BrowserPanelView: View {
             return
         }
 
+        if panel.recoverTerminatedWebContent(reason: "toolbarReload") {
+            return
+        }
+
         if currentEventIsCommandPointerActivation {
 #if DEBUG
             cmuxDebugLog("browser.reload.commandClickDuplicate panel=\(panel.id.uuidString.prefix(5))")
@@ -757,38 +783,15 @@ struct BrowserPanelView: View {
     }
 
     private func handleBrowserPanelAppear() {
+        // One-time setup must not re-run on every commit; `.onAppear` can re-fire
+        // repeatedly for a portal-hosted pane (issue #5303). Everything below the
+        // setup call is idempotent and cheap, and genuine state transitions are
+        // already handled by the dedicated `.onChange` observers on `body`, so
+        // re-running this per appear is harmless once the heavy/one-time work is
+        // gated out.
+        performInitialBrowserPanelSetupIfNeeded()
         startOmnibarSuggestionRefreshConsumer()
-        UserDefaults.standard.register(defaults: [
-            BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
-            BrowserSearchSettings.customSearchEngineNameKey: BrowserSearchSettings.defaultCustomSearchEngineName,
-            BrowserSearchSettings.customSearchEngineURLTemplateKey: BrowserSearchSettings.defaultCustomSearchEngineURLTemplate,
-            BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
-            BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
-            BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
-            BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
-            BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
-        ])
         refreshBrowserChromeStyle()
-        let resolvedThemeMode = BrowserThemeSettings.mode(defaults: .standard)
-        if browserThemeModeRaw != resolvedThemeMode.rawValue {
-            browserThemeModeRaw = resolvedThemeMode.rawValue
-        }
-        let resolvedHintVariant = BrowserImportHintSettings.variant(for: browserImportHintVariantRaw)
-        if browserImportHintVariantRaw != resolvedHintVariant.rawValue {
-            browserImportHintVariantRaw = resolvedHintVariant.rawValue
-        }
-        let resolvedToolbarAccessorySpacing = BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
-        if browserToolbarAccessorySpacingRaw != resolvedToolbarAccessorySpacing {
-            browserToolbarAccessorySpacingRaw = resolvedToolbarAccessorySpacing
-        }
-        let resolvedProfilePopoverHorizontalPadding = BrowserProfilePopoverDebugSettings.resolvedHorizontalPadding(browserProfilePopoverHorizontalPaddingRaw)
-        if browserProfilePopoverHorizontalPaddingRaw != resolvedProfilePopoverHorizontalPadding {
-            browserProfilePopoverHorizontalPaddingRaw = resolvedProfilePopoverHorizontalPadding
-        }
-        let resolvedProfilePopoverVerticalPadding = BrowserProfilePopoverDebugSettings.resolvedVerticalPadding(browserProfilePopoverVerticalPaddingRaw)
-        if browserProfilePopoverVerticalPaddingRaw != resolvedProfilePopoverVerticalPadding {
-            browserProfilePopoverVerticalPaddingRaw = resolvedProfilePopoverVerticalPadding
-        }
         panel.noteWebViewVisibility(
             isVisibleInUI && isCurrentPaneOwner,
             reason: "view.onAppear"
@@ -800,12 +803,28 @@ struct BrowserPanelView: View {
         // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
         autoFocusOmnibarIfBlank()
         syncWebViewResponderPolicyWithViewState(reason: "onAppear")
-        refreshEmptyStateImportBrowsers()
         panel.historyStore.loadIfNeeded()
 #if DEBUG
         logBrowserFocusState(event: "view.onAppear")
 #endif
         focusModeShortcutHintMonitor.start()
+    }
+
+    /// Runs the view-state initialization that should happen on first appearance,
+    /// independent of how many times SwiftUI fires `.onAppear` for the same view
+    /// instance.
+    ///
+    /// `.onAppear` is not a reliable once-or-on-transition signal for a portal-hosted
+    /// browser pane — it can re-fire on every CoreAnimation commit (issue #5303).
+    /// Default registration and settings normalization are app-once work and live in
+    /// ``BrowserPanel/bootstrapBrowserDefaultsIfNeeded()`` (run from the model
+    /// init), not here. This method only seeds view-local state: the initial
+    /// empty-state import list, which `handleCurrentURLChange` refreshes on subsequent
+    /// new-tab navigations.
+    private func performInitialBrowserPanelSetupIfNeeded() {
+        guard !didCompleteInitialBrowserPanelSetup else { return }
+        didCompleteInitialBrowserPanelSetup = true
+        refreshEmptyStateImportBrowsers()
     }
 
     private func handleOmnibarVisibilityChange(_ isVisible: Bool) {
@@ -1133,6 +1152,9 @@ struct BrowserPanelView: View {
         }
         .onChange(of: panel.shouldRenderWebView) { _, _ in
             handleRenderWebViewChange()
+        }
+        .onChange(of: panel.backgroundAppearanceRevision) { _, _ in
+            refreshBrowserChromeStyle()
         }
         .onChange(of: browserThemeModeRaw) { _ in
             handleBrowserThemeModeRawChange()
@@ -1770,8 +1792,35 @@ struct BrowserPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay {
+            if panel.hasRecoverableWebContentTermination {
+                webContentRecoveryOverlay
+            }
+        }
         .layoutPriority(1)
         .zIndex(0)
+    }
+
+    private var webContentRecoveryOverlay: some View {
+        ZStack {
+            Color(nsColor: browserChromeBackgroundColor)
+                .opacity(0.92)
+            Button(action: {
+                panel.recoverTerminatedWebContent(reason: "overlayButton")
+            }) {
+                Label(
+                    String(localized: "browser.error.reload", defaultValue: "Reload"),
+                    systemImage: "arrow.clockwise"
+                )
+                .font(.system(size: 13, weight: .medium))
+                .padding(.horizontal, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .safeHelp(String(localized: "browser.reload", defaultValue: "Reload"))
+            .accessibilityIdentifier("BrowserWebContentRecoveryButton")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func triggerFocusFlashAnimation() {
@@ -3837,7 +3886,6 @@ final class OmnibarNativeTextField: NSTextField {
     private struct MouseSelectionState {
         let anchor: Int
         let initialWindowLocation: NSPoint
-        let selectAllOnMouseUp: Bool
         var didDrag: Bool
     }
 
@@ -3898,7 +3946,6 @@ final class OmnibarNativeTextField: NSTextField {
         mouseSelectionState = MouseSelectionState(
             anchor: anchor,
             initialWindowLocation: event.locationInWindow,
-            selectAllOnMouseUp: !hadEditor && !event.modifierFlags.contains(.shift),
             didDrag: false
         )
     }
@@ -3921,16 +3968,16 @@ final class OmnibarNativeTextField: NSTextField {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard let state = mouseSelectionState,
-              let editor = currentEditor() as? NSTextView else {
+        guard mouseSelectionState != nil else {
             super.mouseUp(with: event)
             return
         }
 
+        // A single click leaves the caret placed in `mouseDown`; a drag leaves the
+        // range built up in `mouseDragged`. Focus-via-click never selects all — that
+        // is reserved for the keyboard path (Cmd+L), which selects the whole URL via
+        // the `selectAllRequestId` flow, independent of mouse handling.
         mouseSelectionState = nil
-        if state.selectAllOnMouseUp && !state.didDrag {
-            editor.selectAll(nil)
-        }
     }
 
     private func insertionIndex(for event: NSEvent, in editor: NSTextView) -> Int {
