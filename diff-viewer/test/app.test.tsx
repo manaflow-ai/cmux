@@ -109,6 +109,31 @@ test("App reports copy failure without replacing the current status screen", asy
   expect(dom.window.document.getElementById("status-text")?.textContent).toBe("Rendered diff");
 });
 
+test("files sidebar width can be changed from the resize separator", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          statusMessage: "Rendered diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  const handle = dom.window.document.getElementById("files-resize-handle");
+  expect(handle).toBeTruthy();
+  handle?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "ArrowLeft" }));
+
+  await waitFor(() => contentFilesWidth() === "272px");
+});
+
 function createDom(): JSDOM {
   return new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
     url: "http://127.0.0.1/diff",
@@ -139,6 +164,10 @@ function renderApp(element: React.ReactNode): void {
 function copyGitApplyButton(): HTMLButtonElement | undefined {
   return Array.from(dom?.window.document.querySelectorAll<HTMLButtonElement>(".menu-item") ?? [])
     .find((button) => button.textContent?.includes("Copy git apply command"));
+}
+
+function contentFilesWidth(): string | undefined {
+  return dom?.window.document.getElementById("content")?.style.getPropertyValue("--cmux-diff-files-width");
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { appearanceBackgroundColor, resolveDiffViewerAppearance } from "../src/appearance";
+import { appearanceBackgroundColor, readableColor, resolveDiffViewerAppearance } from "../src/appearance";
 
 describe("appearanceBackgroundColor", () => {
   test("returns transparent for transparent themes so the window backdrop shows", () => {
@@ -24,5 +24,22 @@ describe("appearanceBackgroundColor", () => {
     expect(appearance.backgroundOpacity).toBe(1);
     expect(appearance.fontSize).toBe(10);
     expect(appearance.lineHeight).toBe(20);
+  });
+
+  test("keeps resolved foregrounds readable against their backgrounds", () => {
+    const appearance = resolveDiffViewerAppearance({
+      themes: {
+        light: { background: "#ffffff", foreground: "#eeeeee" },
+        dark: { background: "#000000", foreground: "#111111" },
+      },
+    });
+
+    expect(appearance.themes.light.foreground).toBe("#000000");
+    expect(appearance.themes.dark.foreground).toBe("#ffffff");
+  });
+
+  test("falls back to the readable endpoint when a color is too close to the background", () => {
+    expect(readableColor("#eeeeee", "#ffffff", "#000000")).toBe("#000000");
+    expect(readableColor("#111111", "#000000", "#ffffff")).toBe("#ffffff");
   });
 });

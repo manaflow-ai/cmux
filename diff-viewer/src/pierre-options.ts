@@ -1,6 +1,6 @@
 import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
-import { appearanceBackgroundColor, type DiffViewerAppearance } from "./appearance";
+import { appearanceBackgroundColor, readableColor, type DiffViewerAppearance } from "./appearance";
 
 export type DiffViewerOptions = {
   collapsed: boolean;
@@ -81,6 +81,11 @@ export function codeViewUnsafeCSS(): string {
 
 export function fileTreeUnsafeCSS(): string {
   return `
+    :host {
+      display: block;
+      height: 100%;
+      min-height: 0;
+    }
     [data-file-tree-search-container][data-open='false'] {
       display: none;
     }
@@ -90,9 +95,13 @@ export function fileTreeUnsafeCSS(): string {
       border-bottom: 1px solid var(--trees-border-color);
     }
     [data-file-tree-virtualized-scroll='true'] {
+      height: 100%;
+      min-height: 0;
+      overflow: auto;
       padding-inline-start: 0;
       padding-inline-end: 2px;
       margin-inline-end: 2px;
+      scrollbar-gutter: stable;
     }
     [data-item-contains-git-change='true'] > [data-item-section='git'] {
       display: none;
@@ -109,8 +118,9 @@ export function fileTreeUnsafeCSS(): string {
 
 export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearance) {
   const palette = theme.palette ?? {};
-  const foreground = theme.foreground;
   const background = appearanceBackgroundColor(theme.background, appearance);
+  const foreground = readableColor(theme.foreground, background, theme.type === "light" ? "#000000" : "#ffffff");
+  const tokenColor = (value: unknown, fallback = foreground) => readableColor(value, background, fallback);
   return {
     name: theme.name,
     displayName: theme.ghosttyName,
@@ -120,38 +130,38 @@ export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearan
       "editor.foreground": foreground,
       "terminal.background": background,
       "terminal.foreground": foreground,
-      "terminal.ansiBlack": palette["0"] ?? foreground,
-      "terminal.ansiRed": palette["1"] ?? foreground,
-      "terminal.ansiGreen": palette["2"] ?? foreground,
-      "terminal.ansiYellow": palette["3"] ?? foreground,
-      "terminal.ansiBlue": palette["4"] ?? foreground,
-      "terminal.ansiMagenta": palette["5"] ?? foreground,
-      "terminal.ansiCyan": palette["6"] ?? foreground,
-      "terminal.ansiWhite": palette["7"] ?? foreground,
-      "terminal.ansiBrightBlack": palette["8"] ?? foreground,
-      "terminal.ansiBrightRed": palette["9"] ?? palette["1"] ?? foreground,
-      "terminal.ansiBrightGreen": palette["10"] ?? palette["2"] ?? foreground,
-      "terminal.ansiBrightYellow": palette["11"] ?? palette["3"] ?? foreground,
-      "terminal.ansiBrightBlue": palette["12"] ?? palette["4"] ?? foreground,
-      "terminal.ansiBrightMagenta": palette["13"] ?? palette["5"] ?? foreground,
-      "terminal.ansiBrightCyan": palette["14"] ?? palette["6"] ?? foreground,
-      "terminal.ansiBrightWhite": palette["15"] ?? foreground,
-      "gitDecoration.addedResourceForeground": palette["10"] ?? palette["2"] ?? "#32d74b",
-      "gitDecoration.deletedResourceForeground": palette["9"] ?? palette["1"] ?? "#ff453a",
-      "gitDecoration.modifiedResourceForeground": palette["12"] ?? palette["4"] ?? "#0a84ff",
+      "terminal.ansiBlack": tokenColor(palette["0"]),
+      "terminal.ansiRed": tokenColor(palette["1"]),
+      "terminal.ansiGreen": tokenColor(palette["2"]),
+      "terminal.ansiYellow": tokenColor(palette["3"]),
+      "terminal.ansiBlue": tokenColor(palette["4"]),
+      "terminal.ansiMagenta": tokenColor(palette["5"]),
+      "terminal.ansiCyan": tokenColor(palette["6"]),
+      "terminal.ansiWhite": tokenColor(palette["7"]),
+      "terminal.ansiBrightBlack": tokenColor(palette["8"]),
+      "terminal.ansiBrightRed": tokenColor(palette["9"], tokenColor(palette["1"])),
+      "terminal.ansiBrightGreen": tokenColor(palette["10"], tokenColor(palette["2"])),
+      "terminal.ansiBrightYellow": tokenColor(palette["11"], tokenColor(palette["3"])),
+      "terminal.ansiBrightBlue": tokenColor(palette["12"], tokenColor(palette["4"])),
+      "terminal.ansiBrightMagenta": tokenColor(palette["13"], tokenColor(palette["5"])),
+      "terminal.ansiBrightCyan": tokenColor(palette["14"], tokenColor(palette["6"])),
+      "terminal.ansiBrightWhite": tokenColor(palette["15"]),
+      "gitDecoration.addedResourceForeground": tokenColor(palette["10"], tokenColor(palette["2"], "#32d74b")),
+      "gitDecoration.deletedResourceForeground": tokenColor(palette["9"], tokenColor(palette["1"], "#ff453a")),
+      "gitDecoration.modifiedResourceForeground": tokenColor(palette["12"], tokenColor(palette["4"], "#0a84ff")),
       "editor.selectionBackground": theme.selectionBackground,
       "editor.selectionForeground": theme.selectionForeground,
     },
     tokenColors: [
       { settings: { foreground, background } },
-      { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: palette["8"] ?? foreground, fontStyle: "italic" } },
-      { scope: ["string", "constant.other.symbol"], settings: { foreground: palette["2"] ?? foreground } },
-      { scope: ["constant.numeric", "constant.language", "support.constant"], settings: { foreground: palette["3"] ?? foreground } },
-      { scope: ["keyword", "storage", "storage.type"], settings: { foreground: palette["5"] ?? foreground } },
-      { scope: ["entity.name.function", "support.function"], settings: { foreground: palette["4"] ?? foreground } },
-      { scope: ["entity.name.type", "entity.name.class", "support.type"], settings: { foreground: palette["6"] ?? foreground } },
+      { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: tokenColor(palette["8"]), fontStyle: "italic" } },
+      { scope: ["string", "constant.other.symbol"], settings: { foreground: tokenColor(palette["2"]) } },
+      { scope: ["constant.numeric", "constant.language", "support.constant"], settings: { foreground: tokenColor(palette["3"]) } },
+      { scope: ["keyword", "storage", "storage.type"], settings: { foreground: tokenColor(palette["5"]) } },
+      { scope: ["entity.name.function", "support.function"], settings: { foreground: tokenColor(palette["4"]) } },
+      { scope: ["entity.name.type", "entity.name.class", "support.type"], settings: { foreground: tokenColor(palette["6"]) } },
       { scope: ["variable", "meta.definition.variable"], settings: { foreground } },
-      { scope: ["invalid", "message.error"], settings: { foreground: palette["9"] ?? palette["1"] ?? foreground } },
+      { scope: ["invalid", "message.error"], settings: { foreground: tokenColor(palette["9"], tokenColor(palette["1"])) } },
     ],
   };
 }

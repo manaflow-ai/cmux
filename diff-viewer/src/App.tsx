@@ -31,6 +31,7 @@ type AppState = {
   activeTreePath: string;
   copyFeedback: string;
   fileSearchOpen: boolean;
+  filesWidth: number;
   filesVisible: boolean;
   items: DiffItem[];
   metrics: StreamMetrics | null;
@@ -46,6 +47,7 @@ type AppAction =
   | { type: "set-active-item"; itemId: string; treePath?: string }
   | { type: "set-copy-feedback"; message: string }
   | { type: "set-file-search-open"; open: boolean }
+  | { type: "set-files-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
   | { type: "set-metrics"; metrics: StreamMetrics }
   | { type: "set-option"; key: keyof DiffViewerOptions; value: any }
@@ -64,6 +66,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     activeTreePath: "",
     copyFeedback: "",
     fileSearchOpen: false,
+    filesWidth: 252,
     filesVisible: true,
     items: [],
     metrics: null,
@@ -112,6 +115,8 @@ function reducer(state: AppState, action: AppAction): AppState {
     return { ...state, copyFeedback: action.message };
   case "set-file-search-open":
     return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
+  case "set-files-width":
+    return { ...state, filesWidth: action.width };
   case "set-files-visible":
     return { ...state, filesVisible: action.visible };
   case "set-metrics":
@@ -204,7 +209,7 @@ export function App({ config, initialStatus }: ConfigProps) {
         dispatch={dispatch}
         state={state}
       />
-      <section id="content">
+      <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
         <FilesSidebar
           label={label}
           onSelectItem={scrollToItem}
@@ -554,8 +559,46 @@ function FilesSidebar({
   selectedPath: string;
   state: AppState;
 }) {
+  const dragStart = useRef<{ startWidth: number; startX: number } | null>(null);
+  const resizeFiles = (clientX: number) => {
+    const start = dragStart.current;
+    if (!start) {
+      return;
+    }
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    const maximumWidth = Math.max(220, Math.min(520, Math.floor(viewportWidth * 0.55)));
+    const nextWidth = Math.max(180, Math.min(maximumWidth, Math.round(start.startWidth - (clientX - start.startX))));
+    dispatch({ type: "set-files-width", width: nextWidth });
+  };
   return (
     <aside id="files-sidebar" aria-label={label("changedFiles")} aria-hidden={!state.filesVisible} inert={!state.filesVisible}>
+      <button
+        id="files-resize-handle"
+        aria-label={label("files")}
+        type="button"
+        tabIndex={0}
+        onPointerDown={(event) => {
+          dragStart.current = { startWidth: state.filesWidth, startX: event.clientX };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => resizeFiles(event.clientX)}
+        onPointerUp={(event) => {
+          resizeFiles(event.clientX);
+          dragStart.current = null;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={() => {
+          dragStart.current = null;
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+            return;
+          }
+          event.preventDefault();
+          const delta = event.key === "ArrowLeft" ? 20 : -20;
+          dispatch({ type: "set-files-width", width: Math.max(180, Math.min(520, state.filesWidth + delta)) });
+        }}
+      />
       <div id="files-header">
         <span id="files-title">
           <span>{label("files")}</span>
@@ -633,7 +676,7 @@ function PierreFileTree({
   const latest = useSyncedRef({ label, onSelectItem, source });
   const [initialPreparedInput] = useState(() => preparePresortedFileTreeInput(source.paths));
   const { model } = useFileTree({
-    flattenEmptyDirectories: true,
+    flattenEmptyDirectories: false,
     id: "cmux-diff-file-tree",
     initialExpansion: "open",
     initialSelectedPaths: selectedPath ? [selectedPath] : [],
@@ -673,7 +716,7 @@ function PierreFileTree({
   usePierreFileTreeSearch(model, fileSearchOpen);
   usePierreFileTreeSelection(model, selectedPath);
 
-  return <FileTree model={model} />;
+  return <FileTree model={model} style={{ height: "100%" }} />;
 }
 
 function LoadingFileList() {
