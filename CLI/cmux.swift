@@ -1822,11 +1822,8 @@ final class SocketClient {
         if shouldCloseAfterSend {
             close()
         } else {
-            do {
-                try configureSocketWriteSafety(Self.responseTimeoutSeconds)
-            } catch {
+            if (try? configureSocketWriteSafety(Self.responseTimeoutSeconds)) == nil {
                 close()
-                throw error
             }
         }
     }
