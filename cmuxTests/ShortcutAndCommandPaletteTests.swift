@@ -7,6 +7,7 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import Sparkle
+import CmuxUpdater
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -773,6 +774,26 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
             )
         )
     }
+
+    func testTerminalFocusTextBoxCommandRestoresTextBoxAfterPaletteDismiss() {
+        XCTAssertEqual(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalFocusTextBoxInput"),
+            .terminal(.textBoxInput)
+        )
+    }
+
+    func testTerminalAttachTextBoxFileCommandRestoresTextBoxAfterPaletteDismiss() {
+        XCTAssertEqual(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalAttachTextBoxFile"),
+            .terminal(.textBoxInput)
+        )
+    }
+
+    func testOtherCommandPaletteCommandsDoNotForcePostRunFocusRestore() {
+        XCTAssertNil(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalToggleTextBoxInput")
+        )
+    }
 }
 
 
@@ -840,6 +861,19 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
 
 
 final class ShortcutHintModifierPolicyTests: XCTestCase {
+    func testTitlebarShortcutHintActionSlotsIncludeFocusHistoryNavigation() {
+        XCTAssertEqual(
+            TitlebarShortcutHintActionSlot.allCases.map(\.action),
+            [
+                .toggleSidebar,
+                .showNotifications,
+                .newTab,
+                .focusHistoryBack,
+                .focusHistoryForward,
+            ]
+        )
+    }
+
     func testTitlebarShortcutHintAlwaysShowAllowsBoundNonCommandShortcut() {
         let controlShortcut = StoredShortcut(key: "R", command: false, shift: false, option: false, control: true)
         let commandShortcut = StoredShortcut(key: "R", command: true, shift: false, option: false, control: false)
@@ -1404,8 +1438,8 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
     func testDefaultOffsetsMatchCurrentBadgePlacements() {
         XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintY, 0.0)
-        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintX, 4.0)
-        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintY, 0.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintX, 0.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintY, -5.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintY, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultRightSidebarCloseHintX, -10.0)
@@ -1517,6 +1551,24 @@ final class ShortcutHintHorizontalPlannerTests: XCTestCase {
         let intervals: [ClosedRange<CGFloat>] = [0...12, 20...32, 40...52]
         let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 4)
         XCTAssertEqual(rightEdges, [12, 32, 52])
+    }
+
+    func testAssignRightEdgesKeepsCrowdedHintsInsideLeadingEdge() {
+        let intervals: [ClosedRange<CGFloat>] = [-2...24, 27...50, 50...76, 78...102, 104...128]
+        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 6)
+
+        let adjustedIntervals = zip(intervals, rightEdges).map { interval, rightEdge in
+            let width = interval.upperBound - interval.lowerBound
+            return (rightEdge - width)...rightEdge
+        }
+
+        XCTAssertGreaterThanOrEqual(adjustedIntervals[0].lowerBound, 0)
+        for index in 1..<adjustedIntervals.count {
+            XCTAssertGreaterThanOrEqual(
+                adjustedIntervals[index].lowerBound - adjustedIntervals[index - 1].upperBound,
+                6
+            )
+        }
     }
 }
 
@@ -1796,29 +1848,31 @@ final class QuitConfirmationPolicyTests: XCTestCase {
 
 final class UpdateChannelSettingsTests: XCTestCase {
     func testResolvedFeedFallsBackWhenInfoFeedMissing() {
-        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: nil)
-        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
+        let resolver = UpdateFeedResolver()
+        let resolved = resolver.resolve(infoFeedURL: nil)
+        XCTAssertEqual(resolved.url, resolver.fallbackFeedURL)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
 
     func testResolvedFeedFallsBackWhenInfoFeedEmpty() {
-        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: "")
-        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
+        let resolver = UpdateFeedResolver()
+        let resolved = resolver.resolve(infoFeedURL: "")
+        XCTAssertEqual(resolved.url, resolver.fallbackFeedURL)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
 
     func testResolvedFeedUsesInfoFeedForStableChannel() {
         let infoFeed = "https://example.com/custom/appcast.xml"
-        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeed)
+        let resolved = UpdateFeedResolver().resolve(infoFeedURL: infoFeed)
         XCTAssertEqual(resolved.url, infoFeed)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
 
     func testResolvedFeedDetectsNightlyFromInfoFeedURL() {
-        let resolved = UpdateFeedResolver.resolvedFeedURLString(
+        let resolved = UpdateFeedResolver().resolve(
             infoFeedURL: "https://example.com/nightly/appcast.xml"
         )
         XCTAssertEqual(resolved.url, "https://example.com/nightly/appcast.xml")
@@ -1831,10 +1885,10 @@ final class UpdateChannelSettingsTests: XCTestCase {
 final class UpdateSettingsTests: XCTestCase {
     func testApplyEnablesAutomaticChecksAndDailySchedule() {
         let defaults = makeDefaults()
-        UpdateSettings.apply(to: defaults)
+        UpdateSettings().apply(to: defaults)
 
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
-        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings.scheduledCheckInterval)
+        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings().scheduledCheckInterval)
         XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
         XCTAssertFalse(defaults.bool(forKey: UpdateSettings.sendProfileInfoKey))
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.migrationKey))
@@ -1846,14 +1900,14 @@ final class UpdateSettingsTests: XCTestCase {
         defaults.set(0, forKey: UpdateSettings.scheduledCheckIntervalKey)
         defaults.set(true, forKey: UpdateSettings.automaticallyUpdateKey)
 
-        UpdateSettings.apply(to: defaults)
+        UpdateSettings().apply(to: defaults)
 
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
-        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings.scheduledCheckInterval)
+        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings().scheduledCheckInterval)
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
 
         defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
-        UpdateSettings.apply(to: defaults)
+        UpdateSettings().apply(to: defaults)
 
         XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
     }
@@ -1868,11 +1922,12 @@ final class UpdateSettingsTests: XCTestCase {
     }
 }
 
+@MainActor
 final class UpdateViewModelPresentationTests: XCTestCase {
     func testDetectedBackgroundUpdateShowsPillWhileIdle() {
-        let viewModel = UpdateViewModel()
+        let viewModel = UpdateStateModel()
 
-        viewModel.detectedUpdateVersion = "9.9.9"
+        viewModel.debugSetDetectedVersion("9.9.9")
 
         XCTAssertTrue(viewModel.showsPill)
         XCTAssertTrue(viewModel.showsDetectedBackgroundUpdate)
@@ -1881,10 +1936,10 @@ final class UpdateViewModelPresentationTests: XCTestCase {
     }
 
     func testActiveUpdateStateTakesPrecedenceOverDetectedBackgroundVersion() {
-        let viewModel = UpdateViewModel()
+        let viewModel = UpdateStateModel()
 
-        viewModel.detectedUpdateVersion = "9.9.9"
-        viewModel.state = .checking(.init(cancel: {}))
+        viewModel.debugSetDetectedVersion("9.9.9")
+        viewModel.setState(.checking(.init(cancel: {})))
 
         XCTAssertTrue(viewModel.showsPill)
         XCTAssertFalse(viewModel.showsDetectedBackgroundUpdate)
@@ -1892,15 +1947,15 @@ final class UpdateViewModelPresentationTests: XCTestCase {
     }
 
     func testDismissDetectedAvailableUpdateRepliesAndClearsState() throws {
-        let viewModel = UpdateViewModel()
+        let viewModel = UpdateStateModel()
         let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
         let recorder = UpdateChoiceRecorder()
 
         viewModel.recordDetectedUpdate(item)
-        viewModel.state = .updateAvailable(.init(
+        viewModel.setState(.updateAvailable(.init(
             appcastItem: item,
             reply: { recorder.record($0) }
-        ))
+        )))
 
         viewModel.dismissDetectedAvailableUpdate()
 
@@ -1912,15 +1967,15 @@ final class UpdateViewModelPresentationTests: XCTestCase {
     }
 
     func testCancelActiveStateForNewCheckDismissesAndClearsTransientState() throws {
-        let viewModel = UpdateViewModel()
+        let viewModel = UpdateStateModel()
         let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
         let recorder = UpdateChoiceRecorder()
 
-        viewModel.state = .updateAvailable(.init(
+        viewModel.setState(.updateAvailable(.init(
             appcastItem: item,
             reply: { recorder.record($0) }
-        ))
-        viewModel.overrideState = .checking(.init(cancel: {}))
+        )))
+        viewModel.setOverrideState(.checking(.init(cancel: {})))
 
         viewModel.cancelActiveStateForNewCheck()
 
@@ -1930,14 +1985,14 @@ final class UpdateViewModelPresentationTests: XCTestCase {
     }
 
     func testApplyDriverStateRecordsDetectedUpdateMetadata() throws {
-        let viewModel = UpdateViewModel()
+        let viewModel = UpdateStateModel()
         let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
 
         viewModel.applyDriverState(.updateAvailable(.init(
             appcastItem: item,
             reply: { _ in }
         )))
-        viewModel.state = .idle
+        viewModel.setState(.idle)
 
         XCTAssertEqual(viewModel.detectedUpdateVersion, "9.9.9")
         XCTAssertTrue(viewModel.hasCachedDetectedUpdateDetails)

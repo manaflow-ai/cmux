@@ -19,6 +19,63 @@ struct HermesAgentHookConfigTests {
         #expect(HermesAgentHookConfig.uninstalling(from: installed) == "")
     }
 
+    @Test("Coalesces multiple cmux hooks for the same missing Hermes event")
+    func coalescesMultipleHooksForSameMissingEvent() {
+        let events = [
+            HermesAgentHookConfig.Event(name: "pre_approval_request", command: "sh -c 'cmux hooks hermes-agent notification'"),
+            HermesAgentHookConfig.Event(name: "pre_approval_request", command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_approval_request'", timeout: 120),
+            HermesAgentHookConfig.Event(name: "post_llm_call", command: "sh -c 'cmux hooks hermes-agent agent-response'"),
+        ]
+
+        let installed = HermesAgentHookConfig.installing(events: events, in: "")
+
+        #expect(installed.components(separatedBy: "\n  pre_approval_request:").count == 2)
+        #expect(
+            installed.contains("""
+              pre_approval_request:
+                - command: "sh -c 'cmux hooks hermes-agent notification'"
+                  timeout: 5
+                - command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_approval_request'"
+                  timeout: 120
+            """)
+        )
+        #expect(installed.contains("  post_llm_call:"))
+        #expect(HermesAgentHookConfig.uninstalling(from: installed) == "")
+    }
+
+    @Test("Coalesces multiple cmux hooks for the same existing Hermes event")
+    func coalescesMultipleHooksForSameExistingEvent() {
+        let existing = """
+        hooks:
+          pre_approval_request:
+            - command: "echo user"
+              timeout: 10
+
+        """
+        let events = [
+            HermesAgentHookConfig.Event(name: "pre_approval_request", command: "sh -c 'cmux hooks hermes-agent notification'"),
+            HermesAgentHookConfig.Event(name: "pre_approval_request", command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_approval_request'", timeout: 120),
+        ]
+
+        let installed = HermesAgentHookConfig.installing(events: events, in: existing)
+
+        #expect(installed.components(separatedBy: "\n  pre_approval_request:").count == 2)
+        #expect(
+            installed.contains("""
+              pre_approval_request:
+                # cmux hooks hermes-agent begin
+                - command: "sh -c 'cmux hooks hermes-agent notification'"
+                  timeout: 5
+                - command: "sh -c 'cmux hooks feed --source hermes-agent --event pre_approval_request'"
+                  timeout: 120
+                # cmux hooks hermes-agent end
+                - command: "echo user"
+                  timeout: 10
+            """)
+        )
+        #expect(HermesAgentHookConfig.uninstalling(from: installed) == existing)
+    }
+
     @Test("Preserves existing hook events without duplicating keys")
     func preservesExistingHookEventsWithoutDuplicatingKeys() {
         let existing = """
