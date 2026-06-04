@@ -4,63 +4,63 @@
    <FileRef
       location = "group:cmux.xcodeproj">
    </FileRef>
+   <FileRef
+      location = "group:ios/cmux-ios.xcodeproj">
+   </FileRef>
    <Group
       location = "container:Packages"
       name = "Packages (Shared)">
-      <FileRef
-         location = "group:CMUXMobileCore">
-      </FileRef>
       <FileRef
          location = "group:CMUXAuthCore">
       </FileRef>
       <FileRef
          location = "group:CmuxAuthRuntime">
       </FileRef>
+      <FileRef
+         location = "group:CMUXMobileCore">
+      </FileRef>
    </Group>
    <Group
-      location = "container:ios"
+      location = "container:Packages"
       name = "Packages (iOS)">
       <FileRef
-         location = "group:cmux-ios.xcodeproj">
+         location = "container:ios/cmuxPackage">
       </FileRef>
       <FileRef
-         location = "group:cmuxPackage">
+         location = "group:CmuxMobileCamera">
       </FileRef>
       <FileRef
-         location = "container:Packages/CmuxMobileCamera">
+         location = "group:CmuxMobileDiagnostics">
       </FileRef>
       <FileRef
-         location = "container:Packages/CmuxMobileDiagnostics">
+         location = "group:CmuxMobilePairedMac">
       </FileRef>
       <FileRef
-         location = "container:Packages/CmuxMobilePairedMac">
+         location = "group:CmuxMobileRPC">
       </FileRef>
       <FileRef
-         location = "container:Packages/CmuxMobileRPC">
+         location = "group:CmuxMobileShell">
       </FileRef>
       <FileRef
-         location = "container:Packages/CmuxMobileShell">
+         location = "group:CmuxMobileShellModel">
       </FileRef>
       <FileRef
-         location = "container:Packages/CmuxMobileShellModel">
+         location = "group:CmuxMobileShellUI">
       </FileRef>
       <FileRef
-         location = "container:Packages/CmuxMobileShellUI">
+         location = "group:CmuxMobileSupport">
       </FileRef>
       <FileRef
-         location = "container:Packages/CmuxMobileSupport">
+         location = "group:CmuxMobileTerminal">
       </FileRef>
       <FileRef
-         location = "container:Packages/CmuxMobileTerminal">
+         location = "group:CmuxMobileTerminalKit">
       </FileRef>
       <FileRef
-         location = "container:Packages/CmuxMobileTerminalKit">
+         location = "group:CmuxMobileTransport">
       </FileRef>
       <FileRef
-         location = "container:Packages/CmuxMobileTransport">
-      </FileRef>
-      <FileRef
-         location = "container:Packages/CmuxMobileWorkspace">
+         location = "group:CmuxMobileWorkspace">
       </FileRef>
    </Group>
    <Group
