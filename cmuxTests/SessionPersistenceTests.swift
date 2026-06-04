@@ -1297,6 +1297,131 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testSleepWakeRecoveryUsesCachedSnapshotUntilLaterWakeNotification() throws {
+        let windowId = UUID()
+        let stableFrame = CGRect(x: 120, y: 30, width: 1_900, height: 1_120)
+        let shrunkFrame = CGRect(x: 120, y: 30, width: 1_360, height: 780)
+        let displaySnapshot = SessionDisplaySnapshot(
+            displayID: 2,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+        let coordinator = MainWindowDisplayGeometryCoordinator()
+        let stableCurrent = MainWindowDisplayGeometryCoordinator.CurrentGeometry(
+            connectedDisplayIDs: [2],
+            availableDisplays: [display],
+            fallbackDisplay: display,
+            windows: [
+                MainWindowDisplayGeometryCoordinator.LiveWindowGeometry(
+                    windowId: windowId,
+                    frame: stableFrame,
+                    displayID: 2,
+                    display: displaySnapshot
+                ),
+            ]
+        )
+        let shrunkCurrent = MainWindowDisplayGeometryCoordinator.CurrentGeometry(
+            connectedDisplayIDs: [2],
+            availableDisplays: [display],
+            fallbackDisplay: display,
+            windows: [
+                MainWindowDisplayGeometryCoordinator.LiveWindowGeometry(
+                    windowId: windowId,
+                    frame: shrunkFrame,
+                    displayID: 2,
+                    display: displaySnapshot
+                ),
+            ]
+        )
+
+        coordinator.prime(current: stableCurrent)
+        coordinator.beginTransition(
+            source: .workspaceScreensDidSleep,
+            reason: .sleepWake,
+            current: stableCurrent
+        )
+        coordinator.finishDisplayGeometryChange(
+            source: .workspaceScreensDidWake,
+            current: stableCurrent,
+            restoredWindowIDs: []
+        )
+        let snapshot = coordinator.snapshotGeometry(
+            windowId: windowId,
+            liveFrame: shrunkFrame,
+            liveDisplayID: 2,
+            liveDisplay: displaySnapshot,
+            current: shrunkCurrent
+        )
+        let frame = try XCTUnwrap(snapshot.frame?.cgRect)
+        let request = try XCTUnwrap(
+            coordinator.restoreRequests(source: .workspaceDidWake, current: shrunkCurrent).first
+        )
+
+        XCTAssertEqual(frame.width, stableFrame.width, accuracy: 0.001)
+        XCTAssertEqual(frame.height, stableFrame.height, accuracy: 0.001)
+        XCTAssertEqual(request.frame.width, stableFrame.width, accuracy: 0.001)
+        XCTAssertEqual(request.frame.height, stableFrame.height, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testLaterWakeSourceRestoresShrunkFrameAfterStablePhase() throws {
+        let windowId = UUID()
+        let stableFrame = CGRect(x: 120, y: 30, width: 1_900, height: 1_120)
+        let shrunkFrame = CGRect(x: 120, y: 30, width: 1_360, height: 780)
+        let displaySnapshot = SessionDisplaySnapshot(
+            displayID: 2,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+        let coordinator = MainWindowDisplayGeometryCoordinator()
+        coordinator.prime(
+            current: MainWindowDisplayGeometryCoordinator.CurrentGeometry(
+                connectedDisplayIDs: [2],
+                availableDisplays: [display],
+                fallbackDisplay: display,
+                windows: [
+                    MainWindowDisplayGeometryCoordinator.LiveWindowGeometry(
+                        windowId: windowId,
+                        frame: stableFrame,
+                        displayID: 2,
+                        display: displaySnapshot
+                    ),
+                ]
+            )
+        )
+        let shrunkCurrent = MainWindowDisplayGeometryCoordinator.CurrentGeometry(
+            connectedDisplayIDs: [2],
+            availableDisplays: [display],
+            fallbackDisplay: display,
+            windows: [
+                MainWindowDisplayGeometryCoordinator.LiveWindowGeometry(
+                    windowId: windowId,
+                    frame: shrunkFrame,
+                    displayID: 2,
+                    display: displaySnapshot
+                ),
+            ]
+        )
+
+        let request = try XCTUnwrap(
+            coordinator.restoreRequests(source: .workspaceDidWake, current: shrunkCurrent).first
+        )
+
+        XCTAssertEqual(request.frame.width, stableFrame.width, accuracy: 0.001)
+        XCTAssertEqual(request.frame.height, stableFrame.height, accuracy: 0.001)
+    }
+
+    @MainActor
     func testAppliedRestoreRecordsGeometryUnderActualPostRestoreDisplay() throws {
         let windowId = UUID()
         let originalFrame = CGRect(x: 120, y: 30, width: 1_500, height: 920)

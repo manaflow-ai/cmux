@@ -58,6 +58,19 @@ final class MainWindowDisplayGeometryCoordinator {
                 return false
             }
         }
+
+        var keepsSleepWakeRecoveryOpen: Bool {
+            self == .workspaceScreensDidWake
+        }
+
+        var usesSleepWakeShrinkProtection: Bool {
+            switch self {
+            case .workspaceDidWake, .workspaceScreensDidWake, .workspaceSessionDidBecomeActive:
+                return true
+            case .applicationDidChangeScreenParameters:
+                return false
+            }
+        }
     }
 
     private struct SavedDisplayWindowFrame {
@@ -69,6 +82,7 @@ final class MainWindowDisplayGeometryCoordinator {
     private enum Phase {
         case stable
         case volatile(TransitionReason)
+        case sleepWakeRecovery
     }
 
     private var lastKnownDisplayIDs: Set<UInt32> = []
@@ -76,22 +90,22 @@ final class MainWindowDisplayGeometryCoordinator {
     private var phase: Phase = .stable
     private(set) var isApplyingCachedWindowGeometry = false
 
-    var isVolatile: Bool {
-        switch phase {
-        case .stable:
-            return false
-        case .volatile:
-            return true
-        }
-    }
-
-    private var transitionReason: TransitionReason? {
+    private var cachedFrameProtectionReason: TransitionReason? {
         switch phase {
         case .stable:
             return nil
         case .volatile(let reason):
             return reason
+        case .sleepWakeRecovery:
+            return .sleepWake
         }
+    }
+
+    private var isSleepWakeRecovery: Bool {
+        if case .sleepWakeRecovery = phase {
+            return true
+        }
+        return false
     }
 
     func prime(current: CurrentGeometry) {
@@ -129,7 +143,7 @@ final class MainWindowDisplayGeometryCoordinator {
     ) {
         guard !isApplyingCachedWindowGeometry else { return }
 
-        if isVolatile,
+        if cachedFrameProtectionReason != nil,
            let entry = savedDisplayWindowFrame(
                forWindowId: liveWindow.windowId,
                liveDisplayID: liveWindow.displayID,
@@ -143,7 +157,7 @@ final class MainWindowDisplayGeometryCoordinator {
             return
         }
 
-        if isVolatile,
+        if cachedFrameProtectionReason != nil,
            let displayID = liveWindow.displayID,
            let entry = savedDisplayWindowFrames[displayID]?.first(where: { $0.windowId == liveWindow.windowId }),
            shouldRestoreCachedFrameForCurrentDisplay(
@@ -197,6 +211,9 @@ final class MainWindowDisplayGeometryCoordinator {
         }
 
         for liveWindow in current.windows {
+            let protectionReason = cachedFrameProtectionReason
+                ?? (source.usesSleepWakeShrinkProtection ? .sleepWake : nil)
+            let shrinkOnlyProtection = cachedFrameProtectionReason == nil && source.usesSleepWakeShrinkProtection
             guard let liveDisplayID = liveWindow.displayID,
                   let entry = savedDisplayWindowFrame(
                       forWindowId: liveWindow.windowId,
@@ -211,12 +228,13 @@ final class MainWindowDisplayGeometryCoordinator {
                 entry,
                 liveWindow: liveWindow,
                 displays: current.availableDisplays
-            ) || (isVolatile
-                && currentIDs.contains(restoreDisplayID)
+            ) || (currentIDs.contains(restoreDisplayID)
                 && shouldKeepCachedFrameDuringDisplayTransition(
                     entry,
                     liveWindow: liveWindow,
-                    displays: current.availableDisplays
+                    displays: current.availableDisplays,
+                    reason: protectionReason,
+                    shrinkOnly: shrinkOnlyProtection
                 ))
             guard shouldRestoreCachedFrame else { continue }
             enqueueRestore(entry, displayID: restoreDisplayID)
@@ -251,7 +269,9 @@ final class MainWindowDisplayGeometryCoordinator {
         restoredWindowIDs: Set<UUID>
     ) {
         updateSavedWindowFrames(current: current, excluding: restoredWindowIDs)
-        if source.endsVolatilePhase || !hasVolatileGeometry(current: current) {
+        if source.keepsSleepWakeRecoveryOpen {
+            phase = .sleepWakeRecovery
+        } else if source.endsVolatilePhase || !hasCachedFrameProtectionGeometry(current: current) {
             phase = .stable
         }
     }
@@ -274,7 +294,7 @@ final class MainWindowDisplayGeometryCoordinator {
         liveDisplay: SessionDisplaySnapshot?,
         current: CurrentGeometry
     ) -> GeometrySnapshot {
-        if let cached = savedFrameForVolatileWindow(
+        if let cached = savedFrameForProtectedWindow(
             windowId: windowId,
             liveDisplayID: liveDisplayID,
             liveFrame: liveFrame,
@@ -301,7 +321,7 @@ final class MainWindowDisplayGeometryCoordinator {
                   let display = liveWindow.display else {
                 continue
             }
-            if isVolatile,
+            if cachedFrameProtectionReason != nil,
                let entry = savedDisplayWindowFrame(
                    forWindowId: liveWindow.windowId,
                    liveDisplayID: displayID,
@@ -344,7 +364,7 @@ final class MainWindowDisplayGeometryCoordinator {
         liveDisplayID: UInt32?,
         connectedDisplayIDs: Set<UInt32>
     ) -> SavedDisplayWindowFrame? {
-        if isVolatile,
+        if cachedFrameProtectionReason != nil,
            let liveDisplayID {
             for (displayID, entries) in savedDisplayWindowFrames
             where displayID != liveDisplayID && connectedDisplayIDs.contains(displayID) {
@@ -372,8 +392,8 @@ final class MainWindowDisplayGeometryCoordinator {
         return nil
     }
 
-    private func hasVolatileGeometry(current: CurrentGeometry) -> Bool {
-        guard isVolatile else { return false }
+    private func hasCachedFrameProtectionGeometry(current: CurrentGeometry) -> Bool {
+        guard cachedFrameProtectionReason != nil else { return false }
         for liveWindow in current.windows {
             guard let entry = savedDisplayWindowFrame(
                 forWindowId: liveWindow.windowId,
@@ -418,11 +438,16 @@ final class MainWindowDisplayGeometryCoordinator {
     private func shouldKeepCachedFrameDuringDisplayTransition(
         _ entry: SavedDisplayWindowFrame,
         liveWindow: LiveWindowGeometry,
-        displays: [DisplayGeometry]
+        displays: [DisplayGeometry],
+        reason suppliedReason: TransitionReason? = nil,
+        shrinkOnly: Bool? = nil
     ) -> Bool {
         guard let liveFrame = liveWindow.frame,
-              let reason = transitionReason else {
+              let reason = suppliedReason ?? cachedFrameProtectionReason else {
             return false
+        }
+        if shrinkOnly ?? isSleepWakeRecovery {
+            return reason == .sleepWake && Self.liveFrameShrank(savedFrame: entry.frame.cgRect, liveFrame: liveFrame)
         }
         return Self.shouldUseCachedWindowFrameDuringDisplayTransition(
             savedFrame: entry.frame.cgRect,
@@ -434,13 +459,13 @@ final class MainWindowDisplayGeometryCoordinator {
         )
     }
 
-    private func savedFrameForVolatileWindow(
+    private func savedFrameForProtectedWindow(
         windowId: UUID,
         liveDisplayID: UInt32?,
         liveFrame: CGRect?,
         current: CurrentGeometry
     ) -> SavedDisplayWindowFrame? {
-        guard isVolatile else {
+        guard cachedFrameProtectionReason != nil else {
             return nil
         }
 
@@ -465,12 +490,11 @@ final class MainWindowDisplayGeometryCoordinator {
             entry,
             liveWindow: liveWindow,
             displays: current.availableDisplays
-        ) || (isVolatile
-            && shouldKeepCachedFrameDuringDisplayTransition(
-                entry,
-                liveWindow: liveWindow,
-                displays: current.availableDisplays
-            ))
+        ) || shouldKeepCachedFrameDuringDisplayTransition(
+            entry,
+            liveWindow: liveWindow,
+            displays: current.availableDisplays
+        )
         guard shouldUseCachedFrame else {
             return nil
         }
@@ -485,8 +509,7 @@ final class MainWindowDisplayGeometryCoordinator {
         displays: [DisplayGeometry],
         reason: TransitionReason
     ) -> Bool {
-        let liveFrameShrank = liveFrame.width < savedFrame.width || liveFrame.height < savedFrame.height
-        if reason == .sleepWake && liveFrameShrank {
+        if reason == .sleepWake && liveFrameShrank(savedFrame: savedFrame, liveFrame: liveFrame) {
             return true
         }
 
@@ -506,6 +529,10 @@ final class MainWindowDisplayGeometryCoordinator {
         let displayChanged = !rectApproximatelyEqual(cachedFrame, currentDisplay.frame)
             || !rectApproximatelyEqual(cachedVisibleFrame, currentDisplay.visibleFrame)
         return displayChanged && !rectApproximatelyEqual(liveFrame, savedFrame)
+    }
+
+    private nonisolated static func liveFrameShrank(savedFrame: CGRect, liveFrame: CGRect) -> Bool {
+        liveFrame.width < savedFrame.width || liveFrame.height < savedFrame.height
     }
 
     private nonisolated static func rectApproximatelyEqual(
