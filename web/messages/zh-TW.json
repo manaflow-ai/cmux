@@ -709,6 +709,7 @@
       "metaTitle": "設定",
       "schemaDescriptions": {
         "automation": {
+          "ampIntegration": "啟用 cmux 與 Amp 的整合鉤子。停用時，隨附的外掛程式會保持非啟用狀態，無需移除。",
           "suppressSubagentNotifications": "隱藏巢狀 Codex 或 Claude 子代理的可見完成通知和狀態變更，同時將其事件保留在 Feed 遙測中。"
         },
         "app": {

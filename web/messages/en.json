@@ -810,6 +810,7 @@
       "exampleConfig": "Example config",
       "schemaDescriptions": {
         "automation": {
+          "ampIntegration": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed.",
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
         },
         "app": {

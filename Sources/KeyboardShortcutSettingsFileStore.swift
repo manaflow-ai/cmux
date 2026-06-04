@@ -882,6 +882,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["suppressSubagentNotifications"]) {
             snapshot.managedUserDefaults[AgentSubagentNotificationSettings.suppressNotificationsKey] = .bool(value)
         }
+        if let value = jsonBool(section["ampIntegration"]) {
+            snapshot.managedUserDefaults[AmpIntegrationSettings.hooksEnabledKey] = .bool(value)
+        }
         if let value = jsonBool(section["cursorIntegration"]) {
             snapshot.managedUserDefaults[CursorIntegrationSettings.hooksEnabledKey] = .bool(value)
         }
