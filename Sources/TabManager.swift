@@ -9488,9 +9488,8 @@ class TabManager: ObservableObject {
             select: false,
             autoWelcomeIfNeeded: false
         )
-        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot)
-        let restoredLayoutTabIds = workspace.restoredLayoutTabIdMap(from: entry.snapshot)
-        guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
+        let restoredIdentityMap = workspace.restoreSessionSnapshot(entry.snapshot)
+        guard !entry.snapshot.hasRestorablePanels || !restoredIdentityMap.panelIds.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }
@@ -9514,8 +9513,8 @@ class TabManager: ObservableObject {
         ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
             from: entry.workspaceId,
             to: workspace.id,
-            panelIdMap: restoredPanelIds,
-            layoutTabIdMap: restoredLayoutTabIds
+            panelIdMap: restoredIdentityMap.panelIds,
+            layoutTabIdMap: restoredIdentityMap.layoutTabIds
         )
 
         if let currentIndex = tabs.firstIndex(where: { $0.id == workspace.id }) {
@@ -11307,12 +11306,11 @@ extension TabManager {
                 portOrdinal: ordinal
             )
             workspace.owningTabManager = self
-            let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot)
-            let restoredLayoutTabIds = workspace.restoredLayoutTabIdMap(from: workspaceSnapshot)
+            let restoredIdentityMap = workspace.restoreSessionSnapshot(workspaceSnapshot)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
-            restoredPanelIdsByWorkspaceIndex.append(restoredPanelIds)
-            restoredLayoutTabIdsByWorkspaceIndex.append(restoredLayoutTabIds)
+            restoredPanelIdsByWorkspaceIndex.append(restoredIdentityMap.panelIds)
+            restoredLayoutTabIdsByWorkspaceIndex.append(restoredIdentityMap.layoutTabIds)
             restoredOriginalWorkspaceIds.append(workspaceSnapshot.workspaceId)
         }
 

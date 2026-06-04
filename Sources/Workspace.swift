@@ -141,6 +141,11 @@ struct WorkspaceRemoteDaemonManifest: Decodable, Equatable {
     }
 }
 
+struct WorkspaceSessionRestoreIdentityMap {
+    let panelIds: [UUID: UUID]
+    let layoutTabIds: [UUID: UUID]
+}
+
 extension Workspace {
     nonisolated static let remoteDaemonManifestInfoKey = WorkspaceRemoteSessionController.remoteDaemonManifestInfoKey
 
@@ -278,7 +283,7 @@ extension Workspace {
     }
 
     @discardableResult
-    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) -> [UUID: UUID] {
+    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) -> WorkspaceSessionRestoreIdentityMap {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
@@ -414,7 +419,10 @@ extension Workspace {
         }
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
         syncUnreadBadgeStateForAllPanels()
-        return oldToNewPanelIds
+        return WorkspaceSessionRestoreIdentityMap(
+            panelIds: oldToNewPanelIds,
+            layoutTabIds: oldToNewLayoutIds
+        )
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
@@ -1548,16 +1556,6 @@ extension Workspace {
                 layout: snapshot.layout
             )
         ]
-    }
-
-    func restoredLayoutTabIdMap(from snapshot: SessionWorkspaceSnapshot) -> [UUID: UUID] {
-        let restoredSnapshots = restoreLayoutTabSnapshots(from: snapshot)
-        var idMap: [UUID: UUID] = [:]
-        for (snapshot, layoutTab) in zip(restoredSnapshots, layoutTabs) {
-            guard let originalId = snapshot.id else { continue }
-            idMap[originalId] = layoutTab.id
-        }
-        return idMap
     }
 
     private func resetLayoutTabsForSessionRestore(
