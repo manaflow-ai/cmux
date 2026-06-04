@@ -22623,7 +22623,7 @@ const quickActionIconSvg = {
 };
 
 function quickActionIconMarkup(icon) {
-  return quickActionIconSvg[icon] || quickActionIconSvg.clean;
+  return quickActionIconSvg[icon] || controlIconSvg[icon] || quickActionIconSvg.clean;
 }
 
 function activeTerminalPaneBackgroundLabel() {
@@ -29907,7 +29907,7 @@ function renderPaletteQuickActions() {
       </span>
       <span class="palette-quick-shortcut"></span>
     `;
-    button.querySelector(".palette-quick-icon").innerHTML = controlIconMarkup(action.icon);
+    button.querySelector(".palette-quick-icon").innerHTML = quickActionIconMarkup(action.icon);
     button.querySelector(".palette-quick-label").textContent = action.label;
     button.querySelector(".palette-quick-meta").textContent = action.meta || "";
     button.querySelector(".palette-quick-shortcut").textContent = action.shortcut || "";
