@@ -613,6 +613,12 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
 
 @MainActor
 final class TabManagerPullRequestProbeTests: XCTestCase {
+    private func makeSidebarMetadataManager() -> TabManager {
+        let manager = TabManager()
+        manager.setSidebarMetadataSettingsForTesting(watchGitStatus: true, pullRequestPolling: true)
+        return manager
+    }
+
     func testGitHubRepositorySlugsPrioritizeUpstreamThenOriginAndDeduplicate() {
         let output = """
         origin https://github.com/austinwang/cmux.git (fetch)
@@ -971,7 +977,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
     }
 
     func testTrackedWorkspaceGitMetadataPollCandidatesIncludeMainAndMasterPanels() throws {
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let mainPanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -1006,7 +1012,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
     }
 
     func testTrackedWorkspaceGitMetadataPollCandidatesIncludeFocusedFallbackOnMain() {
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -1035,7 +1041,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: directoryURL) }
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -1074,7 +1080,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try runGit(["add", "README.md"], in: repoURL)
         try runGit(["commit", "-m", "Initial commit"], in: repoURL)
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected selected workspace")
             return
@@ -1113,7 +1119,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try runGit(["add", "README.md"], in: repoURL)
         try runGit(["commit", "-m", "Initial commit"], in: repoURL)
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -1161,7 +1167,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try runGit(["add", "README.md"], in: repoURL)
         try runGit(["commit", "-m", "Initial commit"], in: repoURL)
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -1186,7 +1192,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
     }
 
     func testRemoteSplitSkipsInitialGitMetadataProbe() throws {
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -1248,7 +1254,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try runGit(["commit", "-m", "Initial commit"], in: repoURL)
         try runGit(["checkout", "-b", "feature/sidebar-pr"], in: repoURL)
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")

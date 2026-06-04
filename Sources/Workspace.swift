@@ -7220,6 +7220,12 @@ final class WorkspaceRemoteSessionController {
             self.beginConnectionAttemptLocked()
         }
         reconnectWorkItem = workItem
+#if DEBUG
+        if Self.startSynchronouslyForTesting, retryNumber == 1 {
+            workItem.perform()
+            return RetrySchedule(retry: retryNumber, delay: 0)
+        }
+#endif
         queue.asyncAfter(deadline: .now() + retryDelay, execute: workItem)
         return RetrySchedule(retry: retryNumber, delay: retryDelay)
     }

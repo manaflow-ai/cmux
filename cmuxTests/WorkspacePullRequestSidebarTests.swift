@@ -382,7 +382,8 @@ private func writeGitIndexVersion4(
 private func writeGitIndexVersion4(
     at repoURL: URL,
     trackedPaths: [String],
-    signatureByte: UInt8
+    signatureByte: UInt8,
+    sizeOverride: UInt32? = nil
 ) throws {
     var data = Data()
     data.append(contentsOf: [0x44, 0x49, 0x52, 0x43])
@@ -406,7 +407,7 @@ private func writeGitIndexVersion4(
         appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_mode), to: &data)
         appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_uid), to: &data)
         appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_gid), to: &data)
-        appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_size), to: &data)
+        appendBigEndianUInt32(sizeOverride ?? gitIndexUInt32Field(statValue.st_size), to: &data)
         data.append(Data(repeating: 0, count: 20))
 
         let pathBytes = Array(trackedPath.utf8)
@@ -1138,7 +1139,12 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "The sidebar refresh path should parse Git index v4 entries as clean when file stats match."
         )
 
-        try writeGitIndexVersion4(at: repoURL, trackedPath: "tracked.txt", signatureByte: 0x22)
+        try writeGitIndexVersion4(
+            at: repoURL,
+            trackedPaths: ["tracked.txt"],
+            signatureByte: 0x22,
+            sizeOverride: 999
+        )
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         XCTAssertTrue(
@@ -1434,8 +1440,14 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             isDirectory: true
         )
         try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try "tracked\n".write(to: repoURL.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
         try writeMinimalGitRepository(at: repoURL)
-        try writeEmptyGitIndex(at: repoURL, signatureByte: 0x11)
+        try writeGitIndexVersion2EntryFromStat(
+            at: repoURL,
+            trackedPath: "tracked.txt",
+            indexMode: 0o100644,
+            signatureByte: 0x11
+        )
         defer {
             try? FileManager.default.removeItem(at: repoURL)
         }
