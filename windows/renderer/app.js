@@ -17876,11 +17876,30 @@ function savedSettingsProfileForBrowserHomePreset(preset) {
   return state.savedSettingsProfiles.find((profile) => settingsProfileMatchesSettings(profile, settings)) || null;
 }
 
+function savedSettingsProfileForBrowserHomeUrl(url) {
+  const homeUrl = normalizeBrowserPageUrl(url);
+  if (!homeUrl) return null;
+  const settings = normalizeSettings({
+    ...state.settings,
+    browserHomeUrl: homeUrl
+  });
+  return state.savedSettingsProfiles.find((profile) => settingsProfileMatchesSettings(profile, settings)) || null;
+}
+
 function browserHomePresetProfileSaveTitle(preset, savedProfile = savedSettingsProfileForBrowserHomePreset(preset)) {
   if (!preset) return "Choose a browser home preset first.";
   if (savedProfile) return `${savedProfile.label} already saves ${preset.label}.`;
   if (savedSettingsProfilesFull()) return settingsProfileLimitTitle();
   return "Save this browser home preset as a reusable profile.";
+}
+
+function browserHomeUrlProfileSaveTitle(url, savedProfile = savedSettingsProfileForBrowserHomeUrl(url)) {
+  const homeUrl = normalizeBrowserPageUrl(url);
+  if (!homeUrl) return "Choose a browser page first.";
+  const host = hostnameOf(homeUrl) || "this page";
+  if (savedProfile) return `${savedProfile.label} already saves ${host}.`;
+  if (savedSettingsProfilesFull()) return settingsProfileLimitTitle();
+  return "Save this recent page as a reusable browser profile.";
 }
 
 function browserHomePresetTitle(preset, active) {
@@ -31293,24 +31312,43 @@ function paletteEntries() {
     run: pasteRecentBrowserPages
   });
   const recentBrowserProfilesFull = savedSettingsProfilesFull();
+  const recentBrowserWorkspaceTitle = workspaceDisplayTitle(paletteWorkspace, "No workspace");
+  const recentBrowserQueueFull = paneCreationButtonsDisabled();
+  const recentBrowserQueueLabel = paneCreationQueueStatusLabel();
   for (const [pageIndex, url] of state.recentBrowserPages.entries()) {
+    const pageUrl = normalizeBrowserPageUrl(url);
+    const pageHost = hostnameOf(pageUrl) || pageUrl || "Recent page";
+    const savedProfile = savedSettingsProfileForBrowserHomeUrl(pageUrl);
+    const openDisabled = !pageUrl || !paletteWorkspace || recentBrowserQueueFull;
     entries.push({
       id: `recentBrowser.${pageIndex}`,
-      label: `Open recent page: ${hostnameOf(url)}`,
-      meta: url,
-      shortcut: "Browser",
-      search: normalizeSettingsQuery(`recent browser page web url open ${pageIndex + 1} ${hostnameOf(url)} ${url}`),
-      run: () => createPanel("browser", newPaneDirection(), { url })
+      label: `Open recent page: ${pageHost}`,
+      meta: pageUrl
+        ? paletteWorkspace ? `${recentBrowserWorkspaceTitle} / ${pageUrl}` : pageUrl
+        : "No page URL",
+      shortcut: !paletteWorkspace ? "No workspace" : recentBrowserQueueFull ? "Queue full" : "Browser",
+      disabled: openDisabled,
+      icon: "browserPlus",
+      title: !pageUrl
+        ? "Choose a browser page first."
+        : !paletteWorkspace
+          ? "Open a workspace before opening recent browser pages."
+          : recentBrowserQueueFull
+            ? paneCreationLimitLabel()
+            : `Open ${pageHost} in a new browser pane.`,
+      search: normalizeSettingsQuery(`recent browser page web url open ${openDisabled ? "unavailable " : "ready "}${pageIndex + 1} ${pageHost} ${pageUrl} ${recentBrowserWorkspaceTitle} ${recentBrowserQueueLabel}`),
+      run: () => createPanel("browser", newPaneDirection(), { url: pageUrl })
     });
     entries.push({
       id: `recentBrowser.profile.${pageIndex}`,
-      label: `Save recent page profile: ${hostnameOf(url)}`,
-      meta: url,
-      shortcut: "Profile",
-      disabled: recentBrowserProfilesFull,
-      title: recentBrowserProfilesFull ? settingsProfileLimitTitle() : "Save this recent page as a reusable browser profile.",
-      search: normalizeSettingsQuery(`recent browser page web url save profile setup home ${pageIndex + 1} ${hostnameOf(url)} ${url}`),
-      run: () => saveBrowserProfileForHome(url)
+      label: `Save recent page profile: ${pageHost}`,
+      meta: savedProfile ? `Already saved / ${savedProfile.label}` : `${savedSettingsProfileCountLabel()} profiles / ${pageUrl || pageHost}`,
+      shortcut: savedProfile ? "Saved" : "Save",
+      disabled: !pageUrl || Boolean(savedProfile) || recentBrowserProfilesFull,
+      icon: "profiles",
+      title: browserHomeUrlProfileSaveTitle(pageUrl, savedProfile),
+      search: normalizeSettingsQuery(`recent browser page web url save profile setup home ${pageIndex + 1} ${savedProfile ? "saved active current " : ""}${recentBrowserProfilesFull ? "limit full " : ""}${pageHost} ${pageUrl} ${browserChromeModeLabel()} ${browserZoomLabel()} ${savedSettingsProfileCountLabel()}`),
+      run: () => saveBrowserProfileForHome(pageUrl)
     });
   }
   const browserSessions = browserTabSessionEntries();
