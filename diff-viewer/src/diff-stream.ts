@@ -1,5 +1,5 @@
 import type { CodeViewItem } from "@pierre/diffs";
-import type { FileTreePreparedInput } from "@pierre/trees";
+import { preparePresortedFileTreeInput, type FileTreePreparedInput } from "@pierre/trees";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { FileTreeRefreshSource } from "./file-tree-refresh";
 
@@ -405,13 +405,15 @@ function markGitStatusRemoved(model: StreamingDiffModel, treePath: string): void
 
 function createFileTreeSourceFromModel(model: StreamingDiffModel): FileTreeSource {
   const previousSource = model.lastTreeSource;
+  const paths = [...model.paths];
   const source: FileTreeSource = {
     diffStats: { ...model.diffStats },
     gitStatus: Array.from(model.gitStatusByPath.values()),
     gitStatusPatch: buildGitStatusPatch(model),
-    pathCount: model.paths.length,
-    paths: [...model.paths],
+    pathCount: paths.length,
+    paths,
     pathToItemId: new Map(model.pathToItemId),
+    preparedInput: preparePresortedFileTreeInput(paths),
     previousSource,
     statsChanged: model.pendingStatsChanged,
     statsByPath: new Map(model.statsByPath),

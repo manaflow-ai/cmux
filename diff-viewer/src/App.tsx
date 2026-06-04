@@ -143,9 +143,8 @@ function reducer(state: AppState, action: AppAction): AppState {
   case "set-status":
     return { ...state, status: action.status };
   case "set-tree-source": {
-    const source = action.source.preparedInput == null
-      ? { ...action.source, preparedInput: preparePresortedFileTreeInput(action.source.paths) }
-      : action.source;
+    const source = action.source;
+    source.preparedInput ??= preparePresortedFileTreeInput(source.paths);
     const nextPath = state.activeItemId ? source.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath : state.activeTreePath;
     return {
       ...state,
