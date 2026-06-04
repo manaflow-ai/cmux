@@ -89,6 +89,31 @@ describe("applyPierreFileTreeGitStatus", () => {
 
     expect(setStatuses).toEqual([gitStatus]);
   });
+
+  test("uses full status replacement after a tree reset", () => {
+    const appliedPatches: unknown[] = [];
+    const setStatuses: unknown[] = [];
+    const gitStatus = [
+      { path: "existing.ts", status: "modified" },
+      { path: "added.ts", status: "added" },
+    ];
+    const patch = { set: [{ path: "added.ts", status: "added" }] };
+
+    applyPierreFileTreeGitStatus(
+      {
+        applyGitStatusPatch: (nextPatch) => appliedPatches.push(nextPatch),
+        setGitStatus: (nextGitStatus) => setStatuses.push(nextGitStatus),
+      },
+      {
+        gitStatus,
+        gitStatusPatch: patch,
+      },
+      true,
+    );
+
+    expect(appliedPatches).toEqual([]);
+    expect(setStatuses).toEqual([gitStatus]);
+  });
 });
 
 describe("selectPierreFileTreePath", () => {

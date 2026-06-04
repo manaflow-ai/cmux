@@ -58,11 +58,15 @@ export function applyPierreFileTreeGitStatus(
   source: FileTreeGitStatusSource,
   resetTree: boolean,
 ): void {
+  if (resetTree) {
+    model.setGitStatus(source.gitStatus);
+    return;
+  }
   if (source.gitStatusPatch && typeof model.applyGitStatusPatch === "function") {
     model.applyGitStatusPatch(source.gitStatusPatch);
     return;
   }
-  if (resetTree || source.statsChanged === true || source.gitStatusPatch) {
+  if (source.statsChanged === true || source.gitStatusPatch) {
     model.setGitStatus(source.gitStatus);
   }
 }
