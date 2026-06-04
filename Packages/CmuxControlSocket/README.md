@@ -4,6 +4,12 @@ The cmux control-socket domain: the transport and policy layer under the Unix-do
 
 This package currently owns the listener's path/bind/probe/lock machinery and its recovery policy, lifted out of the app target's `TerminalController`. The listener loop itself (accept source, client threads, command dispatch) still lives in the app and is planned to move here as an actor service in a later refactor wave.
 
+## Layout
+
+- `Transport/` — `SocketTransport` and its capability extensions (path identity/probe, lock files, bind, client-socket configuration, raw I/O).
+- `Policy/` — `SocketListenerPolicy`, the pure decision logic.
+- `Model/` — the Sendable value types the two exchange.
+
 ## Types
 
 - `SocketTransport` — stateless syscall layer: socket-path identity (`SocketPathIdentity`) and liveness probing (`SocketPathProbeResult`), advisory lock-file arbitration (`SocketPathLockAcquisition`), listener binding (`SocketBindAttemptResult`), accepted-client configuration, `writeAll`, and the one-shot `probeCommand` client.
