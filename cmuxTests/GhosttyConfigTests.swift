@@ -2188,18 +2188,30 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertTrue(panel.hasBackgroundPreloadHost)
     }
 
-    func testBackgroundPreloadIsConsumedByInitialNavigation() {
+    func testBackgroundPreloadReleaseConsumesHostAfterRealWindowAttachment() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
-            initialURL: URL(string: "about:blank")!,
-            preloadInitialNavigationInBackground: true,
+            initialURL: nil,
+            renderInitialNavigation: false,
             isRemoteWorkspace: false
         )
         defer { panel.close() }
 
+        let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        let preloadWindow = NSWindow(
+            contentRect: frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        preloadWindow.isReleasedWhenClosed = false
+#if DEBUG
+        panel.debugInstallBackgroundPreloadHostForTesting(preloadWindow)
+#else
+        XCTFail("debugInstallBackgroundPreloadHostForTesting is only available in DEBUG")
+#endif
         XCTAssertTrue(panel.hasBackgroundPreloadHost)
 
-        let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         let realHostWindow = NSWindow(
             contentRect: frame,
             styleMask: [.borderless],

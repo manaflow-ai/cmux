@@ -3389,6 +3389,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
 #if DEBUG
     var debugBackgroundPreloadAttachedWindowOverrideForTesting: NSWindow?
+
+    func debugInstallBackgroundPreloadHostForTesting(_ window: NSWindow?) {
+        backgroundPreloadWindow = window
+    }
 #endif
     private var shouldPreloadInitialNavigationInBackground: Bool
     private var backgroundPreloadWindow: NSWindow?
