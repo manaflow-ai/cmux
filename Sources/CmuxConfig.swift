@@ -501,12 +501,24 @@ struct CmuxDirectoryToolDefinition: Codable, Sendable, Hashable {
                 "~/.asdf/shims/jupyter",
             ],
             command: """
-            TOOL="${CMUX_TOOL_EXECUTABLE:-$(command -v jupyter || true)}"; \
-            if [ -z "$TOOL" ]; then TOOL="$(command -v jupyter-lab || true)"; fi; \
-            if [ -z "$TOOL" ] && command -v uvx >/dev/null 2>&1; then exec uvx --from jupyterlab jupyter lab --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50; fi; \
-            if [ -z "$TOOL" ]; then echo "Jupyter is not installed and uvx is not on PATH." >&2; exit 127; fi; \
-            if [ "$(basename "$TOOL")" = "jupyter-lab" ]; then exec "$TOOL" --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50; fi; \
-            exec "$TOOL" lab --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50
+            jupyter="${CMUX_TOOL_EXECUTABLE:-}"
+            if [ -z "$jupyter" ]; then
+              jupyter="$(command -v jupyter || command -v jupyter-lab || true)"
+            fi
+
+            if [ -n "$jupyter" ]; then
+              if [ "$(basename "$jupyter")" = "jupyter-lab" ]; then
+                exec "$jupyter" --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50
+              fi
+              exec "$jupyter" lab --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50
+            fi
+
+            if command -v uvx >/dev/null 2>&1; then
+              exec uvx --from jupyterlab jupyter lab --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50
+            fi
+
+            echo "Jupyter is not installed and uvx is not on PATH." >&2
+            exit 127
             """,
             cwd: "{directory}",
             urlRegex: "(http://(?:127\\.0\\.0\\.1|localhost):[^\\s]+)",

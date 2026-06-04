@@ -2196,6 +2196,8 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         let definition = try XCTUnwrap(CmuxDirectoryToolDefinition.defaultDefinitions.first { $0.id == "jupyter" })
         let command = try XCTUnwrap(definition.command)
         XCTAssertTrue(command.contains("uvx --from jupyterlab jupyter lab"))
+        XCTAssertTrue(command.contains("jupyter=\"${CMUX_TOOL_EXECUTABLE:-}\""))
+        XCTAssertTrue(command.contains("command -v jupyter || command -v jupyter-lab"))
         XCTAssertEqual(
             definition.installCommand,
             "if command -v brew >/dev/null 2>&1; then brew install uv; else curl -LsSf https://astral.sh/uv/install.sh | sh; fi"

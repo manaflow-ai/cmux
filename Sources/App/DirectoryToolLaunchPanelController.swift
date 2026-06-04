@@ -9,6 +9,7 @@ final class DirectoryToolLaunchPanelController: NSObject, NSWindowDelegate {
     private let stopButton: NSButton
     private let noOutputText: String
     private let launchingMessage: String
+    private let launchingOutputText: String
     private let onAllow: ((DirectoryToolLaunchPanelController) -> Void)?
     private let onStop: () -> Void
     private var isClosed = false
@@ -29,6 +30,10 @@ final class DirectoryToolLaunchPanelController: NSObject, NSWindowDelegate {
         noOutputText = String(
             localized: "directoryTool.launchProgress.noOutput",
             defaultValue: "No output yet."
+        )
+        launchingOutputText = String(
+            localized: "directoryTool.launchProgress.launching",
+            defaultValue: "Launching..."
         )
 
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 256))
@@ -198,7 +203,7 @@ final class DirectoryToolLaunchPanelController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        if !isClosed && !didAllow {
+        if !isClosed {
             onStop()
         }
         isClosed = true
@@ -210,16 +215,19 @@ final class DirectoryToolLaunchPanelController: NSObject, NSWindowDelegate {
         spinner.isHidden = false
         spinner.startAnimation(nil)
         messageLabel.stringValue = launchingMessage
-        outputTextView.string = noOutputText
+        outputTextView.string = launchingOutputText
         allowButton.isHidden = true
         stopButton.title = String(
             localized: "directoryTool.launchProgress.stop",
             defaultValue: "Stop"
         )
+        panel.contentView?.layoutSubtreeIfNeeded()
+        panel.displayIfNeeded()
         onAllow?(self)
     }
 
     @objc private func stop() {
+        stopButton.isEnabled = false
         onStop()
         close()
     }

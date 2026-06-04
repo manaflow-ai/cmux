@@ -1498,6 +1498,10 @@ struct ContentView: View {
         static func directoryToolAvailable(_ tool: CmuxResolvedDirectoryTool) -> String {
             "terminal.directoryTool.\(tool.id).available"
         }
+
+        static func directoryToolRunning(_ tool: CmuxResolvedDirectoryTool) -> String {
+            "terminal.directoryTool.\(tool.id).running"
+        }
     }
 
     struct CommandPaletteCommandContribution {
@@ -6627,11 +6631,22 @@ struct ContentView: View {
                 }
                 let tools = directoryTools ?? cmuxConfigStore.loadedDirectoryTools
                 let availableToolIDs = availableDirectoryToolIDs ?? CmuxResolvedDirectoryTool.availableTools(tools)
+                let directoryURL = focusedTerminalDirectoryURL()
                 for tool in tools {
                     snapshot.setBool(
                         CommandPaletteContextKeys.directoryToolAvailable(tool),
                         availableToolIDs.contains(tool.id)
                     )
+                    if tool.kind == .shellWebServer,
+                       let directoryURL {
+                        snapshot.setBool(
+                            CommandPaletteContextKeys.directoryToolRunning(tool),
+                            DirectoryToolWebServerController.shared.isWebServerRunning(
+                                tool: tool,
+                                directoryURL: directoryURL
+                            )
+                        )
+                    }
                 }
                 snapshot.setBool(
                     CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscodeInline),
@@ -7550,7 +7565,7 @@ struct ContentView: View {
                         keywords: ["terminal", "directory", "stop", "server"] + tool.keywords,
                         when: { context in
                             context.bool(CommandPaletteContextKeys.panelIsTerminal)
-                                && context.bool(CommandPaletteContextKeys.directoryToolAvailable(tool))
+                                && context.bool(CommandPaletteContextKeys.directoryToolRunning(tool))
                         }
                     )
                 )

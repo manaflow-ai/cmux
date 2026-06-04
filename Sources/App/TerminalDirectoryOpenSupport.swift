@@ -1015,6 +1015,19 @@ final class DirectoryToolWebServerController {
         return true
     }
 
+    func isWebServerRunning(tool: CmuxResolvedDirectoryTool, directoryURL: URL) -> Bool {
+        let normalizedDirectoryURL = directoryURL.standardizedFileURL
+        let key = ServerKey(toolID: tool.id, directoryPath: normalizedDirectoryURL.path)
+        return queue.sync {
+            guard let server = self.serversByKey[key] else { return false }
+            if server.process.isRunning {
+                return true
+            }
+            self.serversByKey.removeValue(forKey: key)
+            return false
+        }
+    }
+
     private enum InternalLaunchResult {
         case opened(process: Process, url: URL)
         case failed(LaunchFailure)
