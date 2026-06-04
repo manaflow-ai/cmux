@@ -1,0 +1,21 @@
+[package]
+name = "cmux-cli-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Rust CLI client for cmux-cli (Grid attach mode)."
+
+[dependencies]
+cmux-cli-core = { path = "../cmux-cli-core" }
+cmux-cli-protocol = { path = "../cmux-cli-protocol" }
+anyhow = { workspace = true }
+crossterm = { workspace = true }
+libc = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

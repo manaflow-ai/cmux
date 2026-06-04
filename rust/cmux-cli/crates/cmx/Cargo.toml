@@ -1,0 +1,35 @@
+[package]
+name = "cmx"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "cmx: the cmux-cli terminal multiplexer."
+
+[[bin]]
+name = "cmx"
+path = "src/main.rs"
+
+[dependencies]
+cmux-cli-core = { path = "../cmux-cli-core" }
+cmux-cli-client = { path = "../cmux-cli-client" }
+cmux-cli-protocol = { path = "../cmux-cli-protocol" }
+cmux-cli-server = { path = "../cmux-cli-server" }
+anyhow = { workspace = true }
+clap = { workspace = true }
+libc = { workspace = true }
+libghostty-vt-sys = { workspace = true }
+libghostty-vt = { workspace = true }
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+portable-pty = { workspace = true }
+tempfile = "3"
+
+[lints]
+workspace = true
