@@ -53,7 +53,7 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
             syncSidebarSelection(preferredSelectedTabId: destinationWorkspaceId)
             return true
         }
-        if !isWorkspaceDropTargetCollectionActive {
+        if !isWorkspaceDropTargetCollectionActive, targets.isEmpty {
             nsView.clearPendingDrop()
         }
         nsView.performPendingDropIfPossible()
