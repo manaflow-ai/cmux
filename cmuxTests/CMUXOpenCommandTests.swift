@@ -486,6 +486,61 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: patchSidecarURL.path))
     }
 
+    func testDiffCommandStreamsDiffshubCompareURL() throws {
+        let cliPath = try bundledCLIPath()
+
+        let originalURL = "https://diffshub.com/torvalds/linux/compare/v6.0...v6.7"
+        let result = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", originalURL, "--title", "Linux compare"],
+            environmentOverrides: ["CMUX_DIFF_VIEWER_STREAM_REMOTE": "1"],
+            readPatchSidecar: false
+        )
+
+        let payload = try diffViewerPayload(from: result.html)
+        XCTAssertEqual(payload["externalURL"] as? String, originalURL)
+        XCTAssertEqual(payload["sourceLabel"] as? String, originalURL)
+        let rawURL = try XCTUnwrap(result.params["url"] as? String)
+        let files = try diffViewerAllowedFiles(for: rawURL, from: result.params)
+        let patchFile = try XCTUnwrap(files.first { file in
+            file["mime_type"] as? String == "text/x-diff"
+        })
+        XCTAssertEqual(patchFile["file_path"] as? String, "")
+        XCTAssertEqual(patchFile["remote_url"] as? String, "https://github.com/torvalds/linux/compare/v6.0...v6.7.diff")
+        let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: result.params)
+        let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: patchSidecarURL.path))
+    }
+
+    func testDiffCommandStreamsGitHubCommitURL() throws {
+        let cliPath = try bundledCLIPath()
+
+        let originalURL = "https://github.com/oven-sh/bun/commit/0123456789abcdef0123456789abcdef01234567"
+        let result = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", originalURL, "--title", "Bun commit"],
+            environmentOverrides: ["CMUX_DIFF_VIEWER_STREAM_REMOTE": "1"],
+            readPatchSidecar: false
+        )
+
+        let payload = try diffViewerPayload(from: result.html)
+        XCTAssertEqual(payload["externalURL"] as? String, originalURL)
+        XCTAssertEqual(payload["sourceLabel"] as? String, originalURL)
+        let rawURL = try XCTUnwrap(result.params["url"] as? String)
+        let files = try diffViewerAllowedFiles(for: rawURL, from: result.params)
+        let patchFile = try XCTUnwrap(files.first { file in
+            file["mime_type"] as? String == "text/x-diff"
+        })
+        XCTAssertEqual(patchFile["file_path"] as? String, "")
+        XCTAssertEqual(
+            patchFile["remote_url"] as? String,
+            "https://github.com/oven-sh/bun/commit/0123456789abcdef0123456789abcdef01234567.diff"
+        )
+        let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: result.params)
+        let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: patchSidecarURL.path))
+    }
+
     func testDiffViewerServerBoundsDeferredWaitRequests() throws {
         let cliPath = try bundledCLIPath()
         let token = "test-\(UUID().uuidString.lowercased())"
