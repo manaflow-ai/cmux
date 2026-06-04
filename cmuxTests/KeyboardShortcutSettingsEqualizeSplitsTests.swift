@@ -1,4 +1,5 @@
 import XCTest
+import enum CmuxSettings.ShortcutAction
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,6 +8,21 @@ import XCTest
 #endif
 
 final class KeyboardShortcutSettingsEqualizeSplitsTests: XCTestCase {
+    func testSettingsPackageCatalogIncludesResizeSplitShortcutActions() {
+        let expected: [(KeyboardShortcutSettings.Action, ShortcutAction)] = [
+            (.resizeSplitLeft, .resizeSplitLeft),
+            (.resizeSplitRight, .resizeSplitRight),
+            (.resizeSplitUp, .resizeSplitUp),
+            (.resizeSplitDown, .resizeSplitDown),
+        ]
+
+        let packageActions = Set(ShortcutAction.allCases)
+        for (appAction, packageAction) in expected {
+            XCTAssertTrue(packageActions.contains(packageAction))
+            XCTAssertEqual(packageAction.rawValue, appAction.rawValue)
+        }
+    }
+
     func testResizeSplitDefaultsUseTmuxStyleArrowChords() {
         let expected: [(KeyboardShortcutSettings.Action, String)] = [
             (.resizeSplitLeft, "←"),

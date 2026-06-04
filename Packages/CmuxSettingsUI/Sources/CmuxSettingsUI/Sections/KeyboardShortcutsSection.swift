@@ -134,7 +134,7 @@ public struct KeyboardShortcutsSection: View {
     @ViewBuilder
     private func actionRow(_ action: ShortcutAction) -> some View {
         let override = bindings[action.rawValue]
-        let effective = override ?? action.defaultStroke.map { StoredShortcut(first: $0) }
+        let effective = override ?? action.defaultShortcut
         let isUnbound = effective?.isUnbound ?? true
         let canRestore = isUnbound && restoreShortcuts[action.rawValue] != nil
         let bareKeyRejected = bareKeyRejections.contains(action.rawValue)
@@ -157,7 +157,7 @@ public struct KeyboardShortcutsSection: View {
                 // displayed shortcut string in parentheses so the user can
                 // identify which existing shortcut is in the way.
                 let conflictOverride = bindings[conflict.rawValue]
-                let conflictEffective = conflictOverride ?? conflict.defaultStroke.map { StoredShortcut(first: $0) }
+                let conflictEffective = conflictOverride ?? conflict.defaultShortcut
                 let conflictShortcutString = conflictEffective.map { format($0) } ?? ""
                 let messageFormat = String(
                     localized: "shortcut.recorder.error.conflictsWithAction",
@@ -291,12 +291,9 @@ public struct KeyboardShortcutsSection: View {
     // MARK: - Conflict helpers
 
     /// Mirrors legacy `KeyboardShortcutSettings.Action.conflicts(with:proposedAction:configuredShortcut:)`
-    /// at a coarser grain: only treat two actions as conflicting when the
-    /// *configured* (effective) shortcut of the other action is not
-    /// unbound and shares the same first stroke. The legacy implementation
-    /// has per-action overrides (e.g. number-stack actions allow sharing),
-    /// but we don't have that catalog data here, so the conservative
-    /// "same first stroke && both bound" check is the best we can do.
+    /// at the shortcut-shape level: single-stroke bindings conflict with
+    /// any binding that needs the same first stroke, while two chords can
+    /// share a prefix when their second strokes differ.
     private func formatPlaceholder(effective: StoredShortcut?) -> String {
         let unboundLabel = String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
         guard let effective else { return unboundLabel }
@@ -307,11 +304,23 @@ public struct KeyboardShortcutsSection: View {
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         for other in ShortcutAction.allCases where other != action {
             let override = bindings[other.rawValue]
-            let effective = override ?? other.defaultStroke.map { StoredShortcut(first: $0) }
+            let effective = override ?? other.defaultShortcut
             guard let effective, !effective.isUnbound else { continue }
-            if stroke.first == effective.first { return other }
+            if shortcutsConflict(stroke, effective) { return other }
         }
         return nil
+    }
+
+    private func shortcutsConflict(_ lhs: StoredShortcut, _ rhs: StoredShortcut) -> Bool {
+        guard !lhs.isUnbound, !rhs.isUnbound, lhs.first == rhs.first else {
+            return false
+        }
+        switch (lhs.second, rhs.second) {
+        case (.none, _), (_, .none):
+            return true
+        case let (.some(lhsSecond), .some(rhsSecond)):
+            return lhsSecond == rhsSecond
+        }
     }
 
     /// Mirrors legacy `StoredShortcut.displayString`: returns localized
@@ -411,7 +420,7 @@ public struct KeyboardShortcutsSection: View {
                 conflictRejections.removeValue(forKey: key)
                 continue
             }
-            let effective = bindings[action.rawValue] ?? action.defaultStroke.map { StoredShortcut(first: $0) }
+            let effective = bindings[action.rawValue] ?? action.defaultShortcut
             if let effective, detectConflict(for: action, stroke: effective) == nil {
                 conflictRejections.removeValue(forKey: key)
             } else if effective == nil {
