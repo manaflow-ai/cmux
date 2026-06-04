@@ -28,9 +28,15 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            exitSignal.signal()
+        }
+
         do {
             try process.run()
         } catch {
+            process.terminationHandler = nil
             return ProcessRunResult(
                 status: -1,
                 stdout: "",
@@ -39,17 +45,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             )
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
             _ = exitSignal.wait(timeout: .now() + 1)
         }
+        process.terminationHandler = nil
 
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -1889,6 +1890,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let scpInvoked = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var scpDestination: String?
+        let fakeDaemonURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fake-daemon-\(UUID().uuidString)")
+        try Data("fake daemon".utf8).write(to: fakeDaemonURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDaemonURL.path)
+        WorkspaceRemoteSessionController.localDaemonBinaryOverrideForTesting = fakeDaemonURL
         WorkspaceRemoteSessionController.captureCommandStandardOutputOverrideForTesting = { executablePath, arguments in
             XCTAssertEqual(executablePath, "/bin/ps")
             XCTAssertEqual(arguments, ["-axo", "pid=,ppid=,command="])
@@ -1947,9 +1953,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         }
         WorkspaceRemoteSessionController.startSynchronouslyForTesting = true
         defer {
+            WorkspaceRemoteSessionController.localDaemonBinaryOverrideForTesting = nil
             WorkspaceRemoteSessionController.captureCommandStandardOutputOverrideForTesting = nil
             WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil
             WorkspaceRemoteSessionController.startSynchronouslyForTesting = false
+            try? FileManager.default.removeItem(at: fakeDaemonURL)
         }
 
         let workspace = Workspace()
@@ -3580,9 +3588,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            exitSignal.signal()
+        }
+
         do {
             try process.run()
         } catch {
+            process.terminationHandler = nil
             return ProcessRunResult(
                 status: -1,
                 stdout: "",
@@ -3595,17 +3609,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             try? stdinPipe.fileHandleForWriting.close()
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
             _ = exitSignal.wait(timeout: .now() + 1)
         }
+        process.terminationHandler = nil
 
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""

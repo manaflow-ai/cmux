@@ -6219,6 +6219,7 @@ final class WorkspaceRemoteSessionController {
     nonisolated(unsafe) static var runProcessOverrideForTesting: ((String, [String], Data?, TimeInterval) throws -> (status: Int32, stdout: String, stderr: String))?
     nonisolated(unsafe) static var runProcessReadHandlesDidInstallForTesting: ((FileHandle, FileHandle) -> Void)?
     nonisolated(unsafe) static var captureCommandStandardOutputOverrideForTesting: ((String, [String]) -> String?)?
+    nonisolated(unsafe) static var localDaemonBinaryOverrideForTesting: URL?
     nonisolated(unsafe) static var startSynchronouslyForTesting = false
 #endif
 
@@ -8341,6 +8342,13 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func buildLocalDaemonBinary(goOS: String, goArch: String, version: String) throws -> URL {
+#if DEBUG
+        if let override = Self.localDaemonBinaryOverrideForTesting,
+           FileManager.default.isExecutableFile(atPath: override.path) {
+            debugLog("remote.build.testOverride path=\(override.path)")
+            return override
+        }
+#endif
         if let explicitBinary = Self.explicitRemoteDaemonBinaryURL(),
            FileManager.default.isExecutableFile(atPath: explicitBinary.path) {
             debugLog("remote.build.explicit path=\(explicitBinary.path)")
