@@ -259,6 +259,8 @@ int main(int argc, const char *argv[]) {
             return 1;
         }
 
+        printf("Virtual display allocated: displayID=%u, waiting for online state\n", display.displayID);
+        fflush(stdout);
         if (!waitForOnlineDisplay(display.displayID)) {
             fprintf(stderr, "ERROR: Virtual display %u was not reported online after settings were applied\n", display.displayID);
             return 1;

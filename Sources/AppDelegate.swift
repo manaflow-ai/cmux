@@ -1199,6 +1199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutRoutingPreferredWindowOverride: NSWindow?
 #if DEBUG
     var suppressNotificationWindowFocusForTesting = false
+    var notificationOpenHandlerForTesting: ((UUID, UUID?, UUID?) -> Bool)?
 #endif
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -17018,6 +17019,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "jumpUnreadOpenTabId": tabId.uuidString,
                 "jumpUnreadOpenSurfaceId": surfaceId?.uuidString ?? "",
             ])
+        }
+        if let notificationOpenHandlerForTesting {
+            return notificationOpenHandlerForTesting(tabId, surfaceId, notificationId)
         }
 #endif
         guard let context = contextContainingTabId(tabId) else {

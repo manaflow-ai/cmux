@@ -526,13 +526,11 @@ final class MarkdownPanelTests: XCTestCase {
 
     func testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate() async throws {
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
-        let webView = WKWebView(frame: frame, configuration: makeMarkdownTestWebViewConfiguration())
-        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.contentView = webView
-        window.orderFrontRegardless()
+        let fixture = makeMarkdownTestWebView(frame: frame)
+        let webView = fixture.webView
         defer {
             webView.navigationDelegate = nil
-            window.close()
+            fixture.close()
         }
 
         let loaded = expectation(description: "markdown shell loaded")
@@ -612,15 +610,13 @@ final class MarkdownPanelTests: XCTestCase {
         let coordinator = MarkdownWebRenderer.Coordinator()
         coordinator.filePath = markdownURL.path
         configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
-        let webView = MarkdownWebView(frame: frame, configuration: configuration)
+        let fixture = makeMarkdownTestWebView(frame: frame, configuration: configuration, useMarkdownWebView: true)
+        let webView = fixture.webView
         coordinator.webView = webView
-        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.contentView = webView
-        window.orderFrontRegardless()
         defer {
             webView.navigationDelegate = nil
             coordinator.webView = nil
-            window.close()
+            fixture.close()
         }
 
         let loaded = expectation(description: "markdown shell loaded")
@@ -711,13 +707,11 @@ final class MarkdownPanelTests: XCTestCase {
             .appendingPathComponent("cmux-markdown-data-image-\(UUID().uuidString).md")
 
         let frame = NSRect(x: 0, y: 0, width: 320, height: 240)
-        let webView = WKWebView(frame: frame, configuration: makeMarkdownTestWebViewConfiguration())
-        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.contentView = webView
-        window.orderFrontRegardless()
+        let fixture = makeMarkdownTestWebView(frame: frame)
+        let webView = fixture.webView
         defer {
             webView.navigationDelegate = nil
-            window.close()
+            fixture.close()
         }
 
         let loaded = expectation(description: "markdown shell loaded")
@@ -753,17 +747,15 @@ final class MarkdownPanelTests: XCTestCase {
         coordinator.filePath = markdownURL.path
         configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
         configuration.setURLSchemeHandler(remoteImageHandler, forURLScheme: MarkdownWebRenderer.remoteImageURLScheme)
-        let webView = MarkdownWebView(frame: frame, configuration: configuration)
+        let fixture = makeMarkdownTestWebView(frame: frame, configuration: configuration, useMarkdownWebView: true)
+        let webView = fixture.webView
         coordinator.webView = webView
-        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.contentView = webView
-        window.orderFrontRegardless()
         defer {
             webView.navigationDelegate = nil
             coordinator.webView = nil
             coordinator.cancelImageLoads()
             remoteImageHandler.cancelOpenTasks()
-            window.close()
+            fixture.close()
         }
 
         let loaded = expectation(description: "markdown shell loaded")
@@ -1439,6 +1431,27 @@ final class MarkdownPanelTests: XCTestCase {
         configuration.processPool = WKProcessPool()
         configuration.websiteDataStore = .nonPersistent()
         return configuration
+    }
+
+    private func makeMarkdownTestWebView(
+        frame: NSRect,
+        configuration: WKWebViewConfiguration? = nil,
+        useMarkdownWebView: Bool = false
+    ) -> (webView: WKWebView, close: () -> Void) {
+        let resolvedConfiguration = configuration ?? makeMarkdownTestWebViewConfiguration()
+        let webView: WKWebView = useMarkdownWebView
+            ? MarkdownWebView(frame: frame, configuration: resolvedConfiguration)
+            : WKWebView(frame: frame, configuration: resolvedConfiguration)
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        webView.layoutSubtreeIfNeeded()
+        return (webView, {
+            webView.stopLoading()
+            webView.navigationDelegate = nil
+            webView.uiDelegate = nil
+            window.contentView = nil
+            window.close()
+        })
     }
 
     private static func cssRGBAComponents(_ css: String) -> (red: Int, green: Int, blue: Int, alpha: Double)? {

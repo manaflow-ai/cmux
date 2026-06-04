@@ -137,7 +137,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
     }
 
     func testNotificationOpenFocusesDestinationAndMarksRead() async throws {
-        let fixture = try makeSocketFixture(name: "notif-open", includeWindow: true)
+        let fixture = try makeSocketFixture(name: "notif-open")
         defer { fixture.cleanup() }
 
         let targetWorkspace = fixture.manager.addWorkspace(title: "Open Target", select: false)
@@ -164,7 +164,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
     }
 
     func testNotificationJumpToUnreadOpensLatestUnreadAndNoOpsWhenNoneRemain() async throws {
-        let fixture = try makeSocketFixture(name: "notif-jump", includeWindow: true)
+        let fixture = try makeSocketFixture(name: "notif-jump")
         defer { fixture.cleanup() }
 
         let targetWorkspace = fixture.manager.addWorkspace(title: "Unread Target", select: false)
@@ -208,7 +208,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
     }
 
     func testNotificationJumpToUnreadPayloadMatchesOpenedFallbackNotification() async throws {
-        let fixture = try makeSocketFixture(name: "notif-jump-skip", includeWindow: true)
+        let fixture = try makeSocketFixture(name: "notif-jump-skip")
         defer { fixture.cleanup() }
 
         let targetWorkspace = fixture.manager.addWorkspace(title: "Unread Fallback", select: false)
@@ -248,6 +248,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let originalNotificationStore: TerminalNotificationStore?
         let originalAppFocusOverride: Bool?
         let originalSuppressNotificationWindowFocus: Bool
+        let originalNotificationOpenHandler: ((UUID, UUID?, UUID?) -> Bool)?
 
         @MainActor
         func notification(_ id: UUID) -> TerminalNotification? {
@@ -271,6 +272,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             appDelegate.notificationStore = originalNotificationStore
             AppFocusState.overrideIsFocused = originalAppFocusOverride
             appDelegate.suppressNotificationWindowFocusForTesting = originalSuppressNotificationWindowFocus
+            appDelegate.notificationOpenHandlerForTesting = originalNotificationOpenHandler
             AppDelegate.shared = previousShared
             unlink(socketPath)
         }
@@ -286,6 +288,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
         let originalSuppressNotificationWindowFocus = appDelegate.suppressNotificationWindowFocusForTesting
+        let originalNotificationOpenHandler = appDelegate.notificationOpenHandlerForTesting
 
         AppDelegate.shared = appDelegate
         store.replaceNotificationsForTesting([])
@@ -295,6 +298,15 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
         appDelegate.suppressNotificationWindowFocusForTesting = true
+        appDelegate.notificationOpenHandlerForTesting = { tabId, surfaceId, notificationId in
+            guard manager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
+                return false
+            }
+            if let notificationId {
+                store.markRead(id: notificationId)
+            }
+            return true
+        }
 
         let workspace = manager.addWorkspace(title: "Socket Notifications", select: true)
         let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
@@ -337,7 +349,8 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             originalTabManager: originalTabManager,
             originalNotificationStore: originalNotificationStore,
             originalAppFocusOverride: originalAppFocusOverride,
-            originalSuppressNotificationWindowFocus: originalSuppressNotificationWindowFocus
+            originalSuppressNotificationWindowFocus: originalSuppressNotificationWindowFocus,
+            originalNotificationOpenHandler: originalNotificationOpenHandler
         )
     }
 

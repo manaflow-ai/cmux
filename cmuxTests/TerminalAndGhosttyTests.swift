@@ -4512,7 +4512,13 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             window.displayIfNeeded()
         }
 
-        let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+        var shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+        waitUntil(description: "queued layout shift to move anchor") {
+            contentView.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+            return shiftedAnchorFrameInWindow.minX > originalAnchorFrameInWindow.minX + 1
+        }
         XCTAssertGreaterThan(
             shiftedAnchorFrameInWindow.minX,
             originalAnchorFrameInWindow.minX + 1,

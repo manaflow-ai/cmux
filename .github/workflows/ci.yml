@@ -1314,12 +1314,12 @@ jobs:
 
             # Wait for display ready
             echo "Waiting for virtual display..."
-            for _ in $(seq 1 24); do
+            for _ in $(seq 1 80); do
               if [ -f "$DISPLAY_READY" ]; then break; fi
               sleep 0.5
             done
             if [ ! -f "$DISPLAY_READY" ]; then
-              echo "ERROR: Virtual display not ready after 12s" >&2
+              echo "ERROR: Virtual display not ready after 40s" >&2
               cat "$HELPER_LOG" 2>/dev/null || true
               stop_pid "$HELPER_PID" "virtual display helper"
               if [ "$attempt" -eq "$DISPLAY_ATTEMPTS" ]; then

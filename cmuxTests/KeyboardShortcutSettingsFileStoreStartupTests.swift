@@ -233,27 +233,26 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
             var appliedAppearanceNames: [NSAppearance.Name?] = []
             var synchronizedAppearanceNames: [(appearance: NSAppearance.Name?, source: String)] = []
-            AppearanceSettings.setLiveEnvironmentProviderForTesting {
-                AppearanceSettings.LiveApplyEnvironment(
-                    setApplicationAppearance: { appearance in
-                        appliedAppearanceNames.append(appearance?.bestMatch(from: [.darkAqua, .aqua]))
-                    },
-                    synchronizeTerminalThemeWithAppearance: { appearance, source in
-                        synchronizedAppearanceNames.append((
-                            appearance: appearance?.bestMatch(from: [.darkAqua, .aqua]),
-                            source: source
-                        ))
-                    },
-                    systemAppearance: {
-                        NSAppearance(named: .aqua)
-                    }
-                )
-            }
+            let appearanceEnvironment = AppearanceSettings.LiveApplyEnvironment(
+                setApplicationAppearance: { appearance in
+                    appliedAppearanceNames.append(appearance?.bestMatch(from: [.darkAqua, .aqua]))
+                },
+                synchronizeTerminalThemeWithAppearance: { appearance, source in
+                    synchronizedAppearanceNames.append((
+                        appearance: appearance?.bestMatch(from: [.darkAqua, .aqua]),
+                        source: source
+                    ))
+                },
+                systemAppearance: {
+                    NSAppearance(named: .aqua)
+                }
+            )
 
             let store = KeyboardShortcutSettingsFileStore(
                 primaryPath: settingsFileURL.path,
                 fallbackPath: nil,
                 additionalFallbackPaths: [],
+                appearanceEnvironment: appearanceEnvironment,
                 startWatching: false
             )
 
@@ -313,25 +312,24 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             var storeInitInProgress = true
             var reachedTerminalReloadDuringInit = false
             var terminalReloadSources: [String] = []
-            AppearanceSettings.setLiveEnvironmentProviderForTesting {
-                AppearanceSettings.LiveApplyEnvironment(
-                    setApplicationAppearance: { _ in },
-                    synchronizeTerminalThemeWithAppearance: { _, source in
-                        if storeInitInProgress {
-                            reachedTerminalReloadDuringInit = true
-                        }
-                        terminalReloadSources.append(source)
-                    },
-                    systemAppearance: {
-                        NSAppearance(named: .aqua)
+            let appearanceEnvironment = AppearanceSettings.LiveApplyEnvironment(
+                setApplicationAppearance: { _ in },
+                synchronizeTerminalThemeWithAppearance: { _, source in
+                    if storeInitInProgress {
+                        reachedTerminalReloadDuringInit = true
                     }
-                )
-            }
+                    terminalReloadSources.append(source)
+                },
+                systemAppearance: {
+                    NSAppearance(named: .aqua)
+                }
+            )
 
             let store = KeyboardShortcutSettingsFileStore(
                 primaryPath: settingsFileURL.path,
                 fallbackPath: nil,
                 additionalFallbackPaths: [],
+                appearanceEnvironment: appearanceEnvironment,
                 startWatching: false
             )
             storeInitInProgress = false
@@ -624,25 +622,24 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             var appliedAppearanceName: NSAppearance.Name?
             var synchronizedAppearanceName: NSAppearance.Name?
             var synchronizedSources: [String] = []
-            AppearanceSettings.setLiveEnvironmentProviderForTesting {
-                AppearanceSettings.LiveApplyEnvironment(
-                    setApplicationAppearance: { appearance in
-                        appliedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
-                    },
-                    synchronizeTerminalThemeWithAppearance: { appearance, source in
-                        synchronizedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
-                        synchronizedSources.append(source)
-                    },
-                    systemAppearance: {
-                        NSAppearance(named: .aqua)
-                    }
-                )
-            }
+            let appearanceEnvironment = AppearanceSettings.LiveApplyEnvironment(
+                setApplicationAppearance: { appearance in
+                    appliedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
+                },
+                synchronizeTerminalThemeWithAppearance: { appearance, source in
+                    synchronizedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
+                    synchronizedSources.append(source)
+                },
+                systemAppearance: {
+                    NSAppearance(named: .aqua)
+                }
+            )
 
             let store = KeyboardShortcutSettingsFileStore(
                 primaryPath: settingsFileURL.path,
                 fallbackPath: nil,
                 additionalFallbackPaths: [],
+                appearanceEnvironment: appearanceEnvironment,
                 startWatching: false
             )
 
