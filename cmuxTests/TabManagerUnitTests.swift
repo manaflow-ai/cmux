@@ -1130,6 +1130,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         try runGit(["checkout", "-b", "feature/sidebar-live-refresh"], in: repoURL)
 
+        manager.setWorkspaceGitMetadataRefreshSynchronousForTesting(true)
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         XCTAssertTrue(
@@ -1173,6 +1174,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         XCTAssertNil(workspace.panelGitBranches[panelId])
 
+        manager.setWorkspaceGitMetadataRefreshSynchronousForTesting(true)
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         XCTAssertTrue(
@@ -1270,6 +1272,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         try runGit(["checkout", "main"], in: repoURL)
 
+        manager.setWorkspaceGitMetadataRefreshSynchronousForTesting(true)
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         XCTAssertTrue(

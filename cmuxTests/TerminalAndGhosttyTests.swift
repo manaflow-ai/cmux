@@ -4505,12 +4505,12 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
         )
 
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
         DispatchQueue.main.async {
             shiftedContainer.frame.origin.x += 72
             contentView.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
         }
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
 
         var shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
         waitUntil(description: "queued layout shift to move anchor") {
