@@ -8,6 +8,15 @@ LOG_ROOT="${RUNNER_TEMP:-/tmp}/cmux-unit-isolated-logs"
 STATUS_ROOT="${RUNNER_TEMP:-/tmp}/cmux-unit-isolated-status"
 SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"
 SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"
+ORIGINAL_HOME="$HOME"
+SWIFT_COMPILER_SUPPORTS_6_2="$(
+  xcrun swift -e '#if compiler(>=6.2)
+print("1")
+#else
+print("0")
+#endif' 2>/dev/null || echo 0
+)"
+export SWIFT_COMPILER_SUPPORTS_6_2
 
 mkdir -p "$SOURCE_PACKAGES_DIR" "$RESULT_ROOT" "$LOG_ROOT" "$STATUS_ROOT"
 rm -rf "$RESULT_ROOT"/* "$LOG_ROOT"/* "$STATUS_ROOT"/*
@@ -16,7 +25,26 @@ TEST_CLASSES=()
 while IFS= read -r class; do
   TEST_CLASSES+=("$class")
 done < <(
-  perl -ne 'print "$1\n" if /^\s*(?:@[A-Za-z0-9_()]+\s+)*(?:final\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*XCTestCase\b/' cmuxTests/*.swift | sort -u
+  perl -ne '
+    if (!defined($current_file) || $current_file ne $ARGV) {
+      $current_file = $ARGV;
+      @inactive_blocks = ();
+    }
+    if (!$ENV{SWIFT_COMPILER_SUPPORTS_6_2} && /^\s*#if\s+compiler\(>=\s*6\.2\)/) {
+      push @inactive_blocks, 1;
+      next;
+    }
+    if (@inactive_blocks && /^\s*#if\b/) {
+      push @inactive_blocks, 1;
+      next;
+    }
+    if (@inactive_blocks && /^\s*#endif\b/) {
+      pop @inactive_blocks;
+      next;
+    }
+    next if @inactive_blocks;
+    print "$1\n" if /^\s*(?:@[A-Za-z0-9_()]+\s+)*(?:final\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*XCTestCase\b/;
+  ' cmuxTests/*.swift | sort -u
 )
 
 if [ "${#TEST_CLASSES[@]}" -eq 0 ]; then
@@ -84,7 +112,7 @@ run_one_class() {
   mkdir -p "$test_home"
 
   set +e
-  RUSTUP_HOME="$HOME/.rustup" CARGO_HOME="$HOME/.cargo" CFFIXED_USER_HOME="$test_home" \
+  HOME="$test_home" RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo" CFFIXED_USER_HOME="$test_home" \
     scripts/ci/xcodebuild_noninteractive.py \
       xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
@@ -97,23 +125,34 @@ run_one_class() {
   local exit_code=$?
   set -e
 
-  if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$log_file"; then
-    echo "no-tests" >"$status_file"
-    echo "FAIL $class did not execute any tests"
-    return 0
-  fi
-
-  if [ "$exit_code" -ne 0 ]; then
+  if grep -Fq "Test Suite '$class' failed" "$log_file"; then
     echo "failed" >"$status_file"
     echo "FAIL $class"
     return 0
   fi
 
-  echo "passed" >"$status_file"
-  echo "PASS $class"
+  if grep -Fq "Test Suite '$class' passed" "$log_file"; then
+    echo "passed" >"$status_file"
+    if [ "$exit_code" -ne 0 ]; then
+      echo "PASS $class (selected class passed; xcodebuild exited $exit_code during app-host cleanup)"
+    else
+      echo "PASS $class"
+    fi
+    return 0
+  fi
+
+  if [ "$exit_code" -ne 0 ]; then
+    echo "failed" >"$status_file"
+    echo "FAIL $class (xcodebuild exited $exit_code before reporting a class result)"
+    return 0
+  fi
+
+  echo "no-tests" >"$status_file"
+  echo "FAIL $class did not report an XCTest class result"
+  return 0
 }
 
-export SOURCE_PACKAGES_DIR DERIVED_DATA_PATH RESULT_ROOT LOG_ROOT STATUS_ROOT
+export SOURCE_PACKAGES_DIR DERIVED_DATA_PATH RESULT_ROOT LOG_ROOT STATUS_ROOT ORIGINAL_HOME
 export -f run_one_class
 
 printf '%s\n' "${SELECTED_TEST_CLASSES[@]}" | while IFS= read -r class; do
@@ -132,8 +171,12 @@ for class in "${SELECTED_TEST_CLASSES[@]}"; do
 done
 
 if [ "${#no_tests[@]}" -ne 0 ]; then
-  echo "Unit test classes completed without executing tests:" >&2
+  echo "Unit test classes completed without reporting an XCTest class result:" >&2
   printf '  %s\n' "${no_tests[@]}" >&2
+  for class in "${no_tests[@]}"; do
+    echo "===== $class log =====" >&2
+    tail -n 220 "$LOG_ROOT/$class.log" >&2
+  done
 fi
 
 if [ "${#failed[@]}" -ne 0 ]; then

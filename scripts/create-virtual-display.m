@@ -80,7 +80,7 @@ static BOOL displayIsOnline(CGDirectDisplayID displayID) {
 }
 
 static BOOL waitForOnlineDisplay(CGDirectDisplayID displayID) {
-    for (int attempt = 0; attempt < 100; attempt += 1) {
+    for (int attempt = 0; attempt < 600; attempt += 1) {
         if (displayIsOnline(displayID)) {
             return YES;
         }

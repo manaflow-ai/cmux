@@ -156,8 +156,9 @@ check_virtual_display_step_waits_for_readiness() {
     in_step && /\[ -s "\$VDISPLAY_READY" \] && \[ -s "\$VDISPLAY_ID_PATH" \]/ { saw_ready_poll=1 }
     in_step && /Virtual display helper exited before readiness/ { saw_exit_message=1 }
     in_step && /Timed out waiting for virtual display readiness/ { saw_timeout_message=1 }
+    in_step && /seq 1 300/ { saw_long_poll=1 }
     in_step && /^[[:space:]]*sleep 3$/ { saw_fixed_sleep=1 }
-    END { exit(saw_step && saw_ready_arg && saw_id_arg && saw_ready_poll && saw_exit_message && saw_timeout_message && !saw_fixed_sleep ? 0 : 1) }
+    END { exit(saw_step && saw_ready_arg && saw_id_arg && saw_ready_poll && saw_exit_message && saw_timeout_message && saw_long_poll && !saw_fixed_sleep ? 0 : 1) }
   ' "$file"; then
     echo "FAIL: $job in $(basename "$file") must wait for virtual display readiness files instead of using a fixed sleep"
     exit 1
@@ -188,8 +189,9 @@ check_test_depot_fails_closed() {
     in_step && /\[ -s "\$VDISPLAY_READY" \] && \[ -s "\$VDISPLAY_ID_PATH" \]/ { saw_ready_poll=1 }
     in_step && /Virtual display helper exited before readiness/ { saw_exit_message=1 }
     in_step && /Timed out waiting for virtual display readiness/ { saw_timeout_message=1 }
+    in_step && /seq 1 300/ { saw_long_poll=1 }
     in_step && /^[[:space:]]*sleep 3$/ { saw_fixed_sleep=1 }
-    END { exit(saw_ready_arg && saw_id_arg && saw_ready_poll && saw_exit_message && saw_timeout_message && !saw_fixed_sleep ? 0 : 1) }
+    END { exit(saw_ready_arg && saw_id_arg && saw_ready_poll && saw_exit_message && saw_timeout_message && saw_long_poll && !saw_fixed_sleep ? 0 : 1) }
   ' "$TEST_DEPOT_FILE"; then
     echo "FAIL: test-depot.yml must wait for virtual display readiness files instead of using a fixed sleep"
     exit 1
@@ -577,8 +579,9 @@ check_cmux_unit_isolated_runner() {
     "test-without-building" \
     '-derivedDataPath "$DERIVED_DATA_PATH"' \
     '-only-testing:"cmuxTests/$class"' \
+    'HOME="$test_home"' \
     'CFFIXED_USER_HOME="$test_home"' \
-    'RUSTUP_HOME="$HOME/.rustup" CARGO_HOME="$HOME/.cargo"' \
+    'RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo"' \
     'SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"' \
     'SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"' \
     "All \${#SELECTED_TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"

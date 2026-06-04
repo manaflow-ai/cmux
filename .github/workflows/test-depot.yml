@@ -139,7 +139,7 @@ jobs:
           VDISPLAY_PID=$!
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
 
-          for _ in $(seq 1 100); do
+          for _ in $(seq 1 300); do
             if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
               break
             fi

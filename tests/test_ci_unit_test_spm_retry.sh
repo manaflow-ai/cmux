@@ -51,10 +51,17 @@ ISOLATED_RUNNER_PATTERNS=(
   "build-for-testing"
   "test-without-building"
   '-only-testing:"cmuxTests/$class"'
+  'HOME="$test_home"'
   'CFFIXED_USER_HOME="$test_home"'
-  'RUSTUP_HOME="$HOME/.rustup" CARGO_HOME="$HOME/.cargo"'
+  'RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo"'
   'SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"'
   'SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"'
+  'SWIFT_COMPILER_SUPPORTS_6_2="$('
+  'xcrun swift -e'
+  "compiler\\(>=\\s*6\\.2\\)"
+  "Test Suite '\$class' passed"
+  "Test Suite '\$class' failed"
+  "selected class passed; xcodebuild exited"
   "All \${#SELECTED_TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"
 )
 
