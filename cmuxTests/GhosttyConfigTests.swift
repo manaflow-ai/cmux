@@ -2212,6 +2212,8 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         }
         let contentView = NSView(frame: frame)
         realHostWindow.contentView = contentView
+        realHostWindow.orderFront(nil)
+        realHostWindow.displayIfNeeded()
         panel.webView.removeFromSuperview()
         contentView.addSubview(panel.webView)
 
