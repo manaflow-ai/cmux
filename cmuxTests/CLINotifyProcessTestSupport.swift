@@ -410,6 +410,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         state: MockSocketServerState,
         connectionLimit: Int,
         fulfillWhen: (@Sendable (String) -> Bool)? = nil,
+        fulfillOnMatchedConnectionClose: Bool = false,
         handler: @escaping @Sendable (String) -> String?
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli multi-connection mock socket handled")
@@ -440,6 +441,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
                 DispatchQueue.global(qos: .userInitiated).async {
                     defer { Darwin.close(clientFD) }
+                    var didMatchFulfillmentLine = false
                     var pending = Data()
                     var buffer = [UInt8](repeating: 0, count: 4096)
                     while true {
@@ -448,7 +450,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             if errno == EINTR { continue }
                             return
                         }
-                        if count == 0 { return }
+                        if count == 0 {
+                            if fulfillOnMatchedConnectionClose, didMatchFulfillmentLine {
+                                fulfillOnce()
+                            }
+                            return
+                        }
                         pending.append(buffer, count: count)
 
                         while let newlineRange = pending.firstRange(of: Data([0x0A])) {
@@ -457,7 +464,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             guard let line = String(data: lineData, encoding: .utf8) else { continue }
                             state.append(line)
                             if fulfillWhen?(line) == true {
-                                fulfillOnce()
+                                didMatchFulfillmentLine = true
+                                if !fulfillOnMatchedConnectionClose {
+                                    fulfillOnce()
+                                }
                             }
                             guard let responsePayload = handler(line) else { continue }
                             let response = responsePayload + "\n"

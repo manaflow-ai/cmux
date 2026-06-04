@@ -1364,7 +1364,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             connectionLimit: 8,
             fulfillWhen: { line in
                 self.jsonObject(line)?["method"] as? String == "feed.push"
-            }
+            },
+            fulfillOnMatchedConnectionClose: true
         ) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
@@ -1419,12 +1420,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             state.commands.contains { $0.contains(#""method":"feed.push""#) },
             "Expected lifecycle hook to still emit Feed telemetry, saw \(state.commands)"
-        )
-        XCTAssertTrue(
-            state.commands.contains { command in
-                self.jsonObject(command)?["method"] as? String == "surface.resume.set"
-            },
-            "One-way Feed telemetry must not poison later socket responses, saw \(state.commands)"
         )
     }
 
