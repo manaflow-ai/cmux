@@ -8803,7 +8803,12 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        let nsError = error as NSError
         NSLog("BrowserPanel navigation failed: %@", error.localizedDescription)
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            didCancelProvisionalNavigation?(webView)
+            return
+        }
         // Treat committed-navigation failures the same as provisional ones so
         // stale favicon/title state from the prior page gets cleared.
         let failedURL = webView.url?.absoluteString ?? ""
