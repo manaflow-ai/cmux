@@ -14753,14 +14753,20 @@ function renderSettingsInspector(options = {}) {
     titleInput.disabled = !workspace;
     let titleSave = null;
     let titleUseFolder = null;
+    let titleUsePane = null;
     const workspaceNameTarget = () => activeWorkspace() || workspace;
     const currentWorkspaceName = () => workspaceNameTarget()?.title || "";
     const suggestedWorkspaceName = () => workspaceFolderNameSuggestion(workspaceNameTarget());
+    const suggestedPaneWorkspaceName = () => {
+      const targetWorkspace = workspaceNameTarget();
+      return targetWorkspace?.panels?.length ? workspacePaneSuggestedTitle(targetWorkspace) : "";
+    };
     const updateWorkspaceNameActions = () => {
       const targetWorkspace = workspaceNameTarget();
       const nextTitle = titleInput.value.trim();
       const currentTitle = currentWorkspaceName();
       const suggestedTitle = suggestedWorkspaceName();
+      const suggestedPaneTitle = suggestedPaneWorkspaceName();
       if (titleSave) {
         titleSave.disabled = !targetWorkspace || !nextTitle || nextTitle === currentTitle;
         titleSave.title = workspaceNameSaveTitle(targetWorkspace, nextTitle, currentTitle);
@@ -14768,6 +14774,10 @@ function renderSettingsInspector(options = {}) {
       if (titleUseFolder) {
         titleUseFolder.disabled = !targetWorkspace || !suggestedTitle || suggestedTitle === currentTitle;
         titleUseFolder.title = workspaceUseFolderNameTitle(targetWorkspace);
+      }
+      if (titleUsePane) {
+        titleUsePane.disabled = !targetWorkspace || !suggestedPaneTitle || suggestedPaneTitle === currentTitle;
+        titleUsePane.title = workspaceUsePaneNameTitle(targetWorkspace);
       }
     };
     const revertWorkspaceNameInput = () => {
@@ -14827,11 +14837,30 @@ function renderSettingsInspector(options = {}) {
       toast(changed ? "Workspace name set from folder." : "Workspace already uses the folder name.");
       return changed;
     }, "", workspaceRenameActionSearchText("useFolder", workspace));
+    titleUsePane = settingsActionButton("Use pane", async () => {
+      const targetWorkspace = workspaceNameTarget();
+      const suggestedTitle = suggestedPaneWorkspaceName();
+      if (!targetWorkspace) {
+        updateWorkspaceNameActions();
+        toast("Open a workspace before using its active pane name.");
+        return false;
+      }
+      if (!suggestedTitle) {
+        updateWorkspaceNameActions();
+        toast("Open or rename a pane before using it as the workspace name.");
+        return false;
+      }
+      titleInput.value = suggestedTitle;
+      const changed = await renameWorkspaceTo(suggestedTitle, targetWorkspace.id);
+      revertWorkspaceNameInput();
+      toast(changed ? "Workspace name set from the active pane." : "Workspace already uses the active pane name.");
+      return changed;
+    }, "", workspaceRenameActionSearchText("usePane", workspace));
     const titleControl = document.createElement("span");
     titleControl.className = "workspace-name-control";
-    titleControl.append(titleInput, titleSave, titleUseFolder);
+    titleControl.append(titleInput, titleSave, titleUseFolder, titleUsePane);
     updateWorkspaceNameActions();
-    workspaceSection.append(settingRow("Name", titleControl, false, workspaceRenameActionSearchText("actions", workspace, "input save use folder")));
+    workspaceSection.append(settingRow("Name", titleControl, false, workspaceRenameActionSearchText("actions", workspace, "input save use folder use active pane")));
     const folderInput = document.createElement("input");
     folderInput.className = "setting-control";
     folderInput.readOnly = true;
