@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAuthRuntime
 import CmuxSettings
 import CmuxSocketControl
 import Carbon.HIToolbox
@@ -131,6 +132,11 @@ class TerminalController {
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     private var tabManager: TabManager?
+    /// The shared auth coordinator + browser sign-in flow, injected once via
+    /// `attachAuth` at app startup (AppDelegate `configure`) before the socket
+    /// listener starts. Socket auth commands read these on the main actor.
+    @MainActor private(set) var authCoordinator: AuthCoordinator?
+    @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
@@ -1577,6 +1583,14 @@ class TerminalController {
         }
     }
 
+    /// Inject the auth graph. Call once at the composition root, before the
+    /// socket listener accepts auth commands.
+    @MainActor
+    func attachAuth(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
+        self.authCoordinator = coordinator
+        self.browserSignInFlow = browserSignIn
+    }
+
     func start(
         tabManager: TabManager,
         socketPath: String,
@@ -2370,8 +2384,8 @@ class TerminalController {
         switch request.method {
         case "auth.status":
             let semaphore = DispatchSemaphore(value: 0)
-            Task { @MainActor in
-                await AuthManager.shared.awaitBootstrapped()
+            Task { @MainActor [weak self] in
+                await self?.authCoordinator?.awaitBootstrapped()
                 semaphore.signal()
             }
             semaphore.wait()
@@ -2380,18 +2394,18 @@ class TerminalController {
             let timeoutSeconds = (request.params["timeout_seconds"] as? Double) ?? 300
             let semaphore = DispatchSemaphore(value: 0)
             nonisolated(unsafe) var signedIn = false
-            Task { @MainActor in
-                signedIn = await AuthManager.shared.beginSignInAndAwait(
+            Task { @MainActor [weak self] in
+                signedIn = await self?.browserSignInFlow?.signIn(
                     timeout: timeoutSeconds
-                )
+                ) ?? false
                 semaphore.signal()
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: !signedIn))
         case "auth.sign_out":
             let semaphore = DispatchSemaphore(value: 0)
-            Task { @MainActor in
-                _ = await AuthManager.shared.signOutAndAwait(timeout: 5)
+            Task { @MainActor [weak self] in
+                await self?.browserSignInFlow?.signOut()
                 semaphore.signal()
             }
             semaphore.wait()
@@ -5085,24 +5099,33 @@ class TerminalController {
         var result: [String: Any] = [:]
         v2MainSync {
             MainActor.assumeIsolated {
-                let manager = AuthManager.shared
+                guard let coordinator = self.authCoordinator else {
+                    result = [
+                        "signed_in": false,
+                        "is_restoring_session": false,
+                        "is_loading": false,
+                        "timed_out": timedOut
+                    ]
+                    return
+                }
+                let isSigningIn = self.browserSignInFlow?.isSigningIn ?? false
                 var status: [String: Any] = [
-                    "signed_in": manager.isAuthenticated,
-                    "is_restoring_session": manager.isRestoringSession,
-                    "is_loading": manager.isLoading,
+                    "signed_in": coordinator.isAuthenticated,
+                    "is_restoring_session": coordinator.isRestoringSession,
+                    "is_loading": coordinator.isLoading || isSigningIn,
                     "timed_out": timedOut
                 ]
-                if let user = manager.currentUser {
+                if let user = coordinator.currentUser {
                     var userDict: [String: Any] = ["id": user.id]
                     if let email = user.primaryEmail { userDict["email"] = email }
                     if let name = user.displayName { userDict["display_name"] = name }
                     status["user"] = userDict
                 }
-                if let teamID = manager.resolvedTeamID {
+                if let teamID = coordinator.resolvedTeamID {
                     status["selected_team_id"] = teamID
                 }
-                if !manager.availableTeams.isEmpty {
-                    status["teams"] = manager.availableTeams.map { team -> [String: Any] in
+                if !coordinator.availableTeams.isEmpty {
+                    status["teams"] = coordinator.availableTeams.map { team -> [String: Any] in
                         var dict: [String: Any] = [
                             "id": team.id,
                             "display_name": team.displayName

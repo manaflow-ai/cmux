@@ -15,6 +15,11 @@ struct cmuxApp: App {
     /// through it via the `@Setting` property wrapper.
     private let settingsRuntime: SettingsRuntime
 
+    /// The de-singletonized auth graph (shared AuthCoordinator + the macOS
+    /// hosted-browser sign-in flow). Constructed once at app launch and
+    /// injected into AppDelegate and the auth-consuming services.
+    private let authComposition: MacAuthComposition
+
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
@@ -76,6 +81,8 @@ struct cmuxApp: App {
             saveSecret: { try socketPasswordStore.savePassword($0) },
             backupTimestamp: secretMigrationTimestamp
         )
+        let authComposition = MacAuthComposition()
+        self.authComposition = authComposition
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: UserDefaultsSettingsStore(
@@ -85,7 +92,10 @@ struct cmuxApp: App {
             jsonStore: JSONConfigStore(fileURL: configFileURL),
             secretStore: secretStore,
             errorLog: SettingsErrorLog(),
-            accountFlow: HostAccountFlow(authManager: .shared),
+            accountFlow: HostAccountFlow(
+                coordinator: authComposition.coordinator,
+                browserSignIn: authComposition.browserSignIn
+            ),
             hostActions: HostSettingsActions(configFileURL: configFileURL)
         )
 
@@ -155,7 +165,12 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
-        appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+        appDelegate.configure(
+            tabManager: tabManager,
+            notificationStore: notificationStore,
+            sidebarState: sidebarState,
+            auth: authComposition
+        )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
 
