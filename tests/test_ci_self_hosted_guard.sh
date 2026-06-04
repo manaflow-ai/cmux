@@ -388,6 +388,28 @@ check_command_palette_nucleo_ffi_coverage() {
   echo "PASS: command palette nucleo FFI assertions run in a focused CI lane"
 }
 
+check_terminal_corpus_requires_live_ghostty_surface() {
+  if ! awk '
+    /^[[:space:]]*- name: Run terminal corpus unit tests$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /CMUX_REQUIRE_LIVE_GHOSTTY_SURFACE:[[:space:]]*"1"/ { saw_env=1 }
+    in_step && /GhosttyCommandShiftForwardingTests.*skipped/ { saw_skip_guard=1 }
+    in_step && /Ghostty surface failed to initialize/ { saw_live_surface_guard=1 }
+    in_step && /Terminal corpus unit tests skipped GhosttyCommandShiftForwardingTests live-surface coverage/ { saw_message=1 }
+    END { exit(saw_env && saw_skip_guard && saw_live_surface_guard && saw_message ? 0 : 1) }
+  ' "$TERMINAL_CORPUS_NIGHTLY_FILE"; then
+    echo "FAIL: terminal-corpus-nightly.yml must fail if GhosttyCommandShiftForwardingTests skips live Ghostty surface coverage"
+    exit 1
+  fi
+
+  if ! grep -Fq 'CMUX_REQUIRE_LIVE_GHOSTTY_SURFACE' "$ROOT_DIR/cmuxTests/GhosttyCommandShiftForwardingTests.swift"; then
+    echo "FAIL: GhosttyCommandShiftForwardingTests must honor the terminal corpus live-surface requirement"
+    exit 1
+  fi
+
+  echo "PASS: terminal corpus requires live Ghostty surface coverage"
+}
+
 check_web_db_behavior_test_coverage() {
   if ! awk '
     /^  web-db-migrations:/ { in_job=1; next }
@@ -742,6 +764,7 @@ check_activation_artifacts_are_required
 check_retryable_submodule_checkout
 check_split_theme_regression_timeout
 check_command_palette_nucleo_ffi_coverage
+check_terminal_corpus_requires_live_ghostty_surface
 check_web_db_behavior_test_coverage
 check_swift_package_tests_require_nonzero_execution
 check_xcodebuild_unit_step_requires_nonzero_execution "$CI_FILE" "Run unit tests" "Unit test workflow completed without executing any tests"

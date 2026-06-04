@@ -93,6 +93,8 @@ jobs:
             -resolvePackageDependencies
 
       - name: Run terminal corpus unit tests
+        env:
+          CMUX_REQUIRE_LIVE_GHOSTTY_SURFACE: "1"
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -118,5 +120,10 @@ jobs:
 
           if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
             echo "Terminal corpus unit tests completed without executing any tests" >&2
+            exit 1
+          fi
+
+          if grep -Eq 'GhosttyCommandShiftForwardingTests.*skipped|Ghostty surface failed to initialize' <<<"$OUTPUT"; then
+            echo "Terminal corpus unit tests skipped GhosttyCommandShiftForwardingTests live-surface coverage" >&2
             exit 1
           fi
