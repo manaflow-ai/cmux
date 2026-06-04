@@ -1107,6 +1107,7 @@ body.reduce-motion *::after {
 .pane-layout-preset:focus-visible,
 .terminal-color-preset:focus-visible,
 .saved-color-swatch:focus-visible,
+.saved-color-variant-swatch:focus-visible,
 .saved-background-add-copy:focus-visible,
 .saved-background-preview:focus-visible,
 .active-background-preview:focus-visible,
@@ -1153,6 +1154,7 @@ body.reduce-motion *::after {
 .pane-layout-preset:active,
 .terminal-color-preset:active,
 .saved-color-swatch:active,
+.saved-color-variant-swatch:active,
 .saved-background-add-copy:active,
 .saved-background-preview:active,
 .active-background-preview:active,
@@ -13932,6 +13934,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
     grid-template-columns: 42px minmax(0, 1fr);
   }
 
+  .saved-color-variant-strip {
+    grid-template-columns: 1fr;
+  }
+
   .saved-color-add .settings-action:first-of-type {
     grid-column: 2;
   }
@@ -13957,6 +13963,45 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .saved-color-input::-webkit-color-swatch {
   border: 0;
   border-radius: 3px;
+}
+
+.saved-color-variant-strip {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-rail) 12%);
+}
+
+.saved-color-variant-label {
+  min-width: 64px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.saved-color-variant-swatches {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.saved-color-variant-swatch {
+  min-width: 0;
+  height: 26px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-1);
+  background: var(--saved-color-variant);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-text) 6%, transparent);
+}
+
+.saved-color-variant-swatch:hover {
+  border-color: var(--color-text);
 }
 
 .saved-color-actions,

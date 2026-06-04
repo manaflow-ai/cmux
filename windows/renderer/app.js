@@ -28482,6 +28482,41 @@ function colorControlPanel({
   return panel;
 }
 
+function savedColorVariantStrip(colorInput) {
+  const strip = document.createElement("div");
+  strip.className = "saved-color-variant-strip";
+  strip.dataset.settingsSearch = normalizeSettingsQuery("saved color generated variants preview palette custom hex");
+  const label = document.createElement("span");
+  label.className = "saved-color-variant-label";
+  label.textContent = "Variants";
+  const swatches = document.createElement("span");
+  swatches.className = "saved-color-variant-swatches";
+  strip.append(label, swatches);
+  const refresh = () => {
+    const colors = colorVariantPalette(colorInput.value);
+    strip.hidden = colors.length === 0;
+    swatches.replaceChildren(...colors.map((color) => {
+      const button = document.createElement("button");
+      button.className = "saved-color-variant-swatch";
+      button.type = "button";
+      button.style.setProperty("--saved-color-variant", color);
+      button.title = `Use ${color.toUpperCase()} in the color picker.`;
+      button.setAttribute("aria-label", button.title);
+      button.onclick = () => {
+        if (colorInput.value.toLowerCase() === color) return;
+        colorInput.value = color;
+        colorInput.dispatchEvent(new Event("input", { bubbles: true }));
+        colorInput.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+      return button;
+    }));
+  };
+  refresh();
+  colorInput.addEventListener("input", refresh);
+  colorInput.addEventListener("change", refresh);
+  return strip;
+}
+
 function savedColorPalettePanel() {
   const panel = document.createElement("div");
   panel.className = "saved-color-panel";
@@ -28521,6 +28556,7 @@ function savedColorPalettePanel() {
   colorInput.addEventListener("change", refreshSavePickedState);
   addRow.append(colorInput, applyPicked, savePicked);
   panel.append(addRow);
+  panel.append(savedColorVariantStrip(colorInput));
   panel.append(activeColorTargetControl());
 
   const actions = document.createElement("div");
