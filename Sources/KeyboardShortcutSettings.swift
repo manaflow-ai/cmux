@@ -1850,7 +1850,10 @@ struct ShortcutStroke: Equatable, Hashable {
         guard shortcutKey.count == 1, let scalar = shortcutKey.unicodeScalars.first else {
             return false
         }
-        return CharacterSet.letters.contains(scalar)
+        if CharacterSet.decimalDigits.contains(scalar) {
+            return false
+        }
+        return scalar.isASCII && !CharacterSet.controlCharacters.contains(scalar)
     }
 
     private static func shortcutCharacterMatches(
