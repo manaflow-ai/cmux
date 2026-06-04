@@ -43,6 +43,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/community", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/wall-of-love", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/nightly", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 0.6 },
+    { path: "/assets", lastModified: "2026-06-03", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/privacy-policy", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/terms-of-service", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
