@@ -228,15 +228,22 @@ struct TextBoxMentionCompletionTests {
             return
         }
 
-        #expect(textBoxCommandShortcutKey(
+        var translatedKeyCode: UInt16?
+        var translatedFlags: NSEvent.ModifierFlags?
+
+        let shortcutKey = textBoxCommandShortcutKey(
             for: event,
             translateKey: { keyCode, flags in
-                #expect(keyCode == UInt16(kVK_ANSI_B))
-                #expect(flags.contains(.command))
+                translatedKeyCode = keyCode
+                translatedFlags = flags
                 return "c"
             },
             normalizedCharacters: { _ in "b" }
-        ) == "c")
+        )
+
+        #expect(shortcutKey == "c")
+        #expect(translatedKeyCode == UInt16(kVK_ANSI_B))
+        #expect(translatedFlags?.contains(.command) == true)
     }
 
     @Test
@@ -251,15 +258,22 @@ struct TextBoxMentionCompletionTests {
             return
         }
 
-        #expect(textBoxCommandShortcutKey(
+        var translatedKeyCode: UInt16?
+        var translatedFlags: NSEvent.ModifierFlags?
+
+        let shortcutKey = textBoxCommandShortcutKey(
             for: event,
             translateKey: { keyCode, flags in
-                #expect(keyCode == UInt16(kVK_ANSI_Y))
-                #expect(flags.contains(.command))
+                translatedKeyCode = keyCode
+                translatedFlags = flags
                 return "z"
             },
             normalizedCharacters: { _ in "y" }
-        ) == "z")
+        )
+
+        #expect(shortcutKey == "z")
+        #expect(translatedKeyCode == UInt16(kVK_ANSI_Y))
+        #expect(translatedFlags?.contains(.command) == true)
     }
 
     @Test
