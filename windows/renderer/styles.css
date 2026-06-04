@@ -8196,6 +8196,25 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background: color-mix(in oklch, var(--color-accent) 18%, var(--color-text) 10%);
 }
 
+.layout-settings-preview.palette-density-compact .layout-preview-overlay {
+  gap: 3px;
+  padding: 5px;
+}
+
+.layout-settings-preview.palette-density-compact .layout-preview-overlay span {
+  height: 5px;
+}
+
+.layout-settings-preview.palette-density-roomy .layout-preview-overlay {
+  gap: 6px;
+  padding: 8px;
+  width: clamp(52px, calc(100% - var(--layout-preview-sidebar) - var(--layout-preview-inspector) - 24px), 104px);
+}
+
+.layout-settings-preview.palette-density-roomy .layout-preview-overlay span {
+  height: 8px;
+}
+
 .layout-preview-switcher {
   position: absolute;
   top: 88px;
@@ -14580,6 +14599,106 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .shell.performance-mode.overlay-style-solid ~ .dialog-backdrop .app-dialog,
 .shell.performance-mode.overlay-style-solid ~ .toast-region .toast {
   box-shadow: none;
+}
+
+.shell.palette-density-compact ~ .palette .palette-dialog {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.shell.palette-density-compact ~ .palette .palette-input {
+  height: 40px;
+  padding: 0 var(--space-3);
+  font-size: 14px;
+}
+
+.shell.palette-density-compact ~ .palette .palette-list {
+  max-height: 420px;
+  padding: var(--space-1);
+}
+
+.shell.palette-density-compact ~ .palette .palette-quick-actions {
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: var(--space-1);
+  padding-bottom: var(--space-1);
+  margin-bottom: var(--space-1);
+}
+
+.shell.palette-density-compact ~ .palette .palette-quick-action {
+  min-height: 44px;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 1px var(--space-1);
+  padding: var(--space-1);
+}
+
+.shell.palette-density-compact ~ .palette .palette-quick-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.shell.palette-density-compact ~ .palette .palette-quick-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.shell.palette-density-compact ~ .palette .palette-item {
+  min-height: 34px;
+  grid-template-columns: 24px minmax(0, 1fr) minmax(34px, auto);
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+}
+
+.shell.palette-density-compact ~ .palette .palette-icon {
+  width: 21px;
+  height: 21px;
+}
+
+.shell.palette-density-compact ~ .palette .palette-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.shell.palette-density-roomy ~ .palette .palette-dialog {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.shell.palette-density-roomy ~ .palette .palette-input {
+  height: 52px;
+  font-size: 16px;
+}
+
+.shell.palette-density-roomy ~ .palette .palette-list {
+  max-height: 400px;
+  padding: var(--space-3);
+}
+
+.shell.palette-density-roomy ~ .palette .palette-quick-actions {
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.shell.palette-density-roomy ~ .palette .palette-quick-action {
+  min-height: 64px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  padding: var(--space-3);
+}
+
+.shell.palette-density-roomy ~ .palette .palette-quick-icon {
+  width: 30px;
+  height: 30px;
+}
+
+.shell.palette-density-roomy ~ .palette .palette-item {
+  min-height: 48px;
+  grid-template-columns: 32px minmax(0, 1fr) minmax(46px, auto);
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+}
+
+.shell.palette-density-roomy ~ .palette .palette-icon {
+  width: 28px;
+  height: 28px;
 }
 
 .shell.switcher-style-quiet ~ .workspace-switch-hud,

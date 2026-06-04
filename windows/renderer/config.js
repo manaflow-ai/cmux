@@ -30,6 +30,7 @@ export const defaultSettings = {
   inspectorStyle: "subtle",
   overlayStyle: "subtle",
   switcherStyle: "subtle",
+  paletteDensity: "balanced",
   workspaceRowSize: "auto",
   workspaceActiveStyle: "filled",
   workspaceColorStyle: "dot",
@@ -423,6 +424,12 @@ export const switcherStyleOptions = [
   ["solid", label("switcherStyle.solid", "Solid"), label("switcherStyle.solid.body", "Stronger switcher separation")]
 ];
 
+export const paletteDensityOptions = [
+  ["compact", label("paletteDensity.compact", "Compact"), label("paletteDensity.compact.body", "More commands visible")],
+  ["balanced", label("paletteDensity.balanced", "Balanced"), label("paletteDensity.balanced.body", "Default command palette spacing")],
+  ["roomy", label("paletteDensity.roomy", "Roomy"), label("paletteDensity.roomy.body", "Larger command rows")]
+];
+
 export const workspaceRowSizeOptions = [
   ["auto", label("workspaceRowSize.auto", "Auto"), label("workspaceRowSize.auto.body", "Follow density")],
   ["compact", label("workspaceRowSize.compact", "Compact"), label("workspaceRowSize.compact.body", "More workspaces visible")],
@@ -664,6 +671,7 @@ export const settingsPresets = [
       inspectorStyle: "subtle",
       overlayStyle: "subtle",
       switcherStyle: "subtle",
+      paletteDensity: "balanced",
       workspaceRowSize: "auto",
       workspaceActiveStyle: "filled",
       workspaceColorStyle: "dot",
@@ -738,6 +746,7 @@ export const settingsPresets = [
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
       switcherStyle: "quiet",
+      paletteDensity: "compact",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -812,6 +821,7 @@ export const settingsPresets = [
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
       switcherStyle: "quiet",
+      paletteDensity: "compact",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -887,6 +897,7 @@ export const settingsPresets = [
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
       switcherStyle: "quiet",
+      paletteDensity: "compact",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "line",
       workspaceColorStyle: "edge",
@@ -961,6 +972,7 @@ export const settingsPresets = [
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
       switcherStyle: "quiet",
+      paletteDensity: "compact",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -1035,6 +1047,7 @@ export const settingsPresets = [
       inspectorStyle: "solid",
       overlayStyle: "solid",
       switcherStyle: "solid",
+      paletteDensity: "roomy",
       workspaceRowSize: "roomy",
       workspaceActiveStyle: "line",
       workspaceColorStyle: "edge",
@@ -1109,6 +1122,7 @@ export const settingsPresets = [
       inspectorStyle: "solid",
       overlayStyle: "solid",
       switcherStyle: "solid",
+      paletteDensity: "roomy",
       workspaceRowSize: "roomy",
       workspaceActiveStyle: "filled",
       workspaceColorStyle: "tint",
