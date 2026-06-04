@@ -13,7 +13,9 @@ REQUIRED_PATTERNS=(
   "Could not resolve package dependencies"
   "rm -rf ~/Library/Caches/org.swift.swiftpm"
   'rm -rf "$DERIVED_DATA_PATH"'
-  'DERIVED_DATA_PATH="$PWD/.ci-derived-data/tests"'
+  'DERIVED_DATA_PATH="$PWD/.ci-derived-data/unit-tests"'
+  'CMUX_UNIT_TEST_SHARD_INDEX="${{ matrix.shard_index }}"'
+  'CMUX_UNIT_TEST_SHARD_COUNT="${{ matrix.shard_count }}"'
   "scripts/ci/run-cmux-unit-tests-isolated.sh"
   "run_unit_tests | tee /tmp/test-output.txt"
   "cmuxTests XCTestCase classes passed in isolated app-host runs"
@@ -51,7 +53,9 @@ ISOLATED_RUNNER_PATTERNS=(
   '-only-testing:"cmuxTests/$class"'
   'CFFIXED_USER_HOME="$test_home"'
   'RUSTUP_HOME="$HOME/.rustup" CARGO_HOME="$HOME/.cargo"'
-  "All \${#TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"
+  'SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"'
+  'SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"'
+  "All \${#SELECTED_TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"
 )
 
 for pattern in "${ISOLATED_RUNNER_PATTERNS[@]}"; do

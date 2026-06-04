@@ -211,7 +211,173 @@ jobs:
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: bun run test:db:behavior
 
-  tests:
+  unit-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard_index: [0, 1, 2, 3]
+        shard_count: [4]
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    timeout-minutes: 45
+    env:
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+    steps:
+      - name: Prepare self-hosted workspace
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE"
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
+          fi
+          chmod -R u+rwX "$GITHUB_WORKSPACE" || true
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: |
+          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Compute DerivedData cache fingerprint
+        id: deriveddata-fingerprint
+        run: |
+          echo "hash=$(./scripts/ci/deriveddata-cache-fingerprint.sh tests)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache GhosttyKit.xcframework
+        id: cache-ghosttykit
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: GhosttyKit.xcframework
+          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
+
+      - name: Download pre-built GhosttyKit.xcframework
+        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
+        run: |
+          ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install zig
+        run: |
+          ./scripts/install-zig-ci.sh
+
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
+      - name: Cache Zig packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
+
+      - name: Cache DerivedData
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-derived-data/unit-tests
+          key: deriveddata-unit-tests-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}
+          restore-keys: |
+            deriveddata-unit-tests-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}-
+
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-source-packages
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          mkdir -p "$SOURCE_PACKAGES_DIR"
+
+          for attempt in 1 2 3; do
+            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -resolvePackageDependencies; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to resolve Swift packages after 3 attempts" >&2
+              exit 1
+            fi
+            echo "Package resolution failed on attempt $attempt, retrying..."
+            sleep $((attempt * 5))
+          done
+
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/unit-tests"
+          run_unit_tests() {
+            SOURCE_PACKAGES_DIR="$SOURCE_PACKAGES_DIR" \
+              DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
+              CMUX_UNIT_TEST_SHARD_INDEX="${{ matrix.shard_index }}" \
+              CMUX_UNIT_TEST_SHARD_COUNT="${{ matrix.shard_count }}" \
+              scripts/ci/run-cmux-unit-tests-isolated.sh
+          }
+
+          set +e
+          run_unit_tests | tee /tmp/test-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          OUTPUT=$(cat /tmp/test-output.txt)
+          set -e
+
+          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" <<<"$OUTPUT"; then
+            echo "SwiftPM package resolution failed, clearing caches and retrying once"
+            rm -rf ~/Library/Caches/org.swift.swiftpm
+            mkdir -p ~/Library/Caches/org.swift.swiftpm
+            rm -rf "$DERIVED_DATA_PATH"
+            set +e
+            run_unit_tests | tee /tmp/test-output.txt
+            EXIT_CODE=${PIPESTATUS[0]}
+            OUTPUT=$(cat /tmp/test-output.txt)
+            set -e
+          fi
+
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "Unit tests failed"
+            exit "$EXIT_CODE"
+          fi
+
+          if ! grep -Eq 'All [1-9][0-9]* cmuxTests XCTestCase classes passed in isolated app-host runs' <<<"$OUTPUT"; then
+            echo "Unit test workflow completed without executing any tests" >&2
+            exit 1
+          fi
+
+  tests-core:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 75
     env:
@@ -401,50 +567,6 @@ jobs:
 
           exit "$EXIT_CODE"
 
-      - name: Run unit tests
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          DERIVED_DATA_PATH="$PWD/.ci-derived-data/tests"
-          run_unit_tests() {
-            SOURCE_PACKAGES_DIR="$SOURCE_PACKAGES_DIR" \
-              DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
-              scripts/ci/run-cmux-unit-tests-isolated.sh
-          }
-
-          # Stream output via tee so CI logs are visible in real time, while still
-          # capturing for post-run analysis of expected vs unexpected failures.
-          set +e
-          run_unit_tests | tee /tmp/test-output.txt
-          EXIT_CODE=${PIPESTATUS[0]}
-          OUTPUT=$(cat /tmp/test-output.txt)
-          set -e
-
-          # SwiftPM binary artifact resolution can occasionally fail on ephemeral
-          # runners with "Could not resolve package dependencies". Retry once after
-          # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" <<<"$OUTPUT"; then
-            echo "SwiftPM package resolution failed, clearing caches and retrying once"
-            rm -rf ~/Library/Caches/org.swift.swiftpm
-            mkdir -p ~/Library/Caches/org.swift.swiftpm
-            rm -rf "$DERIVED_DATA_PATH"
-            set +e
-            run_unit_tests | tee /tmp/test-output.txt
-            EXIT_CODE=${PIPESTATUS[0]}
-            OUTPUT=$(cat /tmp/test-output.txt)
-            set -e
-          fi
-
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            echo "Unit tests failed"
-            exit "$EXIT_CODE"
-          fi
-
-          if ! grep -Eq 'All [1-9][0-9]* cmuxTests XCTestCase classes passed in isolated app-host runs' <<<"$OUTPUT"; then
-            echo "Unit test workflow completed without executing any tests" >&2
-            exit 1
-          fi
-
       - name: Run bundled Ghostty theme picker helper regression
         run: |
           set -euo pipefail
@@ -509,6 +631,26 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_default_surface_resolution.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
+
+  tests:
+    needs:
+      - tests-core
+      - unit-tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require macOS test jobs
+        run: |
+          set -euo pipefail
+          if [ "${{ needs.tests-core.result }}" != "success" ]; then
+            echo "tests-core finished with ${{ needs.tests-core.result }}" >&2
+            exit 1
+          fi
+          if [ "${{ needs.unit-tests.result }}" != "success" ]; then
+            echo "unit-tests finished with ${{ needs.unit-tests.result }}" >&2
+            exit 1
+          fi
+          echo "tests-core and all unit-test shards passed"
 
   tests-build-and-lag:
     # Build the full cmux scheme and run the lag regression on macOS CI.

@@ -29,7 +29,7 @@ on:
 jobs:
   tests:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    timeout-minutes: 20
+    timeout-minutes: 75
     steps:
       - name: Validate suite selection
         run: |

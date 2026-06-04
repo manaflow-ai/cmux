@@ -579,7 +579,9 @@ check_cmux_unit_isolated_runner() {
     '-only-testing:"cmuxTests/$class"' \
     'CFFIXED_USER_HOME="$test_home"' \
     'RUSTUP_HOME="$HOME/.rustup" CARGO_HOME="$HOME/.cargo"' \
-    "All \${#TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"
+    'SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"' \
+    'SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"' \
+    "All \${#SELECTED_TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"
   do
     if ! grep -Fq -- "$pattern" "$CMUX_UNIT_ISOLATED_RUNNER"; then
       echo "FAIL: run-cmux-unit-tests-isolated.sh missing required isolation pattern: $pattern"
@@ -631,7 +633,7 @@ check_e2e_ui_tests_require_nonzero_execution() {
 
 check_tests_deriveddata_cache() {
   if ! awk '
-    /^  tests:/ { in_job=1; next }
+    /^  tests-core:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && /name: Compute DerivedData cache fingerprint/ { saw_fingerprint_step=1 }
     in_job && /deriveddata-cache-fingerprint\.sh tests/ { saw_fingerprint_mode=1 }
@@ -643,16 +645,31 @@ check_tests_deriveddata_cache() {
     in_job && in_restore && /^[[:space:]]{10}[^[:space:]-]/ { in_restore=0 }
     in_job && /DERIVED_DATA_PATH="\$PWD\/\.ci-derived-data\/tests"/ { saw_derived_data_env += 1 }
     in_job && /-derivedDataPath "\$DERIVED_DATA_PATH"/ { saw_derived_data += 1 }
-    in_job && /DERIVED_DATA_PATH="\$DERIVED_DATA_PATH"/ { saw_derived_data_runner=1 }
-    in_job && /scripts\/ci\/run-cmux-unit-tests-isolated\.sh/ { saw_unit_runner=1 }
     in_job && /CLI_BIN="\$DERIVED_DATA_PATH\/Build\/Products\/Debug\/cmux"/ { saw_cli_path=1 }
-    END { exit(saw_fingerprint_step && saw_fingerprint_mode && saw_cache_path && saw_key && saw_restore && !saw_broad_restore && saw_derived_data_env >= 3 && saw_derived_data >= 1 && saw_derived_data_runner && saw_unit_runner && saw_cli_path ? 0 : 1) }
+    END { exit(saw_fingerprint_step && saw_fingerprint_mode && saw_cache_path && saw_key && saw_restore && !saw_broad_restore && saw_derived_data_env >= 2 && saw_derived_data >= 1 && saw_cli_path ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: tests job must cache and reuse a source-fingerprinted explicit DerivedData path across split-theme and unit XCTest steps"
+    echo "FAIL: tests-core job must cache and reuse a source-fingerprinted explicit DerivedData path for XCTest and CLI steps"
     exit 1
   fi
 
-  echo "PASS: tests job reuses source-fingerprinted explicit cached DerivedData across XCTest steps"
+  if ! awk '
+    /^  unit-tests:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /strategy:/ { saw_strategy=1 }
+    in_job && /shard_index: \[0, 1, 2, 3\]/ { saw_shards=1 }
+    in_job && /path: \.ci-derived-data\/unit-tests/ { saw_cache_path=1 }
+    in_job && /key: deriveddata-unit-tests-\$\{\{ steps\.deriveddata-fingerprint\.outputs\.hash \}\}-\$\{\{ steps\.ghostty-revision\.outputs\.sha \}\}/ { saw_key=1 }
+    in_job && /DERIVED_DATA_PATH="\$PWD\/\.ci-derived-data\/unit-tests"/ { saw_derived_data_env=1 }
+    in_job && /CMUX_UNIT_TEST_SHARD_INDEX="\$\{\{ matrix\.shard_index \}\}"/ { saw_shard_index=1 }
+    in_job && /CMUX_UNIT_TEST_SHARD_COUNT="\$\{\{ matrix\.shard_count \}\}"/ { saw_shard_count=1 }
+    in_job && /scripts\/ci\/run-cmux-unit-tests-isolated\.sh/ { saw_unit_runner=1 }
+    END { exit(saw_strategy && saw_shards && saw_cache_path && saw_key && saw_derived_data_env && saw_shard_index && saw_shard_count && saw_unit_runner ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: unit-tests job must shard class-isolated app-host tests across cached DerivedData lanes"
+    exit 1
+  fi
+
+  echo "PASS: tests-core caches explicit DerivedData and unit-tests shards class-isolated app-host runs"
 }
 
 check_ui_regression_budget() {
@@ -806,12 +823,14 @@ check_zig_helper_build_runner() {
 }
 
 # ci.yml jobs
-check_macos_runner "$CI_FILE" "tests"
+check_macos_runner "$CI_FILE" "unit-tests"
+check_macos_runner "$CI_FILE" "tests-core"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_macos_runner "$CI_FILE" "release-build"
 check_macos_runner "$CI_FILE" "ui-regressions"
-check_self_hosted_workspace_prep "$CI_FILE" "tests"
+check_self_hosted_workspace_prep "$CI_FILE" "unit-tests"
+check_self_hosted_workspace_prep "$CI_FILE" "tests-core"
 check_self_hosted_workspace_prep "$CI_FILE" "tests-build-and-lag"
 check_self_hosted_workspace_prep "$CI_FILE" "release-ghostty-cli-helper"
 check_self_hosted_workspace_prep "$CI_FILE" "release-build"

@@ -6,6 +6,8 @@ DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-$PWD/.ci-derived-data/tests}"
 RESULT_ROOT="${RUNNER_TEMP:-/tmp}/cmux-unit-isolated-results"
 LOG_ROOT="${RUNNER_TEMP:-/tmp}/cmux-unit-isolated-logs"
 STATUS_ROOT="${RUNNER_TEMP:-/tmp}/cmux-unit-isolated-status"
+SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"
+SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"
 
 mkdir -p "$SOURCE_PACKAGES_DIR" "$RESULT_ROOT" "$LOG_ROOT" "$STATUS_ROOT"
 rm -rf "$RESULT_ROOT"/* "$LOG_ROOT"/* "$STATUS_ROOT"/*
@@ -22,7 +24,46 @@ if [ "${#TEST_CLASSES[@]}" -eq 0 ]; then
   exit 1
 fi
 
+case "$SHARD_INDEX" in
+  ''|*[!0-9]*)
+    echo "CMUX_UNIT_TEST_SHARD_INDEX must be a zero-based integer" >&2
+    exit 1
+    ;;
+esac
+
+case "$SHARD_COUNT" in
+  ''|*[!0-9]*)
+    echo "CMUX_UNIT_TEST_SHARD_COUNT must be a positive integer" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$SHARD_COUNT" -lt 1 ]; then
+  echo "CMUX_UNIT_TEST_SHARD_COUNT must be at least 1" >&2
+  exit 1
+fi
+
+if [ "$SHARD_INDEX" -ge "$SHARD_COUNT" ]; then
+  echo "CMUX_UNIT_TEST_SHARD_INDEX must be less than CMUX_UNIT_TEST_SHARD_COUNT" >&2
+  exit 1
+fi
+
+SELECTED_TEST_CLASSES=()
+class_index=0
+for class in "${TEST_CLASSES[@]}"; do
+  if [ $((class_index % SHARD_COUNT)) -eq "$SHARD_INDEX" ]; then
+    SELECTED_TEST_CLASSES+=("$class")
+  fi
+  class_index=$((class_index + 1))
+done
+
+if [ "${#SELECTED_TEST_CLASSES[@]}" -eq 0 ]; then
+  echo "Shard $SHARD_INDEX/$SHARD_COUNT did not select any cmuxTests XCTestCase classes" >&2
+  exit 1
+fi
+
 echo "Discovered ${#TEST_CLASSES[@]} cmuxTests XCTestCase classes"
+echo "Running shard $SHARD_INDEX/$SHARD_COUNT with ${#SELECTED_TEST_CLASSES[@]} classes"
 
 scripts/ci/xcodebuild_noninteractive.py \
   xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
@@ -75,13 +116,13 @@ run_one_class() {
 export SOURCE_PACKAGES_DIR DERIVED_DATA_PATH RESULT_ROOT LOG_ROOT STATUS_ROOT
 export -f run_one_class
 
-printf '%s\n' "${TEST_CLASSES[@]}" | while IFS= read -r class; do
+printf '%s\n' "${SELECTED_TEST_CLASSES[@]}" | while IFS= read -r class; do
   run_one_class "$class"
 done
 
 failed=()
 no_tests=()
-for class in "${TEST_CLASSES[@]}"; do
+for class in "${SELECTED_TEST_CLASSES[@]}"; do
   status="$(cat "$STATUS_ROOT/$class.status" 2>/dev/null || echo missing)"
   case "$status" in
     passed) ;;
@@ -108,4 +149,4 @@ if [ "${#failed[@]}" -ne 0 ] || [ "${#no_tests[@]}" -ne 0 ]; then
   exit 1
 fi
 
-echo "All ${#TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"
+echo "All ${#SELECTED_TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"
