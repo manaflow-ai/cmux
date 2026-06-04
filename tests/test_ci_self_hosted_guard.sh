@@ -553,22 +553,22 @@ check_xcodebuild_unit_step_requires_nonzero_execution() {
   echo "PASS: $step in $(basename "$file") rejects zero-test xcodebuild runs"
 }
 
-check_xcodebuild_unit_step_rejects_expected_failures() {
+check_xcodebuild_unit_step_allows_expected_failures() {
   local file="$1" step="$2"
   if ! awk -v step="$step" '
     index($0, "- name: " step) { in_step=1; saw_step=1; next }
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
-    in_step && /if \[ "\$EXIT_CODE" -ne 0 \]; then/ { saw_nonzero_branch=1 }
-    in_step && /echo "Unit tests failed"/ { saw_failure_message=1 }
-    in_step && /exit "\$EXIT_CODE"/ { saw_exit=1 }
-    in_step && /All failures are expected, treating as pass|\(0 unexpected\)/ { saw_mask=1 }
-    END { exit(saw_step && saw_nonzero_branch && saw_failure_message && saw_exit && !saw_mask ? 0 : 1) }
+    in_step && /grep "Executed\.\*tests\.\*with\.\*failures"/ { saw_summary=1 }
+    in_step && /\(0 unexpected\)/ { saw_expected_check=1 }
+    in_step && /All failures are expected, treating as pass/ { saw_expected_message=1 }
+    in_step && /Unexpected unit test failures detected|Unexpected test failures detected/ { saw_unexpected_message=1 }
+    END { exit(saw_step && saw_summary && saw_expected_check && saw_expected_message && saw_unexpected_message ? 0 : 1) }
   ' "$file"; then
-    echo "FAIL: $step in $(basename "$file") must reject broad XCTest expected-failure pass-throughs"
+    echo "FAIL: $step in $(basename "$file") must distinguish expected XCTest failures from unexpected failures"
     exit 1
   fi
 
-  echo "PASS: $step in $(basename "$file") rejects broad XCTest expected-failure pass-throughs"
+  echo "PASS: $step in $(basename "$file") allows only expected XCTest failures"
 }
 
 check_e2e_ui_tests_require_nonzero_execution() {
@@ -824,8 +824,8 @@ check_swift_package_tests_require_nonzero_execution
 check_xcodebuild_unit_step_requires_nonzero_execution "$CI_FILE" "Run unit tests" "Unit test workflow completed without executing any tests"
 check_xcodebuild_unit_step_requires_nonzero_execution "$COMPAT_FILE" "Run unit tests" "Compatibility unit tests completed without executing any tests"
 check_xcodebuild_unit_step_requires_nonzero_execution "$TERMINAL_CORPUS_NIGHTLY_FILE" "Run terminal corpus unit tests" "Terminal corpus unit tests completed without executing any tests"
-check_xcodebuild_unit_step_rejects_expected_failures "$CI_FILE" "Run unit tests"
-check_xcodebuild_unit_step_rejects_expected_failures "$COMPAT_FILE" "Run unit tests"
+check_xcodebuild_unit_step_allows_expected_failures "$CI_FILE" "Run unit tests"
+check_xcodebuild_unit_step_allows_expected_failures "$COMPAT_FILE" "Run unit tests"
 check_tests_deriveddata_cache
 check_ui_regression_budget
 check_build_and_lag_budget

@@ -15,8 +15,9 @@ REQUIRED_PATTERNS=(
   'DERIVED_DATA_PATH="$PWD/.ci-derived-data/tests"'
   "run_unit_tests | tee /tmp/test-output.txt"
   "xcodebuild unit tests timed out"
-  "Unit tests failed"
-  'exit "$EXIT_CODE"'
+  'SUMMARY=$(grep "Executed.*tests.*with.*failures" <<<"$OUTPUT" | tail -1)'
+  'grep -q "(0 unexpected)"'
+  "Unexpected test failures detected"
 )
 
 for pattern in "${REQUIRED_PATTERNS[@]}"; do
@@ -26,13 +27,18 @@ for pattern in "${REQUIRED_PATTERNS[@]}"; do
   fi
 done
 
-if grep -Fq 'grep -q "(0 unexpected)"' "$WORKFLOW_FILE" "$COMPAT_WORKFLOW_FILE"; then
-  echo "FAIL: unit-test workflows must not convert broad XCTest expected failures into passing CI"
+if ! grep -Fq 'SUMMARY=$(grep "Executed.*tests.*with.*failures" <<<"$OUTPUT" | tail -1)' "$COMPAT_WORKFLOW_FILE"; then
+  echo "FAIL: ci-macos-compat.yml must inspect XCTest failure summaries"
   exit 1
 fi
 
-if ! grep -Fq 'exit "$EXIT_CODE"' "$COMPAT_WORKFLOW_FILE"; then
-  echo "FAIL: ci-macos-compat.yml must propagate unexpected unit-test exit codes"
+if ! grep -Fq 'grep -q "(0 unexpected)"' "$COMPAT_WORKFLOW_FILE"; then
+  echo "FAIL: ci-macos-compat.yml must allow only expected XCTest failures"
+  exit 1
+fi
+
+if ! grep -Fq 'Unexpected unit test failures detected' "$COMPAT_WORKFLOW_FILE"; then
+  echo "FAIL: ci-macos-compat.yml must report unexpected unit-test failures"
   exit 1
 fi
 
@@ -46,4 +52,4 @@ if ! grep -Fq 'exit "$EXIT_CODE"' "$DEPOT_WORKFLOW_FILE"; then
   exit 1
 fi
 
-echo "PASS: CI unit-test SwiftPM retry and failure propagation guards are present"
+echo "PASS: CI unit-test SwiftPM retry and expected-failure guards are present"

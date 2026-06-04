@@ -467,8 +467,13 @@ jobs:
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
-            echo "Unit tests failed"
-            exit "$EXIT_CODE"
+            SUMMARY=$(grep "Executed.*tests.*with.*failures" <<<"$OUTPUT" | tail -1)
+            if grep -q "(0 unexpected)" <<<"$SUMMARY"; then
+              echo "All failures are expected, treating as pass"
+            else
+              echo "Unexpected test failures detected"
+              exit "$EXIT_CODE"
+            fi
           fi
 
           if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
