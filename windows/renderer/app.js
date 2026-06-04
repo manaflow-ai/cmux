@@ -3,6 +3,7 @@ import {
   addTabStyleOptions,
   accentIntensityOptions,
   accentOptions,
+  backgroundChromeOptions,
   backgroundEffectsOptions,
   backgroundFitOptions,
   backgroundPositionOptions,
@@ -294,6 +295,7 @@ const performanceSetupSettings = [
   "backgroundOpacity",
   "backgroundBlur",
   "backgroundEffects",
+  "backgroundChromeMode",
   "interfaceDepth",
   "terminalStartupMode",
   "terminalPauseInactiveOutput",
@@ -345,6 +347,7 @@ const appearancePreviewKeys = new Set([
   "backgroundFit",
   "backgroundPosition",
   "backgroundEffects",
+  "backgroundChromeMode",
   "interfaceContrast",
   "interfaceDepth",
   "terminalFontFamily",
@@ -357,7 +360,8 @@ const backgroundPreviewKeys = new Set([
   "backgroundOpacity",
   "backgroundFit",
   "backgroundPosition",
-  "backgroundEffects"
+  "backgroundEffects",
+  "backgroundChromeMode"
 ]);
 const terminalSettingsPreviewKeys = new Set([
   "terminalFontFamily",
@@ -446,6 +450,7 @@ const settingsInspectorSettingKeys = {
     "backgroundFit",
     "backgroundPosition",
     "backgroundEffects",
+    "backgroundChromeMode",
     "interfaceContrast",
     "interfaceDepth",
     "terminalFontFamily",
@@ -516,6 +521,7 @@ const settingsInspectorSettingKeys = {
     "backgroundOpacity",
     "backgroundBlur",
     "backgroundEffects",
+    "backgroundChromeMode",
     "density",
     "toolbarMode",
     "topbarStyle",
@@ -773,6 +779,7 @@ const lookPackDefinitions = [
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
+      backgroundChromeMode: "readable",
       terminalBackground: "#111318",
       terminalForeground: "#d8dee9",
       terminalCursorColor: "#88c0d0"
@@ -794,6 +801,7 @@ const lookPackDefinitions = [
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
+      backgroundChromeMode: "readable",
       terminalBackground: "#111318",
       terminalForeground: "#d8dee9",
       terminalCursorColor: "#88c0d0"
@@ -815,6 +823,7 @@ const lookPackDefinitions = [
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
+      backgroundChromeMode: "soft",
       terminalBackground: "#111318",
       terminalForeground: "#d8dee9",
       terminalCursorColor: "#88c0d0"
@@ -836,6 +845,7 @@ const lookPackDefinitions = [
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
+      backgroundChromeMode: "soft",
       terminalBackground: "#002b36",
       terminalForeground: "#839496",
       terminalCursorColor: "#b58900"
@@ -857,6 +867,7 @@ const lookPackDefinitions = [
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "glass",
+      backgroundChromeMode: "immersive",
       terminalBackground: "#1c1714",
       terminalForeground: "#eadfce",
       terminalCursorColor: "#f6bd60"
@@ -878,6 +889,7 @@ const lookPackDefinitions = [
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
+      backgroundChromeMode: "readable",
       terminalBackground: "#050608",
       terminalForeground: "#f4f7fb",
       terminalCursorColor: "#f6d36b"
@@ -1192,6 +1204,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!backgroundFitOptions.some(([id]) => id === next.backgroundFit)) next.backgroundFit = defaultSettings.backgroundFit;
   if (!backgroundPositionOptions.some(([id]) => id === next.backgroundPosition)) next.backgroundPosition = defaultSettings.backgroundPosition;
   if (!backgroundEffectsOptions.some(([id]) => id === next.backgroundEffects)) next.backgroundEffects = defaultSettings.backgroundEffects;
+  if (!backgroundChromeOptions.some(([id]) => id === next.backgroundChromeMode)) next.backgroundChromeMode = defaultSettings.backgroundChromeMode;
   if (!interfaceContrastOptions.some(([id]) => id === next.interfaceContrast)) next.interfaceContrast = defaultSettings.interfaceContrast;
   if (!interfaceDepthOptions.some(([id]) => id === next.interfaceDepth)) next.interfaceDepth = defaultSettings.interfaceDepth;
   if (!accentIntensityOptions.some(([id]) => id === next.accentIntensity)) next.accentIntensity = defaultSettings.accentIntensity;
@@ -3257,6 +3270,7 @@ function settingsProfileSummary(settings) {
   const accentIntensity = optionLabel(accentIntensityOptions, normalized.accentIntensity, normalized.accentIntensity);
   const surfaceTint = optionLabel(surfaceTintOptions, normalized.surfaceTint, normalized.surfaceTint);
   const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, "Flat");
+  const backgroundChrome = optionLabel(backgroundChromeOptions, normalized.backgroundChromeMode, normalized.backgroundChromeMode);
   const contrast = optionLabel(interfaceContrastOptions, normalized.interfaceContrast, normalized.interfaceContrast);
   const depth = optionLabel(interfaceDepthOptions, normalized.interfaceDepth, normalized.interfaceDepth);
   const chromeMotion = optionLabel(chromeMotionOptions, normalized.chromeMotionMode, normalized.chromeMotionMode);
@@ -3299,6 +3313,7 @@ function settingsProfileSummary(settings) {
     `${accentIntensity.toLowerCase()} accent`,
     `${surfaceTint.toLowerCase()} tint`,
     `${backgroundEffects.toLowerCase()} background`,
+    `${backgroundChrome.toLowerCase()} background chrome`,
     `${contrast.toLowerCase()} contrast`,
     `${depth.toLowerCase()} depth`,
     `${normalized.backgroundBlur}px soften`,
@@ -4993,7 +5008,8 @@ const backgroundSetupSettings = [
   "backgroundBlur",
   "backgroundFit",
   "backgroundPosition",
-  "backgroundEffects"
+  "backgroundEffects",
+  "backgroundChromeMode"
 ];
 
 async function applyBackgroundValueToTarget(value, target = state.backgroundApplyTarget, options = {}) {
@@ -5022,6 +5038,7 @@ function backgroundSetupPayload(target = state.backgroundApplyTarget) {
       fit: optionLabel(backgroundFitOptions, state.settings.backgroundFit, state.settings.backgroundFit),
       position: optionLabel(backgroundPositionOptions, state.settings.backgroundPosition, state.settings.backgroundPosition),
       effects: optionLabel(backgroundEffectsOptions, state.settings.backgroundEffects, state.settings.backgroundEffects),
+      chrome: optionLabel(backgroundChromeOptions, state.settings.backgroundChromeMode, state.settings.backgroundChromeMode),
       opacity: state.settings.backgroundOpacity,
       blur: state.settings.backgroundBlur
     },
@@ -5086,7 +5103,7 @@ function backgroundSetupUpdatesFromPayload(payload) {
     backgroundImage = normalized;
     break;
   }
-  for (const key of ["backgroundOpacity", "backgroundBlur", "backgroundFit", "backgroundPosition", "backgroundEffects"]) {
+  for (const key of ["backgroundOpacity", "backgroundBlur", "backgroundFit", "backgroundPosition", "backgroundEffects", "backgroundChromeMode"]) {
     if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
     const value = lookSettingUpdateFromValue(key, source[key]);
     if (value === null) return null;
@@ -5368,6 +5385,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.backgroundFit,
     settings.backgroundPosition,
     settings.backgroundEffects,
+    settings.backgroundChromeMode,
     settings.interfaceContrast,
     settings.interfaceDepth,
     settings.density,
@@ -5560,6 +5578,9 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "background-effects-flat", state.settings.backgroundEffects === "flat");
   toggleClassIfChanged(elements.shell, "background-effects-tinted", state.settings.backgroundEffects === "tinted");
   toggleClassIfChanged(elements.shell, "background-effects-glass", state.settings.backgroundEffects === "glass");
+  toggleClassIfChanged(elements.shell, "background-chrome-readable", state.settings.backgroundChromeMode === "readable");
+  toggleClassIfChanged(elements.shell, "background-chrome-soft", state.settings.backgroundChromeMode === "soft");
+  toggleClassIfChanged(elements.shell, "background-chrome-immersive", state.settings.backgroundChromeMode === "immersive");
   const reduceMotion = state.settings.reduceMotion || state.settings.performanceMode;
   toggleClassIfChanged(document.body, "reduce-motion", reduceMotion);
   toggleClassIfChanged(elements.shell, "reduce-motion", reduceMotion);
@@ -13109,20 +13130,20 @@ function renderSettingsInspector(options = {}) {
     appearanceSection.append(savedColorsDisclosurePanel());
     const appearanceActions = document.createElement("div");
     appearanceActions.className = "settings-actions appearance-actions";
-    appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look save profile copy paste reset theme accent intensity surface tint contrast depth shadow background terminal colors default profiles clipboard json");
+    appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look save profile copy paste reset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors default profiles clipboard json");
     const lookSettingsDefault = appearanceSettingsAreDefault();
-    const lookReset = settingsActionButton("Reset look", resetAppearanceSettings, "", `appearance look reset theme accent intensity surface tint contrast depth shadow background terminal colors default ${lookSettingsDefault ? "active current " : ""}`);
+    const lookReset = settingsActionButton("Reset look", resetAppearanceSettings, "", `appearance look reset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors default ${lookSettingsDefault ? "active current " : ""}`);
     lookReset.disabled = lookSettingsDefault;
     lookReset.title = lookReset.disabled
       ? "Look settings already match the default setup."
-      : "Reset theme, accent intensity, surface tint, interface contrast, surface depth, app background, and terminal colors.";
-    const copyLook = settingsActionButton("Copy look", copyLookSettings, "", "appearance look copy theme accent intensity surface tint contrast depth shadow background terminal colors clipboard json");
-    copyLook.title = "Copy theme, accent intensity, surface tint, interface contrast, surface depth, app background, and terminal colors as JSON.";
-    const pasteLook = settingsActionButton("Paste look", pasteLookSettings, "", "appearance look paste theme accent intensity surface tint contrast depth shadow background terminal colors clipboard json");
+      : "Reset theme, accent intensity, surface tint, interface contrast, surface depth, app background, background chrome, and terminal colors.";
+    const copyLook = settingsActionButton("Copy look", copyLookSettings, "", "appearance look copy theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors clipboard json");
+    copyLook.title = "Copy theme, accent intensity, surface tint, interface contrast, surface depth, app background, background chrome, and terminal colors as JSON.";
+    const pasteLook = settingsActionButton("Paste look", pasteLookSettings, "", "appearance look paste theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors clipboard json");
     pasteLook.title = "Apply copied cmux look JSON.";
     appearanceActions.append(
       applySettingsProfileSaveLimit(
-        settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent intensity surface tint contrast depth shadow background terminal layout performance"),
+        settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal layout performance"),
         "Save this look as a reusable Settings profile."
       ),
       copyLook,
@@ -13658,8 +13679,8 @@ function renderSettingsInspector(options = {}) {
         settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
         "Save current performance settings as a reusable profile."
       ),
-      settingsActionButton("Copy setup", copyPerformanceSetup, "", "performance setup copy speed lag motion speed snappy balanced calm workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface spacing gap gutter padding background opacity effects terminal startup inactive browser suspend clipboard json"),
-      settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion speed snappy balanced calm workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface spacing gap gutter padding background opacity effects terminal startup inactive browser suspend clipboard json"),
+      settingsActionButton("Copy setup", copyPerformanceSetup, "", "performance setup copy speed lag motion speed snappy balanced calm workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface spacing gap gutter padding background opacity effects chrome readable soft immersive terminal startup inactive browser suspend clipboard json"),
+      settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion speed snappy balanced calm workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface spacing gap gutter padding background opacity effects chrome readable soft immersive terminal startup inactive browser suspend clipboard json"),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
       speedPreset,
       resetPerformanceStatsAction()
@@ -14394,8 +14415,9 @@ function appearanceBackgroundLabel(value, settingsSource = state.settings) {
   const label = preset ? preset.label : defaultBackgroundLabel(normalized);
   const fit = optionLabel(backgroundFitOptions, settingsSource?.backgroundFit, t("config.backgroundFit.cover"));
   const effects = optionLabel(backgroundEffectsOptions, settingsSource?.backgroundEffects, t("config.backgroundEffects.flat"));
+  const chrome = optionLabel(backgroundChromeOptions, settingsSource?.backgroundChromeMode, t("config.backgroundChrome.soft", "Soft"));
   const blur = Math.max(0, Math.round(Number(settingsSource?.backgroundBlur) || 0));
-  return [label, fit, effects, blur ? `${blur}px soften` : ""].filter(Boolean).join(" / ");
+  return [label, fit, effects, `${chrome} chrome`, blur ? `${blur}px soften` : ""].filter(Boolean).join(" / ");
 }
 
 function appearancePreviewPanel() {
@@ -14417,7 +14439,7 @@ function appearancePreviewPanel() {
   });
   preview.style.setProperty("--preview-background-blur", `${state.settings.backgroundBlur}px`);
   preview.style.setProperty("--preview-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
-  preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent intensity surface tint contrast depth shadow background image strength soften blur terminal colors font");
+  preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent intensity surface tint contrast depth shadow background image strength soften blur chrome readable soft immersive terminal colors font");
   return preview;
 }
 
@@ -14448,14 +14470,15 @@ function backgroundTuningSelect(label, settingKey, options, onCommit) {
 function backgroundTuningPanel(onCommit = null) {
   const panel = document.createElement("div");
   panel.className = "background-tuning-panel";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("background image fit position effects opacity strength soften blur wallpaper transparency tune");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("background image fit position effects opacity strength soften blur wallpaper transparency tune chrome readable soft immersive");
 
   const controls = document.createElement("div");
   controls.className = "background-tuning-grid";
   controls.append(
     backgroundTuningSelect("Fit", "backgroundFit", backgroundFitOptions, onCommit),
     backgroundTuningSelect("Position", "backgroundPosition", backgroundPositionOptions, onCommit),
-    backgroundTuningSelect("Effects", "backgroundEffects", backgroundEffectsOptions, onCommit)
+    backgroundTuningSelect("Effects", "backgroundEffects", backgroundEffectsOptions, onCommit),
+    backgroundTuningSelect("Chrome", "backgroundChromeMode", backgroundChromeOptions, onCommit)
   );
 
   const opacityInput = document.createElement("input");
@@ -14705,7 +14728,7 @@ function activeBackgroundPanel(options = {}) {
   const model = activeBackgroundPanelViewModel();
   panel.className = `active-background-panel${model.hasBackground ? " has-image" : ""}`;
   panel.dataset.activeBackgroundTuning = options.tuning ? "true" : "false";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear copy paste setup fit position effects opacity strength soften blur transparency tune");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear copy paste setup fit position effects opacity strength soften blur transparency tune chrome readable soft immersive");
   panel.style.setProperty("--active-background-image", model.image);
   panel.style.setProperty("--active-background-repeat", model.repeat);
   panel.style.setProperty("--active-background-size", model.size);
@@ -14792,7 +14815,7 @@ function activeBackgroundPanel(options = {}) {
   const imageGroup = backgroundActionGroup("Image", "active background image choose paste save copy open", [choose, paste, save, copySource, open]);
   imageGroup.classList.add("background-action-group-image");
 
-  const copySetup = settingsActionButton("Copy setup", () => copyBackgroundSetup(state.backgroundApplyTarget), "", "active background setup copy image tuning fit position effects opacity clipboard json");
+  const copySetup = settingsActionButton("Copy setup", () => copyBackgroundSetup(state.backgroundApplyTarget), "", "active background setup copy image tuning fit position effects opacity chrome readable soft immersive clipboard json");
   copySetup.dataset.backgroundAction = "copy-setup";
   copySetup.title = !targetStatus.canTarget
     ? `${backgroundApplyTargetOption(targetStatus.scope).label} cannot use a background right now.`
@@ -14800,11 +14823,11 @@ function activeBackgroundPanel(options = {}) {
       ? "Terminal backgrounds are mixed."
       : `Copy ${targetLabel} background and tuning.`;
   copySetup.disabled = !targetStatus.canTarget || model.mixed;
-  const pasteSetup = settingsActionButton("Paste setup", () => pasteBackgroundSetup(state.backgroundApplyTarget), "", "active background setup paste image tuning fit position effects opacity clipboard json");
+  const pasteSetup = settingsActionButton("Paste setup", () => pasteBackgroundSetup(state.backgroundApplyTarget), "", "active background setup paste image tuning fit position effects opacity chrome readable soft immersive clipboard json");
   pasteSetup.dataset.backgroundAction = "paste-setup";
   pasteSetup.title = `Paste copied background setup to ${targetLabel}.`;
   pasteSetup.disabled = !targetStatus.canTarget;
-  const setupGroup = backgroundActionGroup("Setup", "active background setup copy paste tuning clipboard json", [copySetup, pasteSetup]);
+  const setupGroup = backgroundActionGroup("Setup", "active background setup copy paste tuning chrome readable soft immersive clipboard json", [copySetup, pasteSetup]);
   setupGroup.classList.add("background-action-group-setup");
 
   const applyCurrent = settingsActionButton("Use app image", applyCurrentBackgroundToTarget, "", "active background apply current app image to selected target pane all terminals");
@@ -14914,6 +14937,9 @@ function refreshAppearancePreviewBlur(value = state.settings.backgroundBlur) {
 function refreshBackgroundPreviewNodes() {
   const appModel = activeBackgroundViewModel();
   for (const preview of elements.inspectorBody.querySelectorAll(".appearance-preview")) {
+    for (const [id] of backgroundChromeOptions) {
+      toggleClassIfChanged(preview, `appearance-background-${id}`, state.settings.backgroundChromeMode === id);
+    }
     preview.style.setProperty("--preview-background-image", appModel.image);
     preview.style.setProperty("--preview-background-opacity", String(state.settings.backgroundOpacity / 100));
     preview.style.setProperty("--preview-background-blur", `${state.settings.backgroundBlur}px`);
@@ -15383,7 +15409,7 @@ function themeChoiceGrid() {
 function lookPackGrid() {
   const grid = document.createElement("div");
   grid.className = "look-pack-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("look pack appearance theme accent intensity surface tint background terminal color profile apply save copy");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("look pack appearance theme accent intensity surface tint background chrome readable soft immersive terminal color profile apply save copy");
   for (const pack of lookPackDefinitions) {
     const card = document.createElement("div");
     card.className = "look-pack-card";
@@ -15409,7 +15435,7 @@ function lookPackGrid() {
     card.querySelector(".look-pack-body").textContent = pack.body;
     const actions = card.querySelector(".look-pack-actions");
     actions.append(
-      settingsActionButton("Apply", () => applyLookPack(pack.id), "", `look pack apply theme accent intensity surface tint background terminal color ${pack.label}`),
+      settingsActionButton("Apply", () => applyLookPack(pack.id), "", `look pack apply theme accent intensity surface tint background chrome readable soft immersive terminal color ${pack.label}`),
       settingsActionButton("Save", () => saveLookPackProfile(pack.id), "", `look pack save settings profile reusable ${pack.label}`),
       settingsActionButton("Copy", () => copyLookPackProfile(pack.id), "", `look pack copy settings profile clipboard json ${pack.label}`)
     );
@@ -15427,7 +15453,7 @@ function updateLookPackCard(card, pack) {
   const savedProfile = savedSettingsProfileForLookPack(pack);
   const summary = lookPackSummary(pack);
   card.classList.toggle("is-active", active);
-  const search = normalizeSettingsQuery(`look pack appearance theme accent intensity surface tint background terminal color profile apply save copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${pack.label} ${pack.body} ${summary}`);
+  const search = normalizeSettingsQuery(`look pack appearance theme accent intensity surface tint background chrome readable soft immersive terminal color profile apply save copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${pack.label} ${pack.body} ${summary}`);
   if (card.dataset.settingsSearch !== search) {
     card.dataset.settingsSearch = search;
     updateSettingsSearchIndexItemSearch(card, search);
@@ -18231,6 +18257,7 @@ function performanceDiagnosticsPayload() {
       backgroundOpacity: state.settings.backgroundOpacity,
       backgroundBlur: state.settings.backgroundBlur,
       backgroundEffects: state.settings.backgroundEffects,
+      backgroundChromeMode: state.settings.backgroundChromeMode,
       terminalFontFamily: state.settings.terminalFontFamily,
       terminalFontSize: state.settings.terminalFontSize,
       terminalLineHeight: state.settings.terminalLineHeight,
@@ -18296,6 +18323,7 @@ const performanceTuningPresets = [
       backgroundOpacity: 16,
       backgroundBlur: 0,
       backgroundEffects: "flat",
+      backgroundChromeMode: "soft",
       interfaceDepth: "soft",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
@@ -18335,6 +18363,7 @@ const performanceTuningPresets = [
       backgroundOpacity: 8,
       backgroundBlur: 0,
       backgroundEffects: "flat",
+      backgroundChromeMode: "readable",
       interfaceDepth: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
@@ -18374,6 +18403,7 @@ const performanceTuningPresets = [
       backgroundOpacity: 6,
       backgroundBlur: 0,
       backgroundEffects: "flat",
+      backgroundChromeMode: "readable",
       interfaceDepth: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
@@ -18413,6 +18443,7 @@ const performanceTuningPresets = [
       backgroundOpacity: 8,
       backgroundBlur: 0,
       backgroundEffects: "flat",
+      backgroundChromeMode: "readable",
       interfaceDepth: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
@@ -18452,6 +18483,7 @@ const performanceTuningPresets = [
       backgroundOpacity: 12,
       backgroundBlur: 0,
       backgroundEffects: "flat",
+      backgroundChromeMode: "readable",
       interfaceDepth: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
@@ -18491,6 +18523,7 @@ const performanceTuningPresets = [
       backgroundOpacity: 16,
       backgroundBlur: 0,
       backgroundEffects: "flat",
+      backgroundChromeMode: "soft",
       interfaceDepth: "soft",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: false,
@@ -18540,26 +18573,29 @@ const performanceHealthCheckDefinitions = [
   {
     id: "backgroundWeight",
     label: "Background weight",
-    body: "Keeps images usable while removing glass and high-opacity background work.",
+    body: "Keeps images usable while removing glass, high-opacity background work, and transparent chrome.",
     actionLabel: "Lighten",
     readyLabel: "Light",
     issue: () => Boolean(state.settings.backgroundImage) && (
       state.settings.backgroundEffects !== "flat"
+      || state.settings.backgroundChromeMode !== "readable"
       || state.settings.backgroundOpacity > performanceHealthBackgroundOpacityLimit
       || state.settings.backgroundBlur > 0
     ),
     meta: () => {
       if (!state.settings.backgroundImage) return "No image";
       if (state.settings.backgroundEffects !== "flat") return optionLabel(backgroundEffectsOptions, state.settings.backgroundEffects, state.settings.backgroundEffects);
+      if (state.settings.backgroundChromeMode !== "readable") return `${optionLabel(backgroundChromeOptions, state.settings.backgroundChromeMode, state.settings.backgroundChromeMode)} chrome`;
       if (state.settings.backgroundBlur > 0) return `${state.settings.backgroundBlur}px soften`;
       return `${state.settings.backgroundOpacity}% opacity`;
     },
     updates: () => ({
       backgroundEffects: "flat",
+      backgroundChromeMode: "readable",
       backgroundOpacity: Math.min(state.settings.backgroundOpacity, performanceHealthBackgroundOpacityLimit),
       backgroundBlur: 0
     }),
-    search: "background image opacity soften blur glass effects wallpaper slow"
+    search: "background image opacity soften blur glass effects wallpaper slow chrome readable soft immersive"
   },
   {
     id: "surfaceDepth",
@@ -18873,6 +18909,7 @@ function performanceSetupSummaryForSettings(settings) {
     ...(settings || {})
   });
   const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, normalized.backgroundEffects);
+  const backgroundChrome = optionLabel(backgroundChromeOptions, normalized.backgroundChromeMode, normalized.backgroundChromeMode);
   const toolbar = optionLabel(toolbarModeOptions, normalized.toolbarMode, normalized.toolbarMode);
   const topbar = optionLabel(topbarStyleOptions, normalized.topbarStyle, normalized.topbarStyle);
   const toolbarButtons = optionLabel(toolbarButtonStyleOptions, normalized.toolbarButtonStyle, normalized.toolbarButtonStyle);
@@ -18909,7 +18946,8 @@ function performanceSetupSummaryForSettings(settings) {
     paneSurface,
     paneSpacing: spacing,
     depth,
-    background: `${backgroundEffects} ${normalized.backgroundOpacity}% / ${normalized.backgroundBlur}px soften`,
+    background: `${backgroundEffects} / ${backgroundChrome} chrome / ${normalized.backgroundOpacity}% / ${normalized.backgroundBlur}px soften`,
+    backgroundChrome,
     terminalStartup: optionLabel(terminalStartupOptions, normalized.terminalStartupMode, normalized.terminalStartupMode),
     inactiveOutput: normalized.terminalPauseInactiveOutput ? "Paused" : "Live",
     resume: normalized.terminalSmoothResumedOutput ? "Smooth" : "Immediate",
@@ -19066,6 +19104,7 @@ function performanceSetupSettingUpdateFromValue(key, raw) {
     return Number.isFinite(value) ? clamp(Math.round(value), 0, 12) : null;
   }
   if (key === "backgroundEffects") return optionIdAllowed(backgroundEffectsOptions, raw) ? raw : null;
+  if (key === "backgroundChromeMode") return optionIdAllowed(backgroundChromeOptions, raw) ? raw : null;
   if (key === "interfaceDepth") return optionIdAllowed(interfaceDepthOptions, raw) ? raw : null;
   if (key === "terminalPadding") {
     const value = Number(raw);
@@ -19134,7 +19173,7 @@ function performanceTuningPresetSettings(preset) {
 function performanceTuningPresetSearchText(preset, settings = performanceTuningPresetSettings(preset)) {
   const summary = performanceSetupSummaryForSettings(settings || {});
   return normalizeSettingsQuery([
-    "performance tuning preset setup apply copy speed lag smooth low motion speed snappy balanced calm live panes workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs palette density compact balanced roomy result limit focused balanced extended results placement position top center wide quick actions auto hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls spacing gap gutter padding surface depth shadow background opacity effects glass flat terminal output browser preview suspend history scrollback",
+    "performance tuning preset setup apply copy speed lag smooth low motion speed snappy balanced calm live panes workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs palette density compact balanced roomy result limit focused balanced extended results placement position top center wide quick actions auto hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls spacing gap gutter padding surface depth shadow background opacity effects glass flat chrome readable soft immersive terminal output browser preview suspend history scrollback",
     preset?.label,
     preset?.body,
     summary.mode,
@@ -19155,6 +19194,7 @@ function performanceTuningPresetSearchText(preset, settings = performanceTuningP
     summary.paneSpacing,
     summary.depth,
     summary.background,
+    summary.backgroundChrome,
     summary.terminalStartup,
     summary.inactiveOutput,
     summary.resume,
@@ -19892,26 +19932,26 @@ function quickLookControlsPanel() {
     quickOverviewControlButton("Save profile", saveCurrentLookProfile, {
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save this look as a reusable Settings profile.",
-      search: "quick setup look appearance save profile theme accent intensity surface tint contrast depth shadow background terminal colors reusable"
+      search: "quick setup look appearance save profile theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors reusable"
     }),
     quickOverviewControlButton("Copy look", copyLookSettings, {
-      title: "Copy theme, accent intensity, surface tint, interface contrast, surface depth, app background, and terminal colors as JSON.",
-      search: "quick setup look appearance copy theme accent intensity surface tint contrast depth shadow background terminal colors clipboard json"
+      title: "Copy theme, accent intensity, surface tint, interface contrast, surface depth, app background, background chrome, and terminal colors as JSON.",
+      search: "quick setup look appearance copy theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors clipboard json"
     }),
     quickOverviewControlButton("Paste look", pasteLookSettings, {
       title: "Apply copied cmux look JSON.",
-      search: "quick setup look appearance paste theme accent intensity surface tint contrast depth shadow background terminal colors clipboard json"
+      search: "quick setup look appearance paste theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors clipboard json"
     }),
     quickOverviewControlButton("Reset look", resetAppearanceSettings, {
       disabled: lookSettingsDefault,
       title: lookSettingsDefault
         ? "Look settings already match the default setup."
-        : "Reset theme, accent intensity, surface tint, interface contrast, surface depth, app background, and terminal colors.",
-      search: `quick setup look appearance reset default theme accent intensity surface tint contrast depth shadow background terminal colors ${lookSettingsDefault ? "active current" : ""}`
+        : "Reset theme, accent intensity, surface tint, interface contrast, surface depth, app background, background chrome, and terminal colors.",
+      search: `quick setup look appearance reset default theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors ${lookSettingsDefault ? "active current" : ""}`
     }),
     quickOverviewControlButton("Looks", () => openSettingsCategory("appearance"), {
       title: "Open full appearance settings.",
-      search: "quick setup look appearance settings theme accent intensity surface tint contrast depth shadow background terminal color packs"
+      search: "quick setup look appearance settings theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal color packs"
     }),
     quickOverviewControlButton("Gallery", () => openSettingsCategory("appearance", { query: "theme gallery", focusSearch: false }), {
       title: "Open the theme gallery and look packs.",
@@ -19922,7 +19962,7 @@ function quickLookControlsPanel() {
     className: "quick-overview-look",
     title: "Look controls",
     meta: `${activeLookPackLabel()} / ${themeLabel} / ${surfaceTintLabel} / ${depthLabel}`,
-    search: `quick setup look appearance controls theme accent intensity surface tint contrast depth shadow background terminal colors profile copy paste reset gallery packs ${activeLookPackLabel()} ${themeLabel} ${surfaceTintLabel} ${contrastLabel} ${depthLabel} ${backgroundLabel} ${accentLabel}`,
+    search: `quick setup look appearance controls theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors profile copy paste reset gallery packs ${activeLookPackLabel()} ${themeLabel} ${surfaceTintLabel} ${contrastLabel} ${depthLabel} ${backgroundLabel} ${accentLabel}`,
     actions
   });
 }
@@ -20008,11 +20048,11 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
     }),
     quickOverviewControlButton("Copy", copyPerformanceSetup, {
       title: "Copy performance setup as JSON.",
-      search: "quick setup performance copy setup background opacity effects export clipboard json"
+      search: "quick setup performance copy setup background opacity effects chrome readable soft immersive export clipboard json"
     }),
     quickOverviewControlButton("Paste", pastePerformanceSetup, {
       title: "Paste copied performance setup.",
-      search: "quick setup performance paste setup background opacity effects import clipboard json"
+      search: "quick setup performance paste setup background opacity effects chrome readable soft immersive import clipboard json"
     }),
     quickOverviewControlButton("Reset stats", resetRenderStats, {
       disabled: !hasStats,
@@ -20024,7 +20064,7 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
     className: "quick-overview-performance",
     title: "Performance controls",
     meta: `${performance.guard} / ${performance.output} / ${performance.startup}`,
-    search: `quick setup performance controls tune save diagnostics copy paste reset stats speed lag smooth background opacity effects ${performance.status} ${performance.title} ${performance.reason} ${performance.render} ${performance.output} ${performance.startup}`,
+    search: `quick setup performance controls tune save diagnostics copy paste reset stats speed lag smooth background opacity effects chrome readable soft immersive ${performance.status} ${performance.title} ${performance.reason} ${performance.render} ${performance.output} ${performance.startup}`,
     actions
   });
 }
@@ -20502,7 +20542,7 @@ function quickSetupMapItems() {
       value: activeLookPackLabel(),
       body: `${optionLabel(themeOptions, state.settings.theme, "cmux")} / ${optionLabel(surfaceTintOptions, state.settings.surfaceTint, state.settings.surfaceTint)} / ${accentModeLabel()}`,
       meta: `${appearanceBackgroundLabel(state.settings.backgroundImage)} / ${optionLabel(interfaceDepthOptions, state.settings.interfaceDepth, state.settings.interfaceDepth)} depth`,
-      search: "appearance look theme accent color intensity surface tint depth shadow background terminal colors"
+      search: "appearance look theme accent color intensity surface tint depth shadow background chrome readable soft immersive terminal colors"
     },
     {
       id: "layout",
@@ -22614,6 +22654,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     reduceMotion: true,
     backgroundOpacity: Math.min(state.settings.backgroundOpacity, 8),
     backgroundEffects: "flat",
+    backgroundChromeMode: "readable",
     interfaceDepth: "flat",
     density: "compact",
     toolbarMode: "minimal",
@@ -25623,6 +25664,7 @@ function settingsPresetTags(settings) {
     `${optionLabel(inactivePaneDimmingOptions, settings.inactivePaneDimming, settings.inactivePaneDimming)} inactive`,
     `${optionLabel(paneSurfaceStyleOptions, settings.paneSurfaceStyle, settings.paneSurfaceStyle)} panes`,
     `${optionLabel(paneSpacingOptions, settings.paneSpacing, settings.paneSpacing)} spacing`,
+    `${optionLabel(backgroundChromeOptions, settings.backgroundChromeMode, settings.backgroundChromeMode)} background chrome`,
     settings.paneColorMarkers
       ? `${optionLabel(paneMarkerStyleOptions, settings.paneMarkerStyle, settings.paneMarkerStyle)} markers`
       : "Quiet markers",
@@ -28627,7 +28669,7 @@ function paletteEntries() {
       disabled: active,
       icon: "appearance",
       title: active ? `${pack.label} look already active.` : `Apply ${pack.label} look.`,
-      search: normalizeSettingsQuery(`look pack appearance theme accent background terminal color apply active ${pack.label} ${pack.body} ${summary}`),
+      search: normalizeSettingsQuery(`look pack appearance theme accent background chrome readable soft immersive terminal color apply active ${pack.label} ${pack.body} ${summary}`),
       run: () => applyLookPack(pack.id)
     });
     entries.push({
@@ -28638,7 +28680,7 @@ function paletteEntries() {
       disabled: Boolean(savedProfile) || appearanceProfilesFull,
       icon: "profiles",
       title: lookPackProfileSaveTitle(pack, savedProfile),
-      search: normalizeSettingsQuery(`look pack appearance theme accent background terminal color save profile reusable ${savedProfile ? "saved active current " : ""}${pack.label} ${pack.body} ${summary}`),
+      search: normalizeSettingsQuery(`look pack appearance theme accent background chrome readable soft immersive terminal color save profile reusable ${savedProfile ? "saved active current " : ""}${pack.label} ${pack.body} ${summary}`),
       run: () => saveLookPackProfile(pack.id)
     });
     entries.push({
@@ -28648,7 +28690,7 @@ function paletteEntries() {
       shortcut: "Copy",
       icon: "appearance",
       title: "Copy this look pack as a Settings profile JSON.",
-      search: normalizeSettingsQuery(`look pack appearance theme accent background terminal color copy profile clipboard json ${pack.label} ${pack.body} ${summary}`),
+      search: normalizeSettingsQuery(`look pack appearance theme accent background chrome readable soft immersive terminal color copy profile clipboard json ${pack.label} ${pack.body} ${summary}`),
       run: () => copyLookPackProfile(pack.id)
     });
   }
@@ -28714,7 +28756,7 @@ function paletteEntries() {
       meta: `${summary.motion} / ${summary.background} / ${summary.inactiveBrowsers} browsers`,
       shortcut: "Copy",
       title: "Copy this tuning preset as performance setup JSON.",
-      search: normalizeSettingsQuery(`performance tuning preset copy setup clipboard json speed lag smooth motion speed snappy balanced calm workspace chrome top bar style tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface spacing gap gutter background opacity effects ${preset.label} ${preset.body} ${summary.mode} ${summary.motion} ${summary.chrome} ${summary.topbar} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.paneSpacing} ${summary.background} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.history}`),
+      search: normalizeSettingsQuery(`performance tuning preset copy setup clipboard json speed lag smooth motion speed snappy balanced calm workspace chrome top bar style tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface spacing gap gutter background opacity effects chrome readable soft immersive ${preset.label} ${preset.body} ${summary.mode} ${summary.motion} ${summary.chrome} ${summary.topbar} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.paneSpacing} ${summary.background} ${summary.backgroundChrome} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.history}`),
       run: () => copyPerformanceTuningPreset(preset.id)
     });
   }
@@ -28736,7 +28778,7 @@ function paletteEntries() {
       shortcut: "Copy",
       disabled: option.disabled || model.mixed,
       title: option.disabled ? `${option.label}: ${option.meta}.` : model.mixed ? "Terminal backgrounds are mixed." : `Copy ${option.label} background and tuning.`,
-      search: normalizeSettingsQuery(`background setup copy current ${label} image tuning opacity fit position effects clipboard json ${model.label} ${option.meta}`),
+      search: normalizeSettingsQuery(`background setup copy current ${label} image tuning opacity fit position effects chrome readable soft immersive clipboard json ${model.label} ${option.meta}`),
       run: () => copyBackgroundSetup(id)
     });
     entries.push({
@@ -28746,7 +28788,7 @@ function paletteEntries() {
       shortcut: "Paste",
       disabled: option.disabled,
       title: option.disabled ? `${option.label}: ${option.meta}.` : `Paste copied background setup to ${label}.`,
-      search: normalizeSettingsQuery(`background setup paste apply ${label} image tuning opacity fit position effects clipboard json ${model.label} ${option.meta}`),
+      search: normalizeSettingsQuery(`background setup paste apply ${label} image tuning opacity fit position effects chrome readable soft immersive clipboard json ${model.label} ${option.meta}`),
       run: () => pasteBackgroundSetup(id)
     });
   }
@@ -31499,6 +31541,7 @@ const appearanceResetSettings = [
   "backgroundFit",
   "backgroundPosition",
   "backgroundEffects",
+  "backgroundChromeMode",
   "interfaceContrast",
   "interfaceDepth",
   "terminalBackground",
@@ -31528,6 +31571,7 @@ function lookSettingsPayload() {
       contrast: optionLabel(interfaceContrastOptions, state.settings.interfaceContrast, state.settings.interfaceContrast),
       depth: optionLabel(interfaceDepthOptions, state.settings.interfaceDepth, state.settings.interfaceDepth),
       background: appearanceBackgroundLabel(state.settings.backgroundImage),
+      backgroundChrome: optionLabel(backgroundChromeOptions, state.settings.backgroundChromeMode, state.settings.backgroundChromeMode),
       terminalColors: terminalColorPalettePayload().effective
     },
     settings
@@ -31876,6 +31920,7 @@ function lookSettingUpdateFromValue(key, raw) {
   if (key === "backgroundFit") return optionIdAllowed(backgroundFitOptions, raw) ? raw : null;
   if (key === "backgroundPosition") return optionIdAllowed(backgroundPositionOptions, raw) ? raw : null;
   if (key === "backgroundEffects") return optionIdAllowed(backgroundEffectsOptions, raw) ? raw : null;
+  if (key === "backgroundChromeMode") return optionIdAllowed(backgroundChromeOptions, raw) ? raw : null;
   if (key === "interfaceContrast") return optionIdAllowed(interfaceContrastOptions, raw) ? raw : null;
   if (key === "interfaceDepth") return optionIdAllowed(interfaceDepthOptions, raw) ? raw : null;
   if (key === "terminalBackground" || key === "terminalForeground" || key === "terminalCursorColor") {
