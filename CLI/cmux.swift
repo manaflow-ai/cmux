@@ -51,6 +51,8 @@ private protocol CLISocketErrnoProviding {
     var socketErrnoValue: Int32 { get }
 }
 
+private protocol CLISocketExpectedAvailabilityError {}
+
 private struct CLISocketTransportError: Error, CustomStringConvertible, CLISocketErrnoProviding {
     let message: String
     let socketErrnoValue: Int32
@@ -66,6 +68,12 @@ private struct CLISocketTransportError: Error, CustomStringConvertible, CLISocke
             errnoValue: errnoValue
         )
     }
+
+    var description: String { message }
+}
+
+private struct CLISocketReadEOFError: Error, CustomStringConvertible, CLISocketExpectedAvailabilityError {
+    let message: String
 
     var description: String { message }
 }
@@ -203,6 +211,10 @@ private final class CLISocketSentryTelemetry {
             return false
         }
 
+        if error is CLISocketExpectedAvailabilityError {
+            return true
+        }
+
         if let errnoProvider = error as? CLISocketErrnoProviding {
             switch errnoProvider.socketErrnoValue {
             case ENOENT, ECONNREFUSED, EPIPE:
@@ -213,13 +225,34 @@ private final class CLISocketSentryTelemetry {
         }
 
         let description = String(describing: error).lowercased()
-        return description.contains("no such file or directory") ||
+        return description == "socket closed before reply" ||
+            description == "socket closed before complete reply" ||
+            description.contains("no such file or directory") ||
             description.contains("socket not found at") ||
             description.contains("connection refused") ||
             description.contains("broken pipe") ||
-            description.contains("errno 2") ||
-            description.contains("errno 32") ||
-            description.contains("errno 61")
+            Self.description(description, containsExactErrno: ENOENT) ||
+            Self.description(description, containsExactErrno: ECONNREFUSED) ||
+            Self.description(description, containsExactErrno: EPIPE)
+    }
+
+    private static func description(_ description: String, containsExactErrno expectedErrno: Int32) -> Bool {
+        let marker = "errno "
+        var searchStart = description.startIndex
+        while let range = description.range(of: marker, range: searchStart..<description.endIndex) {
+            var cursor = range.upperBound
+            let numberStart = cursor
+            while cursor < description.endIndex, description[cursor].isNumber {
+                cursor = description.index(after: cursor)
+            }
+            if numberStart != cursor,
+               let errnoValue = Int32(description[numberStart..<cursor]),
+               errnoValue == expectedErrno {
+                return true
+            }
+            searchStart = cursor
+        }
+        return false
     }
 
     private func isSocketTransportStage(stage: String, data: [String: Any]) -> Bool {
@@ -1816,10 +1849,10 @@ final class SocketClient {
                 operation.sawNewline = sawNewline
                 recordOperation(operation)
                 if data.isEmpty {
-                    throw CLIError(message: "Socket closed before reply")
+                    throw CLISocketReadEOFError(message: "Socket closed before reply")
                 }
                 if !sawNewline {
-                    throw CLIError(message: "Socket closed before complete reply")
+                    throw CLISocketReadEOFError(message: "Socket closed before complete reply")
                 }
                 receivedCompleteResponse = true
                 break

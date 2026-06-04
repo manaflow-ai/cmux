@@ -663,6 +663,42 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
+    func testSocketEOFDoesNotCaptureSentryTelemetry() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-sentry-eof-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let socketPath = root.appendingPathComponent("cmux.sock", isDirectory: false).path
+        let responder = try UnixSocketResponder(path: socketPath, response: nil)
+        defer { responder.stop() }
+
+        let probePath = root.appendingPathComponent("sentry-probe.txt", isDirectory: false).path
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.lowercased().contains("socket closed before reply"), result.stdout)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: probePath),
+            (try? String(contentsOfFile: probePath, encoding: .utf8)) ?? result.stdout
+        )
+    }
+
     func testThemesSetReloadsRunningAppAfterEveryThemeWrite() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
@@ -1669,7 +1705,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
 private final class UnixSocketResponder {
     let path: String
-    private let response: String
+    private let response: String?
     private let responseDelay: TimeInterval
     private let queue = DispatchQueue(label: "com.cmux.tests.unix-socket-responder")
     private let lock = NSLock()
@@ -1677,7 +1713,7 @@ private final class UnixSocketResponder {
     private var requests: [String] = []
     private var listenerFD: Int32 = -1
 
-    init(path: String, response: String, responseDelay: TimeInterval = 0) throws {
+    init(path: String, response: String?, responseDelay: TimeInterval = 0) throws {
         self.path = path
         self.response = response
         self.responseDelay = responseDelay
@@ -1800,6 +1836,9 @@ private final class UnixSocketResponder {
         }
         if responseDelay > 0 {
             Thread.sleep(forTimeInterval: responseDelay)
+        }
+        guard let response else {
+            return
         }
         let payload = response + "\n"
         payload.withCString { pointer in
