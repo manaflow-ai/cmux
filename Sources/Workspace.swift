@@ -1643,7 +1643,7 @@ extension Workspace {
                 ?? currentDirectory
             let snapshotEphemeralWorktree = snapshot.terminal?.ephemeralWorktree
             let restoredEphemeralWorktree = ephemeralWorktreeManager.isRestoredWorktreeAvailable(snapshotEphemeralWorktree)
-                ? registeredRestoredEphemeralWorktree(snapshotEphemeralWorktree)
+                ? snapshotEphemeralWorktree
                 : nil
             let restoredWorkingDirectory = if restoredEphemeralWorktree != nil {
                 ephemeralWorktreeManager.resolvedRestoredWorkingDirectory(
@@ -1776,6 +1776,7 @@ extension Workspace {
             ) else {
                 return nil
             }
+            registerRestoredEphemeralWorktree(restoredEphemeralWorktree)
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
                     remotePTYSessionID: restoredRemotePTYSessionID,
@@ -1895,13 +1896,12 @@ extension Workspace {
         }
     }
 
-    private func registeredRestoredEphemeralWorktree(
+    private func registerRestoredEphemeralWorktree(
         _ record: EphemeralWorktreeRecord?
-    ) -> EphemeralWorktreeRecord? {
-        guard let record else { return nil }
+    ) {
+        guard let record else { return }
         do {
             try EphemeralWorktreeRegistry.shared.register(record)
-            return record
         } catch {
             Self.ephemeralWorktreeLogger.error(
                 "Failed to register restored ephemeral worktree for session \(String(record.sessionId.prefix(8)), privacy: .public): \(error.localizedDescription, privacy: .public)"
@@ -1914,7 +1914,6 @@ extension Workspace {
                 "error=\(detail)"
             )
 #endif
-            return nil
         }
     }
 
@@ -15946,10 +15945,14 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
         detachingTabIds.insert(tabId)
-        forceCloseTabIds.insert(tabId)
         activeDetachCloseTransactions += 1
         defer { activeDetachCloseTransactions = max(0, activeDetachCloseTransactions - 1) }
-        guard bonsplitController.closeTab(tabId) else {
+        let authorizesEphemeralWorktreeTransfer = shouldConfirmEphemeralWorktreeClose(panelId: panelId)
+        guard requestCloseTab(
+            tabId,
+            force: true,
+            ephemeralWorktreeCleanupAuthorized: authorizesEphemeralWorktreeTransfer
+        ) else {
             detachingTabIds.remove(tabId)
             pendingDetachedSurfaces.removeValue(forKey: tabId)
             forceCloseTabIds.remove(tabId)
