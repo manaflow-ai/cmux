@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 import types
+from unittest import mock
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -76,8 +77,9 @@ class RefChurnFixtureRunner(perf_activation_session.CmuxPerfRunner):
         input_text: str | None = None,
         timeout: float = 60,
         check: bool = True,
+        socket_retries: int = 0,
     ) -> str:
-        del input_text, timeout, check
+        del input_text, timeout, check, socket_retries
         if args[:1] == ["new-workspace"]:
             title = args[args.index("--name") + 1] if "--name" in args else ""
             return f"OK {self.rpc('workspace.create', {'title': title})['workspace_ref']}"
@@ -111,3 +113,32 @@ def test_activation_fixture_cleanup_uses_stable_workspace_ids(tmp_path: pathlib.
 
     assert runner.closed_workspaces == ["initial-workspace", "guard-workspace"]
     assert runner.selected_workspaces == ["perf-workspace-2", "perf-workspace-2"]
+
+
+def test_activation_socket_readiness_uses_worker_ping(tmp_path: pathlib.Path) -> None:
+    runner = object.__new__(perf_activation_session.CmuxPerfRunner)
+    runner.socket_path = tmp_path / "cmux.sock"
+    runner.socket_path.touch()
+    runner.proc = types.SimpleNamespace(poll=lambda: None)
+    calls: list[list[str]] = []
+
+    def run_cli(
+        args: list[str],
+        input_text: str | None = None,
+        timeout: float = 60,
+        check: bool = True,
+        socket_retries: int = 0,
+    ) -> str:
+        del input_text, timeout, check, socket_retries
+        calls.append(args)
+        if args == ["ping"]:
+            return "PONG"
+        raise AssertionError(f"unexpected readiness probe: {args!r}")
+
+    runner.run_cli = run_cli
+
+    with mock.patch.object(perf_activation_session.time, "sleep") as sleep:
+        assert runner.wait_for_socket(timeout_s=1)
+
+    assert calls == [["ping"]]
+    sleep.assert_not_called()

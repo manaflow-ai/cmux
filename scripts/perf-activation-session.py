@@ -203,7 +203,7 @@ class CmuxPerfRunner:
                 return False
             if self.socket_path.exists():
                 try:
-                    self.run_cli(["--json", "list-workspaces"], timeout=5, socket_retries=0)
+                    self.run_cli(["ping"], timeout=2, socket_retries=0)
                     return True
                 except Exception:
                     pass
