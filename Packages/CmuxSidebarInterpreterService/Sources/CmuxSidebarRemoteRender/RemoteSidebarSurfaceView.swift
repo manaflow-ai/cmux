@@ -21,7 +21,7 @@ final class RemoteSidebarSurfaceView: NSView {
     private var hostedLayer: CALayer?
     private var eventsTask: Task<Void, Never>?
     private var outboxTask: Task<Void, Never>?
-    private var reloadTask: Task<Void, Never>?
+    private var reloadObserver: NSObjectProtocol?
     private let outbox: AsyncStream<RenderWorkerInbound>.Continuation
     private var lastPushedScene: PushedScene?
 
@@ -64,14 +64,16 @@ final class RemoteSidebarSurfaceView: NSView {
 
         // The CLI's `sidebar reload` posts a host-process notification; the
         // worker can't observe it across the process boundary, so forward it.
-        // Consumed nonisolated: CI's Swift 6.1 rejects awaiting the stream's
-        // non-Sendable `Notification` from an actor-isolated task, and only
-        // the Sendable names array leaves this task (via the outbox).
-        reloadTask = Task { [outbox] in
-            for await notification in NotificationCenter.default.notifications(named: .customSidebarReloadRequested) {
-                let names = notification.userInfo?["names"] as? [String]
-                outbox.yield(.reloadSidebars(names))
-            }
+        // Token-based observer (same pattern as CustomSidebarModel): the
+        // notifications async stream trips CI Swift 6.1's non-Sendable
+        // `Notification` check from any actor-adjacent context.
+        reloadObserver = NotificationCenter.default.addObserver(
+            forName: .customSidebarReloadRequested,
+            object: nil,
+            queue: .main
+        ) { [outbox] notification in
+            let names = notification.userInfo?["names"] as? [String]
+            outbox.yield(.reloadSidebars(names))
         }
 
         eventsTask = Task { @MainActor [weak self, client] in
@@ -96,8 +98,10 @@ final class RemoteSidebarSurfaceView: NSView {
     /// the worker itself stays alive for the next mount (cheap, and keeps
     /// provider switches snappy).
     func teardown() {
-        reloadTask?.cancel()
-        reloadTask = nil
+        if let reloadObserver {
+            NotificationCenter.default.removeObserver(reloadObserver)
+            self.reloadObserver = nil
+        }
         eventsTask?.cancel()
         eventsTask = nil
         outboxTask?.cancel()
