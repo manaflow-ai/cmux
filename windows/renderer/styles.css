@@ -977,6 +977,7 @@ body.reduce-motion *::after {
 .empty-workspace-starter,
 .empty-workspace-launcher,
 .background-preset,
+.background-tune-preset,
 .background-target-option,
 .settings-page-tab,
 .context-action,
@@ -1113,6 +1114,7 @@ body.reduce-motion *::after {
 .empty-workspace-launcher:focus-visible,
 .settings-command-run:focus-visible,
 .background-preset:focus-visible,
+.background-tune-preset:focus-visible,
 .background-target-option:focus-visible,
 .settings-page-tab:focus-visible,
 .context-action:focus-visible,
@@ -1158,6 +1160,7 @@ body.reduce-motion *::after {
 .empty-workspace-launcher:active,
 .settings-command-run:active,
 .background-preset:active,
+.background-tune-preset:active,
 .background-target-option:active,
 .settings-page-tab:active,
 .context-action:active,
@@ -14466,6 +14469,62 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: var(--space-2);
   padding-top: var(--space-2);
   border-top: 1px solid var(--color-line);
+}
+
+.background-tune-preset-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(126px, 100%), 1fr));
+  gap: var(--space-1);
+}
+
+.background-tune-preset {
+  min-width: 0;
+  min-height: 60px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  padding: 7px 8px;
+  border-color: var(--color-line);
+  background: color-mix(in oklch, var(--color-pane) 82%, var(--color-rail) 18%);
+  color: var(--color-muted);
+  text-align: left;
+}
+
+.background-tune-preset:hover:not(:disabled) {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+  color: var(--color-text);
+}
+
+.background-tune-preset.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-line) 42%);
+  background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane) 86%);
+  color: var(--color-text);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 22%, transparent);
+}
+
+.background-tune-preset:disabled {
+  cursor: default;
+}
+
+.background-tune-preset-title,
+.background-tune-preset-body {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.background-tune-preset-title {
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.background-tune-preset-body {
+  color: var(--color-faint);
+  font-size: 10px;
+  line-height: 1.2;
 }
 
 .background-tuning-grid {

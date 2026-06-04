@@ -14433,6 +14433,99 @@ function backgroundTuningSelect(label, settingKey, options, onCommit) {
   return row;
 }
 
+const backgroundTuningPresets = [
+  {
+    id: "readable",
+    label: "Readable",
+    body: "Opaque chrome with a light image wash for daily terminal work.",
+    settings: {
+      backgroundOpacity: 14,
+      backgroundBlur: 0,
+      backgroundEffects: "flat",
+      backgroundChromeMode: "readable"
+    }
+  },
+  {
+    id: "soft",
+    label: "Soft",
+    body: "Balanced image strength with subtle tinted surfaces.",
+    settings: {
+      backgroundOpacity: 22,
+      backgroundBlur: 0,
+      backgroundEffects: "tinted",
+      backgroundChromeMode: "soft"
+    }
+  },
+  {
+    id: "showcase",
+    label: "Showcase",
+    body: "Richer glass treatment for screenshots and demos.",
+    settings: {
+      backgroundOpacity: 30,
+      backgroundBlur: 4,
+      backgroundEffects: "glass",
+      backgroundChromeMode: "immersive"
+    }
+  },
+  {
+    id: "fast",
+    label: "Fast",
+    body: "Low-opacity flat background with readable chrome.",
+    settings: {
+      backgroundOpacity: 8,
+      backgroundBlur: 0,
+      backgroundEffects: "flat",
+      backgroundChromeMode: "readable"
+    }
+  }
+];
+
+function backgroundTuningPresetActive(preset) {
+  return Boolean(preset && Object.entries(preset.settings).every(([key, value]) => state.settings[key] === value));
+}
+
+function applyBackgroundTuningPreset(presetId) {
+  const preset = backgroundTuningPresets.find((candidate) => candidate.id === presetId);
+  if (!preset) {
+    toast("Background tune not found.");
+    return false;
+  }
+  const changed = updateSettings(preset.settings);
+  if (!changed) {
+    toast(`${preset.label} background tune already active.`);
+    return false;
+  }
+  renderSettingsInspector();
+  toast(`${preset.label} background tune applied.`);
+  return true;
+}
+
+function backgroundTuningPresetGrid() {
+  const grid = document.createElement("div");
+  grid.className = "background-tune-preset-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("background tune preset readable soft showcase fast wallpaper opacity blur chrome glass tinted flat performance");
+  for (const preset of backgroundTuningPresets) {
+    const active = backgroundTuningPresetActive(preset);
+    const button = document.createElement("button");
+    button.className = `background-tune-preset${active ? " is-active" : ""}`;
+    button.type = "button";
+    button.disabled = active;
+    button.dataset.backgroundTunePreset = preset.id;
+    button.dataset.settingsSearch = normalizeSettingsQuery(`background tune preset ${active ? "active current " : ""}${preset.label} ${preset.body}`);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.title = active ? `${preset.label} background tune is already active.` : `Apply ${preset.label} background tune.`;
+    button.innerHTML = `
+      <span class="background-tune-preset-title"></span>
+      <span class="background-tune-preset-body"></span>
+    `;
+    button.querySelector(".background-tune-preset-title").textContent = preset.label;
+    button.querySelector(".background-tune-preset-body").textContent = preset.body;
+    button.onclick = () => applyBackgroundTuningPreset(preset.id);
+    grid.append(button);
+  }
+  return grid;
+}
+
 function backgroundTuningPanel(onCommit = null) {
   const panel = document.createElement("div");
   panel.className = "background-tuning-panel";
@@ -14494,7 +14587,7 @@ function backgroundTuningPanel(onCommit = null) {
     }
   });
 
-  panel.append(controls, opacityRow, blurRow);
+  panel.append(backgroundTuningPresetGrid(), controls, opacityRow, blurRow);
   return panel;
 }
 
