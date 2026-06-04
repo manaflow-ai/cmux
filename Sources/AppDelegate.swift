@@ -8137,11 +8137,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
+        // Panecho: never contact any update server in privacy mode. The updater's
+        // fallback feed points at the upstream repo, so this single chokepoint guard
+        // keeps every entry point (app menu, Help command, menu-bar extra, command
+        // palette) from triggering a check. Panecho updates via the signed DMG.
+        guard !PrivacyMode.isEnabled else { return }
         updateController.model.setOverrideState(nil)
         updateController.checkForUpdates()
     }
 
     func checkForUpdatesInCustomUI() {
+        // Panecho: never contact any update server in privacy mode (see checkForUpdates).
+        guard !PrivacyMode.isEnabled else { return }
         updateController.model.setOverrideState(nil)
         updateController.checkForUpdatesInCustomUI()
     }
