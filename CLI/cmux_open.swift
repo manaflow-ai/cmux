@@ -1363,63 +1363,23 @@ extension CMUXCLI {
 
         if host == "diffshub.com" || host == "www.diffshub.com" {
             let components = url.pathComponents
-            guard components.count >= 5 else {
-                return url
-            }
-            if components[3] == "pull" {
-                return trustedGitHubPullPatchURL(
-                    owner: components[1],
-                    repo: components[2],
-                    pullComponent: components[4],
-                    defaultExtension: "diff"
-                )
-            }
-            if components[3] == "compare" {
-                return trustedGitHubComparePatchURL(
-                    owner: components[1],
-                    repo: components[2],
-                    compareComponent: components[4],
-                    defaultExtension: "diff"
-                )
-            }
-            if components[3] == "commit" {
-                return trustedGitHubCommitPatchURL(
-                    owner: components[1],
-                    repo: components[2],
-                    commitComponent: components[4],
-                    defaultExtension: "diff"
-                )
+            if components.count >= 5,
+               components[3] == "pull",
+               Int(components[4]) != nil {
+                return URL(string: "https://github.com/\(components[1])/\(components[2])/pull/\(components[4]).diff")
             }
         }
 
         if host == "github.com" || host == "www.github.com" {
             let components = url.pathComponents
-            guard components.count >= 5 else {
-                return url
-            }
-            if components[3] == "pull" {
-                return trustedGitHubPullPatchURL(
-                    owner: components[1],
-                    repo: components[2],
-                    pullComponent: components[4],
-                    defaultExtension: "diff"
-                )
-            }
-            if components[3] == "compare" {
-                return trustedGitHubComparePatchURL(
-                    owner: components[1],
-                    repo: components[2],
-                    compareComponent: components[4],
-                    defaultExtension: "diff"
-                )
-            }
-            if components[3] == "commit" {
-                return trustedGitHubCommitPatchURL(
-                    owner: components[1],
-                    repo: components[2],
-                    commitComponent: components[4],
-                    defaultExtension: "diff"
-                )
+            if components.count >= 5,
+               components[3] == "pull",
+               Int(components[4].replacingOccurrences(of: ".patch", with: "").replacingOccurrences(of: ".diff", with: "")) != nil {
+                let pullComponent = components[4]
+                if pullComponent.hasSuffix(".patch") || pullComponent.hasSuffix(".diff") {
+                    return url
+                }
+                return URL(string: "https://github.com/\(components[1])/\(components[2])/pull/\(pullComponent).diff")
             }
         }
 
@@ -1436,66 +1396,30 @@ extension CMUXCLI {
 
         if host == "diffshub.com" || host == "www.diffshub.com" {
             let components = url.pathComponents
-            guard components.count >= 5 else {
+            guard components.count >= 5,
+                  components[3] == "pull" else {
                 return nil
             }
-            if components[3] == "pull" {
-                return trustedGitHubPullPatchURL(
-                    owner: components[1],
-                    repo: components[2],
-                    pullComponent: components[4],
-                    defaultExtension: "diff"
-                )
-            }
-            if components[3] == "compare" {
-                return trustedGitHubComparePatchURL(
-                    owner: components[1],
-                    repo: components[2],
-                    compareComponent: components[4],
-                    defaultExtension: "diff"
-                )
-            }
-            if components[3] == "commit" {
-                return trustedGitHubCommitPatchURL(
-                    owner: components[1],
-                    repo: components[2],
-                    commitComponent: components[4],
-                    defaultExtension: "diff"
-                )
-            }
-            return nil
+            return trustedGitHubPullPatchURL(
+                owner: components[1],
+                repo: components[2],
+                pullComponent: components[4],
+                defaultExtension: "diff"
+            )
         }
 
         if host == "github.com" || host == "www.github.com" {
             let components = url.pathComponents
-            guard components.count >= 5 else {
+            guard components.count >= 5,
+                  components[3] == "pull" else {
                 return nil
             }
-            if components[3] == "pull" {
-                return trustedGitHubPullPatchURL(
-                    owner: components[1],
-                    repo: components[2],
-                    pullComponent: components[4],
-                    defaultExtension: "diff"
-                )
-            }
-            if components[3] == "compare" {
-                return trustedGitHubComparePatchURL(
-                    owner: components[1],
-                    repo: components[2],
-                    compareComponent: components[4],
-                    defaultExtension: "diff"
-                )
-            }
-            if components[3] == "commit" {
-                return trustedGitHubCommitPatchURL(
-                    owner: components[1],
-                    repo: components[2],
-                    commitComponent: components[4],
-                    defaultExtension: "diff"
-                )
-            }
-            return nil
+            return trustedGitHubPullPatchURL(
+                owner: components[1],
+                repo: components[2],
+                pullComponent: components[4],
+                defaultExtension: "diff"
+            )
         }
 
         return nil
@@ -1532,71 +1456,6 @@ extension CMUXCLI {
         return URL(string: "https://github.com/\(owner)/\(repo)/pull/\(pullNumber).\(suffix)")
     }
 
-    private func trustedGitHubComparePatchURL(
-        owner: String,
-        repo: String,
-        compareComponent: String,
-        defaultExtension: String
-    ) -> URL? {
-        guard githubPathSegmentIsSafe(owner),
-              githubPathSegmentIsSafe(repo) else {
-            return nil
-        }
-
-        let suffix: String
-        let compareSpec: String
-        if compareComponent.hasSuffix(".patch") {
-            suffix = "patch"
-            compareSpec = String(compareComponent.dropLast(".patch".count))
-        } else if compareComponent.hasSuffix(".diff") {
-            suffix = "diff"
-            compareSpec = String(compareComponent.dropLast(".diff".count))
-        } else {
-            suffix = defaultExtension
-            compareSpec = compareComponent
-        }
-        guard suffix == "diff" || suffix == "patch",
-              githubCompareSpecIsSafe(compareSpec) else {
-            return nil
-        }
-        return URL(string: "https://github.com/\(owner)/\(repo)/compare/\(compareSpec).\(suffix)")
-    }
-
-    private func trustedGitHubCommitPatchURL(
-        owner: String,
-        repo: String,
-        commitComponent: String,
-        defaultExtension: String
-    ) -> URL? {
-        guard githubPathSegmentIsSafe(owner),
-              githubPathSegmentIsSafe(repo) else {
-            return nil
-        }
-
-        let suffix: String
-        let commit: String
-        if commitComponent.hasSuffix(".patch") {
-            suffix = "patch"
-            commit = String(commitComponent.dropLast(".patch".count))
-        } else if commitComponent.hasSuffix(".diff") {
-            suffix = "diff"
-            commit = String(commitComponent.dropLast(".diff".count))
-        } else {
-            suffix = defaultExtension
-            commit = commitComponent
-        }
-        guard suffix == "diff" || suffix == "patch",
-              commit.count >= 7,
-              commit.unicodeScalars.allSatisfy({ scalar in
-                  (scalar.value >= 48 && scalar.value <= 57) ||
-                      (scalar.value >= 65 && scalar.value <= 70) ||
-                      (scalar.value >= 97 && scalar.value <= 102)
-              }) else {
-            return nil
-        }
-        return URL(string: "https://github.com/\(owner)/\(repo)/commit/\(commit).\(suffix)")
-    }
-
     private func githubPathSegmentIsSafe(_ component: String) -> Bool {
         guard !component.isEmpty else { return false }
         return component.unicodeScalars.allSatisfy { scalar in
@@ -1606,19 +1465,6 @@ extension CMUXCLI {
                 scalar == "-" ||
                 scalar == "_" ||
                 scalar == "."
-        }
-    }
-
-    private func githubCompareSpecIsSafe(_ component: String) -> Bool {
-        guard component.contains(".."), !component.isEmpty else { return false }
-        return component.unicodeScalars.allSatisfy { scalar in
-            (scalar.value >= 48 && scalar.value <= 57) ||
-                (scalar.value >= 65 && scalar.value <= 90) ||
-                (scalar.value >= 97 && scalar.value <= 122) ||
-                scalar == "-" ||
-                scalar == "_" ||
-                scalar == "." ||
-                scalar == "/"
         }
     }
 

@@ -23,4 +23,4 @@ Large public stress samples are available through:
 ./scripts/open-diff-viewer-stress-samples.sh all
 ```
 
-The sample opener sets `CMUX_DIFF_VIEWER_STREAM_REMOTE=1` by default so long DiffsHub and GitHub patches stream into the viewer instead of being downloaded by the CLI first.
+The sample opener caches local clones under `/tmp/cmux-diff-viewer-stress`, checks out the sample refs, then runs `cmux diff --base <ref>` from inside the repository so the stress path matches normal local git diffs.
