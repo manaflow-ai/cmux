@@ -2521,18 +2521,122 @@ class TerminalController {
 
     private nonisolated func handOffSocketWorkerV2WorktreeResponse(
         command: String,
-        socket: Int32
+        socket: Int32,
+        pending: String,
+        authenticated: Bool
     ) {
         Task { [weak self] in
             guard let self else {
                 close(socket)
                 return
             }
-            let response = await socketWorkerV2WorktreeResponse(command: command)
-            _ = writeSocketResponse(response, to: socket)
-            publishSocketEvents(command: command, response: response)
-            close(socket)
+            await self.handleSocketWorkerV2WorktreeClient(
+                initialCommand: command,
+                socket: socket,
+                pending: pending,
+                authenticated: authenticated
+            )
         }
+    }
+
+    private nonisolated func handleSocketWorkerV2WorktreeClient(
+        initialCommand: String,
+        socket: Int32,
+        pending initialPending: String,
+        authenticated initialAuthenticated: Bool
+    ) async {
+        defer { close(socket) }
+
+        var pending = initialPending
+        var authenticated = initialAuthenticated
+        guard await writeSocketWorkerV2WorktreeResponse(command: initialCommand, to: socket) else {
+            return
+        }
+
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while withListenerState({ isRunning }) {
+            if pending.contains("\n") {
+                guard await drainSocketClientPendingLines(
+                    &pending,
+                    authenticated: &authenticated,
+                    socket: socket
+                ) else {
+                    return
+                }
+                continue
+            }
+
+            let bytesRead = read(socket, &buffer, buffer.count - 1)
+            guard bytesRead > 0 else { return }
+
+            let chunk = String(bytes: buffer[0..<bytesRead], encoding: .utf8) ?? ""
+            pending.append(chunk)
+        }
+    }
+
+    private nonisolated func drainSocketClientPendingLines(
+        _ pending: inout String,
+        authenticated: inout Bool,
+        socket: Int32
+    ) async -> Bool {
+        while let newlineIndex = pending.firstIndex(of: "\n") {
+            let line = String(pending[..<newlineIndex])
+            pending = String(pending[pending.index(after: newlineIndex)...])
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            if isEventsStreamRequest(trimmed) {
+                if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                    guard writeSocketResponse(response, to: socket) else {
+                        return false
+                    }
+                    continue
+                }
+                handleEventsStreamRequest(trimmed, socket: socket)
+                return false
+            }
+
+            var nextAuthenticated = authenticated
+            if let response = authResponseIfNeeded(for: trimmed, authenticated: &nextAuthenticated) {
+                authenticated = nextAuthenticated
+                let didWriteResponse = writeSocketResponse(response, to: socket)
+                publishSocketEvents(command: trimmed, response: response)
+                guard didWriteResponse else {
+                    return false
+                }
+                continue
+            }
+            authenticated = nextAuthenticated
+
+            if socketWorkerV2WorktreeRequestIfNeeded(for: trimmed) != nil {
+                guard await writeSocketWorkerV2WorktreeResponse(command: trimmed, to: socket) else {
+                    return false
+                }
+                continue
+            }
+
+            let result = processSocketLine(trimmed, authenticated: authenticated)
+            authenticated = result.authenticated
+            if let response = result.response {
+                let didWriteResponse = writeSocketResponse(response, to: socket)
+                publishSocketEvents(command: trimmed, response: response)
+                guard didWriteResponse else {
+                    return false
+                }
+            }
+        }
+
+        return true
+    }
+
+    private nonisolated func writeSocketWorkerV2WorktreeResponse(
+        command: String,
+        to socket: Int32
+    ) async -> Bool {
+        let response = await socketWorkerV2WorktreeResponse(command: command)
+        let didWriteResponse = writeSocketResponse(response, to: socket)
+        publishSocketEvents(command: command, response: response)
+        return didWriteResponse
     }
 
     private func socketWorkerV2WorktreeResponse(command: String) async -> String {
@@ -2945,7 +3049,12 @@ class TerminalController {
 
                 if socketWorkerV2WorktreeRequestIfNeeded(for: trimmed) != nil {
                     handlerOwnsSocket = false
-                    handOffSocketWorkerV2WorktreeResponse(command: trimmed, socket: socket)
+                    handOffSocketWorkerV2WorktreeResponse(
+                        command: trimmed,
+                        socket: socket,
+                        pending: pending,
+                        authenticated: authenticated
+                    )
                     return
                 }
 
