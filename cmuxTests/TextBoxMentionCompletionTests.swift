@@ -100,6 +100,93 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxExternalTextSyncDoesNotOverwriteActiveIMEMarkedText() {
+        #expect(!shouldSynchronizeExternalTextToTextBox(
+            inlineAttachmentCount: 0,
+            plainText: "に",
+            externalText: "",
+            hasMarkedText: true
+        ))
+        #expect(shouldSynchronizeExternalTextToTextBox(
+            inlineAttachmentCount: 0,
+            plainText: "に",
+            externalText: "",
+            hasMarkedText: false
+        ))
+        #expect(!shouldSynchronizeExternalTextToTextBox(
+            inlineAttachmentCount: 1,
+            plainText: "に",
+            externalText: "",
+            hasMarkedText: false
+        ))
+    }
+
+    @Test
+    func testTextBoxPlaceholderHidesDuringActiveIMEMarkedText() {
+        #expect(!shouldShowTextBoxPlaceholder(
+            text: "",
+            attachmentCount: 0,
+            hasMarkedText: true
+        ))
+        #expect(shouldShowTextBoxPlaceholder(
+            text: "",
+            attachmentCount: 0,
+            hasMarkedText: false
+        ))
+        #expect(!shouldShowTextBoxPlaceholder(
+            text: "に",
+            attachmentCount: 0,
+            hasMarkedText: false
+        ))
+    }
+
+    @Test
+    func testTextBoxStandardEditShortcutUsesTranslatedCommandCharacter() {
+        guard let event = makeKeyDownEvent(
+            key: "c",
+            modifiers: [.command],
+            keyCode: UInt16(kVK_ANSI_B),
+            windowNumber: 0
+        ) else {
+            #expect(Bool(false), "Failed to construct translated Command-C event")
+            return
+        }
+
+        #expect(textBoxCommandShortcutKey(
+            for: event,
+            translateKey: { keyCode, flags in
+                #expect(keyCode == UInt16(kVK_ANSI_B))
+                #expect(flags.contains(.command))
+                return "c"
+            },
+            normalizedCharacters: { _ in "b" }
+        ) == "c")
+    }
+
+    @Test
+    func testTextBoxUndoShortcutUsesTranslatedCommandCharacter() {
+        guard let event = makeKeyDownEvent(
+            key: "z",
+            modifiers: [.command],
+            keyCode: UInt16(kVK_ANSI_Y),
+            windowNumber: 0
+        ) else {
+            #expect(Bool(false), "Failed to construct translated Command-Z event")
+            return
+        }
+
+        #expect(textBoxCommandShortcutKey(
+            for: event,
+            translateKey: { keyCode, flags in
+                #expect(keyCode == UInt16(kVK_ANSI_Y))
+                #expect(flags.contains(.command))
+                return "z"
+            },
+            normalizedCharacters: { _ in "y" }
+        ) == "z")
+    }
+
+    @Test
     func testTextBoxMentionCompletionDetectsFileAndSkillTokens() {
         let filePrompt = "open @Sources/TextBox"
         let fileQuery = TextBoxMentionCompletionDetector.query(
