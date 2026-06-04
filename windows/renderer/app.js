@@ -14934,13 +14934,16 @@ function renderSettingsInspector(options = {}) {
         onClear: () => clearWorkspaceColor(workspace),
         clearLabel: "Default",
         clearDisabled: !workspace?.color,
+        copyLabel: "Copy",
+        copyTitle: colorCopyTitle(workspace?.color, state.settings.accent, "Copy this workspace color value."),
+        copyToast: "Workspace color copied.",
         saveLabel: "Save",
         targetLabel: "Workspace",
         targetMeta: workspace ? workspaceDisplayTitle(workspace) : "No workspace selected",
-        searchTerms: "workspace custom color hex picker reset default clear"
+        searchTerms: "workspace custom color hex picker copy clipboard reset default clear"
       }),
       true,
-      "workspace color custom hex picker palette swatch reset default clear"
+      "workspace color custom hex picker palette swatch copy clipboard reset default clear"
     ));
     const paneColorSuggestion = workspacePaneColorSuggestion(workspace);
     const workspaceHasPaneColors = workspacePaneColorsDirty(workspace);
@@ -14950,18 +14953,21 @@ function renderSettingsInspector(options = {}) {
     const usePaneColor = settingsActionButton("Use pane color", () => setWorkspaceColorFromActivePane(workspace), "", workspacePaneColorSyncActionSearchText("usePane", workspace));
     usePaneColor.disabled = !workspace || !paneColorSuggestion || paneColorSuggestion === workspace.color;
     usePaneColor.title = workspacePaneColorSyncActionTitle("usePane", workspace);
+    const useAppAccentColor = settingsActionButton("Use app accent", () => setWorkspaceColorFromAppAccent(workspace), "", workspacePaneColorSyncActionSearchText("useAccent", workspace));
+    useAppAccentColor.disabled = !workspace || colorKey(workspace.color) === colorKey(state.settings.accent);
+    useAppAccentColor.title = workspacePaneColorSyncActionTitle("useAccent", workspace);
     const useWorkspaceColor = settingsActionButton("Use workspace color", () => setWorkspacePaneColorsFromWorkspace(workspace), "", workspacePaneColorSyncActionSearchText("useWorkspace", workspace));
     useWorkspaceColor.disabled = !workspace || !workspace.panels.length || workspacePaneColorsMatchWorkspace(workspace);
     useWorkspaceColor.title = workspacePaneColorSyncActionTitle("useWorkspace", workspace);
     const resetPaneColors = settingsActionButton("Reset pane colors", () => clearWorkspacePaneColors(workspace), "", workspacePaneColorSyncActionSearchText("resetPanes", workspace));
     resetPaneColors.disabled = !workspace || !workspaceHasPaneColors;
     resetPaneColors.title = workspacePaneColorSyncActionTitle("resetPanes", workspace);
-    workspaceColorSyncActions.append(usePaneColor, useWorkspaceColor, resetPaneColors);
+    workspaceColorSyncActions.append(usePaneColor, useAppAccentColor, useWorkspaceColor, resetPaneColors);
     workspaceSection.append(settingRow(
       "Color sync",
       workspaceColorSyncActions,
       true,
-      workspacePaneColorSyncActionSearchText("actions", workspace, "settings row controls use workspace color")
+      workspacePaneColorSyncActionSearchText("actions", workspace, "settings row controls use app accent use workspace color")
     ));
     workspaceSection.append(settingRow(
       "Terminal backgrounds",
@@ -34746,6 +34752,11 @@ function workspacePaneColorSyncActionTitle(actionId, workspace = activeWorkspace
     if (color === workspace.color) return "Workspace already uses the active pane color.";
     return "Set the workspace color from the active pane.";
   }
+  if (actionId === "useAccent") {
+    if (!workspace) return "Open a workspace before using the app accent.";
+    if (colorKey(workspace.color) === colorKey(state.settings.accent)) return "Workspace already pins the app accent color.";
+    return "Pin the current app accent as this workspace color.";
+  }
   if (actionId === "useWorkspace") {
     if (!workspace) return "Open a workspace before syncing colors.";
     if (!workspace.panels.length) return "Open a pane before applying workspace color.";
@@ -34767,6 +34778,7 @@ function workspacePaneColorSyncActionSearchText(actionId, workspace = activeWork
   const dirty = workspacePaneColorsDirty(workspace);
   const actionTerms = {
     usePane: "use active pane color tab marker match workspace",
+    useAccent: "use app accent color pin current accent workspace",
     useWorkspace: "use workspace color apply to all panes tab markers match",
     resetPanes: "reset clear all pane colors inherit workspace default"
   }[actionId] || actionId;
@@ -34801,6 +34813,28 @@ async function setWorkspaceColorFromActivePane(workspace = activeWorkspace()) {
   }
   await setWorkspaceColor(color, target.id);
   toast("Workspace color set from active pane.");
+  return true;
+}
+
+async function setWorkspaceColorFromAppAccent(workspace = activeWorkspace()) {
+  const target = workspace?.id
+    ? state.data?.workspaces.find((candidate) => candidate.id === workspace.id)
+    : null;
+  if (!target) {
+    toast("Open a workspace before using the app accent.");
+    return false;
+  }
+  const accent = String(state.settings.accent || defaultSettings.accent || "").trim();
+  if (!accent) {
+    toast("Choose an app accent before using it for the workspace.");
+    return false;
+  }
+  if (colorKey(target.color) === colorKey(accent)) {
+    toast("Workspace already pins the app accent color.");
+    return false;
+  }
+  await setWorkspaceColor(accent, target.id);
+  toast("Workspace color set to app accent.");
   return true;
 }
 
