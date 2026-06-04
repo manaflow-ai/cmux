@@ -5797,13 +5797,22 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                             pending.removeSubrange(0...newlineRange.lowerBound)
                             guard let line = String(data: lineData, encoding: .utf8) else { continue }
                             state.append(line)
-                            let response = self.defaultMockSocketResponse(for: line) ?? handler(line)
+                            let response = self.mockSocketResponse(for: line, handler: handler)
                             guard self.writeAll(response + "\n", to: clientFD) else { return }
                         }
                     }
                 }
             }
         }
+    }
+
+    private func mockSocketResponse(for line: String, handler: @Sendable (String) -> String) -> String {
+        let handlerResponse = handler(line)
+        guard let defaultResponse = defaultMockSocketResponse(for: line),
+              isUnexpectedMockSocketError(handlerResponse) else {
+            return handlerResponse
+        }
+        return defaultResponse
     }
 
     private func defaultMockSocketResponse(for line: String) -> String? {
@@ -5829,6 +5838,22 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 ],
             ]
         )
+    }
+
+    private func isUnexpectedMockSocketError(_ response: String) -> Bool {
+        guard let data = response.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              payload["ok"] as? Bool == false,
+              let error = payload["error"] as? [String: Any] else {
+            return false
+        }
+        if error["code"] as? String == "unexpected" {
+            return true
+        }
+        if let message = error["message"] as? String {
+            return message.hasPrefix("Unexpected method ") || message.hasPrefix("Unexpected payload")
+        }
+        return false
     }
 
     private func runMockServer(
@@ -5871,7 +5896,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     pending.removeSubrange(0...newlineRange.lowerBound)
                     guard let line = String(data: lineData, encoding: .utf8) else { continue }
                     state.append(line)
-                    let response = self.defaultMockSocketResponse(for: line) ?? handler(line)
+                    let response = self.mockSocketResponse(for: line, handler: handler)
                     guard self.writeAll(response + "\n", to: clientFD) else { return }
                 }
             }
