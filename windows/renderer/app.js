@@ -10,6 +10,7 @@ import {
   backgroundPresets,
   browserHomePresets,
   browserLaunchModeOptions,
+  browserZoomOptions,
   chromeMotionOptions,
   cornerStyleOptions,
   defaultSettings,
@@ -448,7 +449,8 @@ const browserSettingsPreviewKeys = new Set([
   "browserHomeUrl",
   "browserLaunchMode",
   "externalBrowserProfileId",
-  "browserSuspendInactive"
+  "browserSuspendInactive",
+  "browserZoom"
 ]);
 const settingsInspectorSettingKeys = {
   appearance: [
@@ -474,7 +476,8 @@ const settingsInspectorSettingKeys = {
     "browserHomeUrl",
     "browserLaunchMode",
     "externalBrowserProfileId",
-    "browserSuspendInactive"
+    "browserSuspendInactive",
+    "browserZoom"
   ],
   layout: [
     "density",
@@ -585,7 +588,14 @@ const settingsInspectorSettingKeys = {
   ]
 };
 const settingsPresetSettingKeys = new Set(settingsPresets.flatMap((preset) => Object.keys(preset.settings || {})));
-const profileSettingsSettingKeys = [...settingsPresetSettingKeys];
+const profileSettingsSettingKeys = [...new Set([
+  ...settingsPresetSettingKeys,
+  "browserHomeUrl",
+  "browserLaunchMode",
+  "externalBrowserProfileId",
+  "browserSuspendInactive",
+  "browserZoom"
+])];
 const quickSettingsSettingKeys = [
   ...new Set([
     ...settingsPresetSettingKeys,
@@ -595,7 +605,8 @@ const quickSettingsSettingKeys = [
     "terminalCustomShell",
     "browserLaunchMode",
     "externalBrowserProfileId",
-    "browserSuspendInactive"
+    "browserSuspendInactive",
+    "browserZoom"
   ])
 ];
 const terminalSearchDecorations = {
@@ -661,6 +672,7 @@ const launchToken = new URLSearchParams(location.search).get("token") || "";
 const eventReconnectMinDelayMs = 250;
 const eventReconnectMaxDelayMs = 5000;
 const embeddedGooglePolishState = new WeakMap();
+const browserViewZoomFactors = new WeakMap();
 
 const workspaceStarters = [
   {
@@ -1279,6 +1291,8 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!browserLaunchModeOptions.some(([id]) => id === next.browserLaunchMode)) next.browserLaunchMode = defaultSettings.browserLaunchMode;
   next.externalBrowserProfileId = String(next.externalBrowserProfileId || defaultSettings.externalBrowserProfileId).trim().slice(0, 120) || "system";
   next.browserSuspendInactive = next.browserSuspendInactive !== false;
+  next.browserZoom = String(next.browserZoom || defaultSettings.browserZoom);
+  if (!browserZoomOptions.some(([id]) => id === next.browserZoom)) next.browserZoom = defaultSettings.browserZoom;
   next.terminalCustomShell = String(next.terminalCustomShell || "").trim().slice(0, 512);
   next.showTabs = next.showTabs !== false;
   next.showStatusbar = next.showStatusbar !== false;
@@ -3301,6 +3315,7 @@ function settingsProfileSummary(settings) {
   const chromeMotion = optionLabel(chromeMotionOptions, normalized.chromeMotionMode, normalized.chromeMotionMode);
   const startup = optionLabel(terminalStartupOptions, normalized.terminalStartupMode, "Fast");
   const browserHomeHost = hostnameOf(normalized.browserHomeUrl) || "browser";
+  const browserZoom = browserZoomLabel(normalized.browserZoom);
   return [
     theme,
     normalized.density,
@@ -3339,6 +3354,7 @@ function settingsProfileSummary(settings) {
     paneMarkers,
     `${chromeMotion.toLowerCase()} motion`,
     `${browserHomeHost} home`,
+    `${browserZoom} browser zoom`,
     `${accentIntensity.toLowerCase()} accent`,
     `${surfaceTint.toLowerCase()} tint`,
     `${backgroundEffects.toLowerCase()} background`,
@@ -5701,7 +5717,11 @@ function updateSettings(updates, options = {}) {
   }
   if (changedKeys.includes("browserSuspendInactive")) {
     scheduleRender();
-  } else if (previous.titleDetailMode !== state.settings.titleDetailMode) {
+  }
+  if (changedKeys.includes("browserZoom")) {
+    applyBrowserZoomToSessions();
+  }
+  if (!changedKeys.includes("browserSuspendInactive") && previous.titleDetailMode !== state.settings.titleDetailMode) {
     scheduleRender();
   }
   return true;
@@ -11247,18 +11267,46 @@ function scheduleBrowserSuspendStop(session) {
   }, browserSuspendStopDelayMs);
 }
 
-function lockBrowserViewZoom(view) {
+function browserZoomValue(value = state.settings.browserZoom) {
+  const id = String(value || defaultSettings.browserZoom);
+  return browserZoomOptions.some(([optionId]) => optionId === id) ? id : defaultSettings.browserZoom;
+}
+
+function browserZoomFactor(value = state.settings.browserZoom) {
+  return Math.max(0.5, Math.min(2, Number(browserZoomValue(value)) / 100 || 1));
+}
+
+function browserZoomLabel(value = state.settings.browserZoom) {
+  const id = browserZoomValue(value);
+  return optionLabel(browserZoomOptions, id, `${id}%`);
+}
+
+function lockBrowserViewZoom(view, options = {}) {
   if (!view || typeof view.setZoomFactor !== "function") return;
+  const factor = browserZoomFactor();
+  if (browserViewZoomFactors.get(view) === factor) {
+    if (!options.force) return;
+    try {
+      if (typeof view.getZoomFactor === "function" && Math.abs(Number(view.getZoomFactor()) - factor) < 0.001) return;
+    } catch {
+      // Detached webviews can reject zoom reads; setting the factor below is still safe to try.
+    }
+  }
   try {
-    view.setZoomFactor(1);
-    if (typeof view.setZoomLevel === "function") view.setZoomLevel(0);
+    view.setZoomFactor(factor);
+    if (factor === 1 && typeof view.setZoomLevel === "function") view.setZoomLevel(0);
     const limits = typeof view.setVisualZoomLevelLimits === "function"
       ? view.setVisualZoomLevelLimits(1, 1)
       : null;
     limits?.catch?.(() => {});
+    browserViewZoomFactors.set(view, factor);
   } catch {
     // The iframe fallback and detached webviews do not expose every Electron method.
   }
+}
+
+function applyBrowserZoomToSessions() {
+  for (const session of state.browserViews.values()) lockBrowserViewZoom(session.view, { force: true });
 }
 
 function applyBrowserWheelZoomGuard(event, panel) {
@@ -11269,7 +11317,7 @@ function applyBrowserWheelZoomGuard(event, panel) {
   event.stopImmediatePropagation?.();
   markInteractedPanel(browserPanel.id);
   const session = state.browserViews.get(browserPanel.id);
-  if (session?.view) lockBrowserViewZoom(session.view);
+  if (session?.view) lockBrowserViewZoom(session.view, { force: true });
   return true;
 }
 
@@ -12657,10 +12705,10 @@ function ensureBrowser(panel, body) {
   });
   view.addEventListener("new-window", openPopupExternally);
   view.addEventListener("did-create-window", openPopupExternally);
-  view.addEventListener("did-attach", () => lockBrowserViewZoom(view));
+  view.addEventListener("did-attach", () => lockBrowserViewZoom(view, { force: true }));
   view.addEventListener("zoom-changed", (event) => {
     event.preventDefault?.();
-    lockBrowserViewZoom(view);
+    lockBrowserViewZoom(view, { force: true });
   });
   view.addEventListener("dom-ready", () => {
     webviewReady = true;
@@ -12668,7 +12716,7 @@ function ensureBrowser(panel, body) {
       markBrowserContentLoaded();
       hideBrowserError();
     }
-    lockBrowserViewZoom(view);
+    lockBrowserViewZoom(view, { force: true });
     scheduleEmbeddedGoogleHomePolish(view, address.value || view.src);
     updateNavState();
   });
@@ -13265,22 +13313,28 @@ function renderSettingsInspector(options = {}) {
       false,
       "browser performance suspend inactive background webview mute loading lag"
     ));
+    browserSection.append(settingRow(
+      "Pane zoom",
+      settingSegmentedControl("browserZoom", browserZoomOptions, "browser pane zoom scale percentage readable web preview app localhost small panes", { compact: true }),
+      true,
+      "browser pane zoom scale percentage readable web preview app localhost small panes"
+    ));
     const homeActions = document.createElement("div");
     homeActions.className = "settings-actions";
-    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web system external profile chrome edge brave save browser profile reusable copy paste setup clipboard json");
+    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web system external profile chrome edge brave zoom scale save browser profile reusable copy paste setup clipboard json");
     const browserHomeDefault = browserHomeKey(state.settings.browserHomeUrl) === browserHomeKey(defaultSettings.browserHomeUrl);
     const resetBrowserHomeAction = settingsActionButton("Reset", resetBrowserHome, "", `browser home reset default url page web ${browserHomeDefault ? "active current " : ""}`);
     resetBrowserHomeAction.disabled = browserHomeDefault;
     resetBrowserHomeAction.title = browserHomeDefault
       ? "Browser home already uses the default page."
       : "Reset the browser home page to the default.";
-    const copyBrowser = settingsActionButton("Copy setup", copyBrowserSetup, "", "browser setup copy home launch external profile suspend clipboard json");
-    copyBrowser.title = "Copy browser home, launch mode, external profile, and suspend setting as JSON.";
-    const pasteBrowser = settingsActionButton("Paste setup", pasteBrowserSetup, "", "browser setup paste home launch external profile suspend clipboard json");
+    const copyBrowser = settingsActionButton("Copy setup", copyBrowserSetup, "", "browser setup copy home launch external profile suspend zoom scale clipboard json");
+    copyBrowser.title = "Copy browser home, launch mode, external profile, suspend setting, and pane zoom as JSON.";
+    const pasteBrowser = settingsActionButton("Paste setup", pasteBrowserSetup, "", "browser setup paste home launch external profile suspend zoom scale clipboard json");
     pasteBrowser.title = "Apply copied cmux browser setup.";
     homeActions.append(
       applySettingsProfileSaveLimit(
-        settingsActionButton("Save browser profile", saveCurrentBrowserProfile, "primary", "browser save profile home page launch external chrome edge brave reusable"),
+        settingsActionButton("Save browser profile", saveCurrentBrowserProfile, "primary", "browser save profile home page launch external chrome edge brave zoom scale reusable"),
         "Save this browser setup as a reusable Settings profile."
       ),
       copyBrowser,
@@ -15846,7 +15900,7 @@ function browserHomeParts(value) {
   }
 }
 
-const browserSetupSettings = ["browserHomeUrl", "browserLaunchMode", "externalBrowserProfileId", "browserSuspendInactive"];
+const browserSetupSettings = ["browserHomeUrl", "browserLaunchMode", "externalBrowserProfileId", "browserSuspendInactive", "browserZoom"];
 
 const browserWorkflowPresets = [
   {
@@ -15857,7 +15911,8 @@ const browserWorkflowPresets = [
       browserHomeUrl: "https://www.google.com",
       browserLaunchMode: "pane",
       externalBrowserProfileId: "system",
-      browserSuspendInactive: true
+      browserSuspendInactive: true,
+      browserZoom: "100"
     }
   },
   {
@@ -15868,7 +15923,8 @@ const browserWorkflowPresets = [
       browserHomeUrl: "https://github.com",
       browserLaunchMode: "external",
       externalBrowserProfileId: "system",
-      browserSuspendInactive: true
+      browserSuspendInactive: true,
+      browserZoom: "100"
     }
   },
   {
@@ -15879,7 +15935,8 @@ const browserWorkflowPresets = [
       browserHomeUrl: "http://localhost:5173",
       browserLaunchMode: "pane",
       externalBrowserProfileId: "system",
-      browserSuspendInactive: false
+      browserSuspendInactive: false,
+      browserZoom: "100"
     }
   },
   {
@@ -15890,7 +15947,8 @@ const browserWorkflowPresets = [
       browserHomeUrl: "http://localhost:3000",
       browserLaunchMode: "pane",
       externalBrowserProfileId: "system",
-      browserSuspendInactive: false
+      browserSuspendInactive: false,
+      browserZoom: "100"
     }
   },
   {
@@ -15901,7 +15959,8 @@ const browserWorkflowPresets = [
       browserHomeUrl: "http://localhost:8080",
       browserLaunchMode: "pane",
       externalBrowserProfileId: "system",
-      browserSuspendInactive: false
+      browserSuspendInactive: false,
+      browserZoom: "100"
     }
   }
 ];
@@ -15910,8 +15969,9 @@ function browserSettingsPreviewPanel() {
   const home = browserHomeParts(state.settings.browserHomeUrl);
   const recent = state.recentBrowserPages[0] ? browserHomeParts(state.recentBrowserPages[0]) : null;
   const panel = document.createElement("div");
-  panel.className = "browser-settings-preview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("browser preview home url web page hostname recent history preset localhost github");
+  panel.className = `browser-settings-preview browser-zoom-${browserZoomValue()}`;
+  panel.dataset.settingsSearch = normalizeSettingsQuery("browser preview home url web page hostname recent history preset localhost github zoom scale percentage");
+  panel.style.setProperty("--browser-preview-zoom-scale", String(browserZoomFactor()));
   panel.innerHTML = `
     <div class="browser-preview-frame" aria-hidden="true">
       <div class="browser-preview-address">
@@ -15929,6 +15989,7 @@ function browserSettingsPreviewPanel() {
       <span><b>Home</b><em data-browser-preview-home></em></span>
       <span><b>Launch</b><em data-browser-preview-launch></em></span>
       <span><b>Profile</b><em data-browser-preview-profile></em></span>
+      <span><b>Zoom</b><em data-browser-preview-zoom></em></span>
       <span><b>Host</b><em data-browser-preview-host-meta></em></span>
       <span><b>Recent</b><em data-browser-preview-recent></em></span>
     </div>
@@ -15939,6 +16000,7 @@ function browserSettingsPreviewPanel() {
   panel.querySelector("[data-browser-preview-home]").textContent = home.url;
   panel.querySelector("[data-browser-preview-launch]").textContent = optionLabel(browserLaunchModeOptions, state.settings.browserLaunchMode, "cmux pane");
   panel.querySelector("[data-browser-preview-profile]").textContent = browserProfileLabel();
+  panel.querySelector("[data-browser-preview-zoom]").textContent = browserZoomLabel();
   panel.querySelector("[data-browser-preview-host-meta]").textContent = home.host;
   panel.querySelector("[data-browser-preview-recent]").textContent = recent
     ? `${state.recentBrowserPages.length} / ${recent.host}`
@@ -15960,13 +16022,14 @@ function browserWorkflowPresetSummary(settings) {
   return [
     hostnameOf(settings.browserHomeUrl) || "Home",
     optionLabel(browserLaunchModeOptions, settings.browserLaunchMode, settings.browserLaunchMode),
-    settings.browserSuspendInactive ? "Suspend" : "Live"
+    settings.browserSuspendInactive ? "Suspend" : "Live",
+    browserZoomLabel(settings.browserZoom)
   ];
 }
 
 function browserWorkflowPresetSearchText(preset, settings, active = false, savedProfile = null) {
   return normalizeSettingsQuery([
-    "browser workflow preset setup home launch external profile suspend save copy localhost local dev app api backend 3000 5173 8080",
+    "browser workflow preset setup home launch external profile suspend zoom scale save copy localhost local dev app api backend 3000 5173 8080",
     active ? "active current" : "",
     savedProfile ? "saved" : "",
     preset?.label || "",
@@ -15974,7 +16037,8 @@ function browserWorkflowPresetSearchText(preset, settings, active = false, saved
     settings?.browserHomeUrl || "",
     settings?.browserLaunchMode || "",
     browserProfileLabel(settings?.externalBrowserProfileId),
-    settings?.browserSuspendInactive ? "suspend inactive" : "live inactive"
+    settings?.browserSuspendInactive ? "suspend inactive" : "live inactive",
+    browserZoomLabel(settings?.browserZoom)
   ].join(" "));
 }
 
@@ -15984,7 +16048,8 @@ function isActiveBrowserWorkflowPreset(preset) {
   return browserHomeKey(settings.browserHomeUrl) === browserHomeKey(state.settings.browserHomeUrl)
     && settings.browserLaunchMode === state.settings.browserLaunchMode
     && settings.externalBrowserProfileId === state.settings.externalBrowserProfileId
-    && settings.browserSuspendInactive === state.settings.browserSuspendInactive;
+    && settings.browserSuspendInactive === state.settings.browserSuspendInactive
+    && settings.browserZoom === state.settings.browserZoom;
 }
 
 function browserWorkflowPresetProfileSettings(preset) {
@@ -16019,7 +16084,7 @@ function browserWorkflowPresetProfileSaveTitle(preset, savedProfile = savedSetti
 function browserWorkflowPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "browser-workflow-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("browser workflow presets setup home launch external profile suspend live save copy localhost local dev app api backend 3000 5173 8080");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("browser workflow presets setup home launch external profile suspend live zoom scale save copy localhost local dev app api backend 3000 5173 8080");
   for (const preset of browserWorkflowPresets) {
     const settings = browserWorkflowPresetSettings(preset);
     if (!settings) continue;
@@ -16047,15 +16112,17 @@ function browserWorkflowPresetGrid() {
         <span data-browser-workflow-home></span>
         <span data-browser-workflow-launch></span>
         <span data-browser-workflow-inactive></span>
+        <span data-browser-workflow-zoom></span>
       </span>
     `;
     button.querySelector(".browser-workflow-preset-title").textContent = preset.label;
     button.querySelector(".browser-workflow-preset-status").textContent = active ? "Active" : "";
     button.querySelector(".browser-workflow-preset-body").textContent = preset.body;
-    const [home, launch, inactive] = browserWorkflowPresetSummary(settings);
+    const [home, launch, inactive, zoom] = browserWorkflowPresetSummary(settings);
     button.querySelector("[data-browser-workflow-home]").textContent = home;
     button.querySelector("[data-browser-workflow-launch]").textContent = launch;
     button.querySelector("[data-browser-workflow-inactive]").textContent = inactive;
+    button.querySelector("[data-browser-workflow-zoom]").textContent = zoom;
     button.onclick = () => applyBrowserWorkflowPreset(preset.id);
     const actions = document.createElement("div");
     actions.className = "browser-workflow-preset-actions";
@@ -16072,7 +16139,7 @@ function browserWorkflowPresetGrid() {
       "Copy setup",
       () => copyBrowserWorkflowPresetSetup(preset.id),
       "",
-      `browser workflow preset copy setup clipboard json ${preset.label} ${preset.body} ${settings.browserHomeUrl}`
+      `browser workflow preset copy setup clipboard json ${preset.label} ${preset.body} ${settings.browserHomeUrl} ${browserZoomLabel(settings.browserZoom)}`
     );
     copy.title = "Copy this browser workflow as cmux browser setup JSON.";
     actions.append(save, copy);
@@ -16169,13 +16236,13 @@ function browserHomePresetTitle(preset, active) {
 function browserHomePresetGrid() {
   const grid = document.createElement("div");
   grid.className = "browser-home-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("browser home preset quick start google github localhost vite angular flask python asp net api backend web url save profile copy");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("browser home preset quick start google github localhost vite angular flask python asp net api backend web url save profile copy zoom scale");
   for (const preset of browserHomePresets) {
     const active = isActiveBrowserHomePreset(preset);
     const savedProfile = savedSettingsProfileForBrowserHomePreset(preset);
     const card = document.createElement("div");
     card.className = "browser-home-preset-card";
-    card.dataset.settingsSearch = normalizeSettingsQuery(`browser home preset save profile copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${preset.label} ${preset.body} ${preset.url}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`browser home preset save profile copy zoom scale ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${preset.label} ${preset.body} ${preset.url} ${browserZoomLabel()}`);
     const button = document.createElement("button");
     button.className = `browser-home-preset${active ? " is-active" : ""}`;
     button.type = "button";
@@ -16205,11 +16272,11 @@ function browserHomePresetGrid() {
       savedProfile ? "Saved" : "Save",
       () => saveBrowserHomePresetProfile(preset.id),
       savedProfile ? "primary" : "",
-      `browser home preset save profile reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${preset.url}`
+      `browser home preset save profile reusable zoom scale ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${preset.url} ${browserZoomLabel()}`
     );
     save.disabled = Boolean(savedProfile) || savedSettingsProfilesFull();
     save.title = browserHomePresetProfileSaveTitle(preset, savedProfile);
-    const copy = settingsActionButton("Copy", () => copyBrowserHomePresetProfile(preset.id), "", `browser home preset copy settings profile clipboard json ${preset.label} ${preset.body} ${preset.url}`);
+    const copy = settingsActionButton("Copy", () => copyBrowserHomePresetProfile(preset.id), "", `browser home preset copy settings profile clipboard json zoom scale ${preset.label} ${preset.body} ${preset.url} ${browserZoomLabel()}`);
     copy.title = "Copy this browser home preset as a Settings profile JSON.";
     actions.append(save, copy);
     card.append(button, actions);
@@ -16255,7 +16322,8 @@ function browserSetupSummaryForSettings(settingsSource = state.settings) {
     home: settingsSource.browserHomeUrl,
     launch: optionLabel(browserLaunchModeOptions, settingsSource.browserLaunchMode, settingsSource.browserLaunchMode),
     profile: browserProfileLabel(settingsSource.externalBrowserProfileId),
-    inactivePanes: settingsSource.browserSuspendInactive ? "Suspended" : "Kept live"
+    inactivePanes: settingsSource.browserSuspendInactive ? "Suspended" : "Kept live",
+    zoom: browserZoomLabel(settingsSource.browserZoom)
   };
 }
 
@@ -16264,7 +16332,8 @@ function browserSetupPayload(settingsSource = state.settings) {
     browserHomeUrl: settingsSource.browserHomeUrl,
     browserLaunchMode: settingsSource.browserLaunchMode,
     externalBrowserProfileId: settingsSource.externalBrowserProfileId,
-    browserSuspendInactive: settingsSource.browserSuspendInactive
+    browserSuspendInactive: settingsSource.browserSuspendInactive,
+    browserZoom: browserZoomValue(settingsSource.browserZoom)
   };
   return {
     version: 1,
@@ -16302,6 +16371,7 @@ function browserSetupSettingUpdateFromValue(key, raw) {
     return normalizeUrl(raw || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl);
   }
   if (key === "browserLaunchMode") return optionIdAllowed(browserLaunchModeOptions, raw) ? raw : null;
+  if (key === "browserZoom") return optionIdAllowed(browserZoomOptions, String(raw || "")) ? String(raw) : null;
   if (key === "externalBrowserProfileId") {
     if (raw === null || raw === "") return "system";
     if (typeof raw !== "string") return null;
@@ -16742,6 +16812,14 @@ function refreshBrowserSettingsPreview() {
       ? state.settings.externalBrowserProfileId
       : "system";
     if (profileSelect.value !== nextProfileId) profileSelect.value = nextProfileId;
+  }
+  const zoomControl = elements.inspectorBody.querySelector('[data-setting-control="browserZoom"]');
+  if (zoomControl) {
+    for (const button of zoomControl.querySelectorAll("[data-setting-value]")) {
+      const active = button.dataset.settingValue === state.settings.browserZoom;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-checked", active ? "true" : "false");
+    }
   }
   for (const button of elements.inspectorBody.querySelectorAll("[data-browser-home-preset]")) {
     const preset = browserHomePresets.find((candidate) => candidate.id === button.dataset.browserHomePreset);
@@ -18352,6 +18430,7 @@ function performanceDiagnosticsPayload() {
       terminalSmoothResumedOutput: state.settings.terminalSmoothResumedOutput,
       terminalStartupMode: state.settings.terminalStartupMode,
       browserSuspendInactive: state.settings.browserSuspendInactive,
+      browserZoom: state.settings.browserZoom,
       background: state.settings.backgroundImage
         ? isBackgroundPreset(state.settings.backgroundImage) ? state.settings.backgroundImage : "custom-image"
         : "none",
@@ -20696,9 +20775,9 @@ function quickSetupMapItems() {
       icon: "browser",
       label: "Browser",
       value: hostnameOf(state.settings.browserHomeUrl) || "Home page",
-      body: optionLabel(browserLaunchModeOptions, state.settings.browserLaunchMode, "cmux pane"),
+      body: `${optionLabel(browserLaunchModeOptions, state.settings.browserLaunchMode, "cmux pane")} / ${browserZoomLabel()} zoom`,
       meta: state.settings.browserSuspendInactive ? "Suspends inactive" : "Always live",
-      search: "browser home page launch mode external profile suspend inactive"
+      search: "browser home page launch mode external profile suspend inactive zoom scale readable preview"
     },
     {
       id: "performance",
@@ -26057,7 +26136,7 @@ function saveTerminalColorPresetProfile(presetId) {
 function saveCurrentBrowserProfile() {
   return saveCurrentSettingsProfile({
     title: "Save browser profile",
-    message: "Save the current browser home page, launch mode, external profile, and supporting app settings.",
+    message: "Save the current browser home page, launch mode, external profile, suspend setting, and pane zoom.",
     baseName: "Browser profile"
   });
 }
@@ -26071,7 +26150,7 @@ function saveBrowserProfileForHome(url = state.recentBrowserPages[0]) {
   const host = hostnameOf(homeUrl) || "Browser";
   return saveCurrentSettingsProfile({
     title: "Save browser profile",
-    message: `Save ${host} as a browser setup with the current launch mode, external profile, and supporting app settings.`,
+    message: `Save ${host} as a browser setup with the current launch mode, external profile, suspend setting, and pane zoom.`,
     value: defaultSettingsProfileName(`Browser: ${host}`),
     settings: {
       ...state.settings,
@@ -27304,7 +27383,7 @@ function showToolbarMenu(event) {
       toolbarAction("Copy recent pages", copyRecentBrowserPages, state.recentBrowserPages.length === 0, "Copy recent browser pages as JSON.", "Recent browser pages are empty."),
       toolbarAction("Paste recent pages", pasteRecentBrowserPages, false, "Merge copied browser pages into recent pages."),
       toolbarAction("Copy all tab sessions", copyBrowserTabSessions, browserSessionEntries.length === 0, "Copy all browser tab sessions as JSON.", "Open a browser pane before copying tab sessions."),
-      toolbarAction("Copy browser setup", copyBrowserSetup, false, "Copy browser home, launch mode, external profile, and suspend setting as JSON."),
+      toolbarAction("Copy browser setup", copyBrowserSetup, false, "Copy browser home, launch mode, external profile, suspend setting, and pane zoom as JSON."),
       toolbarAction("Paste browser setup", pasteBrowserSetup, false, "Apply copied cmux browser setup."),
       contextMenuButton("Browser settings", () => openSettingsCategory("browser"))
     ),
@@ -29022,7 +29101,7 @@ function paletteEntries() {
       meta: settings.browserHomeUrl,
       shortcut: "Copy",
       title: "Copy this browser workflow as cmux browser setup JSON.",
-      search: normalizeSettingsQuery(`browser workflow preset setup copy clipboard json ${preset.label} ${preset.body} ${settings.browserHomeUrl}`),
+      search: normalizeSettingsQuery(`browser workflow preset setup copy clipboard json zoom scale ${preset.label} ${preset.body} ${settings.browserHomeUrl} ${browserZoomLabel(settings.browserZoom)}`),
       run: () => copyBrowserWorkflowPresetSetup(preset.id)
     });
   }
@@ -29047,7 +29126,7 @@ function paletteEntries() {
       shortcut: savedProfile ? "Saved" : "Save",
       disabled: Boolean(savedProfile) || savedSettingsProfilesFull(),
       title: browserHomePresetProfileSaveTitle(preset, savedProfile),
-      search: normalizeSettingsQuery(`browser home preset start page homepage save profile reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${preset.url}`),
+      search: normalizeSettingsQuery(`browser home preset start page homepage save profile reusable zoom scale ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${preset.url} ${browserZoomLabel()}`),
       run: () => saveBrowserHomePresetProfile(preset.id)
     });
     entries.push({
@@ -29056,7 +29135,7 @@ function paletteEntries() {
       meta: preset.url,
       shortcut: "Copy",
       title: "Copy this browser home preset as a Settings profile JSON.",
-      search: normalizeSettingsQuery(`browser home preset start page homepage copy profile clipboard json ${preset.label} ${preset.body} ${preset.url}`),
+      search: normalizeSettingsQuery(`browser home preset start page homepage copy profile clipboard json zoom scale ${preset.label} ${preset.body} ${preset.url} ${browserZoomLabel()}`),
       run: () => copyBrowserHomePresetProfile(preset.id)
     });
   }
@@ -32916,7 +32995,7 @@ function lockBrowserPanelZoom(panel) {
   if (!browserPanel) return false;
   markInteractedPanel(browserPanel.id);
   const session = state.browserViews.get(browserPanel.id);
-  if (session?.view) lockBrowserViewZoom(session.view);
+  if (session?.view) lockBrowserViewZoom(session.view, { force: true });
   return true;
 }
 

@@ -20,6 +20,7 @@ export const defaultSettings = {
   browserLaunchMode: "pane",
   externalBrowserProfileId: "system",
   browserSuspendInactive: true,
+  browserZoom: "100",
   density: "comfortable",
   paneHeaderMode: "compact",
   paneActionMode: "essential",
@@ -351,6 +352,13 @@ export const browserHomePresets = [
 export const browserLaunchModeOptions = [
   ["pane", label("browserLaunchMode.pane", "cmux pane")],
   ["external", label("browserLaunchMode.external", "External profile")]
+];
+
+export const browserZoomOptions = [
+  ["90", label("browserZoom.90", "90%"), label("browserZoom.90.body", "Fit dense app previews")],
+  ["100", label("browserZoom.100", "100%"), label("browserZoom.100.body", "Default browser scale")],
+  ["110", label("browserZoom.110", "110%"), label("browserZoom.110.body", "Larger page text")],
+  ["125", label("browserZoom.125", "125%"), label("browserZoom.125.body", "Readable small panes")]
 ];
 
 export const terminalProfiles = [
