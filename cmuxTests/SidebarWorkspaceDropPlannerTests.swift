@@ -16,6 +16,13 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         XCTAssertTrue(SidebarDropPlanner.shouldCollectWorkspaceDropTargets(draggedTabId: UUID()))
     }
 
+    func testWorkspaceDropTargetCollectionTurnsOnDuringBonsplitWorkspaceDrop() {
+        XCTAssertTrue(SidebarDropPlanner.shouldCollectWorkspaceDropTargets(
+            draggedTabId: nil,
+            isBonsplitWorkspaceDropActive: true
+        ))
+    }
+
     func testWorkspaceGroupHeaderDropZoneKeepsUsableCenterAtDefaultHeight() {
         XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 2, rowHeight: 24))
         XCTAssertTrue(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 12, rowHeight: 24))

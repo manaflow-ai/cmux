@@ -40,6 +40,10 @@ extension VerticalTabsSidebar {
             dropIndicator: dragState.dropIndicator,
             tabIds: renderContext.sidebarReorderIds
         )
+        let shouldCollectWorkspaceDropTargets = SidebarDropPlanner.shouldCollectWorkspaceDropTargets(
+            draggedTabId: dragState.draggedTabId,
+            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive
+        )
         let onDragStart: () -> NSItemProvider = { [anchorId = group.anchorWorkspaceId] in
             #if DEBUG
             cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
@@ -73,7 +77,7 @@ extension VerticalTabsSidebar {
             )
         }
 
-        SidebarWorkspaceGroupHeaderView(
+        let header = SidebarWorkspaceGroupHeaderView(
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
@@ -155,8 +159,17 @@ extension VerticalTabsSidebar {
         .id(group.anchorWorkspaceId)
         .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
         .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
-        .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { [anchorId = group.anchorWorkspaceId] anchor in
-            [anchorId: anchor]
+
+        if shouldCollectWorkspaceDropTargets {
+            header
+                .anchorPreference(
+                    key: SidebarWorkspaceRowFramePreferenceKey.self,
+                    value: .bounds
+                ) { [anchorId = group.anchorWorkspaceId] anchor in
+                    [anchorId: anchor]
+                }
+        } else {
+            header
         }
     }
 }
