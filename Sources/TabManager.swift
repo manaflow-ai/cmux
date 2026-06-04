@@ -7095,7 +7095,8 @@ class TabManager: ObservableObject {
                     workspace,
                     requiresConfirmation: false,
                     operationId: operationId,
-                    skipAnchorConfirmation: true
+                    skipAnchorConfirmation: true,
+                    forceWindowClose: true
                 )
             }
             guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
@@ -7105,7 +7106,8 @@ class TabManager: ObservableObject {
                 workspace,
                 requiresConfirmation: !force,
                 operationId: operationId,
-                skipAnchorConfirmation: force
+                skipAnchorConfirmation: force,
+                forceWindowClose: force
             )
         }
     }
@@ -7409,7 +7411,8 @@ class TabManager: ObservableObject {
         requiresConfirmation: Bool = true,
         source: CloseConfirmationSource = .workspace,
         operationId: UUID? = nil,
-        skipAnchorConfirmation: Bool = false
+        skipAnchorConfirmation: Bool = false,
+        forceWindowClose: Bool = false
     ) -> Bool {
         // Anchor-close ALWAYS prompts (subject to its own
         // WorkspaceGroupAnchorCloseSettings.suppressed flag), regardless of
@@ -7444,6 +7447,13 @@ class TabManager: ObservableObject {
             // Last workspace in this window: match Close Workspace shortcut behavior.
             if let operationId,
                let windowId = AppDelegate.shared?.windowId(for: self) {
+                if forceWindowClose {
+                    return AppDelegate.shared?.closeMainWindowForHistoryRedo(
+                        windowId: windowId,
+                        operationId: operationId,
+                        force: true
+                    ) ?? false
+                }
                 return AppDelegate.shared?.closeMainWindow(windowId: windowId, operationId: operationId) ?? false
             } else if let window {
                 window.performClose(nil)

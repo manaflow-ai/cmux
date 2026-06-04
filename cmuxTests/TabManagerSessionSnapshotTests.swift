@@ -1,4 +1,5 @@
 import Darwin
+import AppKit
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -31,6 +32,44 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         TerminalController.shared.stop()
         try? FileManager.default.removeItem(atPath: path)
         try? FileManager.default.removeItem(atPath: path + ".lock")
+    }
+
+    private func testWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
+    }
+
+    private func sessionWindowSnapshot(tabManager: TabManager, windowId: UUID) -> SessionWindowSnapshot {
+        SessionWindowSnapshot(
+            windowId: windowId,
+            frame: nil,
+            display: nil,
+            tabManager: tabManager.sessionSnapshot(includeScrollback: false),
+            sidebar: SessionSidebarSnapshot(
+                isVisible: true,
+                selection: .tabs,
+                width: SessionPersistencePolicy.defaultSidebarWidth
+            )
+        )
+    }
+
+    @discardableResult
+    private func seedRestoredWindowHistory(windowId: UUID, manager: TabManager) -> ClosedItemHistoryRecord {
+        let record = ClosedItemHistoryRecord(entry: .window(ClosedWindowHistoryEntry(
+            windowId: windowId,
+            snapshot: sessionWindowSnapshot(tabManager: manager, windowId: windowId),
+            workspaceIds: manager.tabs.map(\.id)
+        )))
+        ClosedItemHistoryStore.shared.push(record)
+        ClosedItemHistoryStore.shared.markRestored(recordId: record.id, ref: .window(windowId: windowId))
+        ClosedItemHistoryStore.shared.setLastRestoredOperation(record.operationId)
+        return record
     }
 
     func testSessionSnapshotSerializesWorkspacesAndRestoreRebuildsSelection() {
@@ -779,6 +818,77 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(appDelegate.redoLastDestructiveAction(preferredTabManager: manager))
         XCTAssertEqual(promptCount, 1)
         XCTAssertNil(workspace.panels[restoredPanelId])
+        XCTAssertNil(ClosedItemHistoryStore.shared.lastRestoredOperationId)
+    }
+
+    func testRedoRestoredWindowCancelKeepsRedoState() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer {
+            appDelegate.debugCloseMainWindowConfirmationHandler = nil
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let windowId = UUID()
+        let window = testWindow(id: windowId)
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        defer {
+            if appDelegate.tabManagerFor(windowId: windowId) != nil {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            }
+        }
+        let record = seedRestoredWindowHistory(windowId: windowId, manager: manager)
+
+        var promptCount = 0
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in
+            promptCount += 1
+            return false
+        }
+
+        XCTAssertFalse(appDelegate.redoLastDestructiveAction(preferredTabManager: manager))
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertNotNil(appDelegate.tabManagerFor(windowId: windowId))
+        XCTAssertEqual(ClosedItemHistoryStore.shared.lastRestoredOperationId, record.operationId)
+    }
+
+    func testRedoRestoredWindowForceClosesWithoutConfirmation() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer {
+            appDelegate.debugCloseMainWindowConfirmationHandler = nil
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let windowId = UUID()
+        let window = testWindow(id: windowId)
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        seedRestoredWindowHistory(windowId: windowId, manager: manager)
+
+        var promptCount = 0
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in
+            promptCount += 1
+            return false
+        }
+
+        XCTAssertTrue(appDelegate.redoLastDestructiveAction(preferredTabManager: manager, force: true))
+        XCTAssertEqual(promptCount, 0)
+        XCTAssertNil(appDelegate.tabManagerFor(windowId: windowId))
         XCTAssertNil(ClosedItemHistoryStore.shared.lastRestoredOperationId)
     }
 

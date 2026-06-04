@@ -290,7 +290,7 @@ extension AppDelegate {
                   let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
             return manager.closeWorkspaceForHistoryRedo(workspace, operationId: operationId, force: force)
         case .window(let windowId):
-            return closeMainWindow(windowId: windowId, operationId: operationId)
+            return closeMainWindowForHistoryRedo(windowId: windowId, operationId: operationId, force: force)
         }
     }
 
@@ -318,11 +318,11 @@ extension AppDelegate {
             }
             return manager.closeWorkspaceForHistoryRedo(workspace, operationId: UUID(), force: force)
         case .window(let windowId):
-            guard closeMainWindow(windowId: windowId) else {
+            guard tabManagerFor(windowId: windowId) != nil else {
                 ClosedItemHistoryStore.shared.clearRedoTarget()
                 return false
             }
-            return true
+            return closeMainWindowForHistoryRedo(windowId: windowId, operationId: UUID(), force: force)
         }
     }
 
