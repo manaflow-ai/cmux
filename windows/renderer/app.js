@@ -21455,6 +21455,7 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
     : "Apply the performance tune for lag, effects, terminal output, and browser panes.";
   const hasStats = hasPerformanceStats();
   const profilesFull = savedSettingsProfilesFull();
+  const setupDefault = performanceSetupSettingsAreDefault();
   const actions = [
     quickOverviewControlButton(tuneLabel, () => {
       if (performance.status === "tuned") {
@@ -21467,7 +21468,7 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
       title: tuneTitle,
       search: "quick setup performance tune speed lag smooth reduce effects hidden output"
     }),
-    quickOverviewControlButton("Save", saveCurrentPerformanceProfile, {
+    quickOverviewControlButton("Save profile", saveCurrentPerformanceProfile, {
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save the current performance setup as a reusable profile.",
       search: "quick setup performance save speed profile reusable settings"
@@ -21476,13 +21477,20 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
       title: "Copy current performance diagnostics as JSON.",
       search: "quick setup performance diagnostics copy report render output terminal lag"
     }),
-    quickOverviewControlButton("Copy", copyPerformanceSetup, {
+    quickOverviewControlButton("Copy setup", copyPerformanceSetup, {
       title: "Copy performance setup as JSON.",
       search: "quick setup performance copy setup toast feedback placement bottom right left top background opacity effects chrome readable soft immersive export clipboard json"
     }),
-    quickOverviewControlButton("Paste", pastePerformanceSetup, {
+    quickOverviewControlButton("Paste setup", pastePerformanceSetup, {
       title: "Paste copied performance setup.",
       search: "quick setup performance paste setup toast feedback placement bottom right left top background opacity effects chrome readable soft immersive import clipboard json"
+    }),
+    quickOverviewControlButton("Reset setup", resetPerformanceSetupSettings, {
+      disabled: setupDefault,
+      title: setupDefault
+        ? "Performance setup already uses defaults."
+        : "Reset performance tuning, motion, output, browser, lightweight chrome, and history settings to defaults.",
+      search: `quick setup performance reset setup defaults speed lag motion output browser chrome history ${setupDefault ? "active current " : ""}`
     }),
     quickOverviewControlButton("Reset stats", resetRenderStats, {
       disabled: !hasStats,
@@ -21494,7 +21502,7 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
     className: "quick-overview-performance",
     title: "Performance controls",
     meta: `${performance.guard} / ${performance.output} / ${performance.startup}`,
-    search: `quick setup performance controls tune save diagnostics copy paste reset stats speed lag smooth toast feedback placement bottom right left top background opacity effects chrome readable soft immersive ${performance.status} ${performance.title} ${performance.reason} ${performance.render} ${performance.output} ${performance.startup}`,
+    search: `quick setup performance controls tune save profile diagnostics copy paste reset setup stats speed lag smooth toast feedback placement bottom right left top background opacity effects chrome readable soft immersive ${performance.status} ${performance.title} ${performance.reason} ${performance.render} ${performance.output} ${performance.startup}`,
     actions
   });
 }
