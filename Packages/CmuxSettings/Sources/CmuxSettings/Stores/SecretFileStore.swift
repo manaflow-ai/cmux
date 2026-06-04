@@ -107,35 +107,44 @@ public actor SecretFileStore {
     ///
     /// The first element is the current value; subsequent elements arrive when
     /// ``didChangeNotification`` fires for this key. Buffering is
-    /// `.bufferingNewest(1)`. Cancelling the consuming `Task` ends the stream.
+    /// `.bufferingNewest(1)`. Cancelling the consuming `Task` removes the
+    /// observer token and ends the stream.
     public nonisolated func values(for key: SecretFileKey) -> AsyncStream<String> {
         AsyncStream<String>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let task = Task { [weak self] in
+            let state = SecretFileObservationState()
+            let initialTask = Task { [weak self] in
                 guard let self else {
                     continuation.finish()
                     return
                 }
-                var lastYielded = (try? await self.value(for: key)) ?? key.defaultValue
-                continuation.yield(lastYielded)
+                let initial = (try? await self.value(for: key)) ?? key.defaultValue
+                await state.yieldInitial(initial, to: continuation)
+            }
 
-                let notifications = NotificationCenter.default.notifications(
-                    named: SecretFileStore.didChangeNotification
-                )
-                for await note in notifications {
-                    if Task.isCancelled { break }
+            let observer = NotificationObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: SecretFileStore.didChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { [weak self] note in
                     if let changedID = note.userInfo?[SecretFileStore.changedKeyIDKey] as? String,
                        changedID != key.id {
-                        continue
+                        return
                     }
-                    let current = (try? await self.value(for: key)) ?? key.defaultValue
-                    if current != lastYielded {
-                        lastYielded = current
-                        continuation.yield(current)
+                    Task { [weak self] in
+                        guard let self else {
+                            continuation.finish()
+                            return
+                        }
+                        let current = (try? await self.value(for: key)) ?? key.defaultValue
+                        await state.yieldIfChanged(current, to: continuation)
                     }
                 }
-                continuation.finish()
+            )
+            continuation.onTermination = { _ in
+                initialTask.cancel()
+                observer.remove()
             }
-            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -155,5 +164,21 @@ public actor SecretFileStore {
     private static func normalized(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .newlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private actor SecretFileObservationState {
+    private var lastYielded: String?
+
+    func yieldInitial(_ value: String, to continuation: AsyncStream<String>.Continuation) {
+        guard lastYielded == nil else { return }
+        lastYielded = value
+        continuation.yield(value)
+    }
+
+    func yieldIfChanged(_ value: String, to continuation: AsyncStream<String>.Continuation) {
+        guard lastYielded != value else { return }
+        lastYielded = value
+        continuation.yield(value)
     }
 }

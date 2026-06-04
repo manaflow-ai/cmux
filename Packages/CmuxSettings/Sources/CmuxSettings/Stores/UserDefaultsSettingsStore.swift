@@ -8,10 +8,10 @@ import Foundation
 /// The store only accepts ``DefaultsKey``; a ``JSONKey`` would be rejected at
 /// compile time. There are no runtime store/key-mismatch traps.
 ///
-/// Observation uses `NotificationCenter.default.notifications(named:)` as the
-/// modern AsyncSequence-based KVO replacement. Each ``values(for:)`` consumer
-/// owns a `Task` that watches the global notification stream and yields when
-/// the typed value at this key changes.
+/// Observation uses `NotificationCenter.addObserver(forName:object:queue:using:)`
+/// and one short async read per delivered notification. Each ``values(for:)``
+/// consumer owns a token that is removed when the stream terminates, without a
+/// permanently parked NotificationCenter async-sequence task.
 ///
 /// ```swift
 /// let catalog = SettingCatalog()
@@ -94,8 +94,8 @@ public actor UserDefaultsSettingsStore {
     /// - Subsequent elements are yielded when `UserDefaults.didChangeNotification`
     ///   fires and the typed value at this key differs from the previously
     ///   yielded value.
-    /// - Cancelling the consuming `Task` cancels the underlying notification
-    ///   loop and ends the stream.
+    /// - Cancelling the consuming `Task` removes the underlying notification
+    ///   observer and ends the stream.
     /// - Buffering is `.bufferingNewest(1)`: a burst of writes (e.g. a
     ///   `ColorPicker` drag spraying a value per frame) coalesces to the
     ///   most recent value rather than replaying every intermediate
@@ -103,29 +103,64 @@ public actor UserDefaultsSettingsStore {
     ///   latest value matters; the stale ones are dropped.
     public nonisolated func values<Value>(for key: DefaultsKey<Value>) -> AsyncStream<Value> {
         AsyncStream<Value>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let task = Task { [weak self] in
+            let state = SettingObservationState<Value>()
+            let initialTask = Task { [weak self] in
                 guard let self else {
                     continuation.finish()
                     return
                 }
-                var lastYielded = await self.value(for: key)
-                continuation.yield(lastYielded)
+                let initial = await self.value(for: key)
+                await state.yieldInitial(initial, to: continuation)
+            }
 
-                let notifications = NotificationCenter.default.notifications(
-                    named: UserDefaults.didChangeNotification
-                )
-                for await _ in notifications {
-                    if Task.isCancelled { break }
-                    let current = await self.value(for: key)
-                    if current != lastYielded {
-                        lastYielded = current
-                        continuation.yield(current)
+            let observer = NotificationObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: UserDefaults.didChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { [weak self] _ in
+                    Task { [weak self] in
+                        guard let self else {
+                            continuation.finish()
+                            return
+                        }
+                        let current = await self.value(for: key)
+                        await state.yieldIfChanged(current, to: continuation)
                     }
                 }
-                continuation.finish()
+            )
+            continuation.onTermination = { _ in
+                initialTask.cancel()
+                observer.remove()
             }
-            continuation.onTermination = { _ in task.cancel() }
         }
     }
+}
 
+private actor SettingObservationState<Value: Sendable & Equatable> {
+    private var lastYielded: Value?
+
+    func yieldInitial(_ value: Value, to continuation: AsyncStream<Value>.Continuation) {
+        guard lastYielded == nil else { return }
+        lastYielded = value
+        continuation.yield(value)
+    }
+
+    func yieldIfChanged(_ value: Value, to continuation: AsyncStream<Value>.Continuation) {
+        guard lastYielded != value else { return }
+        lastYielded = value
+        continuation.yield(value)
+    }
+}
+
+final class NotificationObserverToken: @unchecked Sendable {
+    private let token: NSObjectProtocol
+
+    init(_ token: NSObjectProtocol) {
+        self.token = token
+    }
+
+    func remove() {
+        NotificationCenter.default.removeObserver(token)
+    }
 }
