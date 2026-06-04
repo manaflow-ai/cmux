@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Browses the closed-item history (closed terminals, browsers, panes, workspaces,
@@ -28,9 +29,13 @@ struct ClosedItemsHistoryView: View {
         let totalItems = operations.reduce(0) { $0 + $1.items.count }
         let onReopen = self.onReopen
         let onDelete = self.onDelete
+        let restorableWorkspaceIds = operations
+            .flatMap(\.items)
+            .filter { $0.kind == .workspace && !$0.isRestored }
+            .map(\.id)
 
         return VStack(spacing: 0) {
-            header(count: totalItems)
+            header(count: totalItems, restorableWorkspaceIds: restorableWorkspaceIds)
             if operations.isEmpty {
                 emptyView
             } else {
@@ -64,12 +69,23 @@ struct ClosedItemsHistoryView: View {
         if collapsed.contains(id) { collapsed.remove(id) } else { collapsed.insert(id) }
     }
 
-    private func header(count: Int) -> some View {
-        HStack(spacing: 8) {
+    private func header(count: Int, restorableWorkspaceIds: [UUID]) -> some View {
+        let onReopen = self.onReopen
+        return HStack(spacing: 8) {
             Text(String(localized: "historyPane.header.recentlyClosed", defaultValue: "Recently Closed"))
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(.secondary)
             Spacer(minLength: 8)
+            if !restorableWorkspaceIds.isEmpty {
+                Button {
+                    for id in restorableWorkspaceIds { onReopen(id) }
+                } label: {
+                    Text(String(localized: "historyPane.reopenAllWorkspaces", defaultValue: "Reopen all workspaces"))
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.borderless)
+                .help(String(localized: "historyPane.reopenAllWorkspaces.tooltip", defaultValue: "Reopen every closed workspace that isn't already open"))
+            }
             if count > 0 {
                 Button(action: onClearAll) {
                     Text(String(localized: "historyPane.clearAll", defaultValue: "Clear All"))
@@ -241,6 +257,13 @@ private struct ClosedItemRow: View, Equatable {
         .contextMenu {
             Button(action: onReopen) {
                 Text(String(localized: "historyPane.row.reopen", defaultValue: "Reopen"))
+            }
+            Button {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(item.id.uuidString, forType: .string)
+            } label: {
+                Text(String(localized: "historyPane.row.copyId", defaultValue: "Copy ID"))
             }
             Divider()
             Button(role: .destructive, action: onDelete) {
