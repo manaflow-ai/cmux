@@ -8272,7 +8272,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_clear_selection_compat(surface)
             return false
         }
-        let mods = ghostty_input_mods_e(rawValue: GHOSTTY_MODS_NONE.rawValue) ?? GHOSTTY_MODS_NONE
+        let mods = GHOSTTY_MODS_NONE
 
         _ = ghostty_surface_clear_selection_compat(surface)
         ghostty_surface_mouse_pos(surface, xRange.startX, Double(y), mods)
@@ -8316,7 +8316,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let startX = min(metrics.xInset + 0.5, xMax)
         let endX = min(metrics.xInset + (CGFloat(metrics.columns) * metrics.cellWidth) - 0.5, xMax)
 
-        let mods = ghostty_input_mods_e(rawValue: GHOSTTY_MODS_NONE.rawValue) ?? GHOSTTY_MODS_NONE
+        let mods = GHOSTTY_MODS_NONE
         ghostty_surface_mouse_pos(surface, Double(startX), Double(startY), mods)
         guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
             return false
