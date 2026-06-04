@@ -6666,6 +6666,14 @@ const customizationPaletteCommandIds = new Set([
   "settings.copyCurrentProfile",
   "settings.pasteProfile",
   "settings.saveTerminalProfile",
+  "settings.tunePerformance",
+  "settings.cleanFast",
+  "settings.saveCleanFastProfile",
+  "settings.savePerformanceProfile",
+  "settings.copyPerformanceSetup",
+  "settings.pastePerformanceSetup",
+  "settings.copyDiagnostics",
+  "settings.resetPerformanceSetup",
   "settings.resetAppearance",
   "settings.copyLook",
   "settings.pasteLook",
@@ -6690,8 +6698,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.saveAllPaneColors",
   "settings.saveBackground",
   "settings.copySavedBackgrounds",
-  "settings.pasteSavedBackgrounds",
-  "settings.resetPerformanceSetup"
+  "settings.pasteSavedBackgrounds"
 ]);
 
 function customizationCommandPaletteSignature() {
@@ -6935,8 +6942,9 @@ function customizationCommandPaletteState(commandId) {
   if (commandId === "settings.resetPerformanceSetup") {
     const setupDefault = performanceSetupSettingsAreDefault();
     const summary = performanceSetupSummaryForSettings(state.settings);
+    const meta = `${summary.mode} / ${summary.motion} / ${summary.history}`;
     return {
-      meta: setupDefault ? "Defaults active" : summary,
+      meta: setupDefault ? "Defaults active" : meta,
       shortcut: setupDefault ? "Default" : "Reset",
       active: setupDefault,
       disabled: setupDefault,
@@ -6944,7 +6952,78 @@ function customizationCommandPaletteState(commandId) {
       title: setupDefault
         ? "Performance setup already uses defaults."
         : "Reset performance tuning, motion, output, browser, lightweight chrome, and history settings to defaults.",
-      search: normalizeSettingsQuery(`performance setup reset defaults speed lag smooth tune motion output terminal browser chrome history workspace palette toast background ${setupDefault ? "active current " : ""}${summary}`)
+      search: normalizeSettingsQuery(`performance setup reset defaults speed lag smooth tune motion output terminal browser chrome history workspace palette toast background ${setupDefault ? "active current " : ""}${summary.mode} ${summary.adaptiveGuard} ${summary.motion} ${summary.chrome} ${summary.background} ${summary.terminalStartup} ${summary.inactiveOutput} ${summary.resume} ${summary.cursor} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.padding} ${summary.history}`)
+    };
+  }
+  if (commandId === "settings.tunePerformance" || commandId === "settings.cleanFast" || commandId === "settings.saveCleanFastProfile" || commandId === "settings.savePerformanceProfile" || commandId === "settings.copyPerformanceSetup" || commandId === "settings.pastePerformanceSetup" || commandId === "settings.copyDiagnostics") {
+    const summary = performanceSetupSummaryForSettings(state.settings);
+    const profileCount = savedSettingsProfileCountLabel();
+    const profilesFull = savedSettingsProfilesFull();
+    const performanceMeta = `${summary.mode} / ${summary.motion} / ${summary.history}`;
+    const search = normalizeSettingsQuery(`performance speed lag smooth tune setup motion output terminal browser chrome history workspace palette toast background clean fast profile reusable diagnostics clipboard json ${summary.mode} ${summary.adaptiveGuard} ${summary.motion} ${summary.chrome} ${summary.background} ${summary.terminalStartup} ${summary.inactiveOutput} ${summary.resume} ${summary.cursor} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.padding} ${summary.history}`);
+    if (commandId === "settings.tunePerformance") {
+      const active = state.settings.performanceMode;
+      return {
+        meta: active ? "Tune active" : `${performanceModeLabel()} / ${performanceHealthIssueCountLabel()}`,
+        shortcut: active ? "Tuned" : "Tune",
+        active,
+        disabled: active,
+        icon: "speed",
+        title: active ? "Performance tune is already active." : "Apply compact chrome, reduced motion, paused hidden output, and lighter terminal history.",
+        search
+      };
+    }
+    if (commandId === "settings.cleanFast") {
+      const active = isSettingsPresetIdActive("simpleFast");
+      return {
+        meta: active ? "Active / Clean + Fast" : activeSettingsSetupLabel(),
+        shortcut: active ? "Active" : "Apply",
+        active,
+        disabled: active,
+        icon: "speed",
+        title: active ? "Clean + Fast setup is already active." : "Apply the Clean + Fast settings preset.",
+        search: normalizeSettingsQuery(`${search} clean fast simple preset active current`)
+      };
+    }
+    if (commandId === "settings.saveCleanFastProfile" || commandId === "settings.savePerformanceProfile") {
+      const cleanFast = commandId === "settings.saveCleanFastProfile";
+      return {
+        meta: cleanFast ? `Clean + Fast / ${profileCount}` : `${summary.mode} / ${profileCount}`,
+        shortcut: "Save",
+        disabled: profilesFull,
+        icon: "profiles",
+        title: profilesFull
+          ? settingsProfileLimitTitle()
+          : cleanFast
+            ? "Apply Clean + Fast and save it as a reusable Settings profile."
+            : "Save the current speed, rendering, terminal output, browser chrome, and supporting app settings.",
+        search: normalizeSettingsQuery(`${search} save ${cleanFast ? "clean fast simple preset " : "current speed "}settings profile reusable ${profilesFull ? "limit full " : ""}${profileCount}`)
+      };
+    }
+    if (commandId === "settings.copyPerformanceSetup") {
+      return {
+        meta: performanceMeta,
+        shortcut: "Copy",
+        icon: "speed",
+        title: "Copy the current performance setup as JSON.",
+        search: normalizeSettingsQuery(`${search} copy export setup clipboard`)
+      };
+    }
+    if (commandId === "settings.pastePerformanceSetup") {
+      return {
+        meta: "Performance setup import",
+        shortcut: "Paste",
+        icon: "speed",
+        title: "Apply copied cmux performance setup JSON.",
+        search: normalizeSettingsQuery(`${search} paste import setup clipboard`)
+      };
+    }
+    return {
+      meta: `${performanceModeLabel()} / ${performanceHealthIssueCountLabel()}`,
+      shortcut: "Copy",
+      icon: "speed",
+      title: "Copy performance diagnostics, render stats, output stats, pane startup stats, and relevant settings as JSON.",
+      search: normalizeSettingsQuery(`${search} diagnostics report stats render output pane startup shell connect debug copy clipboard`)
     };
   }
   if (commandId === "settings.copyTerminalSetup" || commandId === "settings.pasteTerminalSetup" || commandId === "settings.resetTerminalSetup") {
@@ -30108,6 +30187,7 @@ function paletteListSignature(query, entries, totalCount = entries.length) {
     appendSignatureValue(nextParts, entry.label);
     appendSignatureValue(nextParts, entry.meta);
     appendSignatureValue(nextParts, entry.shortcut);
+    appendSignatureValue(nextParts, Boolean(entry.active));
     appendSignatureValue(nextParts, Boolean(entry.disabled));
     appendSignatureValue(nextParts, entry.title || "");
   });
