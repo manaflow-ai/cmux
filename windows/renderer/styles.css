@@ -7317,9 +7317,13 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .workspace-name-control {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(68px, auto) minmax(92px, auto);
+  grid-template-columns: minmax(0, 1fr) minmax(68px, auto) minmax(92px, auto) minmax(80px, auto);
   align-items: center;
   gap: var(--space-1);
+}
+
+.workspace-name-control.has-page-title {
+  grid-template-columns: minmax(0, 1fr) minmax(68px, auto) minmax(92px, auto) minmax(80px, auto) minmax(74px, auto);
 }
 
 .workspace-background-control {

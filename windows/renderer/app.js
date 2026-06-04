@@ -14851,6 +14851,7 @@ function renderSettingsInspector(options = {}) {
     let titleSave = null;
     let titleUseFolder = null;
     let titleUsePane = null;
+    let titleUsePageTitle = null;
     const workspaceNameTarget = () => activeWorkspace() || workspace;
     const currentWorkspaceName = () => workspaceNameTarget()?.title || "";
     const suggestedWorkspaceName = () => workspaceFolderNameSuggestion(workspaceNameTarget());
@@ -14858,12 +14859,14 @@ function renderSettingsInspector(options = {}) {
       const targetWorkspace = workspaceNameTarget();
       return targetWorkspace?.panels?.length ? workspacePaneSuggestedTitle(targetWorkspace) : "";
     };
+    const suggestedBrowserPageWorkspaceName = () => workspaceBrowserPageTitleSuggestion(workspaceNameTarget());
     const updateWorkspaceNameActions = () => {
       const targetWorkspace = workspaceNameTarget();
       const nextTitle = titleInput.value.trim();
       const currentTitle = currentWorkspaceName();
       const suggestedTitle = suggestedWorkspaceName();
       const suggestedPaneTitle = suggestedPaneWorkspaceName();
+      const suggestedPageTitle = suggestedBrowserPageWorkspaceName();
       if (titleSave) {
         titleSave.disabled = !targetWorkspace || !nextTitle || nextTitle === currentTitle;
         titleSave.title = workspaceNameSaveTitle(targetWorkspace, nextTitle, currentTitle);
@@ -14875,6 +14878,10 @@ function renderSettingsInspector(options = {}) {
       if (titleUsePane) {
         titleUsePane.disabled = !targetWorkspace || !suggestedPaneTitle || suggestedPaneTitle === currentTitle;
         titleUsePane.title = workspaceUsePaneNameTitle(targetWorkspace);
+      }
+      if (titleUsePageTitle) {
+        titleUsePageTitle.disabled = !targetWorkspace || !suggestedPageTitle || suggestedPageTitle === currentTitle;
+        titleUsePageTitle.title = workspaceUseBrowserPageTitleTitle(targetWorkspace, suggestedPageTitle);
       }
     };
     const revertWorkspaceNameInput = () => {
@@ -14953,11 +14960,30 @@ function renderSettingsInspector(options = {}) {
       toast(changed ? "Workspace name set from the active pane." : "Workspace already uses the active pane name.");
       return changed;
     }, "", workspaceRenameActionSearchText("usePane", workspace));
+    titleUsePageTitle = settingsActionButton("Use title", async () => {
+      const targetWorkspace = workspaceNameTarget();
+      const suggestedTitle = suggestedBrowserPageWorkspaceName();
+      if (!targetWorkspace) {
+        updateWorkspaceNameActions();
+        toast("Open a workspace before using a browser page title.");
+        return false;
+      }
+      if (!suggestedTitle) {
+        updateWorkspaceNameActions();
+        toast("The active browser page does not have a distinct title yet.");
+        return false;
+      }
+      titleInput.value = suggestedTitle;
+      const changed = await renameWorkspaceTo(suggestedTitle, targetWorkspace.id);
+      revertWorkspaceNameInput();
+      toast(changed ? "Workspace name set from page title." : "Workspace already uses this page title.");
+      return changed;
+    }, "", workspaceRenameActionSearchText("usePageTitle", workspace, "browser page document title"));
     const titleControl = document.createElement("span");
-    titleControl.className = "workspace-name-control";
-    titleControl.append(titleInput, titleSave, titleUseFolder, titleUsePane);
+    titleControl.className = "workspace-name-control has-page-title";
+    titleControl.append(titleInput, titleSave, titleUseFolder, titleUsePane, titleUsePageTitle);
     updateWorkspaceNameActions();
-    workspaceSection.append(settingRow("Name", titleControl, false, workspaceRenameActionSearchText("actions", workspace, "input save use folder use active pane")));
+    workspaceSection.append(settingRow("Name", titleControl, false, workspaceRenameActionSearchText("actions", workspace, "input save use folder use active pane use browser page title")));
     const folderInput = document.createElement("input");
     folderInput.className = "setting-control";
     folderInput.readOnly = true;
@@ -19454,6 +19480,7 @@ function workspaceNamingPanel(workspace) {
   const folderTitle = workspaceFolderNameSuggestion(workspace);
   const paneTitle = panel ? panelDisplayTitle(panel, true) : "No pane";
   const paneWorkspaceTitle = workspacePaneSuggestedTitle(workspace);
+  const browserPageTitle = workspaceBrowserPageTitleSuggestion(workspace);
   const paneDefaultTitle = panel ? editablePaneTitle({ ...panel, title: "", titleLocked: false }) : "No pane";
   const paneMode = !panel ? "No pane" : panel.titleLocked ? "Pane custom" : "Pane auto";
   const panelIsPending = Boolean(panel && isPendingPanel(panel));
@@ -19500,6 +19527,14 @@ function workspaceNamingPanel(workspace) {
   }, "", workspaceRenameActionSearchText("usePane", workspace, paneNamingBaseSearchText(panel, workspace)));
   usePaneAction.disabled = !workspace || !paneWorkspaceTitle || paneWorkspaceTitle === workspace.title;
   usePaneAction.title = workspaceUsePaneNameTitle(workspace);
+  const usePageTitleAction = settingsActionButton("Use title", async () => {
+    if (!workspace || !browserPageTitle) return false;
+    const changed = await renameWorkspaceTo(browserPageTitle, workspace.id);
+    toast(changed ? "Workspace name set from page title." : "Workspace already uses this page title.");
+    return changed;
+  }, "", workspaceRenameActionSearchText("usePageTitle", workspace, paneNamingBaseSearchText(panel, workspace)));
+  usePageTitleAction.disabled = !workspace || !browserPageTitle || browserPageTitle === workspace.title;
+  usePageTitleAction.title = workspaceUseBrowserPageTitleTitle(workspace, browserPageTitle);
   const renamePaneAction = settingsActionButton("Rename pane", () => renamePanel(panel), "", paneNamingActionSearchText("rename", panel, workspace));
   renamePaneAction.disabled = !panel || panelIsPending;
   renamePaneAction.title = paneRenameActionTitle(panel);
@@ -19515,7 +19550,7 @@ function workspaceNamingPanel(workspace) {
   }, "", paneNamingActionSearchText("default", panel, workspace));
   useDefaultPaneAction.disabled = !panel || panelIsPending || !panel.titleLocked;
   useDefaultPaneAction.title = paneUseDefaultNameTitle(panel);
-  actions.append(renameWorkspaceAction, useFolderAction, usePaneAction, renamePaneAction, useDefaultPaneAction);
+  actions.append(renameWorkspaceAction, useFolderAction, usePaneAction, usePageTitleAction, renamePaneAction, useDefaultPaneAction);
   naming.append(actions);
   return naming;
 }
@@ -20331,12 +20366,22 @@ function browserPanePageTitleSuggestion(panel = focusedPanel()) {
   return title.slice(0, 80);
 }
 
+function workspaceActivePanelForNaming(workspace = activeWorkspace()) {
+  return workspace?.panels?.find((candidate) => candidate.id === workspace.activePanelId)
+    || workspace?.panels?.[0]
+    || focusedPanel()
+    || null;
+}
+
+function workspaceBrowserPageTitleSuggestion(workspace = activeWorkspace()) {
+  const panel = workspaceActivePanelForNaming(workspace);
+  if (!panel || panel.type !== "browser" || isPendingPanel(panel)) return "";
+  return browserPanePageTitleSuggestion(panel);
+}
+
 function workspacePaneSuggestedTitle(workspace = activeWorkspace()) {
   if (!workspace) return "";
-  const panels = workspace.panels || [];
-  const panel = panels.find((candidate) => candidate.id === workspace.activePanelId)
-    || panels[0]
-    || focusedPanel();
+  const panel = workspaceActivePanelForNaming(workspace);
   if (!panel || isPendingPanel(panel)) return "";
   const candidates = [
     panelDisplayTitle(panel, true),
@@ -20351,11 +20396,13 @@ function workspaceNamingBaseSearchText(workspace = activeWorkspace()) {
   const title = workspaceDisplayTitle(workspace, "No workspace");
   const folderTitle = workspaceFolderNameSuggestion(workspace);
   const paneTitle = workspace?.panels?.length ? workspacePaneSuggestedTitle(workspace) : "";
+  const pageTitle = workspaceBrowserPageTitleSuggestion(workspace);
   return [
-    "workspace naming rename name title folder active pane tab default automatic generated custom",
+    "workspace naming rename name title folder active pane tab browser page title default automatic generated custom",
     title,
     folderTitle,
     paneTitle,
+    pageTitle,
     workspace?.cwdShort || "",
     workspace?.cwd || ""
   ].join(" ");
@@ -20388,15 +20435,26 @@ function workspaceUsePaneNameTitle(workspace = activeWorkspace(), availableTitle
   return availableTitle;
 }
 
+function workspaceUseBrowserPageTitleTitle(workspace = activeWorkspace(), pageTitle = workspaceBrowserPageTitleSuggestion(workspace), availableTitle = "Rename the workspace from the active browser page title.") {
+  const panel = workspaceActivePanelForNaming(workspace);
+  if (!workspace) return "Open a workspace before using a browser page title.";
+  if (!panel || panel.type !== "browser") return "Select a browser pane before using its page title.";
+  if (isPendingPanel(panel)) return "Wait for this browser pane to finish opening.";
+  if (!pageTitle) return "The active browser page does not have a distinct title yet.";
+  if (pageTitle === workspace.title) return "Workspace already uses this page title.";
+  return availableTitle;
+}
+
 function workspaceRenameActionSearchText(actionId, workspace = activeWorkspace(), extra = "") {
   const actionTerms = {
     panel: "settings panel overview",
-    actions: "actions controls use folder active pane default automatic generated",
+    actions: "actions controls use folder active pane browser page title default automatic generated",
     input: "input edit name title current custom",
     rename: "rename edit title name",
     save: "save input edit title name",
     useFolder: "use folder directory cwd title suggested",
-    usePane: "use active pane tab title page host folder terminal browser suggested"
+    usePane: "use active pane tab title page host folder terminal browser suggested",
+    usePageTitle: "use active browser page document title suggested"
   }[actionId] || actionId;
   return normalizeSettingsQuery([
     workspaceNamingBaseSearchText(workspace),
