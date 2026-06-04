@@ -678,7 +678,8 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.title, "Implement Grok Vault")
         XCTAssertEqual(entry.cwd, cwd)
         XCTAssertEqual(entry.gitBranch, "issue-4394-grok-vault-resume")
-        XCTAssertEqual(entry.fileURL.resolvingSymlinksInPath(), historyURL.resolvingSymlinksInPath())
+        let fileURL = try XCTUnwrap(entry.fileURL)
+        XCTAssertEqual(fileURL.resolvingSymlinksInPath(), historyURL.resolvingSymlinksInPath())
         XCTAssertEqual(
             entry.resumeCommand,
             "{ cd -- '/tmp/grok repo' 2>/dev/null || [ ! -d '/tmp/grok repo' ]; } && 'env' 'GROK_HOME=\(grokHome.path)' 'grok' '-r' 'grok-session-123' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"

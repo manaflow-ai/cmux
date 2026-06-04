@@ -801,25 +801,40 @@ jobs:
           VDISPLAY_READY="${RUNNER_TEMP:-/tmp}/cmux-build-lag-virtual-display.ready"
           VDISPLAY_ID_PATH="${RUNNER_TEMP:-/tmp}/cmux-build-lag-virtual-display.id"
           VDISPLAY_LOG="${RUNNER_TEMP:-/tmp}/cmux-build-lag-virtual-display.log"
-          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
+          for attempt in $(seq 1 3); do
+            rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
 
-          /tmp/create-virtual-display \
-            --ready-path "$VDISPLAY_READY" \
-            --display-id-path "$VDISPLAY_ID_PATH" \
-            >"$VDISPLAY_LOG" 2>&1 &
-          VDISPLAY_PID=$!
-          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
+            /tmp/create-virtual-display \
+              --ready-path "$VDISPLAY_READY" \
+              --display-id-path "$VDISPLAY_ID_PATH" \
+              >"$VDISPLAY_LOG" 2>&1 &
+            VDISPLAY_PID=$!
+            echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
 
-          for _ in $(seq 1 300); do
-            if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
-              break
-            fi
-            if ! kill -0 "$VDISPLAY_PID" 2>/dev/null; then
-              echo "Virtual display helper exited before readiness" >&2
+            for _ in $(seq 1 300); do
+              if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
+                break 2
+              fi
+              if ! kill -0 "$VDISPLAY_PID" 2>/dev/null; then
+                echo "Virtual display helper exited before readiness on attempt $attempt" >&2
+                cat "$VDISPLAY_LOG" >&2 || true
+                kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+                if [ "$attempt" -eq 3 ]; then
+                  exit 1
+                fi
+                continue 2
+              fi
+              sleep 0.1
+            done
+
+            if [ ! -s "$VDISPLAY_READY" ] || [ ! -s "$VDISPLAY_ID_PATH" ]; then
+              echo "Timed out waiting for virtual display readiness on attempt $attempt" >&2
               cat "$VDISPLAY_LOG" >&2 || true
-              exit 1
+              kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+              if [ "$attempt" -eq 3 ]; then
+                exit 1
+              fi
             fi
-            sleep 0.1
           done
           if [ ! -s "$VDISPLAY_READY" ] || [ ! -s "$VDISPLAY_ID_PATH" ]; then
             echo "Timed out waiting for virtual display readiness" >&2
