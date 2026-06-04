@@ -7955,6 +7955,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .layout-preview-frame {
+  position: relative;
   min-width: 0;
   min-height: 150px;
   display: grid;
@@ -8012,6 +8013,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .layout-preview-tabs span,
 .layout-preview-pane-header,
 .layout-preview-terminal-line,
+.layout-preview-overlay span,
 .layout-preview-inspector span,
 .layout-preview-status {
   min-width: 0;
@@ -8148,6 +8150,49 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .layout-settings-preview.toolbar-buttons-filled .layout-preview-topbar span:nth-child(3) {
   background: color-mix(in oklch, var(--color-accent) 22%, var(--color-pane-active-surface) 78%);
+}
+
+.layout-preview-overlay {
+  position: absolute;
+  top: 44px;
+  left: 50%;
+  width: clamp(44px, calc(100% - var(--layout-preview-sidebar) - var(--layout-preview-inspector) - 28px), 96px);
+  display: grid;
+  gap: 5px;
+  padding: 7px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-1);
+  background: var(--color-rail);
+  box-shadow: 0 10px 28px oklch(0% 0 0 / 34%);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.layout-preview-overlay span {
+  height: 7px;
+  background: color-mix(in oklch, var(--color-text) 12%, transparent);
+}
+
+.layout-settings-preview.overlay-style-quiet .layout-preview-overlay {
+  border-color: color-mix(in oklch, var(--color-line) 58%, transparent);
+  background: color-mix(in oklch, var(--color-rail) 70%, transparent);
+  box-shadow: none;
+}
+
+.layout-settings-preview.overlay-style-quiet .layout-preview-overlay span {
+  background: color-mix(in oklch, var(--color-text) 8%, transparent);
+}
+
+.layout-settings-preview.overlay-style-solid .layout-preview-overlay {
+  border-color: color-mix(in oklch, var(--color-line-strong) 74%, var(--color-accent) 26%);
+  background: color-mix(in oklch, var(--color-rail) 78%, var(--color-pane) 22%);
+  box-shadow:
+    0 12px 32px oklch(0% 0 0 / 38%),
+    inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 12%, transparent);
+}
+
+.layout-settings-preview.overlay-style-solid .layout-preview-overlay span:first-child {
+  background: color-mix(in oklch, var(--color-accent) 18%, var(--color-text) 10%);
 }
 
 .layout-settings-preview.toolbar-minimal .layout-preview-topbar span:nth-child(2) {
@@ -14422,6 +14467,67 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border-radius: var(--radius-2);
   background: var(--color-rail);
   box-shadow: 0 24px 70px oklch(0% 0 0 / 44%);
+}
+
+.shell.overlay-style-quiet .context-menu,
+.shell.overlay-style-quiet ~ .palette .palette-dialog,
+.shell.overlay-style-quiet ~ .dialog-backdrop .app-dialog,
+.shell.overlay-style-quiet ~ .toast-region .toast {
+  border-color: color-mix(in oklch, var(--color-line) 62%, transparent);
+  background: color-mix(in oklch, var(--color-rail-surface) 78%, var(--color-canvas-surface) 22%);
+  box-shadow: none;
+}
+
+.shell.overlay-style-quiet ~ .palette {
+  background: oklch(8% 0.012 105 / 42%);
+}
+
+.shell.overlay-style-quiet ~ .dialog-backdrop {
+  background: oklch(0% 0 0 / 38%);
+}
+
+.shell.overlay-style-quiet ~ .palette .palette-input,
+.shell.overlay-style-quiet ~ .palette .palette-quick-actions {
+  border-color: color-mix(in oklch, var(--color-line) 58%, transparent);
+}
+
+.shell.overlay-style-quiet ~ .palette .palette-quick-action {
+  background: color-mix(in oklch, var(--color-pane-surface) 52%, transparent);
+}
+
+.shell.overlay-style-solid .context-menu,
+.shell.overlay-style-solid ~ .palette .palette-dialog,
+.shell.overlay-style-solid ~ .dialog-backdrop .app-dialog,
+.shell.overlay-style-solid ~ .toast-region .toast {
+  border-color: color-mix(in oklch, var(--color-line-strong) 74%, var(--color-accent) 26%);
+  background: color-mix(in oklch, var(--color-rail-surface) 82%, var(--color-pane-surface) 18%);
+  box-shadow:
+    0 22px 70px oklch(0% 0 0 / 48%),
+    inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 10%, transparent);
+}
+
+.shell.overlay-style-solid ~ .palette {
+  background: oklch(6% 0.014 105 / 64%);
+}
+
+.shell.overlay-style-solid ~ .dialog-backdrop {
+  background: oklch(0% 0 0 / 58%);
+}
+
+.shell.overlay-style-solid ~ .palette .palette-input,
+.shell.overlay-style-solid ~ .palette .palette-quick-actions {
+  border-color: color-mix(in oklch, var(--color-line-strong) 70%, var(--color-accent) 30%);
+}
+
+.shell.overlay-style-solid ~ .palette .palette-quick-action {
+  background: color-mix(in oklch, var(--color-pane-surface) 76%, var(--color-accent) 6%);
+}
+
+.shell.performance-mode.overlay-style-solid .context-menu,
+.shell.performance-mode.overlay-style-solid ~ .palette .palette-dialog,
+.shell.performance-mode.overlay-style-solid ~ .dialog-backdrop .app-dialog,
+.shell.performance-mode.overlay-style-solid ~ .toast-region .toast {
+  box-shadow: none;
 }
 
 .shell.performance-mode ~ .dialog-backdrop .app-dialog {
