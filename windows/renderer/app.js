@@ -21458,6 +21458,13 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
   const paneSave = currentColorSaveModel("pane", workspace);
   const hasSavedColors = state.customColorPalette.length > 0;
   const targetLabel = targetOption.label.toLowerCase();
+  const targetHasMultipleColors = targetOption.id === "all" && /\d+\s+colors/.test(targetOption.status);
+  const copyTargetDisabled = targetOption.disabled || targetHasMultipleColors || !canCopyColorValue(targetOption.color, defaultSettings.accent);
+  const copyTargetTitle = targetOption.disabled
+    ? `${targetOption.label}: ${targetOption.meta}.`
+    : targetHasMultipleColors
+      ? "All panes use multiple colors. Choose a single pane, workspace, or accent target first."
+      : colorCopyTitle(targetOption.color, defaultSettings.accent, `Copy ${targetLabel} color value.`);
   const actions = [
     quickOverviewControlButton("Save accent", () => saveCurrentColorToPalette("accent"), {
       disabled: accentSave.disabled,
@@ -21473,6 +21480,11 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
       disabled: paneSave.disabled,
       title: paneSave.title,
       search: "quick setup color save active pane custom reusable palette"
+    }),
+    quickOverviewControlButton("Copy target", () => copyColorValue(targetOption.color, defaultSettings.accent, `${targetOption.label} color copied.`), {
+      disabled: copyTargetDisabled,
+      title: copyTargetTitle,
+      search: `quick setup color copy current target value clipboard ${targetOption.label} ${targetOption.meta}`
     }),
     quickOverviewControlButton("Paste target", () => pasteColorToTarget(state.colorApplyTarget), {
       disabled: targetOption.disabled,
@@ -21497,7 +21509,7 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
     className: "quick-overview-colors",
     title: "Color controls",
     meta: `${targetOption.label}: ${targetOption.status} / ${state.customColorPalette.length}/${customColorPaletteLimit} saved`,
-    search: `quick setup color controls accent workspace pane all saved palette paste target ${targetOption.label} ${targetOption.status} ${targetOption.meta}`,
+    search: `quick setup color controls accent workspace pane all saved palette copy paste target ${targetOption.label} ${targetOption.status} ${targetOption.meta}`,
     actions
   });
 }
