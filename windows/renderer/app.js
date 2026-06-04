@@ -16015,6 +16015,17 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
     true,
     "pane tab color marker style dot edge tint stripe fill identity busy workspace"
   ));
+  const paneChromeDefault = paneChromeSettingsAreDefault();
+  const paneActions = document.createElement("div");
+  paneActions.className = "settings-actions";
+  paneActions.dataset.settingsSearch = normalizeSettingsQuery("pane chrome reset default header controls actions new pane placement surface corner dividers spacing active inactive focus title detail color markers dot edge tint");
+  const resetPanesAction = settingsActionButton("Reset panes", resetPaneChromeSettings, "", `pane chrome reset default headers controls new panes surface dividers spacing focus titles markers ${paneChromeDefault ? "active current " : ""}`);
+  resetPanesAction.disabled = paneChromeDefault;
+  resetPanesAction.title = paneChromeDefault
+    ? "Pane chrome settings already use defaults."
+    : "Reset pane headers, controls, new-pane placement, surfaces, dividers, spacing, focus emphasis, titles, and markers.";
+  paneActions.append(resetPanesAction);
+  panel.append(paneActions);
   const sidebarWidthRange = document.createElement("input");
   sidebarWidthRange.className = "setting-control";
   sidebarWidthRange.type = "range";
@@ -32269,6 +32280,22 @@ const toolbarChromeSettings = [
   "toolbarButtonStyle"
 ];
 
+const paneChromeSettings = [
+  "paneHeaderMode",
+  "paneActionMode",
+  "newPanePlacement",
+  "paneSurfaceStyle",
+  "cornerStyle",
+  "paneDividerSize",
+  "paneDividerStyle",
+  "paneSpacing",
+  "activePaneEmphasis",
+  "inactivePaneDimming",
+  "titleDetailMode",
+  "paneColorMarkers",
+  "paneMarkerStyle"
+];
+
 const workspaceChromeBooleanSettings = new Set([
   "paneColorMarkers",
   "focusMode",
@@ -33044,6 +33071,10 @@ function toolbarChromeSettingsAreDefault() {
   return settingsKeysMatchDefaults(toolbarChromeSettings);
 }
 
+function paneChromeSettingsAreDefault() {
+  return settingsKeysMatchDefaults(paneChromeSettings);
+}
+
 function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
   const enabled = Boolean(nextValue);
   const changed = updateSettings({ focusMode: enabled }, { immediate: true });
@@ -33130,6 +33161,19 @@ function resetToolbarChromeSettings() {
   }
   refreshLayoutSettings();
   toast("Toolbar reset.");
+  return true;
+}
+
+function resetPaneChromeSettings() {
+  const updates = {};
+  for (const key of paneChromeSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Pane chrome already uses defaults.");
+    return false;
+  }
+  refreshLayoutSettings();
+  toast("Pane chrome reset.");
   return true;
 }
 
