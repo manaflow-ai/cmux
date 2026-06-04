@@ -15,6 +15,15 @@ import CommonCrypto
 import Security
 #endif
 
+enum BrowserAddressBarFocusSelectionIntent: Equatable {
+    case preserveFieldEditorSelection
+    case selectAll
+
+    var shouldSelectAll: Bool {
+        self == .selectAll
+    }
+}
+
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
     var result: [URL] = []
@@ -3448,6 +3457,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Sticky omnibar-focus intent. This survives view mount timing races and is
     /// cleared only after BrowserPanelView acknowledges handling it.
     @Published private(set) var pendingAddressBarFocusRequestId: UUID?
+    private(set) var pendingAddressBarFocusSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
 
     /// Per-surface browser chrome visibility. Diff and artifact viewers can hide
     /// the omnibar without changing the global browser default.
@@ -6268,6 +6278,7 @@ extension BrowserPanel {
         abandonRestoredSessionHistoryIfNeeded()
 
         pendingAddressBarFocusRequestId = nil
+        pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
         preferredFocusIntent = .addressBar
         suppressOmnibarAutofocusUntil = nil
         suppressWebViewFocusUntil = nil
@@ -7275,6 +7286,7 @@ extension BrowserPanel {
         if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
         let shouldSelectAll = created && !recoveredNeedle.isEmpty
         pendingAddressBarFocusRequestId = nil
+        pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
         let generation = beginSearchFocusRequest(reason: "startFind")
         postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: shouldSelectAll)
@@ -7376,6 +7388,7 @@ extension BrowserPanel {
         }
 
         pendingAddressBarFocusRequestId = nil
+        pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
         isBrowserFocusModeActive = true
         clearBrowserFocusModeEscapeArms(reason: "\(reason).activate")
         preferredFocusIntent = .webView
@@ -7628,27 +7641,35 @@ extension BrowserPanel {
     }
 
     @discardableResult
-    func requestAddressBarFocus() -> UUID {
+    func requestAddressBarFocus(
+        selectionIntent: BrowserAddressBarFocusSelectionIntent = .selectAll
+    ) -> UUID {
         clearBrowserFocusMode(reason: "requestAddressBarFocus")
         setOmnibarVisible(true)
         preferredFocusIntent = .addressBar
         invalidateSearchFocusRequests(reason: "requestAddressBarFocus")
         beginSuppressWebViewFocusForAddressBar()
         if let pendingAddressBarFocusRequestId {
+            if selectionIntent == .selectAll {
+                pendingAddressBarFocusSelectionIntent = .selectAll
+            }
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.addressBar.request panel=\(id.uuidString.prefix(5)) " +
-                "request=\(pendingAddressBarFocusRequestId.uuidString.prefix(8)) result=reuse_pending"
+                "request=\(pendingAddressBarFocusRequestId.uuidString.prefix(8)) result=reuse_pending " +
+                "selection=\(String(describing: pendingAddressBarFocusSelectionIntent))"
             )
 #endif
             return pendingAddressBarFocusRequestId
         }
         let requestId = UUID()
+        pendingAddressBarFocusSelectionIntent = selectionIntent
         pendingAddressBarFocusRequestId = requestId
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.addressBar.request panel=\(id.uuidString.prefix(5)) " +
-            "request=\(requestId.uuidString.prefix(8)) result=new"
+            "request=\(requestId.uuidString.prefix(8)) result=new " +
+            "selection=\(String(describing: selectionIntent))"
         )
 #endif
         return requestId
@@ -7660,6 +7681,7 @@ extension BrowserPanel {
         isOmnibarVisible = visible
         if !visible {
             pendingAddressBarFocusRequestId = nil
+            pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
             if preferredFocusIntent == .addressBar {
                 preferredFocusIntent = .webView
             }
@@ -7765,7 +7787,7 @@ extension BrowserPanel {
             focus()
             return true
         case .addressBar:
-            let requestId = requestAddressBarFocus()
+            let requestId = requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
             NotificationCenter.default.post(name: .browserFocusAddressBar, object: id)
 #if DEBUG
             cmuxDebugLog(
@@ -7869,6 +7891,7 @@ extension BrowserPanel {
             return
         }
         pendingAddressBarFocusRequestId = nil
+        pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.addressBar.requestAck panel=\(id.uuidString.prefix(5)) " +

@@ -7,15 +7,6 @@ import ObjectiveC
 private var cmuxBrowserPanelNeedsRenderingStateReattachKey: UInt8 = 0
 let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
 
-private enum OmnibarFocusGainedSelectionIntent {
-    case preserveFieldEditorSelection
-    case selectAll
-
-    var shouldSelectAll: Bool {
-        self == .selectAll
-    }
-}
-
 private func browserPanelViewObjectID(_ object: AnyObject?) -> String {
     guard let object else { return "nil" }
     return String(describing: Unmanaged.passUnretained(object).toOpaque())
@@ -465,7 +456,7 @@ struct BrowserPanelView: View {
     @State private var focusModeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var omnibarSelectAllRequestId: UInt64 = 0
-    @State private var pendingFocusGainedSelectionIntent: OmnibarFocusGainedSelectionIntent = .preserveFieldEditorSelection
+    @State private var pendingFocusGainedSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
     // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
@@ -1864,7 +1855,7 @@ struct BrowserPanelView: View {
     private func setAddressBarFocused(
         _ focused: Bool,
         reason: String,
-        focusGainedSelectionIntent: OmnibarFocusGainedSelectionIntent = .preserveFieldEditorSelection
+        focusGainedSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
     ) {
 #if DEBUG
         if addressBarFocused == focused {
@@ -2033,22 +2024,24 @@ struct BrowserPanelView: View {
             return
         }
         lastHandledAddressBarFocusRequestId = requestId
+        let selectionIntent = panel.pendingAddressBarFocusSelectionIntent
         panel.beginSuppressWebViewFocusForAddressBar()
 #if DEBUG
         logBrowserFocusState(
             event: "addressBarFocus.request.apply",
-            detail: "request=\(requestId.uuidString.prefix(8))"
+            detail: "request=\(requestId.uuidString.prefix(8)) selection=\(String(describing: selectionIntent))"
         )
 #endif
 
         if addressBarFocused {
-            // Re-run selection behavior when focus is explicitly requested again
-            // while already focused, without replacing an in-progress edit.
+            // Re-run explicit selection behavior only for requests that own it
+            // (Cmd+L), without replacing a caret from focus restoration.
             let effects = omnibarReduce(
                 state: &omnibarState,
                 event: .focusReasserted(
                     shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
-                        isUserEditing: omnibarState.isUserEditing
+                        isUserEditing: omnibarState.isUserEditing,
+                        selectionIntent: selectionIntent
                     )
                 )
             )
@@ -2064,7 +2057,7 @@ struct BrowserPanelView: View {
             setAddressBarFocused(
                 true,
                 reason: "request.apply",
-                focusGainedSelectionIntent: .selectAll
+                focusGainedSelectionIntent: selectionIntent
             )
 #if DEBUG
             logBrowserFocusState(
@@ -3848,8 +3841,11 @@ func browserOmnibarShouldReacquireFocusAfterEndEditing(
     desiredOmnibarFocus && !nextResponderIsOtherTextField
 }
 
-func browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: Bool) -> Bool {
-    !isUserEditing
+func browserOmnibarShouldSelectAllOnFocusReassertion(
+    isUserEditing: Bool,
+    selectionIntent: BrowserAddressBarFocusSelectionIntent
+) -> Bool {
+    selectionIntent.shouldSelectAll && !isUserEditing
 }
 
 final class OmnibarNativeTextField: NSTextField {

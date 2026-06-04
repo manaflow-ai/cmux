@@ -424,7 +424,10 @@ final class OmnibarStateMachineTests: XCTestCase {
         let effects = omnibarReduce(
             state: &state,
             event: .focusReasserted(
-                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: state.isUserEditing)
+                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
+                    isUserEditing: state.isUserEditing,
+                    selectionIntent: .selectAll
+                )
             )
         )
 
@@ -436,8 +439,24 @@ final class OmnibarStateMachineTests: XCTestCase {
     }
 
     func testFocusReassertionDoesNotSelectAllDuringUserEdit() throws {
-        XCTAssertFalse(browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: true))
-        XCTAssertTrue(browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: false))
+        XCTAssertFalse(
+            browserOmnibarShouldSelectAllOnFocusReassertion(
+                isUserEditing: true,
+                selectionIntent: .selectAll
+            )
+        )
+        XCTAssertTrue(
+            browserOmnibarShouldSelectAllOnFocusReassertion(
+                isUserEditing: false,
+                selectionIntent: .selectAll
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldSelectAllOnFocusReassertion(
+                isUserEditing: false,
+                selectionIntent: .preserveFieldEditorSelection
+            )
+        )
     }
 
     func testEscapeRevertsWhenEditingThenBlursOnSecondEscape() throws {
