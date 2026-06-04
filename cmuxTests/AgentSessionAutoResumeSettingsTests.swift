@@ -622,6 +622,43 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         XCTAssertEqual(runningSnapshot.panels.first?.terminal?.resumeBinding?.kind, "tmux")
     }
 
+    // After a session is restored on reload, the UI fork action must still find it. The action
+    // resolves the conversation via Workspace.forkableAgentSnapshot(forPanelId:), which reads the
+    // snapshot captured at restore (restoredAgentSnapshotsByPanelId). A restored codex/claude/opencode
+    // session must therefore still expose a valid fork command + launchable fork input.
+    @MainActor
+    func testRestoredSessionRemainsForkable() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sessionId = "codex-fork-after-restore-session"
+        let sourceIndex = try makeRestorableAgentIndex(
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: sessionId
+        )
+        let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+
+        let forkable = try XCTUnwrap(
+            restored.forkableAgentSnapshot(forPanelId: restoredPanelId),
+            "a restored session must remain forkable via the UI"
+        )
+        XCTAssertEqual(forkable.sessionId, sessionId)
+        let forkCommand = try XCTUnwrap(forkable.forkCommand, "restored session must expose a fork command")
+        XCTAssertTrue(forkCommand.contains("'fork'"), "codex fork verb expected; got: \(forkCommand)")
+        XCTAssertTrue(forkCommand.contains(sessionId), "fork must reference the restored session id; got: \(forkCommand)")
+        XCTAssertNotNil(
+            forkable.forkStartupInput(
+                fileManager: .default,
+                temporaryDirectory: FileManager.default.temporaryDirectory
+            ),
+            "restored session must produce launchable fork startup input"
+        )
+    }
+
     // After a resumed agent is killed, the surface must return to the session's launch directory,
     // not the surface default. The resume command's own `cd` runs inside the `-lic` child shell, so
     // the outer login shell needs an explicit `cd` to the working directory before `exec -l`.
