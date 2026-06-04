@@ -5152,6 +5152,26 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 
+    func testResolvesExtensionlessFileLineReferenceAsExternalFileURLInsteadOfBrowser() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("Makefile", isDirectory: false)
+        try "all:\n\ttrue\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let target = try XCTUnwrap(
+            resolveTerminalOpenURLTarget("Makefile:12", cwd: root.path)
+        )
+        switch target {
+        case let .external(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, fileURL.path)
+            XCTAssertEqual(url.fragment, "L12")
+        case let .embeddedBrowser(url):
+            XCTFail("Expected extensionless local file reference to open in the editor, not the browser: \(url)")
+        }
+    }
+
     func testResolvesAbsoluteFileLineColumnReferenceWithoutKeepingSuffixInPath() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

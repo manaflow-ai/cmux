@@ -1348,6 +1348,16 @@ private func cmuxLooksLikeTerminalPath(_ path: String) -> Bool {
     return !(path as NSString).pathExtension.isEmpty
 }
 
+private func cmuxContainsTerminalPathLineSuffix(_ rawValue: String) -> Bool {
+    cmuxQuicklookPathCandidates(from: rawValue).contains { token in
+        cmuxSplitTerminalPathLineSuffix(token) != nil
+    }
+}
+
+private func cmuxLooksLikeTerminalPathReference(_ reference: TerminalLocalFileReference) -> Bool {
+    cmuxLooksLikeTerminalPath(reference.path) || reference.line != nil
+}
+
 private func cmuxStandardizedTerminalPath(_ path: String, cwd: String?) -> String? {
     let expanded = (path as NSString).expandingTildeInPath
     let candidatePath: String
@@ -1394,7 +1404,7 @@ private func cmuxResolveTerminalLocalFileURL(
     var seenPaths = Set<String>()
     for token in cmuxQuicklookPathCandidates(from: rawValue) {
         for reference in cmuxTerminalLocalFileReferenceCandidates(from: token) {
-            guard cmuxLooksLikeTerminalPath(reference.path),
+            guard cmuxLooksLikeTerminalPathReference(reference),
                   let path = cmuxStandardizedTerminalPath(reference.path, cwd: cwd),
                   seenPaths.insert(path).inserted,
                   fileExists(path) else {
@@ -1446,6 +1456,14 @@ func resolveTerminalOpenURLTarget(
         cmuxDebugLog("link.resolve result=nil (empty)")
         #endif
         return nil
+    }
+
+    if cmuxContainsTerminalPathLineSuffix(trimmed),
+       let fileURL = cmuxResolveTerminalLocalFileURL(trimmed, cwd: cwd, fileExists: fileExists) {
+        #if DEBUG
+        cmuxDebugLog("link.resolve result=external(localPathLineReference) url=\(fileURL)")
+        #endif
+        return .external(fileURL)
     }
 
     if let parsed = URL(string: trimmed),
