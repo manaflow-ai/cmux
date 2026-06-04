@@ -19,9 +19,6 @@ import UniformTypeIdentifiers
 @_silgen_name("ghostty_surface_clear_selection")
 private func ghostty_surface_clear_selection_compat(_ surface: ghostty_surface_t) -> Bool
 
-@_silgen_name("ghostty_surface_select_cursor_cell")
-private func ghostty_surface_select_cursor_cell_compat(_ surface: ghostty_surface_t) -> Bool
-
 enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable {
     case realUserConfig
     case freshInstall
@@ -8523,10 +8520,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func selectKeyboardCopyModeCursorCell(surface: ghostty_surface_t) -> Bool {
-        guard let cursor = keyboardCopyModeCursor,
-              let metrics = keyboardCopyModeGridMetrics(surface: surface) else {
-            return ghostty_surface_select_cursor_cell_compat(surface)
-        }
+        guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return false }
+
+        let cursor = keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface)
+        keyboardCopyModeCursor = cursor
 
         let rect = metrics.topOriginRect(for: cursor)
         let y = min(max(rect.midY, 0), max(bounds.height - 1, 0))
@@ -8537,13 +8534,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_clear_selection_compat(surface)
         ghostty_surface_mouse_pos(surface, Double(startX), Double(y), mods)
         guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
-            return ghostty_surface_select_cursor_cell_compat(surface)
+            _ = ghostty_surface_clear_selection_compat(surface)
+            return false
         }
         ghostty_surface_mouse_pos(surface, Double(endX), Double(y), mods)
         let selectedCursorCell = ghostty_surface_has_selection(surface)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
         guard selectedCursorCell else {
-            return ghostty_surface_select_cursor_cell_compat(surface)
+            _ = ghostty_surface_clear_selection_compat(surface)
+            return false
         }
         return true
     }
