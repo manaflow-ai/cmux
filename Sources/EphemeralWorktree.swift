@@ -157,7 +157,7 @@ nonisolated struct EphemeralWorktreeGitClient {
     func createWorktree(_ record: EphemeralWorktreeRecord) throws {
         let parentURL = URL(fileURLWithPath: record.worktreePath).deletingLastPathComponent()
         try fileManager.createDirectory(at: parentURL, withIntermediateDirectories: true)
-        try runGitChecked([
+        _ = try runGitChecked([
             "-C", record.sourceRepositoryPath,
             "worktree", "add",
             "-b", record.branchName,
@@ -179,7 +179,7 @@ nonisolated struct EphemeralWorktreeGitClient {
 
     func snapshotUncommittedChanges(_ record: EphemeralWorktreeRecord) throws -> String {
         let branchName = abandonedBranchName(for: record)
-        try runGitChecked(["-C", record.worktreePath, "add", "-A"])
+        _ = try runGitChecked(["-C", record.worktreePath, "add", "-A"])
         let tree = try runGitChecked(["-C", record.worktreePath, "write-tree"])
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let parent = try runGitChecked(["-C", record.worktreePath, "rev-parse", "HEAD"])
@@ -193,7 +193,7 @@ nonisolated struct EphemeralWorktreeGitClient {
             "-p", parent,
             "-m", "cmux snapshot abandoned session \(record.sessionId)",
         ]).trimmingCharacters(in: .whitespacesAndNewlines)
-        try runGitChecked([
+        _ = try runGitChecked([
             "-C", record.sourceRepositoryPath,
             "update-ref",
             "refs/heads/\(branchName)",
@@ -204,7 +204,7 @@ nonisolated struct EphemeralWorktreeGitClient {
 
     func removeWorktree(_ record: EphemeralWorktreeRecord) throws {
         if fileManager.fileExists(atPath: record.worktreePath) {
-            try runGitChecked([
+            _ = try runGitChecked([
                 "-C", record.sourceRepositoryPath,
                 "worktree", "remove",
                 "--force",
@@ -213,7 +213,7 @@ nonisolated struct EphemeralWorktreeGitClient {
         }
 
         if try branchExists(record.branchName, in: record.sourceRepositoryPath) {
-            try runGitChecked(["-C", record.sourceRepositoryPath, "branch", "-D", record.branchName])
+            _ = try runGitChecked(["-C", record.sourceRepositoryPath, "branch", "-D", record.branchName])
         }
     }
 
