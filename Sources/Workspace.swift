@@ -1900,20 +1900,22 @@ extension Workspace {
         _ record: EphemeralWorktreeRecord?
     ) {
         guard let record else { return }
-        do {
-            try EphemeralWorktreeRegistry.shared.register(record)
-        } catch {
-            Self.ephemeralWorktreeLogger.error(
-                "Failed to register restored ephemeral worktree for session \(String(record.sessionId.prefix(8)), privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
+        Task.detached(priority: .utility) {
+            do {
+                try EphemeralWorktreeRegistry.shared.register(record)
+            } catch {
+                Self.ephemeralWorktreeLogger.error(
+                    "Failed to register restored ephemeral worktree for session \(String(record.sessionId.prefix(8)), privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
 #if DEBUG
-            let detail = (error as? EphemeralWorktreeLifecycleError)?.debugDescription
-                ?? error.localizedDescription
-            cmuxDebugLog(
-                "worktree.restore.register.failed session=\(record.sessionId.prefix(8)) " +
-                "error=\(detail)"
-            )
+                let detail = (error as? EphemeralWorktreeLifecycleError)?.debugDescription
+                    ?? error.localizedDescription
+                cmuxDebugLog(
+                    "worktree.restore.register.failed session=\(record.sessionId.prefix(8)) " +
+                    "error=\(detail)"
+                )
 #endif
+            }
         }
     }
 
