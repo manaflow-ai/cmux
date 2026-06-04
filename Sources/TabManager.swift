@@ -7095,8 +7095,7 @@ class TabManager: ObservableObject {
                     workspace,
                     requiresConfirmation: false,
                     operationId: operationId,
-                    skipAnchorConfirmation: true,
-                    forceWindowClose: true
+                    skipAnchorConfirmation: true
                 )
             }
             guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
@@ -7106,8 +7105,7 @@ class TabManager: ObservableObject {
                 workspace,
                 requiresConfirmation: !force,
                 operationId: operationId,
-                skipAnchorConfirmation: force,
-                forceWindowClose: force
+                skipAnchorConfirmation: force
             )
         }
     }
@@ -7411,8 +7409,7 @@ class TabManager: ObservableObject {
         requiresConfirmation: Bool = true,
         source: CloseConfirmationSource = .workspace,
         operationId: UUID? = nil,
-        skipAnchorConfirmation: Bool = false,
-        forceWindowClose: Bool = false
+        skipAnchorConfirmation: Bool = false
     ) -> Bool {
         // Anchor-close ALWAYS prompts (subject to its own
         // WorkspaceGroupAnchorCloseSettings.suppressed flag), regardless of
@@ -7447,14 +7444,11 @@ class TabManager: ObservableObject {
             // Last workspace in this window: match Close Workspace shortcut behavior.
             if let operationId,
                let windowId = AppDelegate.shared?.windowId(for: self) {
-                if forceWindowClose {
-                    return AppDelegate.shared?.closeMainWindowForHistoryRedo(
-                        windowId: windowId,
-                        operationId: operationId,
-                        force: true
-                    ) ?? false
-                }
-                return AppDelegate.shared?.closeMainWindow(windowId: windowId, operationId: operationId) ?? false
+                return AppDelegate.shared?.closeMainWindowForHistoryRedo(
+                    windowId: windowId,
+                    operationId: operationId,
+                    force: true
+                ) ?? false
             } else if let window {
                 window.performClose(nil)
                 return true
