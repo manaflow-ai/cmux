@@ -17451,7 +17451,9 @@ final class SidebarDragAutoScrollController: ObservableObject {
     private var activePlan: SidebarAutoScrollPlan?
 
     deinit {
-        stop()
+        timer?.invalidate()
+        timer = nil
+        activePlan = nil
     }
 
     func attach(scrollView: NSScrollView?) {
