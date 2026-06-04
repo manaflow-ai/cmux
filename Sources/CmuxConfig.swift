@@ -577,6 +577,10 @@ struct CmuxResolvedDirectoryTool: Sendable, Hashable, Identifiable {
         "palette.terminalDirectoryTool.\(id)"
     }
 
+    var stopCommandPaletteCommandId: String {
+        "\(commandPaletteCommandId).stop"
+    }
+
     var displayCommand: String {
         switch kind {
         case .vscodeServeWeb:

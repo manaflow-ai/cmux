@@ -907,6 +907,7 @@ final class DirectoryToolWebServerController {
     func ensureWebServerURL(
         tool: CmuxResolvedDirectoryTool,
         directoryURL: URL,
+        launchHandle: DirectoryToolWebServerLaunchHandle? = nil,
         progress: ((LaunchProgress) -> Void)? = nil,
         completion: @escaping (LaunchResult) -> Void
     ) {
@@ -925,6 +926,7 @@ final class DirectoryToolWebServerController {
                 let result = self.launchWebServer(
                     tool: tool,
                     directoryURL: normalizedDirectoryURL,
+                    launchHandle: launchHandle,
                     progress: progress
                 )
                 self.queue.async {
@@ -944,6 +946,20 @@ final class DirectoryToolWebServerController {
         }
     }
 
+    func stopWebServer(tool: CmuxResolvedDirectoryTool, directoryURL: URL) -> Bool {
+        let normalizedDirectoryURL = directoryURL.standardizedFileURL
+        let key = ServerKey(toolID: tool.id, directoryPath: normalizedDirectoryURL.path)
+        let process: Process? = queue.sync {
+            guard let server = self.serversByKey.removeValue(forKey: key) else { return nil }
+            return server.process
+        }
+        guard let process else { return false }
+        if process.isRunning {
+            process.terminate()
+        }
+        return true
+    }
+
     private enum InternalLaunchResult {
         case opened(process: Process, url: URL)
         case failed(LaunchFailure)
@@ -952,6 +968,7 @@ final class DirectoryToolWebServerController {
     private func launchWebServer(
         tool: CmuxResolvedDirectoryTool,
         directoryURL: URL,
+        launchHandle: DirectoryToolWebServerLaunchHandle?,
         progress: ((LaunchProgress) -> Void)?
     ) -> InternalLaunchResult {
         guard tool.kind == .shellWebServer,
@@ -1011,6 +1028,7 @@ final class DirectoryToolWebServerController {
 
         do {
             try process.run()
+            launchHandle?.attach(process)
         } catch {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
@@ -1057,6 +1075,45 @@ final class DirectoryToolWebServerController {
             case .wouldBlock, .endOfFile:
                 return
             }
+        }
+    }
+}
+
+final class DirectoryToolWebServerLaunchHandle {
+    private let lock = NSLock()
+    private var process: Process?
+    private var isCancelled = false
+
+    var cancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return isCancelled
+    }
+
+    func attach(_ process: Process) {
+        var shouldTerminate = false
+        lock.lock()
+        if isCancelled {
+            shouldTerminate = true
+        } else {
+            self.process = process
+        }
+        lock.unlock()
+
+        if shouldTerminate, process.isRunning {
+            process.terminate()
+        }
+    }
+
+    func cancel() {
+        let processToTerminate: Process?
+        lock.lock()
+        isCancelled = true
+        processToTerminate = process
+        lock.unlock()
+
+        if let processToTerminate, processToTerminate.isRunning {
+            processToTerminate.terminate()
         }
     }
 }
