@@ -6621,6 +6621,8 @@ const commands = [
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() }
 ];
 
+const commandIds = new Set(commands.map((command) => command.id));
+
 const commandPerformanceQuickActionIds = new Map([
   ["settings.enablePerformanceMode", "performanceMode.on"],
   ["settings.disablePerformanceMode", "performanceMode.off"],
@@ -29785,6 +29787,8 @@ function paletteEntriesSignature() {
   appendSignatureData(parts, state.savedSettingsProfiles);
   appendSignatureData(parts, state.workspaceBlueprints);
   appendSignatureValue(parts, state.settings.browserHomeUrl);
+  appendSignatureValue(parts, state.inspectorMode || "");
+  appendSignatureValue(parts, state.settingsCategory || "");
   appendSignatureValue(parts, settingsKeysSignature(profileSettingsSettingKeys));
   appendSignatureValue(parts, quickSettingsSignature());
   appendSignatureValue(parts, backgroundCommandPaletteSignature());
@@ -30129,6 +30133,61 @@ function actionWorkflowPaletteEntries() {
       run: () => openSettingsCategory("actions", { query: workflow.label, focusSearch: false })
     }];
   });
+}
+
+function settingsCategoryPaletteState(id, label) {
+  const active = state.inspectorMode === "settings" && state.settingsCategory === id;
+  const workspace = activeWorkspace();
+  const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
+  const chromeSummary = workspaceChromeSummaryForSettings(state.settings);
+  const categoryState = {
+    quick: {
+      meta: activeSettingsSetupLabel(),
+      icon: "quick",
+      search: "quick setup overview presets clean fast setup map customization library import export"
+    },
+    workspace: {
+      meta: `${workspaceCountLabel()} / ${workspaceTitle}`,
+      icon: "workspace",
+      search: `workspace rename folder color active pane setup ${workspaceTitle}`
+    },
+    appearance: {
+      meta: `${activeLookPackLabel()} / ${appearanceBackgroundLabel(state.settings.backgroundImage)}`,
+      icon: "appearance",
+      search: "look appearance theme accent colors background image wallpaper terminal colors gallery"
+    },
+    browser: {
+      meta: `${hostnameOf(state.settings.browserHomeUrl) || "Home page"} / ${browserChromeModeLabel()} chrome`,
+      icon: "browser",
+      search: `browser home page launch external tabs history chrome zoom suspend ${state.settings.browserHomeUrl}`
+    },
+    layout: {
+      meta: `${activeWorkspaceChromePresetLabel()} / ${chromeSummary.toolbar} toolbar`,
+      icon: "layout",
+      search: `layout workspace chrome tabs panes sidebar toolbar status panel widths blueprints ${chromeSummary.density} ${chromeSummary.toolbar} ${chromeSummary.tabs} ${chromeSummary.widths}`
+    },
+    data: {
+      meta: `${recentDataItemCount()} recent / ${savedDataItemCount()} saved`,
+      icon: "data",
+      search: "data import export cleanup recent activity saved customization library profiles blueprints colors backgrounds"
+    }
+  }[id] || {
+    meta: "Settings category",
+    icon: "settings",
+    search: ""
+  };
+  return {
+    id: `settingsCategory.${id}`,
+    label: `Open ${label} Settings`,
+    meta: active ? `Active / ${categoryState.meta}` : categoryState.meta,
+    shortcut: active ? "Active" : "Open",
+    active,
+    disabled: active,
+    icon: categoryState.icon,
+    title: active ? `${label} settings are already open.` : `Open ${label} settings.`,
+    search: normalizeSettingsQuery(`settings preferences customize category ${active ? "active current " : ""}${label} ${id} ${categoryState.search} ${settingsCategorySearchAliases.get(id) || ""} ${categoryState.meta}`),
+    run: () => openSettingsCategory(id)
+  };
 }
 
 function performanceHealthPaletteEntries() {
@@ -31366,15 +31425,8 @@ function paletteEntries() {
       run: () => copyWorkspaceStarterBlueprint(starter.id)
     });
   }
-  for (const [id, label] of settingsCategories.filter(([id]) => id !== "all")) {
-    entries.push({
-      id: `settings.${id}`,
-      label: `Settings: ${label}`,
-      meta: "Settings category",
-      shortcut: "Settings",
-      search: normalizeSettingsQuery(`settings preferences customize ${label} ${id} ${settingsCategorySearchAliases.get(id) || ""}`),
-      run: () => openSettingsCategory(id)
-    });
+  for (const [id, label] of settingsCategories.filter(([id]) => id !== "all" && !commandIds.has(`settings.${id}`))) {
+    entries.push(settingsCategoryPaletteState(id, label));
   }
   return entries;
 }
