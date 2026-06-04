@@ -7559,6 +7559,9 @@ function coreCommandPaletteSignature() {
   appendSignatureValue(parts, terminalPanel ? panelDisplayTitle(terminalPanel, true) : "");
   appendSignatureValue(parts, terminalPanel?.cwdShort || terminalPanel?.cwd || "");
   appendSignatureValue(parts, isPendingPanel(terminalPanel));
+  appendSignatureValue(parts, terminalPanel ? normalizeTerminalFontSize(terminalPanel.terminalFontSize, 0) : 0);
+  appendSignatureValue(parts, terminalPanel ? terminalFontSizeForPanel(terminalPanel) : 0);
+  appendSignatureValue(parts, state.settings.terminalFontSize);
   const terminalSession = terminalPanel ? state.terminals.get(terminalPanel.id) : null;
   appendSignatureValue(parts, Boolean(terminalSession));
   appendSignatureValue(parts, terminalSession?.searchTerm || "");
@@ -8034,12 +8037,56 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
   }
   if (["terminal.clear", "terminal.restart", "terminal.fontUp", "terminal.fontDown", "terminal.fontReset"].includes(commandId)) {
     const terminalTitle = terminalPanel ? panelDisplayTitle(terminalPanel, true) : "No terminal";
+    const terminalSession = terminalPanel ? state.terminals.get(terminalPanel.id) : null;
+    const terminalSize = terminalPanel ? terminalFontSizeForPanel(terminalPanel) : state.settings.terminalFontSize;
+    const customSize = terminalPanel ? panelHasTerminalFontSize(terminalPanel) : false;
+    const fontDelta = commandId === "terminal.fontUp" ? 1 : commandId === "terminal.fontDown" ? -1 : 0;
+    const nextFontSize = fontDelta ? normalizeTerminalFontSize(terminalSize + fontDelta, terminalSize) : terminalSize;
+    const atFontLimit = fontDelta !== 0 && nextFontSize === terminalSize;
+    const resetActive = commandId === "terminal.fontReset" && terminalPanel && !customSize;
+    const clearCommand = commandId === "terminal.clear";
+    const restartCommand = commandId === "terminal.restart";
+    const fontCommand = commandId.startsWith("terminal.font");
+    const disabled = !terminalPanel
+      || (clearCommand && !terminalSession)
+      || atFontLimit
+      || resetActive;
+    const shortcutById = {
+      "terminal.clear": "Clear",
+      "terminal.restart": "Restart",
+      "terminal.fontUp": `${terminalSize}px +`,
+      "terminal.fontDown": `${terminalSize}px -`,
+      "terminal.fontReset": resetActive ? "Default" : "Reset"
+    };
+    const meta = terminalPanel
+      ? fontCommand
+        ? `${terminalTitle} / ${terminalSize}px${customSize ? " custom" : " default"}`
+        : terminalTitle
+      : "No active terminal";
+    let title = "Focus a terminal pane first.";
+    if (terminalPanel) {
+      if (clearCommand) {
+        title = terminalSession ? `Clear output in ${terminalTitle}.` : "Terminal is not ready.";
+      } else if (restartCommand) {
+        title = `Restart ${terminalTitle}.`;
+      } else if (commandId === "terminal.fontReset") {
+        title = customSize
+          ? `Reset ${terminalTitle} text to the ${state.settings.terminalFontSize}px default.`
+          : `Pane text already uses the ${state.settings.terminalFontSize}px default.`;
+      } else {
+        title = atFontLimit
+          ? `Pane text is already at ${terminalSize}px.`
+          : `Change ${terminalTitle} text from ${terminalSize}px to ${nextFontSize}px.`;
+      }
+    }
     return {
-      meta: terminalTitle,
-      disabled: !terminalPanel,
+      meta,
+      shortcut: shortcutById[commandId],
+      active: resetActive,
+      disabled,
       icon: "terminal",
-      title: terminalPanel ? `${commandId.startsWith("terminal.font") ? "Adjust" : "Use"} active terminal.` : "Focus a terminal pane first.",
-      search: `active terminal ${terminalTitle} find clear restart text font size`
+      title,
+      search: normalizeSettingsQuery(`active terminal ${terminalTitle} clear restart text font size ${terminalSize}px default custom ${state.settings.terminalFontSize}px ${terminalSession ? "ready" : "starting"}`)
     };
   }
   if (commandId === "terminal.close") {
