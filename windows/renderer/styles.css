@@ -8014,6 +8014,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .layout-preview-pane-header,
 .layout-preview-terminal-line,
 .layout-preview-overlay span,
+.layout-preview-switcher span,
 .layout-preview-inspector span,
 .layout-preview-status {
   min-width: 0;
@@ -8193,6 +8194,57 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .layout-settings-preview.overlay-style-solid .layout-preview-overlay span:first-child {
   background: color-mix(in oklch, var(--color-accent) 18%, var(--color-text) 10%);
+}
+
+.layout-preview-switcher {
+  position: absolute;
+  top: 88px;
+  left: 50%;
+  width: clamp(58px, calc(100% - var(--layout-preview-sidebar) - var(--layout-preview-inspector) - 34px), 112px);
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-rail) 92%, transparent);
+  box-shadow: 0 12px 30px oklch(0% 0 0 / 34%);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.layout-preview-switcher span:first-child {
+  height: 18px;
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 20%, var(--color-pane) 80%);
+}
+
+.layout-preview-switcher span:last-child {
+  height: 8px;
+  background: color-mix(in oklch, var(--color-text) 12%, transparent);
+}
+
+.layout-settings-preview.switcher-style-quiet .layout-preview-switcher {
+  border-color: color-mix(in oklch, var(--color-line) 58%, transparent);
+  background: color-mix(in oklch, var(--color-rail) 72%, transparent);
+  box-shadow: none;
+}
+
+.layout-settings-preview.switcher-style-quiet .layout-preview-switcher span:first-child {
+  background: color-mix(in oklch, var(--color-accent) 12%, var(--color-pane) 88%);
+}
+
+.layout-settings-preview.switcher-style-solid .layout-preview-switcher {
+  border-color: color-mix(in oklch, var(--color-line-strong) 70%, var(--color-accent) 30%);
+  background: color-mix(in oklch, var(--color-rail) 78%, var(--color-pane) 22%);
+  box-shadow:
+    0 14px 36px oklch(0% 0 0 / 38%),
+    inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 12%, transparent);
+}
+
+.layout-settings-preview.switcher-style-solid .layout-preview-switcher span:first-child {
+  background: color-mix(in oklch, var(--color-accent) 26%, var(--color-pane-active-surface) 74%);
 }
 
 .layout-settings-preview.toolbar-minimal .layout-preview-topbar span:nth-child(2) {
@@ -14527,6 +14579,37 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .shell.performance-mode.overlay-style-solid ~ .palette .palette-dialog,
 .shell.performance-mode.overlay-style-solid ~ .dialog-backdrop .app-dialog,
 .shell.performance-mode.overlay-style-solid ~ .toast-region .toast {
+  box-shadow: none;
+}
+
+.shell.switcher-style-quiet ~ .workspace-switch-hud,
+.shell.switcher-style-quiet ~ .pane-switch-hud {
+  border-color: color-mix(in oklch, var(--color-line) 60%, transparent);
+  background: color-mix(in oklch, var(--color-rail-surface) 74%, transparent);
+  box-shadow: none;
+}
+
+.shell.switcher-style-quiet ~ .workspace-switch-hud .workspace-switch-index,
+.shell.switcher-style-quiet ~ .pane-switch-hud .workspace-switch-index {
+  background: color-mix(in oklch, var(--workspace-hud-color, var(--color-accent)) 12%, var(--color-pane-surface) 88%);
+}
+
+.shell.switcher-style-solid ~ .workspace-switch-hud,
+.shell.switcher-style-solid ~ .pane-switch-hud {
+  border-color: color-mix(in oklch, var(--color-line-strong) 70%, var(--workspace-hud-color, var(--color-accent)) 30%);
+  background: color-mix(in oklch, var(--color-rail-surface) 84%, var(--color-pane-surface) 16%);
+  box-shadow:
+    0 18px 64px oklch(0% 0 0 / 48%),
+    inset 0 0 0 1px color-mix(in oklch, var(--workspace-hud-color, var(--color-accent)) 10%, transparent);
+}
+
+.shell.switcher-style-solid ~ .workspace-switch-hud .workspace-switch-index,
+.shell.switcher-style-solid ~ .pane-switch-hud .workspace-switch-index {
+  background: color-mix(in oklch, var(--workspace-hud-color, var(--color-accent)) 28%, var(--color-pane-active-surface) 72%);
+}
+
+.shell.performance-mode.switcher-style-solid ~ .workspace-switch-hud,
+.shell.performance-mode.switcher-style-solid ~ .pane-switch-hud {
   box-shadow: none;
 }
 

@@ -29,6 +29,7 @@ export const defaultSettings = {
   sidebarStyle: "subtle",
   inspectorStyle: "subtle",
   overlayStyle: "subtle",
+  switcherStyle: "subtle",
   workspaceRowSize: "auto",
   workspaceActiveStyle: "filled",
   workspaceColorStyle: "dot",
@@ -416,6 +417,12 @@ export const overlayStyleOptions = [
   ["solid", label("overlayStyle.solid", "Solid"), label("overlayStyle.solid.body", "Stronger overlay separation")]
 ];
 
+export const switcherStyleOptions = [
+  ["subtle", label("switcherStyle.subtle", "Subtle"), label("switcherStyle.subtle.body", "Default workspace and pane switcher weight")],
+  ["quiet", label("switcherStyle.quiet", "Quiet"), label("switcherStyle.quiet.body", "Lower contrast switcher HUDs")],
+  ["solid", label("switcherStyle.solid", "Solid"), label("switcherStyle.solid.body", "Stronger switcher separation")]
+];
+
 export const workspaceRowSizeOptions = [
   ["auto", label("workspaceRowSize.auto", "Auto"), label("workspaceRowSize.auto.body", "Follow density")],
   ["compact", label("workspaceRowSize.compact", "Compact"), label("workspaceRowSize.compact.body", "More workspaces visible")],
@@ -656,6 +663,7 @@ export const settingsPresets = [
       sidebarStyle: "subtle",
       inspectorStyle: "subtle",
       overlayStyle: "subtle",
+      switcherStyle: "subtle",
       workspaceRowSize: "auto",
       workspaceActiveStyle: "filled",
       workspaceColorStyle: "dot",
@@ -729,6 +737,7 @@ export const settingsPresets = [
       sidebarStyle: "quiet",
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
+      switcherStyle: "quiet",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -802,6 +811,7 @@ export const settingsPresets = [
       sidebarStyle: "quiet",
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
+      switcherStyle: "quiet",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -876,6 +886,7 @@ export const settingsPresets = [
       sidebarStyle: "quiet",
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
+      switcherStyle: "quiet",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "line",
       workspaceColorStyle: "edge",
@@ -949,6 +960,7 @@ export const settingsPresets = [
       sidebarStyle: "quiet",
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
+      switcherStyle: "quiet",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -1022,6 +1034,7 @@ export const settingsPresets = [
       sidebarStyle: "solid",
       inspectorStyle: "solid",
       overlayStyle: "solid",
+      switcherStyle: "solid",
       workspaceRowSize: "roomy",
       workspaceActiveStyle: "line",
       workspaceColorStyle: "edge",
@@ -1095,6 +1108,7 @@ export const settingsPresets = [
       sidebarStyle: "solid",
       inspectorStyle: "solid",
       overlayStyle: "solid",
+      switcherStyle: "solid",
       workspaceRowSize: "roomy",
       workspaceActiveStyle: "filled",
       workspaceColorStyle: "tint",
