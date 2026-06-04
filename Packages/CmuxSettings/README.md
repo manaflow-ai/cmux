@@ -1,8 +1,9 @@
 # CmuxSettings
 
-Strongly-typed, migratable settings storage for cmux. Zero non-Foundation
-dependencies. Modern Swift 6 throughout: actors, `AsyncStream`, value-typed
-keys, dependency injection. No locks, no KVO, no `@Published`.
+Strongly-typed, migratable settings storage for cmux. Depends only on
+Foundation and `CmuxFileWatch` (for config-file reload watching). Modern
+Swift 6 throughout: actors, `AsyncStream`, value-typed keys, dependency
+injection. No locks, no KVO, no `@Published`.
 
 Settings live in one of two stores:
 
@@ -169,11 +170,9 @@ Reflection picks it up recursively; `catalog.all` includes every leaf.
 - **`UserDefaultsSettingsStore`** — `actor`. Async reads/writes/observe.
   Observation uses `NotificationCenter.default.notifications(named:)`.
 - **`JSONConfigStore`** — `actor`. Async reads/writes/observe. Owns one
-  `JSONConfigFileWatcher` and fans out file-change events to per-subscriber
-  bounded signal streams (no `N × parse` work under burst changes).
-- **`JSONConfigFileWatcher`** — `actor` wrapping `DispatchSource`
-  file-system events behind an `AsyncStream<Void>`. The only public surface
-  is the typed event stream; the underlying dispatch sources never leak.
+  `CmuxFileWatch.FileWatcher` and fans out file-change events to per-subscriber
+  bounded signal streams (no `N × parse` work under burst changes). File
+  watching itself lives in the `CmuxFileWatch` package.
 
 ## Testing
 

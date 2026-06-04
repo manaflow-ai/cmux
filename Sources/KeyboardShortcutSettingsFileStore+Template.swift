@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSocketControl
 
 extension CmuxSettingsFileStore {
     static func defaultTemplate() -> String {
@@ -163,8 +164,11 @@ extension CmuxSettingsFileStore {
                     "claudeBinaryPath": "",
                     "ripgrepBinaryPath": "",
                     "suppressSubagentNotifications": AgentSubagentNotificationSettings.defaultSuppressNotifications,
+                    "ampIntegration": AmpIntegrationSettings.defaultHooksEnabled,
                     "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
                     "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
+                    "kiroIntegration": KiroIntegrationSettings.defaultHooksEnabled,
+                    "kiroNotificationLevel": KiroIntegrationSettings.defaultNotificationLevel.rawValue,
                     "portBase": AutomationSettings.defaultPortBase,
                     "portRange": AutomationSettings.defaultPortRange,
                 ],
@@ -185,6 +189,18 @@ extension CmuxSettingsFileStore {
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
                     "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
                     "reactGrabVersion": ReactGrabSettings.defaultVersion,
+                ],
+            ],
+            [
+                "markdown": [
+                    "fontSize": Int(MarkdownFontSizeSettings.defaultPointSize),
+                    "fontFamily": "",
+                    "maxWidth": Int(MarkdownMaxWidthSettings.defaultCSSPixels),
+                ],
+            ],
+            [
+                "fileEditor": [
+                    "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
                 ],
             ],
             [

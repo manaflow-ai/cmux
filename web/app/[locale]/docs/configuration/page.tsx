@@ -48,10 +48,15 @@ const sectionOrder = [
   "ui",
   "commands",
   "browser",
+  "markdown",
+  "fileEditor",
   "shortcuts",
 ] as const;
 
-const settingsFileExample = `{
+type ConfigurationTranslation = ReturnType<typeof useTranslations>;
+
+function buildSettingsFileExample(t: ConfigurationTranslation) {
+  return `{
   "$schema": "${schemaUrl}",
   "schemaVersion": 1,
 
@@ -88,6 +93,21 @@ const settingsFileExample = `{
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
   // },
 
+  // "markdown": {
+  //   // ${t("exampleMarkdownFontSize")}
+  //   // ${t("exampleMarkdownFontSizeZoom")}
+  //   "fontSize": 15,
+  //   // ${t("exampleMarkdownFontFamily")}
+  //   "fontFamily": "",
+  //   // ${t("exampleMarkdownMaxWidth")}
+  //   "maxWidth": 980
+  // },
+
+  // "fileEditor": {
+  //   // ${t("exampleFileEditorWordWrap")}
+  //   "wordWrap": false
+  // },
+
   // "automation": {
   //   "suppressSubagentNotifications": true
   // },
@@ -113,6 +133,7 @@ const settingsFileExample = `{
   //   }
   // },
 }`;
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -285,6 +306,8 @@ touch ~/.config/ghostty/config`}</CodeBlock>
       <DocsHeading level={2} id="example-config">{t("exampleConfig")}</DocsHeading>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`font-family = SF Mono
 font-size = 13
+sidebar-font-size = 14
+surface-tab-bar-font-size = 11
 theme = One Dark
 scrollback-limit = 50000000
 split-divider-color = #3e4451
@@ -330,7 +353,7 @@ working-directory = ~/code`}</CodeBlock>
         <a href={schemaSourceUrl}>{schemaSourceUrl}</a>.
       </p>
       <CodeBlock title="~/.config/cmux/cmux.json" lang="json">
-        {settingsFileExample}
+        {buildSettingsFileExample(t)}
       </CodeBlock>
 
       <DocsHeading level={2} id="schema-reference">Schema reference</DocsHeading>

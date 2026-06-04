@@ -12,6 +12,8 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CMUXSidebarExtensionPointIdentifier</key>
+	<string>$(CMUX_SIDEBAR_EXTENSION_POINT_ID)</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -63,6 +65,11 @@
 	<string>CmuxDockTilePlugin.plugin</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.developer-tools</string>
+	<key>LSArchitecturePriority</key>
+	<array>
+		<string>arm64</string>
+		<string>x86_64</string>
+	</array>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 	<key>NSMainStoryboardFile</key>

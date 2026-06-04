@@ -1,7 +1,7 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 
-public struct LastPromptSidebar: CmuxExtensionSidebarProvider {
-    public let descriptor = CmuxExtensionSidebarProviderDescriptor(
+public struct LastPromptSidebar: CmuxSidebarProvider {
+    public let descriptor = CmuxSidebarProviderDescriptor(
         id: "com.example.cmux.sidebar.last-prompt",
         title: localized("example.sidebar.lastPrompt.title", "Last Prompt"),
         subtitle: localized("example.sidebar.lastPrompt.subtitle", "User extension"),
@@ -11,7 +11,7 @@ public struct LastPromptSidebar: CmuxExtensionSidebarProvider {
 
     public init() {}
 
-    public func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
+    public func render(snapshot: CmuxSidebarProviderSnapshot) -> CmuxSidebarProviderRenderModel {
         let recent = snapshot.workspaces
             .filter { $0.latestSubmittedAt != nil }
             .sorted { lhs, rhs in
@@ -42,14 +42,14 @@ public struct LastPromptSidebar: CmuxExtensionSidebarProvider {
         return renderModel(providerId: descriptor.id, snapshot: snapshot, sections: sections)
     }
 
-    private func promptSubtitle(_ workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? {
+    private func promptSubtitle(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? {
         if let message = trimmed(workspace.latestSubmittedMessage) {
             return .plain(message)
         }
         return .localized(localized("example.sidebar.noPromptsYet", "No prompts yet"))
     }
 
-    private func promptTrailingText(_ workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? {
+    private func promptTrailingText(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? {
         workspace.latestSubmittedAt.map { .relativeDate($0, style: .compact) }
     }
 }
