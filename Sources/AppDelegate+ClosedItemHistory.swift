@@ -276,6 +276,7 @@ extension AppDelegate {
             return !manager.tabs.contains(where: { $0.id == workspaceId })
         case .window(let windowId):
             return closeMainWindow(windowId: windowId, operationId: operationId)
+                && tabManagerFor(windowId: windowId) == nil
         }
     }
 
@@ -308,7 +309,7 @@ extension AppDelegate {
                 ClosedItemHistoryStore.shared.clearRedoTarget()
                 return false
             }
-            return true
+            return tabManagerFor(windowId: windowId) == nil
         }
     }
 
