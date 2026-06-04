@@ -1265,19 +1265,7 @@
     "metaTitle": "cmux'u indirdiğiniz için teşekkürler",
     "metaDescription": "cmux indirmeniz başlıyor. Belgeleri keşfedin, Discord'a katılın ve cmux'u X'te takip edin.",
     "heading": "cmux'u indirdiğiniz için teşekkürler!",
-    "subtext": "İndirme başlamadıysa <link>buraya</link> tıklayın.",
-    "docs": {
-      "title": "Belgeler",
-      "description": "Başlamanıza yardımcı olacak adım adım kılavuzlar ve örneklerle cmux'un özelliklerini keşfedin."
-    },
-    "discord": {
-      "title": "Discord",
-      "description": "İpuçlarını paylaşan, sorunları çözen ve soruları gerçek zamanlı yanıtlayan binlerce cmux kullanıcısına katılın."
-    },
-    "x": {
-      "title": "X",
-      "description": "En son güncellemeler, ipuçları ve duyurular için cmux'u X'te takip edin."
-    }
+    "subtext": "İndirme başlamadıysa <link>buraya</link> tıklayın."
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw yaratıcısı. PSPDFKit kurucusu."

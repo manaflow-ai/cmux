@@ -1265,19 +1265,7 @@
     "metaTitle": "cmux를 다운로드해 주셔서 감사합니다",
     "metaDescription": "cmux 다운로드가 시작됩니다. 문서를 살펴보고 Discord에 참여하고 X에서 cmux를 팔로우하세요.",
     "heading": "cmux를 다운로드해 주셔서 감사합니다!",
-    "subtext": "다운로드가 시작되지 않으면 <link>여기</link>를 클릭하세요.",
-    "docs": {
-      "title": "문서",
-      "description": "단계별 가이드와 예제로 cmux의 기능을 살펴보고 빠르게 시작하세요."
-    },
-    "discord": {
-      "title": "Discord",
-      "description": "수천 명의 cmux 사용자와 실시간으로 팁을 공유하고 문제를 해결하며 질문에 답하세요."
-    },
-    "x": {
-      "title": "X",
-      "description": "최신 업데이트, 팁, 공지를 받으려면 X에서 cmux를 팔로우하세요."
-    }
+    "subtext": "다운로드가 시작되지 않으면 <link>여기</link>를 클릭하세요."
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw 개발자. PSPDFKit 창립자."

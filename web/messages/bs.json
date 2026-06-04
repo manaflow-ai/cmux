@@ -1265,19 +1265,7 @@
     "metaTitle": "Hvala što ste preuzeli cmux",
     "metaDescription": "Vaše preuzimanje cmux-a počinje. Istražite dokumentaciju, pridružite se Discordu i pratite cmux na X-u.",
     "heading": "Hvala što ste preuzeli cmux!",
-    "subtext": "Kliknite <link>ovdje</link> ako preuzimanje nije počelo.",
-    "docs": {
-      "title": "Dokumentacija",
-      "description": "Istražite mogućnosti cmux-a uz vodiče korak po korak i primjere koji vam pomažu da počnete."
-    },
-    "discord": {
-      "title": "Discord",
-      "description": "Pridružite se hiljadama korisnika cmux-a koji dijele savjete, rješavaju probleme i odgovaraju na pitanja u realnom vremenu."
-    },
-    "x": {
-      "title": "X",
-      "description": "Pratite cmux na X-u za najnovije novosti, savjete i objave."
-    }
+    "subtext": "Kliknite <link>ovdje</link> ako preuzimanje nije počelo."
   },
   "testimonialSubtitles": {
     "steipete": "Kreator OpenClawa. Osnivač PSPDFKita."

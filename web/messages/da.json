@@ -1265,19 +1265,7 @@
     "metaTitle": "Tak fordi du downloadede cmux",
     "metaDescription": "Dit cmux-download starter. Udforsk dokumentationen, deltag i Discord, og følg cmux på X.",
     "heading": "Tak fordi du downloadede cmux!",
-    "subtext": "Klik <link>her</link>, hvis dit download ikke er startet.",
-    "docs": {
-      "title": "Dokumentation",
-      "description": "Udforsk cmux's funktioner med trinvise vejledninger og eksempler, der hjælper dig i gang."
-    },
-    "discord": {
-      "title": "Discord",
-      "description": "Deltag sammen med tusindvis af cmux-brugere, der deler tips, løser problemer og besvarer spørgsmål i realtid."
-    },
-    "x": {
-      "title": "X",
-      "description": "Følg cmux på X for de seneste opdateringer, tips og meddelelser."
-    }
+    "subtext": "Klik <link>her</link>, hvis dit download ikke er startet."
   },
   "testimonialSubtitles": {
     "steipete": "Skaber af OpenClaw. Grundlægger af PSPDFKit."

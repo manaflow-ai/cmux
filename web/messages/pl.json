@@ -1265,19 +1265,7 @@
     "metaTitle": "Dziękujemy za pobranie cmux",
     "metaDescription": "Pobieranie cmux się rozpoczyna. Przejrzyj dokumentację, dołącz do Discorda i obserwuj cmux na X.",
     "heading": "Dziękujemy za pobranie cmux!",
-    "subtext": "Kliknij <link>tutaj</link>, jeśli pobieranie się nie rozpoczęło.",
-    "docs": {
-      "title": "Dokumentacja",
-      "description": "Poznaj funkcje cmux dzięki przewodnikom krok po kroku i przykładom, które pomogą Ci zacząć."
-    },
-    "discord": {
-      "title": "Discord",
-      "description": "Dołącz do tysięcy użytkowników cmux, którzy dzielą się wskazówkami, rozwiązują problemy i odpowiadają na pytania w czasie rzeczywistym."
-    },
-    "x": {
-      "title": "X",
-      "description": "Obserwuj cmux na X, aby być na bieżąco z aktualizacjami, wskazówkami i ogłoszeniami."
-    }
+    "subtext": "Kliknij <link>tutaj</link>, jeśli pobieranie się nie rozpoczęło."
   },
   "testimonialSubtitles": {
     "steipete": "Twórca OpenClaw. Założyciel PSPDFKit."
