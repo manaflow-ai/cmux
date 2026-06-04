@@ -4535,8 +4535,11 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             y: shiftedAnchorFrameInWindow.midY
         )
         waitUntil(description: "queued external sync to settle after layout shift") {
-            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window) == nil &&
-                TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window) != nil
+            guard let portalHost = hosted.superview else { return false }
+            let stalePointInHost = portalHost.convert(retiredStaleWindowPoint, from: nil)
+            let shiftedPointInHost = portalHost.convert(shiftedWindowPoint, from: nil)
+            return !hosted.frame.contains(stalePointInHost) &&
+                hosted.frame.contains(shiftedPointInHost)
         }
     }
 
