@@ -2244,7 +2244,14 @@ private struct SectionPopoverView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         ForEach(loaded) { entry in
-                            PopoverRow(entry: entry, onDelete: onDelete) {
+                            PopoverRow(entry: entry, onDelete: { deletedEntry in
+                                onDelete?(deletedEntry)
+                                // The popover intentionally doesn't rebuild on store
+                                // changes, so drop the deleted row from local state
+                                // to keep it from lingering as activatable.
+                                loaded.removeAll { $0.id == deletedEntry.id }
+                                fullSnapshot?.removeAll { $0.id == deletedEntry.id }
+                            }) {
                                 onResume?(entry)
                                 onDismiss()
                             }
