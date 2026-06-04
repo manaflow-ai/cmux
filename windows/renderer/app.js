@@ -25133,6 +25133,44 @@ function activePaneLayoutCommandIds(workspace = activeWorkspace()) {
   return ids;
 }
 
+function paneLayoutPresetCommandPaletteState(preset, workspace = activeWorkspace(), options = {}) {
+  const panels = workspace?.panels || [];
+  const targetPanel = paneSetupTarget(activePaneActionTarget() || activePanel());
+  const active = Boolean(options.active);
+  const unavailable = Boolean(options.unavailable || !preset || !workspace || panels.length <= 1 || !targetPanel);
+  const paneCount = panels.length;
+  const targetTitle = targetPanel ? panelDisplayTitle(targetPanel, true) : "No active pane";
+  const currentLayout = activePaneLayoutPresetLabel(workspace);
+  const shortcut = preset?.mode === "active"
+    ? "Focus size"
+    : preset?.id === "equal"
+      ? "Equal"
+      : preset?.direction === "right"
+        ? "Columns"
+        : preset?.direction === "down"
+          ? "Rows"
+          : "Layout";
+  const meta = unavailable
+    ? "Open another pane"
+    : active
+      ? `Active / ${currentLayout} / ${paneCount} panes`
+      : `${paneCount} panes / Target: ${targetTitle}`;
+  const title = unavailable
+    ? "Open another pane to use layout presets."
+    : active
+      ? `${preset.label} layout already active.`
+      : `Apply ${preset.label} layout to ${paneCount} panes. ${preset.body}`;
+  return {
+    meta,
+    shortcut: active ? "Active" : shortcut,
+    active,
+    disabled: unavailable || active,
+    icon: "layout",
+    title,
+    search: normalizeSettingsQuery(`split layout pane preset command apply ${active ? "active current " : ""}${unavailable ? "unavailable needs another pane " : ""}${preset?.label || ""} ${preset?.body || ""} ${currentLayout} ${paneCount} panes target ${targetTitle} ${preset?.mode || ""} ${preset?.direction || ""} equal columns rows side by side stacked grid wide tall focus resize simple cleanup workspace`)
+  };
+}
+
 function resetRenderStats() {
   if (!hasPerformanceStats()) {
     toast("Performance stats already clear.");
@@ -30894,30 +30932,34 @@ function paletteEntries() {
     const backgroundState = backgroundCommandPaletteState(command.id, paletteWorkspace);
     const customizationState = customizationCommandPaletteState(command.id);
     const coreState = coreCommandPaletteState(command.id, paletteWorkspace);
-    const layoutActive = activeLayoutCommandIds.has(command.id);
-    const active = layoutActive || performanceActive || Boolean(backgroundState?.active) || Boolean(customizationState?.active) || Boolean(coreState?.active);
     const layoutPreset = paneLayoutPresets.find((preset) => preset.id === paneLayoutCommandPresetIds.get(command.id));
-    const unavailable = Boolean(layoutPreset && layoutUnavailable);
+    const layoutState = layoutPreset ? paneLayoutPresetCommandPaletteState(layoutPreset, paletteWorkspace, {
+      active: activeLayoutCommandIds.has(command.id),
+      unavailable: layoutUnavailable
+    }) : null;
+    const layoutActive = Boolean(layoutState?.active);
+    const active = layoutActive || performanceActive || Boolean(backgroundState?.active) || Boolean(customizationState?.active) || Boolean(coreState?.active);
     const performanceSearch = performanceAction
       ? `performance speed lag smooth quick action ${performanceAction.title} ${performanceAction.applied} ${performanceAction.already}`
       : "";
     const backgroundSearch = backgroundState?.search || "";
     const customizationSearch = customizationState?.search || "";
     const coreSearch = coreState?.search || "";
+    const layoutSearch = layoutState?.search || "";
     return {
       id: command.id,
       label: command.label,
       meta: performanceAction
         ? performanceActive ? "Active performance setting" : "Performance quick action"
-        : backgroundState?.meta || customizationState?.meta || coreState?.meta || (layoutActive ? "Active layout command" : "Command"),
-      shortcut: active ? "Active" : performanceAction ? "Speed" : backgroundState?.shortcut || customizationState?.shortcut || coreState?.shortcut || command.shortcut,
+        : backgroundState?.meta || customizationState?.meta || coreState?.meta || layoutState?.meta || "Command",
+      shortcut: active ? "Active" : performanceAction ? "Speed" : backgroundState?.shortcut || customizationState?.shortcut || coreState?.shortcut || layoutState?.shortcut || command.shortcut,
       active,
-      disabled: active || unavailable || Boolean(backgroundState?.disabled) || Boolean(customizationState?.disabled) || Boolean(coreState?.disabled),
-      icon: backgroundState?.icon || customizationState?.icon || coreState?.icon,
+      disabled: active || Boolean(layoutState?.disabled) || Boolean(backgroundState?.disabled) || Boolean(customizationState?.disabled) || Boolean(coreState?.disabled),
+      icon: backgroundState?.icon || customizationState?.icon || coreState?.icon || layoutState?.icon,
       title: performanceAction
         ? performanceActive ? performanceAction.already : performanceAction.title
-        : backgroundState?.title || customizationState?.title || coreState?.title || (layoutPreset ? paneLayoutPresetTitle(layoutPreset, layoutActive, unavailable) : command.label),
-      search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command ${active ? "active current" : ""} ${layoutActive ? "layout" : ""} ${performanceSearch} ${backgroundSearch} ${customizationSearch} ${coreSearch}`),
+        : backgroundState?.title || customizationState?.title || coreState?.title || layoutState?.title || command.label,
+      search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command ${active ? "active current" : ""} ${layoutActive ? "layout" : ""} ${performanceSearch} ${backgroundSearch} ${customizationSearch} ${coreSearch} ${layoutSearch}`),
       run: command.run
     };
   });
