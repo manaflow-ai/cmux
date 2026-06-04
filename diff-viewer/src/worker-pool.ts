@@ -6,7 +6,7 @@ export function diffWorkerPoolSizeForUserAgent(userAgent: string | undefined): n
   return mobileUserAgentPattern.test(userAgent ?? "") ? 1 : 3;
 }
 
-export function currentDiffWorkerPoolSize(): number {
+function currentDiffWorkerPoolSize(): number {
   return diffWorkerPoolSizeForUserAgent(typeof navigator === "undefined" ? undefined : navigator.userAgent);
 }
 

@@ -2,7 +2,7 @@ import { CodeView, WorkerPoolContextProvider, type CodeViewHandle, useWorkerPool
 import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { copyGitApplyCommand, diffSourceDetail, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { fileName, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
@@ -160,19 +160,16 @@ export function App({ config, initialStatus }: ConfigProps) {
   const label = createDiffViewerLabelResolver(payload.labels, {
     assertMissing: shouldAssertMissingLabels(),
   });
-  const appearance = useMemo(() => resolveDiffViewerAppearance(payload.appearance), [payload.appearance]);
+  const appearance = resolveDiffViewerAppearance(payload.appearance);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
-  const workerModuleURL = useMemo(
-    () => resolveDiffViewerAssetURL(config.assets?.workerModuleURL),
-    [config.assets?.workerModuleURL],
-  );
-  const workerPoolOptions = useMemo(() => createDiffWorkerPoolOptions(workerModuleURL), [workerModuleURL]);
-  const highlighterOptions = useMemo(() => workerHighlighterOptions(state.options, appearance), [state.options, appearance]);
-  const renderedCodeViewOptions = useMemo(() => codeViewOptions(state.options, appearance), [state.options, appearance]);
+  const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
+  const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
+  const highlighterOptions = workerHighlighterOptions(state.options, appearance);
+  const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
 
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch);
