@@ -174,10 +174,10 @@ private final class CLISocketSentryTelemetry {
     func captureError(stage: String, error: Error, data: [String: Any] = [:]) {
         guard shouldEmit else { return }
         guard !shouldSuppressCapture(stage: stage, error: error, data: data) else { return }
+#if canImport(Sentry)
 #if DEBUG
         recordCaptureProbe(stage: stage, error: error)
 #endif
-#if canImport(Sentry)
         Self.ensureStarted()
         flushPendingBreadcrumbs()
         var context = baseContext()
