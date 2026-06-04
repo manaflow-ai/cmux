@@ -235,29 +235,7 @@ private final class CLISocketSentryTelemetry {
 
         let description = String(describing: error).lowercased()
         return description == "socket closed before reply" ||
-            description == "socket closed before complete reply" ||
-            Self.description(description, containsExactErrno: ENOENT) ||
-            Self.description(description, containsExactErrno: ECONNREFUSED) ||
-            Self.description(description, containsExactErrno: EPIPE)
-    }
-
-    private static func description(_ description: String, containsExactErrno expectedErrno: Int32) -> Bool {
-        let marker = "errno "
-        var searchStart = description.startIndex
-        while let range = description.range(of: marker, range: searchStart..<description.endIndex) {
-            var cursor = range.upperBound
-            let numberStart = cursor
-            while cursor < description.endIndex, description[cursor].isNumber {
-                cursor = description.index(after: cursor)
-            }
-            if numberStart != cursor,
-               let errnoValue = Int32(description[numberStart..<cursor]),
-               errnoValue == expectedErrno {
-                return true
-            }
-            searchStart = cursor
-        }
-        return false
+            description == "socket closed before complete reply"
     }
 
     private func isSocketTransportStage(stage: String, data: [String: Any]) -> Bool {

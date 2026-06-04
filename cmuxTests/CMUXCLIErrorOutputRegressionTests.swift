@@ -706,7 +706,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let socketPath = root.appendingPathComponent("connection refused.sock", isDirectory: false).path
+        let socketPath = root.appendingPathComponent("connection refused errno 61.sock", isDirectory: false).path
         FileManager.default.createFile(atPath: socketPath, contents: Data())
 
         let probePath = root.appendingPathComponent("sentry-probe.txt", isDirectory: false).path
