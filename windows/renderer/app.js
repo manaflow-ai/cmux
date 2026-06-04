@@ -15795,6 +15795,17 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
     true,
     "sidebar rail visual weight quiet subtle solid contrast separation workspace chrome"
   ));
+  const sidebarChromeDefault = sidebarChromeSettingsAreDefault();
+  const sidebarActions = document.createElement("div");
+  sidebarActions.className = "settings-actions";
+  sidebarActions.dataset.settingsSearch = normalizeSettingsQuery("sidebar workspace list reset default rows size git branches footer rail tools style home screen active workspace colors dot edge tint");
+  const resetSidebarAction = settingsActionButton("Reset sidebar", resetSidebarChromeSettings, "", `sidebar workspace list reset default rows branches footer tools style home active colors ${sidebarChromeDefault ? "active current " : ""}`);
+  resetSidebarAction.disabled = sidebarChromeDefault;
+  resetSidebarAction.title = sidebarChromeDefault
+    ? "Sidebar settings already use defaults."
+    : "Reset workspace rows, size, Git branch display, footer, rail tools, sidebar style, home screen, active workspace, and workspace colors.";
+  sidebarActions.append(resetSidebarAction);
+  panel.append(sidebarActions);
   panel.append(settingRow(
     "Settings panel style",
     settingSegmentedControl("inspectorStyle", inspectorStyleOptions, "settings panel inspector visual weight quiet subtle solid contrast separation workspace chrome", { compact: true }),
@@ -32296,6 +32307,18 @@ const paneChromeSettings = [
   "paneMarkerStyle"
 ];
 
+const sidebarChromeSettings = [
+  "sidebarDetailMode",
+  "workspaceRowSize",
+  "sidebarBranchMode",
+  "sidebarFooterMode",
+  "sidebarToolMode",
+  "sidebarStyle",
+  "emptyWorkspaceMode",
+  "workspaceActiveStyle",
+  "workspaceColorStyle"
+];
+
 const workspaceChromeBooleanSettings = new Set([
   "paneColorMarkers",
   "focusMode",
@@ -33075,6 +33098,10 @@ function paneChromeSettingsAreDefault() {
   return settingsKeysMatchDefaults(paneChromeSettings);
 }
 
+function sidebarChromeSettingsAreDefault() {
+  return settingsKeysMatchDefaults(sidebarChromeSettings);
+}
+
 function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
   const enabled = Boolean(nextValue);
   const changed = updateSettings({ focusMode: enabled }, { immediate: true });
@@ -33174,6 +33201,19 @@ function resetPaneChromeSettings() {
   }
   refreshLayoutSettings();
   toast("Pane chrome reset.");
+  return true;
+}
+
+function resetSidebarChromeSettings() {
+  const updates = {};
+  for (const key of sidebarChromeSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Sidebar already uses defaults.");
+    return false;
+  }
+  refreshLayoutSettings();
+  toast("Sidebar reset.");
   return true;
 }
 
