@@ -2207,13 +2207,81 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let initialCommand = startupInput.trimmingCharacters(in: .newlines)
         let command: String
         if initialCommand.hasPrefix("/bin/zsh ") {
-            let scriptBody = try surfaceResumeAssertionScriptBody(from: initialCommand)
+            let scriptBody = try restorableAgentResumeScriptBody(from: initialCommand)
             command = try XCTUnwrap(scriptBody.split(separator: "\n").last.map(String.init))
         } else {
             command = initialCommand
         }
         let cdCommand = try leadingCdCommand(from: command, workingDirectory: cwdURL.path)
         try assertZshCommandChangesDirectory(cdCommand, expectedPath: cwdURL.path)
+    }
+
+    private func restorableAgentResumeScriptBody(
+        from initialCommand: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> String {
+        let words = shellWordsForRestorableAgentResumeAssertion(initialCommand, file: file, line: line)
+        let scriptPath = try XCTUnwrap(words.count == 2 && words[0] == "/bin/zsh" ? words[1] : nil, file: file, line: line)
+        return try String(contentsOfFile: scriptPath, encoding: .utf8)
+    }
+
+    private func shellWordsForRestorableAgentResumeAssertion(
+        _ command: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> [String] {
+        var words: [String] = []
+        var index = command.startIndex
+        while index < command.endIndex {
+            while index < command.endIndex, command[index].isWhitespace {
+                index = command.index(after: index)
+            }
+            guard index < command.endIndex else { break }
+
+            var word = ""
+            var isComplete = true
+            while index < command.endIndex, !command[index].isWhitespace {
+                let character = command[index]
+                if character == "'" {
+                    index = command.index(after: index)
+                    var foundEndQuote = false
+                    while index < command.endIndex {
+                        let quotedCharacter = command[index]
+                        if quotedCharacter == "'" {
+                            index = command.index(after: index)
+                            foundEndQuote = true
+                            break
+                        }
+                        word.append(quotedCharacter)
+                        index = command.index(after: index)
+                    }
+                    if !foundEndQuote {
+                        isComplete = false
+                        break
+                    }
+                } else if character == "\\" {
+                    let next = command.index(after: index)
+                    guard next < command.endIndex else {
+                        isComplete = false
+                        index = command.endIndex
+                        break
+                    }
+                    word.append(command[next])
+                    index = command.index(after: next)
+                } else {
+                    word.append(character)
+                    index = command.index(after: index)
+                }
+            }
+
+            guard isComplete else {
+                XCTFail("Could not parse shell command: \(command)", file: file, line: line)
+                return []
+            }
+            words.append(word)
+        }
+        return words
     }
 
     func testSessionEntryClaudeResumeCommandChangesToSessionCwdBeforeResume() throws {
