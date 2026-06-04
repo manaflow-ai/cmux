@@ -2247,6 +2247,38 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected notification target panel to be focused")
     }
 
+    func testFocusTabFromNotificationClearsSplitZoomInHiddenTopLevelTab() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+
+        manager.newSurface()
+        let secondTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let secondLayoutController = workspace.bonsplitController
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let rightPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal)
+        )
+        workspace.focusPanel(leftPanelId)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: leftPanelId), "Expected split zoom to enable")
+        XCTAssertTrue(secondLayoutController.isSplitZoomed, "Expected hidden destination layout to start zoomed")
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        XCTAssertEqual(workspace.selectedTopLevelTabId, firstTopTabId)
+        XCTAssertTrue(secondLayoutController.isSplitZoomed, "Expected background top tab zoom state to remain active")
+
+        XCTAssertTrue(manager.focusTabFromNotification(workspace.id, surfaceId: rightPanel.id))
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(workspace.selectedTopLevelTabId, secondTopTabId)
+        XCTAssertFalse(
+            secondLayoutController.isSplitZoomed,
+            "Expected notification focus to clear zoom in the destination top tab"
+        )
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected notification target panel to be focused")
+    }
+
     func testFocusTabFromNotificationReturnsFalseForMissingPanel() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {

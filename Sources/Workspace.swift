@@ -17268,7 +17268,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func clearSplitZoom() -> Bool {
-        bonsplitController.clearPaneZoom()
+        var didClear = false
+        for layout in layoutTabs {
+            didClear = layout.bonsplitController.clearPaneZoom() || didClear
+        }
+        return didClear
     }
 
     @discardableResult
