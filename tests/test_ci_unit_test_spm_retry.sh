@@ -60,6 +60,8 @@ ISOLATED_RUNNER_PATTERNS=(
   'CLASS_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_CLASS_TIMEOUT_SECONDS:-300}"'
   'Timed out after ${timeout_seconds}s running $class; terminating xcodebuild'
   'FAIL $class timed out after ${timeout_seconds}s'
+  'tail -n 220 "$log_file"'
+  'exit 124'
   'SWIFT_COMPILER_SUPPORTS_6_2="$('
   'xcrun swift -e'
   "compiler\\(>=\\s*6\\.2\\)"

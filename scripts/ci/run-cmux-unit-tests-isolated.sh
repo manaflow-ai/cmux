@@ -148,8 +148,10 @@ run_one_class() {
 
   if [ "$timed_out" -ne 0 ]; then
     echo "failed" >"$status_file"
-    echo "FAIL $class timed out after ${timeout_seconds}s"
-    return 0
+    echo "FAIL $class timed out after ${timeout_seconds}s" >&2
+    echo "===== $class log =====" >&2
+    tail -n 220 "$log_file" >&2
+    exit 124
   fi
 
   if grep -Fq "Test Suite '$class' failed" "$log_file"; then

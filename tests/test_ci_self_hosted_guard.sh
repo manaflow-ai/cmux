@@ -588,6 +588,8 @@ check_cmux_unit_isolated_runner() {
     'CLASS_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_CLASS_TIMEOUT_SECONDS:-300}"' \
     'Timed out after ${timeout_seconds}s running $class; terminating xcodebuild' \
     'FAIL $class timed out after ${timeout_seconds}s' \
+    'tail -n 220 "$log_file"' \
+    'exit 124' \
     "All \${#SELECTED_TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"
   do
     if ! grep -Fq -- "$pattern" "$CMUX_UNIT_ISOLATED_RUNNER"; then
