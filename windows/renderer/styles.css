@@ -1435,6 +1435,38 @@ body.reduce-motion *::after {
   -webkit-app-region: drag;
 }
 
+.shell.topbar-style-quiet .topbar {
+  border-bottom-color: color-mix(in oklch, var(--color-line) 42%, transparent);
+  background: color-mix(in oklch, var(--color-chrome-surface) 72%, var(--color-canvas-surface) 28%);
+  box-shadow: none;
+}
+
+.shell.topbar-style-quiet .command-strip.can-scroll-left {
+  box-shadow: inset 10px 0 10px -12px color-mix(in oklch, var(--color-canvas) 58%, transparent);
+}
+
+.shell.topbar-style-quiet .command-strip.can-scroll-right {
+  box-shadow: inset -18px 0 14px -16px color-mix(in oklch, var(--color-canvas) 58%, transparent);
+}
+
+.shell.topbar-style-quiet .command-strip.can-scroll-left.can-scroll-right {
+  box-shadow:
+    inset 10px 0 10px -12px color-mix(in oklch, var(--color-canvas) 58%, transparent),
+    inset -18px 0 14px -16px color-mix(in oklch, var(--color-canvas) 58%, transparent);
+}
+
+.shell.topbar-style-solid .topbar {
+  border-bottom-color: color-mix(in oklch, var(--color-line-strong) 82%, var(--color-accent) 18%);
+  background: color-mix(in oklch, var(--color-chrome-surface) 94%, var(--color-pane-active-surface) 6%);
+  box-shadow:
+    var(--depth-topbar-shadow),
+    inset 0 -1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
+}
+
+.shell.topbar-style-solid .window-control:not(.close):hover {
+  background: color-mix(in oklch, var(--color-pane-active-surface) 86%, var(--color-accent) 8%);
+}
+
 .topbar button,
 .surface-tab,
 .pane-tool,
@@ -8049,6 +8081,17 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: 6px;
   padding: 5px 8px;
   border-bottom: 1px solid var(--color-line);
+}
+
+.layout-settings-preview.topbar-style-quiet .layout-preview-topbar {
+  border-bottom-color: color-mix(in oklch, var(--color-line) 42%, transparent);
+  background: color-mix(in oklch, var(--color-chrome) 72%, var(--color-canvas) 28%);
+}
+
+.layout-settings-preview.topbar-style-solid .layout-preview-topbar {
+  border-bottom-color: color-mix(in oklch, var(--color-line-strong) 78%, var(--color-accent) 22%);
+  background: color-mix(in oklch, var(--color-chrome) 90%, var(--color-pane) 10%);
+  box-shadow: inset 0 -1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
 }
 
 .layout-preview-topbar span {
