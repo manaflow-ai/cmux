@@ -4982,6 +4982,15 @@ function savedColorApplyTitle(color, targetOption, active) {
   return `Apply ${label} to ${targetOption.label.toLowerCase()}.`;
 }
 
+function colorTargetDefault(target = state.colorApplyTarget, workspace = activeWorkspace()) {
+  const scope = normalizeColorApplyTarget(target);
+  if (scope === "accent") return colorKey(state.settings.accent) === colorKey(defaultSettings.accent);
+  if (scope === "workspace") return !workspace?.color;
+  if (scope === "pane") return !activePaneForColorTarget()?.color;
+  if (scope === "all") return !(workspace?.panels || []).some((panel) => panel.color);
+  return true;
+}
+
 function normalizeColorForTarget(color, target = state.colorApplyTarget) {
   const raw = stripWrappingQuotes(color);
   if (!raw) return "";
@@ -5089,6 +5098,63 @@ async function pasteColorToTarget(target = state.colorApplyTarget) {
     return false;
   }
   return applySavedColorToTarget(color, scope);
+}
+
+async function resetColorTarget(target = state.colorApplyTarget) {
+  const scope = normalizeColorApplyTarget(target);
+  const workspace = activeWorkspace();
+  const targetOption = colorApplyTargetOption(scope, workspace);
+  if (targetOption.disabled) {
+    toast(`${targetOption.label}: ${targetOption.meta}.`);
+    return false;
+  }
+  if (colorTargetDefault(scope, workspace)) {
+    toast(`${targetOption.label} color already uses the default.`);
+    return false;
+  }
+  if (scope === "accent") {
+    const changed = updateSettings({ accent: defaultSettings.accent }, { immediate: true });
+    if (!changed) {
+      toast("Accent color already uses the default.");
+      return false;
+    }
+    refreshAppearanceSettingsForColorChange();
+    toast("Accent color reset.");
+    return true;
+  }
+  if (scope === "workspace") {
+    const ok = await setWorkspaceColor("", workspace.id);
+    if (!ok) {
+      toast("Workspace color could not be reset.");
+      return false;
+    }
+    refreshAppearanceSettingsForColorChange();
+    toast("Workspace color reset.");
+    return true;
+  }
+  if (scope === "pane") {
+    const panel = activePaneForColorTarget();
+    if (!panel) {
+      toast("Open a pane before resetting pane color.");
+      return false;
+    }
+    await updatePanel(panel.id, { color: "" });
+    refreshAppearanceSettingsForColorChange();
+    toast("Pane color reset.");
+    return true;
+  }
+  const panels = (workspace?.panels || []).filter((panel) => panel.color);
+  if (panels.length === 0) {
+    toast("Pane colors already use defaults.");
+    return false;
+  }
+  await updatePanels(panels.map((panel) => ({
+    panelId: panel.id,
+    updates: { color: "" }
+  })));
+  refreshAppearanceSettingsForColorChange();
+  toast(`${panels.length} pane${panels.length === 1 ? "" : "s"} reset.`);
+  return true;
 }
 
 const backgroundTuningSettings = [
@@ -24319,6 +24385,14 @@ function savedColorPalettePanel() {
   pasteColor.title = targetOption.disabled
     ? `${targetOption.label}: ${targetOption.meta}.`
     : `Paste a copied color to ${targetOption.label.toLowerCase()}.`;
+  const targetDefault = colorTargetDefault(colorTarget, workspace);
+  const resetTarget = settingsActionButton("Reset target", () => resetColorTarget(state.colorApplyTarget), "", `saved color reset selected target default accent workspace pane all ${targetDefault ? "active current " : ""}`);
+  resetTarget.disabled = Boolean(targetOption.disabled) || targetDefault;
+  resetTarget.title = targetOption.disabled
+    ? `${targetOption.label}: ${targetOption.meta}.`
+    : targetDefault
+      ? `${targetOption.label} already uses the default color.`
+      : `Reset ${targetOption.label.toLowerCase()} color to default.`;
   const saveAccent = settingsActionButton("Save accent", () => upsertCustomColorPalette(state.settings.accent), "", "saved color save current accent");
   applyCustomColorSaveLimit(saveAccent, state.settings.accent, "Save the current accent color.");
   const saveWorkspace = settingsActionButton("Save workspace", () => upsertCustomColorPalette(workspace?.color), "", "saved color save workspace");
@@ -24340,7 +24414,7 @@ function savedColorPalettePanel() {
     : clearPanes.disabled
       ? "Pane colors are already default."
       : "Clear pane colors in the active workspace.";
-  actions.append(copyPalette, pastePalette, pasteColor, saveAccent, saveWorkspace, savePane, clearWorkspace, clearPanes);
+  actions.append(copyPalette, pastePalette, pasteColor, resetTarget, saveAccent, saveWorkspace, savePane, clearWorkspace, clearPanes);
   panel.append(actions);
 
   if (state.customColorPalette.length === 0) {
