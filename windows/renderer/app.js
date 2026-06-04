@@ -6540,6 +6540,7 @@ const commands = [
   { id: "settings.renamePane", label: "Rename Active Pane", shortcut: "", run: () => renameActivePanel() },
   { id: "settings.copyPaneSetup", label: "Copy Active Pane Setup", shortcut: "", run: () => copyActivePaneSetup() },
   { id: "settings.pastePaneSetup", label: "Paste Active Pane Setup", shortcut: "", run: () => pasteActivePaneSetup() },
+  { id: "settings.resetPaneSetup", label: "Reset Active Pane Setup", shortcut: "", run: () => resetActivePaneSetup() },
   { id: "settings.resetAppearance", label: "Reset Look Settings", shortcut: "", run: () => resetAppearanceSettings() },
   { id: "settings.copyLook", label: "Copy Look Settings", shortcut: "", run: () => copyLookSettings() },
   { id: "settings.pasteLook", label: "Paste Look Settings", shortcut: "", run: () => pasteLookSettings() },
@@ -6888,6 +6889,7 @@ const corePaletteCommandIds = new Set([
   "settings.renamePane",
   "settings.copyPaneSetup",
   "settings.pastePaneSetup",
+  "settings.resetPaneSetup",
   "layout.activePercent",
   "layout.focusMode"
 ]);
@@ -6908,6 +6910,7 @@ function coreCommandPaletteSignature() {
   appendSignatureValue(parts, panel?.type || "");
   appendSignatureValue(parts, panel ? panelDisplayTitle(panel, true) : "");
   appendSignatureValue(parts, isPendingPanel(panel));
+  appendSignatureValue(parts, paneSetupResetIsDefault(panel));
   appendSignatureValue(parts, minimizedPanelCount(workspace));
   appendSignatureValue(parts, state.closedPanels.length);
   appendSignatureValue(parts, Boolean(state.settings.focusMode));
@@ -7106,26 +7109,30 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       search: `active pane duplicate clone ${panelTitle} ${panelKind}`
     };
   }
-  if (["settings.pane", "settings.renamePane", "settings.copyPaneSetup", "settings.pastePaneSetup"].includes(commandId)) {
+  if (["settings.pane", "settings.renamePane", "settings.copyPaneSetup", "settings.pastePaneSetup", "settings.resetPaneSetup"].includes(commandId)) {
+    const paneSetupDefault = paneSetupResetIsDefault(panel);
     const shortcutById = {
       "settings.pane": "Settings",
       "settings.renamePane": "Edit",
       "settings.copyPaneSetup": "Copy",
-      "settings.pastePaneSetup": "Paste"
+      "settings.pastePaneSetup": "Paste",
+      "settings.resetPaneSetup": "Reset"
     };
     const titleById = {
       "settings.pane": "Open active pane settings.",
       "settings.renamePane": "Rename the active pane.",
       "settings.copyPaneSetup": "Copy active pane setup as JSON.",
-      "settings.pastePaneSetup": "Paste copied pane setup into the active pane."
+      "settings.pastePaneSetup": "Paste copied pane setup into the active pane.",
+      "settings.resetPaneSetup": paneSetupResetTitle(panel)
     };
     return {
       meta: paneMeta,
       shortcut: shortcutById[commandId],
-      disabled: !readyPanel,
+      active: commandId === "settings.resetPaneSetup" && readyPanel && paneSetupDefault,
+      disabled: !readyPanel || (commandId === "settings.resetPaneSetup" && paneSetupDefault),
       icon: "paneSettings",
       title: readyPanel ? titleById[commandId] : noPaneTitle,
-      search: `settings active pane ${shortcutById[commandId]} setup rename copy paste ${panelTitle} ${panelKind}`
+      search: `settings active pane ${shortcutById[commandId]} setup rename copy paste reset default color background text ${panelTitle} ${panelKind}`
     };
   }
   if (["terminal.find", "terminal.clear", "terminal.restart", "terminal.fontUp", "terminal.fontDown", "terminal.fontReset"].includes(commandId)) {
@@ -20813,6 +20820,7 @@ function quickPaneControlsPanel(panel) {
     if (!ready) return unavailableTitle;
     return paneCreationActionTitle(title, hint);
   };
+  const paneSetupDefault = paneSetupResetIsDefault(panel);
   const actions = [
     quickOverviewControlButton("Rename", () => renameActivePanel(panel), {
       disabled: !ready,
@@ -20839,6 +20847,11 @@ function quickPaneControlsPanel(panel) {
       title: ready ? "Paste copied pane setup into the active pane." : unavailableTitle,
       search: "quick setup active pane paste setup import color title background text url clipboard json"
     }),
+    quickOverviewControlButton("Reset", () => resetActivePaneSetup(panel), {
+      disabled: !ready || paneSetupDefault,
+      title: ready ? paneSetupResetTitle(panel) : unavailableTitle,
+      search: "quick setup active pane reset default color title background text size"
+    }),
     quickOverviewControlButton("Pane look", () => openPaneAppearanceSettings(panel), {
       disabled: !ready,
       title: ready ? "Open appearance controls for the active pane." : unavailableTitle,
@@ -20849,7 +20862,7 @@ function quickPaneControlsPanel(panel) {
     className: "quick-overview-pane",
     title: "Active pane controls",
     meta,
-    search: `quick setup active pane controls rename duplicate split copy paste appearance ${paneTitle} ${typeLabel}`,
+    search: `quick setup active pane controls rename duplicate split copy paste reset default appearance ${paneTitle} ${typeLabel}`,
     actions
   });
 }
