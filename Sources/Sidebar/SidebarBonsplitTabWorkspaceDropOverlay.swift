@@ -170,9 +170,9 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
            BonsplitTabDragPayload.transfer(from: sender.draggingPasteboard) != nil {
             setDropIndicator(nil)
 #if DEBUG
-            dlog("sidebar.workspaceDropOverlay.\(phase) accepted=1 pendingTargets=1")
+            dlog("sidebar.workspaceDropOverlay.\(phase) accepted=0 pendingTargets=1")
 #endif
-            return .move
+            return []
         }
         guard acceptedTransfer(sender, action: action) != nil, let action else {
             setDropIndicator(nil)
