@@ -14838,16 +14838,22 @@ struct CMUXCLI {
             guard remaining.count <= 1 else {
                 throw CLIError(
                     message: String(
-                        localized: "cli.sidebar.error.unexpectedArguments",
-                        defaultValue: "sidebar \(action) accepts at most one sidebar name"
+                        format: String(
+                            localized: "cli.sidebar.error.unexpectedArguments",
+                            defaultValue: "sidebar %@ accepts at most one sidebar name"
+                        ),
+                        action
                     )
                 )
             }
             guard !(explicitAll && !remaining.isEmpty) else {
                 throw CLIError(
                     message: String(
-                        localized: "cli.sidebar.error.allWithName",
-                        defaultValue: "sidebar \(action): use either --all or a sidebar name, not both"
+                        format: String(
+                            localized: "cli.sidebar.error.allWithName",
+                            defaultValue: "sidebar %@: use either --all or a sidebar name, not both"
+                        ),
+                        action
                     )
                 )
             }
@@ -14877,8 +14883,11 @@ struct CMUXCLI {
         default:
             throw CLIError(
                 message: String(
-                    localized: "cli.sidebar.error.unknownCommand",
-                    defaultValue: "Unknown sidebar command '\(action)'"
+                    format: String(
+                        localized: "cli.sidebar.error.unknownCommand",
+                        defaultValue: "Unknown sidebar command '%@'"
+                    ),
+                    action
                 )
             )
         }
