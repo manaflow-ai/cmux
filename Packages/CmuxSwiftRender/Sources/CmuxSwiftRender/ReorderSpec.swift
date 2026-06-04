@@ -4,7 +4,7 @@
 /// children). The host runs `method` with `[idParam: movedId, indexParam:
 /// targetIndex]`, so for workspaces the cmux `workspace.reorder` command both
 /// reorders and persists.
-public struct ReorderSpec: Codable, Sendable, Equatable {
+public struct ReorderSpec: Sendable, Equatable {
     public let method: String
     public let idParam: String
     public let indexParam: String
