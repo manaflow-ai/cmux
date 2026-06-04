@@ -1299,10 +1299,11 @@ struct RestorableAgentSessionIndex: Sendable {
 
         // Custom Vault agents resume via their own template (which can expand {{cwd}}) and default to
         // a `.preserve` cwd policy, so keep the runtime cwd the agent was working in rather than the
-        // launch dir. (`.ignore` keeps it too; the command builder drops the cd for that policy.) The
-        // by-directory namespace below is only for built-in directory-namespaced agents.
-        if registration != nil {
-            return recordedCwd ?? launchCwd
+        // launch dir. `.ignore` agents resume from the current directory, so the snapshot must carry
+        // no saved cwd at all (downstream restore consumers read `workingDirectory` directly, not just
+        // the command builder). The by-directory namespace below is only for built-in agents.
+        if let registration {
+            return registration.cwd == .ignore ? nil : (recordedCwd ?? launchCwd)
         }
 
         switch kind.cwdNamespacing {
