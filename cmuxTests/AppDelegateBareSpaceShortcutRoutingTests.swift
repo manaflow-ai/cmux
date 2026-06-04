@@ -162,7 +162,7 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         defer {
             TerminalController.shared.setActiveTabManager(nil)
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            window.orderOut(nil)
+            window.close()
         }
 
         let manager = TabManager(autoWelcomeIfNeeded: false)
