@@ -1,11 +1,26 @@
 /// Modifier keys relevant to terminal keyboard copy-mode command resolution.
+///
+/// `TerminalKeyboardCopyModeModifiers` is a small, platform-neutral option set
+/// that lets the copy-mode resolver avoid depending on AppKit event types. The
+/// app target maps `NSEvent.ModifierFlags` into this type before calling
+/// ``terminalKeyboardCopyModeAction(keyCode:charactersIgnoringModifiers:modifiers:hasSelection:asciiCharacterProvider:)``
+/// or
+/// ``terminalKeyboardCopyModeResolve(keyCode:charactersIgnoringModifiers:modifiers:hasSelection:state:asciiCharacterProvider:)``.
+///
+/// ```swift
+/// let modifiers: TerminalKeyboardCopyModeModifiers = [.command, .shift]
+/// if modifiers.contains(.command) {
+///     print("let the app shortcut layer handle this event")
+/// }
+/// ```
 public struct TerminalKeyboardCopyModeModifiers: OptionSet, Equatable, Sendable {
     /// The raw option-set storage.
     public let rawValue: UInt8
 
     /// Creates a modifier set from raw option bits.
     ///
-    /// - Parameter rawValue: The raw option-set storage.
+    /// - Parameter rawValue: The raw option-set storage. Unknown bits are
+    ///   preserved so callers can round-trip values produced by `OptionSet`.
     public init(rawValue: UInt8) {
         self.rawValue = rawValue
     }

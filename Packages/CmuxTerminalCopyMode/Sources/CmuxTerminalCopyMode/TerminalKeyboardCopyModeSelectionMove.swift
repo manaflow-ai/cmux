@@ -1,4 +1,16 @@
 /// A cursor or visual-selection movement supported by terminal keyboard copy mode.
+///
+/// `TerminalKeyboardCopyModeSelectionMove` describes the movement component of
+/// ``TerminalKeyboardCopyModeAction.adjustSelection(_:)``. The terminal host
+/// applies the same cases to the visible copy-mode cursor outside visual mode
+/// and to Ghostty's selection endpoint while visual mode is active.
+///
+/// ```swift
+/// let move: TerminalKeyboardCopyModeSelectionMove = .pageUp
+/// let action = TerminalKeyboardCopyModeAction.adjustSelection(move)
+/// ```
+///
+/// The enum has no initializer parameters and does not throw.
 public enum TerminalKeyboardCopyModeSelectionMove: String, Equatable, Sendable {
     /// Moves one or more cells left.
     case left

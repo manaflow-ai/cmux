@@ -20,6 +20,16 @@ private func terminalKeyboardCopyModeChars(
 
 /// Returns whether copy mode should bypass an event so app-level shortcuts can handle it.
 ///
+/// Copy mode owns ordinary navigation keys but must not swallow app-level
+/// shortcuts such as Command-C or Command-Shift-M. Use this before invoking
+/// ``terminalKeyboardCopyModeResolve(keyCode:charactersIgnoringModifiers:modifiers:hasSelection:state:asciiCharacterProvider:)``.
+///
+/// ```swift
+/// let shouldBypass = terminalKeyboardCopyModeShouldBypassForShortcut(
+///     modifiers: [.command, .shift]
+/// )
+/// ```
+///
 /// - Parameter modifiers: The event modifiers converted to ``TerminalKeyboardCopyModeModifiers``.
 /// - Returns: `true` when the event should stay available to app-level shortcut handling.
 public func terminalKeyboardCopyModeShouldBypassForShortcut(
@@ -30,6 +40,19 @@ public func terminalKeyboardCopyModeShouldBypassForShortcut(
 }
 
 /// Resolves a single key event to a terminal copy-mode action.
+///
+/// This stateless resolver handles one key at a time. For count prefixes and
+/// two-key commands such as `gg` and `yy`, use
+/// ``terminalKeyboardCopyModeResolve(keyCode:charactersIgnoringModifiers:modifiers:hasSelection:state:asciiCharacterProvider:)``.
+///
+/// ```swift
+/// let action = terminalKeyboardCopyModeAction(
+///     keyCode: 38,
+///     charactersIgnoringModifiers: "j",
+///     modifiers: [],
+///     hasSelection: false
+/// )
+/// ```
 ///
 /// - Parameters:
 ///   - keyCode: The hardware key code for the event.
@@ -125,10 +148,10 @@ public func terminalKeyboardCopyModeAction(
         }
         return nil
     case "0", "^":
-        return hasSelection ? .adjustSelection(.beginningOfLine) : nil
+        return .adjustSelection(.beginningOfLine)
     case "$", "4":
         guard chars == "$" || normalized == [.shift] else { return nil }
-        return hasSelection ? .adjustSelection(.endOfLine) : nil
+        return .adjustSelection(.endOfLine)
     case "{", "[":
         guard chars == "{" || normalized == [.shift] else { return nil }
         return .jumpToPrompt(-1)
@@ -145,6 +168,29 @@ public func terminalKeyboardCopyModeAction(
 }
 
 /// Resolves a key event and any pending prefix state to a copy-mode command.
+///
+/// This is the stateful resolver used by the terminal host. It consumes numeric
+/// prefixes, tracks pending `gg` and `yy` sequences in
+/// ``TerminalKeyboardCopyModeInputState``, and returns either a counted action or
+/// a consume-only result.
+///
+/// ```swift
+/// var state = TerminalKeyboardCopyModeInputState()
+/// _ = terminalKeyboardCopyModeResolve(
+///     keyCode: 20,
+///     charactersIgnoringModifiers: "3",
+///     modifiers: [],
+///     hasSelection: false,
+///     state: &state
+/// )
+/// let result = terminalKeyboardCopyModeResolve(
+///     keyCode: 38,
+///     charactersIgnoringModifiers: "j",
+///     modifiers: [],
+///     hasSelection: false,
+///     state: &state
+/// )
+/// ```
 ///
 /// - Parameters:
 ///   - keyCode: The hardware key code for the event.

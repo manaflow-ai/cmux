@@ -22,5 +22,14 @@ let package = Package(
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
         ),
+        .testTarget(
+            name: "CmuxTerminalCopyModeTests",
+            dependencies: ["CmuxTerminalCopyMode"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
     ]
 )

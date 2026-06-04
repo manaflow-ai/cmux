@@ -2,6 +2,18 @@ import Foundation
 
 /// Resolves the initial copy-mode cursor row from Ghostty's IME point.
 ///
+/// Ghostty exposes the live cursor as an IME rectangle rather than as viewport
+/// cell coordinates. This helper converts that top-origin Y coordinate into the
+/// row used by ``TerminalKeyboardCopyModeCursor`` when keyboard copy mode starts.
+///
+/// ```swift
+/// let row = terminalKeyboardCopyModeInitialViewportRow(
+///     rows: 24,
+///     imePointY: 240,
+///     imeCellHeight: 24
+/// )
+/// ```
+///
 /// - Parameters:
 ///   - rows: The current terminal viewport row count.
 ///   - imePointY: Ghostty's top-origin IME Y coordinate.
@@ -23,6 +35,19 @@ public func terminalKeyboardCopyModeInitialViewportRow(
 
 /// Resolves the initial copy-mode cursor column from Ghostty's IME point.
 ///
+/// Ghostty reports the cursor X coordinate at the cell midpoint. This helper
+/// converts that coordinate into the zero-based column used by
+/// ``TerminalKeyboardCopyModeCursor``.
+///
+/// ```swift
+/// let column = terminalKeyboardCopyModeInitialViewportColumn(
+///     columns: 80,
+///     imePointX: 235,
+///     imeCellWidth: 10,
+///     leftPadding: 5
+/// )
+/// ```
+///
 /// - Parameters:
 ///   - columns: The current terminal viewport column count.
 ///   - imePointX: Ghostty's IME X coordinate at the cursor cell midpoint.
@@ -43,6 +68,19 @@ public func terminalKeyboardCopyModeInitialViewportColumn(
 }
 
 /// Chooses a nonzero horizontal drag range within a visible cursor cell.
+///
+/// The terminal host uses this range when it has to synthesize a drag inside the
+/// current copy-mode cursor cell. The returned range is clamped to the view
+/// bounds and keeps `startX < endX` so callers can issue a normal left-to-right
+/// drag even when the cell is partially clipped.
+///
+/// ```swift
+/// let range = terminalKeyboardCopyModeCursorSelectionXRange(
+///     rectMinX: 20,
+///     rectMaxX: 30,
+///     boundsWidth: 100
+/// )
+/// ```
 ///
 /// - Parameters:
 ///   - rectMinX: The cell's left edge in view coordinates.
@@ -71,5 +109,5 @@ public func terminalKeyboardCopyModeCursorSelectionXRange(
     }
     let fallbackEndX = max(midpointX - 1, 0)
     guard fallbackEndX < midpointX else { return nil }
-    return (midpointX, fallbackEndX)
+    return (fallbackEndX, midpointX)
 }

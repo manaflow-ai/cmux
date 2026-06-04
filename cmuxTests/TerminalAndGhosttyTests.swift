@@ -1310,50 +1310,60 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     }
 
     func testVimKeysResolveUnderNonASCIIKeyboardLayout() {
-        // Korean 2-set (두벌식) reports "ㅓ" for the physical 'j' key (keyCode 38)
-        // and "ㅏ" for 'k' (keyCode 40). Copy-mode vim keys must still resolve to a
+        // Korean 2-set (두벌식) reports non-ASCII characters for physical vim keys.
+        // Copy-mode vim keys must still resolve to a
         // cursor motion via the ASCII-capable layout fallback, without forcing the
         // user to switch input sources. The character provider is injected so this
         // test is deterministic and independent of the CI runner's input source.
         let asciiProvider: (UInt16, NSEvent.ModifierFlags) -> String? = { keyCode, _ in
             switch keyCode {
+            case 4: return "h"
             case 38: return "j"
             case 40: return "k"
+            case 37: return "l"
             default: return nil
             }
         }
-        XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
-                keyCode: 38,
-                charactersIgnoringModifiers: "ㅓ",
-                modifierFlags: [],
-                hasSelection: false,
-                asciiCharacterProvider: asciiProvider
-            ),
-            .adjustSelection(.down)
-        )
-        XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
-                keyCode: 40,
-                charactersIgnoringModifiers: "ㅏ",
-                modifierFlags: [],
-                hasSelection: false,
-                asciiCharacterProvider: asciiProvider
-            ),
-            .adjustSelection(.up)
-        )
+        let cases: [(keyCode: UInt16, characters: String, move: TerminalKeyboardCopyModeSelectionMove)] = [
+            (4, "ㅗ", .left),
+            (38, "ㅓ", .down),
+            (40, "ㅏ", .up),
+            (37, "ㅣ", .right),
+        ]
+
+        for testCase in cases {
+            XCTAssertEqual(
+                terminalKeyboardCopyModeAction(
+                    keyCode: testCase.keyCode,
+                    charactersIgnoringModifiers: testCase.characters,
+                    modifierFlags: [],
+                    hasSelection: false,
+                    asciiCharacterProvider: asciiProvider
+                ),
+                .adjustSelection(testCase.move)
+            )
+        }
     }
 
     func testCapsLockDoesNotBlockLetterMappings() {
-        XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
-                keyCode: 38,
-                charactersIgnoringModifiers: "j",
-                modifierFlags: [.capsLock],
-                hasSelection: false
-            ),
-            .adjustSelection(.down)
-        )
+        let cases: [(keyCode: UInt16, characters: String, move: TerminalKeyboardCopyModeSelectionMove)] = [
+            (4, "h", .left),
+            (38, "j", .down),
+            (40, "k", .up),
+            (37, "l", .right),
+        ]
+
+        for testCase in cases {
+            XCTAssertEqual(
+                terminalKeyboardCopyModeAction(
+                    keyCode: testCase.keyCode,
+                    charactersIgnoringModifiers: testCase.characters,
+                    modifierFlags: [.capsLock],
+                    hasSelection: false
+                ),
+                .adjustSelection(testCase.move)
+            )
+        }
     }
 
     func testJKWithSelectionAdjustSelection() {
@@ -1501,6 +1511,15 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 keyCode: 29,
                 charactersIgnoringModifiers: "0",
                 modifierFlags: [],
+                hasSelection: false
+            ),
+            .adjustSelection(.beginningOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 29,
+                charactersIgnoringModifiers: "0",
+                modifierFlags: [],
                 hasSelection: true
             ),
             .adjustSelection(.beginningOfLine)
@@ -1513,6 +1532,15 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 hasSelection: true
             ),
             .adjustSelection(.beginningOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 21,
+                charactersIgnoringModifiers: "4",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .adjustSelection(.endOfLine)
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -1670,6 +1698,12 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
         XCTAssertEqual(resolve(19, chars: "2", hasSelection: false, state: &state), .consume)
         XCTAssertEqual(resolve(29, chars: "0", hasSelection: false, state: &state), .consume)
         XCTAssertEqual(resolve(40, chars: "k", hasSelection: false, state: &state), .perform(.adjustSelection(.up), count: 20))
+
+        var zeroMotionState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(29, chars: "0", hasSelection: false, state: &zeroMotionState),
+            .perform(.adjustSelection(.beginningOfLine), count: 1)
+        )
 
         var selectionState = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(
@@ -1916,8 +1950,8 @@ final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(range.startX, 99, accuracy: 0.0001)
-        XCTAssertEqual(range.endX, 98, accuracy: 0.0001)
+        XCTAssertEqual(range.startX, 98, accuracy: 0.0001)
+        XCTAssertEqual(range.endX, 99, accuracy: 0.0001)
     }
 
     func testCursorSelectionXRangeKeepsNonzeroDragForCollapsedCellWidth() throws {
@@ -1994,6 +2028,31 @@ struct TerminalKeyboardCopyModeCursorSwiftTests {
         cursor = TerminalKeyboardCopyModeCursor(row: 0, column: 3)
         cursor.moveAfterTerminalSelectionAdjustment(.up, count: 1, rows: 10, columns: 8)
         #expect(cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 3))
+    }
+
+    @Test func visualSelectionAnchorFollowsMovedCursor() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 8, column: 7)
+
+        let moveAction = terminalKeyboardCopyModeAction(
+            keyCode: 38,
+            charactersIgnoringModifiers: "j",
+            modifierFlags: [],
+            hasSelection: false
+        )
+        #expect(moveAction == .adjustSelection(.down))
+        if case let .adjustSelection(move)? = moveAction {
+            #expect(cursor.move(move, count: 1, rows: 20, columns: 40) == 0)
+        }
+
+        #expect(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [],
+                hasSelection: false
+            ) == .startSelection
+        )
+        #expect(cursor.clamped(rows: 20, columns: 40) == TerminalKeyboardCopyModeCursor(row: 9, column: 7))
     }
 }
 

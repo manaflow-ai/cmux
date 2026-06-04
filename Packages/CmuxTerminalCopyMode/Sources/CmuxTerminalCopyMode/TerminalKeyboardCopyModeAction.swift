@@ -1,4 +1,26 @@
 /// A terminal copy-mode command resolved from one keyboard input sequence.
+///
+/// `TerminalKeyboardCopyModeAction` is the semantic command layer between raw
+/// keyboard events and the terminal host. Resolvers such as
+/// ``terminalKeyboardCopyModeAction(keyCode:charactersIgnoringModifiers:modifiers:hasSelection:asciiCharacterProvider:)``
+/// produce these values; the AppKit integration decides how to apply the
+/// resulting viewport scroll, cursor movement, search, copy, or exit action.
+///
+/// ```swift
+/// let action: TerminalKeyboardCopyModeAction = .adjustSelection(.down)
+/// switch action {
+/// case .adjustSelection(let move):
+///     print("move cursor or selection endpoint: \(move)")
+/// case .exit:
+///     print("leave copy mode")
+/// default:
+///     break
+/// }
+/// ```
+///
+/// Use ``adjustSelection(_:)`` with ``TerminalKeyboardCopyModeSelectionMove`` for
+/// both non-visual cursor motion and visual-selection endpoint motion. The enum
+/// has no initializer parameters and does not throw.
 public enum TerminalKeyboardCopyModeAction: Equatable, Sendable {
     /// Leaves keyboard copy mode.
     case exit
@@ -43,5 +65,7 @@ public enum TerminalKeyboardCopyModeAction: Equatable, Sendable {
     case searchPrevious
 
     /// Moves the copy-mode cursor or extends visual selection.
+    ///
+    /// - Parameter move: The cursor or endpoint movement to apply.
     case adjustSelection(TerminalKeyboardCopyModeSelectionMove)
 }
