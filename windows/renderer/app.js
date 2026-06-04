@@ -21727,8 +21727,9 @@ function performanceTuningPresetSettings(preset) {
 
 function performanceTuningPresetSearchText(preset, settings = performanceTuningPresetSettings(preset)) {
   const summary = performanceSetupSummaryForSettings(settings || {});
+  const active = isActivePerformanceTuningPreset(preset);
   return normalizeSettingsQuery([
-    "performance tuning preset setup apply copy speed lag smooth low motion speed snappy balanced calm live panes workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy result limit focused balanced extended results placement position top center wide quick actions auto hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls spacing gap gutter padding surface depth shadow background opacity effects glass flat chrome readable soft immersive terminal output browser preview pane chrome compact content full controls tabs address suspend history scrollback",
+    `performance tuning preset setup apply copy speed lag smooth low motion ${active ? "active current unavailable " : "ready "}speed snappy balanced calm live panes workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy result limit focused balanced extended results placement position top center wide quick actions auto hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls spacing gap gutter padding surface depth shadow background opacity effects glass flat chrome readable soft immersive terminal output browser preview pane chrome compact content full controls tabs address suspend history scrollback`,
     preset?.label,
     preset?.body,
     summary.mode,
@@ -21774,6 +21775,15 @@ function performanceTuningPresetTitle(preset, active) {
   return `Apply ${preset.label} performance tuning.`;
 }
 
+function performanceTuningPresetCopySearchText(preset, settings = performanceTuningPresetSettings(preset)) {
+  const summary = performanceSetupSummaryForSettings(settings || {});
+  return normalizeSettingsQuery(`performance tuning preset copy setup clipboard json speed lag smooth motion speed snappy balanced calm workspace chrome top bar style tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface spacing gap gutter background opacity effects chrome readable soft immersive browser pane compact content full controls tabs address ${preset?.label || ""} ${preset?.body || ""} ${summary.mode} ${summary.motion} ${summary.chrome} ${summary.topbar} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.paneSpacing} ${summary.background} ${summary.backgroundChrome} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.history}`);
+}
+
+function performanceTuningPresetCopyTitle(preset) {
+  return `Copy ${preset?.label || "this"} tuning preset as performance setup JSON.`;
+}
+
 function updatePerformanceTuningPresetButton(button, preset) {
   const settings = performanceTuningPresetSettings(preset);
   if (!settings) return false;
@@ -21796,6 +21806,16 @@ function updatePerformanceTuningPresetButton(button, preset) {
     card.dataset.settingsSearch = search;
     updateSettingsSearchIndexItemSearch(card, search);
     changed = true;
+  }
+  const copy = card?.querySelector(`[data-performance-tuning-copy="${preset.id}"]`);
+  if (copy) {
+    const copySearch = performanceTuningPresetCopySearchText(preset, settings);
+    changed = setTitleIfChanged(copy, performanceTuningPresetCopyTitle(preset)) || changed;
+    if (copy.dataset.settingsSearch !== copySearch) {
+      copy.dataset.settingsSearch = copySearch;
+      updateSettingsSearchIndexItemSearch(copy, copySearch);
+      changed = true;
+    }
   }
   return changed;
 }
@@ -24588,6 +24608,17 @@ function performanceHealthChecklist() {
   return panel;
 }
 
+function performanceHealthAllSearchText(issueCount = performanceHealthIssueCount()) {
+  const allCheckText = performanceHealthCheckDefinitions
+    .map((check) => `${check.label} ${check.body} ${check.search} ${check.actionLabel} ${check.readyLabel}`)
+    .join(" ");
+  return normalizeSettingsQuery(`performance health checklist apply all fixes speed lag smooth tune ${issueCount === 0 ? "ready tuned active current unavailable " : "needs fix ready "}${performanceHealthIssueCountLabel(issueCount)} ${allCheckText}`);
+}
+
+function performanceHealthCheckSearchText(check, needsFix = performanceHealthCheckNeedsFix(check), meta = check?.meta?.() || "") {
+  return normalizeSettingsQuery(`performance health checklist fix ${needsFix ? "needs fix tune ready " : "ready tuned active current unavailable "}${check?.label || ""} ${check?.body || ""} ${check?.search || ""} ${meta} ${check?.actionLabel || ""} ${check?.readyLabel || ""}`);
+}
+
 function performanceHealthCheckCard(check) {
   const card = document.createElement("div");
   card.className = "performance-health-card";
@@ -24617,12 +24648,20 @@ function updatePerformanceHealthCheckCard(card, check) {
   card.classList.toggle("is-warning", needsFix);
   setTextIfChanged(card.querySelector(".performance-health-card-status"), needsFix ? "Tune" : check.readyLabel);
   setTextIfChanged(card.querySelector(".performance-health-card-meta"), meta);
-  card.dataset.settingsSearch = normalizeSettingsQuery(`performance health checklist ${needsFix ? "needs fix tune " : "ready tuned "}${check.label} ${check.body} ${check.search} ${meta}`);
+  const cardSearch = performanceHealthCheckSearchText(check, needsFix, meta);
+  if (card.dataset.settingsSearch !== cardSearch) {
+    card.dataset.settingsSearch = cardSearch;
+    updateSettingsSearchIndexItemSearch(card, cardSearch);
+  }
   const action = card.querySelector(`[data-performance-health-action="${check.id}"]`);
   if (action) {
     setSettingsActionLabel(action, needsFix ? check.actionLabel : "Ready");
     setDisabledIfChanged(action, !needsFix);
     setTitleIfChanged(action, needsFix ? `Apply the ${check.label.toLowerCase()} performance fix.` : `${check.label} is already tuned.`);
+    if (action.dataset.settingsSearch !== cardSearch) {
+      action.dataset.settingsSearch = cardSearch;
+      updateSettingsSearchIndexItemSearch(action, cardSearch);
+    }
   }
 }
 
@@ -24637,6 +24676,11 @@ function refreshPerformanceHealthPanel(panel = elements.inspectorBody.querySelec
     setDisabledIfChanged(applyAll, issueCount === 0);
     setTitleIfChanged(applyAll, issueCount === 0 ? "Performance health is already tuned." : "Apply all recommended performance fixes.");
     setSettingsActionLabel(applyAll, issueCount === 0 ? "Ready" : "Apply fixes");
+    const allSearch = performanceHealthAllSearchText(issueCount);
+    if (applyAll.dataset.settingsSearch !== allSearch) {
+      applyAll.dataset.settingsSearch = allSearch;
+      updateSettingsSearchIndexItemSearch(applyAll, allSearch);
+    }
   }
   for (const card of panel.querySelectorAll("[data-performance-health-check]")) {
     const check = performanceHealthCheckById(card.dataset.performanceHealthCheck);
@@ -24692,10 +24736,12 @@ function performanceTuningPresetGrid() {
     };
     const actions = document.createElement("div");
     actions.className = "performance-tune-actions";
-    const copy = settingsActionButton("Copy", () => copyPerformanceTuningPreset(preset.id), "", `performance tuning preset copy setup clipboard json motion speed spacing gap gutter toast feedback placement bottom right left top result limit focused balanced extended placement position top center wide browser pane chrome compact content full controls tabs address ${preset.label} ${preset.body} ${summary.toastPlacement} ${summary.paletteResults} ${summary.palettePlacement} ${summary.browserChrome}`);
-    copy.title = "Copy this tuning preset as performance setup JSON.";
+    const copy = settingsActionButton("Copy", () => copyPerformanceTuningPreset(preset.id), "", performanceTuningPresetCopySearchText(preset, settings));
+    copy.dataset.performanceTuningCopy = preset.id;
+    copy.title = performanceTuningPresetCopyTitle(preset);
     actions.append(copy);
     card.append(button, actions);
+    updatePerformanceTuningPresetButton(button, preset);
     grid.append(card);
   }
   return grid;
@@ -31293,9 +31339,6 @@ function settingsCategoryPaletteState(id, label) {
 
 function performanceHealthPaletteEntries() {
   const issueCount = performanceHealthIssueCount();
-  const allCheckText = performanceHealthCheckDefinitions
-    .map((check) => `${check.label} ${check.body} ${check.search}`)
-    .join(" ");
   const entries = [{
     id: "performanceHealth.applyAll",
     label: "Performance health: Apply fixes",
@@ -31305,7 +31348,7 @@ function performanceHealthPaletteEntries() {
     disabled: issueCount === 0,
     icon: "speed",
     title: issueCount === 0 ? "Performance health is already tuned." : "Apply all recommended performance health fixes.",
-    search: normalizeSettingsQuery(`performance health checklist apply all fixes speed lag smooth tune ${allCheckText}`),
+    search: performanceHealthAllSearchText(issueCount),
     run: applyPerformanceHealthFixes
   }];
   for (const check of performanceHealthCheckDefinitions) {
@@ -31320,7 +31363,7 @@ function performanceHealthPaletteEntries() {
       disabled: !needsFix,
       icon: "speed",
       title: needsFix ? `Apply the ${check.label.toLowerCase()} performance fix.` : `${check.label} is already tuned.`,
-      search: normalizeSettingsQuery(`performance health checklist fix ${needsFix ? "needs tune" : "ready tuned"} ${check.label} ${check.body} ${check.search} ${meta} ${check.actionLabel} ${check.readyLabel}`),
+      search: performanceHealthCheckSearchText(check, needsFix, meta),
       run: () => applyPerformanceHealthFix(check.id)
     });
   }
@@ -32097,8 +32140,8 @@ function paletteEntries() {
       label: `Copy tuning preset: ${preset.label}`,
       meta: `${summary.motion} / ${summary.background} / ${summary.inactiveBrowsers} browsers / ${summary.browserChrome} chrome`,
       shortcut: "Copy",
-      title: "Copy this tuning preset as performance setup JSON.",
-      search: normalizeSettingsQuery(`performance tuning preset copy setup clipboard json speed lag smooth motion speed snappy balanced calm workspace chrome top bar style tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface spacing gap gutter background opacity effects chrome readable soft immersive browser pane compact content full controls tabs address ${preset.label} ${preset.body} ${summary.mode} ${summary.motion} ${summary.chrome} ${summary.topbar} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.paneSpacing} ${summary.background} ${summary.backgroundChrome} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.history}`),
+      title: performanceTuningPresetCopyTitle(preset),
+      search: performanceTuningPresetCopySearchText(preset, settings),
       run: () => copyPerformanceTuningPreset(preset.id)
     });
   }
