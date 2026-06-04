@@ -378,6 +378,7 @@ class CmuxPerfRunner:
 
         terminals: list[tuple[str, str, pathlib.Path]] = []
         workspaces: list[str] = []
+        selected_fixture_workspace = False
         for i in range(1, self.args.workspace_count + 1):
             cwd = self.make_repo(i)
             ws = self.create_workspace(
@@ -386,6 +387,10 @@ class CmuxPerfRunner:
                 description=f"activation perf fixture {i:02d}",
             )
             workspaces.append(ws)
+            if not selected_fixture_workspace:
+                # Keep teardown of bootstrap workspaces out of the measured activation path.
+                self.run_cli(["select-workspace", "--workspace", ws], timeout=60)
+                selected_fixture_workspace = True
             pane_target = self.args.heavy_workspace_panes if i == 1 else self.args.other_workspace_panes
             directions = ["right", "down", "left", "up"]
             for n in range(max(0, pane_target - 1)):
