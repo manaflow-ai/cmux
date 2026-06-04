@@ -17763,11 +17763,9 @@ function browserWorkflowPresetSummary(settings) {
   ];
 }
 
-function browserWorkflowPresetSearchText(preset, settings, active = false, savedProfile = null) {
-  return normalizeSettingsQuery([
-    "browser workflow preset setup home launch external profile suspend pane chrome tabs address controls full compact content zoom scale save copy localhost local dev app api backend 3000 5173 8080",
-    active ? "active current" : "",
-    savedProfile ? "saved" : "",
+function browserWorkflowPresetBaseSearchText(preset, settings) {
+  return [
+    "browser workflow preset setup home launch external profile suspend pane chrome tabs address controls full compact content zoom scale localhost local dev app api backend 3000 5173 8080",
     preset?.label || "",
     preset?.body || "",
     settings?.browserHomeUrl || "",
@@ -17776,6 +17774,41 @@ function browserWorkflowPresetSearchText(preset, settings, active = false, saved
     settings?.browserSuspendInactive ? "suspend inactive" : "live inactive",
     browserChromeModeLabel(settings?.browserChromeMode),
     browserZoomLabel(settings?.browserZoom)
+  ].join(" ");
+}
+
+function browserWorkflowPresetApplySearchText(preset, settings, active = false) {
+  return normalizeSettingsQuery([
+    browserWorkflowPresetBaseSearchText(preset, settings),
+    "apply use",
+    active ? "active current unavailable already applied" : "ready available"
+  ].join(" "));
+}
+
+function browserWorkflowPresetProfileSaveSearchText(preset, settings, savedProfile = null) {
+  return normalizeSettingsQuery([
+    browserWorkflowPresetBaseSearchText(preset, settings),
+    "save profile reusable",
+    settingsProfileSaveStateSearch(savedProfile),
+    savedProfile ? "saved unavailable" : savedSettingsProfilesFull() ? "limit full unavailable" : "ready"
+  ].join(" "));
+}
+
+function browserWorkflowPresetCopySearchText(preset, settings) {
+  return normalizeSettingsQuery([
+    browserWorkflowPresetBaseSearchText(preset, settings),
+    "copy setup clipboard json cmux browser setup"
+  ].join(" "));
+}
+
+function browserWorkflowPresetSearchText(preset, settings, active = false, savedProfile = null) {
+  return normalizeSettingsQuery([
+    browserWorkflowPresetBaseSearchText(preset, settings),
+    browserWorkflowPresetApplySearchText(preset, settings, active),
+    browserWorkflowPresetProfileSaveSearchText(preset, settings, savedProfile),
+    browserWorkflowPresetCopySearchText(preset, settings),
+    active ? "active current" : "",
+    savedProfile ? "saved" : ""
   ].join(" "));
 }
 
@@ -17819,6 +17852,11 @@ function browserWorkflowPresetProfileSaveTitle(preset, savedProfile = savedSetti
   return "Save this browser workflow as a reusable Settings profile.";
 }
 
+function browserWorkflowPresetCopyTitle(preset) {
+  if (!preset) return "Choose a browser workflow preset first.";
+  return `Copy ${preset.label} browser workflow as cmux browser setup JSON.`;
+}
+
 function browserWorkflowPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "browser-workflow-preset-grid";
@@ -17838,7 +17876,7 @@ function browserWorkflowPresetGrid() {
     button.disabled = active;
     button.title = browserWorkflowPresetTitle(preset, active);
     button.dataset.browserWorkflowPreset = preset.id;
-    button.dataset.settingsSearch = browserWorkflowPresetSearchText(preset, settings, active, savedProfile);
+    button.dataset.settingsSearch = browserWorkflowPresetApplySearchText(preset, settings, active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
     button.innerHTML = `
       <span class="browser-workflow-preset-title-row">
@@ -17870,7 +17908,7 @@ function browserWorkflowPresetGrid() {
       savedProfile ? "Saved" : "Save",
       () => saveBrowserWorkflowPresetProfile(preset.id),
       savedProfile ? "primary" : "",
-      browserWorkflowPresetSearchText(preset, settings, active, savedProfile)
+      browserWorkflowPresetProfileSaveSearchText(preset, settings, savedProfile)
     );
     save.dataset.browserWorkflowPresetSave = preset.id;
     save.disabled = Boolean(savedProfile) || savedSettingsProfilesFull();
@@ -17879,9 +17917,10 @@ function browserWorkflowPresetGrid() {
       "Copy setup",
       () => copyBrowserWorkflowPresetSetup(preset.id),
       "",
-      `browser workflow preset copy setup clipboard json pane chrome tabs address controls full compact content ${preset.label} ${preset.body} ${settings.browserHomeUrl} ${browserChromeModeLabel(settings.browserChromeMode)} ${browserZoomLabel(settings.browserZoom)}`
+      browserWorkflowPresetCopySearchText(preset, settings)
     );
-    copy.title = "Copy this browser workflow as cmux browser setup JSON.";
+    copy.dataset.browserWorkflowPresetCopy = preset.id;
+    copy.title = browserWorkflowPresetCopyTitle(preset);
     actions.append(save, copy);
     card.append(button, actions);
     grid.append(card);
@@ -17911,7 +17950,7 @@ function updateBrowserWorkflowPresetCard(card, preset) {
       changed = true;
     }
     changed = setTitleIfChanged(button, browserWorkflowPresetTitle(preset, active)) || changed;
-    const buttonSearch = browserWorkflowPresetSearchText(preset, settings, active, savedProfile);
+    const buttonSearch = browserWorkflowPresetApplySearchText(preset, settings, active);
     if (button.dataset.settingsSearch !== buttonSearch) {
       button.dataset.settingsSearch = buttonSearch;
       updateSettingsSearchIndexItemSearch(button, buttonSearch);
@@ -17926,6 +17965,22 @@ function updateBrowserWorkflowPresetCard(card, preset) {
     changed = setDisabledIfChanged(save, Boolean(savedProfile) || savedSettingsProfilesFull()) || changed;
     changed = toggleClassIfChanged(save, "primary", Boolean(savedProfile)) || changed;
     changed = setTitleIfChanged(save, browserWorkflowPresetProfileSaveTitle(preset, savedProfile)) || changed;
+    const saveSearch = browserWorkflowPresetProfileSaveSearchText(preset, settings, savedProfile);
+    if (save.dataset.settingsSearch !== saveSearch) {
+      save.dataset.settingsSearch = saveSearch;
+      updateSettingsSearchIndexItemSearch(save, saveSearch);
+      changed = true;
+    }
+  }
+  const copy = card.querySelector("[data-browser-workflow-preset-copy]");
+  if (copy) {
+    changed = setTitleIfChanged(copy, browserWorkflowPresetCopyTitle(preset)) || changed;
+    const copySearch = browserWorkflowPresetCopySearchText(preset, settings);
+    if (copy.dataset.settingsSearch !== copySearch) {
+      copy.dataset.settingsSearch = copySearch;
+      updateSettingsSearchIndexItemSearch(copy, copySearch);
+      changed = true;
+    }
   }
   return changed;
 }
@@ -17989,7 +18044,59 @@ function browserHomeUrlProfileSaveTitle(url, savedProfile = savedSettingsProfile
 }
 
 function browserHomePresetTitle(preset, active) {
-  return active ? `${preset.label} is already the browser home.` : preset.url;
+  if (!preset) return "Browser home preset not found.";
+  return active ? `${preset.label} is already the browser home.` : `Use ${preset.label} as the browser home: ${preset.url}`;
+}
+
+function browserHomePresetBaseSearchText(preset) {
+  return [
+    "browser home preset quick start page homepage google github localhost vite angular flask python asp net api backend web url pane chrome tabs address controls full compact content zoom scale",
+    preset?.label || "",
+    preset?.body || "",
+    preset?.url || "",
+    browserChromeModeLabel(),
+    browserZoomLabel()
+  ].join(" ");
+}
+
+function browserHomePresetApplySearchText(preset, active = false) {
+  return normalizeSettingsQuery([
+    browserHomePresetBaseSearchText(preset),
+    "apply use",
+    active ? "active current unavailable already applied" : "ready available"
+  ].join(" "));
+}
+
+function browserHomePresetProfileSaveSearchText(preset, savedProfile = null) {
+  return normalizeSettingsQuery([
+    browserHomePresetBaseSearchText(preset),
+    "save profile reusable settings",
+    settingsProfileSaveStateSearch(savedProfile),
+    savedProfile ? "saved unavailable" : savedSettingsProfilesFull() ? "limit full unavailable" : "ready"
+  ].join(" "));
+}
+
+function browserHomePresetCopySearchText(preset) {
+  return normalizeSettingsQuery([
+    browserHomePresetBaseSearchText(preset),
+    "copy settings profile clipboard json"
+  ].join(" "));
+}
+
+function browserHomePresetSearchText(preset, active = false, savedProfile = null) {
+  return normalizeSettingsQuery([
+    browserHomePresetBaseSearchText(preset),
+    browserHomePresetApplySearchText(preset, active),
+    browserHomePresetProfileSaveSearchText(preset, savedProfile),
+    browserHomePresetCopySearchText(preset),
+    active ? "active current" : "",
+    savedProfile ? "saved" : ""
+  ].join(" "));
+}
+
+function browserHomePresetCopyTitle(preset) {
+  if (!preset) return "Choose a browser home preset first.";
+  return `Copy ${preset.label} browser home as a Settings profile JSON.`;
 }
 
 function browserHomePresetGrid() {
@@ -18000,15 +18107,16 @@ function browserHomePresetGrid() {
     const active = isActiveBrowserHomePreset(preset);
     const savedProfile = savedSettingsProfileForBrowserHomePreset(preset);
     const card = document.createElement("div");
-    card.className = "browser-home-preset-card";
-    card.dataset.settingsSearch = normalizeSettingsQuery(`browser home preset save profile copy pane chrome tabs address controls full compact content zoom scale ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`);
+    card.className = `browser-home-preset-card${active ? " is-active" : ""}`;
+    card.dataset.browserHomePresetCard = preset.id;
+    card.dataset.settingsSearch = browserHomePresetSearchText(preset, active, savedProfile);
     const button = document.createElement("button");
     button.className = `browser-home-preset${active ? " is-active" : ""}`;
     button.type = "button";
     button.disabled = active;
     button.title = browserHomePresetTitle(preset, active);
     button.dataset.browserHomePreset = preset.id;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`browser home preset pane chrome tabs address controls full compact content zoom scale ${active ? "active current " : ""}${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`);
+    button.dataset.settingsSearch = browserHomePresetApplySearchText(preset, active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
     button.innerHTML = `
       <span class="browser-home-preset-title-row">
@@ -18031,17 +18139,85 @@ function browserHomePresetGrid() {
       savedProfile ? "Saved" : "Save",
       () => saveBrowserHomePresetProfile(preset.id),
       savedProfile ? "primary" : "",
-      `browser home preset save profile reusable pane chrome tabs address controls full compact content zoom scale ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`
+      browserHomePresetProfileSaveSearchText(preset, savedProfile)
     );
+    save.dataset.browserHomePresetSave = preset.id;
     save.disabled = Boolean(savedProfile) || savedSettingsProfilesFull();
     save.title = browserHomePresetProfileSaveTitle(preset, savedProfile);
-    const copy = settingsActionButton("Copy", () => copyBrowserHomePresetProfile(preset.id), "", `browser home preset copy settings profile clipboard json pane chrome tabs address controls full compact content zoom scale ${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`);
-    copy.title = "Copy this browser home preset as a Settings profile JSON.";
+    const copy = settingsActionButton("Copy", () => copyBrowserHomePresetProfile(preset.id), "", browserHomePresetCopySearchText(preset));
+    copy.dataset.browserHomePresetCopy = preset.id;
+    copy.title = browserHomePresetCopyTitle(preset);
     actions.append(save, copy);
     card.append(button, actions);
     grid.append(card);
   }
   return grid;
+}
+
+function updateBrowserHomePresetCard(card, preset) {
+  if (!card || !preset) return false;
+  const active = isActiveBrowserHomePreset(preset);
+  const savedProfile = savedSettingsProfileForBrowserHomePreset(preset);
+  let changed = toggleClassIfChanged(card, "is-active", active);
+  const cardSearch = browserHomePresetSearchText(preset, active, savedProfile);
+  if (card.dataset.settingsSearch !== cardSearch) {
+    card.dataset.settingsSearch = cardSearch;
+    updateSettingsSearchIndexItemSearch(card, cardSearch);
+    changed = true;
+  }
+  const button = card.querySelector("[data-browser-home-preset]");
+  if (button) {
+    changed = toggleClassIfChanged(button, "is-active", active) || changed;
+    changed = setDisabledIfChanged(button, active) || changed;
+    const ariaPressed = active ? "true" : "false";
+    if (button.getAttribute("aria-pressed") !== ariaPressed) {
+      button.setAttribute("aria-pressed", ariaPressed);
+      changed = true;
+    }
+    changed = setTitleIfChanged(button, browserHomePresetTitle(preset, active)) || changed;
+    const buttonSearch = browserHomePresetApplySearchText(preset, active);
+    if (button.dataset.settingsSearch !== buttonSearch) {
+      button.dataset.settingsSearch = buttonSearch;
+      updateSettingsSearchIndexItemSearch(button, buttonSearch);
+      changed = true;
+    }
+    const status = button.querySelector(".browser-home-preset-status");
+    if (status) changed = setTextIfChanged(status, active ? "Active" : "") || changed;
+  }
+  const save = card.querySelector("[data-browser-home-preset-save]");
+  if (save) {
+    changed = setTextIfChanged(save, savedProfile ? "Saved" : "Save") || changed;
+    changed = setDisabledIfChanged(save, Boolean(savedProfile) || savedSettingsProfilesFull()) || changed;
+    changed = toggleClassIfChanged(save, "primary", Boolean(savedProfile)) || changed;
+    changed = setTitleIfChanged(save, browserHomePresetProfileSaveTitle(preset, savedProfile)) || changed;
+    const saveSearch = browserHomePresetProfileSaveSearchText(preset, savedProfile);
+    if (save.dataset.settingsSearch !== saveSearch) {
+      save.dataset.settingsSearch = saveSearch;
+      updateSettingsSearchIndexItemSearch(save, saveSearch);
+      changed = true;
+    }
+  }
+  const copy = card.querySelector("[data-browser-home-preset-copy]");
+  if (copy) {
+    changed = setTitleIfChanged(copy, browserHomePresetCopyTitle(preset)) || changed;
+    const copySearch = browserHomePresetCopySearchText(preset);
+    if (copy.dataset.settingsSearch !== copySearch) {
+      copy.dataset.settingsSearch = copySearch;
+      updateSettingsSearchIndexItemSearch(copy, copySearch);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function refreshBrowserHomePresetGrid() {
+  let changed = false;
+  for (const card of elements.inspectorBody.querySelectorAll("[data-browser-home-preset-card]")) {
+    const preset = browserHomePresetById(card.dataset.browserHomePresetCard);
+    if (!preset) continue;
+    changed = updateBrowserHomePresetCard(card, preset) || changed;
+  }
+  return changed;
 }
 
 function applyBrowserHomePreset(preset, options = {}) {
@@ -18627,23 +18803,7 @@ function refreshBrowserSettingsPreview() {
   }
   refreshSettingSegmentedControl("browserChromeMode");
   refreshSettingSegmentedControl("browserZoom");
-  for (const button of elements.inspectorBody.querySelectorAll("[data-browser-home-preset]")) {
-    const preset = browserHomePresets.find((candidate) => candidate.id === button.dataset.browserHomePreset);
-    const active = Boolean(preset && isActiveBrowserHomePreset(preset));
-    button.classList.toggle("is-active", active);
-    setDisabledIfChanged(button, active);
-    button.setAttribute("aria-pressed", active ? "true" : "false");
-    const status = button.querySelector(".browser-home-preset-status");
-    if (status) setTextIfChanged(status, active ? "Active" : "");
-    if (preset) {
-      setTitleIfChanged(button, browserHomePresetTitle(preset, active));
-      const search = normalizeSettingsQuery(`browser home preset pane chrome tabs address controls full compact content zoom scale ${active ? "active current " : ""}${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`);
-      if (button.dataset.settingsSearch !== search) {
-        button.dataset.settingsSearch = search;
-        updateSettingsSearchIndexItemSearch(button, search);
-      }
-    }
-  }
+  refreshBrowserHomePresetGrid();
   refreshBrowserWorkflowPresetGrid();
   refreshRecentBrowserHomeActions();
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
@@ -32271,17 +32431,17 @@ function paletteEntries() {
       active,
       disabled: active,
       title: browserWorkflowPresetTitle(preset, active),
-      search: browserWorkflowPresetSearchText(preset, settings, active, savedProfile),
+      search: browserWorkflowPresetApplySearchText(preset, settings, active),
       run: () => applyBrowserWorkflowPreset(preset.id)
     });
     entries.push({
       id: `browserWorkflowPreset.save.${preset.id}`,
       label: `Save browser workflow: ${preset.label}`,
-      meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
+      meta: settingsProfileSaveStateMeta(savedProfile),
       shortcut: savedProfile ? "Saved" : "Save",
       disabled: Boolean(savedProfile) || savedSettingsProfilesFull(),
       title: browserWorkflowPresetProfileSaveTitle(preset, savedProfile),
-      search: browserWorkflowPresetSearchText(preset, settings, active, savedProfile),
+      search: browserWorkflowPresetProfileSaveSearchText(preset, settings, savedProfile),
       run: () => saveBrowserWorkflowPresetProfile(preset.id)
     });
     entries.push({
@@ -32289,8 +32449,8 @@ function paletteEntries() {
       label: `Copy browser workflow: ${preset.label}`,
       meta: settings.browserHomeUrl,
       shortcut: "Copy",
-      title: "Copy this browser workflow as cmux browser setup JSON.",
-      search: normalizeSettingsQuery(`browser workflow preset setup copy clipboard json pane chrome tabs address controls full compact content zoom scale ${preset.label} ${preset.body} ${settings.browserHomeUrl} ${browserChromeModeLabel(settings.browserChromeMode)} ${browserZoomLabel(settings.browserZoom)}`),
+      title: browserWorkflowPresetCopyTitle(preset),
+      search: browserWorkflowPresetCopySearchText(preset, settings),
       run: () => copyBrowserWorkflowPresetSetup(preset.id)
     });
   }
@@ -32304,18 +32464,18 @@ function paletteEntries() {
       shortcut: active ? "Active" : "Browser",
       active,
       disabled: active,
-      title: active ? `${preset.label} is already the browser home.` : `Use ${preset.label} as the browser home.`,
-      search: normalizeSettingsQuery(`browser home preset start page homepage apply active ${preset.label} ${preset.body} ${preset.url}`),
+      title: browserHomePresetTitle(preset, active),
+      search: browserHomePresetApplySearchText(preset, active),
       run: () => applyBrowserHomePreset(preset)
     });
     entries.push({
       id: `browserHomePreset.save.${preset.id}`,
       label: `Save browser profile: ${preset.label}`,
-      meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
+      meta: settingsProfileSaveStateMeta(savedProfile),
       shortcut: savedProfile ? "Saved" : "Save",
       disabled: Boolean(savedProfile) || savedSettingsProfilesFull(),
       title: browserHomePresetProfileSaveTitle(preset, savedProfile),
-      search: normalizeSettingsQuery(`browser home preset start page homepage save profile reusable pane chrome tabs address controls full compact content zoom scale ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`),
+      search: browserHomePresetProfileSaveSearchText(preset, savedProfile),
       run: () => saveBrowserHomePresetProfile(preset.id)
     });
     entries.push({
@@ -32323,8 +32483,8 @@ function paletteEntries() {
       label: `Copy browser profile: ${preset.label}`,
       meta: preset.url,
       shortcut: "Copy",
-      title: "Copy this browser home preset as a Settings profile JSON.",
-      search: normalizeSettingsQuery(`browser home preset start page homepage copy profile clipboard json pane chrome tabs address controls full compact content zoom scale ${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`),
+      title: browserHomePresetCopyTitle(preset),
+      search: browserHomePresetCopySearchText(preset),
       run: () => copyBrowserHomePresetProfile(preset.id)
     });
   }
