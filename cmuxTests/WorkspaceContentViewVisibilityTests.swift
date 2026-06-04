@@ -70,10 +70,18 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
-    func testHandoffCompletionConsumesAlreadyVisibleSelectedWorkspace() {
+    func testHandoffCompletionConsumesAlreadyVisibleSelectedWorkspaceAfterReadinessChanges() {
         let selectedWorkspaceId = UUID()
         let otherWorkspaceId = UUID()
 
+        XCTAssertFalse(
+            WorkspaceHandoffCompletionPolicy.shouldCompleteFromAlreadyVisibleSelectedWorkspace(
+                selectedWorkspaceId: selectedWorkspaceId,
+                visibleWorkspaceIds: [selectedWorkspaceId],
+                hasRetiringWorkspace: true,
+                selectedWorkspaceReady: false
+            )
+        )
         XCTAssertTrue(
             WorkspaceHandoffCompletionPolicy.shouldCompleteFromAlreadyVisibleSelectedWorkspace(
                 selectedWorkspaceId: selectedWorkspaceId,
@@ -88,14 +96,6 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
                 visibleWorkspaceIds: [otherWorkspaceId],
                 hasRetiringWorkspace: true,
                 selectedWorkspaceReady: true
-            )
-        )
-        XCTAssertFalse(
-            WorkspaceHandoffCompletionPolicy.shouldCompleteFromAlreadyVisibleSelectedWorkspace(
-                selectedWorkspaceId: selectedWorkspaceId,
-                visibleWorkspaceIds: [selectedWorkspaceId],
-                hasRetiringWorkspace: true,
-                selectedWorkspaceReady: false
             )
         )
         XCTAssertFalse(

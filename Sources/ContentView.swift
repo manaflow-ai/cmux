@@ -2941,6 +2941,12 @@ struct ContentView: View {
             scheduleTitlebarTextRefresh()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .terminalSurfaceDidBecomeReady)) { notification in
+            guard let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
+                  workspaceId == tabManager.selectedTabId else { return }
+            completeWorkspaceHandoffFromAlreadyVisibleSelectedWorkspace(reason: "terminal_ready")
+        })
+
         view = AnyView(view.onChange(of: titlebarThemeGeneration) { oldValue, newValue in
             guard GhosttyApp.shared.backgroundLogEnabled else { return }
             GhosttyApp.shared.logBackground(
@@ -3039,6 +3045,7 @@ struct ContentView: View {
             visibleWorkspaceIds.formIntersection(existingIds)
             tabManager.pruneBackgroundWorkspaceLoads(existingIds: existingIds)
             reconcileMountedWorkspaceIds(tabs: tabs)
+            completeWorkspaceHandoffFromAlreadyVisibleSelectedWorkspace(reason: "ready")
             selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
@@ -3764,15 +3771,24 @@ struct ContentView: View {
             }
 #endif
         }
-        if WorkspaceHandoffCompletionPolicy.shouldCompleteFromAlreadyVisibleSelectedWorkspace(
-            selectedWorkspaceId: newSelectedId,
+        if completeWorkspaceHandoffFromAlreadyVisibleSelectedWorkspace(reason: "visible") {
+            return
+        }
+    }
+
+    /// Rechecks an already-recorded visibility signal after workspace readiness changes.
+    @discardableResult
+    private func completeWorkspaceHandoffFromAlreadyVisibleSelectedWorkspace(reason: String) -> Bool {
+        let selectedWorkspaceId = tabManager.selectedTabId
+        let selectedWorkspaceReady = selectedWorkspaceId.map { canCompleteWorkspaceHandoffImmediately(for: $0) } ?? false
+        guard WorkspaceHandoffCompletionPolicy.shouldCompleteFromAlreadyVisibleSelectedWorkspace(
+            selectedWorkspaceId: selectedWorkspaceId,
             visibleWorkspaceIds: visibleWorkspaceIds,
             hasRetiringWorkspace: retiringWorkspaceId != nil,
             selectedWorkspaceReady: selectedWorkspaceReady
-        ) {
-            completeWorkspaceHandoff(reason: "visible")
-            return
-        }
+        ) else { return false }
+        completeWorkspaceHandoff(reason: reason)
+        return true
     }
 
     private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) {
