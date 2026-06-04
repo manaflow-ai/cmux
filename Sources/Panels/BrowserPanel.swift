@@ -3432,7 +3432,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var restoredForwardHistoryStack: [URL] = []
     private var restoredHistoryCurrentURL: URL?
     private var isMainFrameProvisionalNavigationActive: Bool = false
-    private var shouldGoBackAfterProvisionalCommit: Bool = false
+    private var pendingHistoryTraversalTargetAfterProvisionalCancellation: URL?
 
     /// Published estimated progress (0.0 - 1.0)
     @Published private(set) var estimatedProgress: Double = 0.0
@@ -4179,6 +4179,9 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                if self.pendingHistoryTraversalTargetAfterProvisionalCancellation == webView.url {
+                    self.pendingHistoryTraversalTargetAfterProvisionalCancellation = nil
+                }
                 self.isMainFrameProvisionalNavigationActive = true
                 self.applyMuteState(to: webView, reason: "navigationStart")
             }
@@ -4187,12 +4190,13 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
-                if self.shouldGoBackAfterProvisionalCommit, webView.canGoBack {
-                    self.shouldGoBackAfterProvisionalCommit = false
+                if let targetURL = self.pendingHistoryTraversalTargetAfterProvisionalCancellation,
+                   webView.url != targetURL,
+                   webView.canGoBack {
                     webView.goBack()
                     return
                 }
-                self.shouldGoBackAfterProvisionalCommit = false
+                self.pendingHistoryTraversalTargetAfterProvisionalCancellation = nil
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
             }
@@ -4201,6 +4205,9 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
+                if self.pendingHistoryTraversalTargetAfterProvisionalCancellation == webView.url {
+                    self.pendingHistoryTraversalTargetAfterProvisionalCancellation = nil
+                }
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationFinish")
                 self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
@@ -4231,7 +4238,6 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
-                self.shouldGoBackAfterProvisionalCommit = false
             }
         }
     }
@@ -6335,7 +6341,7 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 extension BrowserPanel {
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
-        shouldGoBackAfterProvisionalCommit = true
+        pendingHistoryTraversalTargetAfterProvisionalCancellation = webView.url
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
     }
