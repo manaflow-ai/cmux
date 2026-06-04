@@ -30926,6 +30926,9 @@ function paletteEntries() {
   const paletteWorkspace = activeWorkspace();
   const activeLayoutCommandIds = activePaneLayoutCommandIds(paletteWorkspace);
   const layoutUnavailable = !paletteWorkspace || paletteWorkspace.panels.length <= 1 || !activePanel();
+  const paletteTerminal = activeTerminalPanelForSettings();
+  const paletteTerminalTitle = paletteTerminal ? panelDisplayTitle(paletteTerminal, true) : "No active terminal";
+  const paletteTerminalLocation = paletteTerminal?.cwdShort || paletteTerminal?.cwd || "~";
   const entries = commands.map((command) => {
     const performanceAction = performanceQuickActionForCommand(command.id);
     const performanceActive = performanceQuickActionIsActive(performanceAction);
@@ -31239,12 +31242,20 @@ function paletteEntries() {
   for (const [commandIndex, command] of state.recentCommands.entries()) {
     const savedSnippet = isCommandSavedAsCustomSnippet(command);
     const limitReached = !savedSnippet && customCommandSnippetsFull();
+    const commandText = normalizeTerminalCommand(command);
+    const terminalReady = Boolean(paletteTerminal && commandText);
+    const terminalMeta = paletteTerminal ? `${paletteTerminalTitle} / ${paletteTerminalLocation}` : "Focus a terminal pane first";
     entries.push({
       id: `recentCommand.${commandIndex}`,
       label: `Run recent: ${command}`,
-      meta: "Terminal command",
-      shortcut: "Recent",
-      search: normalizeSettingsQuery(`recent terminal command shell run ${commandIndex + 1} ${command}`),
+      meta: terminalReady ? `Run in ${terminalMeta}` : terminalMeta,
+      shortcut: terminalReady ? "Run" : "No terminal",
+      disabled: !terminalReady,
+      icon: "terminal",
+      title: terminalReady
+        ? `Run this recent command in ${paletteTerminalTitle}.`
+        : "Focus or create a terminal pane before running recent commands.",
+      search: normalizeSettingsQuery(`recent terminal command shell run ${terminalReady ? "ready " : "needs terminal "}${commandIndex + 1} ${command} ${paletteTerminalTitle} ${paletteTerminalLocation}`),
       run: () => runTerminalCommand(command)
     });
     entries.push({
