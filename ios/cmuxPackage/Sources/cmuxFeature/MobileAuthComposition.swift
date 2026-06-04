@@ -77,11 +77,10 @@ public struct MobileAuthComposition {
             environment: environment,
             includesDevAuth: policy.includesFortyTwoShortcut
         )
-        // Break the coordinator <-> push cycle: the coordinator is built first
-        // and reaches the push service (for its post-sign-in token re-upload)
-        // through a deferred async hook that is pointed at the push service once
-        // it exists. The push service reads tokens directly from the coordinator.
-        let deferredSignIn = DeferredSignInHook()
+        // The coordinator is built first and never learns about push; the push
+        // service subscribes to the coordinator's sign-in event stream for its
+        // post-sign-in token re-upload and reads tokens directly from the
+        // coordinator.
         let monitor = reachability
         let coordinator = AuthCoordinator(
             client: client,
@@ -91,8 +90,7 @@ public struct MobileAuthComposition {
             anchor: AuthPresentationContextProvider(),
             config: resolvedConfig,
             launch: launch,
-            isOnline: { await monitor.isOnline },
-            onSignedIn: { await deferredSignIn.run() }
+            isOnline: { await monitor.isOnline }
         )
         let push = PushRegistrationService(
             tokenProvider: coordinator,
@@ -101,14 +99,20 @@ public struct MobileAuthComposition {
             apnsEnvironment: Self.apnsEnvironment,
             session: .shared
         )
-        deferredSignIn.set { await push.syncTokenIfPossible() }
         self.coordinator = coordinator
         self.pushRegistration = push
     }
 
-    /// Begin asynchronous session restore (call once after construction).
+    /// Begin asynchronous session restore and wire the push service's
+    /// post-sign-in token re-upload to the coordinator's sign-in event stream
+    /// (call once after construction).
     public func start() {
         coordinator.start()
+        let events = coordinator.signedInEvents()
+        let push = pushRegistration
+        Task {
+            await push.observeSignedInEvents(events)
+        }
     }
 
     private static var isDevelopmentBuild: Bool {

@@ -270,4 +270,36 @@ import Testing
         #expect(coordinator.isAuthenticated == false)
         #expect(coordinator.isLoading == false)
     }
+
+    @Test func signedInEventsYieldAfterSuccessfulSignIn() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let (coordinator, _) = makeCoordinator(client: client)
+
+        // Subscribe before signing in; the yield is buffered by the stream, so
+        // awaiting after the sign-in returns deterministically (no timing).
+        let events = coordinator.signedInEvents()
+        var iterator = events.makeAsyncIterator()
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        let event: Void? = await iterator.next()
+        #expect(event != nil)
+    }
+
+    @Test func eachSignedInEventsSubscriberReceivesTheYield() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let (coordinator, _) = makeCoordinator(client: client)
+
+        var first = coordinator.signedInEvents().makeAsyncIterator()
+        var second = coordinator.signedInEvents().makeAsyncIterator()
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        let firstEvent: Void? = await first.next()
+        let secondEvent: Void? = await second.next()
+        #expect(firstEvent != nil)
+        #expect(secondEvent != nil)
+    }
 }

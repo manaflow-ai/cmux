@@ -96,4 +96,24 @@ struct FakeTokenProvider: TokenProviding {
         await service.setEnabled(false)
         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
     }
+
+    @Test func signedInEventTriggersTokenReupload() async {
+        let (service, _) = makeService()
+        await service.register(deviceToken: Data([0xAB, 0xCD]))
+        await service.setEnabled(true)
+        await RecordingURLProtocol.recorder.reset()
+
+        let (events, continuation) = AsyncStream<Void>.makeStream()
+        await service.observeSignedInEvents(events)
+        continuation.yield()
+        continuation.finish()
+
+        // The observation loop runs in its own task; poll until the re-upload
+        // lands (deterministic sleep in tests is allowed).
+        for _ in 0..<200 {
+            if await RecordingURLProtocol.recorder.methods.contains("POST") { break }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+    }
 }

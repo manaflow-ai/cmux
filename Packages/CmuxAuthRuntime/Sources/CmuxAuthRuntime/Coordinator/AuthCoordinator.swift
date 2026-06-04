@@ -64,12 +64,11 @@ public final class AuthCoordinator {
     private let config: AuthConfig
     private let launch: AuthLaunchOptions
     private let isOnline: @Sendable () async -> Bool
-    private let onSignedIn: @Sendable () async -> Void
-
     private var pendingNonce: String?
     private var debugCredentials: CMUXAuthAutoLoginCredentials?
     private var bootstrapTask: Task<Void, Never>?
     private var isRevalidatingSession = false
+    private var signedInContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     /// Creates an auth coordinator.
     ///
@@ -83,9 +82,6 @@ public final class AuthCoordinator {
     ///   - launch: Launch-time priming inputs (UI-test fixtures, dev-auth flag).
     ///   - isOnline: Connectivity probe; sign-in flows fail fast when offline.
     ///     Defaults to always-online so tests need not supply it.
-    ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
-    ///     side effects above this package (e.g. push token re-upload). Defaults
-    ///     to a no-op.
     public init(
         client: any AuthClient,
         sessionCache: CMUXAuthSessionCache,
@@ -94,8 +90,7 @@ public final class AuthCoordinator {
         anchor: any AuthPresentationAnchoring,
         config: AuthConfig,
         launch: AuthLaunchOptions,
-        isOnline: @escaping @Sendable () async -> Bool = { true },
-        onSignedIn: @escaping @Sendable () async -> Void = {}
+        isOnline: @escaping @Sendable () async -> Bool = { true }
     ) {
         self.client = client
         self.sessionCache = sessionCache
@@ -105,9 +100,29 @@ public final class AuthCoordinator {
         self.config = config
         self.launch = launch
         self.isOnline = isOnline
-        self.onSignedIn = onSignedIn
         self.selectedTeamID = teamSelection.selectedTeamID
         primeSessionState()
+    }
+
+    /// A stream that yields once after every successful sign-in or session
+    /// restore.
+    ///
+    /// Collaborators above this package (e.g. ``PushRegistrationService``'s
+    /// post-sign-in device-token re-upload) subscribe to this instead of being
+    /// threaded into the coordinator as construction-time hooks, which kept the
+    /// auth and push graphs cyclically coupled. Each call returns an
+    /// independent stream; it finishes when the subscriber stops iterating or
+    /// the coordinator deallocates.
+    public func signedInEvents() -> AsyncStream<Void> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        signedInContinuations[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.signedInContinuations.removeValue(forKey: id)
+            }
+        }
+        return stream
     }
 
     /// Begin asynchronous session restore. Call once after construction at the
@@ -417,7 +432,7 @@ public final class AuthCoordinator {
     /// auth-callback tokens directly into the injected token store.
     ///
     /// Validates the now-stored session and publishes the signed-in state
-    /// (user, caches, teams, the `onSignedIn` hook).
+    /// (user, caches, teams, the ``signedInEvents()`` stream).
     /// - Throws: ``AuthError/unauthorized`` when no signed-in user could be
     ///   fetched with the seeded tokens; other display-safe errors otherwise.
     public func completeExternalSignIn() async throws {
@@ -555,7 +570,9 @@ public final class AuthCoordinator {
         saveCachedUser(user)
         sessionCache.setHasTokens(true)
         await refreshTeams()
-        await onSignedIn()
+        for continuation in signedInContinuations.values {
+            continuation.yield()
+        }
     }
 
     /// Refresh ``availableTeams`` from the client, tolerating failure so a
