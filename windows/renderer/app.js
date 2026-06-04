@@ -5090,8 +5090,7 @@ async function pasteColorToTarget(target = state.colorApplyTarget) {
   return applySavedColorToTarget(color, scope);
 }
 
-const backgroundSetupSettings = [
-  "backgroundImage",
+const backgroundTuningSettings = [
   "backgroundOpacity",
   "backgroundBlur",
   "backgroundFit",
@@ -5099,6 +5098,11 @@ const backgroundSetupSettings = [
   "backgroundPosition",
   "backgroundEffects",
   "backgroundChromeMode"
+];
+
+const backgroundSetupSettings = [
+  "backgroundImage",
+  ...backgroundTuningSettings
 ];
 
 async function applyBackgroundValueToTarget(value, target = state.backgroundApplyTarget, options = {}) {
@@ -5193,7 +5197,7 @@ function backgroundSetupUpdatesFromPayload(payload) {
     backgroundImage = normalized;
     break;
   }
-  for (const key of ["backgroundOpacity", "backgroundBlur", "backgroundFit", "backgroundRepeatMode", "backgroundPosition", "backgroundEffects", "backgroundChromeMode"]) {
+  for (const key of backgroundTuningSettings) {
     if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
     const value = lookSettingUpdateFromValue(key, source[key]);
     if (value === null) return null;
@@ -14572,6 +14576,20 @@ function backgroundTuningPresetActive(preset) {
   return Boolean(preset && Object.entries(preset.settings).every(([key, value]) => state.settings[key] === value));
 }
 
+function backgroundTuningSettingsDefault() {
+  return backgroundTuningSettings.every((key) => state.settings[key] === defaultSettings[key]);
+}
+
+function updateBackgroundTuneResetAction(button) {
+  if (!button) return false;
+  const isDefault = backgroundTuningSettingsDefault();
+  let changed = setDisabledIfChanged(button, isDefault);
+  changed = setTitleIfChanged(button, isDefault
+    ? "Background tuning already uses defaults."
+    : "Reset fit, repeat, position, effects, chrome, strength, and soften to defaults.") || changed;
+  return changed;
+}
+
 function applyBackgroundTuningPreset(presetId) {
   const preset = backgroundTuningPresets.find((candidate) => candidate.id === presetId);
   if (!preset) {
@@ -14585,6 +14603,19 @@ function applyBackgroundTuningPreset(presetId) {
   }
   renderSettingsInspector();
   toast(`${preset.label} background tune applied.`);
+  return true;
+}
+
+function resetBackgroundTuningSettings() {
+  const updates = {};
+  for (const key of backgroundTuningSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates);
+  if (!changed) {
+    toast("Background tuning already uses defaults.");
+    return false;
+  }
+  renderSettingsInspector();
+  toast("Background tuning reset.");
   return true;
 }
 
@@ -14676,7 +14707,15 @@ function backgroundTuningPanel(onCommit = null) {
     }
   });
 
-  panel.append(backgroundTuningPresetGrid(), controls, opacityRow, blurRow);
+  const actions = document.createElement("div");
+  actions.className = "settings-actions";
+  actions.dataset.settingsSearch = normalizeSettingsQuery("background tune reset default fit repeat position effects chrome strength opacity soften blur");
+  const resetTune = settingsActionButton("Reset tune", resetBackgroundTuningSettings, "", `background tune reset default fit repeat position effects chrome strength opacity soften blur ${backgroundTuningSettingsDefault() ? "active current " : ""}`);
+  resetTune.dataset.backgroundAction = "reset-tune";
+  updateBackgroundTuneResetAction(resetTune);
+  actions.append(resetTune);
+
+  panel.append(backgroundTuningPresetGrid(), controls, opacityRow, blurRow, actions);
   return panel;
 }
 
@@ -15130,6 +15169,7 @@ function refreshBackgroundPreviewNodes() {
     const applyCurrent = panel.querySelector('[data-background-action="apply-current"]');
     const open = panel.querySelector('[data-background-action="open"]');
     const clear = panel.querySelector('[data-background-action="clear"]');
+    const resetTune = panel.querySelector('[data-background-action="reset-tune"]');
     const input = panel.querySelector(".active-background-input");
     if (input && document.activeElement !== input) {
       const nextValue = isBackgroundPreset(model.background) ? "" : model.background || "";
@@ -15179,6 +15219,9 @@ function refreshBackgroundPreviewNodes() {
       setDisabledIfChanged(clear, !targetStatus.canTarget || !targetStatus.hasValue);
       setTitleIfChanged(clear, `Clear ${targetLabel}`);
       setSettingsActionLabel(clear, backgroundApplyTargetClearLabel(targetStatus.scope));
+    }
+    if (resetTune) {
+      updateBackgroundTuneResetAction(resetTune);
     }
     for (const control of panel.querySelectorAll("[data-setting-control]")) {
       const key = control.dataset.settingControl;
