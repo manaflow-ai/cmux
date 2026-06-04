@@ -87,7 +87,7 @@ struct TerminalKeyboardCopyModeResolverTests {
         #expect(state == TerminalKeyboardCopyModeInputState())
     }
 
-    @Test func unmatchedGPrefixConsumesFollowupAndClearsCount() {
+    @Test func unmatchedGPrefixClearsCountBeforeResolvingFollowup() {
         var state = TerminalKeyboardCopyModeInputState(countPrefix: 3, pendingG: true)
 
         #expect(
@@ -97,12 +97,12 @@ struct TerminalKeyboardCopyModeResolverTests {
                 modifiers: [],
                 hasSelection: false,
                 state: &state
-            ) == .consume
+            ) == .perform(.adjustSelection(.down), count: 1)
         )
         #expect(state == TerminalKeyboardCopyModeInputState())
     }
 
-    @Test func unmatchedYankLinePrefixConsumesFollowupAndClearsCount() {
+    @Test func unmatchedYankLinePrefixClearsCountBeforeResolvingFollowup() {
         var state = TerminalKeyboardCopyModeInputState(countPrefix: 3, pendingYankLine: true)
 
         #expect(
@@ -112,7 +112,7 @@ struct TerminalKeyboardCopyModeResolverTests {
                 modifiers: [],
                 hasSelection: false,
                 state: &state
-            ) == .consume
+            ) == .perform(.adjustSelection(.up), count: 1)
         )
         #expect(state == TerminalKeyboardCopyModeInputState())
     }

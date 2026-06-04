@@ -227,7 +227,6 @@ public func terminalKeyboardCopyModeResolve(
             return .perform(.copyLineAndExit, count: count)
         }
         state.reset()
-        return .consume
     }
 
     if state.pendingG {
@@ -238,7 +237,6 @@ public func terminalKeyboardCopyModeResolve(
             return .perform(action, count: count)
         }
         state.reset()
-        return .consume
     }
 
     if normalized.isEmpty,
