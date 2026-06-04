@@ -56,8 +56,8 @@ extension EnvironmentValues {
 
 extension View {
     /// Injects ``runtime`` into the view tree so any descendant
-    /// `@Setting` property wrapper or section can resolve its store,
-    /// catalog, and account flow.
+    /// `@LiveSetting` property wrapper or settings section can resolve its
+    /// store, catalog, and account flow.
     public func settingsRuntime(_ runtime: SettingsRuntime) -> some View {
         environment(\.settingsRuntime, runtime)
     }

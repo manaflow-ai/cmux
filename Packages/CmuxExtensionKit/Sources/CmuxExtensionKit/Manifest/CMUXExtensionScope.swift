@@ -1,6 +1,6 @@
 import Foundation
 
-public enum CMUXExtensionScope: String, Codable, CaseIterable, Equatable, Sendable {
+public enum CmuxExtensionScope: String, Codable, CaseIterable, Equatable, Sendable {
     case workspaceList
     case workspaceMetadata
     case surfaceMetadata
@@ -10,7 +10,7 @@ public enum CMUXExtensionScope: String, Codable, CaseIterable, Equatable, Sendab
     case pullRequests
 }
 
-public enum CMUXExtensionActionScope: String, Codable, CaseIterable, Equatable, Sendable {
+public enum CmuxExtensionActionScope: String, Codable, CaseIterable, Equatable, Sendable {
     case createWorkspace
     case selectWorkspace
     case closeWorkspace
@@ -22,4 +22,5 @@ public enum CMUXExtensionActionScope: String, Codable, CaseIterable, Equatable, 
     case navigateWorkspace
     case navigateSurface
     case openURL
+    case createWorkspaceWithPath
 }
