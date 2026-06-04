@@ -6662,6 +6662,10 @@ const customizationPaletteCommandIds = new Set([
   "settings.pasteSavedLibrary",
   "settings.clearSavedLibrary",
   "settings.clearRecentActivity",
+  "settings.saveProfile",
+  "settings.copyCurrentProfile",
+  "settings.pasteProfile",
+  "settings.saveTerminalProfile",
   "settings.resetAppearance",
   "settings.copyLook",
   "settings.pasteLook",
@@ -6695,6 +6699,9 @@ function customizationCommandPaletteSignature() {
   appendSignatureValue(parts, totalDataStorageBytes());
   appendSignatureValue(parts, savedDataItemCount());
   appendSignatureValue(parts, recentDataItemCount());
+  appendSignatureValue(parts, state.savedSettingsProfiles.length);
+  appendSignatureValue(parts, activeSettingsSetupLabel());
+  appendSignatureValue(parts, settingsProfileSummary(state.settings));
   appendSignatureValue(parts, settingsKeysSignature(appearanceResetSettings));
   appendSignatureValue(parts, settingsKeysSignature(terminalSetupSettings));
   appendSignatureValue(parts, settingsKeysSignature(commandPaletteSettings));
@@ -6845,6 +6852,50 @@ function customizationCommandPaletteState(commandId) {
       icon: "data",
       title: recentCount ? "Clear recent folders, commands, browser pages, and saved browser tabs." : "Recent activity is already clear.",
       search: "recent activity clear privacy folders commands browser pages tabs history"
+    };
+  }
+  if (commandId === "settings.saveProfile" || commandId === "settings.copyCurrentProfile" || commandId === "settings.pasteProfile" || commandId === "settings.saveTerminalProfile") {
+    const setup = activeSettingsSetupModel();
+    const setupSummary = settingsProfileSummary(state.settings);
+    const profilesFull = savedSettingsProfilesFull();
+    const countLabel = savedSettingsProfileCountLabel();
+    if (commandId === "settings.copyCurrentProfile") {
+      return {
+        meta: `${setup.label} / ${setupSummary}`,
+        shortcut: "Copy",
+        icon: "profiles",
+        title: "Copy the current setup as a Settings profile JSON.",
+        search: normalizeSettingsQuery(`settings profile current setup copy export clipboard json ${setup.kind} ${setup.label} ${setupSummary}`)
+      };
+    }
+    if (commandId === "settings.pasteProfile") {
+      return {
+        meta: countLabel,
+        shortcut: "Paste",
+        disabled: profilesFull,
+        icon: "profiles",
+        title: profilesFull ? settingsProfileLimitTitle() : "Paste a copied Settings profile.",
+        search: normalizeSettingsQuery(`settings profile setup paste import clipboard json saved reusable ${profilesFull ? "limit full " : ""}${countLabel}`)
+      };
+    }
+    if (commandId === "settings.saveTerminalProfile") {
+      const terminalSummary = terminalSetupSummaryForSettings(state.settings);
+      return {
+        meta: `${terminalSummary.font} / ${terminalSummary.shell} / ${countLabel}`,
+        shortcut: "Save",
+        disabled: profilesFull,
+        icon: "profiles",
+        title: profilesFull ? settingsProfileLimitTitle() : "Save the current terminal font, colors, cursor, shell, and supporting app settings.",
+        search: normalizeSettingsQuery(`settings profile terminal save current reusable font color cursor shell ${profilesFull ? "limit full " : ""}${terminalSummary.font} ${terminalSummary.lineHeight} ${terminalSummary.padding} ${terminalSummary.history} ${terminalSummary.cursor} ${terminalSummary.shell} ${countLabel}`)
+      };
+    }
+    return {
+      meta: `${setup.label} / ${countLabel}`,
+      shortcut: "Save",
+      disabled: profilesFull,
+      icon: "profiles",
+      title: profilesFull ? settingsProfileLimitTitle() : "Save the current colors, layout, terminal, browser, and performance settings as a reusable profile.",
+      search: normalizeSettingsQuery(`settings profile save current setup reusable look layout terminal browser performance ${profilesFull ? "limit full " : ""}${setup.kind} ${setup.label} ${setupSummary} ${countLabel}`)
     };
   }
   if (commandId === "settings.copyLook" || commandId === "settings.pasteLook" || commandId === "settings.resetAppearance") {
