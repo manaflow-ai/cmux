@@ -34062,14 +34062,14 @@ function renderPalette() {
 
   const query = normalizeSettingsQuery(elements.paletteInput.value);
   const tokens = settingsSearchTokens(query);
-  const allMatches = paletteEntriesForQuery(query, tokens);
-  const matches = allMatches.slice(0, paletteVisibleResultLimit());
+  const queryResult = paletteEntriesForQuery(query, tokens, paletteVisibleResultLimit());
+  const matches = queryResult.entries;
   state.paletteIndex = Math.min(state.paletteIndex, Math.max(0, matches.length - 1));
   if (matches[state.paletteIndex]?.disabled) {
     const firstEnabled = matches.findIndex((entry) => !entry.disabled);
     if (firstEnabled >= 0) state.paletteIndex = firstEnabled;
   }
-  const signature = paletteListSignature(query, matches, allMatches.length);
+  const signature = paletteListSignature(query, matches, queryResult.totalCount);
   if (signature === state.paletteListSignature) {
     updatePaletteSelection();
     return;
@@ -34109,33 +34109,69 @@ function renderPalette() {
     empty.textContent = t("palette.empty");
     nodes.push(empty);
   }
-  if (allMatches.length > matches.length) {
+  if (queryResult.totalCount > matches.length) {
     const more = document.createElement("div");
     more.className = "palette-more";
     more.textContent = formatMessage("palette.moreResults", {
       visible: matches.length,
-      total: allMatches.length
+      total: queryResult.totalCount
     });
     nodes.push(more);
   }
   elements.paletteList.replaceChildren(...nodes);
 }
 
-function paletteEntriesForQuery(query, tokens) {
+function paletteEntriesForQuery(query, tokens, resultLimit = paletteVisibleResultLimit()) {
   const entries = paletteEntriesForOpenSession();
-  if (!query) return entries;
+  const visibleLimit = Math.max(0, Number(resultLimit) || 0);
+  if (!query) {
+    return {
+      entries: entries.slice(0, visibleLimit),
+      totalCount: entries.length
+    };
+  }
   const matches = [];
+  let totalCount = 0;
+  let worstMatchIndex = -1;
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
     if (!paletteEntryMatches(entry, tokens)) continue;
-    matches.push({
+    totalCount += 1;
+    const match = {
       entry,
       index,
       score: paletteEntryScore(entry, query, tokens)
-    });
+    };
+    if (matches.length < visibleLimit) {
+      matches.push(match);
+      if (matches.length === visibleLimit) worstMatchIndex = paletteQueryWorstMatchIndex(matches);
+    } else if (visibleLimit > 0 && paletteQueryMatchComesBefore(match, matches[worstMatchIndex])) {
+      matches[worstMatchIndex] = match;
+      worstMatchIndex = paletteQueryWorstMatchIndex(matches);
+    }
   }
-  matches.sort((left, right) => right.score - left.score || left.index - right.index);
-  return matches.map(({ entry }) => entry);
+  matches.sort(comparePaletteQueryMatch);
+  return {
+    entries: matches.map(({ entry }) => entry),
+    totalCount
+  };
+}
+
+function paletteQueryWorstMatchIndex(matches) {
+  let worstIndex = 0;
+  for (let index = 1; index < matches.length; index += 1) {
+    if (paletteQueryMatchComesBefore(matches[worstIndex], matches[index])) worstIndex = index;
+  }
+  return worstIndex;
+}
+
+function comparePaletteQueryMatch(left, right) {
+  return right.score - left.score || left.index - right.index;
+}
+
+function paletteQueryMatchComesBefore(left, right) {
+  if (left.score !== right.score) return left.score > right.score;
+  return left.index < right.index;
 }
 
 function paletteListSignature(query, entries, totalCount = entries.length) {
