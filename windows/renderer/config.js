@@ -45,6 +45,7 @@ export const defaultSettings = {
   showTabs: true,
   showStatusbar: true,
   statusDetailMode: "runtime",
+  statusbarStyle: "subtle",
   showAdvanced: false,
   performanceMode: false,
   adaptivePerformance: true,
@@ -474,6 +475,12 @@ export const statusDetailOptions = [
   ["full", label("statusDetail.full", "Full")]
 ];
 
+export const statusbarStyleOptions = [
+  ["subtle", label("statusbarStyle.subtle", "Subtle"), label("statusbarStyle.subtle.body", "Default footer weight")],
+  ["quiet", label("statusbarStyle.quiet", "Quiet"), label("statusbarStyle.quiet.body", "Thin line with lighter badges")],
+  ["solid", label("statusbarStyle.solid", "Solid"), label("statusbarStyle.solid.body", "Stronger footer contrast")]
+];
+
 export const terminalStartupOptions = [
   ["fast", label("terminalStartup.fast", "Fast")],
   ["balanced", label("terminalStartup.balanced", "Balanced")]
@@ -616,6 +623,7 @@ export const settingsPresets = [
       showTabs: true,
       showStatusbar: true,
       statusDetailMode: "runtime",
+      statusbarStyle: "subtle",
       showAdvanced: false,
       performanceMode: false,
       adaptivePerformance: true,
@@ -681,6 +689,7 @@ export const settingsPresets = [
       showTabs: true,
       showStatusbar: false,
       statusDetailMode: "compact",
+      statusbarStyle: "quiet",
       showAdvanced: false,
       performanceMode: false,
       adaptivePerformance: true,
@@ -746,6 +755,7 @@ export const settingsPresets = [
       showTabs: true,
       showStatusbar: false,
       statusDetailMode: "compact",
+      statusbarStyle: "quiet",
       showAdvanced: false,
       performanceMode: true,
       adaptivePerformance: true,
@@ -812,6 +822,7 @@ export const settingsPresets = [
       showTabs: true,
       showStatusbar: false,
       statusDetailMode: "compact",
+      statusbarStyle: "quiet",
       showAdvanced: false,
       performanceMode: false,
       adaptivePerformance: true,
@@ -877,6 +888,7 @@ export const settingsPresets = [
       showTabs: true,
       showStatusbar: false,
       statusDetailMode: "compact",
+      statusbarStyle: "quiet",
       showAdvanced: false,
       performanceMode: true,
       adaptivePerformance: true,
@@ -942,6 +954,7 @@ export const settingsPresets = [
       showTabs: true,
       showStatusbar: true,
       statusDetailMode: "runtime",
+      statusbarStyle: "solid",
       showAdvanced: false,
       performanceMode: false,
       adaptivePerformance: true,
@@ -1007,6 +1020,7 @@ export const settingsPresets = [
       showTabs: true,
       showStatusbar: true,
       statusDetailMode: "full",
+      statusbarStyle: "solid",
       showAdvanced: false,
       performanceMode: false,
       adaptivePerformance: false,

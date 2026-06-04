@@ -5398,6 +5398,34 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   display: none;
 }
 
+.shell.statusbar-style-quiet .statusbar {
+  gap: var(--space-2);
+  border-top-color: color-mix(in oklch, var(--color-line) 58%, transparent);
+  color: color-mix(in oklch, var(--color-faint) 86%, transparent);
+  background: color-mix(in oklch, var(--color-canvas-surface) 74%, transparent);
+}
+
+.shell.statusbar-style-quiet #statusPipe,
+.shell.statusbar-style-quiet #statusPty {
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.shell.statusbar-style-solid .statusbar {
+  border-top-color: color-mix(in oklch, var(--color-line-strong) 86%, var(--color-accent) 14%);
+  color: var(--color-muted);
+  background: color-mix(in oklch, var(--color-pane-active-surface) 84%, var(--color-chrome-surface) 16%);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
+}
+
+.shell.statusbar-style-solid #statusPipe,
+.shell.statusbar-style-solid #statusPty {
+  border-color: color-mix(in oklch, var(--color-accent) 24%, var(--color-line-strong) 76%);
+  background: color-mix(in oklch, var(--color-accent) 8%, var(--color-pane-active-surface) 92%);
+  color: color-mix(in oklch, var(--color-text) 72%, var(--color-muted) 28%);
+}
+
 #statusSummary.is-busy {
   display: inline-flex;
   align-items: center;
@@ -8064,6 +8092,28 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .layout-settings-preview.status-detail-runtime .layout-preview-status span:nth-child(2) {
   display: none;
+}
+
+.layout-settings-preview.statusbar-style-quiet .layout-preview-status {
+  margin-inline: 8px;
+  border-top: 1px solid color-mix(in oklch, var(--color-line) 56%, transparent);
+  background: transparent;
+}
+
+.layout-settings-preview.statusbar-style-quiet .layout-preview-status span {
+  background: color-mix(in oklch, var(--color-text) 6%, transparent);
+}
+
+.layout-settings-preview.statusbar-style-solid .layout-preview-status {
+  gap: 5px;
+  margin: 0 6px 5px;
+  padding: 3px 4px;
+  border-top: 1px solid color-mix(in oklch, var(--color-line-strong) 78%, var(--color-accent) 22%);
+  background: color-mix(in oklch, var(--color-pane-active-surface) 76%, var(--color-chrome-surface) 24%);
+}
+
+.layout-settings-preview.statusbar-style-solid .layout-preview-status span {
+  background: color-mix(in oklch, var(--color-accent) 12%, var(--color-text) 10%);
 }
 
 .layout-settings-preview.hide-statusbar .layout-preview-status {

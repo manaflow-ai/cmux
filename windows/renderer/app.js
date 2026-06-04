@@ -29,6 +29,7 @@ import {
   workspaceActiveStyleOptions,
   workspaceColorStyleOptions,
   statusDetailOptions,
+  statusbarStyleOptions,
   surfaceTintOptions,
   terminalAppearanceKeys,
   terminalColorDefaults,
@@ -373,6 +374,7 @@ const layoutSettingsPreviewKeys = new Set([
   "showTabs",
   "showStatusbar",
   "statusDetailMode",
+  "statusbarStyle",
   "sidebarWidth",
   "inspectorWidth",
   "performanceMode"
@@ -445,6 +447,7 @@ const settingsInspectorSettingKeys = {
     "showTabs",
     "showStatusbar",
     "statusDetailMode",
+    "statusbarStyle",
     "sidebarWidth",
     "inspectorWidth",
     "performanceMode"
@@ -466,6 +469,7 @@ const settingsInspectorSettingKeys = {
     "paneActionMode",
     "showStatusbar",
     "statusDetailMode",
+    "statusbarStyle",
     "terminalPadding",
     "browserSuspendInactive"
   ],
@@ -1148,6 +1152,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!inactivePaneDimmingOptions.some(([id]) => id === next.inactivePaneDimming)) next.inactivePaneDimming = defaultSettings.inactivePaneDimming;
   if (!titleDetailOptions.some(([id]) => id === next.titleDetailMode)) next.titleDetailMode = defaultSettings.titleDetailMode;
   if (!statusDetailOptions.some(([id]) => id === next.statusDetailMode)) next.statusDetailMode = defaultSettings.statusDetailMode;
+  if (!statusbarStyleOptions.some(([id]) => id === next.statusbarStyle)) next.statusbarStyle = defaultSettings.statusbarStyle;
   if (!paneMarkerStyleOptions.some(([id]) => id === next.paneMarkerStyle)) next.paneMarkerStyle = defaultSettings.paneMarkerStyle;
   if (!terminalCursorStyles.some(([id]) => id === next.terminalCursorStyle)) next.terminalCursorStyle = defaultSettings.terminalCursorStyle;
   if (!terminalFontOptions.some(([id]) => id === next.terminalFontFamily)) next.terminalFontFamily = defaultSettings.terminalFontFamily;
@@ -3153,6 +3158,7 @@ function settingsProfileSummary(settings) {
   const paneMarkers = normalized.paneColorMarkers
     ? `${optionLabel(paneMarkerStyleOptions, normalized.paneMarkerStyle, normalized.paneMarkerStyle).toLowerCase()} markers`
     : "quiet pane markers";
+  const statusbarStyle = optionLabel(statusbarStyleOptions, normalized.statusbarStyle, normalized.statusbarStyle);
   const accentIntensity = optionLabel(accentIntensityOptions, normalized.accentIntensity, normalized.accentIntensity);
   const surfaceTint = optionLabel(surfaceTintOptions, normalized.surfaceTint, normalized.surfaceTint);
   const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, "Flat");
@@ -3166,6 +3172,7 @@ function settingsProfileSummary(settings) {
     normalized.density,
     toolbar,
     `${statusbarSummaryLabel(normalized).toLowerCase()} status`,
+    `${statusbarStyle.toLowerCase()} status style`,
     `${addTabs} add tabs`,
     `${closeTabs.toLowerCase()} tab close`,
     `${activeTabs.toLowerCase()} active tabs`,
@@ -5273,6 +5280,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.showTabs,
     settings.showStatusbar,
     settings.statusDetailMode,
+    settings.statusbarStyle,
     settings.showAdvanced,
     settings.performanceMode,
     settings.reduceMotion,
@@ -5380,6 +5388,9 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "status-detail-compact", state.settings.statusDetailMode === "compact");
   toggleClassIfChanged(elements.shell, "status-detail-runtime", state.settings.statusDetailMode === "runtime");
   toggleClassIfChanged(elements.shell, "status-detail-full", state.settings.statusDetailMode === "full");
+  toggleClassIfChanged(elements.shell, "statusbar-style-subtle", state.settings.statusbarStyle === "subtle");
+  toggleClassIfChanged(elements.shell, "statusbar-style-quiet", state.settings.statusbarStyle === "quiet");
+  toggleClassIfChanged(elements.shell, "statusbar-style-solid", state.settings.statusbarStyle === "solid");
   toggleClassIfChanged(elements.shell, "show-advanced", state.settings.showAdvanced);
   toggleClassIfChanged(elements.shell, "performance-mode", state.settings.performanceMode);
   toggleClassIfChanged(document.body, "interface-contrast-soft", state.settings.interfaceContrast === "soft");
@@ -13261,7 +13272,7 @@ function renderSettingsInspector(options = {}) {
     layoutSection.append(paneShapePanel(workspace));
     const layoutActions = document.createElement("div");
     layoutActions.className = "settings-actions";
-    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar sidebar row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status header title corner divider spacing gap gutter active pane highlight marker color focus mode simple clean copy paste clipboard json");
+    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar sidebar row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider spacing gap gutter active pane highlight marker color focus mode simple clean copy paste clipboard json");
     const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", "save current split pane layout workspace blueprint reusable");
     applyWorkspaceBlueprintSaveLimit(saveLayoutAction, workspace, "Save the current workspace pane layout as a reusable blueprint.");
     const copyLayoutAction = settingsActionButton("Copy layout", copyCurrentWorkspaceBlueprint, "", "copy current split pane layout workspace blueprint clipboard json");
@@ -13271,21 +13282,21 @@ function renderSettingsInspector(options = {}) {
     pasteLayoutAction.disabled = workspaceBlueprintsFull();
     pasteLayoutAction.title = pasteLayoutAction.disabled ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint into the reusable layout library.";
     const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
-    const copySetupAction = settingsActionButton("Copy setup", copyLayoutSetup, "", "layout setup copy workspace chrome blueprint pane split toolbar sidebar row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status header title corner divider spacing gap gutter active pane highlight marker color focus clipboard json");
+    const copySetupAction = settingsActionButton("Copy setup", copyLayoutSetup, "", "layout setup copy workspace chrome blueprint pane split toolbar sidebar row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider spacing gap gutter active pane highlight marker color focus clipboard json");
     copySetupAction.title = workspace?.panels?.length
       ? "Copy the current pane layout and workspace chrome as JSON."
       : "Copy workspace chrome as JSON. Open panes to include a pane layout.";
-    const pasteSetupAction = settingsActionButton("Paste setup", pasteLayoutSetup, "", "layout setup paste workspace chrome blueprint pane split toolbar sidebar row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status header title corner divider spacing gap gutter active pane highlight marker color focus clipboard json");
+    const pasteSetupAction = settingsActionButton("Paste setup", pasteLayoutSetup, "", "layout setup paste workspace chrome blueprint pane split toolbar sidebar row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider spacing gap gutter active pane highlight marker color focus clipboard json");
     pasteSetupAction.title = "Apply copied layout setup and save any included pane blueprint.";
-    const copyChromeAction = settingsActionButton("Copy chrome", copyWorkspaceChromeSettings, "", "workspace chrome layout copy toolbar sidebar row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status header title corner divider spacing gap gutter active pane highlight marker color focus mode clipboard json");
-    copyChromeAction.title = "Copy toolbar, sidebar, workspace row size, active workspace style, workspace color style, tabs, active tab style, status bar, corner style, pane dividers, pane spacing, active pane highlight, marker style, and panel widths as JSON.";
-    const pasteChromeAction = settingsActionButton("Paste chrome", pasteWorkspaceChromeSettings, "", "workspace chrome layout paste toolbar sidebar row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status header title corner divider spacing gap gutter active pane highlight marker color focus mode clipboard json");
+    const copyChromeAction = settingsActionButton("Copy chrome", copyWorkspaceChromeSettings, "", "workspace chrome layout copy toolbar sidebar row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider spacing gap gutter active pane highlight marker color focus mode clipboard json");
+    copyChromeAction.title = "Copy toolbar, sidebar, workspace row size, active workspace style, workspace color style, tabs, active tab style, status bar detail and style, corner style, pane dividers, pane spacing, active pane highlight, marker style, and panel widths as JSON.";
+    const pasteChromeAction = settingsActionButton("Paste chrome", pasteWorkspaceChromeSettings, "", "workspace chrome layout paste toolbar sidebar row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider spacing gap gutter active pane highlight marker color focus mode clipboard json");
     pasteChromeAction.title = "Apply copied cmux workspace chrome JSON.";
-    const resetChromeAction = settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", `workspace chrome toolbar sidebar row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status header title corner divider spacing gap gutter active pane highlight marker color reset ${workspaceChromeDefault ? "active current " : ""}`);
+    const resetChromeAction = settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", `workspace chrome toolbar sidebar row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider spacing gap gutter active pane highlight marker color reset ${workspaceChromeDefault ? "active current " : ""}`);
     resetChromeAction.disabled = workspaceChromeDefault;
     resetChromeAction.title = workspaceChromeDefault
       ? "Workspace chrome already matches the default setup."
-      : "Reset toolbar, sidebar, workspace row size, active workspace style, workspace color style, tabs, active tab style, status bar, corner style, pane dividers, pane spacing, active pane highlight, and panel widths.";
+      : "Reset toolbar, sidebar, workspace row size, active workspace style, workspace color style, tabs, active tab style, status bar detail and style, corner style, pane dividers, pane spacing, active pane highlight, and panel widths.";
     const canResetSplitLayout = Boolean(workspace?.panels?.length > 1);
     const resetSplitAction = settingsActionButton("Reset split layout", resetActivePaneLayout, "", `split layout pane splitter resize reset equal ${canResetSplitLayout ? "" : "disabled no panes "}`);
     resetSplitAction.disabled = !canResetSplitLayout;
@@ -13325,6 +13336,17 @@ function renderSettingsInspector(options = {}) {
       : "Enable the status bar before changing its detail level.";
     statusDetailSelect.onchange = () => updateSettings({ statusDetailMode: statusDetailSelect.value });
     layoutSection.append(settingRow("Status detail", statusDetailSelect, false, "status bar compact runtime full pipe shell readiness diagnostics clean"));
+    const statusbarStyleControl = settingSegmentedControl("statusbarStyle", statusbarStyleOptions, "status bar footer style visual weight quiet subtle solid contrast badges runtime", { compact: true });
+    for (const button of statusbarStyleControl.querySelectorAll("button")) button.disabled = !state.settings.showStatusbar;
+    statusbarStyleControl.title = state.settings.showStatusbar
+      ? "Choose the status bar visual weight."
+      : "Enable the status bar before changing its style.";
+    layoutSection.append(settingRow(
+      "Status style",
+      statusbarStyleControl,
+      true,
+      "status bar footer style visual weight quiet subtle solid contrast badges runtime"
+    ));
     layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
     nodes.push(layoutSection);
   }
@@ -15195,7 +15217,7 @@ function updateLookPackCard(card, pack) {
 function workspaceChromePresetGrid() {
   const grid = document.createElement("div");
   grid.className = "workspace-chrome-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("workspace chrome layout display presets simple compact focus toolbar sidebar workspace row size density compact roomy active row selected tabs active selected underline status inactive pane dimming highlight spacing gap gutter copy");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("workspace chrome layout display presets simple compact focus toolbar sidebar workspace row size density compact roomy active row selected tabs active selected underline status style quiet subtle solid inactive pane dimming highlight spacing gap gutter copy");
   for (const preset of workspaceChromePresets) {
     const settings = workspaceChromePresetSettings(preset);
     if (!settings) continue;
@@ -15239,7 +15261,7 @@ function workspaceChromePresetGrid() {
     };
     const actions = document.createElement("div");
     actions.className = "workspace-chrome-preset-actions";
-    const copy = settingsActionButton("Copy", () => copyWorkspaceChromePreset(preset.id), "", `workspace chrome preset copy clipboard json workspace row size density compact roomy active row selected active tab selected underline corner radius divider grip spacing gap gutter active inactive pane dimming highlight ${preset.label} ${preset.body}`);
+    const copy = settingsActionButton("Copy", () => copyWorkspaceChromePreset(preset.id), "", `workspace chrome preset copy clipboard json workspace row size density compact roomy active row selected active tab selected underline status style quiet subtle solid corner radius divider grip spacing gap gutter active inactive pane dimming highlight ${preset.label} ${preset.body}`);
     copy.title = "Copy this chrome preset as workspace chrome JSON.";
     actions.append(copy);
     card.append(button, actions);
@@ -15272,12 +15294,13 @@ function layoutSettingsPreviewPanel() {
     settings.paneColorMarkers ? "pane-markers-on" : "pane-markers-off",
     `pane-marker-${settings.paneMarkerStyle}`,
     `status-detail-${settings.statusDetailMode}`,
+    `statusbar-style-${settings.statusbarStyle}`,
     settings.focusMode ? "focus-mode" : "",
     settings.showTabs ? "show-tabs" : "hide-tabs",
     settings.showStatusbar ? "show-statusbar" : "hide-statusbar",
     settings.performanceMode ? "performance-preview" : ""
   ].filter(Boolean).join(" ");
-  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar row size density compact roomy active row selected current subtle filled line workspace color marker dot edge tint toolbar tabs close active selected underline status pane header density settings panel inactive pane percent resize focus highlight edge mode simple clean panes split shape corner radius rounded divider spacing gap gutter grip marker color dot tint preset current");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar row size density compact roomy active row selected current subtle filled line workspace color marker dot edge tint toolbar tabs close active selected underline status style quiet subtle solid pane header density settings panel inactive pane percent resize focus highlight edge mode simple clean panes split shape corner radius rounded divider spacing gap gutter grip marker color dot tint preset current");
   panel.style.setProperty("--layout-preview-sidebar", `${Math.max(24, Math.round((settings.sidebarWidth / 304) * 72))}px`);
   panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / 480) * 76))}px`);
   panel.innerHTML = `
@@ -15326,6 +15349,7 @@ function layoutSettingsPreviewPanel() {
       <span><b>Workspace colors</b><em data-layout-preview-workspace-colors></em></span>
       <span><b>Settings</b><em data-layout-preview-settings></em></span>
       <span><b>Status</b><em data-layout-preview-status></em></span>
+      <span><b>Status style</b><em data-layout-preview-status-style></em></span>
       <span><b>Active pane</b><em data-layout-preview-active-pane></em></span>
       <span><b>Panes</b><em data-layout-preview-panes></em></span>
       <span><b>Split</b><em data-layout-preview-split></em></span>
@@ -15355,6 +15379,7 @@ function layoutSettingsPreviewPanel() {
   panel.querySelector("[data-layout-preview-workspace-colors]").textContent = settings.focusMode ? "Hidden" : optionLabel(workspaceColorStyleOptions, settings.workspaceColorStyle, settings.workspaceColorStyle);
   panel.querySelector("[data-layout-preview-settings]").textContent = `${settings.inspectorWidth}px`;
   panel.querySelector("[data-layout-preview-status]").textContent = statusbarSummaryLabel(settings);
+  panel.querySelector("[data-layout-preview-status-style]").textContent = settings.focusMode || !settings.showStatusbar ? "Hidden" : optionLabel(statusbarStyleOptions, settings.statusbarStyle, settings.statusbarStyle);
   const workspace = activeWorkspace();
   panel.querySelector("[data-layout-preview-active-pane]").textContent = workspace?.panels?.length > 1 ? `${activePaneLayoutPercent(workspace)}%` : "Single";
   panel.querySelector("[data-layout-preview-panes]").textContent = workspace?.panels?.length ? String(workspace.panels.length) : "None";
@@ -17893,6 +17918,7 @@ function performanceDiagnosticsPayload() {
       showTabs: state.settings.showTabs,
       showStatusbar: state.settings.showStatusbar,
       statusDetailMode: state.settings.statusDetailMode,
+      statusbarStyle: state.settings.statusbarStyle,
       performanceMode: state.settings.performanceMode,
       adaptivePerformance: state.settings.adaptivePerformance,
       reduceMotion: state.settings.reduceMotion,
@@ -19078,29 +19104,29 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
       title: workspace?.panels?.length
         ? "Copy the current pane layout and workspace chrome as JSON."
         : "Copy workspace chrome as JSON. Open panes to include a pane layout.",
-      search: "quick setup layout copy setup workspace chrome pane split blueprint workspace row size density compact roomy active row selected color marker dot edge tint tab active selected underline corner radius divider grip spacing gap gutter active pane highlight clipboard json"
+      search: "quick setup layout copy setup workspace chrome pane split blueprint workspace row size density compact roomy active row selected color marker dot edge tint tab active selected underline status style quiet subtle solid corner radius divider grip spacing gap gutter active pane highlight clipboard json"
     }),
     quickOverviewControlButton("Paste setup", pasteLayoutSetup, {
       title: "Apply copied layout setup and save any included pane blueprint.",
-      search: "quick setup layout paste setup workspace chrome pane split blueprint workspace row size density compact roomy active row selected color marker dot edge tint tab active selected underline corner radius divider grip spacing gap gutter active pane highlight clipboard json"
+      search: "quick setup layout paste setup workspace chrome pane split blueprint workspace row size density compact roomy active row selected color marker dot edge tint tab active selected underline status style quiet subtle solid corner radius divider grip spacing gap gutter active pane highlight clipboard json"
     }),
     quickOverviewControlButton("Reset chrome", () => refreshQuick(resetWorkspaceChrome()), {
       disabled: workspaceChromeDefault,
       title: workspaceChromeDefault
         ? "Workspace chrome already matches the default setup."
-        : "Reset toolbar, sidebar, workspace row size, active workspace style, workspace color style, tabs, active tab style, status bar, corner style, pane dividers, pane spacing, active pane highlight, and panel widths.",
-      search: `quick setup layout reset workspace chrome toolbar sidebar workspace row size density compact roomy active row selected color marker dot edge tint tabs active selected underline status corner radius divider grip spacing gap gutter active pane highlight ${workspaceChromeDefault ? "default current" : ""}`
+        : "Reset toolbar, sidebar, workspace row size, active workspace style, workspace color style, tabs, active tab style, status bar detail and style, corner style, pane dividers, pane spacing, active pane highlight, and panel widths.",
+      search: `quick setup layout reset workspace chrome toolbar sidebar workspace row size density compact roomy active row selected color marker dot edge tint tabs active selected underline status style quiet subtle solid corner radius divider grip spacing gap gutter active pane highlight ${workspaceChromeDefault ? "default current" : ""}`
     }),
     quickOverviewControlButton("Layout", () => openSettingsCategory("layout"), {
       title: "Open full layout and workspace chrome settings.",
-      search: "quick setup layout full settings workspace chrome toolbar sidebar tabs active selected underline pane header density corner radius divider grip spacing gap gutter active pane highlight"
+      search: "quick setup layout full settings workspace chrome toolbar sidebar tabs active selected underline status style quiet subtle solid pane header density corner radius divider grip spacing gap gutter active pane highlight"
     })
   ];
   return quickOverviewControlsPanel({
     className: "quick-overview-layout",
     title: "Layout controls",
     meta: `${activePreset} / ${summary.toolbar} / ${summary.workspaceRowSize} rows`,
-    search: `quick setup layout controls workspace chrome display simple compact focus density toolbar sidebar row size compact roomy active row selected color marker dot edge tint tabs active selected underline status sidebar corner radius rounded crisp soft divider grip slim balanced wide spacing gap gutter active pane highlight edge quiet line strong ${activePreset} ${summary.density} ${summary.toolbar} ${summary.paneHeaders} ${summary.paneControls} ${summary.workspaceRows} ${summary.workspaceRowSize} ${summary.activeWorkspace} ${summary.workspaceColors} ${summary.tabs} ${summary.tabClose} ${summary.activeTab} ${summary.corners} ${summary.dividers} ${summary.paneSpacing} ${summary.activePane} ${summary.statusbar} ${summary.focusMode} ${summary.widths}`,
+    search: `quick setup layout controls workspace chrome display simple compact focus density toolbar sidebar row size compact roomy active row selected color marker dot edge tint tabs active selected underline status style quiet subtle solid sidebar corner radius rounded crisp soft divider grip slim balanced wide spacing gap gutter active pane highlight edge quiet line strong ${activePreset} ${summary.density} ${summary.toolbar} ${summary.paneHeaders} ${summary.paneControls} ${summary.workspaceRows} ${summary.workspaceRowSize} ${summary.activeWorkspace} ${summary.workspaceColors} ${summary.tabs} ${summary.tabClose} ${summary.activeTab} ${summary.corners} ${summary.dividers} ${summary.paneSpacing} ${summary.activePane} ${summary.statusbar} ${summary.statusbarStyle} ${summary.focusMode} ${summary.widths}`,
     actions
   });
 }
@@ -25115,6 +25141,7 @@ function settingsPresetTags(settings) {
       : "Quiet markers",
     `${optionLabel(interfaceDepthOptions, settings.interfaceDepth, settings.interfaceDepth)} depth`,
     statusbarSummaryLabel(settings),
+    `${optionLabel(statusbarStyleOptions, settings.statusbarStyle, settings.statusbarStyle)} status style`,
     `${settings.terminalScrollback.toLocaleString()} history`
   ];
   return tags.map((tag) => {
@@ -26510,9 +26537,9 @@ function showToolbarMenu(event) {
       toolbarAction("Reset split layout", resetActivePaneLayout, !multiPane, "Reset split sizes for the active workspace.", multiPaneRequiredTitle),
       toolbarAction("Copy layout setup", copyLayoutSetup, false, "Copy the current pane layout and workspace chrome as JSON."),
       toolbarAction("Paste layout setup", pasteLayoutSetup, false, "Apply copied layout setup and save any included pane blueprint."),
-      toolbarAction("Copy workspace chrome", copyWorkspaceChromeSettings, false, "Copy toolbar, sidebar, workspace row size, workspace color style, tabs, active tab style, status bar, pane spacing, active pane highlight, and panel widths as JSON."),
+      toolbarAction("Copy workspace chrome", copyWorkspaceChromeSettings, false, "Copy toolbar, sidebar, workspace row size, workspace color style, tabs, active tab style, status bar detail and style, pane spacing, active pane highlight, and panel widths as JSON."),
       toolbarAction("Paste workspace chrome", pasteWorkspaceChromeSettings, false, "Apply copied cmux workspace chrome JSON."),
-      toolbarAction("Reset workspace chrome", resetWorkspaceChrome, workspaceChromeDefault, "Reset toolbar, sidebar, workspace row size, workspace color style, tabs, active tab style, status bar, pane spacing, active pane highlight, and panel widths.", "Workspace chrome already matches the default setup."),
+      toolbarAction("Reset workspace chrome", resetWorkspaceChrome, workspaceChromeDefault, "Reset toolbar, sidebar, workspace row size, workspace color style, tabs, active tab style, status bar detail and style, pane spacing, active pane highlight, and panel widths.", "Workspace chrome already matches the default setup."),
       contextPaneLayoutButton("Equalize panes", "equal", workspace, { icon: "layout" }),
       contextPaneLayoutButton("Grid layout", "grid", workspace, { icon: "layout" }),
       contextPaneLayoutButton("Active pane wide", "activeWide", workspace, { icon: "splitRight" }),
@@ -27665,7 +27692,7 @@ function paletteEntries() {
       meta: `${summary.density} / ${summary.activeTab} tabs`,
       shortcut: "Copy",
       title: "Copy this chrome preset as workspace chrome JSON.",
-      search: normalizeSettingsQuery(`workspace chrome layout display preset copy clipboard json tabs active selected underline corner radius rounded crisp soft divider grip slim balanced wide spacing gap gutter active pane highlight edge quiet line strong ${preset.label} ${preset.body} ${summary.density} ${summary.toolbar} ${summary.tabs} ${summary.tabClose} ${summary.activeTab} ${summary.corners} ${summary.dividers} ${summary.paneSpacing} ${summary.activePane} ${summary.statusbar} ${summary.widths}`),
+      search: normalizeSettingsQuery(`workspace chrome layout display preset copy clipboard json tabs active selected underline status style quiet subtle solid corner radius rounded crisp soft divider grip slim balanced wide spacing gap gutter active pane highlight edge quiet line strong ${preset.label} ${preset.body} ${summary.density} ${summary.toolbar} ${summary.tabs} ${summary.tabClose} ${summary.activeTab} ${summary.corners} ${summary.dividers} ${summary.paneSpacing} ${summary.activePane} ${summary.statusbar} ${summary.statusbarStyle} ${summary.widths}`),
       run: () => copyWorkspaceChromePreset(preset.id)
     });
   }
@@ -30685,6 +30712,7 @@ const workspaceChromeSettings = [
   "showTabs",
   "showStatusbar",
   "statusDetailMode",
+  "statusbarStyle",
   "sidebarWidth",
   "inspectorWidth"
 ];
@@ -30733,6 +30761,7 @@ const workspaceChromePresets = [
       showTabs: defaultSettings.showTabs,
       showStatusbar: defaultSettings.showStatusbar,
       statusDetailMode: defaultSettings.statusDetailMode,
+      statusbarStyle: defaultSettings.statusbarStyle,
       sidebarWidth: defaultSettings.sidebarWidth,
       inspectorWidth: defaultSettings.inspectorWidth
     }
@@ -30768,6 +30797,7 @@ const workspaceChromePresets = [
       showTabs: true,
       showStatusbar: false,
       statusDetailMode: "compact",
+      statusbarStyle: "quiet",
       sidebarWidth: 212,
       inspectorWidth: 340
     }
@@ -30803,6 +30833,7 @@ const workspaceChromePresets = [
       showTabs: false,
       showStatusbar: false,
       statusDetailMode: "compact",
+      statusbarStyle: "quiet",
       sidebarWidth: 204,
       inspectorWidth: 320
     }
@@ -30838,6 +30869,7 @@ const workspaceChromePresets = [
       showTabs: true,
       showStatusbar: true,
       statusDetailMode: "full",
+      statusbarStyle: "solid",
       sidebarWidth: 260,
       inspectorWidth: 400
     }
@@ -30873,6 +30905,7 @@ const workspaceChromePresets = [
       showTabs: true,
       showStatusbar: false,
       statusDetailMode: "compact",
+      statusbarStyle: "quiet",
       sidebarWidth: 216,
       inspectorWidth: 328
     }
@@ -30978,6 +31011,9 @@ function workspaceChromeSummaryForSettings(settings) {
       ? optionLabel(paneMarkerStyleOptions, normalized.paneMarkerStyle, normalized.paneMarkerStyle)
       : "Off",
     statusbar: statusbarSummaryLabel(normalized),
+    statusbarStyle: normalized.focusMode || !normalized.showStatusbar
+      ? "Hidden"
+      : optionLabel(statusbarStyleOptions, normalized.statusbarStyle, normalized.statusbarStyle),
     focusMode: normalized.focusMode ? "On" : "Off",
     widths: `${normalized.sidebarWidth}px sidebar / ${normalized.inspectorWidth}px settings`
   };
@@ -31046,6 +31082,7 @@ function workspaceChromeSettingUpdateFromValue(key, raw) {
   if (key === "titleDetailMode") return optionIdAllowed(titleDetailOptions, raw) ? raw : null;
   if (key === "paneMarkerStyle") return optionIdAllowed(paneMarkerStyleOptions, raw) ? raw : null;
   if (key === "statusDetailMode") return optionIdAllowed(statusDetailOptions, raw) ? raw : null;
+  if (key === "statusbarStyle") return optionIdAllowed(statusbarStyleOptions, raw) ? raw : null;
   if (workspaceChromeBooleanSettings.has(key)) return typeof raw === "boolean" ? raw : null;
   const range = workspaceChromeWidthSettings[key];
   if (range) {
@@ -31111,7 +31148,7 @@ function workspaceChromePresetSettings(preset) {
 function workspaceChromePresetSearchText(preset, settings = workspaceChromePresetSettings(preset)) {
   const summary = workspaceChromeSummaryForSettings(settings || {});
   return normalizeSettingsQuery([
-    "workspace chrome layout display preset apply copy simple clean compact focus toolbar sidebar row size density compact roomy workspace active row selected color marker dot edge tint tabs active selected underline status pane header controls corner radius rounded crisp soft divider grip slim balanced wide spacing gap gutter active pane highlight edge quiet line strong",
+    "workspace chrome layout display preset apply copy simple clean compact focus toolbar sidebar row size density compact roomy workspace active row selected color marker dot edge tint tabs active selected underline status style quiet subtle solid pane header controls corner radius rounded crisp soft divider grip slim balanced wide spacing gap gutter active pane highlight edge quiet line strong",
     preset?.label,
     preset?.body,
     summary.density,
@@ -31132,6 +31169,7 @@ function workspaceChromePresetSearchText(preset, settings = workspaceChromePrese
     summary.inactivePane,
     summary.markers,
     summary.statusbar,
+    summary.statusbarStyle,
     summary.focusMode,
     summary.widths
   ].join(" "));
