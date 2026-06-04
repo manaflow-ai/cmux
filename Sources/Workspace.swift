@@ -16775,6 +16775,7 @@ final class Workspace: Identifiable, ObservableObject {
             inPane: bonsplitController.focusedPaneId
         )
         let pendingRemoteDisconnect = pendingRemoteDisconnectReplacement
+        pendingRemoteDisconnectReplacement = nil
         let replacementInitialCommand: String? = pendingRemoteDisconnect.map {
             Self.remoteDisconnectPlaceholderScript(
                 target: $0.target,
