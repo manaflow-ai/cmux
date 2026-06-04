@@ -2016,8 +2016,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 onNewTab: newTab,
                 onFocusHistoryBack: focusHistoryBack,
                 onFocusHistoryForward: focusHistoryForward,
-                visibilityMode: .alwaysVisible,
-                actionSlots: TitlebarShortcutHintActionSlot.sidebarChromeSlots
+                visibilityMode: .alwaysVisible
             )
         )
 
@@ -2132,7 +2131,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(
             config: style.config,
-            buttonCount: TitlebarShortcutHintActionSlot.sidebarChromeSlots.count,
             reservesShortcutHintOverflow: true
         )
         if intrinsicSizeNeedsRefresh {
