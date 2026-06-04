@@ -6926,6 +6926,7 @@ class TabManager: ObservableObject {
         return trimmed
     }
 
+    @discardableResult
     func closeWorkspace(
         _ workspace: Workspace,
         recordHistory: Bool = true,
