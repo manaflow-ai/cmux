@@ -17580,6 +17580,9 @@ struct CMUXCLI {
         let shimDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-debug-tmux-shim-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+        // This is the one-shot debug dump (it never spawns a long-lived agent that would need the
+        // shims on PATH), so remove the shim dir on exit instead of leaking a /tmp dir per invocation.
+        defer { try? FileManager.default.removeItem(at: shimDirectory) }
         configureTmuxCompatEnvironment(
             processEnvironment: processEnvironment,
             shimDirectory: shimDirectory,
