@@ -265,7 +265,7 @@ extension AppDelegate {
             guard let manager = tabManagerFor(tabId: workspaceId),
                   let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
             manager.closeWorkspace(workspace, operationId: operationId)
-            return true
+            return !manager.tabs.contains(where: { $0.id == workspaceId })
         case .window:
             return false
         }
@@ -295,7 +295,7 @@ extension AppDelegate {
                 return false
             }
             manager.closeWorkspace(workspace, recordHistory: true)
-            return true
+            return !manager.tabs.contains(where: { $0.id == workspaceId })
         case .window:
             // Window re-close is not supported for redo; clear the target.
             ClosedItemHistoryStore.shared.clearRedoTarget()

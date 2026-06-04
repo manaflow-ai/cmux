@@ -314,15 +314,14 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     /// Clears any pending redo target.
     func clearRedoTarget() {
-        guard redoTarget != nil else { return }
-        redoTarget = nil
-        revision &+= 1
+        clearRedoTargetAndRestoredOperation()
     }
 
     /// Marks the operation most recently restored, so a redo can re-close it.
     func setLastRestoredOperation(_ operationId: UUID?) {
         guard lastRestoredOperationId != operationId else { return }
         lastRestoredOperationId = operationId
+        revision &+= 1
     }
 
     @discardableResult
@@ -551,13 +550,29 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     func removeAll() {
-        guard !records.isEmpty || !didFinishPersistedRecordsLoad else { return }
+        let hadState = !records.isEmpty
+            || redoTarget != nil
+            || lastRestoredOperationId != nil
+            || !restoredRefByRecordId.isEmpty
+            || !didFinishPersistedRecordsLoad
+        guard hadState else { return }
         if !didFinishPersistedRecordsLoad {
             shouldDiscardPersistedRecordsOnLoad = true
         }
         records.removeAll(keepingCapacity: false)
+        clearRedoTargetAndRestoredOperation(incrementRevision: false)
+        restoredRefByRecordId.removeAll(keepingCapacity: false)
         revision &+= 1
         persistRecords()
+    }
+
+    private func clearRedoTargetAndRestoredOperation(incrementRevision: Bool = true) {
+        let hadState = redoTarget != nil || lastRestoredOperationId != nil
+        redoTarget = nil
+        lastRestoredOperationId = nil
+        if hadState, incrementRevision {
+            revision &+= 1
+        }
     }
 
     private func trimToCapacityIfNeeded() {

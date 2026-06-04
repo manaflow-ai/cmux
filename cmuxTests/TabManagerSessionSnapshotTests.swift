@@ -1186,6 +1186,27 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         ])
     }
 
+    func testClosedItemHistoryRemoveAllClearsRedoAndRestoredState() throws {
+        let store = ClosedItemHistoryStore(loadPersisted: false)
+        let recordId = UUID()
+        let operationId = UUID()
+        let reopenedRef = ReopenedItemRef.workspace(workspaceId: UUID())
+
+        store.noteReopened(reopenedRef)
+        store.setLastRestoredOperation(operationId)
+        store.markRestored(recordId: recordId, ref: reopenedRef)
+
+        XCTAssertNotNil(store.redoTarget)
+        XCTAssertNotNil(store.lastRestoredOperationId)
+        XCTAssertNotNil(store.restoredRef(for: recordId))
+
+        store.removeAll()
+
+        XCTAssertNil(store.redoTarget)
+        XCTAssertNil(store.lastRestoredOperationId)
+        XCTAssertNil(store.restoredRef(for: recordId))
+    }
+
     func testClosedItemHistoryFlushPendingSavesPersistsLatestRecords() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-closed-history-flush-\(UUID().uuidString)", isDirectory: true)
