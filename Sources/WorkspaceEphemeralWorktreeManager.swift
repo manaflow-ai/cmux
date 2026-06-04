@@ -76,7 +76,7 @@ final class WorkspaceEphemeralWorktreeManager {
             )
         }
 
-        resolvedWorkingDirectory(
+        return resolvedWorkingDirectory(
             explicitWorkingDirectory: nil,
             worktree: nil,
             panelDirectory: savedWorkingDirectory,
