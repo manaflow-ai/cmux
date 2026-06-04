@@ -14,7 +14,7 @@ public struct KeyboardShortcutsSection: View {
 
     @State private var bindings: [String: StoredShortcut] = [:]
     @State private var streamTask: Task<Void, Never>?
-    @State private var chordModeActions: Set<String> = []
+    @State private var chordModeOverrides: [String: Bool] = [:]
     @State private var restoreShortcuts: [String: StoredShortcut] = [:]
     @State private var bareKeyRejections: Set<String> = []
     /// Per-action "rejected attempt" snapshot used to drive the red
@@ -168,6 +168,18 @@ public struct KeyboardShortcutsSection: View {
                 .frame(width: 160)
 
                 Button {
+                    actions.onToggleChordMode()
+                } label: {
+                    Image(systemName: "keyboard")
+                        .imageScale(.medium)
+                        .foregroundStyle(snapshot.chordsEnabled ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"))
+                .accessibilityLabel(String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"))
+                .accessibilityIdentifier("ShortcutRecorderChordModeButton")
+
+                Button {
                     actions.onClearOrRestore()
                 } label: {
                     Image(systemName: snapshot.canRestore ? "arrow.counterclockwise.circle.fill" : "xmark.circle.fill")
@@ -273,6 +285,7 @@ public struct KeyboardShortcutsSection: View {
         let onStroke: (ShortcutStroke) -> Void
         let onChord: (StoredShortcut) -> Void
         let onBareKeyRejected: () -> Void
+        let onToggleChordMode: () -> Void
         let onClearOrRestore: () -> Void
         let onDismissRejection: () -> Void
     }
@@ -288,6 +301,7 @@ public struct KeyboardShortcutsSection: View {
             return conflictEffective.map { format($0) }
         }
         let isUnbound = effective?.isUnbound ?? true
+        let chordsEnabled = chordModeOverrides[action.rawValue] ?? (effective?.second != nil)
 
         return ShortcutActionRowSnapshot(
             action: action,
@@ -298,7 +312,7 @@ public struct KeyboardShortcutsSection: View {
             bareKeyRejected: bareKeyRejections.contains(action.rawValue),
             conflict: conflict,
             conflictShortcutString: conflictShortcutString,
-            chordsEnabled: chordModeActions.contains(action.rawValue)
+            chordsEnabled: chordsEnabled
         )
     }
 
@@ -312,6 +326,9 @@ public struct KeyboardShortcutsSection: View {
             },
             onBareKeyRejected: {
                 bareKeyRejections.insert(snapshot.action.rawValue)
+            },
+            onToggleChordMode: {
+                chordModeOverrides[snapshot.action.rawValue] = !snapshot.chordsEnabled
             },
             onClearOrRestore: {
                 bareKeyRejections.remove(snapshot.action.rawValue)
@@ -515,6 +532,7 @@ public struct KeyboardShortcutsSection: View {
             // can drive the user back to a usable state.
             conflictRejections[action.rawValue] = conflict
             bareKeyRejections.remove(action.rawValue)
+            chordModeOverrides.removeValue(forKey: action.rawValue)
             return
         }
         var updated = bindings
@@ -522,28 +540,30 @@ public struct KeyboardShortcutsSection: View {
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
+        chordModeOverrides.removeValue(forKey: action.rawValue)
         await write(updated)
     }
 
     private func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
         if let conflict = detectConflict(for: action, stroke: chord) {
             conflictRejections[action.rawValue] = conflict
-            chordModeActions.remove(action.rawValue)
             bareKeyRejections.remove(action.rawValue)
+            chordModeOverrides.removeValue(forKey: action.rawValue)
             return
         }
         var updated = bindings
         updated[action.rawValue] = chord
-        chordModeActions.remove(action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
+        chordModeOverrides.removeValue(forKey: action.rawValue)
         await write(updated)
     }
 
     private func clearBinding(for action: ShortcutAction) async {
         var updated = bindings
         updated[action.rawValue] = StoredShortcut.unbound
+        chordModeOverrides.removeValue(forKey: action.rawValue)
         await write(updated)
     }
 
@@ -552,6 +572,7 @@ public struct KeyboardShortcutsSection: View {
         updated[action.rawValue] = shortcut
         restoreShortcuts.removeValue(forKey: action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
+        chordModeOverrides.removeValue(forKey: action.rawValue)
         await write(updated)
     }
 
@@ -560,6 +581,7 @@ public struct KeyboardShortcutsSection: View {
         updated.removeValue(forKey: action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
+        chordModeOverrides.removeValue(forKey: action.rawValue)
         await write(updated)
     }
 
@@ -567,6 +589,7 @@ public struct KeyboardShortcutsSection: View {
         restoreShortcuts.removeAll()
         bareKeyRejections.removeAll()
         conflictRejections.removeAll()
+        chordModeOverrides.removeAll()
         await write([:])
     }
 
