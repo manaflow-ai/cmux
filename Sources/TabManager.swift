@@ -7090,6 +7090,18 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
+    func closeWorkspaceForHistoryRedo(_ workspace: Workspace, operationId: UUID) -> Bool {
+        guard tabs.contains(where: { $0.id == workspace.id }) else { return false }
+        if workspace.isPinned {
+            guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
+            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false, operationId: operationId)
+        } else {
+            closeWorkspaceIfRunningProcess(workspace, operationId: operationId)
+        }
+        return !tabs.contains(where: { $0.id == workspace.id })
+    }
+
+    @discardableResult
     func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
             guard confirmPinnedWorkspaceClose(source: .tabClose) else { return false }
@@ -7420,10 +7432,13 @@ class TabManager: ObservableObject {
         }
         if tabs.count <= 1 {
             // Last workspace in this window: match Close Workspace shortcut behavior.
-            if let window {
+            if let operationId,
+               let windowId = AppDelegate.shared?.windowId(for: self) {
+                AppDelegate.shared?.closeMainWindow(windowId: windowId, operationId: operationId)
+            } else if let window {
                 window.performClose(nil)
             } else {
-                AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
+                AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id, operationId: operationId)
             }
         } else {
             closeWorkspace(workspace, operationId: operationId)

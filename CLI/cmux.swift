@@ -3654,13 +3654,21 @@ struct CMUXCLI {
 
         case "undo":
             var undoParams: [String: Any] = [:]
-            try applyWindowOrCallerContext(to: &undoParams, client: client, windowRaw: windowId)
+            try applyWindowOrCallerContext(
+                to: &undoParams,
+                client: client,
+                windowRaw: windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
+            )
             let undoPayload = try client.sendV2(method: "history.undo", params: undoParams)
             printV2Payload(undoPayload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "Reopened")
 
         case "redo":
             var redoParams: [String: Any] = [:]
-            try applyWindowOrCallerContext(to: &redoParams, client: client, windowRaw: windowId)
+            try applyWindowOrCallerContext(
+                to: &redoParams,
+                client: client,
+                windowRaw: windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
+            )
             let redoPayload = try client.sendV2(method: "history.redo", params: redoParams)
             printV2Payload(redoPayload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "Re-closed")
 

@@ -272,8 +272,7 @@ extension AppDelegate {
         case .workspace(let workspaceId):
             guard let manager = tabManagerFor(tabId: workspaceId),
                   let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
-            manager.closeWorkspace(workspace, operationId: operationId)
-            return !manager.tabs.contains(where: { $0.id == workspaceId })
+            return manager.closeWorkspaceForHistoryRedo(workspace, operationId: operationId)
         case .window(let windowId):
             return closeMainWindow(windowId: windowId, operationId: operationId)
                 && tabManagerFor(windowId: windowId) == nil
