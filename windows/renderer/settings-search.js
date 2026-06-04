@@ -36,7 +36,13 @@ export function uniqueSearchTokens(tokens) {
 }
 
 export function settingsSearchTokens(value) {
-  return normalizeSettingsQuery(value).split(/\s+/).filter((token) => token && !searchStopWords.has(token)).map((token) => {
+  return settingsSearchTokensNormalized(normalizeSettingsQuery(value));
+}
+
+export function settingsSearchTokensNormalized(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return [];
+  return normalized.split(/\s+/).filter((token) => !searchStopWords.has(token)).map((token) => {
     const aliases = searchTokenAliases.get(token) || [];
     return uniqueSearchTokens([token, ...aliases]);
   });

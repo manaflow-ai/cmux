@@ -153,7 +153,7 @@ import {
   normalizeSettingsQuery,
   settingsCategorySearchAliases,
   settingsSearchMatchesNormalized,
-  settingsSearchTokens
+  settingsSearchTokensNormalized
 } from "./settings-search.js";
 
 const backgroundPresetMap = new Map(backgroundPresets.map((preset) => [preset.value, preset]));
@@ -22066,7 +22066,7 @@ function syncSettingsDisclosuresForSearch(query) {
 
 function applySettingsFilter() {
   const query = normalizeSettingsQuery(state.settingsQuery);
-  const tokens = settingsSearchTokens(query);
+  const tokens = settingsSearchTokensNormalized(query);
   const disclosureSync = syncSettingsDisclosuresForSearch(query);
   const searchStillMounting = Boolean(query && !disclosureSync.complete);
   setSettingsSearchBusy(searchStillMounting);
@@ -34061,7 +34061,7 @@ function renderPalette() {
   if (!state.paletteOpen) return;
 
   const query = normalizeSettingsQuery(elements.paletteInput.value);
-  const tokens = settingsSearchTokens(query);
+  const tokens = settingsSearchTokensNormalized(query);
   const queryResult = paletteEntriesForQuery(query, tokens, paletteVisibleResultLimit());
   const matches = queryResult.entries;
   state.paletteIndex = Math.min(state.paletteIndex, Math.max(0, matches.length - 1));
