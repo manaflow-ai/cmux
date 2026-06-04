@@ -7321,7 +7321,75 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .workspace-background-control {
   min-width: 0;
   display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
   gap: var(--space-2);
+}
+
+.workspace-background-preview {
+  position: relative;
+  width: 52px;
+  height: 42px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background:
+    linear-gradient(135deg, color-mix(in oklch, var(--color-pane) 82%, var(--color-rail) 18%), var(--color-pane-warm));
+}
+
+.workspace-background-control.has-image .workspace-background-preview {
+  background-image: var(--workspace-background-image);
+  background-size: var(--workspace-background-size, cover);
+  background-repeat: var(--workspace-background-repeat, no-repeat);
+  background-position: var(--workspace-background-position, center);
+}
+
+.workspace-background-control.is-mixed .workspace-background-preview {
+  background:
+    repeating-linear-gradient(
+      135deg,
+      color-mix(in oklch, var(--color-accent) 30%, var(--color-pane) 70%) 0 8px,
+      color-mix(in oklch, var(--color-rail) 82%, var(--color-pane) 18%) 8px 16px
+    );
+}
+
+.workspace-background-preview::before {
+  content: "";
+  position: absolute;
+  inset: 6px 7px 20px;
+  border-radius: var(--radius-1);
+  background:
+    linear-gradient(90deg, color-mix(in oklch, var(--color-text) 24%, transparent) 0 48%, transparent 48% 100%),
+    linear-gradient(90deg, color-mix(in oklch, var(--color-accent) 42%, transparent) 0 64%, transparent 64% 100%),
+    linear-gradient(90deg, color-mix(in oklch, var(--color-text) 18%, transparent) 0 36%, transparent 36% 100%);
+  background-position: 0 0, 0 8px, 0 16px;
+  background-size: 100% 2px;
+  background-repeat: no-repeat;
+}
+
+.workspace-background-control.has-image .workspace-background-preview::before,
+.workspace-background-control.is-mixed .workspace-background-preview::before {
+  background:
+    linear-gradient(90deg, color-mix(in oklch, var(--color-text) 34%, transparent) 0 56%, transparent 56% 100%),
+    linear-gradient(90deg, color-mix(in oklch, var(--color-accent) 56%, transparent) 0 68%, transparent 68% 100%);
+  background-position: 0 0, 0 9px;
+  background-size: 100% 2px;
+  background-repeat: no-repeat;
+}
+
+.workspace-background-preview::after {
+  content: "All";
+  position: absolute;
+  inset: auto 5px 5px;
+  display: grid;
+  place-items: center;
+  height: 15px;
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-canvas) 72%, transparent);
+  color: var(--color-muted);
+  font: 9px/1 var(--font-ui);
+  font-weight: 760;
+  letter-spacing: 0;
 }
 
 .workspace-background-status {
@@ -7354,6 +7422,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .workspace-background-actions {
+  grid-column: 1 / -1;
   grid-template-columns: repeat(auto-fit, minmax(min(92px, 100%), 1fr));
   gap: var(--space-1);
 }

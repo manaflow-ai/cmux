@@ -19415,9 +19415,18 @@ function workspaceTerminalBackgroundSettingsPanel(workspace = activeWorkspace())
   const useAppModel = workspaceTerminalBackgroundActionModel("useApp", workspace);
   const clearModel = workspaceTerminalBackgroundActionModel("clear", workspace);
   const control = document.createElement("div");
-  control.className = "workspace-background-control";
+  control.className = [
+    "workspace-background-control",
+    model.hasBackground ? "has-image" : "",
+    model.mixed ? "is-mixed" : ""
+  ].filter(Boolean).join(" ");
   control.dataset.settingsSearch = workspaceTerminalBackgroundActionSearchText("actions", workspace, "settings workspace terminal backgrounds choose paste use app clear status");
+  control.style.setProperty("--workspace-background-image", model.image);
+  control.style.setProperty("--workspace-background-repeat", model.repeat);
+  control.style.setProperty("--workspace-background-size", model.size);
+  control.style.setProperty("--workspace-background-position", model.position);
   control.innerHTML = `
+    <span class="workspace-background-preview" aria-hidden="true"></span>
     <span class="workspace-background-status">
       <b>All terminals</b>
       <em></em>
