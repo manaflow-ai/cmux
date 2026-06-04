@@ -6665,6 +6665,9 @@ const customizationPaletteCommandIds = new Set([
   "settings.resetAppearance",
   "settings.copyLook",
   "settings.pasteLook",
+  "settings.copyTerminalSetup",
+  "settings.pasteTerminalSetup",
+  "settings.resetTerminalSetup",
   "settings.terminalColors",
   "settings.resetCommandPalette",
   "settings.resetLayoutMode",
@@ -6693,6 +6696,7 @@ function customizationCommandPaletteSignature() {
   appendSignatureValue(parts, savedDataItemCount());
   appendSignatureValue(parts, recentDataItemCount());
   appendSignatureValue(parts, settingsKeysSignature(appearanceResetSettings));
+  appendSignatureValue(parts, settingsKeysSignature(terminalSetupSettings));
   appendSignatureValue(parts, settingsKeysSignature(commandPaletteSettings));
   appendSignatureValue(parts, settingsKeysSignature(layoutModeSettings));
   appendSignatureValue(parts, settingsKeysSignature(tabStripSettings));
@@ -6891,6 +6895,37 @@ function customizationCommandPaletteState(commandId) {
         : "Reset performance tuning, motion, output, browser, lightweight chrome, and history settings to defaults.",
       search: normalizeSettingsQuery(`performance setup reset defaults speed lag smooth tune motion output terminal browser chrome history workspace palette toast background ${setupDefault ? "active current " : ""}${summary}`)
     };
+  }
+  if (commandId === "settings.copyTerminalSetup" || commandId === "settings.pasteTerminalSetup" || commandId === "settings.resetTerminalSetup") {
+    const summary = terminalSetupSummaryForSettings(state.settings);
+    const meta = `${summary.font} / ${summary.history} / ${summary.shell}`;
+    if (commandId === "settings.copyTerminalSetup") {
+      return {
+        meta,
+        shortcut: "Copy",
+        icon: "terminal",
+        title: "Copy the current terminal font, spacing, colors, cursor, and shell setup.",
+        search: normalizeSettingsQuery(`terminal setup copy export font size line height padding history scrollback colors cursor shell profile clipboard json settings ${summary.font} ${summary.lineHeight} ${summary.padding} ${summary.history} ${summary.cursor} ${summary.shell}`)
+      };
+    }
+    if (commandId === "settings.pasteTerminalSetup") {
+      return {
+        meta: "Terminal setup import",
+        shortcut: "Paste",
+        icon: "terminal",
+        title: "Apply a terminal setup copied from cmux.",
+        search: normalizeSettingsQuery("terminal setup paste import apply font size line height padding history scrollback colors cursor shell profile clipboard json settings")
+      };
+    }
+    const setupDefault = terminalSetupSettingsAreDefault();
+    return customizationResetCommandPaletteState({
+      isDefault: setupDefault,
+      meta,
+      icon: "terminal",
+      defaultTitle: "Terminal setup already uses defaults.",
+      resetTitle: "Reset terminal font, spacing, history, colors, cursor, and default shell.",
+      search: `terminal setup reset defaults font size line height padding history scrollback colors cursor shell profile settings ${summary.font} ${summary.lineHeight} ${summary.padding} ${summary.history} ${summary.cursor} ${summary.shell}`
+    });
   }
   if (commandId === "settings.terminalColors") {
     const colorsDefault = isTerminalColorPresetIdActive("cmux");
