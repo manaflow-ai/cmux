@@ -202,6 +202,32 @@ final class WorkspaceVisibilityTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, fourth.id, third.id, second.id])
     }
 
+    func testSidebarReorderWorkspaceUsesVisibleIndicesAndPreservesHiddenSlots() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace(select: false)
+        let third = manager.addWorkspace(select: false)
+        let fourth = manager.addWorkspace(select: false)
+
+        XCTAssertTrue(manager.setWorkspaceHidden(tabId: second.id, hidden: true))
+
+        XCTAssertEqual(
+            manager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: first.id),
+            [first.id, third.id, fourth.id]
+        )
+        XCTAssertTrue(
+            manager.reorderSidebarWorkspace(
+                tabId: first.id,
+                toIndex: 2,
+                isDragOperation: true
+            )
+        )
+
+        XCTAssertEqual(manager.visibleWorkspaceTabs.map(\.id), [third.id, fourth.id, first.id])
+        XCTAssertEqual(manager.hiddenWorkspaceTabs.map(\.id), [second.id])
+        XCTAssertEqual(manager.tabs.map(\.id), [third.id, second.id, fourth.id, first.id])
+    }
+
     func testMoveVisibleWorkspacesToTopPreservesHiddenSlots() throws {
         let manager = TabManager()
         let first = try XCTUnwrap(manager.tabs.first)

@@ -5438,9 +5438,9 @@ class TabManager: ObservableObject {
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId
         ) else {
-            return tabs.map(\.id)
+            return visibleWorkspaceTabs.map(\.id)
         }
-        return sidebarTopLevelWorkspaceIds(promotingWorkspaceId: draggedWorkspaceId)
+        return sidebarTopLevelWorkspaceIds(promotingWorkspaceId: draggedWorkspaceId, includeHidden: false)
     }
 
     func sidebarReorderPinnedWorkspaceIds(
@@ -5452,9 +5452,9 @@ class TabManager: ObservableObject {
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId
         ) else {
-            return Set(tabs.filter(\.isPinned).map(\.id))
+            return Set(visibleWorkspaceTabs.filter(\.isPinned).map(\.id))
         }
-        return sidebarTopLevelPinnedWorkspaceIds()
+        return sidebarTopLevelPinnedWorkspaceIds(includeHidden: false)
     }
 
     @discardableResult
@@ -5468,32 +5468,50 @@ class TabManager: ObservableObject {
             return reorderTopLevelWorkspaceItem(
                 tabId: tabId,
                 toIndex: targetIndex,
-                promotesGroupedWorkspace: usesTopLevelRows
+                promotesGroupedWorkspace: usesTopLevelRows,
+                includeHidden: false
             )
         }
-        return reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: isDragOperation)
+        return reorderVisibleWorkspace(
+            tabId: tabId,
+            toVisibleIndex: targetIndex,
+            isDragOperation: isDragOperation
+        )
     }
 
     @discardableResult
     private func reorderTopLevelWorkspaceItem(
         tabId: UUID,
         toIndex targetIndex: Int,
-        promotesGroupedWorkspace: Bool = false
+        promotesGroupedWorkspace: Bool = false,
+        includeHidden: Bool = true
     ) -> Bool {
         let topLevelIds = sidebarTopLevelWorkspaceIds(
-            promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil
+            promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil,
+            includeHidden: includeHidden
         )
         guard let fromIndex = topLevelIds.firstIndex(of: tabId) else { return false }
         let clampedTarget = clampedTopLevelReorderIndex(
             forWorkspaceId: tabId,
             targetIndex: targetIndex,
-            topLevelIds: topLevelIds
+            topLevelIds: topLevelIds,
+            includeHidden: includeHidden
         )
         guard fromIndex != clampedTarget else { return false }
 
         var desiredTopLevelIds = topLevelIds
         let movedId = desiredTopLevelIds.remove(at: fromIndex)
         desiredTopLevelIds.insert(movedId, at: clampedTarget)
+        if !includeHidden {
+            guard let projectedDesiredTopLevelIds = projectedTopLevelWorkspaceIdsPreservingHiddenSlots(
+                reorderedVisibleTopLevelIds: desiredTopLevelIds,
+                currentVisibleTopLevelIds: topLevelIds,
+                promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil
+            ) else {
+                return false
+            }
+            desiredTopLevelIds = projectedDesiredTopLevelIds
+        }
         if promotesGroupedWorkspace,
            let tab = tabs.first(where: { $0.id == tabId }),
            tab.groupId != nil,
@@ -5511,6 +5529,37 @@ class TabManager: ObservableObject {
         }
         postWorkspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
         return true
+    }
+
+    private func projectedTopLevelWorkspaceIdsPreservingHiddenSlots(
+        reorderedVisibleTopLevelIds: [UUID],
+        currentVisibleTopLevelIds: [UUID],
+        promotingWorkspaceId promotedWorkspaceId: UUID?
+    ) -> [UUID]? {
+        guard reorderedVisibleTopLevelIds.count == currentVisibleTopLevelIds.count else { return nil }
+        guard Set(reorderedVisibleTopLevelIds) == Set(currentVisibleTopLevelIds) else { return nil }
+
+        let visibleTopLevelIdSet = Set(currentVisibleTopLevelIds)
+        let allTopLevelIds = sidebarTopLevelWorkspaceIds(
+            promotingWorkspaceId: promotedWorkspaceId,
+            includeHidden: true
+        )
+        var visibleCursor = 0
+        var projectedTopLevelIds: [UUID] = []
+        projectedTopLevelIds.reserveCapacity(allTopLevelIds.count)
+
+        for topLevelId in allTopLevelIds {
+            if visibleTopLevelIdSet.contains(topLevelId) {
+                guard visibleCursor < reorderedVisibleTopLevelIds.count else { return nil }
+                projectedTopLevelIds.append(reorderedVisibleTopLevelIds[visibleCursor])
+                visibleCursor += 1
+            } else {
+                projectedTopLevelIds.append(topLevelId)
+            }
+        }
+
+        guard visibleCursor == reorderedVisibleTopLevelIds.count else { return nil }
+        return projectedTopLevelIds
     }
 
     func sidebarReorderUsesTopLevelRows(
@@ -5645,7 +5694,8 @@ class TabManager: ObservableObject {
     func reorderVisibleWorkspace(
         tabId: UUID,
         toVisibleIndex targetIndex: Int,
-        visibleWorkspaceIds providedVisibleWorkspaceIds: [UUID]? = nil
+        visibleWorkspaceIds providedVisibleWorkspaceIds: [UUID]? = nil,
+        isDragOperation: Bool = false
     ) -> Bool {
         let visibleIds = providedVisibleWorkspaceIds ?? visibleWorkspaceTabs.map(\.id)
         guard let plan = visibleWorkspaceReorderPlan(
@@ -5662,7 +5712,8 @@ class TabManager: ObservableObject {
         return applyVisibleWorkspaceOrder(
             reorderedVisibleIds,
             currentVisibleIds: visibleIds,
-            movedWorkspaceIds: [tabId]
+            movedWorkspaceIds: [tabId],
+            isDragOperation: isDragOperation
         )
     }
 
@@ -5737,7 +5788,8 @@ class TabManager: ObservableObject {
     private func applyVisibleWorkspaceOrder(
         _ reorderedVisibleIds: [UUID],
         currentVisibleIds: [UUID],
-        movedWorkspaceIds: [UUID]
+        movedWorkspaceIds: [UUID],
+        isDragOperation: Bool = false
     ) -> Bool {
         guard reorderedVisibleIds.count == currentVisibleIds.count else { return false }
         guard reorderedVisibleIds != currentVisibleIds else { return true }
@@ -5768,7 +5820,9 @@ class TabManager: ObservableObject {
 
         let previousOrder = tabs.map(\.id)
         tabs = reorderedTabs
-        if !workspaceGroups.isEmpty {
+        if isDragOperation, let movedWorkspaceId = movedWorkspaceIds.first {
+            applyDragInferredGroupMembership(workspaceId: movedWorkspaceId)
+        } else if !workspaceGroups.isEmpty {
             syncWorkspaceGroupsOrderToAnchorOrder()
             normalizeWorkspaceGroupContiguity()
         }
@@ -6835,12 +6889,16 @@ class TabManager: ObservableObject {
         tabs = reordered
     }
 
-    private func sidebarTopLevelWorkspaceIds(promotingWorkspaceId promotedWorkspaceId: UUID? = nil) -> [UUID] {
+    private func sidebarTopLevelWorkspaceIds(
+        promotingWorkspaceId promotedWorkspaceId: UUID? = nil,
+        includeHidden: Bool = true
+    ) -> [UUID] {
         let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         var emittedGroupIds = Set<UUID>()
         var ids: [UUID] = []
         ids.reserveCapacity(tabs.count)
         for tab in tabs {
+            guard includeHidden || !tab.isHidden else { continue }
             if let groupId = tab.groupId,
                let group = groupsById[groupId] {
                 if emittedGroupIds.insert(groupId).inserted {
@@ -6892,9 +6950,13 @@ class TabManager: ObservableObject {
     }
 
     private func sidebarTopLevelPinnedWorkspaceIds() -> Set<UUID> {
+        sidebarTopLevelPinnedWorkspaceIds(includeHidden: true)
+    }
+
+    private func sidebarTopLevelPinnedWorkspaceIds(includeHidden: Bool) -> Set<UUID> {
         let groupsByAnchorId = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        return Set(sidebarTopLevelWorkspaceIds().filter { id in
+        return Set(sidebarTopLevelWorkspaceIds(includeHidden: includeHidden).filter { id in
             if let group = groupsByAnchorId[id] {
                 return group.isPinned
             }
@@ -6905,10 +6967,11 @@ class TabManager: ObservableObject {
     private func clampedTopLevelReorderIndex(
         forWorkspaceId workspaceId: UUID,
         targetIndex: Int,
-        topLevelIds: [UUID]
+        topLevelIds: [UUID],
+        includeHidden: Bool = true
     ) -> Int {
         let clamped = max(0, min(targetIndex, max(0, topLevelIds.count - 1)))
-        let pinnedIds = sidebarTopLevelPinnedWorkspaceIds()
+        let pinnedIds = sidebarTopLevelPinnedWorkspaceIds(includeHidden: includeHidden)
         let pinnedCount = topLevelIds.reduce(into: 0) { count, id in
             if pinnedIds.contains(id) {
                 count += 1
