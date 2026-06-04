@@ -1,4 +1,7 @@
 import CmuxMobileDiagnostics
+#if canImport(UIKit)
+import CmuxMobileGhosttyEngine
+#endif
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -23,6 +26,11 @@ struct WorkspaceDetailView: View {
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
     @State private var isTerminalPickerPresented = false
+    #if canImport(UIKit)
+    /// Root-constructed engine provider; its registry serves the DEV
+    /// "Copy Debug Logs" visible-terminal snapshot.
+    @Environment(GhosttyEngineProvider.self) private var engineProvider
+    #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == selectedTerminalID } ?? workspace.terminals.first
@@ -208,8 +216,9 @@ struct WorkspaceDetailView: View {
         isTerminalPickerPresented = false
         // Include "what the user sees" (the visible terminal text) above the
         // debug log so a pasted bug report shows the on-screen content too.
-        let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
+        let registry = engineProvider.registry
         Task { @MainActor in
+            let terminalText = await registry.visibleTerminalSnapshot()
             let count = await MobileDebugLog.shared.copyToPasteboard(prepending: terminalText)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)

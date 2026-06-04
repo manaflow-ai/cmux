@@ -1,6 +1,7 @@
 #if canImport(UIKit) && DEBUG
 import CMUXMobileCore
 import CmuxMobileDiagnostics
+import CmuxMobileGhosttyEngine
 import CmuxMobileTerminalKit
 import SwiftUI
 import UIKit
@@ -17,26 +18,40 @@ import UIKit
 ///
 /// Enable with `CMUX_ZOOM_STRESS=1`; see `cmuxApp`. DEBUG-only.
 public struct MobileZoomStressView: View {
-    public init() {}
+    private let engineProvider: GhosttyEngineProvider
+
+    /// Creates the harness over the injected engine provider.
+    public init(engineProvider: GhosttyEngineProvider) {
+        self.engineProvider = engineProvider
+    }
 
     public var body: some View {
-        ZoomStressRepresentable()
+        ZoomStressRepresentable(engineProvider: engineProvider)
             .ignoresSafeArea()
             .background(Color.black)
     }
 }
 
 private struct ZoomStressRepresentable: UIViewRepresentable {
+    let engineProvider: GhosttyEngineProvider
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> UIView {
-        guard let runtime = try? GhosttyRuntime.shared() else {
+        guard let engine = try? engineProvider.engine() else {
             let label = UILabel()
             label.text = "ZoomStress: runtime init failed"
             label.textColor = .white
             return label
         }
-        let view = GhosttySurfaceView(runtime: runtime, delegate: context.coordinator, fontSize: 12)
+        // Standalone harness: a fresh default accessory configuration keeps
+        // the bar deterministic and avoids threading app state in here.
+        let view = GhosttySurfaceView(
+            engine: engine,
+            delegate: context.coordinator,
+            accessoryConfiguration: TerminalAccessoryConfiguration(),
+            fontSize: 12
+        )
         context.coordinator.surfaceView = view
         context.coordinator.start()
         return view

@@ -1,8 +1,8 @@
 #if canImport(UIKit)
 import CMUXMobileCore
 import CmuxMobileDiagnostics
+import CmuxMobileGhosttyEngine
 import CmuxMobileTerminalKit
-import GhosttyKit
 import OSLog
 import UIKit
 
@@ -88,415 +88,9 @@ extension TerminalSurfaceHosting {
     #endif
 }
 
-/// Bridges libghostty C callbacks (which run on the IO read thread or
-/// other Ghostty-internal threads) onto the main actor where the
-/// `GhosttySurfaceView` lives. The single mutable property is the
-/// `weak var surfaceView`; we serialise reads/writes through the main
-/// actor, which lets us conform to `Sendable` for the `Task { @MainActor }`
-/// hops below.
-final class GhosttySurfaceBridge: @unchecked Sendable {
-    // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding a single weak ref on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
-    private let lock = NSLock()
-    private var _surfaceView: GhosttySurfaceView?
-
-    var surfaceView: GhosttySurfaceView? {
-        get {
-            lock.lock()
-            defer { lock.unlock() }
-            return _surfaceView
-        }
-        set {
-            lock.lock()
-            _surfaceView = newValue
-            lock.unlock()
-        }
-    }
-
-    func attach(to surfaceView: GhosttySurfaceView) {
-        self.surfaceView = surfaceView
-    }
-
-    func detach() {
-        surfaceView = nil
-    }
-
-    func handleWrite(_ bytes: Data) {
-        Task { @MainActor [weak self] in
-            guard let surfaceView = self?.surfaceView else { return }
-            surfaceView.handleOutboundBytes(bytes)
-        }
-    }
-
-    func handleCloseSurface(processAlive: Bool) {
-        Task { @MainActor [weak self] in
-            guard let surfaceView = self?.surfaceView else { return }
-            NotificationCenter.default.post(
-                name: .ghosttySurfaceDidRequestClose,
-                object: surfaceView,
-                userInfo: ["process_alive": processAlive]
-            )
-        }
-    }
-
-    static func fromOpaque(_ userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceBridge? {
-        guard let userdata else { return nil }
-        return Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).takeUnretainedValue()
-    }
-}
-
-// lint:allow namespace-enum — surface-teardown helper on the off-limits render path; its serial DispatchQueue is the sanctioned libghostty free-after-detach carve-out. Reshape deferred to the GhosttySurfaceView split wave.
-private enum GhosttySurfaceDisposer {
-    static let queue = DispatchQueue(label: "GhosttySurfaceDisposer.queue")
-
-    static func dispose(surface: ghostty_surface_t, bridge: GhosttySurfaceBridge) {
-        let retainedBridge = Unmanaged.passRetained(bridge)
-        queue.async {
-            ghostty_surface_free(surface)
-            retainedBridge.release()
-        }
-    }
-}
-
-struct TerminalHardwareKeyCommand: Sendable {
-    let input: String
-    let modifierFlags: UIKeyModifierFlags
-}
-
-struct TerminalHardwareKeyResolver {
-    private init() {}
-
-    private static let supportedModifierFlags: UIKeyModifierFlags = [.shift, .control, .alternate]
-    private static let keyCommands: [TerminalHardwareKeyCommand] = {
-        let navigation = [
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [.alternate]),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [.alternate]),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputHome, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputEnd, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputPageUp, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputPageDown, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputDelete, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputDelete, modifierFlags: [.alternate]),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: "\t", modifierFlags: []),
-            TerminalHardwareKeyCommand(input: "\t", modifierFlags: [.shift]),
-        ]
-        let controlInputs = Array("abcdefghijklmnopqrstuvwxyz[]\\ 234567/").map(String.init)
-            .map { TerminalHardwareKeyCommand(input: $0, modifierFlags: [.control]) }
-        let shiftedControlInputs = Array("@^_?").map(String.init)
-            .map { TerminalHardwareKeyCommand(input: $0, modifierFlags: [.control, .shift]) }
-        return navigation + controlInputs + shiftedControlInputs
-    }()
-
-    static func makeKeyCommands(target: Any, action: Selector) -> [UIKeyCommand] {
-        keyCommands.map { command in
-            UIKeyCommand(
-                input: command.input,
-                modifierFlags: command.modifierFlags,
-                action: action
-            )
-        }
-    }
-
-    /// Maps a `UIKeyCommand.input*` string to a platform-neutral special key.
-    /// Returns `nil` for ordinary character inputs.
-    private static func specialKey(for input: String) -> TerminalSpecialKey? {
-        switch input {
-        case UIKeyCommand.inputUpArrow: return .upArrow
-        case UIKeyCommand.inputDownArrow: return .downArrow
-        case UIKeyCommand.inputLeftArrow: return .leftArrow
-        case UIKeyCommand.inputRightArrow: return .rightArrow
-        case UIKeyCommand.inputHome: return .home
-        case UIKeyCommand.inputEnd: return .end
-        case UIKeyCommand.inputPageUp: return .pageUp
-        case UIKeyCommand.inputPageDown: return .pageDown
-        case UIKeyCommand.inputDelete: return .delete
-        case UIKeyCommand.inputEscape: return .escape
-        case "\t": return .tab
-        default: return nil
-        }
-    }
-
-    /// Translates `UIKeyModifierFlags` into the kit's platform-neutral set.
-    private static func kitModifiers(_ flags: UIKeyModifierFlags) -> TerminalKeyModifier {
-        var result: TerminalKeyModifier = []
-        if flags.contains(.shift) { result.insert(.shift) }
-        if flags.contains(.control) { result.insert(.control) }
-        if flags.contains(.alternate) { result.insert(.alternate) }
-        return result
-    }
-
-    static func data(input: String, modifierFlags: UIKeyModifierFlags) -> Data? {
-        let modifiers = kitModifiers(modifierFlags)
-        if let key = specialKey(for: input) {
-            return TerminalKeyEncoder.encode(specialKey: key, modifiers: modifiers)
-        }
-        return TerminalKeyEncoder.encode(character: input, modifiers: modifiers)
-    }
-}
-
-public enum TerminalInputAccessoryAction: Int, CaseIterable {
-    case control
-    case alternate
-    case command
-    case shift
-    case zoomOut
-    case zoomIn
-    case escape
-    case tab
-    case upArrow
-    case downArrow
-    case leftArrow
-    case rightArrow
-    case claude
-    case codex
-    case tilde
-    case pipe
-    case dollar
-    case slash
-    case atSign
-    case ctrlC
-    case ctrlD
-    case ctrlZ
-    case ctrlL
-    case home
-    case end
-    case pageUp
-    case pageDown
-    var title: String {
-        title(isMacRemote: false)
-    }
-
-    func title(isMacRemote: Bool) -> String {
-        switch self {
-        case .control:
-            return isMacRemote ? "⌃" : String(localized: "terminal.input_accessory.title.control", defaultValue: "Ctrl")
-        case .alternate:
-            return isMacRemote ? "⌥" : String(localized: "terminal.input_accessory.title.alt", defaultValue: "Alt")
-        case .command:
-            return "⌘"
-        case .shift:
-            return "⇧"
-        case .zoomOut:
-            return ""
-        case .zoomIn:
-            return ""
-        case .escape:
-            return String(localized: "terminal.input_accessory.title.escape", defaultValue: "Esc")
-        case .tab:
-            return String(localized: "terminal.input_accessory.title.tab", defaultValue: "Tab")
-        case .ctrlC:
-            return "^C"
-        case .ctrlD:
-            return "^D"
-        case .ctrlZ:
-            return "^Z"
-        case .ctrlL:
-            return "^L"
-        case .upArrow:
-            return "↑"
-        case .downArrow:
-            return "↓"
-        case .leftArrow:
-            return "←"
-        case .rightArrow:
-            return "→"
-        case .claude:
-            return "Claude"
-        case .codex:
-            return "Codex"
-        case .home:
-            return String(localized: "terminal.input_accessory.title.home", defaultValue: "Home")
-        case .end:
-            return String(localized: "terminal.input_accessory.title.end", defaultValue: "End")
-        case .pageUp:
-            return String(localized: "terminal.input_accessory.title.pageUp", defaultValue: "PgUp")
-        case .tilde:
-            return "~"
-        case .pipe:
-            return "|"
-        case .dollar:
-            return "$"
-        case .slash:
-            return "/"
-        case .atSign:
-            return "@"
-        case .pageDown:
-            return String(localized: "terminal.input_accessory.title.pageDown", defaultValue: "PgDn")
-        }
-    }
-
-    var accessibilityIdentifier: String {
-        switch self {
-        case .control: return "terminal.inputAccessory.control"
-        case .alternate: return "terminal.inputAccessory.alt"
-        case .command: return "terminal.inputAccessory.command"
-        case .shift: return "terminal.inputAccessory.shift"
-        case .zoomOut: return "terminal.inputAccessory.zoomOut"
-        case .zoomIn: return "terminal.inputAccessory.zoomIn"
-        case .escape: return "terminal.inputAccessory.escape"
-        case .tab: return "terminal.inputAccessory.tab"
-        case .upArrow: return "terminal.inputAccessory.up"
-        case .downArrow: return "terminal.inputAccessory.down"
-        case .leftArrow: return "terminal.inputAccessory.left"
-        case .rightArrow: return "terminal.inputAccessory.right"
-        case .claude: return "terminal.inputAccessory.claude"
-        case .codex: return "terminal.inputAccessory.codex"
-        case .tilde: return "terminal.inputAccessory.tilde"
-        case .pipe: return "terminal.inputAccessory.pipe"
-        case .dollar: return "terminal.inputAccessory.dollar"
-        case .slash: return "terminal.inputAccessory.slash"
-        case .atSign: return "terminal.inputAccessory.atSign"
-        case .ctrlC: return "terminal.inputAccessory.ctrlC"
-        case .ctrlD: return "terminal.inputAccessory.ctrlD"
-        case .ctrlZ: return "terminal.inputAccessory.ctrlZ"
-        case .ctrlL: return "terminal.inputAccessory.ctrlL"
-        case .home: return "terminal.inputAccessory.home"
-        case .end: return "terminal.inputAccessory.end"
-        case .pageUp: return "terminal.inputAccessory.pageUp"
-        case .pageDown: return "terminal.inputAccessory.pageDown"
-        }
-    }
-
-    var accessibilityLabel: String? {
-        switch self {
-        case .zoomOut:
-            return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
-        case .zoomIn:
-            return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
-        default:
-            return nil
-        }
-    }
-
-    var symbolName: String? {
-        switch self {
-        case .zoomOut:
-            return "minus.magnifyingglass"
-        case .zoomIn:
-            return "plus.magnifyingglass"
-        default:
-            return nil
-        }
-    }
-
-    var zoomDirection: TerminalFontZoomDirection? {
-        switch self {
-        case .zoomOut:
-            return .decrease
-        case .zoomIn:
-            return .increase
-        default:
-            return nil
-        }
-    }
-
-    /// Whether this action is a modifier key (toggleable armed state).
-    var isModifier: Bool {
-        switch self {
-        case .control, .alternate, .command, .shift: return true
-        default: return false
-        }
-    }
-
-    var output: Data? {
-        switch self {
-        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn:
-            return nil
-        case .escape:
-            return Data([0x1B])
-        case .tab:
-            return Data([0x09])
-        case .tilde:
-            return Data([0x7E]) // ~
-        case .pipe:
-            return Data([0x7C]) // |
-        case .dollar:
-            return Data([0x24]) // $
-        case .slash:
-            return Data([0x2F]) // /
-        case .atSign:
-            return Data([0x40]) // @
-        case .ctrlC:
-            return Data([0x03])
-        case .ctrlD:
-            return Data([0x04])
-        case .ctrlZ:
-            return Data([0x1A])
-        case .ctrlL:
-            return Data([0x0C])
-        case .upArrow:
-            return Data([0x1B, 0x5B, 0x41]) // ESC[A
-        case .downArrow:
-            return Data([0x1B, 0x5B, 0x42]) // ESC[B
-        case .leftArrow:
-            return Data([0x1B, 0x5B, 0x44]) // ESC[D
-        case .rightArrow:
-            return Data([0x1B, 0x5B, 0x43]) // ESC[C
-        case .claude:
-            return Data("claude --dangerously-skip-permissions\r".utf8)
-        case .codex:
-            return Data("codex --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=xhigh --search\r".utf8)
-        case .home:
-            return Data([0x1B, 0x5B, 0x48]) // ESC[H
-        case .end:
-            return Data([0x1B, 0x5B, 0x46]) // ESC[F
-        case .pageUp:
-            return Data([0x1B, 0x5B, 0x35, 0x7E]) // ESC[5~
-        case .pageDown:
-            return Data([0x1B, 0x5B, 0x36, 0x7E]) // ESC[6~
-        }
-    }
-
-    /// Whether the user can show/hide/reorder this action. The modifier keys
-    /// (⌃ ⌥ ⌘ ⇧) and zoom controls are structural and stay pinned, so only the
-    /// insertable shortcuts (those with an `output`) are configurable.
-    public var isUserConfigurable: Bool {
-        output != nil && !isModifier
-    }
-
-    /// Every user-configurable action in canonical (enum) order. This is both
-    /// the default arrangement and the full set the settings editor lists.
-    public static var configurableActions: [TerminalInputAccessoryAction] {
-        allCases.filter { $0.isUserConfigurable }
-    }
-
-    /// Human-readable name for the shortcuts settings editor (the bar itself
-    /// renders the short `title`/symbol).
-    public var settingsDisplayName: String {
-        switch self {
-        case .escape: return String(localized: "terminal.shortcut.name.escape", defaultValue: "Escape")
-        case .tab: return String(localized: "terminal.shortcut.name.tab", defaultValue: "Tab")
-        case .upArrow: return String(localized: "terminal.shortcut.name.upArrow", defaultValue: "Up Arrow")
-        case .downArrow: return String(localized: "terminal.shortcut.name.downArrow", defaultValue: "Down Arrow")
-        case .leftArrow: return String(localized: "terminal.shortcut.name.leftArrow", defaultValue: "Left Arrow")
-        case .rightArrow: return String(localized: "terminal.shortcut.name.rightArrow", defaultValue: "Right Arrow")
-        case .claude: return String(localized: "terminal.shortcut.name.claude", defaultValue: "Claude")
-        case .codex: return String(localized: "terminal.shortcut.name.codex", defaultValue: "Codex")
-        case .tilde: return String(localized: "terminal.shortcut.name.tilde", defaultValue: "Tilde ~")
-        case .pipe: return String(localized: "terminal.shortcut.name.pipe", defaultValue: "Pipe |")
-        case .dollar: return String(localized: "terminal.shortcut.name.dollar", defaultValue: "Dollar $")
-        case .slash: return String(localized: "terminal.shortcut.name.slash", defaultValue: "Slash /")
-        case .atSign: return String(localized: "terminal.shortcut.name.atSign", defaultValue: "At @")
-        case .ctrlC: return String(localized: "terminal.shortcut.name.ctrlC", defaultValue: "Control-C")
-        case .ctrlD: return String(localized: "terminal.shortcut.name.ctrlD", defaultValue: "Control-D")
-        case .ctrlZ: return String(localized: "terminal.shortcut.name.ctrlZ", defaultValue: "Control-Z")
-        case .ctrlL: return String(localized: "terminal.shortcut.name.ctrlL", defaultValue: "Control-L")
-        case .home: return String(localized: "terminal.shortcut.name.home", defaultValue: "Home")
-        case .end: return String(localized: "terminal.shortcut.name.end", defaultValue: "End")
-        case .pageUp: return String(localized: "terminal.shortcut.name.pageUp", defaultValue: "Page Up")
-        case .pageDown: return String(localized: "terminal.shortcut.name.pageDown", defaultValue: "Page Down")
-        case .control, .alternate, .command, .shift, .zoomIn, .zoomOut:
-            return title
-        }
-    }
-}
-
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
-    private weak var runtime: GhosttyRuntime?
+    private weak var engine: GhosttyEngineService?
+    private weak var registry: GhosttySurfaceRegistry?
     private weak var delegate: GhosttySurfaceViewDelegate?
     private let fontSize: Float32
     /// Surface-owned live font size (points). Zoom mutates this; it is the
@@ -536,8 +130,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// reset/save/restore actions. Owned by the surface (constructed at init)
     /// rather than reached through a singleton, so it is injectable in tests.
     private let zoomPreference = MobileTerminalZoomPreference()
-    private let bridge = GhosttySurfaceBridge()
-    private let prefersSnapshotFallbackRendering = false
     var onFocusInputRequestedForTesting: (() -> Void)?
     private var surfaceTitle: String?
     private var displayLink: CADisplayLink?
@@ -598,17 +190,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastAppliedContentScale: CGFloat = 0
     private var surfaceHasReceivedOutput: Bool = false
     private var shouldScrollInitialOutputToBottom = true
-    /// Serial background queue for `ghostty_surface_process_output`, which
-    /// blocks on libghostty's internal renderer/IO futex. Running it on the
-    /// main thread hangs the app until the scene-update watchdog kills it.
-    private static let outputQueue = DispatchQueue(
-        label: "dev.cmux.GhosttySurfaceView.output",
-        qos: .userInitiated
-    )
     #if DEBUG
     private var lastInputTimestamp: CFTimeInterval = 0
     private var latencySamples: [Double] = []
     var onOutputProcessedForTesting: (() -> Void)?
+    /// DEBUG seam for the latency probe: fires on the main actor each time a
+    /// `ghostty_surface_render_now` round-trip completes (the moment the
+    /// rendered frame's main-thread completion hop lands). Paired with
+    /// `onOutputProcessedForTesting`, this bounds keystroke→pixels latency
+    /// without touching the render path itself.
+    var onRenderCompletedForTesting: (() -> Void)?
     /// DEBUG/UI-test accessibility carrier for the rendered terminal text.
     ///
     /// The surface itself must NOT be an accessibility leaf: a leaf hides its
@@ -643,7 +234,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return view
     }()
 
-    private(set) var surface: ghostty_surface_t?
+    /// The engine session owning this surface's blocking libghostty calls.
+    private(set) var session: GhosttySurfaceSession?
+    /// The surface's registry identity, for unregistration on dispose.
+    private var surfaceIdentity: UInt?
+    /// Single main-actor consumer of the surface's ordered host-event stream
+    /// (output-applied, render-completed, geometry, title, bell, close, …).
+    private var hostEventTask: Task<Void, Never>?
+    /// FIFO of DECTCEM cursor-visibility deltas, one entry per submitted
+    /// output chunk, popped by the matching ordered `outputApplied` event.
+    private var pendingCursorVisibilityDeltas: [Bool?] = []
+    #if DEBUG
+    /// Last natural grid measured by a geometry pass (test seam).
+    private var lastNaturalMeasurementForTesting: GhosttySurfaceMeasuredSize?
+    #endif
     private var lastReportedSize: TerminalGridSize?
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
@@ -671,7 +275,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// adding the old ~0.5s tail before the Mac reflows and re-sends. ~0.07s at
     /// 120Hz / 0.13s at 60Hz.
     private static let viewportReportSettleThreshold = 8
-    private var lastSnapshotFallbackHTML: String?
     /// Daemon-authoritative effective grid (min across attached devices). When
     /// set, the Ghostty surface is pinned to this cols×rows inside the
     /// container so every attached device renders at the same grid. When
@@ -703,16 +306,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func debugGeometrySnapshotForTesting() -> DebugGeometrySnapshot {
-        let renderedSize: TerminalGridSize? = {
-            guard let surface else { return nil }
-            let size = ghostty_surface_size(surface)
-            return TerminalGridSize(
-                columns: Int(size.columns),
-                rows: Int(size.rows),
-                pixelWidth: Int(size.width_px),
-                pixelHeight: Int(size.height_px)
+        let renderedSize: TerminalGridSize? = lastNaturalMeasurementForTesting.map { measured in
+            TerminalGridSize(
+                columns: measured.columns,
+                rows: measured.rows,
+                pixelWidth: measured.pixelWidth,
+                pixelHeight: measured.pixelHeight
             )
-        }()
+        }
         return DebugGeometrySnapshot(
             boundsSize: bounds.size,
             renderRect: lastRenderRect,
@@ -734,8 +335,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastReportedSize ?? TerminalGridSize(columns: 100, rows: 32, pixelWidth: 900, pixelHeight: 650)
     }
 
+    /// Root-constructed accessory-bar configuration, forwarded to the input
+    /// proxy's toolbar builder.
+    private let accessoryConfiguration: TerminalAccessoryConfiguration
+
     private lazy var inputProxy: TerminalInputTextView = {
-        let inputProxy = TerminalInputTextView()
+        let inputProxy = TerminalInputTextView(accessoryConfiguration: accessoryConfiguration)
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
             self.resetCursorBlink()
@@ -793,13 +398,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return inputProxy
     }()
 
-    public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate, fontSize: Float32 = 10) {
-        self.runtime = runtime
+    public init(
+        engine: GhosttyEngineService,
+        delegate: GhosttySurfaceViewDelegate,
+        accessoryConfiguration: TerminalAccessoryConfiguration,
+        fontSize: Float32 = 10
+    ) {
+        self.engine = engine
+        self.registry = engine.registry
         self.delegate = delegate
+        self.accessoryConfiguration = accessoryConfiguration
         self.fontSize = fontSize
         self.liveFontSize = fontSize
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
-        bridge.attach(to: self)
         backgroundColor = .black
         isOpaque = true
         #if DEBUG
@@ -885,7 +496,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @objc private func handleAppWillEnterForeground() {
-        guard surface != nil, window != nil else { return }
+        guard session != nil, window != nil else { return }
         // The Mac drops this device's sticky viewport pin a few seconds after the
         // connection backgrounds, so on reconnect it reverts to its own (often
         // larger) size. `lastReportedSize` is unchanged, so nothing re-reports on
@@ -905,8 +516,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func suspendRendering() {
         renderingSuspended = true
         stopDisplayLink()
-        guard let surface else { return }
-        ghostty_surface_set_occlusion(surface, false)  // false = occluded; drawFrame skips
+        guard let session else { return }
+        session.setOcclusion(visible: false)  // occluded; drawFrame skips
         setFocus(false)
     }
 
@@ -921,8 +532,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderingSuspended = false
         renderInFlight = false
         needsAnotherRender = false
-        guard let surface, window != nil else { return }
-        ghostty_surface_set_occlusion(surface, true)  // true = visible
+        guard let session, window != nil else { return }
+        session.setOcclusion(visible: true)
         setFocus(true)
         needsDraw = true
         startDisplayLink()
@@ -1154,7 +765,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             MobileDebugLog.anchormux("zoom.clamp dir=\(direction) base=\(base) target=\(target) range=[\(MobileTerminalFontPreference.minimumSize),\(MobileTerminalFontPreference.maximumSize)]")
             return false
         }
-        guard surface != nil else { return false }
+        guard session != nil else { return false }
 
         pendingFontSize = target
         MobileDebugLog.anchormux("zoom.queue dir=\(direction) \(base)->\(target) live=\(liveFontSize)")
@@ -1181,7 +792,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// applied this frame.
     @discardableResult
     private func applyPendingFontSizeIfNeeded() -> Bool {
-        guard let target = pendingFontSize, let surface else { return false }
+        guard let target = pendingFontSize, let session else { return false }
         pendingFontSize = nil
         guard target != liveFontSize else { return false }
         liveFontSize = target
@@ -1191,12 +802,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // it past `maximumSize` toward the 255pt ceiling and collapse the grid.
         // An absolute `set_font_size:<target>` keeps libghostty in lockstep
         // with `liveFontSize`, which we keep inside [minimumSize, maximumSize].
-        let action = "set_font_size:\(target)"
-        Self.outputQueue.async {
-            action.withCString { pointer in
-                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
-            }
-        }
+        session.submit(.bindingAction("set_font_size:\(target)"))
         // Render the new font (the grid reflows inside the current surface) but
         // do NOT resize the surface this frame. Resizing the render target on
         // every zoom step reallocates the IOSurface and stalls `render_now`'s
@@ -1211,7 +817,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// driving the same coalesced apply path as a pinch step. Used by the
     /// zoom-control overlay's reset / restore-built-in actions.
     private func applyAbsoluteFontSize(_ target: Float32) {
-        guard surface != nil else { return }
+        guard session != nil else { return }
         let clamped = min(
             max(target, MobileTerminalFontPreference.minimumSize),
             MobileTerminalFontPreference.maximumSize
@@ -1347,7 +953,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastProcessOutputLogTime: CFTimeInterval = 0
 
     public func processOutput(_ data: Data) {
-        guard let surface else { return }
+        guard let session else { return }
         #if DEBUG
         if lastInputTimestamp > 0 {
             let elapsed = (CACurrentMediaTime() - lastInputTimestamp) * 1000.0
@@ -1366,88 +972,100 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // Track the host's cursor-visible mode (DECTCEM) straight from the VT
         // bytes the surface is about to apply, so the cursor overlay can match a
         // TUI that hides the cursor. nil = this delta carried no DECTCEM, so the
-        // previous visibility stands.
-        let cursorVisibilityDelta = Self.lastCursorVisibility(in: forwarded)
+        // previous visibility stands. Queued FIFO; the matching ordered
+        // `outputApplied` event pops it.
+        pendingCursorVisibilityDeltas.append(Self.lastCursorVisibility(in: forwarded))
 
         // `ghostty_surface_process_output` BLOCKS on libghostty's internal
         // renderer/IO synchronization (a futex). Device crash logs show it
         // hanging the main thread (`Thread.Futex.Deadline.wait`) until the
-        // scene-update watchdog (0x8BADF00D) kills the app. It must run off
-        // the main thread. Feed it on a serial background queue (order
-        // preserved) and hop back to main only for the Swift-side UI state.
-        Self.outputQueue.async { [weak self] in
-            forwarded.withUnsafeBytes { buffer in
-                guard let baseAddress = buffer.baseAddress else { return }
-                let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
-                ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+        // scene-update watchdog (0x8BADF00D) kills the app. The session runs
+        // it on its dedicated serial executor (order preserved) and the
+        // `outputApplied` host event hops back here for the UI state.
+        session.submit(.output(forwarded))
+    }
+
+    /// Applies one `outputApplied` host event on the main actor: the
+    /// post-`process_output` UI work that used to live in the output queue's
+    /// `DispatchQueue.main.async` completion.
+    private func handleOutputApplied(accessibilityText: String?) {
+        needsDraw = true
+        let cursorVisibilityDelta = pendingCursorVisibilityDeltas.isEmpty
+            ? nil
+            : pendingCursorVisibilityDeltas.removeFirst()
+        if let cursorVisibilityDelta, cursorVisibilityDelta != hostCursorVisible {
+            hostCursorVisible = cursorVisibilityDelta
+            updateCursorOverlay()
+        }
+        #if DEBUG
+        lastOutputAppliedTime = CACurrentMediaTime()
+        #endif
+        if !surfaceHasReceivedOutput {
+            surfaceHasReceivedOutput = true
+            snapshotFallbackView.isHidden = true
+            scrollInitialOutputToBottomIfNeeded()
+        }
+        let now = CACurrentMediaTime()
+        if now - lastProcessOutputLogTime > 1.0 {
+            lastProcessOutputLogTime = now
+            if window != nil {
+                logLayerTree(reason: "processOutput")
             }
-            #if DEBUG
-            // `ghostty_surface_read_text` takes the same internal surface lock as
-            // `process_output`. Reading it on the MAIN thread per-output (to feed
-            // the XCUITest accessibility label) contended that lock against the
-            // off-main renderer/IO during a fast render storm and wedged the main
-            // thread on libghostty's futex until the scene-update watchdog
-            // (0x8BADF00D) froze the app. Read it HERE on the serial output queue
-            // instead — already serialized with `process_output`, so the two are
-            // never concurrent — throttled, and hand only the finished string to
-            // main. Off-main reads can never trip the main-thread watchdog.
-            var accessibilityText: String?
-            let a11yNow = CACurrentMediaTime()
-            if a11yNow - Self.lastAccessibilityTextTime > 0.5 {
-                Self.lastAccessibilityTextTime = a11yNow
-                accessibilityText = Self.accessibilitySurfaceText(surface)
-            }
-            #endif
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.needsDraw = true
-                if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
-                    self.hostCursorVisible = cursorVisibilityDelta
-                    self.updateCursorOverlay()
-                }
-                #if DEBUG
-                self.lastOutputAppliedTime = CACurrentMediaTime()
-                #endif
-                if !self.surfaceHasReceivedOutput {
-                    self.surfaceHasReceivedOutput = true
-                    self.snapshotFallbackView.isHidden = true
-                    self.scrollInitialOutputToBottomIfNeeded()
-                }
-                let now = CACurrentMediaTime()
-                if now - self.lastProcessOutputLogTime > 1.0 {
-                    self.lastProcessOutputLogTime = now
-                    if self.window != nil {
-                        self.logLayerTree(reason: "processOutput")
-                    }
-                }
-                #if DEBUG
-                if let accessibilityText, !accessibilityText.isEmpty {
-                    self.debugAccessibilityProxy.accessibilityLabel = accessibilityText
-                }
-                self.onOutputProcessedForTesting?()
-                #endif
+        }
+        #if DEBUG
+        if let accessibilityText, !accessibilityText.isEmpty {
+            debugAccessibilityProxy.accessibilityLabel = accessibilityText
+            wantsTrailingAccessibilityTextRead = false
+        } else {
+            // This chunk's read was throttled (or came back empty); arm the
+            // display-link-driven trailing read so the FINAL state of a burst
+            // still lands on the label once output goes quiet. Without this a
+            // quiescent stream (e.g. a TUI alt-screen replay that arrives as
+            // one sub-500ms burst) leaves the label stale forever — the
+            // XCUITest "Rows: [\"0:\"]" failure mode.
+            wantsTrailingAccessibilityTextRead = true
+        }
+        onOutputProcessedForTesting?()
+        #endif
+    }
+
+    #if DEBUG
+    /// Trailing-edge accessibility read state; see ``handleOutputApplied``.
+    private var wantsTrailingAccessibilityTextRead = false
+    private var trailingAccessibilityTextReadInFlight = false
+    /// Output must be quiet this long before the trailing read fires (just
+    /// past the session's 500 ms in-burst throttle).
+    private static let trailingAccessibilityTextQuietSeconds: CFTimeInterval = 0.6
+
+    /// Fires at most one session-executor text read once output has been
+    /// quiet, so the accessibility label converges on the final rendered
+    /// state. Display-link driven (no timers); DEBUG/XCUITest-only.
+    private func refreshTrailingAccessibilityTextIfNeeded(now: CFTimeInterval) {
+        guard wantsTrailingAccessibilityTextRead,
+              !trailingAccessibilityTextReadInFlight,
+              now - lastOutputAppliedTime > Self.trailingAccessibilityTextQuietSeconds,
+              let session else { return }
+        wantsTrailingAccessibilityTextRead = false
+        trailingAccessibilityTextReadInFlight = true
+        Task { @MainActor [weak self] in
+            let text = await session.longestReadableText()
+            guard let self else { return }
+            self.trailingAccessibilityTextReadInFlight = false
+            if let text, !text.isEmpty {
+                self.debugAccessibilityProxy.accessibilityLabel = text
             }
         }
     }
+    #endif
 
     private func scrollInitialOutputToBottomIfNeeded() {
-        guard shouldScrollInitialOutputToBottom, let surface else { return }
+        guard shouldScrollInitialOutputToBottom, let session else { return }
         shouldScrollInitialOutputToBottom = false
         // `ghostty_surface_binding_action` takes the same internal surface lock
-        // as `process_output`/`render_now`. This runs on the MAIN thread (inside
-        // the `processOutput` completion hop), so calling it inline would contend
-        // that lock against the off-main renderer/IO during a render storm and
-        // wedge main on libghostty's futex. Dispatch it on the serial surface
-        // queue like the absolute `set_font_size` push (see
-        // `applyPendingFontSizeIfNeeded`); enqueuing after any pending
-        // `process_output` also preserves ordering. The return was already
-        // discarded.
-        let action = "scroll_to_bottom"
-        Self.outputQueue.async {
-            action.withCString { pointer in
-                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
-            }
-        }
+        // as `process_output`/`render_now`, so it must stay off main; the
+        // session command stream also preserves ordering after any pending
+        // `process_output`, exactly like the old serial-queue enqueue.
+        session.submit(.bindingAction("scroll_to_bottom"))
     }
 
     static func forwardDaemonOutputBytes(_ data: Data) -> Data {
@@ -1477,123 +1095,54 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func simulateTextInputForTesting(_ text: String) {
         setFocus(true)
         sendText(text)
-        runtime?.tick()
+        engine?.tick()
     }
 
     func simulatePasteInputForTesting(_ text: String) {
         setFocus(true)
         sendPaste(text)
-        runtime?.tick()
+        engine?.tick()
     }
 
     func simulateInputProxyTextChangeForTesting(_ text: String, isComposing: Bool) {
         setFocus(true)
         inputProxy.simulateTextChangeForTesting(text, isComposing: isComposing)
-        runtime?.tick()
+        engine?.tick()
     }
 
-    func renderedTextForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {
-        guard let surface else { return nil }
-
-        let topLeft = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-            x: 0,
-            y: 0
-        )
-        let bottomRight = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-            x: 0,
-            y: 0
-        )
-        let selection = ghostty_selection_s(
-            top_left: topLeft,
-            bottom_right: bottomRight,
-            rectangle: false
-        )
-
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else {
-            return nil
-        }
-        defer {
-            ghostty_surface_free_text(surface, &text)
-        }
-
-        guard let ptr = text.text, text.text_len > 0 else {
-            return ""
-        }
-
-        let data = Data(bytes: ptr, count: Int(text.text_len))
-        return String(decoding: data, as: UTF8.self)
+    /// Reads the surface text for `scope` on the session's serial executor
+    /// (never the main thread; see the session docs for the watchdog history).
+    func renderedTextForTesting(scope: GhosttySurfaceTextScope = .viewport) async -> String? {
+        await session?.readText(scope)
     }
 
     #if DEBUG
+    /// The longest readable surface text across all scopes, read on the
+    /// session executor. Async replacement for the old main-thread read.
+    func renderedSurfaceTextForTesting() async -> String? {
+        await session?.longestReadableText()
+    }
+
     func accessibilityRenderedTextForTesting() -> String? {
-        let candidates = [
-            renderedTextForTesting(pointTag: GHOSTTY_POINT_SURFACE),
-            renderedTextForTesting(pointTag: GHOSTTY_POINT_SCREEN),
-            renderedTextForTesting(pointTag: GHOSTTY_POINT_ACTIVE),
-            renderedTextForTesting(pointTag: GHOSTTY_POINT_VIEWPORT),
-        ].compactMap { $0 }
-
-        return candidates.max { lhs, rhs in
-            lhs.utf8.count < rhs.utf8.count
-        }
-    }
-
-    /// Throttle stamp for the off-main accessibility-label read in
-    /// `processOutput`. Accessed only on the serial `outputQueue`, so the
-    /// unchecked mutation is safe.
-    nonisolated(unsafe) fileprivate static var lastAccessibilityTextTime: CFTimeInterval = 0
-
-    /// Off-main equivalent of ``accessibilityRenderedTextForTesting()`` that
-    /// reads via the raw surface handle so it can run on the serial output queue
-    /// (alongside `process_output`) instead of the main thread. See the call
-    /// site in `processOutput` for why a main-thread read deadlocks the watchdog.
-    nonisolated static func accessibilitySurfaceText(_ surface: ghostty_surface_t) -> String? {
-        let candidates = [
-            surfaceText(surface, pointTag: GHOSTTY_POINT_SURFACE),
-            surfaceText(surface, pointTag: GHOSTTY_POINT_SCREEN),
-            surfaceText(surface, pointTag: GHOSTTY_POINT_ACTIVE),
-            surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT),
-        ].compactMap { $0 }
-        return candidates.max { $0.utf8.count < $1.utf8.count }
-    }
-
-    /// Read the surface text for `pointTag` from the raw handle. Pure libghostty
-    /// C calls, safe to run off the main actor on the serial output queue.
-    nonisolated static func surfaceText(_ surface: ghostty_surface_t, pointTag: ghostty_point_tag_e) -> String? {
-        let topLeft = ghostty_point_s(tag: pointTag, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0)
-        let bottomRight = ghostty_point_s(tag: pointTag, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0)
-        let selection = ghostty_selection_s(top_left: topLeft, bottom_right: bottomRight, rectangle: false)
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
-        defer { ghostty_surface_free_text(surface, &text) }
-        guard let ptr = text.text, text.text_len > 0 else { return "" }
-        return String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
+        // The throttled session-side read feeds the proxy's label via
+        // `outputApplied` events; this returns the last delivered value.
+        debugAccessibilityProxy.accessibilityLabel
     }
     #endif
 
-    func renderedHTMLForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {
-        _ = pointTag
-        // ghostty_surface_read_text_html not available in this build
-        return nil
-    }
-
-    func processExitedForTesting() -> Bool {
-        guard let surface else { return false }
-        return ghostty_surface_process_exited(surface)
-    }
-
     func disposeSurface() {
         stopDisplayLink()
-        guard let surface else { return }
-        GhosttySurfaceView.unregister(surface: surface)
-        self.surface = nil
-        bridge.detach()
-        GhosttySurfaceDisposer.dispose(surface: surface, bridge: bridge)
+        guard let session else { return }
+        if let surfaceIdentity {
+            registry?.unregister(identity: surfaceIdentity)
+        }
+        self.session = nil
+        surfaceIdentity = nil
+        hostEventTask?.cancel()
+        hostEventTask = nil
+        // Drains queued commands on the session executor, then frees the
+        // surface (the old GhosttySurfaceDisposer free-after-detach order).
+        session.shutdown()
     }
 
     private var preferredScreenScale: CGFloat {
@@ -1606,39 +1155,83 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func sendText(_ text: String) {
-        guard let surface else { return }
+        guard let session else { return }
         let normalized = text.replacingOccurrences(of: "\n", with: "\r")
-        let count = normalized.utf8CString.count
-        guard count > 1 else { return }
-        normalized.withCString { pointer in
-            ghostty_surface_text_input(surface, pointer, UInt(count - 1))
-        }
+        guard !normalized.isEmpty else { return }
+        session.submit(.textInput(normalized))
     }
 
     private func sendPaste(_ text: String) {
-        guard let surface else { return }
-        let count = text.utf8CString.count
-        guard count > 0 else { return }
-        text.withCString { pointer in
-            ghostty_surface_text(surface, pointer, UInt(count - 1))
-        }
+        guard let session else { return }
+        guard !text.isEmpty else { return }
+        session.submit(.pasteText(text))
     }
 
     private func initializeSurface() {
-        guard let app = runtime?.app else { return }
-        surface = makeSurface(app: app)
-        if let surface {
-            GhosttySurfaceView.register(surface: surface, for: self)
-            if let config = runtime?.config {
-                applyBackgroundColorFromConfig(config)
-            }
-            // Hide the snapshot fallback immediately. The Metal renderer
-            // handles all rendering once the surface exists.
-            snapshotFallbackView.isHidden = true
-            surfaceHasReceivedOutput = true
+        guard let engine,
+              let creation = engine.makeSurfaceSession(
+                  hostView: self,
+                  fontSize: fontSize,
+                  scale: Double(preferredScreenScale)
+              ) else { return }
+        session = creation.session
+        surfaceIdentity = creation.identity
+        startHostEventTask(events: creation.events)
+        registry?.setSnapshotContextProvider(identity: creation.identity) { [weak self] in
+            guard let self, self.window != nil, !self.isHidden, self.alpha > 0.01 else { return nil }
+            let grid = self.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "?"
+            return GhosttySurfaceSnapshotContext(gridDescription: grid, fontSize: Int(self.liveFontSize))
         }
+        applyThemeColorsFromEngine()
+        // Hide the snapshot fallback immediately. The Metal renderer
+        // handles all rendering once the surface exists.
+        snapshotFallbackView.isHidden = true
+        surfaceHasReceivedOutput = true
         setNeedsGeometrySync()
         startDisplayLink()
+    }
+
+    /// The single ordered consumer of this surface's host events; every
+    /// engine/session/callback result is applied here on the main actor.
+    private func startHostEventTask(events: AsyncStream<GhosttySurfaceHostEvent>) {
+        hostEventTask = Task { @MainActor [weak self] in
+            for await event in events {
+                guard let self else { return }
+                self.handleHostEvent(event)
+            }
+        }
+    }
+
+    private func handleHostEvent(_ event: GhosttySurfaceHostEvent) {
+        switch event {
+        case .outputApplied(let accessibilityText):
+            handleOutputApplied(accessibilityText: accessibilityText)
+        case .renderCompleted:
+            renderInFlight = false
+            #if DEBUG
+            onRenderCompletedForTesting?()
+            #endif
+            if needsAnotherRender {
+                needsAnotherRender = false
+                requestRender()
+            }
+        case .geometryMeasured(let measurement):
+            applyGeometryMeasurement(measurement)
+        case .outboundBytes(let bytes):
+            handleOutboundBytes(bytes)
+        case .closeRequested(let processAlive):
+            NotificationCenter.default.post(
+                name: .ghosttySurfaceDidRequestClose,
+                object: self,
+                userInfo: ["process_alive": processAlive]
+            )
+        case .focusInputRequested:
+            focusInput()
+        case .titleChanged(let title):
+            surfaceTitle = title
+        case .bellRang:
+            handleBell()
+        }
     }
 
     private func startDisplayLink() {
@@ -1660,14 +1253,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Reset cursor to visible and restart blink cycle (call on user input).
     private func resetCursorBlink() {
-        guard surface != nil else { return }
+        guard session != nil else { return }
         cursorBlinkState.reset(now: CACurrentMediaTime())
         needsDraw = true
         updateCursorOverlay()
     }
 
     @objc func handleDisplayLinkFire() {
-        guard let surface else { return }
+        guard session != nil else { return }
         #if DEBUG
         // Main-thread liveness heartbeat + presented-surface state. Time-gated,
         // no behavior change. The `contents`/size fields let an IDLE blank be
@@ -1692,6 +1285,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 + "sinceOutput=\(sinceOutputMs)ms"
             )
         }
+        refreshTrailingAccessibilityTextIfNeeded(now: nowHeartbeat)
         #endif
         // Apply at most one coalesced zoom per frame. This only changes the
         // font; the geometry resync is deferred until zoom settles.
@@ -1796,34 +1390,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func requestRender() {
         // Never dispatch a render into the background: a backgrounded
         // `render_now` can stall acquiring a swap-chain frame slot from
-        // libghostty, leaving the serial output queue undrained. The acquire is
-        // now bounded in libghostty (so a foreground stall self-heals as a
+        // libghostty, leaving the serial command queue undrained. The acquire
+        // is now bounded in libghostty (so a foreground stall self-heals as a
         // skipped frame the display link re-drives), but we still gate on
         // suspension; `resumeRendering` clears it on the next active transition.
-        guard !renderingSuspended, let surface else { return }
-        // Coalesce: never let more than one render_now sit on the serial queue.
-        // (Called on main from the display link.)
+        guard !renderingSuspended, let session else { return }
+        // Coalesce: never let more than one render_now sit on the session's
+        // serial executor. (Called on main from the display link; the
+        // `renderCompleted` host event clears the flag.)
         if renderInFlight {
             needsAnotherRender = true
             return
         }
         renderInFlight = true
-        let enqueuedAt = CACurrentMediaTime()
-        Self.outputQueue.async { [weak self] in
-            // Queue LAG = how long this render waited behind other ops. If this
-            // climbs into hundreds of ms the queue is backlogged (the freeze).
-            let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
-            if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
-            ghostty_surface_render_now(surface)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.renderInFlight = false
-                if self.needsAnotherRender {
-                    self.needsAnotherRender = false
-                    self.requestRender()
-                }
-            }
-        }
+        session.submit(.render)
     }
 
     /// Request a geometry recompute on the next display-link frame. Triggers
@@ -1846,7 +1426,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func updateCursorOverlay() {
-        guard let surface,
+        guard let session,
               hostCursorVisible,
               window != nil,
               !isHidden,
@@ -1858,19 +1438,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return
         }
         let overlay = ensureCursorOverlayLayer()
-        var x: Double = 0
-        var y: Double = 0
-        var width: Double = 0
-        var height: Double = 0
-        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+        let imePoint = session.imePoint()
 
         let scale = max(preferredScreenScale, 1)
         overlay.contentsScale = scale
         let cellWidth = max(cellPixelSize.width / scale, 1)
-        let cellHeight = max(CGFloat(height), cellPixelSize.height / scale, 1)
+        let cellHeight = max(CGFloat(imePoint.height), cellPixelSize.height / scale, 1)
         let cursorWidth = max(1.0 / scale, min(CGFloat(1.5), cellWidth))
-        let cursorX = lastRenderRect.minX + CGFloat(x) - (cellWidth / 2)
-        let cursorY = lastRenderRect.minY + CGFloat(y) - cellHeight
+        let cursorX = lastRenderRect.minX + CGFloat(imePoint.x) - (cellWidth / 2)
+        let cursorY = lastRenderRect.minY + CGFloat(imePoint.y) - cellHeight
         overlay.frame = CGRect(
             x: floor(cursorX),
             y: floor(cursorY),
@@ -1904,53 +1480,50 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private(set) var configBackgroundColor: UIColor?
     private(set) var configCursorColor: UIColor?
 
-    private func applyBackgroundColorFromConfig(_ config: ghostty_config_t) {
-        var bgColor = ghostty_config_color_s()
-        let bgKey = "background"
-        if ghostty_config_get(config, &bgColor, bgKey, UInt(bgKey.lengthOfBytes(using: .utf8))) {
-            let bg = UIColor(red: CGFloat(bgColor.r) / 255.0, green: CGFloat(bgColor.g) / 255.0, blue: CGFloat(bgColor.b) / 255.0, alpha: 1.0)
+    private func applyThemeColorsFromEngine() {
+        guard let engine else { return }
+        if let color = engine.configColor(forKey: "background") {
+            let bg = UIColor(
+                red: CGFloat(color.red) / 255.0,
+                green: CGFloat(color.green) / 255.0,
+                blue: CGFloat(color.blue) / 255.0,
+                alpha: 1.0
+            )
             backgroundColor = bg
             snapshotFallbackView.backgroundColor = bg
             configBackgroundColor = bg
-            #if DEBUG
-            log.debug("applyBg: config r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public) -> UIColor(\(bg.debugDescription, privacy: .public)), hardcoded Monokai=#272822 r=39 g=40 b=34")
-            #endif
-        } else {
-            #if DEBUG
-            log.debug("applyBg: ghostty_config_get returned false, no bg color from config")
-            #endif
         }
-        var fgColor = ghostty_config_color_s()
-        let fgKey = "foreground"
-        if ghostty_config_get(config, &fgColor, fgKey, UInt(fgKey.lengthOfBytes(using: .utf8))) {
-            snapshotFallbackView.textColor = UIColor(red: CGFloat(fgColor.r) / 255.0, green: CGFloat(fgColor.g) / 255.0, blue: CGFloat(fgColor.b) / 255.0, alpha: 1.0)
+        if let color = engine.configColor(forKey: "foreground") {
+            snapshotFallbackView.textColor = UIColor(
+                red: CGFloat(color.red) / 255.0,
+                green: CGFloat(color.green) / 255.0,
+                blue: CGFloat(color.blue) / 255.0,
+                alpha: 1.0
+            )
         }
-        var cursorColor = ghostty_config_color_s()
-        let cursorKey = "cursor-color"
-        if ghostty_config_get(config, &cursorColor, cursorKey, UInt(cursorKey.lengthOfBytes(using: .utf8))) {
+        if let color = engine.configColor(forKey: "cursor-color") {
             configCursorColor = UIColor(
-                red: CGFloat(cursorColor.r) / 255.0,
-                green: CGFloat(cursorColor.g) / 255.0,
-                blue: CGFloat(cursorColor.b) / 255.0,
+                red: CGFloat(color.red) / 255.0,
+                green: CGFloat(color.green) / 255.0,
+                blue: CGFloat(color.blue) / 255.0,
                 alpha: 1.0
             )
         }
     }
 
     private func setFocus(_ focused: Bool) {
-        guard let surface else { return }
-        ghostty_surface_set_focus(surface, focused)
+        session?.setFocus(focused)
     }
 
     private func syncSurfaceVisibility() {
-        guard let surface else { return }
+        guard let session else { return }
         let visible = window != nil &&
             !isHidden &&
             alpha > 0.01 &&
             bounds.width > 0 &&
             bounds.height > 0
         MobileDebugLog.anchormux("surface.occlusion visible=\(visible) window=\(window != nil) hidden=\(isHidden) alpha=\(alpha)")
-        ghostty_surface_set_occlusion(surface, visible)
+        session.setOcclusion(visible: visible)
         if visible {
             updateCursorOverlay()
         } else {
@@ -1991,63 +1564,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setNeedsGeometrySync(reassertNaturalSize: false)
     }
 
-    /// Pure libghostty resize refinement; `nonisolated` so it runs on the
-    /// off-main surface queue (it touches only the passed surface pointer).
-    nonisolated private static func fitSurfaceToGrid(
-        _ surface: ghostty_surface_t,
-        cols: Int,
-        rows: Int,
-        cellPixelSize: CGSize
-    ) -> (requestedW: UInt32, requestedH: UInt32, actual: ghostty_surface_size_s) {
-        var requestedW = UInt32(max(1, Int((CGFloat(cols) * cellPixelSize.width).rounded(.down))))
-        var requestedH = UInt32(max(1, Int((CGFloat(rows) * cellPixelSize.height).rounded(.down))))
-
-        ghostty_surface_set_size(surface, requestedW, requestedH)
-        var actual = ghostty_surface_size(surface)
-
-        // Ghostty's grid calculation subtracts padding and floors partial cells,
-        // so the reverse mapping has to be confirmed against Ghostty itself.
-        // This keeps the iOS mirror on the exact daemon grid instead of
-        // occasionally rendering one column short.
-        var steps = 0
-        // Bounded refinement: a few single-pixel nudges are enough to land on
-        // the exact grid. A high cap let a fast-zoom storm run this loop tens
-        // of thousands of times across frames and burn the main thread.
-        while steps < 8,
-              Int(actual.columns) < cols || Int(actual.rows) < rows {
-            if Int(actual.columns) < cols {
-                requestedW += 1
-            }
-            if Int(actual.rows) < rows {
-                requestedH += 1
-            }
-            ghostty_surface_set_size(surface, requestedW, requestedH)
-            actual = ghostty_surface_size(surface)
-            steps += 1
-        }
-
-        return (requestedW, requestedH, actual)
-    }
-
-    /// Result of an off-main geometry pass, handed back to the main actor.
-    private struct GeometryResult: Sendable {
-        let cellPixelSize: CGSize
-        let naturalSize: TerminalGridSize
-        /// Pinned render size in points when letterboxed to an effective
-        /// grid; nil means fill the container.
-        let pinnedSize: CGSize?
-    }
-
     private func syncSurfaceGeometry(shouldReassertNaturalSize: Bool = true) {
-        guard let surface else { return }
+        guard let session else { return }
 
-        // Capture all main-actor inputs as values, then do every libghostty
-        // WRITE (set_content_scale / set_size / fit) and its readback on the
-        // serial surface queue. These calls push to libghostty's renderer
-        // mailbox with a blocking `.forever` push; on the main thread they
-        // hang it until the scene-update watchdog (0x8BADF00D) kills the app.
-        // The main thread only applies the UIKit result. This is the single
-        // off-main surface owner: main never calls a blocking libghostty API.
+        // Capture all main-actor inputs as values; the session performs every
+        // libghostty WRITE (set_content_scale / set_size / fit) and its
+        // readback on its dedicated serial executor. These calls push to
+        // libghostty's renderer mailbox with a blocking `.forever` push; on
+        // the main thread they hang it until the scene-update watchdog
+        // (0x8BADF00D) kills the app. The main thread only applies the UIKit
+        // result via the `geometryMeasured` host event.
         let scale = preferredScreenScale
         // Reserve the persistent toolbar plus the keyboard when it is up. The
         // toolbar sits flush at the bottom edge and is what keeps the bottom TUI
@@ -2059,73 +1585,41 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let bottomInset = min(reservedBottom, max(0, bounds.height - 1))
         let containerW = max(1, bounds.width)
         let containerH = max(1, bounds.height - bottomInset)
-        let containerPxW = UInt32(max(1, Int((containerW * scale).rounded(.down))))
-        let containerPxH = UInt32(max(1, Int((containerH * scale).rounded(.down))))
-        let eff = effectiveGrid
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
 
-        Self.outputQueue.async { [weak self] in
-            if pushContentScale {
-                ghostty_surface_set_content_scale(surface, scale, scale)
-            }
-            ghostty_surface_set_size(surface, containerPxW, containerPxH)
-            let measured = ghostty_surface_size(surface)
-
-            var cell = CGSize.zero
-            if measured.columns > 0, measured.rows > 0, measured.width_px > 0, measured.height_px > 0 {
-                cell = CGSize(
-                    width: CGFloat(measured.width_px) / CGFloat(measured.columns),
-                    height: CGFloat(measured.height_px) / CGFloat(measured.rows)
-                )
-            }
-
-            var pinnedSize: CGSize?
-            if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
-                let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
-                let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
-                let pinnedW = CGFloat(eff.cols) * cell.width / scale
-                let pinnedH = CGFloat(eff.rows) * cell.height / scale
-                if !fillsNaturalGrid, !withinOneCell, pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
-                    let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
-                    let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
-                    let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
-                    pinnedSize = CGSize(
-                        width: min(CGFloat(aw) / scale, containerW),
-                        height: min(CGFloat(ah) / scale, containerH)
-                    )
-                }
-            }
-
-            let natural = TerminalGridSize(
-                columns: Int(measured.columns),
-                rows: Int(measured.rows),
-                pixelWidth: Int(measured.width_px),
-                pixelHeight: Int(measured.height_px)
-            )
-            let result = GeometryResult(cellPixelSize: cell, naturalSize: natural, pinnedSize: pinnedSize)
-            DispatchQueue.main.async {
-                self?.applyGeometryResult(
-                    result,
-                    scale: scale,
-                    containerW: containerW,
-                    containerH: containerH,
-                    shouldReassertNaturalSize: shouldReassertNaturalSize
-                )
-            }
-        }
+        let request = GhosttySurfaceGeometryRequest(
+            containerWidth: Double(containerW),
+            containerHeight: Double(containerH),
+            scale: Double(scale),
+            contentScaleToApply: pushContentScale ? Double(scale) : nil,
+            pin: effectiveGrid.map { GhosttySurfaceGridPin(columns: $0.cols, rows: $0.rows) },
+            reassertNaturalSize: shouldReassertNaturalSize
+        )
+        session.submit(.geometry(request))
     }
 
-    /// Apply an off-main geometry pass on the main actor: only UIKit layer /
+    /// Apply a session geometry pass on the main actor: only UIKit layer /
     /// cursor / border work plus the resize report. No blocking libghostty
     /// calls happen here.
-    private func applyGeometryResult(
-        _ result: GeometryResult,
-        scale: CGFloat,
-        containerW: CGFloat,
-        containerH: CGFloat,
-        shouldReassertNaturalSize: Bool
-    ) {
+    private func applyGeometryMeasurement(_ measurement: GhosttySurfaceGeometryMeasurement) {
+        let scale = CGFloat(measurement.request.scale)
+        let containerW = CGFloat(measurement.request.containerWidth)
+        let containerH = CGFloat(measurement.request.containerHeight)
+        let shouldReassertNaturalSize = measurement.request.reassertNaturalSize
+        let result = (
+            cellPixelSize: CGSize(width: measurement.cellPixelWidth, height: measurement.cellPixelHeight),
+            naturalSize: TerminalGridSize(
+                columns: measurement.natural.columns,
+                rows: measurement.natural.rows,
+                pixelWidth: measurement.natural.pixelWidth,
+                pixelHeight: measurement.natural.pixelHeight
+            ),
+            pinnedSize: measurement.pinnedSize.map { CGSize(width: $0.width, height: $0.height) }
+        )
+        #if DEBUG
+        lastNaturalMeasurementForTesting = measurement.natural
+        #endif
         if result.cellPixelSize.width > 0, result.cellPixelSize.height > 0 {
             cellPixelSize = result.cellPixelSize
         }
@@ -2282,30 +1776,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         MobileDebugLog.anchormux("surface.layers reason=\(reason) host=\(hostSummary) children=[\(childSummaries)] fallbackHidden=\(snapshotFallbackView.isHidden) fallbackChars=\(snapshotFallbackView.text.count)")
     }
 
-    private func makeSurface(app: ghostty_app_t) -> ghostty_surface_t? {
-        var surfaceConfig = ghostty_surface_config_new()
-        let bridgePointer = Unmanaged.passUnretained(bridge).toOpaque()
-        surfaceConfig.userdata = bridgePointer
-        surfaceConfig.platform_tag = GHOSTTY_PLATFORM_IOS
-        surfaceConfig.platform = ghostty_platform_u(
-            ios: ghostty_platform_ios_s(uiview: Unmanaged.passUnretained(self).toOpaque())
-        )
-        surfaceConfig.scale_factor = preferredScreenScale
-        surfaceConfig.font_size = fontSize
-        surfaceConfig.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
-        surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
-        surfaceConfig.io_write_cb = { userdata, buf, len in
-            guard let userdata, let buf, len > 0 else { return }
-            let data = Data(bytes: buf, count: Int(len))
-            let bridge = Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).takeUnretainedValue()
-            DispatchQueue.main.async {
-                bridge.surfaceView?.handleOutboundBytes(data)
-            }
-        }
-        surfaceConfig.io_write_userdata = bridgePointer
-        return ghostty_surface_new(app, &surfaceConfig)
-    }
-
     func handleOutboundBytes(_ bytes: Data) {
         // The mirror is display-only, so any bytes its libghostty writes toward a
         // PTY are spurious: the Mac is the real terminal and already produces
@@ -2321,17 +1791,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
     }
 
-    func drawForWakeup() {
-        guard surface != nil, window != nil else { return }
-        // Don't call `ghostty_surface_refresh` here: that wakes the renderer
-        // thread to present asynchronously (`setSurface` → `dispatch_async` to
-        // main → size-guard discard), which both blanks frames and competes
-        // with the display-link's main-thread present. Just flag dirty; the
-        // next display-link tick runs `render_now` on main (which itself does
-        // drainMailbox + updateFrame), keeping a single present owner on main.
-        needsDraw = true
-    }
-
     func visibleSnapshotTextForTesting() -> String {
         snapshotFallbackView.attributedText?.string ?? snapshotFallbackView.text
     }
@@ -2345,222 +1804,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncSnapshotFallback() {
-        // Once the Metal renderer is active (surface has received output),
-        // keep the fallback hidden so the IOSurfaceLayer is visible.
+        // Once the Metal renderer is active (the surface exists and has
+        // received output), keep the fallback hidden so the IOSurfaceLayer is
+        // visible. With session-owned text reads there is no synchronous
+        // main-thread snapshot source anymore; the fallback only ever shows
+        // when surface creation failed, where it stays empty.
         if surfaceHasReceivedOutput {
             snapshotFallbackView.isHidden = true
-            return
         }
-
-        let rendererHasContents = !prefersSnapshotFallbackRendering &&
-            (layer.sublayers ?? []).contains(where: isGhosttyRendererLayerVisible)
-        if rendererHasContents {
-            snapshotFallbackView.isHidden = true
-            return
-        }
-
-        let snapshot = renderedTextForTesting() ?? ""
-        guard !snapshot.isEmpty else {
-            lastSnapshotFallbackHTML = nil
-            snapshotFallbackView.attributedText = nil
-            snapshotFallbackView.text = ""
-            snapshotFallbackView.isHidden = true
-            return
-        }
-
-        let html = renderedHTMLForTesting()
-        if let html,
-           html != lastSnapshotFallbackHTML,
-           let attributedSnapshot = makeSnapshotAttributedText(from: html) {
-            lastSnapshotFallbackHTML = html
-            snapshotFallbackView.attributedText = attributedSnapshot
-            applySnapshotFallbackTheme(from: attributedSnapshot)
-        } else if snapshotFallbackView.attributedText?.string != snapshot {
-            lastSnapshotFallbackHTML = nil
-            snapshotFallbackView.attributedText = nil
-            snapshotFallbackView.text = snapshot
-        }
-
-        if snapshotFallbackView.text != snapshot && snapshotFallbackView.attributedText == nil {
-            snapshotFallbackView.text = snapshot
-        }
-
-        let visibleTextLength = snapshotFallbackView.attributedText?.string.utf16.count ?? snapshotFallbackView.text.utf16.count
-        if visibleTextLength > 0 {
-            snapshotFallbackView.scrollRangeToVisible(NSRange(location: max(0, visibleTextLength - 1), length: 1))
-        }
-        snapshotFallbackView.isHidden = false
-        flushSnapshotFallbackPresentation()
-    }
-
-    private func flushSnapshotFallbackPresentation() {
-        snapshotFallbackView.textContainer.size = snapshotFallbackView.bounds.size
-        snapshotFallbackView.layoutManager.ensureLayout(for: snapshotFallbackView.textContainer)
-        snapshotFallbackView.layoutManager.invalidateDisplay(
-            forCharacterRange: NSRange(location: 0, length: snapshotFallbackView.textStorage.length)
-        )
-        snapshotFallbackView.setNeedsDisplay()
-    }
-
-    private func makeSnapshotAttributedText(from html: String) -> NSAttributedString? {
-        let wrappedHTML = """
-        <style>
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: Menlo, Monaco, monospace;
-            font-size: 13px;
-            line-height: 1.25;
-        }
-        div, pre {
-            white-space: pre-wrap;
-        }
-        </style>
-        \(html)
-        """
-        guard let wrappedData = wrappedHTML.data(using: .utf8) else { return nil }
-        return try? NSMutableAttributedString(
-            data: wrappedData,
-            options: [
-                .documentType: NSAttributedString.DocumentType.html,
-                .characterEncoding: String.Encoding.utf8.rawValue,
-            ],
-            documentAttributes: nil
-        )
-    }
-
-    private func applySnapshotFallbackTheme(from attributedText: NSAttributedString) {
-        guard attributedText.length > 0 else {
-            snapshotFallbackView.backgroundColor = .black
-            return
-        }
-
-        let probeIndex = firstVisibleThemeAttributeIndex(in: attributedText)
-        if let background = attributedText.attribute(.backgroundColor, at: probeIndex, effectiveRange: nil) as? UIColor {
-            snapshotFallbackView.backgroundColor = background
-        } else {
-            snapshotFallbackView.backgroundColor = .black
-        }
-    }
-
-    private func firstVisibleThemeAttributeIndex(in attributedText: NSAttributedString) -> Int {
-        let fullString = attributedText.string
-        for (index, scalar) in fullString.unicodeScalars.enumerated() {
-            if !CharacterSet.whitespacesAndNewlines.contains(scalar) {
-                return index
-            }
-        }
-        return 0
-    }
-
-    private func isGhosttyRendererLayerVisible(_ layer: CALayer) -> Bool {
-        isGhosttyRendererLayer(layer) && layer.contents != nil
-    }
-
-    nonisolated private static func handleWrite(
-        userdata: UnsafeMutableRawPointer?,
-        data: UnsafePointer<CChar>?,
-        len: UInt
-    ) {
-        guard let userdata, let data, len > 0 else { return }
-        let bytes = Data(bytes: data, count: Int(len))
-        #if DEBUG
-        // Detect OSC responses (ESC ] ...) flowing back to the remote terminal.
-        // OSC 11 response = "\x1b]11;rgb:RRRR/GGGG/BBBB..." (background color report).
-        if bytes.count < 200, let str = String(data: bytes, encoding: .utf8) {
-            let escaped = str.unicodeScalars.map { scalar in
-                scalar.value < 32 || scalar.value == 127
-                    ? String(format: "\\x%02x", scalar.value)
-                    : String(scalar)
-            }.joined()
-            if escaped.contains("\\x1b]") || escaped.contains("\\x1b[") {
-                log.debug("io_write OSC/CSI response (\(bytes.count, privacy: .public) bytes): \(escaped, privacy: .public)")
-            }
-        }
-        #endif
-        GhosttySurfaceBridge.fromOpaque(userdata)?.handleWrite(bytes)
-    }
-
-    @MainActor
-    static func focusInput(for surface: ghostty_surface_t) {
-        view(for: surface)?.focusInput()
-    }
-
-    @MainActor
-    static func setTitle(_ title: String, for surface: ghostty_surface_t) {
-        view(for: surface)?.surfaceTitle = title
-    }
-
-    @MainActor
-    static func ringBell(for surface: ghostty_surface_t) {
-        view(for: surface)?.handleBell()
-    }
-
-    @MainActor
-    static func title(for surface: ghostty_surface_t) -> String? {
-        view(for: surface)?.surfaceTitle
-    }
-
-    @MainActor
-    static func drawVisibleSurfacesForWakeup() {
-        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-        for view in registeredSurfaceViews.values.compactMap(\.value) {
-            view.drawForWakeup()
-        }
-    }
-
-    /// "What the user sees": the visible viewport text of every on-screen
-    /// terminal surface, for the DEV "Copy Debug Logs" action so a bug report
-    /// pairs the on-screen content with the debug log. Reads the VIEWPORT
-    /// (visible grid only, not scrollback) via libghostty.
-    public static func visibleTerminalSnapshot() -> String {
-        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-        // Collect the main-actor state + surface pointers first, then read the
-        // viewport text on the serial output queue. `ghostty_surface_read_text`
-        // takes the same surface lock as `process_output` (which runs off-main);
-        // reading it on the MAIN thread here contends that lock during a render
-        // storm and stalls the present — tapping Copy Debug Logs would itself
-        // blank the terminal. The output queue is never concurrent with
-        // `process_output`, so the read can't wedge. No `main.sync` runs on that
-        // queue, so this `.sync` cannot deadlock.
-        var pending: [VisibleSnapshotRequest] = []
-        for view in registeredSurfaceViews.values.compactMap(\.value) {
-            guard view.window != nil, !view.isHidden, view.alpha > 0.01,
-                  let surface = view.surface else { continue }
-            let grid = view.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "?"
-            pending.append(VisibleSnapshotRequest(grid: grid, font: Int(view.liveFontSize), surface: surface))
-        }
-        if pending.isEmpty {
-            return "===== visible terminal: (no on-screen surface) ====="
-        }
-        // Read on the output queue, but bound the wait. If a render wedge has the
-        // queue stuck mid-`process_output`, a plain `.sync` here would freeze the
-        // whole app exactly when the user taps Copy Debug Logs to capture that
-        // bug. Time out and ship the logs without the snapshot instead.
-        let holder = VisibleSnapshotHolder()
-        // This synchronous DEV-only "Copy Debug Logs" path reads the viewport off
-        // the serial output queue and must give up after a deadline if a render
-        // wedge holds it; an actor/await cannot express the bounded synchronous
-        // wait the synchronous caller needs.
-        // carve-out justification: one-shot cross-queue completion signal with a
-        // bounded wait, not a lock guarding shared state.
-        let done = DispatchSemaphore(value: 0)
-        outputQueue.async {
-            var built: [String] = []
-            for item in pending {
-                let text = surfaceText(item.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
-                built.append(
-                    "===== visible terminal · grid=\(item.grid) · font=\(item.font) =====\n"
-                    + text
-                )
-            }
-            holder.sections = built
-            done.signal()
-        }
-        if done.wait(timeout: .now() + 0.6) == .timedOut {
-            return "===== visible terminal: (snapshot skipped — render busy) ====="
-        }
-        return holder.sections.joined(separator: "\n\n")
     }
 
     private func handleBell() {
@@ -2588,64 +1839,9 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
     }
 }
 
-/// One surface's request for the bounded visible-terminal snapshot.
-///
-/// The `ghostty_surface_t` is a C pointer that the snapshot only dereferences on
-/// `GhosttySurfaceView.outputQueue` (the queue that owns `process_output`) and
-/// never mutates, so carrying it across the queue hop is safe — hence
-/// `@unchecked Sendable`.
-private struct VisibleSnapshotRequest: @unchecked Sendable {
-    let grid: String
-    let font: Int
-    let surface: ghostty_surface_t
-}
-
-/// Carrier for the snapshot text produced off `GhosttySurfaceView.outputQueue`.
-///
-/// `sections` is written exactly once on that queue before its semaphore is
-/// signaled and read by the caller only after the matching wait, so the two
-/// accesses never overlap — hence `@unchecked Sendable`. On the timeout path the
-/// caller never reads it, leaving the queue task the sole accessor.
-private final class VisibleSnapshotHolder: @unchecked Sendable {
-    var sections: [String] = []
-}
-
-private final class WeakGhosttySurfaceViewBox {
-    weak var value: GhosttySurfaceView?
-
-    init(_ value: GhosttySurfaceView) {
-        self.value = value
-    }
-}
-
-private extension GhosttySurfaceView {
-    @MainActor
-    static var registeredSurfaceViews: [UInt: WeakGhosttySurfaceViewBox] = [:]
-
-    @MainActor
-    static func register(surface: ghostty_surface_t, for view: GhosttySurfaceView) {
-        registeredSurfaceViews[surfaceIdentifier(for: surface)] = WeakGhosttySurfaceViewBox(view)
-        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-    }
-
-    @MainActor
-    static func unregister(surface: ghostty_surface_t) {
-        registeredSurfaceViews.removeValue(forKey: surfaceIdentifier(for: surface))
-    }
-
-    @MainActor
-    static func view(for surface: ghostty_surface_t) -> GhosttySurfaceView? {
-        let identifier = surfaceIdentifier(for: surface)
-        guard let view = registeredSurfaceViews[identifier]?.value else {
-            registeredSurfaceViews.removeValue(forKey: identifier)
-            return nil
-        }
-        return view
-    }
-
-    static func surfaceIdentifier(for surface: ghostty_surface_t) -> UInt {
-        UInt(bitPattern: UnsafeRawPointer(surface))
-    }
+extension Notification.Name {
+    static let ghosttySurfaceDidRequestClose = Notification.Name("ghosttySurfaceDidRequestClose")
+    static let ghosttySurfaceDidRingBell = Notification.Name("ghosttySurfaceDidRingBell")
 }
 
 private class DisplayLinkProxy {

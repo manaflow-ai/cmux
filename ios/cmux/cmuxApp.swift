@@ -54,7 +54,9 @@ struct cmuxApp: App {
                 runtime: Self.root.runtime,
                 auth: Self.root.auth,
                 reachability: Self.root.reachability,
-                pushCoordinator: Self.root.pushCoordinator
+                pushCoordinator: Self.root.pushCoordinator,
+                terminalEngine: Self.root.terminalEngine,
+                terminalAccessoryConfiguration: Self.root.terminalAccessoryConfiguration
             )
         }
     }

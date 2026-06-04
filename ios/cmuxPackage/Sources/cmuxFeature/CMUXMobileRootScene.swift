@@ -7,7 +7,8 @@ import Foundation
 import OSLog
 import SwiftUI
 
-#if canImport(UIKit) && DEBUG
+#if canImport(UIKit)
+import CmuxMobileGhosttyEngine
 import CmuxMobileTerminal
 #endif
 
@@ -18,7 +19,9 @@ private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mo
 /// Renders the live cmux mobile UI: a ``CMUXMobileAppView`` backed by a fresh
 /// ``CMUXMobileShellStore`` and the injected ``AuthCoordinator``. In DEBUG
 /// builds, setting the environment variable `CMUX_ZOOM_STRESS=1` instead mounts
-/// the terminal zoom-stress repro harness (`MobileZoomStressView`).
+/// the terminal zoom-stress repro harness (`MobileZoomStressView`), and
+/// `CMUX_LATENCY_PROBE=1` mounts the typing-latency / render-cadence
+/// measurement harness (`MobileTerminalLatencyProbeView`).
 ///
 /// The composition root (`cmuxApp`) builds the ``CMUXMobileRuntime`` and the
 /// ``MobileAuthComposition`` and hands them here. The scene injects the
@@ -30,6 +33,13 @@ public struct CMUXMobileRootScene: View {
     private let reachability: any ReachabilityProviding
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
+    /// Root-constructed Ghostty engine provider, injected into the SwiftUI
+    /// environment so terminal surfaces resolve the engine without a
+    /// singleton.
+    private let terminalEngine: GhosttyEngineProvider
+    /// Root-constructed accessory-bar configuration shared by the terminal
+    /// toolbar and the shortcuts settings editor.
+    private let terminalAccessoryConfiguration: TerminalAccessoryConfiguration
     #endif
     private let pairedMacStore: (any MobilePairedMacStoring)?
 
@@ -42,16 +52,23 @@ public struct CMUXMobileRootScene: View {
     ///     the shell store (already used to build `auth`).
     ///   - pushCoordinator: The app-root push coordinator (shared with the app
     ///     delegate) injected into the environment.
+    ///   - terminalEngine: The root-constructed Ghostty engine provider.
+    ///   - terminalAccessoryConfiguration: The root-constructed accessory-bar
+    ///     configuration shared by the toolbar and its settings editor.
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
-        pushCoordinator: MobilePushCoordinator
+        pushCoordinator: MobilePushCoordinator,
+        terminalEngine: GhosttyEngineProvider,
+        terminalAccessoryConfiguration: TerminalAccessoryConfiguration
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
         self.pushCoordinator = pushCoordinator
+        self.terminalEngine = terminalEngine
+        self.terminalAccessoryConfiguration = terminalAccessoryConfiguration
         self.pairedMacStore = Self.openPairedMacStore()
     }
     #else
@@ -84,6 +101,8 @@ public struct CMUXMobileRootScene: View {
             .environment(auth.coordinator)
             #if os(iOS)
             .environment(pushCoordinator)
+            .environment(terminalEngine)
+            .environment(terminalAccessoryConfiguration)
             #endif
     }
 
@@ -91,7 +110,9 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if canImport(UIKit) && DEBUG
         if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
-            MobileZoomStressView()
+            MobileZoomStressView(engineProvider: terminalEngine)
+        } else if ProcessInfo.processInfo.environment["CMUX_LATENCY_PROBE"] == "1" {
+            MobileTerminalLatencyProbeView(engineProvider: terminalEngine)
         } else {
             CMUXMobileAppView(store: makeStore())
         }
