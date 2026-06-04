@@ -6,19 +6,18 @@ enum WorkspaceHandoffCompletionSignal {
     case selectedWorkspaceVisible
     /// Focus has moved to the selected workspace before visibility committed.
     case selectedWorkspaceFocus
-    /// The handoff guard timer expired, so teardown should no longer wait.
-    case timeout
 }
 
 /// Decides when a workspace handoff can finish and the retiring workspace can
 /// tear down its portal-backed views. A handoff starts when selection moves to a
 /// new workspace while the previous workspace is still mounted as the retiring
 /// workspace; `selectedWorkspaceReady` means the newly selected workspace has
-/// enough rendered surface state for a visible transition.
+/// enough rendered surface state for a visible transition. Completion is driven
+/// by child visibility and focus signals rather than elapsed time.
 enum WorkspaceHandoffCompletionPolicy {
     /// Returns whether an incoming completion signal should finish the active
     /// handoff. Visibility requires the selected workspace to be ready, focus is
-    /// accepted for the selected workspace, and timeout is the bounded fallback.
+    /// accepted for the selected workspace.
     static func shouldComplete(
         signal: WorkspaceHandoffCompletionSignal,
         selectedWorkspaceId: UUID?,
@@ -33,8 +32,6 @@ enum WorkspaceHandoffCompletionPolicy {
             return signalWorkspaceId == selectedWorkspaceId && selectedWorkspaceReady
         case .selectedWorkspaceFocus:
             return signalWorkspaceId == selectedWorkspaceId
-        case .timeout:
-            return true
         }
     }
 
