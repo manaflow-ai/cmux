@@ -5204,40 +5204,175 @@ extension SessionPersistenceTests {
 
     @MainActor
     func testRestoreDoesNotPassDeletedAgentHookCwdToTerminalRuntime() throws {
-        let source = Workspace()
-        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
-        let missingCwd = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-deleted-agent-hook-cwd-\(UUID().uuidString)", isDirectory: true)
-            .appendingPathComponent("repo", isDirectory: true)
-        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
-            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
-                name: "Codex",
-                kind: "codex",
-                command: "cd '\(missingCwd.path)' && codex resume session-duplicate-turn --yolo",
-                cwd: missingCwd.path,
-                checkpointId: "session-duplicate-turn",
-                source: "agent-hook",
-                environment: [
-                    "CLAUDE_CONFIG_DIR": "/tmp/claude-profile"
-                ],
-                autoResume: true,
-                updatedAt: 10
-            ),
-        ])
-        let snapshot = source.sessionSnapshot(
-            includeScrollback: false,
-            surfaceResumeBindingIndex: bindingIndex
-        )
+        try withAutoResumeAgentSessionsEnabled {
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let missingCwd = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-deleted-agent-hook-cwd-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("repo", isDirectory: true)
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "cd '\(missingCwd.path)' && codex resume session-duplicate-turn --yolo",
+                    cwd: missingCwd.path,
+                    checkpointId: "session-duplicate-turn",
+                    source: "agent-hook",
+                    environment: [
+                        "CLAUDE_CONFIG_DIR": "/tmp/claude-profile"
+                    ],
+                    autoResume: true,
+                    updatedAt: 10
+                ),
+            ])
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                surfaceResumeBindingIndex: bindingIndex
+            )
 
-        let restored = Workspace()
-        restored.restoreSessionSnapshot(snapshot)
-        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
-        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
-        let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+            let startupPayload = try restoredStartupPayload(for: restoredPanel)
 
-        XCTAssertNil(restoredPanel.requestedWorkingDirectory)
-        XCTAssertTrue(input.contains("codex resume session-duplicate-turn --yolo"), input)
-        XCTAssertTrue(input.contains("{ cd -- '\(missingCwd.path)' 2>/dev/null || [ ! -d '\(missingCwd.path)' ]; } &&"), input)
+            XCTAssertNil(restoredPanel.requestedWorkingDirectory)
+            XCTAssertTrue(startupPayload.contains("codex resume session-duplicate-turn --yolo"), startupPayload)
+            let guardStart = try XCTUnwrap(startupPayload.range(of: "{ cd -- "), startupPayload)
+            let guardSuffix = String(startupPayload[guardStart.lowerBound...])
+            let guardEnd = try XCTUnwrap(guardSuffix.range(of: "]; } &&")?.upperBound, guardSuffix)
+            let guardSnippet = String(guardSuffix[..<guardEnd])
+            XCTAssertTrue(guardSnippet.contains(missingCwd.path), guardSnippet)
+            XCTAssertTrue(guardSnippet.contains("2>/dev/null || [ ! -d"), guardSnippet)
+        }
+    }
+
+    @MainActor
+    func testRestorePreservesUnmountedVolumeCwdBindingsWhenInitialReportsAreScrambled() throws {
+        try withAutoResumeAgentSessionsEnabled {
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let volumeName = "cmux-issue-5278-\(UUID().uuidString)"
+            let expectedCwdsByWorkspaceAndPanel = try makeUnmountedVolumeCwdSnapshot(
+                manager: manager,
+                volumeName: volumeName
+            )
+            let snapshotData = try JSONEncoder().encode(manager.sessionSnapshot(includeScrollback: false))
+            let decodedSnapshot = try JSONDecoder().decode(SessionTabManagerSnapshot.self, from: snapshotData)
+            let restored = TabManager(autoWelcomeIfNeeded: false)
+
+            restored.restoreSessionSnapshot(decodedSnapshot)
+            let allExpectedCwds = expectedCwdsByWorkspaceAndPanel
+                .values
+                .flatMap { $0.values }
+                .sorted()
+            let rotatedExpectedCwds = Array(allExpectedCwds.dropFirst()) + [allExpectedCwds[0]]
+            let scrambledCwds = Dictionary(uniqueKeysWithValues: zip(allExpectedCwds, rotatedExpectedCwds))
+            for workspace in restored.tabs {
+                let workspaceTitle = try XCTUnwrap(workspace.customTitle)
+                let expectedPanelCwds = try XCTUnwrap(expectedCwdsByWorkspaceAndPanel[workspaceTitle])
+                for (panelId, panelTitle) in workspace.panelCustomTitles {
+                    let expectedCwd = try XCTUnwrap(expectedPanelCwds[panelTitle])
+                    let scrambledCwd = try XCTUnwrap(scrambledCwds[expectedCwd])
+                    restored.updateSurfaceDirectory(
+                        tabId: workspace.id,
+                        surfaceId: panelId,
+                        directory: scrambledCwd
+                    )
+                }
+            }
+
+            let postReportSnapshot = restored.sessionSnapshot(includeScrollback: false)
+            for workspaceSnapshot in postReportSnapshot.workspaces {
+                let workspaceTitle = try XCTUnwrap(workspaceSnapshot.customTitle)
+                let expectedPanelCwds = try XCTUnwrap(expectedCwdsByWorkspaceAndPanel[workspaceTitle])
+                for panelSnapshot in workspaceSnapshot.panels {
+                    let panelTitle = try XCTUnwrap(panelSnapshot.customTitle)
+                    let expectedCwd = try XCTUnwrap(expectedPanelCwds[panelTitle])
+                    XCTAssertEqual(panelSnapshot.directory, expectedCwd, "\(workspaceTitle) / \(panelTitle)")
+                    XCTAssertEqual(panelSnapshot.terminal?.workingDirectory, expectedCwd, "\(workspaceTitle) / \(panelTitle)")
+                    XCTAssertEqual(panelSnapshot.terminal?.resumeBinding?.cwd, expectedCwd, "\(workspaceTitle) / \(panelTitle)")
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func withAutoResumeAgentSessionsEnabled<T>(_ body: () throws -> T) rethrows -> T {
+        let defaults = UserDefaults.standard
+        let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        let previous = defaults.object(forKey: key)
+        defaults.set(true, forKey: key)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        return try body()
+    }
+
+    @MainActor
+    private func restoredStartupPayload(for panel: TerminalPanel) throws -> String {
+        if let input = panel.surface.debugInitialInputForTesting() {
+            return input
+        }
+
+        let command = try XCTUnwrap(panel.surface.debugInitialCommand())
+        let launcherPrefix = "/bin/zsh '"
+        guard command.hasPrefix(launcherPrefix), command.hasSuffix("'") else {
+            return try XCTUnwrap(
+                Optional<String>.none,
+                "Unexpected restored startup command format: \(command)"
+            )
+        }
+        let scriptPath = String(command.dropFirst(launcherPrefix.count).dropLast())
+        return try String(contentsOfFile: scriptPath, encoding: .utf8)
+    }
+
+    @MainActor
+    private func makeUnmountedVolumeCwdSnapshot(
+        manager: TabManager,
+        volumeName: String
+    ) throws -> [String: [String: String]] {
+        let workspaces = [
+            try XCTUnwrap(manager.selectedWorkspace),
+            manager.addWorkspace(inheritWorkingDirectory: false, select: true, autoWelcomeIfNeeded: false),
+            manager.addWorkspace(inheritWorkingDirectory: false, select: true, autoWelcomeIfNeeded: false),
+        ]
+        var expected: [String: [String: String]] = [:]
+
+        for (workspaceIndex, workspace) in workspaces.enumerated() {
+            let workspaceTitle = "Project \(workspaceIndex + 1)"
+            workspace.setCustomTitle(workspaceTitle)
+            let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+            let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+            let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true)?.id)
+            for (panelIndex, panelId) in [firstPanelId, secondPanelId].enumerated() {
+                let panelTitle = "Tab \(workspaceIndex + 1).\(panelIndex + 1)"
+                let cwd = "/Volumes/\(volumeName)/project-\(workspaceIndex + 1)/tab-\(panelIndex + 1)"
+                workspace.setPanelCustomTitle(panelId: panelId, title: panelTitle)
+                workspace.updatePanelDirectory(panelId: panelId, directory: cwd)
+                XCTAssertTrue(
+                    workspace.setSurfaceResumeBinding(
+                        SurfaceResumeBindingSnapshot(
+                            name: "Codex",
+                            kind: "codex",
+                            command: "cd '\(cwd)' && codex resume session-\(workspaceIndex)-\(panelIndex) --yolo",
+                            cwd: cwd,
+                            checkpointId: "session-\(workspaceIndex)-\(panelIndex)",
+                            source: "agent-hook",
+                            autoResume: true,
+                            updatedAt: 10 + Double(workspaceIndex * 10 + panelIndex)
+                        ),
+                        panelId: panelId
+                    )
+                )
+                expected[workspaceTitle, default: [:]][panelTitle] = cwd
+            }
+        }
+
+        return expected
     }
 
     @MainActor

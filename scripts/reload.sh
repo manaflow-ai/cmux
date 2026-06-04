@@ -16,7 +16,16 @@ CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CLI_PATH=""
-LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
+# Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
+# read the last-socket-path markers (https://github.com/manaflow-ai/cmux/issues/5146).
+# Resolve the real account home via getpwuid (the same syscall
+# homeDirectoryForCurrentUser uses) rather than $HOME, which a shell can override.
+# perl ships with macOS and returns the full home path even when it contains spaces;
+# `dscl ... | awk` mis-parses such paths because dscl wraps a value with spaces onto
+# a second line. `|| true` keeps the lookup from aborting the script under
+# `set -euo pipefail`; an empty result falls back to $HOME.
+_cmux_account_home="$(perl -e 'print((getpwuid($<))[7])' 2>/dev/null || true)"
+LAST_SOCKET_PATH_DIR="${_cmux_account_home:-$HOME}/.local/state/cmux"
 AUTO_SKIP_ZIG_BUILD_REASON=""
 SWIFT_FRONTEND_WORKAROUND=0
 XCODEBUILD_STARTED=0

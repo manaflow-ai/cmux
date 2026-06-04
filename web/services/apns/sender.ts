@@ -31,6 +31,20 @@ export interface ApnsSendResult {
   readonly prune: boolean;
 }
 
+interface ApnsHttp2Session {
+  request(headers: http2.OutgoingHttpHeaders): http2.ClientHttp2Stream;
+  close(): void;
+  once(event: "error", listener: () => void): this;
+}
+
+interface ApnsTransport {
+  connect(host: string): ApnsHttp2Session;
+}
+
+const nodeApnsTransport: ApnsTransport = {
+  connect: (host) => http2.connect(`https://${host}`),
+};
+
 /** Normalize a .p8 that was stored with literal `\n` (common in env vars). */
 export function normalizeP8(keyP8: string): string {
   return keyP8.includes("\\n") ? keyP8.replace(/\\n/g, "\n") : keyP8;
@@ -85,6 +99,7 @@ export async function sendApnsNotification(
   targets: readonly ApnsTarget[],
   input: ApnsNotificationInput,
   timeoutMs = 8000,
+  transport: ApnsTransport = nodeApnsTransport,
 ): Promise<ApnsSendResult[]> {
   if (targets.length === 0) return [];
   const jwt = providerToken(config);
@@ -96,27 +111,51 @@ export async function sendApnsNotification(
     (byHost.get(host) ?? byHost.set(host, []).get(host)!).push(t);
   }
 
-  const results: ApnsSendResult[] = [];
-  for (const [host, hostTargets] of byHost) {
-    const client = http2.connect(`https://${host}`);
+  const results = await Promise.all(
+    [...byHost.entries()].map(([host, hostTargets]) =>
+      sendHostGroup(transport, host, hostTargets, jwt, body, timeoutMs).catch(() =>
+        connectionErrorResults(hostTargets),
+      ),
+    ),
+  );
+  return results.flat();
+}
+
+function connectionErrorResults(hostTargets: readonly ApnsTarget[]): ApnsSendResult[] {
+  return hostTargets.map((target) => ({
+    deviceToken: target.deviceToken,
+    status: 0,
+    reason: "connection_error",
+    prune: false,
+  }));
+}
+
+async function sendHostGroup(
+  transport: ApnsTransport,
+  host: string,
+  hostTargets: readonly ApnsTarget[],
+  jwt: string,
+  body: Buffer,
+  timeoutMs: number,
+): Promise<ApnsSendResult[]> {
+  let client: ApnsHttp2Session | null = null;
+  try {
+    const connectedClient = transport.connect(host);
+    client = connectedClient;
     // A connection-level error fails every in-flight request for this host.
     const connError: Promise<null> = new Promise((resolve) => {
-      client.once("error", () => resolve(null));
+      connectedClient.once("error", () => resolve(null));
     });
-    try {
-      const hostResults = await Promise.all(
-        hostTargets.map((t) => sendOne(client, jwt, t, body, timeoutMs, connError)),
-      );
-      results.push(...hostResults);
-    } finally {
-      client.close();
-    }
+    return await Promise.all(hostTargets.map((t) => sendOne(connectedClient, jwt, t, body, timeoutMs, connError)));
+  } catch {
+    return connectionErrorResults(hostTargets);
+  } finally {
+    client?.close();
   }
-  return results;
 }
 
 function sendOne(
-  client: http2.ClientHttp2Session,
+  client: ApnsHttp2Session,
   jwt: string,
   target: ApnsTarget,
   body: Buffer,
@@ -132,15 +171,21 @@ function sendOne(
     };
     void connError.then(() => finish(0, "connection_error"));
 
-    const req = client.request({
-      ":method": "POST",
-      ":path": `/3/device/${target.deviceToken}`,
-      "apns-topic": target.bundleId,
-      "apns-push-type": "alert",
-      authorization: `bearer ${jwt}`,
-      "content-type": "application/json",
-      "content-length": String(body.length),
-    });
+    let req: http2.ClientHttp2Stream;
+    try {
+      req = client.request({
+        ":method": "POST",
+        ":path": `/3/device/${target.deviceToken}`,
+        "apns-topic": target.bundleId,
+        "apns-push-type": "alert",
+        authorization: `bearer ${jwt}`,
+        "content-type": "application/json",
+        "content-length": String(body.length),
+      });
+    } catch (err) {
+      finish(0, err instanceof Error ? err.message : "request_error");
+      return;
+    }
     req.setTimeout(timeoutMs, () => {
       req.close();
       finish(0, "timeout");
