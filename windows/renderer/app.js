@@ -15167,6 +15167,7 @@ function renderSettingsInspector(options = {}) {
   const settingsChrome = document.createElement("div");
   const nodes = [settingsChrome];
   const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  if (!searching) setSettingsSearchBusy(false);
   settingsChrome.className = `settings-react-host${searching ? " is-searching" : ""}`;
   const shouldBuildSection = (id) => state.settingsCategory === id || searching;
 
@@ -21871,6 +21872,15 @@ function scrollSettingsSearchTargetIntoView(target) {
   elements.inspectorBody.scrollTo({ top: Math.max(0, Math.round(top)), behavior });
 }
 
+function setSettingsSearchBusy(busy) {
+  if (!elements.inspectorBody) return;
+  if (busy) {
+    setAttributeIfChanged(elements.inspectorBody, "aria-busy", "true");
+  } else if (elements.inspectorBody.hasAttribute("aria-busy")) {
+    elements.inspectorBody.removeAttribute("aria-busy");
+  }
+}
+
 function syncSettingsDisclosuresForSearch(query) {
   if (!query) {
     state.settingsSearchDisclosuresOpenVersion = 0;
@@ -21906,6 +21916,8 @@ function applySettingsFilter() {
   const query = normalizeSettingsQuery(state.settingsQuery);
   const tokens = settingsSearchTokens(query);
   const disclosureSync = syncSettingsDisclosuresForSearch(query);
+  const searchStillMounting = Boolean(query && !disclosureSync.complete);
+  setSettingsSearchBusy(searchStillMounting);
   const mountedDisclosureContent = disclosureSync.mountedContent;
   const sections = state.settingsSearchIndex.length && !mountedDisclosureContent
     ? state.settingsSearchIndex
@@ -21960,10 +21972,14 @@ function applySettingsFilter() {
     : elements.inspectorBody.querySelector(".settings-search-clear");
   state.settingsSearchClear = clear || null;
   if (clear) clear.disabled = !query;
-  setSettingsSearchResultText(query ? settingsSearchResultMessage(matchingItems, visibleSections) : "");
-  const shouldAutoScroll = query
+  setSettingsSearchResultText(query
+    ? searchStillMounting
+      ? t("settings.searching")
+      : settingsSearchResultMessage(matchingItems, visibleSections)
+    : "");
+  const shouldAutoScroll = !searchStillMounting && query
     && (state.settingsSearchAutoScrollQuery === query || elements.inspectorBody.scrollTop === 0);
-  if (state.settingsSearchAutoScrollQuery === query) state.settingsSearchAutoScrollQuery = "";
+  if (!searchStillMounting && state.settingsSearchAutoScrollQuery === query) state.settingsSearchAutoScrollQuery = "";
   if (shouldAutoScroll && visibleSections > 0) scrollSettingsSearchTargetIntoView(bestTarget?.item);
 }
 
