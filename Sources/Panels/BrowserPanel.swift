@@ -2501,7 +2501,7 @@ actor BrowserSearchSuggestionService {
 }
 
 /// BrowserPanel provides a WKWebView-based browser panel.
-/// Each browser panel owns a dedicated WKWebView and storage context.
+/// Each browser panel can recover from WebContent crashes by replacing its web view.
 private enum BrowserInsecureHTTPNavigationIntent {
     case currentTab
     case newTab
@@ -3858,7 +3858,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    /// Popups inherit this panel's exact WebKit storage and process context.
+    /// Popups inherit this panel's exact WebKit storage context.
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
             websiteDataStore: websiteDataStore
@@ -4334,7 +4334,6 @@ final class BrowserPanel: Panel, ObservableObject {
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
-
         let webView = Self.makeWebView(
             profileID: resolvedProfileID,
             websiteDataStore: websiteDataStore
