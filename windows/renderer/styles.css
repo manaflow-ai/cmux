@@ -5684,6 +5684,39 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   box-shadow: var(--depth-inspector-shadow);
 }
 
+.shell.inspector-style-quiet .inspector {
+  border-left-color: color-mix(in oklch, var(--color-line) 58%, transparent);
+  background: color-mix(in oklch, var(--color-rail-surface) 70%, var(--color-canvas-surface) 30%);
+  box-shadow: none;
+}
+
+.shell.inspector-style-quiet .inspector-head {
+  border-bottom-color: color-mix(in oklch, var(--color-line) 58%, transparent);
+  background: color-mix(in oklch, var(--color-rail-surface) 78%, transparent);
+}
+
+.shell.inspector-style-quiet .inspector-body {
+  background: color-mix(in oklch, var(--color-canvas-surface) 18%, transparent);
+}
+
+.shell.inspector-style-solid .inspector {
+  border-left-color: color-mix(in oklch, var(--color-line-strong) 72%, var(--color-accent) 28%);
+  background: color-mix(in oklch, var(--color-rail-surface) 78%, var(--color-pane-surface) 22%);
+  box-shadow:
+    var(--depth-inspector-shadow),
+    inset 1px 0 0 color-mix(in oklch, var(--color-accent) 14%, transparent);
+}
+
+.shell.inspector-style-solid .inspector-head {
+  border-bottom-color: color-mix(in oklch, var(--color-line-strong) 72%, var(--color-accent) 28%);
+  background: color-mix(in oklch, var(--color-pane-surface) 46%, var(--color-rail-surface) 54%);
+  box-shadow: inset 0 -1px 0 color-mix(in oklch, var(--color-accent) 12%, transparent);
+}
+
+.shell.inspector-style-solid .inspector-body {
+  background: color-mix(in oklch, var(--color-rail-surface) 82%, var(--color-pane-surface) 18%);
+}
+
 .shell:not(.inspector-open) .inspector {
   width: 0;
   max-width: 0;
@@ -8459,6 +8492,25 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   padding: 8px;
   border-left: 1px solid var(--color-line);
   background: var(--color-rail);
+}
+
+.layout-settings-preview.inspector-style-quiet .layout-preview-inspector {
+  border-left-color: color-mix(in oklch, var(--color-line) 56%, transparent);
+  background: color-mix(in oklch, var(--color-rail) 70%, transparent);
+}
+
+.layout-settings-preview.inspector-style-quiet .layout-preview-inspector span {
+  background: color-mix(in oklch, var(--color-text) 7%, transparent);
+}
+
+.layout-settings-preview.inspector-style-solid .layout-preview-inspector {
+  border-left-color: color-mix(in oklch, var(--color-line-strong) 72%, var(--color-accent) 28%);
+  background: color-mix(in oklch, var(--color-rail) 76%, var(--color-pane) 24%);
+  box-shadow: inset 1px 0 0 color-mix(in oklch, var(--color-accent) 14%, transparent);
+}
+
+.layout-settings-preview.inspector-style-solid .layout-preview-inspector span:first-child {
+  background: color-mix(in oklch, var(--color-accent) 18%, var(--color-text) 8%);
 }
 
 .layout-preview-inspector span {
