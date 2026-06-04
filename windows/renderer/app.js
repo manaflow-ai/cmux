@@ -28362,6 +28362,16 @@ function savedColorPalettePanel() {
   pastePalette.title = paletteFull
     ? "Merge copied saved colors. New colors may be limited by the palette capacity."
     : "Merge copied saved colors into the palette.";
+  const targetHasMultipleColors = colorTarget === "all" && /\d+\s+colors/.test(targetOption.status);
+  const copyTargetDisabled = Boolean(targetOption.disabled) || targetHasMultipleColors || !canCopyColorValue(targetOption.color, defaultSettings.accent);
+  const copyTargetTitle = targetOption.disabled
+    ? `${targetOption.label}: ${targetOption.meta}.`
+    : targetHasMultipleColors
+      ? "All panes use multiple colors. Choose a single pane, workspace, or accent target first."
+      : colorCopyTitle(targetOption.color, defaultSettings.accent, `Copy ${targetOption.label.toLowerCase()} color value.`);
+  const copyTarget = settingsActionButton("Copy target", () => copyColorValue(targetOption.color, defaultSettings.accent, `${targetOption.label} color copied.`), "", `saved color copy current target value clipboard accent workspace pane all ${targetOption.label} ${targetOption.meta}`);
+  copyTarget.disabled = copyTargetDisabled;
+  copyTarget.title = copyTargetTitle;
   const pasteColor = settingsActionButton("Paste color", () => pasteColorToTarget(state.colorApplyTarget), "", `saved color paste clipboard apply selected target accent workspace pane all hex oklch ${targetOption.disabled ? "unavailable " : "ready "}${targetLabel}`);
   pasteColor.disabled = Boolean(targetOption.disabled);
   pasteColor.title = targetOption.disabled
@@ -28408,7 +28418,7 @@ function savedColorPalettePanel() {
     : clearPanes.disabled
       ? "Pane colors are already default."
       : "Clear pane colors in the active workspace.";
-  actions.append(copyPalette, pastePalette, pasteColor, applyEverywhere, resetTarget, saveAccent, saveWorkspace, savePane, saveColorSet, clearWorkspace, clearPanes);
+  actions.append(copyPalette, pastePalette, copyTarget, pasteColor, applyEverywhere, resetTarget, saveAccent, saveWorkspace, savePane, saveColorSet, clearWorkspace, clearPanes);
   panel.append(actions);
 
   if (state.customColorPalette.length === 0) {
