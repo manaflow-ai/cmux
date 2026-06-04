@@ -1371,6 +1371,103 @@ function terminalFontSizeForPanel(panel) {
   );
 }
 
+function terminalTextSizeTarget(panel = activeTerminalPanelForSettings()) {
+  return resolveTerminalPanel(panel);
+}
+
+function terminalTextSizeActionKind(commandId) {
+  return {
+    "terminal.fontUp": "increase",
+    "terminal.fontDown": "decrease",
+    "terminal.fontReset": "reset",
+    increase: "increase",
+    decrease: "decrease",
+    reset: "reset"
+  }[commandId] || "";
+}
+
+function terminalTextSizeActionDelta(actionId) {
+  const kind = terminalTextSizeActionKind(actionId);
+  if (kind === "increase") return 1;
+  if (kind === "decrease") return -1;
+  return 0;
+}
+
+function terminalTextSizeActionTitle(actionId, panel = activeTerminalPanelForSettings(), options = {}) {
+  const target = terminalTextSizeTarget(panel);
+  const terminalRequiredTitle = options.terminalRequiredTitle || "Focus or create a terminal pane first.";
+  if (!target) return terminalRequiredTitle;
+  const kind = terminalTextSizeActionKind(actionId);
+  const currentSize = terminalFontSizeForPanel(target);
+  const defaultSize = state.settings.terminalFontSize;
+  const customSize = panelHasTerminalFontSize(target);
+  if (kind === "reset") {
+    return customSize
+      ? `Reset ${panelDisplayTitle(target, true)} text to the ${defaultSize}px default.`
+      : `Pane text already uses the ${defaultSize}px default.`;
+  }
+  const delta = terminalTextSizeActionDelta(kind);
+  const nextSize = normalizeTerminalFontSize(currentSize + delta, currentSize);
+  if (!delta) return `Current terminal text size is ${currentSize}px.`;
+  if (nextSize === currentSize) {
+    return `Pane text is already at the ${currentSize}px ${delta > 0 ? "maximum" : "minimum"}.`;
+  }
+  return `Change ${panelDisplayTitle(target, true)} text from ${currentSize}px to ${nextSize}px.`;
+}
+
+function terminalTextSizeActionSearchText(actionId, panel = activeTerminalPanelForSettings(), extra = "") {
+  const target = terminalTextSizeTarget(panel);
+  const kind = terminalTextSizeActionKind(actionId);
+  const currentSize = target ? terminalFontSizeForPanel(target) : state.settings.terminalFontSize;
+  const defaultSize = state.settings.terminalFontSize;
+  const actionTerms = {
+    increase: "larger increase bigger zoom in plus grow",
+    decrease: "smaller decrease zoom out minus shrink",
+    reset: "reset default clear custom"
+  };
+  return normalizeSettingsQuery([
+    "active terminal pane text size font zoom typography readability",
+    target ? panelDisplayTitle(target, true) : "no terminal select terminal",
+    `${currentSize}px`,
+    `${defaultSize}px default`,
+    target && panelHasTerminalFontSize(target) ? "custom override" : "default",
+    actionTerms[kind] || kind,
+    extra
+  ].join(" "));
+}
+
+function terminalTextSizeActionModel(actionId, panel = activeTerminalPanelForSettings(), options = {}) {
+  const target = terminalTextSizeTarget(panel);
+  const kind = terminalTextSizeActionKind(actionId);
+  const currentSize = target ? terminalFontSizeForPanel(target) : state.settings.terminalFontSize;
+  const defaultSize = state.settings.terminalFontSize;
+  const customSize = target ? panelHasTerminalFontSize(target) : false;
+  const delta = terminalTextSizeActionDelta(kind);
+  const nextSize = delta ? normalizeTerminalFontSize(currentSize + delta, currentSize) : currentSize;
+  const atLimit = Boolean(delta && nextSize === currentSize);
+  const resetDefault = kind === "reset" && target && !customSize;
+  const targetTitle = target ? panelDisplayTitle(target, true) : "No active terminal";
+  return {
+    target,
+    kind,
+    currentSize,
+    nextSize,
+    defaultSize,
+    customSize,
+    atLimit,
+    active: Boolean(resetDefault),
+    disabled: !target || atLimit || resetDefault,
+    meta: target ? `${targetTitle} / ${currentSize}px${customSize ? " custom" : " default"}` : "No active terminal",
+    shortcut: kind === "increase"
+      ? `${currentSize}px +`
+      : kind === "decrease"
+        ? `${currentSize}px -`
+        : resetDefault ? "Default" : "Reset",
+    title: terminalTextSizeActionTitle(kind, target, options),
+    search: terminalTextSizeActionSearchText(kind, target)
+  };
+}
+
 function loadSettings() {
   let parsed = {};
   try {
@@ -8263,33 +8360,33 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       search: normalizeSettingsQuery(`active terminal clipboard search find selection copy paste ${terminalTitle} ${searchTerm} ${selectionLength}`)
     };
   }
-  if (["terminal.clear", "terminal.restart", "terminal.fontUp", "terminal.fontDown", "terminal.fontReset"].includes(commandId)) {
+  if (["terminal.fontUp", "terminal.fontDown", "terminal.fontReset"].includes(commandId)) {
+    const model = terminalTextSizeActionModel(commandId, terminalPanel, {
+      terminalRequiredTitle: "Focus a terminal pane first."
+    });
+    return {
+      meta: model.meta,
+      shortcut: model.shortcut,
+      active: model.active,
+      disabled: model.disabled,
+      icon: "terminal",
+      title: model.title,
+      search: model.search
+    };
+  }
+  if (["terminal.clear", "terminal.restart"].includes(commandId)) {
     const terminalTitle = terminalPanel ? panelDisplayTitle(terminalPanel, true) : "No terminal";
     const terminalSession = terminalPanel ? state.terminals.get(terminalPanel.id) : null;
-    const terminalSize = terminalPanel ? terminalFontSizeForPanel(terminalPanel) : state.settings.terminalFontSize;
-    const customSize = terminalPanel ? panelHasTerminalFontSize(terminalPanel) : false;
-    const fontDelta = commandId === "terminal.fontUp" ? 1 : commandId === "terminal.fontDown" ? -1 : 0;
-    const nextFontSize = fontDelta ? normalizeTerminalFontSize(terminalSize + fontDelta, terminalSize) : terminalSize;
-    const atFontLimit = fontDelta !== 0 && nextFontSize === terminalSize;
-    const resetActive = commandId === "terminal.fontReset" && terminalPanel && !customSize;
     const clearCommand = commandId === "terminal.clear";
     const restartCommand = commandId === "terminal.restart";
-    const fontCommand = commandId.startsWith("terminal.font");
     const disabled = !terminalPanel
-      || (clearCommand && !terminalSession)
-      || atFontLimit
-      || resetActive;
+      || (clearCommand && !terminalSession);
     const shortcutById = {
       "terminal.clear": "Clear",
-      "terminal.restart": "Restart",
-      "terminal.fontUp": `${terminalSize}px +`,
-      "terminal.fontDown": `${terminalSize}px -`,
-      "terminal.fontReset": resetActive ? "Default" : "Reset"
+      "terminal.restart": "Restart"
     };
     const meta = terminalPanel
-      ? fontCommand
-        ? `${terminalTitle} / ${terminalSize}px${customSize ? " custom" : " default"}`
-        : terminalTitle
+      ? terminalTitle
       : "No active terminal";
     let title = "Focus a terminal pane first.";
     if (terminalPanel) {
@@ -8297,24 +8394,15 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
         title = terminalSession ? `Clear output in ${terminalTitle}.` : "Terminal is not ready.";
       } else if (restartCommand) {
         title = `Restart ${terminalTitle}.`;
-      } else if (commandId === "terminal.fontReset") {
-        title = customSize
-          ? `Reset ${terminalTitle} text to the ${state.settings.terminalFontSize}px default.`
-          : `Pane text already uses the ${state.settings.terminalFontSize}px default.`;
-      } else {
-        title = atFontLimit
-          ? `Pane text is already at ${terminalSize}px.`
-          : `Change ${terminalTitle} text from ${terminalSize}px to ${nextFontSize}px.`;
       }
     }
     return {
       meta,
       shortcut: shortcutById[commandId],
-      active: resetActive,
       disabled,
       icon: "terminal",
       title,
-      search: normalizeSettingsQuery(`active terminal ${terminalTitle} clear restart text font size ${terminalSize}px default custom ${state.settings.terminalFontSize}px ${terminalSession ? "ready" : "starting"}`)
+      search: normalizeSettingsQuery(`active terminal ${terminalTitle} clear restart ${terminalSession ? "ready" : "starting"}`)
     };
   }
   if (commandId === "terminal.close") {
@@ -10607,6 +10695,7 @@ function updatePaneActiveState(pane, panel, workspace, visibleCount = workspace?
     setDisabledIfChanged(button, (pending && !button.classList.contains("close"))
       || (terminalOnly && panel.type !== "terminal"));
   }
+  updatePaneTerminalTextTools(parts, panel, pending);
   const closeActionLabel = pending ? "Cancel pane" : closePaneActionLabel(workspace, panel.id);
   setTitleIfChanged(parts.close, closeActionLabel);
   setAttributeIfChanged(parts.close, "aria-label", closeActionLabel);
@@ -10731,6 +10820,24 @@ function updatePaneToolState(button, icon, label) {
   setAttributeIfChanged(button, "aria-label", label);
 }
 
+function updatePaneTerminalTextTools(parts, panel, pending = false) {
+  if (!parts) return;
+  const unavailableTitle = pending
+    ? "Wait for this terminal pane to finish starting."
+    : panel?.type === "terminal"
+      ? ""
+      : "Terminal text size is available only for terminal panes.";
+  for (const [button, actionId] of [
+    [parts.fontDown, "decrease"],
+    [parts.fontUp, "increase"]
+  ]) {
+    const model = terminalTextSizeActionModel(actionId, panel, { terminalRequiredTitle: unavailableTitle });
+    setDisabledIfChanged(button, Boolean(unavailableTitle) || model.disabled);
+    setTitleIfChanged(button, unavailableTitle || model.title);
+    setAttributeIfChanged(button, "aria-label", unavailableTitle || model.title);
+  }
+}
+
 function updatePaneChromeSizeClass(pane) {
   if (!pane) return;
   const width = pane.clientWidth || 0;
@@ -10818,6 +10925,7 @@ function renderPaneNode(panel, workspace, visibleCount) {
     setDisabledIfChanged(button, (pending && !button.classList.contains("close"))
       || (terminalOnly && panel.type !== "terminal"));
   }
+  updatePaneTerminalTextTools(parts, panel, pending);
   const closeActionLabel = pending ? "Cancel pane" : closePaneActionLabel(workspace, panel.id);
   setTitleIfChanged(parts.close, closeActionLabel);
   setAttributeIfChanged(parts.close, "aria-label", closeActionLabel);
@@ -20492,7 +20600,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
       "Pane background",
       paneBackgroundControlPanel(panel),
       true,
-      "active pane terminal background image wallpaper choose use app save library clear open source"
+      paneBackgroundActionSearchText("control", panel)
     ));
 
     const paneFontSize = terminalFontSizeForPanel(panel);
@@ -20518,9 +20626,10 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     const resetText = settingsActionButton("Default", () => {
       if (!resetPaneTerminalFontSize(panel.id)) return;
       refreshActivePaneTextControls(panel.id);
-    }, "", "active pane terminal text size reset default");
+    }, "", terminalTextSizeActionSearchText("reset", panel));
     resetText.dataset.activePaneResetText = panel.id;
     resetText.disabled = !panelHasTerminalFontSize(panel);
+    resetText.title = terminalTextSizeActionTitle("reset", panel);
     const numberWrap = document.createElement("span");
     numberWrap.className = "active-pane-text-number-wrap";
     const numberUnit = document.createElement("span");
@@ -20530,7 +20639,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     const textControl = document.createElement("span");
     textControl.className = "active-pane-text-control";
     textControl.append(fontRange, numberWrap, resetText);
-    const fontRow = settingRow(`Pane text ${paneFontSize}px`, textControl, false, "active pane terminal text size font zoom exact smaller larger default reset");
+    const fontRow = settingRow(`Pane text ${paneFontSize}px`, textControl, false, terminalTextSizeActionSearchText("increase", panel, "exact smaller larger range number input default reset"));
     fontRow.dataset.activePaneTextRow = panel.id;
     const syncTextSizeControl = (value, options = {}) => {
       const nextSize = setPaneTerminalFontSizeOverride(panel.id, Number(value), { toast: false });
@@ -30656,14 +30765,24 @@ function showPanelContextMenu(event, panel) {
       contextMenuButton("Copy selection", () => copyActiveTerminalSelection(panel), false, "", { icon: "copy" }),
       contextMenuButton("Paste", () => pasteClipboardToTerminal(panel), false, "", { icon: "clipboard" }),
       contextMenuButton("Clear terminal", () => clearTerminalPanel(panel), false, "", { icon: "close" }),
-      contextMenuButton("Text larger", () => changePaneTerminalFontSize(panel.id, 1), false, "", { icon: "textSize" }),
-      contextMenuButton("Text smaller", () => changePaneTerminalFontSize(panel.id, -1), false, "", { icon: "textSize" }),
+      (() => {
+        const model = terminalTextSizeActionModel("increase", panel);
+        const action = contextMenuButton("Text larger", () => changePaneTerminalFontSize(panel.id, 1), model.disabled, "", { icon: "textSize" });
+        action.title = model.title;
+        return action;
+      })(),
+      (() => {
+        const model = terminalTextSizeActionModel("decrease", panel);
+        const action = contextMenuButton("Text smaller", () => changePaneTerminalFontSize(panel.id, -1), model.disabled, "", { icon: "textSize" });
+        action.title = model.title;
+        return action;
+      })(),
       paneAction(
         "Reset text size",
         () => resetPaneTerminalFontSize(panel.id),
-        !panelHasTerminalFontSize(panel),
-        "Use the default terminal text size for this pane.",
-        "Pane text size already follows the default.",
+        terminalTextSizeActionModel("reset", panel).disabled,
+        terminalTextSizeActionTitle("reset", panel),
+        terminalTextSizeActionTitle("reset", panel),
         "",
         { icon: "reload" }
       ),
@@ -31045,6 +31164,9 @@ function showToolbarMenu(event) {
     ...focusedTerminalTitleOptions,
     availableTitle: "Copy the focused terminal background source."
   });
+  const terminalTextIncrease = terminalTextSizeActionModel("increase", panel, { terminalRequiredTitle });
+  const terminalTextDecrease = terminalTextSizeActionModel("decrease", panel, { terminalRequiredTitle });
+  const terminalTextReset = terminalTextSizeActionModel("reset", panel, { terminalRequiredTitle });
   const toolbarAction = (label, action, disabled, availableTitle, unavailableTitle, tone = "", options = {}) => {
     const button = contextMenuButton(label, action, disabled, tone, options);
     const titleText = disabled ? (unavailableTitle || availableTitle) : (availableTitle || unavailableTitle);
@@ -31111,6 +31233,9 @@ function showToolbarMenu(event) {
       toolbarAction("Paste to terminal", pasteClipboardToTerminal, !terminalActive, "Paste clipboard text into the focused terminal.", terminalRequiredTitle),
       toolbarAction("Clear active terminal", clearActiveTerminal, !terminalActive, "Clear the focused terminal.", terminalRequiredTitle),
       toolbarAction("Restart terminal", restartActiveTerminal, !terminalActive, "Restart the focused terminal.", terminalRequiredTitle),
+      toolbarAction("Text larger", () => changeTerminalFontSize(1, { panel }), terminalTextIncrease.disabled, terminalTextIncrease.title, terminalTextIncrease.title),
+      toolbarAction("Text smaller", () => changeTerminalFontSize(-1, { panel }), terminalTextDecrease.disabled, terminalTextDecrease.title, terminalTextDecrease.title),
+      toolbarAction("Reset text size", () => resetTerminalFontSize({ panel }), terminalTextReset.disabled, terminalTextReset.title, terminalTextReset.title),
       toolbarAction("Choose terminal background", () => choosePanelBackgroundImage(panel), !terminalActive, paneBackgroundActionTitle("choose", panel, {
         ...focusedTerminalTitleOptions,
         availableTitle: "Choose a background for the focused terminal."
@@ -36882,7 +37007,10 @@ function refreshActivePaneTextControls(panelId) {
     if (number.dataset.activePaneTextNumber === panelId) number.value = String(nextSize);
   }
   for (const button of elements.inspectorBody.querySelectorAll("[data-active-pane-reset-text]")) {
-    if (button.dataset.activePaneResetText === panelId) button.disabled = !hasOverride;
+    if (button.dataset.activePaneResetText === panelId) {
+      button.disabled = !hasOverride;
+      setTitleIfChanged(button, terminalTextSizeActionTitle("reset", found.panel));
+    }
   }
 }
 
