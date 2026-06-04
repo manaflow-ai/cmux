@@ -3763,6 +3763,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func installHiddenWebViewDiscardPolicyObserver() {
         hiddenWebViewDiscardManager.installPolicyObserver()
+        hiddenWebViewDiscardManager.installSystemSleepObservers()
     }
 
     @discardableResult
@@ -4231,6 +4232,82 @@ final class BrowserPanel: Panel, ObservableObject {
         return instanceID == webViewInstanceID
     }
 
+    /// Tracks whether the process-once browser defaults bootstrap has run.
+    private static var hasBootstrappedBrowserDefaults = false
+
+    /// Registers browser fallback defaults and normalizes any legacy/out-of-range
+    /// stored settings to their canonical form, exactly once per process.
+    ///
+    /// This is app-once work, not per-view work. Keeping it out of
+    /// `BrowserPanelView.onAppear` is what fixes the issue #5303 render loop:
+    /// `.onAppear` can re-fire on every CoreAnimation commit for a portal-hosted
+    /// pane, and a view-scoped `@State` guard resets whenever the view changes
+    /// identity (a remount re-runs it). A process-scoped guard runs the work once
+    /// regardless of how many panels or view instances come and go.
+    ///
+    /// Always targets `UserDefaults.standard`: the guard is process-wide, so an
+    /// injectable suite here would silently no-op for every caller after the first.
+    /// Tests exercise ``normalizeBrowserDefaults(defaults:)`` directly with a
+    /// scratch suite instead.
+    static func bootstrapBrowserDefaultsIfNeeded() {
+        guard !hasBootstrappedBrowserDefaults else { return }
+        hasBootstrappedBrowserDefaults = true
+        normalizeBrowserDefaults(defaults: .standard)
+    }
+
+    /// Registers fallback defaults and writes back canonical values for any stored
+    /// browser setting whose raw value is legacy or out of range.
+    ///
+    /// Pure with respect to the injected `defaults`, so it is unit-testable against
+    /// a scratch `UserDefaults(suiteName:)` without touching `UserDefaults.standard`.
+    static func normalizeBrowserDefaults(defaults: UserDefaults) {
+        defaults.register(defaults: [
+            BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
+            BrowserSearchSettings.customSearchEngineNameKey: BrowserSearchSettings.defaultCustomSearchEngineName,
+            BrowserSearchSettings.customSearchEngineURLTemplateKey: BrowserSearchSettings.defaultCustomSearchEngineURLTemplate,
+            BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
+            BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
+            BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
+            BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
+            BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
+        ])
+
+        let resolvedThemeMode = BrowserThemeSettings.mode(defaults: defaults)
+        let currentThemeRaw = defaults.string(forKey: BrowserThemeSettings.modeKey)
+            ?? BrowserThemeSettings.defaultMode.rawValue
+        if currentThemeRaw != resolvedThemeMode.rawValue {
+            defaults.set(resolvedThemeMode.rawValue, forKey: BrowserThemeSettings.modeKey)
+        }
+
+        let resolvedHintVariant = BrowserImportHintSettings.variant(defaults: defaults)
+        let currentHintRaw = defaults.string(forKey: BrowserImportHintSettings.variantKey)
+            ?? BrowserImportHintSettings.defaultVariant.rawValue
+        if currentHintRaw != resolvedHintVariant.rawValue {
+            defaults.set(resolvedHintVariant.rawValue, forKey: BrowserImportHintSettings.variantKey)
+        }
+
+        let resolvedToolbarSpacing = BrowserToolbarAccessorySpacingDebugSettings.current(defaults: defaults)
+        let currentToolbarSpacing = (defaults.object(forKey: BrowserToolbarAccessorySpacingDebugSettings.key) as? Int)
+            ?? BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+        if currentToolbarSpacing != resolvedToolbarSpacing {
+            defaults.set(resolvedToolbarSpacing, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+        }
+
+        let resolvedHorizontalPadding = BrowserProfilePopoverDebugSettings.currentHorizontalPadding(defaults: defaults)
+        let currentHorizontalPadding = (defaults.object(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey) as? NSNumber)?.doubleValue
+            ?? BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
+        if currentHorizontalPadding != resolvedHorizontalPadding {
+            defaults.set(resolvedHorizontalPadding, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
+        }
+
+        let resolvedVerticalPadding = BrowserProfilePopoverDebugSettings.currentVerticalPadding(defaults: defaults)
+        let currentVerticalPadding = (defaults.object(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey) as? NSNumber)?.doubleValue
+            ?? BrowserProfilePopoverDebugSettings.defaultVerticalPadding
+        if currentVerticalPadding != resolvedVerticalPadding {
+            defaults.set(resolvedVerticalPadding, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+        }
+    }
+
     init(
         workspaceId: UUID,
         profileID: UUID? = nil,
@@ -4246,6 +4323,9 @@ final class BrowserPanel: Panel, ObservableObject {
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil
     ) {
+        // Register fallback defaults and normalize legacy/out-of-range settings once
+        // per process, before any setting is read below or by the SwiftUI view.
+        Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.workspaceId = workspaceId
         let requestedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
@@ -6098,6 +6178,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             hasCurrentURL: (currentURL ?? Self.remoteProxyDisplayURL(for: webView.url)) != nil,
             isLoading: isLoading,
             webViewIsLoading: webView.isLoading,
+            hasActiveMainFrameProvisionalNavigation: isMainFrameProvisionalNavigationActive,
             isDownloading: isDownloading,
             activeDownloadCount: activeDownloadCount,
             preferredDeveloperToolsVisible: preferredDeveloperToolsVisible,

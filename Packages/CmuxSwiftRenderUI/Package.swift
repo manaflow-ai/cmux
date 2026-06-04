@@ -27,5 +27,9 @@ let package = Package(
                 .product(name: "CmuxFileWatch", package: "CmuxFileWatch"),
             ]
         ),
+        .testTarget(
+            name: "CmuxSwiftRenderUITests",
+            dependencies: ["CmuxSwiftRenderUI"]
+        ),
     ]
 )

@@ -19,8 +19,8 @@ export interface ApnsNotificationInput {
   readonly body: string;
   readonly workspaceId?: string | null;
   readonly surfaceId?: string | null;
-  /** When true, replace the real title/body with a generic message so terminal
-   * content never leaves the Mac even after the user opted into forwarding. */
+  /** When true, replace real terminal text with a generic fallback. Keep the
+   * fallback literal until device tokens carry client localization capability. */
   readonly hideContent?: boolean;
 }
 

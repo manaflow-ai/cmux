@@ -39,7 +39,8 @@
     "contact": "ติดต่อ",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "ภาษา"
+    "language": "ภาษา",
+    "assets": "แอสเซ็ต"
   },
   "home": {
     "taglinePrefix": "เทอร์มินัลที่สร้างมาเพื่อ",
@@ -84,7 +85,7 @@
   },
   "community": {
     "title": "ชุมชน",
-    "description": "เชื่อมต่อกับผู้ใช้ cmux คนอื่นๆ และทีมงานเบื้องหลัง",
+    "description": "สำรวจโปรเจกต์ที่ชุมชน cmux สร้างไว้ ตั้งแต่ agent hooks ไปจนถึงการประสานงานหลายเอเจนต์และการเข้าถึงระยะไกล",
     "discord": "Discord",
     "discordAction": "เข้าร่วม Discord ของเรา",
     "discordDesc": "พูดคุยกับชุมชน ขอความช่วยเหลือ และแชร์ความคิดเห็น",
@@ -100,7 +101,68 @@
     "linkedinAction": "ติดตามเรา",
     "linkedinDesc": "ข่าวบริษัทและอัปเดตด้านวิศวกรรม",
     "metaTitle": "ชุมชน — cmux",
-    "metaDescription": "เข้าร่วมชุมชน cmux บน Discord, Twitter, GitHub และอื่นๆ"
+    "metaDescription": "สำรวจทุกโปรเจกต์จาก awesome-cmux บนหน้าชุมชน cmux",
+    "sourceAction": "ดู awesome-cmux",
+    "sourceRowsLabel": "รายการ README ที่จัดทำดัชนีแล้ว",
+    "projectsLabel": "โปรเจกต์",
+    "areasLabel": "หมวด",
+    "placementsLabel": "การจับคู่หมวดหมู่",
+    "areasTitle": "หมวด",
+    "projectsTitle": "โปรเจกต์",
+    "projectAction": "เปิด",
+    "starsLabel": "ดาว",
+    "officialLinksTitle": "ลิงก์ทางการ",
+    "filtersTitle": "ตัวกรอง",
+    "searchLabel": "ค้นหา",
+    "searchPlaceholder": "ค้นหาโปรเจ็กต์ เอเจนต์ ภาษา",
+    "kindLabel": "ประเภท",
+    "kindAll": "ทั้งหมด",
+    "kindNative": "หลัก",
+    "kindPort": "พอร์ต",
+    "kindAdjacent": "ได้แรงบันดาลใจ",
+    "areaLabel": "พื้นที่",
+    "allAreas": "ทุกพื้นที่",
+    "agentLabel": "เอเจนต์",
+    "allAgents": "เอเจนต์ทั้งหมด",
+    "languageLabel": "ภาษา",
+    "allLanguages": "ทุกภาษา",
+    "sortLabel": "เรียงลำดับ",
+    "sortRecommended": "แนะนำ",
+    "sortStars": "ดาวมากที่สุด",
+    "sortName": "A ถึง Z",
+    "resetFilters": "รีเซ็ต",
+    "showingCount": "แสดง {count} จาก {total}",
+    "noProjectsTitle": "ไม่พบโปรเจ็กต์",
+    "noProjectsDescription": "ล้างตัวกรองหรือลองค้นหาใหม่",
+    "nativeKindLabel": "หลัก",
+    "portKindLabel": "พอร์ต",
+    "adjacentKindLabel": "ได้แรงบันดาลใจ",
+    "moreCategoriesLabel": "+อีก {count}",
+    "categoryLabels": {
+      "sidebarStatusPills": "แถบด้านข้างและป้ายสถานะ",
+      "progressBarsEstimation": "แถบความคืบหน้าและการประมาณ",
+      "sidebarLogsActivityFeed": "บันทึกแถบด้านข้างและฟีดกิจกรรม",
+      "desktopNotifications": "การแจ้งเตือนเดสก์ท็อป",
+      "multiAgentOrchestration": "การประสานงานหลายเอเจนต์",
+      "browserAutomation": "ระบบอัตโนมัติของเบราว์เซอร์",
+      "worktreesWorkspaceManagement": "การจัดการ worktree และเวิร์กสเปซ",
+      "monitoringSessionRestore": "การมอนิเตอร์และกู้คืนเซสชัน",
+      "remoteMobileAccess": "การเข้าถึงระยะไกลและมือถือ",
+      "themesLayoutsConfig": "ธีม เลย์เอาต์ และการตั้งค่า",
+      "claudeCode": "Claude Code",
+      "pi": "Pi",
+      "openCode": "OpenCode",
+      "copilotAmp": "Copilot และ Amp",
+      "multiAgentAgentAgnostic": "หลายเอเจนต์ / ไม่ขึ้นกับเอเจนต์",
+      "crossPlatformPorts": "พอร์ตข้ามแพลตฟอร์ม",
+      "alternativesTmuxBased": "ทางเลือก: ใช้ tmux",
+      "alternativesOtherTerminalsWorkspaces": "ทางเลือก: เทอร์มินัลและเวิร์กสเปซอื่น",
+      "alternativesForks": "ทางเลือก: ฟอร์ก",
+      "buildDistribution": "การ build และการแจกจ่าย",
+      "upstreamDependencies": "การพึ่งพา upstream",
+      "archived": "เก็บถาวร"
+    },
+    "section": "ชุมชน"
   },
   "blog": {
     "title": "บล็อก",
@@ -1199,7 +1261,31 @@
       "fallback": "cmux จะแสดงกฎก่อนและถามก่อนที่จะวางลงในพื้นที่ทำงานปัจจุบัน หาก cmux ไม่เปิดขึ้น ให้ติดตั้ง cmux แล้วคลิก Open in cmux อีกครั้ง"
     }
   },
+  "download": {
+    "section": "ดาวน์โหลด",
+    "metaTitle": "ขอบคุณที่ดาวน์โหลด cmux",
+    "metaDescription": "การดาวน์โหลด cmux กำลังเริ่มต้น สำรวจเอกสาร เข้าร่วม Discord และติดตาม cmux บน X",
+    "heading": "ขอบคุณที่ดาวน์โหลด cmux!",
+    "subtext": "คลิก<link>ที่นี่</link>หากการดาวน์โหลดยังไม่เริ่ม"
+  },
   "testimonialSubtitles": {
     "steipete": "ผู้สร้าง OpenClaw ผู้ก่อตั้ง PSPDFKit"
+  },
+  "brandAssets": {
+    "metaTitle": "แอสเซ็ตแบรนด์",
+    "metaDescription": "ดาวน์โหลดไอคอนแอป cmux แบบสว่างและมืดที่ใช้ในแอป macOS",
+    "title": "แอสเซ็ตแบรนด์",
+    "description": "ดาวน์โหลดไอคอนแอป cmux แบบสว่างและมืดที่ใช้ในแอป macOS",
+    "iconSection": "ไอคอนแอป macOS",
+    "download": "ดาวน์โหลด",
+    "assetAlt": "ตัวอย่าง {name}",
+    "lightPreview": "ไอคอนแอปสำหรับโหมดสว่าง",
+    "darkPreview": "ไอคอนแอปสำหรับโหมดมืด"
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "ดาวน์โหลดไอคอนโหมดสว่าง",
+    "downloadDark": "ดาวน์โหลดไอคอนโหมดมืด",
+    "brandPage": "แอสเซ็ตแบรนด์"
   }
 }

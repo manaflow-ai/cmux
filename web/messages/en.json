@@ -39,7 +39,8 @@
     "contact": "Contact",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Language"
+    "language": "Language",
+    "assets": "Assets"
   },
   "home": {
     "taglinePrefix": "The terminal built for ",
@@ -84,9 +85,19 @@
   },
   "community": {
     "title": "Community",
-    "description": "Connect with other cmux users and the team behind it.",
+    "description": "Browse projects built by the cmux community, from agent hooks to multi-agent orchestration and remote access.",
     "metaTitle": "Community — cmux",
-    "metaDescription": "Join the cmux community on Discord, Twitter, GitHub, and more",
+    "metaDescription": "Browse every project from awesome-cmux on the cmux community page",
+    "sourceAction": "View awesome-cmux",
+    "sourceRowsLabel": "README entries indexed",
+    "projectsLabel": "projects",
+    "areasLabel": "areas",
+    "placementsLabel": "category matches",
+    "areasTitle": "Areas",
+    "projectsTitle": "Projects",
+    "projectAction": "Open",
+    "starsLabel": "stars",
+    "officialLinksTitle": "Official links",
     "discord": "Discord",
     "discordAction": "Join our Discord",
     "discordDesc": "Chat with the community, get help, and share feedback",
@@ -100,7 +111,58 @@
     "youtubeDesc": "Demos, tutorials, and walkthroughs",
     "linkedin": "LinkedIn",
     "linkedinAction": "Follow us",
-    "linkedinDesc": "Company news and engineering updates"
+    "linkedinDesc": "Company news and engineering updates",
+    "filtersTitle": "Filters",
+    "searchLabel": "Search",
+    "searchPlaceholder": "Search projects, agents, languages",
+    "kindLabel": "Type",
+    "kindAll": "All",
+    "kindNative": "Primary",
+    "kindPort": "Ports",
+    "kindAdjacent": "Inspired",
+    "areaLabel": "Area",
+    "allAreas": "All areas",
+    "agentLabel": "Agent",
+    "allAgents": "All agents",
+    "languageLabel": "Language",
+    "allLanguages": "All languages",
+    "sortLabel": "Sort",
+    "sortRecommended": "Recommended",
+    "sortStars": "Most starred",
+    "sortName": "A to Z",
+    "resetFilters": "Reset",
+    "showingCount": "Showing {count} of {total}",
+    "noProjectsTitle": "No projects found",
+    "noProjectsDescription": "Clear filters or try another search.",
+    "nativeKindLabel": "Primary",
+    "portKindLabel": "Port",
+    "adjacentKindLabel": "Inspired",
+    "moreCategoriesLabel": "+{count} more",
+    "categoryLabels": {
+      "sidebarStatusPills": "Sidebar & Status Pills",
+      "progressBarsEstimation": "Progress Bars & Estimation",
+      "sidebarLogsActivityFeed": "Sidebar Logs & Activity Feed",
+      "desktopNotifications": "Desktop Notifications",
+      "multiAgentOrchestration": "Multi-Agent Orchestration",
+      "browserAutomation": "Browser Automation",
+      "worktreesWorkspaceManagement": "Worktrees & Workspace Management",
+      "monitoringSessionRestore": "Monitoring & Session Restore",
+      "remoteMobileAccess": "Remote & Mobile Access",
+      "themesLayoutsConfig": "Themes, Layouts & Config",
+      "claudeCode": "Claude Code",
+      "pi": "Pi",
+      "openCode": "OpenCode",
+      "copilotAmp": "Copilot & Amp",
+      "multiAgentAgentAgnostic": "Multi-Agent / Agent-Agnostic",
+      "crossPlatformPorts": "Cross-Platform Ports",
+      "alternativesTmuxBased": "Alternatives: tmux-Based",
+      "alternativesOtherTerminalsWorkspaces": "Alternatives: Other Terminals & Workspaces",
+      "alternativesForks": "Alternatives: Forks",
+      "buildDistribution": "Build & Distribution",
+      "upstreamDependencies": "Upstream Dependencies",
+      "archived": "Archived"
+    },
+    "section": "community"
   },
   "blog": {
     "title": "Blog",
@@ -1437,6 +1499,13 @@
       "fallback": "cmux shows the rules first and asks before pasting them into the current workspace. If cmux does not open, install cmux and click Open in cmux again."
     }
   },
+  "download": {
+    "section": "download",
+    "metaTitle": "Thanks for downloading cmux",
+    "metaDescription": "Your cmux download is starting. Explore the docs, join the Discord, and follow cmux on X.",
+    "heading": "Thanks for downloading cmux!",
+    "subtext": "Click <link>here</link> if your download hasn't started."
+  },
   "legal": {
     "privacyPolicy": "Privacy Policy",
     "termsOfService": "Terms of Service",
@@ -1495,5 +1564,22 @@
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw creator. Founder of PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Brand assets",
+    "metaDescription": "Download the light and dark cmux app icons used by the macOS app.",
+    "title": "Brand assets",
+    "description": "Download the light and dark cmux app icons used by the macOS app.",
+    "iconSection": "macOS app icons",
+    "download": "Download",
+    "assetAlt": "{name} preview",
+    "lightPreview": "Light mode app icon.",
+    "darkPreview": "Dark mode app icon."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Download light icon",
+    "downloadDark": "Download dark icon",
+    "brandPage": "Brand assets"
   }
 }

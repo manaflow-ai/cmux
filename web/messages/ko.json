@@ -39,7 +39,8 @@
     "contact": "문의",
     "nightly": "나이틀리",
     "copyright": "© {year} Manaflow",
-    "language": "언어"
+    "language": "언어",
+    "assets": "애셋"
   },
   "home": {
     "taglinePrefix": "다음을 위해 만들어진 터미널: ",
@@ -84,7 +85,7 @@
   },
   "community": {
     "title": "커뮤니티",
-    "description": "다른 cmux 사용자 및 개발팀과 소통하세요.",
+    "description": "에이전트 훅, 멀티 에이전트 오케스트레이션, 원격 접속까지 cmux 커뮤니티가 만든 프로젝트를 둘러보세요.",
     "discord": "Discord",
     "discordAction": "Discord 참여하기",
     "discordDesc": "커뮤니티와 대화하고, 도움을 받고, 피드백을 공유하세요",
@@ -100,7 +101,68 @@
     "linkedinAction": "팔로우하기",
     "linkedinDesc": "회사 소식 및 엔지니어링 업데이트",
     "metaTitle": "커뮤니티 — cmux",
-    "metaDescription": "Discord, Twitter, GitHub 등에서 cmux 커뮤니티에 참여하세요"
+    "metaDescription": "cmux 커뮤니티 페이지에서 awesome-cmux의 모든 프로젝트를 둘러보세요",
+    "sourceAction": "awesome-cmux 보기",
+    "sourceRowsLabel": "README 항목 색인됨",
+    "projectsLabel": "프로젝트",
+    "areasLabel": "영역",
+    "placementsLabel": "카테고리 매칭",
+    "areasTitle": "영역",
+    "projectsTitle": "프로젝트",
+    "projectAction": "열기",
+    "starsLabel": "스타",
+    "officialLinksTitle": "공식 링크",
+    "filtersTitle": "필터",
+    "searchLabel": "검색",
+    "searchPlaceholder": "프로젝트, 에이전트, 언어 검색",
+    "kindLabel": "유형",
+    "kindAll": "전체",
+    "kindNative": "주요",
+    "kindPort": "포트",
+    "kindAdjacent": "영감 기반",
+    "areaLabel": "영역",
+    "allAreas": "모든 영역",
+    "agentLabel": "에이전트",
+    "allAgents": "모든 에이전트",
+    "languageLabel": "언어",
+    "allLanguages": "모든 언어",
+    "sortLabel": "정렬",
+    "sortRecommended": "추천순",
+    "sortStars": "스타 많은 순",
+    "sortName": "A-Z",
+    "resetFilters": "초기화",
+    "showingCount": "{total}개 중 {count}개 표시",
+    "noProjectsTitle": "프로젝트를 찾을 수 없음",
+    "noProjectsDescription": "필터를 지우거나 다른 검색어를 시도하세요.",
+    "nativeKindLabel": "주요",
+    "portKindLabel": "포트",
+    "adjacentKindLabel": "영감 기반",
+    "moreCategoriesLabel": "+{count}개 더",
+    "categoryLabels": {
+      "sidebarStatusPills": "사이드바 및 상태 배지",
+      "progressBarsEstimation": "진행률 표시줄 및 추정",
+      "sidebarLogsActivityFeed": "사이드바 로그 및 활동 피드",
+      "desktopNotifications": "데스크톱 알림",
+      "multiAgentOrchestration": "멀티 에이전트 오케스트레이션",
+      "browserAutomation": "브라우저 자동화",
+      "worktreesWorkspaceManagement": "Worktree 및 워크스페이스 관리",
+      "monitoringSessionRestore": "모니터링 및 세션 복원",
+      "remoteMobileAccess": "원격 및 모바일 액세스",
+      "themesLayoutsConfig": "테마, 레이아웃 및 설정",
+      "claudeCode": "Claude Code",
+      "pi": "Pi",
+      "openCode": "OpenCode",
+      "copilotAmp": "Copilot 및 Amp",
+      "multiAgentAgentAgnostic": "멀티 에이전트 / 에이전트 독립",
+      "crossPlatformPorts": "크로스 플랫폼 포트",
+      "alternativesTmuxBased": "대안: tmux 기반",
+      "alternativesOtherTerminalsWorkspaces": "대안: 기타 터미널 및 워크스페이스",
+      "alternativesForks": "대안: 포크",
+      "buildDistribution": "빌드 및 배포",
+      "upstreamDependencies": "업스트림 의존성",
+      "archived": "보관됨"
+    },
+    "section": "커뮤니티"
   },
   "blog": {
     "title": "블로그",
@@ -1199,7 +1261,31 @@
       "fallback": "cmux는 규칙을 먼저 표시하고 이를 현재 작업 공간에 붙여넣기 전에 묻습니다. cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭합니다."
     }
   },
+  "download": {
+    "section": "다운로드",
+    "metaTitle": "cmux를 다운로드해 주셔서 감사합니다",
+    "metaDescription": "cmux 다운로드가 시작됩니다. 문서를 살펴보고 Discord에 참여하고 X에서 cmux를 팔로우하세요.",
+    "heading": "cmux를 다운로드해 주셔서 감사합니다!",
+    "subtext": "다운로드가 시작되지 않으면 <link>여기</link>를 클릭하세요."
+  },
   "testimonialSubtitles": {
     "steipete": "OpenClaw 개발자. PSPDFKit 창립자."
+  },
+  "brandAssets": {
+    "metaTitle": "브랜드 애셋",
+    "metaDescription": "macOS 앱에서 사용하는 cmux 라이트 및 다크 앱 아이콘을 다운로드하세요.",
+    "title": "브랜드 애셋",
+    "description": "macOS 앱에서 사용하는 cmux 라이트 및 다크 앱 아이콘을 다운로드하세요.",
+    "iconSection": "macOS 앱 아이콘",
+    "download": "다운로드",
+    "assetAlt": "{name} 미리보기",
+    "lightPreview": "라이트 모드 앱 아이콘.",
+    "darkPreview": "다크 모드 앱 아이콘."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "라이트 아이콘 다운로드",
+    "downloadDark": "다크 아이콘 다운로드",
+    "brandPage": "브랜드 애셋"
   }
 }
