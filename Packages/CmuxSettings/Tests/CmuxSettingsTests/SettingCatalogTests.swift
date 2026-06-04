@@ -78,6 +78,22 @@ struct SettingCatalogTests {
 
         #expect(dictOrderA.userDefaultsValueContract == dictOrderB.userDefaultsValueContract)
         #expect(dictOrderA.userDefaultsValueContract != dictDifferent.userDefaultsValueContract)
+
+        // The canonicalization recurses, so even nested `Data` (which JSON
+        // can't encode) stays order-independent: same contents in a different
+        // literal order still produce equal contracts.
+        let dataDictA = AnySettingKey(
+            DefaultsKey<[String: Data]>(
+                id: "test.h", defaultValue: ["b": Data([2]), "a": Data([1])], userDefaultsKey: "datadict"))
+        let dataDictB = AnySettingKey(
+            DefaultsKey<[String: Data]>(
+                id: "test.i", defaultValue: ["a": Data([1]), "b": Data([2])], userDefaultsKey: "datadict"))
+        let dataDictDifferent = AnySettingKey(
+            DefaultsKey<[String: Data]>(
+                id: "test.j", defaultValue: ["a": Data([1]), "b": Data([9])], userDefaultsKey: "datadict"))
+
+        #expect(dataDictA.userDefaultsValueContract == dataDictB.userDefaultsValueContract)
+        #expect(dataDictA.userDefaultsValueContract != dataDictDifferent.userDefaultsValueContract)
     }
 
     @Test func jsonBackedKeysUseTheirIdAsPath() {

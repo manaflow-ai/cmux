@@ -109,15 +109,25 @@ public struct AnySettingKey: Sendable {
     /// guarantee that for container defaults — `Dictionary`'s description
     /// ordering is not stable — which would let a future aliased dictionary
     /// default false-mismatch (or false-match) in the value contract.
+    ///
+    /// Recurses through the plist shapes `encodeForUserDefaults()` can produce
+    /// (scalars, `Data`, arrays, string-keyed dictionaries): dictionary keys
+    /// are sorted at every level and `Data` is base64-encoded at any depth, so
+    /// nested `Data` stays deterministic too (a case `JSONSerialization` can't
+    /// encode).
     private static func canonicalDefaultRepresentation(_ value: Any) -> String {
-        if let data = value as? Data { return "data:\(data.base64EncodedString())" }
-        // Wrap in an array so scalar values are a valid top-level JSON payload;
-        // `.sortedKeys` canonicalizes dictionary ordering at every level.
-        if let data = try? JSONSerialization.data(withJSONObject: [value], options: [.sortedKeys]),
-           let json = String(data: data, encoding: .utf8) {
-            return json
+        switch value {
+        case let data as Data:
+            return "data:\(data.base64EncodedString())"
+        case let array as [Any]:
+            return "[" + array.map(canonicalDefaultRepresentation).joined(separator: ",") + "]"
+        case let dictionary as [String: Any]:
+            return "{" + dictionary.sorted { $0.key < $1.key }
+                .map { "\($0.key):\(canonicalDefaultRepresentation($0.value))" }
+                .joined(separator: ",") + "}"
+        default:
+            return String(describing: value)
         }
-        return String(describing: value)
     }
 
     private static func migrateLegacyDefaultsKey<Value>(
