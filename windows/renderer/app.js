@@ -6575,8 +6575,14 @@ const commands = [
   { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
   { id: "settings.resetCommandPalette", label: "Reset Command Palette Settings", shortcut: "", run: () => resetCommandPaletteSettings() },
+  { id: "settings.resetLayoutMode", label: "Reset Layout Mode Settings", shortcut: "", run: () => resetLayoutModeSettings() },
+  { id: "settings.resetTabs", label: "Reset Tab Settings", shortcut: "", run: () => resetTabStripSettings() },
+  { id: "settings.resetStatusBar", label: "Reset Status Bar Settings", shortcut: "", run: () => resetStatusBarSettings() },
+  { id: "settings.resetToolbar", label: "Reset Toolbar Settings", shortcut: "", run: () => resetToolbarChromeSettings() },
+  { id: "settings.resetPaneChrome", label: "Reset Pane Chrome Settings", shortcut: "", run: () => resetPaneChromeSettings() },
   { id: "settings.resetSidebar", label: "Reset Sidebar Settings", shortcut: "", run: () => resetSidebarChromeSettings() },
   { id: "settings.resetOverlays", label: "Reset Overlay Settings", shortcut: "", run: () => resetOverlayChromeSettings() },
+  { id: "settings.resetPanelWidths", label: "Reset Panel Width Settings", shortcut: "", run: () => resetWorkspacePanelWidths() },
   { id: "settings.pasteCommandSnippet", label: "Paste Command Snippet", shortcut: "", run: () => pasteCommandSnippet() },
   { id: "settings.profiles", label: "Open Settings Profiles", shortcut: "", run: () => openSettingsCategory("profiles") },
   { id: "settings.saveProfile", label: "Save Current Settings Profile", shortcut: "", run: () => saveCurrentSettingsProfile() },
@@ -6658,8 +6664,14 @@ const customizationPaletteCommandIds = new Set([
   "settings.copyLook",
   "settings.pasteLook",
   "settings.resetCommandPalette",
+  "settings.resetLayoutMode",
+  "settings.resetTabs",
+  "settings.resetStatusBar",
+  "settings.resetToolbar",
+  "settings.resetPaneChrome",
   "settings.resetSidebar",
   "settings.resetOverlays",
+  "settings.resetPanelWidths",
   "settings.copySavedColors",
   "settings.pasteSavedColors",
   "settings.saveAccentColor",
@@ -6679,8 +6691,14 @@ function customizationCommandPaletteSignature() {
   appendSignatureValue(parts, recentDataItemCount());
   appendSignatureValue(parts, settingsKeysSignature(appearanceResetSettings));
   appendSignatureValue(parts, settingsKeysSignature(commandPaletteSettings));
+  appendSignatureValue(parts, settingsKeysSignature(layoutModeSettings));
+  appendSignatureValue(parts, settingsKeysSignature(tabStripSettings));
+  appendSignatureValue(parts, settingsKeysSignature(statusBarSettings));
+  appendSignatureValue(parts, settingsKeysSignature(toolbarChromeSettings));
+  appendSignatureValue(parts, settingsKeysSignature(paneChromeSettings));
   appendSignatureValue(parts, settingsKeysSignature(sidebarChromeSettings));
   appendSignatureValue(parts, settingsKeysSignature(overlayChromeSettings));
+  appendSignatureValue(parts, settingsKeysSignature(workspacePanelWidthSettings));
   appendSignatureValue(parts, settingsKeysSignature(performanceSetupSettings));
   appendSignatureValue(parts, state.customColorPalette.length);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
@@ -6723,6 +6741,18 @@ function customizationColorCommandPaletteState(commandId) {
     icon: "appearance",
     title: saved ? "This color is already saved." : model.title,
     search: `saved color palette custom accent workspace pane reusable library ${target} ${label}`
+  };
+}
+
+function customizationResetCommandPaletteState({ isDefault, meta, icon = "layout", defaultTitle, resetTitle, search }) {
+  return {
+    meta: isDefault ? "Defaults active" : meta,
+    shortcut: isDefault ? "Default" : "Reset",
+    active: isDefault,
+    disabled: isDefault,
+    icon,
+    title: isDefault ? defaultTitle : resetTitle,
+    search: normalizeSettingsQuery(`${search} ${isDefault ? "active current " : ""}${meta}`)
   };
 }
 
@@ -6879,6 +6909,89 @@ function customizationCommandPaletteState(commandId) {
       search: normalizeSettingsQuery(`command palette reset defaults density compact balanced roomy quick actions auto hidden details metadata shortcuts result limit focused balanced extended placement top center wide ${paletteDefault ? "active current " : ""}${density} ${actions} ${detail} ${results} ${placement}`)
     };
   }
+  if (commandId === "settings.resetLayoutMode") {
+    const layoutDefault = layoutModeSettingsAreDefault();
+    const summary = workspaceChromeSummaryForSettings(state.settings);
+    const performance = state.settings.performanceMode ? "Performance" : "Balanced";
+    const meta = `${summary.density} / Focus ${summary.focusMode} / ${performance}`;
+    return customizationResetCommandPaletteState({
+      isDefault: layoutDefault,
+      meta,
+      icon: "layout",
+      defaultTitle: "Layout mode settings already use defaults.",
+      resetTitle: "Reset density, focus mode, and performance mode.",
+      search: `layout mode reset defaults density compact comfortable focus simple clean performance speed workspace ${summary.density} ${summary.focusMode} ${performance}`
+    });
+  }
+  if (commandId === "settings.resetTabs") {
+    const tabsDefault = tabStripSettingsAreDefault();
+    const tabBar = state.settings.showTabs ? optionLabel(tabBarStyleOptions, state.settings.tabBarStyle, state.settings.tabBarStyle) : "Hidden";
+    const tabSize = state.settings.showTabs ? optionLabel(tabSizeOptions, state.settings.tabSize, state.settings.tabSize) : "Hidden";
+    const closeMode = state.settings.showTabs ? optionLabel(tabCloseModeOptions, state.settings.tabCloseMode, state.settings.tabCloseMode) : "Hidden";
+    const activeStyle = state.settings.showTabs ? optionLabel(tabActiveStyleOptions, state.settings.tabActiveStyle, state.settings.tabActiveStyle) : "Hidden";
+    const addStyle = state.settings.showTabs ? optionLabel(addTabStyleOptions, state.settings.addTabStyle, state.settings.addTabStyle) : "Hidden";
+    const meta = state.settings.showTabs ? `${tabBar} / ${tabSize} / ${closeMode}` : "Hidden";
+    return customizationResetCommandPaletteState({
+      isDefault: tabsDefault,
+      meta,
+      icon: "layout",
+      defaultTitle: "Tab settings already use defaults.",
+      resetTitle: "Reset tab visibility, tab bar style, width, close buttons, active style, and add-tab buttons.",
+      search: `surface tabs tab strip reset defaults show hide tab bar style width close buttons active selected add terminal browser ${tabBar} ${tabSize} ${closeMode} ${activeStyle} ${addStyle}`
+    });
+  }
+  if (commandId === "settings.resetStatusBar") {
+    const statusDefault = statusBarSettingsAreDefault();
+    const detail = statusbarSummaryLabel(state.settings);
+    const style = state.settings.focusMode || !state.settings.showStatusbar
+      ? "Hidden"
+      : optionLabel(statusbarStyleOptions, state.settings.statusbarStyle, state.settings.statusbarStyle);
+    const meta = `${detail} / ${style}`;
+    return customizationResetCommandPaletteState({
+      isDefault: statusDefault,
+      meta,
+      icon: "settings",
+      defaultTitle: "Status bar settings already use defaults.",
+      resetTitle: "Reset status bar visibility, detail level, and style.",
+      search: `status bar footer reset defaults visibility show hide detail runtime workspace style quiet subtle solid badges ${detail} ${style}`
+    });
+  }
+  if (commandId === "settings.resetToolbar") {
+    const toolbarDefault = toolbarChromeSettingsAreDefault();
+    const mode = optionLabel(toolbarModeOptions, state.settings.toolbarMode, state.settings.toolbarMode);
+    const labels = optionLabel(toolbarLabelModeOptions, state.settings.toolbarLabelMode, state.settings.toolbarLabelMode);
+    const topbar = optionLabel(topbarStyleOptions, state.settings.topbarStyle, state.settings.topbarStyle);
+    const buttons = optionLabel(toolbarButtonStyleOptions, state.settings.toolbarButtonStyle, state.settings.toolbarButtonStyle);
+    const meta = `${mode} / ${labels} labels / ${buttons}`;
+    return customizationResetCommandPaletteState({
+      isDefault: toolbarDefault,
+      meta,
+      icon: "layout",
+      defaultTitle: "Toolbar settings already use defaults.",
+      resetTitle: "Reset toolbar mode, label mode, top bar style, and button style.",
+      search: `toolbar top bar command strip reset defaults mode labels icons auto style quiet subtle solid buttons ghost filled ${mode} ${labels} ${topbar} ${buttons}`
+    });
+  }
+  if (commandId === "settings.resetPaneChrome") {
+    const paneDefault = paneChromeSettingsAreDefault();
+    const headers = optionLabel(paneHeaderOptions, state.settings.paneHeaderMode, state.settings.paneHeaderMode);
+    const controls = optionLabel(paneActionOptions, state.settings.paneActionMode, state.settings.paneActionMode);
+    const surface = optionLabel(paneSurfaceStyleOptions, state.settings.paneSurfaceStyle, state.settings.paneSurfaceStyle);
+    const spacing = optionLabel(paneSpacingOptions, state.settings.paneSpacing, state.settings.paneSpacing);
+    const divider = optionLabel(paneDividerStyleOptions, state.settings.paneDividerStyle, state.settings.paneDividerStyle);
+    const markers = state.settings.paneColorMarkers
+      ? optionLabel(paneMarkerStyleOptions, state.settings.paneMarkerStyle, state.settings.paneMarkerStyle)
+      : "Off";
+    const meta = `${headers} headers / ${surface} / ${spacing}`;
+    return customizationResetCommandPaletteState({
+      isDefault: paneDefault,
+      meta,
+      icon: "paneShape",
+      defaultTitle: "Pane chrome settings already use defaults.",
+      resetTitle: "Reset pane headers, controls, new-pane placement, surfaces, dividers, spacing, focus emphasis, titles, and markers.",
+      search: `pane chrome reset defaults headers controls actions new pane placement surface corners dividers spacing active inactive focus title detail color markers dot edge tint ${headers} ${controls} ${surface} ${spacing} ${divider} ${markers}`
+    });
+  }
   if (commandId === "settings.resetSidebar") {
     const sidebarDefault = sidebarChromeSettingsAreDefault();
     const rows = optionLabel(sidebarDetailOptions, state.settings.sidebarDetailMode, state.settings.sidebarDetailMode);
@@ -6918,6 +7031,18 @@ function customizationCommandPaletteState(commandId) {
         : "Reset settings panel, overlay, switcher, and toast placement.",
       search: normalizeSettingsQuery(`overlay settings panel command palette menus dialogs switcher toast reset defaults visual weight quiet subtle solid placement bottom right left top feedback chrome ${overlayDefault ? "active current " : ""}${inspector} ${overlay} ${switcher} ${toastPlacement}`)
     };
+  }
+  if (commandId === "settings.resetPanelWidths") {
+    const widthsDefault = workspacePanelWidthsAreDefault();
+    const meta = `${state.settings.sidebarWidth}px sidebar / ${state.settings.inspectorWidth}px settings`;
+    return customizationResetCommandPaletteState({
+      isDefault: widthsDefault,
+      meta,
+      icon: "layout",
+      defaultTitle: "Sidebar and settings panel widths already use defaults.",
+      resetTitle: "Reset only sidebar and settings panel widths.",
+      search: `workspace chrome panel widths reset defaults sidebar settings panel inspector width resize layout ${meta}`
+    });
   }
   if (commandId === "settings.copySavedColors") {
     const count = state.customColorPalette.length;
@@ -33319,6 +33444,11 @@ const statusBarSettings = [
   "statusbarStyle"
 ];
 
+const workspacePanelWidthSettings = [
+  "sidebarWidth",
+  "inspectorWidth"
+];
+
 const toolbarChromeSettings = [
   "toolbarMode",
   "toolbarLabelMode",
@@ -34136,6 +34266,10 @@ function statusBarSettingsAreDefault() {
   return settingsKeysMatchDefaults(statusBarSettings);
 }
 
+function workspacePanelWidthsAreDefault() {
+  return settingsKeysMatchDefaults(workspacePanelWidthSettings);
+}
+
 function toolbarChromeSettingsAreDefault() {
   return settingsKeysMatchDefaults(toolbarChromeSettings);
 }
@@ -34294,10 +34428,9 @@ function resetOverlayChromeSettings() {
 }
 
 function resetWorkspacePanelWidths() {
-  const changed = updateSettings({
-    sidebarWidth: defaultSettings.sidebarWidth,
-    inspectorWidth: defaultSettings.inspectorWidth
-  }, { immediate: true });
+  const updates = {};
+  for (const key of workspacePanelWidthSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates, { immediate: true });
   if (!changed) {
     toast("Panel widths already use defaults.");
     return false;
