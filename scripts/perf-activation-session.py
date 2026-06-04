@@ -84,6 +84,7 @@ class CmuxPerfRunner:
         self.app_path = pathlib.Path(args.app_path).expanduser() if args.app_path else self.default_app_path()
         self.binary_path = self.app_path / "Contents/MacOS/cmux DEV"
         self.cli_path = self.app_path / "Contents/Resources/bin/cmux"
+        self.session_snapshot_path = self.default_session_snapshot_path()
         self.fixture_root = self.make_fixture_root(args.fixture_root)
         self.proc: subprocess.Popen | None = None
         self.app_returncode: int | None = None
@@ -93,6 +94,7 @@ class CmuxPerfRunner:
             "tag": self.tag,
             "app_path": str(self.app_path),
             "socket_path": str(self.socket_path),
+            "session_snapshot_path": str(self.session_snapshot_path),
             "fixture_root": str(self.fixture_root),
             "measurements": {},
             "fixture": {},
@@ -113,6 +115,14 @@ class CmuxPerfRunner:
             f"Build/Products/Debug/cmux DEV {self.tag_slug}.app"
         )
 
+    def default_session_snapshot_path(self) -> pathlib.Path:
+        safe_bundle_id = re.sub(r"[^A-Za-z0-9._-]", "_", self.bundle_id)
+        return (
+            pathlib.Path.home()
+            / "Library/Application Support/cmux"
+            / f"session-{safe_bundle_id}.json"
+        )
+
     def check_paths(self) -> None:
         if not self.binary_path.exists():
             raise PerfFailure(f"app binary not found: {self.binary_path}")
@@ -120,9 +130,11 @@ class CmuxPerfRunner:
             raise PerfFailure(f"cmux CLI not found: {self.cli_path}")
 
     def clean_persisted_state(self) -> None:
-        app_support = pathlib.Path.home() / "Library/Application Support/cmux"
         for suffix in ("", "-previous"):
-            (app_support / f"session-{self.bundle_id}{suffix}.json").unlink(missing_ok=True)
+            path = self.session_snapshot_path.with_name(
+                f"{self.session_snapshot_path.stem}{suffix}{self.session_snapshot_path.suffix}"
+            )
+            path.unlink(missing_ok=True)
         self.socket_path.unlink(missing_ok=True)
         self.cmuxd_socket_path.unlink(missing_ok=True)
         self.debug_log_path.unlink(missing_ok=True)
@@ -274,6 +286,111 @@ class CmuxPerfRunner:
                 }
             )
         raise PerfFailure(f"{label}: debug log marker not found after {timeout_s}s")
+
+    def session_snapshot_mtime_ns(self) -> int | None:
+        try:
+            return self.session_snapshot_path.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def wait_for_restored_session_snapshot(
+        self,
+        previous_mtime_ns: int | None,
+        timeout_s: float,
+    ) -> dict:
+        start = now_ms()
+        deadline = time.monotonic() + timeout_s
+        last_error = ""
+
+        while time.monotonic() < deadline:
+            current_mtime_ns = self.session_snapshot_mtime_ns()
+            if current_mtime_ns is not None and current_mtime_ns != previous_mtime_ns:
+                try:
+                    with self.session_snapshot_path.open("r", encoding="utf-8") as handle:
+                        snapshot = json.load(handle)
+                    self.result["measurements"]["restore_snapshot_file_wait_ms"] = rounded_ms(now_ms() - start)
+                    return snapshot
+                except (OSError, json.JSONDecodeError) as exc:
+                    last_error = str(exc)
+            time.sleep(0.1)
+
+        self.result["fixture"]["restore_snapshot_file_failure"] = {
+            "path": str(self.session_snapshot_path),
+            "previous_mtime_ns": previous_mtime_ns,
+            "current_mtime_ns": self.session_snapshot_mtime_ns(),
+            "last_error": last_error,
+            "timeout_s": timeout_s,
+        }
+        raise PerfFailure(f"restore_session_snapshot_file: not updated after {timeout_s}s")
+
+    @staticmethod
+    def session_snapshot_shape(snapshot: dict) -> dict[str, int]:
+        shape = {
+            "windows": 0,
+            "workspaces": 0,
+            "panels": 0,
+            "terminals": 0,
+            "browsers": 0,
+            "markdown": 0,
+            "scrollback_chars": 0,
+            "status_entries": 0,
+            "log_entries": 0,
+            "progress_entries": 0,
+            "git_entries": 0,
+        }
+
+        windows = snapshot.get("windows")
+        if not isinstance(windows, list):
+            return shape
+
+        shape["windows"] = len(windows)
+        for window in windows:
+            if not isinstance(window, dict):
+                continue
+            tab_manager = window.get("tabManager")
+            if not isinstance(tab_manager, dict):
+                continue
+            workspaces = tab_manager.get("workspaces")
+            if not isinstance(workspaces, list):
+                continue
+
+            shape["workspaces"] += len(workspaces)
+            for workspace in workspaces:
+                if not isinstance(workspace, dict):
+                    continue
+                status_entries = workspace.get("statusEntries")
+                if isinstance(status_entries, list):
+                    shape["status_entries"] += len(status_entries)
+                log_entries = workspace.get("logEntries")
+                if isinstance(log_entries, list):
+                    shape["log_entries"] += len(log_entries)
+                if workspace.get("progress") is not None:
+                    shape["progress_entries"] += 1
+                if workspace.get("gitBranch") is not None:
+                    shape["git_entries"] += 1
+
+                panels = workspace.get("panels")
+                if not isinstance(panels, list):
+                    continue
+                shape["panels"] += len(panels)
+                for panel in panels:
+                    if not isinstance(panel, dict):
+                        continue
+                    terminal = panel.get("terminal")
+                    if terminal is not None:
+                        shape["terminals"] += 1
+                        if isinstance(terminal, dict):
+                            scrollback = terminal.get("scrollback")
+                            if isinstance(scrollback, str):
+                                shape["scrollback_chars"] += len(scrollback)
+                    if panel.get("browser") is not None:
+                        shape["browsers"] += 1
+                    if panel.get("markdown") is not None:
+                        shape["markdown"] += 1
+                    if panel.get("gitBranch") is not None:
+                        shape["git_entries"] += 1
+
+        return shape
 
     def stop_app(self) -> None:
         proc = self.proc
@@ -766,6 +883,7 @@ class CmuxPerfRunner:
 
     def benchmark_restore(self) -> None:
         self.stop_app()
+        previous_snapshot_mtime_ns = self.session_snapshot_mtime_ns()
         self.launch("restore")
         ready_ms = self.wait_for_debug_log_marker(
             "restore_main_window_ready",
@@ -773,13 +891,12 @@ class CmuxPerfRunner:
             timeout_s=self.args.restore_ready_timeout,
         )
         self.result["measurements"]["restore_main_window_ready_ms"] = ready_ms
-        restored = self.benchmark_snapshot(
-            "post_restore_no_scrollback_snapshot",
-            include_scrollback=False,
-            persist=False,
-            socket_retries=3,
+        restored_snapshot = self.wait_for_restored_session_snapshot(
+            previous_mtime_ns=previous_snapshot_mtime_ns,
+            timeout_s=self.args.restore_ready_timeout,
         )
-        self.result["fixture"]["post_restore_shape"] = restored.get("shape", {})
+        self.result["fixture"]["post_restore_snapshot_source"] = "session_persistence_store"
+        self.result["fixture"]["post_restore_shape"] = self.session_snapshot_shape(restored_snapshot)
 
     def apply_budgets(self) -> None:
         measurements = self.result["measurements"]
@@ -914,6 +1031,7 @@ def print_summary(result: dict) -> None:
     print(f"  snapshot_with_scrollback_ms={with_scroll.get('elapsed_ms')} shape={with_scroll.get('shape')}")
     print(f"  restore_socket_ready_ms={measurements.get('restore_socket_ready_ms')}")
     print(f"  restore_main_window_ready_ms={measurements.get('restore_main_window_ready_ms')}")
+    print(f"  restore_snapshot_file_wait_ms={measurements.get('restore_snapshot_file_wait_ms')}")
     failures = result.get("failures", [])
     if failures:
         print("  budget_failures:")

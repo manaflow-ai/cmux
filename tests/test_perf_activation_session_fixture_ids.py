@@ -150,12 +150,12 @@ def test_activation_socket_readiness_uses_worker_ping(tmp_path: pathlib.Path) ->
     sleep.assert_not_called()
 
 
-def test_post_restore_snapshot_uses_transient_socket_retries() -> None:
+def test_post_restore_shape_uses_persisted_session_snapshot() -> None:
     runner = object.__new__(perf_activation_session.CmuxPerfRunner)
     runner.args = types.SimpleNamespace(snapshot_timeout=120, restore_ready_timeout=20)
     runner.result = {"measurements": {}, "fixture": {}}
-    observed_socket_retries: list[int] = []
     readiness_waits: list[tuple[str, tuple[str, ...], float]] = []
+    observed_snapshot_mtimes: list[int | None] = []
 
     def stop_app() -> None:
         pass
@@ -164,26 +164,47 @@ def test_post_restore_snapshot_uses_transient_socket_retries() -> None:
         assert label == "restore"
         return 1.0
 
+    def session_snapshot_mtime_ns() -> int | None:
+        return 123
+
     def wait_for_debug_log_marker(label: str, markers: tuple[str, ...], timeout_s: float) -> float:
         readiness_waits.append((label, markers, timeout_s))
         return 42.0
 
-    def rpc(
-        method: str,
-        params: dict | None = None,
-        timeout: float = 60,
-        socket_retries: int = 0,
+    def wait_for_restored_session_snapshot(
+        previous_mtime_ns: int | None,
+        timeout_s: float,
     ) -> dict:
-        observed_socket_retries.append(socket_retries)
-        assert method == "debug.session_snapshot_benchmark"
-        assert params == {"include_scrollback": False, "persist": False}
-        assert timeout == 120
-        return {"shape": {"workspaces": 12, "terminals": 66}}
+        observed_snapshot_mtimes.append(previous_mtime_ns)
+        assert timeout_s == 20
+        return {
+            "windows": [
+                {
+                    "tabManager": {
+                        "workspaces": [
+                            {
+                                "panels": [{"terminal": {}}, {"browser": {}}],
+                                "statusEntries": [{}, {}],
+                                "logEntries": [{}],
+                                "progress": {},
+                                "gitBranch": {},
+                            },
+                            {
+                                "panels": [{"terminal": {"scrollback": "abc"}, "gitBranch": {}}],
+                                "statusEntries": [],
+                                "logEntries": [],
+                            },
+                        ]
+                    }
+                }
+            ]
+        }
 
     runner.stop_app = stop_app
     runner.launch = launch
+    runner.session_snapshot_mtime_ns = session_snapshot_mtime_ns
     runner.wait_for_debug_log_marker = wait_for_debug_log_marker
-    runner.rpc = rpc
+    runner.wait_for_restored_session_snapshot = wait_for_restored_session_snapshot
 
     runner.benchmark_restore()
 
@@ -191,8 +212,28 @@ def test_post_restore_snapshot_uses_transient_socket_retries() -> None:
         ("restore_main_window_ready", ("mainWindow.visibility.focus reason=createMainWindow",), 20)
     ]
     assert runner.result["measurements"]["restore_main_window_ready_ms"] == 42.0
-    assert observed_socket_retries == [3]
-    assert runner.result["fixture"]["post_restore_shape"] == {"workspaces": 12, "terminals": 66}
+    assert observed_snapshot_mtimes == [123]
+    assert runner.result["fixture"]["post_restore_snapshot_source"] == "session_persistence_store"
+    assert runner.result["fixture"]["post_restore_shape"] == {
+        "windows": 1,
+        "workspaces": 2,
+        "panels": 3,
+        "terminals": 2,
+        "browsers": 1,
+        "markdown": 0,
+        "scrollback_chars": 3,
+        "status_entries": 2,
+        "log_entries": 1,
+        "progress_entries": 1,
+        "git_entries": 2,
+    }
+
+
+def test_session_snapshot_path_uses_swift_safe_bundle_id() -> None:
+    runner = object.__new__(perf_activation_session.CmuxPerfRunner)
+    runner.bundle_id = "com.cmuxterm.app.debug.perf ci!"
+
+    assert runner.default_session_snapshot_path().name == "session-com.cmuxterm.app.debug.perf_ci_.json"
 
 
 def test_benchmark_defaults_disable_agent_auto_resume() -> None:
