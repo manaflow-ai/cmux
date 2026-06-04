@@ -912,10 +912,11 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(originalWorkspaceIds, [workspace.id])
 
         let restoredManager = TabManager()
-        let restoredPanelIdsByWorkspaceIndex = restoredManager.restoreSessionSnapshot(snapshot)
+        let restoredIdentityMaps = restoredManager.restoreSessionSnapshot(snapshot)
         restoredManager.remapClosedPanelHistoryAfterWindowRestore(
             originalWorkspaceIds: originalWorkspaceIds,
-            restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+            restoredPanelIdsByWorkspaceIndex: restoredIdentityMaps.panelIdsByWorkspaceIndex,
+            restoredLayoutTabIdsByWorkspaceIndex: restoredIdentityMaps.layoutTabIdsByWorkspaceIndex
         )
 
         let restoredWorkspace = try XCTUnwrap(restoredManager.selectedWorkspace)
@@ -1258,6 +1259,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let newWorkspaceId = UUID()
         let oldPanelId = panelSnapshot.id
         let newPanelId = UUID()
+        let oldLayoutTabId = UUID()
+        let newLayoutTabId = UUID()
         let recordId = UUID()
         let seedStore = ClosedItemHistoryStore(
             capacity: nil,
@@ -1271,6 +1274,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: oldWorkspaceId,
                 paneId: UUID(),
+                layoutTabId: oldLayoutTabId,
                 paneAnchorPanelId: oldPanelId,
                 tabIndex: 0,
                 snapshot: panelSnapshot,
@@ -1291,7 +1295,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         loadingStore.remapPanelWorkspaceIds(
             from: oldWorkspaceId,
             to: newWorkspaceId,
-            panelIdMap: [oldPanelId: newPanelId]
+            panelIdMap: [oldPanelId: newPanelId],
+            layoutTabIdMap: [oldLayoutTabId: newLayoutTabId]
         )
 
         waitForClosedHistoryCount(1, in: loadingStore)
@@ -1301,6 +1306,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             return XCTFail("Expected persisted panel record")
         }
         XCTAssertEqual(entry.workspaceId, newWorkspaceId)
+        XCTAssertEqual(entry.layoutTabId, newLayoutTabId)
         XCTAssertEqual(entry.paneAnchorPanelId, newPanelId)
         XCTAssertEqual(entry.fallbackSplitPlacement?.anchorPanelId, newPanelId)
         XCTAssertFalse(entry.restoreInOriginalPane)
@@ -1338,6 +1344,56 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         XCTAssertTrue(restoreManager.reopenMostRecentlyClosedItem())
         XCTAssertTrue(restoredWorkspace.panelCustomTitles.values.contains("Persisted Closed Tab"))
+    }
+
+    func testSessionRestoreRemapsPersistedClosedPanelLayoutTabId() throws {
+        let originalAppDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        defer {
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let sourceManager = TabManager()
+        let sourceWorkspace = try XCTUnwrap(sourceManager.selectedWorkspace)
+        sourceWorkspace.setCustomTitle("Restored Parent")
+        let sourceFirstLayoutTabId = try XCTUnwrap(sourceWorkspace.selectedTopLevelTabId)
+        sourceManager.newSurface()
+        let sourceSecondLayoutTabId = try XCTUnwrap(sourceWorkspace.selectedTopLevelTabId)
+        XCTAssertNotEqual(sourceFirstLayoutTabId, sourceSecondLayoutTabId)
+        let secondPanelId = try XCTUnwrap(sourceWorkspace.focusedPanelId)
+        sourceWorkspace.setPanelCustomTitle(panelId: secondPanelId, title: "Persisted Hidden Top Tab")
+        let sourceSnapshot = sourceManager.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(
+            sourceWorkspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == secondPanelId }
+        )
+
+        ClosedItemHistoryStore.shared.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: sourceWorkspace.id,
+            paneId: UUID(),
+            layoutTabId: sourceSecondLayoutTabId,
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+
+        let restoreManager = TabManager()
+        _ = restoreManager.restoreSessionSnapshot(sourceSnapshot)
+        let restoredWorkspace = try XCTUnwrap(restoreManager.tabs.first { $0.customTitle == "Restored Parent" })
+        XCTAssertNotEqual(restoredWorkspace.id, sourceWorkspace.id)
+        XCTAssertEqual(restoredWorkspace.topLevelTabCount, 2)
+        let restoredFirstLayoutTabId = try XCTUnwrap(restoredWorkspace.layoutTabs.first?.id)
+        let restoredSecondLayoutTab = try XCTUnwrap(restoredWorkspace.layoutTabs.dropFirst().first)
+        XCTAssertNotEqual(restoredSecondLayoutTab.id, sourceSecondLayoutTabId)
+
+        XCTAssertTrue(restoredWorkspace.selectTopLevelTab(id: restoredFirstLayoutTabId, reassertAppKitFocus: false))
+        XCTAssertTrue(restoreManager.reopenMostRecentlyClosedItem())
+
+        let restoredPanelId = try XCTUnwrap(
+            restoredWorkspace.panelCustomTitles.first { $0.value == "Persisted Hidden Top Tab" }?.key
+        )
+        XCTAssertTrue(
+            restoredWorkspace.bonsplitController(containingPanelId: restoredPanelId) === restoredSecondLayoutTab.bonsplitController
+        )
+        XCTAssertEqual(restoredWorkspace.selectedTopLevelTabId, restoredSecondLayoutTab.id)
     }
 
     func testRecentlyClosedWorkspaceTitleIgnoresDotDirectoryFallback() throws {

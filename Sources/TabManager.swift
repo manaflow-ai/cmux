@@ -953,6 +953,11 @@ struct WorkspaceGroup: Identifiable, Equatable, Sendable {
 
 @MainActor
 class TabManager: ObservableObject {
+    struct SessionRestoreIdentityMaps {
+        let panelIdsByWorkspaceIndex: [[UUID: UUID]]
+        let layoutTabIdsByWorkspaceIndex: [[UUID: UUID]]
+    }
+
     private enum WorkspacePullRequestSnapshot: Equatable {
         case deferred
         case unsupportedRepository
@@ -9484,6 +9489,7 @@ class TabManager: ObservableObject {
             autoWelcomeIfNeeded: false
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot)
+        let restoredLayoutTabIds = workspace.restoredLayoutTabIdMap(from: entry.snapshot)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
             return false
@@ -9508,7 +9514,8 @@ class TabManager: ObservableObject {
         ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
             from: entry.workspaceId,
             to: workspace.id,
-            panelIdMap: restoredPanelIds
+            panelIdMap: restoredPanelIds,
+            layoutTabIdMap: restoredLayoutTabIds
         )
 
         if let currentIndex = tabs.firstIndex(where: { $0.id == workspace.id }) {
@@ -11248,7 +11255,7 @@ extension TabManager {
     func restoreSessionSnapshot(
         _ snapshot: SessionTabManagerSnapshot,
         remapClosedPanelHistory: Bool = true
-    ) -> [[UUID: UUID]] {
+    ) -> SessionRestoreIdentityMaps {
         isRestoringSessionSnapshot = true
         defer { isRestoringSessionSnapshot = false }
         let previousTabs = tabs
@@ -11287,6 +11294,7 @@ extension TabManager {
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
+        var restoredLayoutTabIdsByWorkspaceIndex: [[UUID: UUID]] = []
         let workspaceSnapshots = snapshot.workspaces
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         var restoredOriginalWorkspaceIds: [UUID?] = []
@@ -11300,9 +11308,11 @@ extension TabManager {
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot)
+            let restoredLayoutTabIds = workspace.restoredLayoutTabIdMap(from: workspaceSnapshot)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
             restoredPanelIdsByWorkspaceIndex.append(restoredPanelIds)
+            restoredLayoutTabIdsByWorkspaceIndex.append(restoredLayoutTabIds)
             restoredOriginalWorkspaceIds.append(workspaceSnapshot.workspaceId)
         }
 
@@ -11394,7 +11404,8 @@ extension TabManager {
         if remapClosedPanelHistory {
             remapClosedPanelHistoryAfterSessionRestore(
                 originalWorkspaceIds: restoredOriginalWorkspaceIds,
-                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
+                restoredLayoutTabIdsByWorkspaceIndex: restoredLayoutTabIdsByWorkspaceIndex
             )
         }
 
@@ -11405,12 +11416,16 @@ extension TabManager {
                 userInfo: [GhosttyNotificationKey.tabId: selectedTabId]
             )
         }
-        return restoredPanelIdsByWorkspaceIndex
+        return SessionRestoreIdentityMaps(
+            panelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
+            layoutTabIdsByWorkspaceIndex: restoredLayoutTabIdsByWorkspaceIndex
+        )
     }
 
     func remapClosedPanelHistoryAfterSessionRestore(
         originalWorkspaceIds: [UUID?],
-        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]]
+        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]],
+        restoredLayoutTabIdsByWorkspaceIndex: [[UUID: UUID]] = []
     ) {
         let count = min(originalWorkspaceIds.count, tabs.count)
         guard count > 0 else { return }
@@ -11424,10 +11439,14 @@ extension TabManager {
             let panelIdMap = restoredPanelIdsByWorkspaceIndex.indices.contains(index)
                 ? restoredPanelIdsByWorkspaceIndex[index]
                 : [:]
+            let layoutTabIdMap = restoredLayoutTabIdsByWorkspaceIndex.indices.contains(index)
+                ? restoredLayoutTabIdsByWorkspaceIndex[index]
+                : [:]
             ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
                 from: originalWorkspaceId,
                 to: tabs[index].id,
-                panelIdMap: panelIdMap
+                panelIdMap: panelIdMap,
+                layoutTabIdMap: layoutTabIdMap
             )
         }
         if didRequestHistoryRemap {
@@ -11437,7 +11456,8 @@ extension TabManager {
 
     func remapClosedPanelHistoryAfterWindowRestore(
         originalWorkspaceIds: [UUID],
-        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]]
+        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]],
+        restoredLayoutTabIdsByWorkspaceIndex: [[UUID: UUID]] = []
     ) {
         guard !originalWorkspaceIds.isEmpty else { return }
         let count = min(originalWorkspaceIds.count, tabs.count)
@@ -11448,10 +11468,14 @@ extension TabManager {
             let panelIdMap = restoredPanelIdsByWorkspaceIndex.indices.contains(index)
                 ? restoredPanelIdsByWorkspaceIndex[index]
                 : [:]
+            let layoutTabIdMap = restoredLayoutTabIdsByWorkspaceIndex.indices.contains(index)
+                ? restoredLayoutTabIdsByWorkspaceIndex[index]
+                : [:]
             ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
                 from: originalWorkspaceIds[index],
                 to: tabs[index].id,
-                panelIdMap: panelIdMap
+                panelIdMap: panelIdMap,
+                layoutTabIdMap: layoutTabIdMap
             )
         }
         if didRequestHistoryRemap {

@@ -1550,6 +1550,16 @@ extension Workspace {
         ]
     }
 
+    func restoredLayoutTabIdMap(from snapshot: SessionWorkspaceSnapshot) -> [UUID: UUID] {
+        let restoredSnapshots = restoreLayoutTabSnapshots(from: snapshot)
+        var idMap: [UUID: UUID] = [:]
+        for (snapshot, layoutTab) in zip(restoredSnapshots, layoutTabs) {
+            guard let originalId = snapshot.id else { continue }
+            idMap[originalId] = layoutTab.id
+        }
+        return idMap
+    }
+
     private func resetLayoutTabsForSessionRestore(
         _ snapshots: [SessionWorkspaceLayoutTabSnapshot],
         fallbackTitle: String
