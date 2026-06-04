@@ -79,7 +79,7 @@ export function codeViewUnsafeCSS(): string {
       container-name: sticky-header;
     }
     [data-diffs-header=default] {
-      background-color: var(--diffs-bg-separator);
+      background-color: var(--diffs-bg-separator) !important;
       border-block: 1px solid var(--cmux-diff-border);
     }
     [data-line-type='change-addition'] {
