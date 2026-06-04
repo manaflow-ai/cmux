@@ -738,7 +738,7 @@ final class SessionPersistenceTests: XCTestCase {
             .sessionDidResignWhileTerminating,
         ] {
             let plan = AppDelegate.terminationSessionPersistencePlan(reason: reason)
-            XCTAssertFalse(plan.saveSnapshot)
+            XCTAssertTrue(plan.saveSnapshot)
             XCTAssertFalse(plan.includeScrollback)
             XCTAssertTrue(plan.flushClosedItemHistory)
         }
