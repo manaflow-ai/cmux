@@ -1224,11 +1224,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             guard let payload = self.jsonObject(line) else {
                 return self.malformedRequestResponse(raw: line)
             }
-            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+            XCTAssertNil(payload["id"], "Telemetry-only generic Feed events must be one-way")
+            guard let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
             }
             XCTAssertEqual(method, "feed.push")
-            return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
+            return "OK"
         }
 
         let result = runProcess(
@@ -2250,14 +2251,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 guard let payload = self.jsonObject(line) else {
                     return "OK"
                 }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                guard let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                if method == "feed.push" {
+                    XCTAssertNil(payload["id"], "Telemetry-only Feed pushes must not wait for a response")
+                    return stallFeedTelemetry ? nil : "OK"
+                }
+                guard let id = payload["id"] as? String else {
                     return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
                 }
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-                case "feed.push":
-                    return stallFeedTelemetry ? nil : self.v2Response(id: id, ok: true, result: [:])
                 default:
                     return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
                 }

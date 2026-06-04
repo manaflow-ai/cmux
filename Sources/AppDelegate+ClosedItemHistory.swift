@@ -268,10 +268,21 @@ extension AppDelegate {
             ClosedItemHistoryStore.shared.setLastRestoredOperation(nil)
             return redoLastReopen(preferredTabManager: preferredTabManager, force: force)
         }
+        if liveRecords.count > 1, !force {
+            guard confirmGroupedHistoryRedoClose(
+                itemCount: liveRecords.count,
+                preferredTabManager: preferredTabManager,
+                refs: liveRecords.map(\.1)
+            ) else {
+                ClosedItemHistoryStore.shared.setLastRestoredOperation(opId)
+                return false
+            }
+        }
         let redoOperationId = UUID()
+        let closeForce = force || liveRecords.count > 1
         var closedCount = 0
         for (_, ref) in liveRecords {
-            guard closeReopenedRef(ref, operationId: redoOperationId, force: force) else {
+            guard closeReopenedRef(ref, operationId: redoOperationId, force: closeForce) else {
                 ClosedItemHistoryStore.shared.setLastRestoredOperation(opId)
                 return false
             }
@@ -280,6 +291,38 @@ extension AppDelegate {
         let closedAll = closedCount == liveRecords.count
         ClosedItemHistoryStore.shared.setLastRestoredOperation(closedAll ? nil : opId)
         return closedAll
+    }
+
+    private func confirmGroupedHistoryRedoClose(
+        itemCount: Int,
+        preferredTabManager: TabManager?,
+        refs: [ReopenedItemRef]
+    ) -> Bool {
+        let title = String(localized: "dialog.historyRedo.group.title", defaultValue: "Close reopened items?")
+        let format = String(
+            localized: "dialog.historyRedo.group.message",
+            defaultValue: "%d reopened items will be closed again."
+        )
+        let message = String.localizedStringWithFormat(format, itemCount)
+        let confirmationManager = preferredTabManager ?? refs.compactMap { ref -> TabManager? in
+            switch ref {
+            case .panel(let workspaceId, _), .workspace(let workspaceId):
+                return tabManagerFor(tabId: workspaceId)
+            case .window(let windowId):
+                return tabManagerFor(windowId: windowId)
+            }
+        }.first
+        if let confirmationManager {
+            return confirmationManager.confirmClose(title: title, message: message, acceptCmdD: false)
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
+        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     @discardableResult

@@ -1790,6 +1790,41 @@ final class SocketClient {
         return response
     }
 
+    func sendOneWay(command: String, writeTimeout: TimeInterval) throws {
+        if relayEndpoint != nil, socketFD < 0 {
+            try connect()
+        }
+        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        let shouldCloseAfterSend = relayEndpoint != nil
+
+        try configureSocketWriteSafety(writeTimeout)
+        var operation = CLISocketOperationTelemetry.State(
+            name: CLISocketOperationTelemetry.operationName(for: command),
+            timeout: writeTimeout,
+            startedAt: Date(),
+            phase: .writeRequest
+        )
+        recordOperation(operation)
+
+        do {
+            try writeAll(
+                Data((command + "\n").utf8),
+                timeoutMessage: "Command timed out",
+                failureMessage: "Failed to write to socket"
+            )
+        } catch {
+            close()
+            throw error
+        }
+        operation.phase = .completed
+        recordOperation(operation)
+        if shouldCloseAfterSend {
+            close()
+        } else if (try? configureSocketWriteSafety(Self.responseTimeoutSeconds)) == nil {
+            close()
+        }
+    }
+
     private func connectOnce() throws {
         if let relayEndpoint {
             try connectToRelay(endpoint: relayEndpoint)
@@ -30538,6 +30573,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             "event": eventDict,
             "wait_timeout_seconds": waitTimeout,
         ]
+
+        if waitTimeout == 0 {
+            let payload = try JSONSerialization.data(withJSONObject: [
+                "method": "feed.push",
+                "params": params,
+            ])
+            let line = String(data: payload, encoding: .utf8) ?? "{}"
+            do {
+                try client.sendOneWay(command: line, writeTimeout: 0.05)
+            } catch {
+                // Telemetry-only hooks must never block or fail the agent.
+            }
+            print("{}")
+            return
+        }
 
         let payload = try JSONSerialization.data(withJSONObject: [
             "id": UUID().uuidString,
