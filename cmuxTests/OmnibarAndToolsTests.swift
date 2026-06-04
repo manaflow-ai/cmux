@@ -447,7 +447,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertTrue(state.isFocused)
         XCTAssertEqual(state.buffer, "https://example.com/")
         XCTAssertFalse(state.isUserEditing)
-        XCTAssertTrue(effects.shouldSelectAll)
+        XCTAssertFalse(effects.shouldSelectAll)
 
         effects = omnibarReduce(state: &state, event: .bufferChanged("exam"))
         XCTAssertTrue(state.isUserEditing)

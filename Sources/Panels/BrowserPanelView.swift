@@ -456,7 +456,6 @@ struct BrowserPanelView: View {
     @State private var focusModeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var omnibarSelectAllRequestId: UInt64 = 0
-    @State private var suppressNextFocusGainedSelectAll: Bool = false
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
     // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
@@ -976,16 +975,13 @@ struct BrowserPanelView: View {
 #endif
                 onRequestPanelFocus()
             }
-            let shouldSelectAll = !suppressNextFocusGainedSelectAll
-            suppressNextFocusGainedSelectAll = false
             let effects = omnibarReduce(
                 state: &omnibarState,
-                event: .focusGained(currentURLString: urlString, shouldSelectAll: shouldSelectAll)
+                event: .focusGained(currentURLString: urlString)
             )
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
         } else {
-            suppressNextFocusGainedSelectAll = false
             panel.endSuppressWebViewFocusForAddressBar()
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panel.id)
             if suppressNextFocusLostRevert {
@@ -2043,6 +2039,13 @@ struct BrowserPanelView: View {
             )
 #endif
         } else {
+            let urlString = panel.preferredURLStringForOmnibar() ?? ""
+            let effects = omnibarReduce(
+                state: &omnibarState,
+                event: .focusGained(currentURLString: urlString, shouldSelectAll: true)
+            )
+            applyOmnibarEffects(effects)
+            refreshInlineCompletion()
             setAddressBarFocused(true, reason: "request.apply")
 #if DEBUG
             logBrowserFocusState(
@@ -2319,7 +2322,6 @@ struct BrowserPanelView: View {
         if !wasAddressBarFocused {
             // Mark focused before pane selection converges so WebKit focus is not
             // briefly re-acquired during `focusPane`.
-            suppressNextFocusGainedSelectAll = true
             setAddressBarFocused(true, reason: "omnibar.tap")
         }
         if shouldRequestPanelFocus && wasAddressBarFocused {
@@ -3515,7 +3517,7 @@ struct OmnibarState: Equatable {
 }
 
 enum OmnibarEvent: Equatable {
-    case focusGained(currentURLString: String, shouldSelectAll: Bool = true)
+    case focusGained(currentURLString: String, shouldSelectAll: Bool = false)
     case focusReasserted(shouldSelectAll: Bool = true)
     case focusLostRevertBuffer(currentURLString: String)
     case focusLostPreserveBuffer(currentURLString: String)
