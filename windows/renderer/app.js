@@ -8,6 +8,7 @@ import {
   backgroundFitOptions,
   backgroundPositionOptions,
   backgroundPresets,
+  browserChromeOptions,
   browserHomePresets,
   browserLaunchModeOptions,
   browserZoomOptions,
@@ -455,6 +456,7 @@ const browserSettingsPreviewKeys = new Set([
   "browserLaunchMode",
   "externalBrowserProfileId",
   "browserSuspendInactive",
+  "browserChromeMode",
   "browserZoom"
 ]);
 const settingsInspectorSettingKeys = {
@@ -482,6 +484,7 @@ const settingsInspectorSettingKeys = {
     "browserLaunchMode",
     "externalBrowserProfileId",
     "browserSuspendInactive",
+    "browserChromeMode",
     "browserZoom"
   ],
   layout: [
@@ -602,6 +605,7 @@ const profileSettingsSettingKeys = [...new Set([
   "browserLaunchMode",
   "externalBrowserProfileId",
   "browserSuspendInactive",
+  "browserChromeMode",
   "browserZoom"
 ])];
 const quickSettingsSettingKeys = [
@@ -614,6 +618,7 @@ const quickSettingsSettingKeys = [
     "browserLaunchMode",
     "externalBrowserProfileId",
     "browserSuspendInactive",
+    "browserChromeMode",
     "browserZoom"
   ])
 ];
@@ -1301,6 +1306,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!browserLaunchModeOptions.some(([id]) => id === next.browserLaunchMode)) next.browserLaunchMode = defaultSettings.browserLaunchMode;
   next.externalBrowserProfileId = String(next.externalBrowserProfileId || defaultSettings.externalBrowserProfileId).trim().slice(0, 120) || "system";
   next.browserSuspendInactive = next.browserSuspendInactive !== false;
+  if (!browserChromeOptions.some(([id]) => id === next.browserChromeMode)) next.browserChromeMode = defaultSettings.browserChromeMode;
   next.browserZoom = String(next.browserZoom || defaultSettings.browserZoom);
   if (!browserZoomOptions.some(([id]) => id === next.browserZoom)) next.browserZoom = defaultSettings.browserZoom;
   next.terminalCustomShell = String(next.terminalCustomShell || "").trim().slice(0, 512);
@@ -3327,6 +3333,7 @@ function settingsProfileSummary(settings) {
   const chromeMotion = optionLabel(chromeMotionOptions, normalized.chromeMotionMode, normalized.chromeMotionMode);
   const startup = optionLabel(terminalStartupOptions, normalized.terminalStartupMode, "Fast");
   const browserHomeHost = hostnameOf(normalized.browserHomeUrl) || "browser";
+  const browserChrome = browserChromeModeLabel(normalized.browserChromeMode);
   const browserZoom = browserZoomLabel(normalized.browserZoom);
   return [
     theme,
@@ -3368,6 +3375,7 @@ function settingsProfileSummary(settings) {
     paneMarkers,
     `${chromeMotion.toLowerCase()} motion`,
     `${browserHomeHost} home`,
+    `${browserChrome.toLowerCase()} browser chrome`,
     `${browserZoom} browser zoom`,
     `${accentIntensity.toLowerCase()} accent`,
     `${surfaceTint.toLowerCase()} tint`,
@@ -5742,6 +5750,9 @@ function updateSettings(updates, options = {}) {
   }
   if (changedKeys.includes("browserZoom")) {
     applyBrowserZoomToSessions();
+  }
+  if (changedKeys.includes("browserChromeMode")) {
+    applyBrowserChromeModeToSessions();
   }
   if (changedKeys.includes("emptyWorkspaceMode")) {
     updateVisibleEmptyWorkspaceControls();
@@ -11312,6 +11323,27 @@ function browserZoomLabel(value = state.settings.browserZoom) {
   return optionLabel(browserZoomOptions, id, `${id}%`);
 }
 
+function browserChromeModeValue(value = state.settings.browserChromeMode) {
+  const id = String(value || defaultSettings.browserChromeMode);
+  return browserChromeOptions.some(([optionId]) => optionId === id) ? id : defaultSettings.browserChromeMode;
+}
+
+function browserChromeModeLabel(value = state.settings.browserChromeMode) {
+  const id = browserChromeModeValue(value);
+  return optionLabel(browserChromeOptions, id, "Full");
+}
+
+function applyBrowserChromeModeToShell(shell, value = state.settings.browserChromeMode) {
+  const mode = browserChromeModeValue(value);
+  toggleClassIfChanged(shell, "browser-chrome-full", mode === "full");
+  toggleClassIfChanged(shell, "browser-chrome-compact", mode === "compact");
+  toggleClassIfChanged(shell, "browser-chrome-content", mode === "content");
+}
+
+function applyBrowserChromeModeToSessions() {
+  for (const session of state.browserViews.values()) applyBrowserChromeModeToShell(session.shell);
+}
+
 function lockBrowserViewZoom(view, options = {}) {
   if (!view || typeof view.setZoomFactor !== "function") return;
   const factor = browserZoomFactor();
@@ -12374,6 +12406,7 @@ function ensureBrowser(panel, body) {
 
   const shell = document.createElement("div");
   shell.className = "browser-shell";
+  applyBrowserChromeModeToShell(shell);
   const tabStrip = document.createElement("div");
   tabStrip.className = "browser-tabs";
   const tabList = document.createElement("div");
@@ -13345,6 +13378,12 @@ function renderSettingsInspector(options = {}) {
       "browser performance suspend inactive background webview mute loading lag"
     ));
     browserSection.append(settingRow(
+      "Pane chrome",
+      settingSegmentedControl("browserChromeMode", browserChromeOptions, "browser pane chrome tabs address controls full compact content first preview clutter", { compact: true }),
+      true,
+      "browser pane chrome tabs address controls full compact content first preview clutter"
+    ));
+    browserSection.append(settingRow(
       "Pane zoom",
       settingSegmentedControl("browserZoom", browserZoomOptions, "browser pane zoom scale percentage readable web preview app localhost small panes", { compact: true }),
       true,
@@ -13352,20 +13391,20 @@ function renderSettingsInspector(options = {}) {
     ));
     const homeActions = document.createElement("div");
     homeActions.className = "settings-actions";
-    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web system external profile chrome edge brave zoom scale save browser profile reusable copy paste setup clipboard json");
+    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web system external profile chrome edge brave pane chrome tabs address controls full compact content zoom scale save browser profile reusable copy paste setup clipboard json");
     const browserHomeDefault = browserHomeKey(state.settings.browserHomeUrl) === browserHomeKey(defaultSettings.browserHomeUrl);
     const resetBrowserHomeAction = settingsActionButton("Reset", resetBrowserHome, "", `browser home reset default url page web ${browserHomeDefault ? "active current " : ""}`);
     resetBrowserHomeAction.disabled = browserHomeDefault;
     resetBrowserHomeAction.title = browserHomeDefault
       ? "Browser home already uses the default page."
       : "Reset the browser home page to the default.";
-    const copyBrowser = settingsActionButton("Copy setup", copyBrowserSetup, "", "browser setup copy home launch external profile suspend zoom scale clipboard json");
-    copyBrowser.title = "Copy browser home, launch mode, external profile, suspend setting, and pane zoom as JSON.";
-    const pasteBrowser = settingsActionButton("Paste setup", pasteBrowserSetup, "", "browser setup paste home launch external profile suspend zoom scale clipboard json");
+    const copyBrowser = settingsActionButton("Copy setup", copyBrowserSetup, "", "browser setup copy home launch external profile suspend pane chrome tabs address controls full compact content zoom scale clipboard json");
+    copyBrowser.title = "Copy browser home, launch mode, external profile, suspend setting, pane chrome, and pane zoom as JSON.";
+    const pasteBrowser = settingsActionButton("Paste setup", pasteBrowserSetup, "", "browser setup paste home launch external profile suspend pane chrome tabs address controls full compact content zoom scale clipboard json");
     pasteBrowser.title = "Apply copied cmux browser setup.";
     homeActions.append(
       applySettingsProfileSaveLimit(
-        settingsActionButton("Save browser profile", saveCurrentBrowserProfile, "primary", "browser save profile home page launch external chrome edge brave zoom scale reusable"),
+        settingsActionButton("Save browser profile", saveCurrentBrowserProfile, "primary", "browser save profile home page launch external chrome edge brave pane chrome tabs address controls full compact content zoom scale reusable"),
         "Save this browser setup as a reusable Settings profile."
       ),
       copyBrowser,
@@ -15950,7 +15989,7 @@ function browserHomeParts(value) {
   }
 }
 
-const browserSetupSettings = ["browserHomeUrl", "browserLaunchMode", "externalBrowserProfileId", "browserSuspendInactive", "browserZoom"];
+const browserSetupSettings = ["browserHomeUrl", "browserLaunchMode", "externalBrowserProfileId", "browserSuspendInactive", "browserChromeMode", "browserZoom"];
 
 const browserWorkflowPresets = [
   {
@@ -15962,6 +16001,7 @@ const browserWorkflowPresets = [
       browserLaunchMode: "pane",
       externalBrowserProfileId: "system",
       browserSuspendInactive: true,
+      browserChromeMode: "full",
       browserZoom: "100"
     }
   },
@@ -15974,6 +16014,7 @@ const browserWorkflowPresets = [
       browserLaunchMode: "external",
       externalBrowserProfileId: "system",
       browserSuspendInactive: true,
+      browserChromeMode: "full",
       browserZoom: "100"
     }
   },
@@ -15986,6 +16027,7 @@ const browserWorkflowPresets = [
       browserLaunchMode: "pane",
       externalBrowserProfileId: "system",
       browserSuspendInactive: false,
+      browserChromeMode: "content",
       browserZoom: "100"
     }
   },
@@ -15998,6 +16040,7 @@ const browserWorkflowPresets = [
       browserLaunchMode: "pane",
       externalBrowserProfileId: "system",
       browserSuspendInactive: false,
+      browserChromeMode: "content",
       browserZoom: "100"
     }
   },
@@ -16010,6 +16053,7 @@ const browserWorkflowPresets = [
       browserLaunchMode: "pane",
       externalBrowserProfileId: "system",
       browserSuspendInactive: false,
+      browserChromeMode: "compact",
       browserZoom: "100"
     }
   }
@@ -16019,8 +16063,8 @@ function browserSettingsPreviewPanel() {
   const home = browserHomeParts(state.settings.browserHomeUrl);
   const recent = state.recentBrowserPages[0] ? browserHomeParts(state.recentBrowserPages[0]) : null;
   const panel = document.createElement("div");
-  panel.className = `browser-settings-preview browser-zoom-${browserZoomValue()}`;
-  panel.dataset.settingsSearch = normalizeSettingsQuery("browser preview home url web page hostname recent history preset localhost github zoom scale percentage");
+  panel.className = `browser-settings-preview browser-zoom-${browserZoomValue()} browser-chrome-${browserChromeModeValue()}`;
+  panel.dataset.settingsSearch = normalizeSettingsQuery("browser preview home url web page hostname recent history preset localhost github pane chrome tabs address controls full compact content zoom scale percentage");
   panel.style.setProperty("--browser-preview-zoom-scale", String(browserZoomFactor()));
   panel.innerHTML = `
     <div class="browser-preview-frame" aria-hidden="true">
@@ -16039,6 +16083,7 @@ function browserSettingsPreviewPanel() {
       <span><b>Home</b><em data-browser-preview-home></em></span>
       <span><b>Launch</b><em data-browser-preview-launch></em></span>
       <span><b>Profile</b><em data-browser-preview-profile></em></span>
+      <span><b>Chrome</b><em data-browser-preview-chrome></em></span>
       <span><b>Zoom</b><em data-browser-preview-zoom></em></span>
       <span><b>Host</b><em data-browser-preview-host-meta></em></span>
       <span><b>Recent</b><em data-browser-preview-recent></em></span>
@@ -16050,6 +16095,7 @@ function browserSettingsPreviewPanel() {
   panel.querySelector("[data-browser-preview-home]").textContent = home.url;
   panel.querySelector("[data-browser-preview-launch]").textContent = optionLabel(browserLaunchModeOptions, state.settings.browserLaunchMode, "cmux pane");
   panel.querySelector("[data-browser-preview-profile]").textContent = browserProfileLabel();
+  panel.querySelector("[data-browser-preview-chrome]").textContent = browserChromeModeLabel();
   panel.querySelector("[data-browser-preview-zoom]").textContent = browserZoomLabel();
   panel.querySelector("[data-browser-preview-host-meta]").textContent = home.host;
   panel.querySelector("[data-browser-preview-recent]").textContent = recent
@@ -16073,13 +16119,14 @@ function browserWorkflowPresetSummary(settings) {
     hostnameOf(settings.browserHomeUrl) || "Home",
     optionLabel(browserLaunchModeOptions, settings.browserLaunchMode, settings.browserLaunchMode),
     settings.browserSuspendInactive ? "Suspend" : "Live",
+    browserChromeModeLabel(settings.browserChromeMode),
     browserZoomLabel(settings.browserZoom)
   ];
 }
 
 function browserWorkflowPresetSearchText(preset, settings, active = false, savedProfile = null) {
   return normalizeSettingsQuery([
-    "browser workflow preset setup home launch external profile suspend zoom scale save copy localhost local dev app api backend 3000 5173 8080",
+    "browser workflow preset setup home launch external profile suspend pane chrome tabs address controls full compact content zoom scale save copy localhost local dev app api backend 3000 5173 8080",
     active ? "active current" : "",
     savedProfile ? "saved" : "",
     preset?.label || "",
@@ -16088,6 +16135,7 @@ function browserWorkflowPresetSearchText(preset, settings, active = false, saved
     settings?.browserLaunchMode || "",
     browserProfileLabel(settings?.externalBrowserProfileId),
     settings?.browserSuspendInactive ? "suspend inactive" : "live inactive",
+    browserChromeModeLabel(settings?.browserChromeMode),
     browserZoomLabel(settings?.browserZoom)
   ].join(" "));
 }
@@ -16099,6 +16147,7 @@ function isActiveBrowserWorkflowPreset(preset) {
     && settings.browserLaunchMode === state.settings.browserLaunchMode
     && settings.externalBrowserProfileId === state.settings.externalBrowserProfileId
     && settings.browserSuspendInactive === state.settings.browserSuspendInactive
+    && settings.browserChromeMode === state.settings.browserChromeMode
     && settings.browserZoom === state.settings.browserZoom;
 }
 
@@ -16134,7 +16183,7 @@ function browserWorkflowPresetProfileSaveTitle(preset, savedProfile = savedSetti
 function browserWorkflowPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "browser-workflow-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("browser workflow presets setup home launch external profile suspend live zoom scale save copy localhost local dev app api backend 3000 5173 8080");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("browser workflow presets setup home launch external profile suspend live pane chrome tabs address controls full compact content zoom scale save copy localhost local dev app api backend 3000 5173 8080");
   for (const preset of browserWorkflowPresets) {
     const settings = browserWorkflowPresetSettings(preset);
     if (!settings) continue;
@@ -16162,16 +16211,18 @@ function browserWorkflowPresetGrid() {
         <span data-browser-workflow-home></span>
         <span data-browser-workflow-launch></span>
         <span data-browser-workflow-inactive></span>
+        <span data-browser-workflow-chrome></span>
         <span data-browser-workflow-zoom></span>
       </span>
     `;
     button.querySelector(".browser-workflow-preset-title").textContent = preset.label;
     button.querySelector(".browser-workflow-preset-status").textContent = active ? "Active" : "";
     button.querySelector(".browser-workflow-preset-body").textContent = preset.body;
-    const [home, launch, inactive, zoom] = browserWorkflowPresetSummary(settings);
+    const [home, launch, inactive, chrome, zoom] = browserWorkflowPresetSummary(settings);
     button.querySelector("[data-browser-workflow-home]").textContent = home;
     button.querySelector("[data-browser-workflow-launch]").textContent = launch;
     button.querySelector("[data-browser-workflow-inactive]").textContent = inactive;
+    button.querySelector("[data-browser-workflow-chrome]").textContent = chrome;
     button.querySelector("[data-browser-workflow-zoom]").textContent = zoom;
     button.onclick = () => applyBrowserWorkflowPreset(preset.id);
     const actions = document.createElement("div");
@@ -16189,7 +16240,7 @@ function browserWorkflowPresetGrid() {
       "Copy setup",
       () => copyBrowserWorkflowPresetSetup(preset.id),
       "",
-      `browser workflow preset copy setup clipboard json ${preset.label} ${preset.body} ${settings.browserHomeUrl} ${browserZoomLabel(settings.browserZoom)}`
+      `browser workflow preset copy setup clipboard json pane chrome tabs address controls full compact content ${preset.label} ${preset.body} ${settings.browserHomeUrl} ${browserChromeModeLabel(settings.browserChromeMode)} ${browserZoomLabel(settings.browserZoom)}`
     );
     copy.title = "Copy this browser workflow as cmux browser setup JSON.";
     actions.append(save, copy);
@@ -16286,20 +16337,20 @@ function browserHomePresetTitle(preset, active) {
 function browserHomePresetGrid() {
   const grid = document.createElement("div");
   grid.className = "browser-home-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("browser home preset quick start google github localhost vite angular flask python asp net api backend web url save profile copy zoom scale");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("browser home preset quick start google github localhost vite angular flask python asp net api backend web url save profile copy pane chrome tabs address controls full compact content zoom scale");
   for (const preset of browserHomePresets) {
     const active = isActiveBrowserHomePreset(preset);
     const savedProfile = savedSettingsProfileForBrowserHomePreset(preset);
     const card = document.createElement("div");
     card.className = "browser-home-preset-card";
-    card.dataset.settingsSearch = normalizeSettingsQuery(`browser home preset save profile copy zoom scale ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${preset.label} ${preset.body} ${preset.url} ${browserZoomLabel()}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`browser home preset save profile copy pane chrome tabs address controls full compact content zoom scale ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`);
     const button = document.createElement("button");
     button.className = `browser-home-preset${active ? " is-active" : ""}`;
     button.type = "button";
     button.disabled = active;
     button.title = browserHomePresetTitle(preset, active);
     button.dataset.browserHomePreset = preset.id;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`browser home preset ${active ? "active current " : ""}${preset.label} ${preset.body} ${preset.url}`);
+    button.dataset.settingsSearch = normalizeSettingsQuery(`browser home preset pane chrome tabs address controls full compact content zoom scale ${active ? "active current " : ""}${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`);
     button.setAttribute("aria-pressed", active ? "true" : "false");
     button.innerHTML = `
       <span class="browser-home-preset-title-row">
@@ -16322,11 +16373,11 @@ function browserHomePresetGrid() {
       savedProfile ? "Saved" : "Save",
       () => saveBrowserHomePresetProfile(preset.id),
       savedProfile ? "primary" : "",
-      `browser home preset save profile reusable zoom scale ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${preset.url} ${browserZoomLabel()}`
+      `browser home preset save profile reusable pane chrome tabs address controls full compact content zoom scale ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`
     );
     save.disabled = Boolean(savedProfile) || savedSettingsProfilesFull();
     save.title = browserHomePresetProfileSaveTitle(preset, savedProfile);
-    const copy = settingsActionButton("Copy", () => copyBrowserHomePresetProfile(preset.id), "", `browser home preset copy settings profile clipboard json zoom scale ${preset.label} ${preset.body} ${preset.url} ${browserZoomLabel()}`);
+    const copy = settingsActionButton("Copy", () => copyBrowserHomePresetProfile(preset.id), "", `browser home preset copy settings profile clipboard json pane chrome tabs address controls full compact content zoom scale ${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`);
     copy.title = "Copy this browser home preset as a Settings profile JSON.";
     actions.append(save, copy);
     card.append(button, actions);
@@ -16373,6 +16424,7 @@ function browserSetupSummaryForSettings(settingsSource = state.settings) {
     launch: optionLabel(browserLaunchModeOptions, settingsSource.browserLaunchMode, settingsSource.browserLaunchMode),
     profile: browserProfileLabel(settingsSource.externalBrowserProfileId),
     inactivePanes: settingsSource.browserSuspendInactive ? "Suspended" : "Kept live",
+    chrome: browserChromeModeLabel(settingsSource.browserChromeMode),
     zoom: browserZoomLabel(settingsSource.browserZoom)
   };
 }
@@ -16383,6 +16435,7 @@ function browserSetupPayload(settingsSource = state.settings) {
     browserLaunchMode: settingsSource.browserLaunchMode,
     externalBrowserProfileId: settingsSource.externalBrowserProfileId,
     browserSuspendInactive: settingsSource.browserSuspendInactive,
+    browserChromeMode: browserChromeModeValue(settingsSource.browserChromeMode),
     browserZoom: browserZoomValue(settingsSource.browserZoom)
   };
   return {
@@ -16421,6 +16474,7 @@ function browserSetupSettingUpdateFromValue(key, raw) {
     return normalizeUrl(raw || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl);
   }
   if (key === "browserLaunchMode") return optionIdAllowed(browserLaunchModeOptions, raw) ? raw : null;
+  if (key === "browserChromeMode") return optionIdAllowed(browserChromeOptions, raw) ? raw : null;
   if (key === "browserZoom") return optionIdAllowed(browserZoomOptions, String(raw || "")) ? String(raw) : null;
   if (key === "externalBrowserProfileId") {
     if (raw === null || raw === "") return "system";
@@ -16863,14 +16917,8 @@ function refreshBrowserSettingsPreview() {
       : "system";
     if (profileSelect.value !== nextProfileId) profileSelect.value = nextProfileId;
   }
-  const zoomControl = elements.inspectorBody.querySelector('[data-setting-control="browserZoom"]');
-  if (zoomControl) {
-    for (const button of zoomControl.querySelectorAll("[data-setting-value]")) {
-      const active = button.dataset.settingValue === state.settings.browserZoom;
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-checked", active ? "true" : "false");
-    }
-  }
+  refreshSettingSegmentedControl("browserChromeMode");
+  refreshSettingSegmentedControl("browserZoom");
   for (const button of elements.inspectorBody.querySelectorAll("[data-browser-home-preset]")) {
     const preset = browserHomePresets.find((candidate) => candidate.id === button.dataset.browserHomePreset);
     const active = Boolean(preset && isActiveBrowserHomePreset(preset));
@@ -16881,7 +16929,7 @@ function refreshBrowserSettingsPreview() {
     if (status) setTextIfChanged(status, active ? "Active" : "");
     if (preset) {
       setTitleIfChanged(button, browserHomePresetTitle(preset, active));
-      const search = normalizeSettingsQuery(`browser home preset ${active ? "active current " : ""}${preset.label} ${preset.body} ${preset.url}`);
+      const search = normalizeSettingsQuery(`browser home preset pane chrome tabs address controls full compact content zoom scale ${active ? "active current " : ""}${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`);
       if (button.dataset.settingsSearch !== search) {
         button.dataset.settingsSearch = search;
         updateSettingsSearchIndexItemSearch(button, search);
@@ -16891,6 +16939,16 @@ function refreshBrowserSettingsPreview() {
   refreshBrowserWorkflowPresetGrid();
   refreshRecentBrowserHomeActions();
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function refreshSettingSegmentedControl(settingKey) {
+  const control = elements.inspectorBody.querySelector(`[data-setting-control="${settingKey}"]`);
+  if (!control) return;
+  for (const button of control.querySelectorAll("[data-setting-value]")) {
+    const active = button.dataset.settingValue === state.settings[settingKey];
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-checked", active ? "true" : "false");
+  }
 }
 
 function workspacePanelSummary(workspace) {
@@ -20126,7 +20184,7 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
     quickOverviewControlButton("Open home", () => createPanel("browser", newPaneDirection(), { workspaceId: workspace?.id, url: state.settings.browserHomeUrl }), {
       disabled: !hasWorkspace,
       title: hasWorkspace ? "Open the browser home page in this workspace." : workspaceRequiredTitle,
-      search: "quick setup browser open home page pane web"
+      search: "quick setup browser open home page pane web chrome"
     }),
     quickOverviewControlButton("New tab", () => newBrowserTabFromPanel(activeBrowser), {
       disabled: !activeBrowser,
@@ -20173,16 +20231,17 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
     }),
     quickOverviewControlButton("Browser", () => openSettingsCategory("browser"), {
       title: "Open full browser settings.",
-      search: "quick setup browser full settings home launch external profile tabs recent presets"
+      search: "quick setup browser full settings home launch external profile tabs recent presets pane chrome full compact content zoom"
     })
   ];
   const homeHost = hostnameOf(state.settings.browserHomeUrl) || "Home";
   const recentHost = latestRecentPage ? hostnameOf(latestRecentPage) || latestRecentPage : "No recent";
+  const chrome = browserChromeModeLabel();
   return quickOverviewControlsPanel({
     className: "quick-overview-browser",
     title: "Browser controls",
-    meta: `${homeHost} / ${activeBrowserTitle} / ${browserTabSessionsMeta(tabEntries)}`,
-    search: `quick setup browser controls home tabs recent profile setup ${homeHost} ${recentHost} ${activeBrowserTitle} ${browserCount} browsers`,
+    meta: `${homeHost} / ${chrome} chrome / ${browserTabSessionsMeta(tabEntries)}`,
+    search: `quick setup browser controls home tabs recent profile setup pane chrome tabs address controls full compact content zoom ${homeHost} ${recentHost} ${activeBrowserTitle} ${browserCount} browsers ${chrome}`,
     actions
   });
 }
@@ -20838,9 +20897,9 @@ function quickSetupMapItems() {
       icon: "browser",
       label: "Browser",
       value: hostnameOf(state.settings.browserHomeUrl) || "Home page",
-      body: `${optionLabel(browserLaunchModeOptions, state.settings.browserLaunchMode, "cmux pane")} / ${browserZoomLabel()} zoom`,
+      body: `${optionLabel(browserLaunchModeOptions, state.settings.browserLaunchMode, "cmux pane")} / ${browserChromeModeLabel()} chrome / ${browserZoomLabel()} zoom`,
       meta: state.settings.browserSuspendInactive ? "Suspends inactive" : "Always live",
-      search: "browser home page launch mode external profile suspend inactive zoom scale readable preview"
+      search: "browser home page launch mode external profile suspend inactive pane chrome tabs address controls full compact content zoom scale readable preview"
     },
     {
       id: "performance",
@@ -26201,7 +26260,7 @@ function saveTerminalColorPresetProfile(presetId) {
 function saveCurrentBrowserProfile() {
   return saveCurrentSettingsProfile({
     title: "Save browser profile",
-    message: "Save the current browser home page, launch mode, external profile, suspend setting, and pane zoom.",
+    message: "Save the current browser home page, launch mode, external profile, suspend setting, pane chrome, and pane zoom.",
     baseName: "Browser profile"
   });
 }
@@ -26215,7 +26274,7 @@ function saveBrowserProfileForHome(url = state.recentBrowserPages[0]) {
   const host = hostnameOf(homeUrl) || "Browser";
   return saveCurrentSettingsProfile({
     title: "Save browser profile",
-    message: `Save ${host} as a browser setup with the current launch mode, external profile, suspend setting, and pane zoom.`,
+    message: `Save ${host} as a browser setup with the current launch mode, external profile, suspend setting, pane chrome, and pane zoom.`,
     value: defaultSettingsProfileName(`Browser: ${host}`),
     settings: {
       ...state.settings,
@@ -27448,7 +27507,7 @@ function showToolbarMenu(event) {
       toolbarAction("Copy recent pages", copyRecentBrowserPages, state.recentBrowserPages.length === 0, "Copy recent browser pages as JSON.", "Recent browser pages are empty."),
       toolbarAction("Paste recent pages", pasteRecentBrowserPages, false, "Merge copied browser pages into recent pages."),
       toolbarAction("Copy all tab sessions", copyBrowserTabSessions, browserSessionEntries.length === 0, "Copy all browser tab sessions as JSON.", "Open a browser pane before copying tab sessions."),
-      toolbarAction("Copy browser setup", copyBrowserSetup, false, "Copy browser home, launch mode, external profile, suspend setting, and pane zoom as JSON."),
+      toolbarAction("Copy browser setup", copyBrowserSetup, false, "Copy browser home, launch mode, external profile, suspend setting, pane chrome, and pane zoom as JSON."),
       toolbarAction("Paste browser setup", pasteBrowserSetup, false, "Apply copied cmux browser setup."),
       contextMenuButton("Browser settings", () => openSettingsCategory("browser"))
     ),
@@ -29166,7 +29225,7 @@ function paletteEntries() {
       meta: settings.browserHomeUrl,
       shortcut: "Copy",
       title: "Copy this browser workflow as cmux browser setup JSON.",
-      search: normalizeSettingsQuery(`browser workflow preset setup copy clipboard json zoom scale ${preset.label} ${preset.body} ${settings.browserHomeUrl} ${browserZoomLabel(settings.browserZoom)}`),
+      search: normalizeSettingsQuery(`browser workflow preset setup copy clipboard json pane chrome tabs address controls full compact content zoom scale ${preset.label} ${preset.body} ${settings.browserHomeUrl} ${browserChromeModeLabel(settings.browserChromeMode)} ${browserZoomLabel(settings.browserZoom)}`),
       run: () => copyBrowserWorkflowPresetSetup(preset.id)
     });
   }
@@ -29191,7 +29250,7 @@ function paletteEntries() {
       shortcut: savedProfile ? "Saved" : "Save",
       disabled: Boolean(savedProfile) || savedSettingsProfilesFull(),
       title: browserHomePresetProfileSaveTitle(preset, savedProfile),
-      search: normalizeSettingsQuery(`browser home preset start page homepage save profile reusable zoom scale ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${preset.url} ${browserZoomLabel()}`),
+      search: normalizeSettingsQuery(`browser home preset start page homepage save profile reusable pane chrome tabs address controls full compact content zoom scale ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`),
       run: () => saveBrowserHomePresetProfile(preset.id)
     });
     entries.push({
@@ -29200,7 +29259,7 @@ function paletteEntries() {
       meta: preset.url,
       shortcut: "Copy",
       title: "Copy this browser home preset as a Settings profile JSON.",
-      search: normalizeSettingsQuery(`browser home preset start page homepage copy profile clipboard json zoom scale ${preset.label} ${preset.body} ${preset.url} ${browserZoomLabel()}`),
+      search: normalizeSettingsQuery(`browser home preset start page homepage copy profile clipboard json pane chrome tabs address controls full compact content zoom scale ${preset.label} ${preset.body} ${preset.url} ${browserChromeModeLabel()} ${browserZoomLabel()}`),
       run: () => copyBrowserHomePresetProfile(preset.id)
     });
   }

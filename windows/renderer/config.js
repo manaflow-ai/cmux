@@ -20,6 +20,7 @@ export const defaultSettings = {
   browserLaunchMode: "pane",
   externalBrowserProfileId: "system",
   browserSuspendInactive: true,
+  browserChromeMode: "full",
   browserZoom: "100",
   density: "comfortable",
   paneHeaderMode: "compact",
@@ -354,6 +355,12 @@ export const browserHomePresets = [
 export const browserLaunchModeOptions = [
   ["pane", label("browserLaunchMode.pane", "cmux pane")],
   ["external", label("browserLaunchMode.external", "External profile")]
+];
+
+export const browserChromeOptions = [
+  ["full", label("browserChrome.full", "Full"), label("browserChrome.full.body", "Show tabs, address bar, and status normally")],
+  ["compact", label("browserChrome.compact", "Compact"), label("browserChrome.compact.body", "Use tighter browser tabs and controls")],
+  ["content", label("browserChrome.content", "Content"), label("browserChrome.content.body", "Prioritize page content until the pane is hovered or focused")]
 ];
 
 export const browserZoomOptions = [
@@ -808,7 +815,8 @@ export const settingsPresets = [
       terminalCursorBlink: true,
       terminalBackground: "",
       terminalForeground: "",
-      terminalCursorColor: ""
+      terminalCursorColor: "",
+      browserChromeMode: "full"
     }
   },
   {
@@ -894,7 +902,8 @@ export const settingsPresets = [
       terminalCursorBlink: true,
       terminalBackground: "",
       terminalForeground: "",
-      terminalCursorColor: ""
+      terminalCursorColor: "",
+      browserChromeMode: "compact"
     }
   },
   {
@@ -981,7 +990,8 @@ export const settingsPresets = [
       terminalBackground: "",
       terminalForeground: "",
       terminalCursorColor: "",
-      browserSuspendInactive: true
+      browserSuspendInactive: true,
+      browserChromeMode: "content"
     }
   },
   {
@@ -1067,7 +1077,8 @@ export const settingsPresets = [
       terminalCursorBlink: false,
       terminalBackground: "",
       terminalForeground: "",
-      terminalCursorColor: ""
+      terminalCursorColor: "",
+      browserChromeMode: "content"
     }
   },
   {
@@ -1153,7 +1164,8 @@ export const settingsPresets = [
       terminalCursorBlink: false,
       terminalBackground: "",
       terminalForeground: "",
-      terminalCursorColor: ""
+      terminalCursorColor: "",
+      browserChromeMode: "content"
     }
   },
   {
@@ -1239,7 +1251,8 @@ export const settingsPresets = [
       terminalCursorBlink: false,
       terminalBackground: "#050608",
       terminalForeground: "#f4f7fb",
-      terminalCursorColor: "#f6d36b"
+      terminalCursorColor: "#f6d36b",
+      browserChromeMode: "compact"
     }
   },
   {
@@ -1325,7 +1338,8 @@ export const settingsPresets = [
       terminalCursorBlink: true,
       terminalBackground: "",
       terminalForeground: "",
-      terminalCursorColor: ""
+      terminalCursorColor: "",
+      browserChromeMode: "full"
     }
   }
 ];

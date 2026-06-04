@@ -5443,6 +5443,158 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   grid-row: 2;
 }
 
+.browser-shell.browser-chrome-compact {
+  grid-template-rows: 26px 30px minmax(0, 1fr);
+}
+
+.browser-shell.browser-chrome-compact.has-browser-status {
+  grid-template-rows: 26px 30px auto minmax(0, 1fr);
+}
+
+.browser-shell.browser-chrome-compact .browser-tabs {
+  gap: 3px;
+  padding: 2px var(--space-1) 0;
+}
+
+.browser-shell.browser-chrome-compact .browser-tab {
+  min-width: 58px;
+  max-width: 132px;
+  flex-basis: 108px;
+  height: 22px;
+  grid-template-columns: 14px minmax(0, 1fr) 17px;
+  gap: 3px;
+  padding: 0 3px 0 5px;
+  font-size: 10px;
+}
+
+.browser-shell.browser-chrome-compact .browser-tab-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.browser-shell.browser-chrome-compact .browser-tab-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.browser-shell.browser-chrome-compact .browser-tab-close {
+  width: 17px;
+  height: 17px;
+}
+
+.browser-shell.browser-chrome-compact .browser-tab-new {
+  flex-basis: 26px;
+  min-width: 26px;
+  max-width: 28px;
+  height: 22px;
+  margin-bottom: 1px;
+}
+
+.browser-shell.browser-chrome-compact .browser-tab-new-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.browser-shell.browser-chrome-compact .browser-tab-new svg {
+  width: 12px;
+  height: 12px;
+}
+
+.browser-shell.browser-chrome-compact .browser-tab-new-label {
+  display: none;
+}
+
+.browser-shell.browser-chrome-compact .browser-bar {
+  grid-template-columns: 22px 22px 22px minmax(0, 1fr) 28px 24px;
+  gap: 3px;
+  padding: 3px var(--space-1);
+}
+
+.browser-shell.browser-chrome-compact .browser-home {
+  display: none;
+}
+
+.browser-shell.browser-chrome-compact .browser-nav,
+.browser-shell.browser-chrome-compact .browser-go,
+.browser-shell.browser-chrome-compact .browser-address {
+  height: 22px;
+}
+
+.browser-shell.browser-chrome-compact .browser-nav {
+  width: 22px;
+}
+
+.browser-shell.browser-chrome-compact .browser-address {
+  padding-inline: var(--space-1);
+  font-size: 11px;
+}
+
+.browser-shell.browser-chrome-compact .browser-go {
+  padding-inline: var(--space-1);
+}
+
+.browser-shell.browser-chrome-compact .browser-go-external {
+  width: 24px;
+  padding: 0;
+}
+
+.browser-shell.browser-chrome-content,
+.browser-shell.browser-chrome-content.has-browser-status,
+.browser-shell.browser-chrome-content.is-browser-deferred {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.browser-shell.browser-chrome-content .browser-tabs,
+.browser-shell.browser-chrome-content .browser-bar {
+  grid-row: 1;
+  grid-column: 1 / -1;
+  z-index: 3;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.browser-shell.browser-chrome-content .browser-tabs {
+  align-self: start;
+}
+
+.browser-shell.browser-chrome-content .browser-bar {
+  align-self: start;
+  margin-top: 30px;
+  border-top: 1px solid var(--color-line);
+  box-shadow: 0 10px 24px color-mix(in oklch, var(--color-canvas) 28%, transparent);
+}
+
+.browser-shell.browser-chrome-content:hover .browser-tabs,
+.browser-shell.browser-chrome-content:hover .browser-bar,
+.browser-shell.browser-chrome-content:focus-within .browser-tabs,
+.browser-shell.browser-chrome-content:focus-within .browser-bar,
+.browser-shell.browser-chrome-content.has-browser-status .browser-tabs,
+.browser-shell.browser-chrome-content.has-browser-status .browser-bar {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.browser-shell.browser-chrome-content .browser-status,
+.browser-shell.browser-chrome-content.has-browser-status .browser-status {
+  grid-row: 1;
+  z-index: 4;
+  align-self: end;
+  min-height: 24px;
+  border-top: 1px solid color-mix(in oklch, var(--color-line) 72%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 82%, var(--color-canvas) 18%);
+}
+
+.browser-shell.browser-chrome-content .browser-content,
+.browser-shell.browser-chrome-content.has-browser-status .browser-content,
+.browser-shell.browser-chrome-content.is-browser-deferred .browser-content {
+  grid-row: 1;
+}
+
 @container (max-width: 140px) {
   .browser-shell.has-browser-status {
     grid-template-rows: 28px 30px minmax(0, 1fr);
@@ -5464,6 +5616,24 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
   .browser-shell.has-browser-status .browser-content {
     grid-row: 1;
+  }
+}
+
+@container (max-width: 140px) {
+  .browser-shell.browser-chrome-content,
+  .browser-shell.browser-chrome-content.has-browser-status,
+  .browser-shell.browser-chrome-content.is-browser-deferred {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .browser-shell.browser-chrome-content .browser-content,
+  .browser-shell.browser-chrome-content.has-browser-status .browser-content,
+  .browser-shell.browser-chrome-content.is-browser-deferred .browser-content {
+    grid-row: 1;
+  }
+
+  .browser-shell.browser-chrome-content .browser-bar {
+    margin-top: 28px;
   }
 }
 
@@ -8042,6 +8212,39 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background:
     linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 76%, transparent), transparent),
     var(--color-canvas);
+}
+
+.browser-settings-preview.browser-chrome-compact .browser-preview-frame {
+  grid-template-rows: 24px minmax(0, 1fr);
+}
+
+.browser-settings-preview.browser-chrome-compact .browser-preview-address {
+  padding-inline: var(--space-1);
+}
+
+.browser-settings-preview.browser-chrome-content .browser-preview-frame {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.browser-settings-preview.browser-chrome-content .browser-preview-address,
+.browser-settings-preview.browser-chrome-content .browser-preview-page {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.browser-settings-preview.browser-chrome-content .browser-preview-address {
+  z-index: 1;
+  align-self: start;
+  margin: var(--space-1);
+  min-height: 28px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  opacity: .78;
+  box-shadow: 0 8px 18px color-mix(in oklch, var(--color-canvas) 22%, transparent);
+}
+
+.browser-settings-preview.browser-chrome-content .browser-preview-page {
+  padding-top: 42px;
 }
 
 .browser-preview-kicker {
