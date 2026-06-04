@@ -21537,6 +21537,7 @@ function durationMetric(stats, key = "lastMs") {
 function performanceMetrics() {
   const workspaces = state.data?.workspaces || [];
   const panels = allPanels();
+  const browserActivity = browserPaneActivityModel();
   const terminalCount = panels.filter((panel) => panel.type === "terminal").length;
   const browserCount = panels.filter((panel) => panel.type === "browser").length;
   updateTerminalOutputBacklog();
@@ -21566,7 +21567,11 @@ function performanceMetrics() {
     ["Last shell connect", durationMetric(state.terminalConnectStats)],
     ["Max shell connect", durationMetric(state.terminalConnectStats, "maxMs")],
     ["Pending panes", String(state.pendingPanels.size)],
-    ["Suspended browsers", String([...state.browserViews.values()].filter((session) => session.suspended).length)],
+    ["Browser activity", browserPaneActivityDetailLabel(browserActivity)],
+    ["Live browsers", String(browserActivity.live)],
+    ["Inactive live browsers", String(browserActivity.inactiveLive)],
+    ["Suspended browsers", String(browserActivity.suspended)],
+    ["Deferred browsers", String(browserPaneActivityDeferredCount(browserActivity))],
     ["Guard", state.settings.performanceMode ? "On" : state.settings.adaptivePerformance ? "Watching" : "Off"],
     ["Workspaces", String(workspaces.length)],
     ["Panes", String(panels.length)],
@@ -22332,6 +22337,92 @@ function performanceBackgroundWorkload(workspace = activeWorkspace()) {
   };
 }
 
+function browserPaneActivityModel() {
+  const browserPanels = allPanels().filter((panel) => panel.type === "browser" && !isPendingPanel(panel));
+  const browserPanelIds = new Set(browserPanels.map((panel) => panel.id));
+  const visibleIds = visiblePanePanelIds();
+  const activePanelId = activeWorkspace()?.activePanelId || "";
+  const sessions = [...state.browserViews.values()]
+    .filter((session) => session?.panelId && browserPanelIds.has(session.panelId));
+  const cachedIds = new Set();
+  const activity = {
+    open: browserPanels.length,
+    cached: sessions.length,
+    activeLive: 0,
+    visibleInactiveLive: 0,
+    hiddenLive: 0,
+    suspended: 0,
+    deferred: 0,
+    unloaded: 0,
+    live: 0,
+    inactiveLive: 0
+  };
+  for (const session of sessions) {
+    cachedIds.add(session.panelId);
+    const visible = visibleIds.has(session.panelId);
+    const active = visible && session.panelId === activePanelId;
+    if (session.suspended) {
+      activity.suspended += 1;
+    } else if (session.loadDeferred) {
+      activity.deferred += 1;
+    } else if (active) {
+      activity.activeLive += 1;
+    } else if (visible) {
+      activity.visibleInactiveLive += 1;
+    } else {
+      activity.hiddenLive += 1;
+    }
+  }
+  activity.unloaded = Math.max(0, activity.open - cachedIds.size);
+  activity.live = activity.activeLive + activity.visibleInactiveLive + activity.hiddenLive;
+  activity.inactiveLive = activity.visibleInactiveLive + activity.hiddenLive;
+  return activity;
+}
+
+function browserPaneActivityDeferredCount(activity = browserPaneActivityModel()) {
+  return activity.deferred + activity.unloaded;
+}
+
+function browserPaneActivityOverviewLabel(activity = browserPaneActivityModel()) {
+  if (!activity.open) return "None";
+  const deferred = browserPaneActivityDeferredCount(activity);
+  const parts = [];
+  if (activity.live) parts.push(`${activity.live} live`);
+  if (activity.inactiveLive) parts.push(`${activity.inactiveLive} inactive`);
+  if (activity.suspended) parts.push(`${activity.suspended} suspended`);
+  if (deferred) parts.push(`${deferred} deferred`);
+  return parts.length ? parts.join(" / ") : `${activity.open} idle`;
+}
+
+function browserPaneActivityDetailLabel(activity = browserPaneActivityModel()) {
+  if (!activity.open) return "No browser panes";
+  const deferred = browserPaneActivityDeferredCount(activity);
+  const parts = [`${activity.open} pane${activity.open === 1 ? "" : "s"}`];
+  if (activity.live) parts.push(`${activity.live} live`);
+  if (activity.inactiveLive) parts.push(`${activity.inactiveLive} inactive`);
+  if (activity.suspended) parts.push(`${activity.suspended} suspended`);
+  if (deferred) parts.push(`${deferred} deferred`);
+  return parts.join(" / ");
+}
+
+function browserPaneActivityHealthMeta(activity = browserPaneActivityModel()) {
+  if (!activity.open) return "No browser panes";
+  const deferred = browserPaneActivityDeferredCount(activity);
+  if (state.settings.browserSuspendInactive) {
+    if (activity.suspended) return `${activity.suspended} suspended / ${activity.live} live`;
+    if (deferred) return `${activity.open} pane${activity.open === 1 ? "" : "s"} / ${deferred} deferred`;
+    return activity.open === 1 ? "Single browser live" : `${activity.open} panes / suspension ready`;
+  }
+  if (activity.inactiveLive) return `${activity.inactiveLive} inactive live / ${activity.open} pane${activity.open === 1 ? "" : "s"}`;
+  return activity.open === 1 ? "Single browser live" : `${activity.open} panes / suspension off`;
+}
+
+function browserPaneActivityNeedsSuspension() {
+  if (state.settings.browserSuspendInactive) return false;
+  const activity = browserPaneActivityModel();
+  return activity.inactiveLive > 0 || activity.open > 1;
+}
+
 const performanceHealthCheckDefinitions = [
   {
     id: "adaptiveGuard",
@@ -22594,10 +22685,10 @@ const performanceHealthCheckDefinitions = [
     body: "Suspends inactive browser panes to reduce background webview work.",
     actionLabel: "Suspend",
     readyLabel: "Suspended",
-    issue: () => !state.settings.browserSuspendInactive,
-    meta: () => state.settings.browserSuspendInactive ? "Suspended" : "Live",
+    issue: () => browserPaneActivityNeedsSuspension(),
+    meta: () => browserPaneActivityHealthMeta(),
     updates: () => ({ browserSuspendInactive: true }),
-    search: "browser webview hidden inactive suspend memory lag"
+    search: "browser webview hidden inactive visible live suspend suspended deferred memory lag"
   }
 ];
 
@@ -26104,11 +26195,13 @@ function performanceTuningPresetGrid() {
 
 function performanceOverviewModel() {
   updateTerminalOutputBacklog();
+  const browserActivity = browserPaneActivityModel();
   const queuedBytes = state.terminalOutputStats.currentQueued || 0;
   const lastRenderMs = state.renderStats.lastMs || 0;
   const avgRenderMs = state.renderStats.avgMs || 0;
   const pendingPanes = state.pendingPanels.size;
   const pausedOutput = pausedTerminalOutputCount();
+  const liveInactiveBrowsers = state.settings.browserSuspendInactive ? 0 : browserActivity.inactiveLive;
   const guard = state.settings.performanceMode
     ? "Tuned"
     : state.settings.adaptivePerformance
@@ -26123,7 +26216,7 @@ function performanceOverviewModel() {
     || state.terminalConnectStats.avgMs >= performanceGuardSlowTerminalConnectMs;
   const status = state.settings.performanceMode
     ? "tuned"
-    : hasBacklog || verySlowRender || slowPaneAdd || slowShellConnect
+    : hasBacklog || verySlowRender || slowPaneAdd || slowShellConnect || liveInactiveBrowsers > 0
       ? "warning"
       : slowRender || pendingPanes > 0
         ? "watching"
@@ -26137,6 +26230,7 @@ function performanceOverviewModel() {
         : "Running steady";
   const reason = performanceOverviewReason({
     hasBacklog,
+    liveInactiveBrowsers,
     pendingPanes,
     slowPaneAdd,
     slowRender,
@@ -26154,12 +26248,14 @@ function performanceOverviewModel() {
     paneAdd: durationMetric(state.paneCreateStats),
     startup: optionLabel(terminalStartupOptions, state.settings.terminalStartupMode, "Fast"),
     paused: pausedOutput ? `${pausedOutput} paused` : "None",
+    browsers: browserPaneActivityOverviewLabel(browserActivity),
     pending: pendingPanes ? `${pendingPanes} pending` : "None"
   };
 }
 
 function performanceOverviewReason({
   hasBacklog = false,
+  liveInactiveBrowsers = 0,
   pendingPanes = 0,
   slowPaneAdd = false,
   slowRender = false,
@@ -26172,6 +26268,7 @@ function performanceOverviewReason({
   if (verySlowRender) return "Rendering is taking longer than expected.";
   if (slowPaneAdd) return "New panes are taking longer than expected.";
   if (slowShellConnect) return "Terminal shell connection is taking longer than expected.";
+  if (liveInactiveBrowsers > 0) return `${liveInactiveBrowsers} inactive browser pane${liveInactiveBrowsers === 1 ? "" : "s"} still live.`;
   if (slowRender) return "Rendering is being watched for repeated slow frames.";
   if (pendingPanes > 0) return "Pane creation is still in progress.";
   if (state.settings.adaptivePerformance) return "Adaptive guard will tune if rendering, output, or pane startup stalls.";
@@ -26239,9 +26336,10 @@ function schedulePerformanceMetricsRefresh() {
 
 function refreshPerformanceMetricsGrid() {
   const overviewChanged = refreshPerformanceOverviewPanel();
+  const healthChanged = refreshPerformanceHealthPanel();
   const presetsChanged = refreshPerformanceTuningPresetGrid();
   const grid = elements.inspectorBody.querySelector('[data-performance-metrics="true"]');
-  if (!grid) return overviewChanged || presetsChanged;
+  if (!grid) return overviewChanged || healthChanged || presetsChanged;
   const metrics = performanceMetrics();
   const cards = [...grid.querySelectorAll(".settings-metric")];
   if (cards.length !== metrics.length) {
@@ -26261,7 +26359,7 @@ function refreshPerformanceMetricsGrid() {
     changed = setTextIfChanged(card.querySelector(".settings-metric-value"), value) || changed;
     changed = setTextIfChanged(card.querySelector(".settings-metric-label"), label) || changed;
   }
-  return overviewChanged || presetsChanged || changed;
+  return overviewChanged || healthChanged || presetsChanged || changed;
 }
 
 function paneShapePanel(workspace = activeWorkspace()) {
