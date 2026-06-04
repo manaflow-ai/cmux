@@ -6654,6 +6654,7 @@ const backgroundPaletteCommandIds = new Set([
 ]);
 
 const customizationPaletteCommandIds = new Set([
+  "settings.open",
   "settings.copyAppSetup",
   "settings.pasteAppSetup",
   "settings.copyRecentActivity",
@@ -6680,6 +6681,13 @@ const customizationPaletteCommandIds = new Set([
   "settings.pastePerformanceSetup",
   "settings.copyDiagnostics",
   "settings.resetPerformanceSetup",
+  "settings.performance",
+  "settings.actions",
+  "settings.commands",
+  "settings.profiles",
+  "settings.terminal",
+  "settings.colors",
+  "settings.backgrounds",
   "settings.resetAppearance",
   "settings.copyLook",
   "settings.pasteLook",
@@ -6707,6 +6715,14 @@ const customizationPaletteCommandIds = new Set([
   "settings.pasteSavedBackgrounds"
 ]);
 
+const settingsCategoryCommandTargets = new Map([
+  ["settings.performance", { category: "performance", label: "Performance" }],
+  ["settings.actions", { category: "actions", label: "Actions" }],
+  ["settings.commands", { category: "commands", label: "Commands" }],
+  ["settings.profiles", { category: "profiles", label: "Profiles" }],
+  ["settings.terminal", { category: "terminal", label: "Terminal" }]
+]);
+
 function customizationCommandPaletteSignature() {
   const parts = [];
   appendSignatureValue(parts, totalDataStorageBytes());
@@ -6716,6 +6732,9 @@ function customizationCommandPaletteSignature() {
   appendSignatureValue(parts, state.recentBrowserPages.length);
   appendSignatureValue(parts, state.customCommandSnippets.length);
   appendSignatureValue(parts, customCommandSnippetsFull());
+  appendSignatureValue(parts, state.inspectorMode || "");
+  appendSignatureValue(parts, state.settingsCategory || "");
+  appendSignatureValue(parts, normalizeSettingsQuery(state.settingsQuery || ""));
   appendSignatureValue(parts, state.savedSettingsProfiles.length);
   appendSignatureValue(parts, activeSettingsSetupLabel());
   appendSignatureValue(parts, settingsProfileSummary(state.settings));
@@ -6788,10 +6807,62 @@ function customizationResetCommandPaletteState({ isDefault, meta, icon = "layout
   };
 }
 
+function settingsCategoryCommandPaletteState(commandId) {
+  if (commandId === "settings.open") {
+    const active = state.inspectorMode === "settings";
+    const category = settingsCategoryLabel(state.settingsCategory);
+    return {
+      meta: active ? `${category} settings` : activeSettingsSetupLabel(),
+      shortcut: active ? "Active" : "Open",
+      active,
+      disabled: active,
+      icon: "settings",
+      title: active ? `${category} settings are already open.` : "Open Settings.",
+      search: normalizeSettingsQuery(`settings preferences customize open ${active ? "active current " : ""}${category} ${activeSettingsSetupLabel()}`)
+    };
+  }
+  if (commandId === "settings.colors") {
+    const query = normalizeSettingsQuery(state.settingsQuery || "");
+    const active = state.inspectorMode === "settings" && state.settingsCategory === "appearance" && query.includes("color");
+    return {
+      meta: `${accentModeLabel()} / ${state.customColorPalette.length}/${customColorPaletteLimit} saved`,
+      shortcut: active ? "Active" : "Open",
+      active,
+      disabled: active,
+      icon: "appearance",
+      title: active ? "Color settings are already open." : "Open color controls in Look settings.",
+      search: normalizeSettingsQuery(`settings look appearance color colors accent palette terminal current saved custom ${active ? "active current " : ""}${accentModeLabel()}`)
+    };
+  }
+  if (commandId === "settings.backgrounds") {
+    const query = normalizeSettingsQuery(state.settingsQuery || "");
+    const active = state.inspectorMode === "settings" && state.settingsCategory === "appearance" && query.includes("background");
+    const background = appearanceBackgroundLabel(state.settings.backgroundImage);
+    return {
+      meta: `${background} / ${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved`,
+      shortcut: active ? "Active" : "Open",
+      active,
+      disabled: active,
+      icon: "background",
+      title: active ? "Background settings are already open." : "Open background image controls in Look settings.",
+      search: normalizeSettingsQuery(`settings look appearance background image wallpaper saved fit opacity blur effects chrome ${active ? "active current " : ""}${background}`)
+    };
+  }
+  const target = settingsCategoryCommandTargets.get(commandId);
+  if (!target) return null;
+  const categoryState = settingsCategoryPaletteState(target.category, target.label);
+  return {
+    ...categoryState,
+    id: commandId
+  };
+}
+
 function customizationCommandPaletteState(commandId) {
   if (!customizationPaletteCommandIds.has(commandId)) return null;
   const colorState = customizationColorCommandPaletteState(commandId);
   if (colorState) return colorState;
+  const categoryState = settingsCategoryCommandPaletteState(commandId);
+  if (categoryState) return categoryState;
   const savedCount = savedDataItemCount();
   const savedLabel = `${savedCount} saved item${savedCount === 1 ? "" : "s"}`;
   const recentCount = recentDataItemCount();
@@ -30545,11 +30616,22 @@ function settingsCategoryPaletteState(id, label) {
   const workspace = activeWorkspace();
   const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
   const chromeSummary = workspaceChromeSummaryForSettings(state.settings);
+  const terminalSummary = terminalSetupSummaryForSettings(state.settings);
   const categoryState = {
     quick: {
       meta: activeSettingsSetupLabel(),
       icon: "quick",
       search: "quick setup overview presets clean fast setup map customization library import export"
+    },
+    profiles: {
+      meta: `${savedSettingsProfileCountLabel()} profiles / ${activeSettingsSetupLabel()}`,
+      icon: "profiles",
+      search: "settings profiles saved reusable setup current profile save apply copy paste import export"
+    },
+    blueprints: {
+      meta: `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} blueprints`,
+      icon: "blueprints",
+      search: "workspace blueprints saved layout starter template panes terminal browser save apply copy paste import export"
     },
     workspace: {
       meta: `${workspaceCountLabel()} / ${workspaceTitle}`,
@@ -30570,6 +30652,26 @@ function settingsCategoryPaletteState(id, label) {
       meta: `${activeWorkspaceChromePresetLabel()} / ${chromeSummary.toolbar} toolbar`,
       icon: "layout",
       search: `layout workspace chrome tabs panes sidebar toolbar status panel widths blueprints ${chromeSummary.density} ${chromeSummary.toolbar} ${chromeSummary.tabs} ${chromeSummary.widths}`
+    },
+    performance: {
+      meta: `${performanceModeLabel()} / ${performanceHealthIssueCountLabel()}`,
+      icon: "speed",
+      search: "performance speed lag smooth tuning diagnostics health clean fast motion output terminal browser chrome history"
+    },
+    actions: {
+      meta: `${commands.length} actions / ${commandShortcutCount()} shortcuts`,
+      icon: "actions",
+      search: "actions commands shortcuts keyboard palette runnable tools workflow command list groups"
+    },
+    commands: {
+      meta: `${state.customCommandSnippets.length}/${customCommandSnippetsLimit} snippets`,
+      icon: "commands",
+      search: "command snippets terminal shell git github cli saved custom built in paste import run"
+    },
+    terminal: {
+      meta: `${terminalSummary.font} / ${terminalSummary.shell}`,
+      icon: "terminal",
+      search: "terminal font size line height padding history scrollback cursor shell startup colors profile"
     },
     data: {
       meta: `${recentDataItemCount()} recent / ${savedDataItemCount()} saved`,
