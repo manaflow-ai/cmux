@@ -33878,11 +33878,19 @@ function flushPaletteRender() {
 function paletteEntriesForOpenSession() {
   const signature = paletteEntriesSignature();
   if (!state.paletteEntriesCache || state.paletteEntriesCacheSignature !== signature) {
-    state.paletteEntriesCache = paletteEntries();
+    state.paletteEntriesCache = preparePaletteEntries(paletteEntries());
     state.paletteEntriesCacheSignature = signature;
     state.paletteListSignature = "";
   }
   return state.paletteEntriesCache;
+}
+
+function preparePaletteEntries(entries) {
+  for (const entry of entries) {
+    entry.search = normalizeSettingsQuery(entry.search);
+    entry.labelSearch = normalizeSettingsQuery(entry.label);
+  }
+  return entries;
 }
 
 function paletteEntriesSignature() {
@@ -34116,18 +34124,18 @@ function renderPalette() {
 function paletteEntriesForQuery(query, tokens) {
   const entries = paletteEntriesForOpenSession();
   if (!query) return entries;
-  return entries
-    .map((entry, index) => {
-      if (!paletteEntryMatches(entry, tokens)) return null;
-      return {
-        entry,
-        index,
-        score: paletteEntryScore(entry, query, tokens)
-      };
-    })
-    .filter(Boolean)
-    .sort((left, right) => right.score - left.score || left.index - right.index)
-    .map(({ entry }) => entry);
+  const matches = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (!paletteEntryMatches(entry, tokens)) continue;
+    matches.push({
+      entry,
+      index,
+      score: paletteEntryScore(entry, query, tokens)
+    });
+  }
+  matches.sort((left, right) => right.score - left.score || left.index - right.index);
+  return matches.map(({ entry }) => entry);
 }
 
 function paletteListSignature(query, entries, totalCount = entries.length) {
@@ -34231,7 +34239,7 @@ function paletteEntryScore(entry, query, tokens) {
   let score = 0;
   if (entry.search.includes(query)) score += 8;
   if (entry.search.startsWith(query)) score += 4;
-  const label = normalizeSettingsQuery(entry.label);
+  const label = entry.labelSearch || "";
   if (label.includes(query)) score += 2;
   if (tokens.every((group) => group.some((token) => label.includes(token)))) score += 2;
   return score;
