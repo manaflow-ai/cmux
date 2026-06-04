@@ -1553,6 +1553,7 @@ final class SocketClient {
 
     private let path: String
     private var socketFD: Int32 = -1
+    private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
@@ -1683,11 +1684,17 @@ final class SocketClient {
         }
     }
 
+    func connectWithoutRetry(responseTimeout: TimeInterval? = nil) throws {
+        if socketFD >= 0 { return }
+        try connectOnce(responseTimeout: responseTimeout)
+    }
+
     func close() {
         if socketFD >= 0 {
             Darwin.close(socketFD)
             socketFD = -1
         }
+        lastConfiguredReceiveTimeout = nil
     }
 
     func send(command: String, responseTimeout: TimeInterval? = nil) throws -> String {
@@ -1703,6 +1710,10 @@ final class SocketClient {
         }
 
         let initialResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
+        if lastConfiguredReceiveTimeout != initialResponseTimeout {
+            try configureReceiveTimeout(initialResponseTimeout)
+        }
+        _ = try? configureSocketWriteSafety(initialResponseTimeout)
         var operation = CLISocketOperationTelemetry.State(
             name: CLISocketOperationTelemetry.operationName(for: command),
             timeout: initialResponseTimeout,
@@ -1789,9 +1800,47 @@ final class SocketClient {
         return response
     }
 
-    private func connectOnce() throws {
+    func sendOneWay(command: String, writeTimeout: TimeInterval) throws {
+        if relayEndpoint != nil, socketFD < 0 {
+            try connect()
+        }
+        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        let shouldCloseAfterSend = relayEndpoint != nil
+
+        try configureSocketWriteSafety(writeTimeout)
+        var operation = CLISocketOperationTelemetry.State(
+            name: CLISocketOperationTelemetry.operationName(for: command),
+            timeout: writeTimeout,
+            startedAt: Date(),
+            phase: .writeRequest
+        )
+        recordOperation(operation)
+
+        do {
+            try writeAllNonBlocking(
+                Data((command + "\n").utf8),
+                deadline: Date().addingTimeInterval(writeTimeout),
+                timeoutMessage: "Command timed out",
+                failureMessage: "Failed to write to socket"
+            )
+        } catch {
+            close()
+            throw error
+        }
+        operation.phase = .completed
+        recordOperation(operation)
+        if shouldCloseAfterSend {
+            close()
+        } else {
+            if (try? configureSocketWriteSafety(Self.responseTimeoutSeconds)) == nil {
+                close()
+            }
+        }
+    }
+
+    private func connectOnce(responseTimeout: TimeInterval? = nil) throws {
         if let relayEndpoint {
-            try connectToRelay(endpoint: relayEndpoint)
+            try connectToRelay(endpoint: relayEndpoint, responseTimeout: responseTimeout)
             return
         }
 
@@ -1812,7 +1861,9 @@ final class SocketClient {
             throw CLIError(message: "Failed to create socket")
         }
         do {
-            try configureSocketWriteSafety(Self.responseTimeoutSeconds)
+            let timeout = responseTimeout ?? Self.responseTimeoutSeconds
+            try configureSocketWriteSafety(timeout)
+            try configureReceiveTimeout(timeout)
         } catch {
             close()
             throw error
@@ -1919,15 +1970,17 @@ final class SocketClient {
         data.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func connectToRelay(endpoint: RelayEndpoint) throws {
+    private func connectToRelay(endpoint: RelayEndpoint, responseTimeout: TimeInterval? = nil) throws {
         let credentials = try Self.relayCredentials(for: endpoint)
+        let timeout = responseTimeout ?? Self.responseTimeoutSeconds
 
         socketFD = socket(AF_INET, SOCK_STREAM, 0)
         guard socketFD >= 0 else {
             throw CLIError(message: "Failed to create relay socket")
         }
         do {
-            try configureSocketWriteSafety(Self.responseTimeoutSeconds)
+            try configureSocketWriteSafety(timeout)
+            try configureReceiveTimeout(timeout)
         } catch {
             close()
             throw error
@@ -1961,15 +2014,15 @@ final class SocketClient {
         }
 
         do {
-            try authenticateRelay(credentials: credentials)
+            try authenticateRelay(credentials: credentials, responseTimeout: timeout)
         } catch {
             close()
             throw error
         }
     }
 
-    private func authenticateRelay(credentials: RelayCredentials) throws {
-        let challengeLine = try readLine()
+    private func authenticateRelay(credentials: RelayCredentials, responseTimeout: TimeInterval) throws {
+        let challengeLine = try readLine(responseTimeout: responseTimeout)
         guard let challengeData = challengeLine.data(using: .utf8),
               let challenge = try JSONSerialization.jsonObject(with: challengeData) as? [String: Any],
               (challenge["protocol"] as? String) == "cmux-relay-auth",
@@ -1994,7 +2047,7 @@ final class SocketClient {
             failureMessage: "Failed to write to relay socket"
         )
 
-        let authResponseLine = try readLine()
+        let authResponseLine = try readLine(responseTimeout: responseTimeout)
         guard let authResponseData = authResponseLine.data(using: .utf8),
               let authResponse = try JSONSerialization.jsonObject(with: authResponseData) as? [String: Any],
               (authResponse["ok"] as? Bool) == true else {
@@ -2037,6 +2090,82 @@ final class SocketClient {
         }
     }
 
+    private func writeAllNonBlocking(
+        _ data: Data,
+        deadline: Date,
+        timeoutMessage: String,
+        failureMessage: String
+    ) throws {
+        let originalFlags = fcntl(socketFD, F_GETFL, 0)
+        guard originalFlags >= 0 else {
+            throw CLIError(message: failureMessage)
+        }
+        guard fcntl(socketFD, F_SETFL, originalFlags | O_NONBLOCK) == 0 else {
+            throw CLIError(message: failureMessage)
+        }
+        defer {
+            if socketFD >= 0 {
+                _ = fcntl(socketFD, F_SETFL, originalFlags)
+            }
+        }
+
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                return
+            }
+            var offset = 0
+            while offset < data.count {
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else {
+                    close()
+                    throw CLIError(message: timeoutMessage)
+                }
+
+                var descriptor = pollfd(fd: socketFD, events: Int16(POLLOUT), revents: 0)
+                let timeoutMillis = min(max(Int(ceil(remaining * 1000)), 0), Int(Int32.max))
+                let ready = Darwin.poll(&descriptor, 1, Int32(timeoutMillis))
+                if ready < 0 {
+                    let errorCode = errno
+                    if errorCode == EINTR { continue }
+                    close()
+                    let reason = String(cString: strerror(errorCode))
+                    throw CLIError(message: "\(failureMessage) (\(reason), errno \(errorCode))")
+                }
+                if ready == 0 {
+                    close()
+                    throw CLIError(message: timeoutMessage)
+                }
+                let terminalEvents = Int16(POLLHUP | POLLERR | POLLNVAL)
+                if descriptor.revents & terminalEvents != 0 {
+                    close()
+                    throw CLIError(message: failureMessage)
+                }
+                guard descriptor.revents & Int16(POLLOUT) != 0 else {
+                    continue
+                }
+
+                let written = Darwin.write(socketFD, baseAddress.advanced(by: offset), data.count - offset)
+                if written < 0 {
+                    let errorCode = errno
+                    if errorCode == EINTR || errorCode == EAGAIN || errorCode == EWOULDBLOCK {
+                        continue
+                    }
+                    close()
+                    if errorCode == ETIMEDOUT {
+                        throw CLIError(message: timeoutMessage)
+                    }
+                    let reason = String(cString: strerror(errorCode))
+                    throw CLIError(message: "\(failureMessage) (\(reason), errno \(errorCode))")
+                }
+                if written == 0 {
+                    close()
+                    throw CLIError(message: failureMessage)
+                }
+                offset += written
+            }
+        }
+    }
+
     private func configureSocketWriteSafety(_ timeout: TimeInterval) throws {
         var interval = Self.socketTimeval(for: timeout)
         let sendTimeoutResult = withUnsafePointer(to: &interval) { ptr in
@@ -2069,13 +2198,11 @@ final class SocketClient {
 #endif
     }
 
-    private func readLine(maxBytes: Int = 16 * 1024) throws -> String {
+    private func readLine(maxBytes: Int = 16 * 1024, responseTimeout: TimeInterval? = nil) throws -> String {
         var data = Data()
 
         while data.count < maxBytes {
-            if try !waitForReadable(timeout: Self.responseTimeoutSeconds) {
-                throw CLIError(message: "Relay command timed out")
-            }
+            try configureReceiveTimeout(responseTimeout ?? Self.responseTimeoutSeconds)
 
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)
@@ -2104,6 +2231,25 @@ final class SocketClient {
             throw CLIError(message: "Invalid UTF-8 relay response")
         }
         return line.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func configureReceiveTimeout(_ timeout: TimeInterval) throws {
+        var interval = Self.socketTimeval(for: timeout)
+        let result = withUnsafePointer(to: &interval) { ptr in
+            setsockopt(
+                socketFD,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                ptr,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+        guard result == 0 else {
+            let errorCode = errno
+            let reason = String(cString: strerror(errorCode))
+            throw CLIError(message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))")
+        }
+        lastConfiguredReceiveTimeout = timeout
     }
 
     private func waitForReadable(timeout: TimeInterval) throws -> Bool {
@@ -3080,6 +3226,24 @@ struct CMUXCLI {
                 print("{}")
                 return
             }
+            if commandArgs.first?.lowercased() == "feed" {
+                try runFeedHook(
+                    commandArgs: Array(commandArgs.dropFirst()),
+                    socketPath: resolvedSocketPath,
+                    socketPassword: socketPasswordArg,
+                    telemetry: cliTelemetry
+                )
+                return
+            }
+        }
+        if command == "feed-hook" {
+            try runFeedHook(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                socketPassword: socketPasswordArg,
+                telemetry: cliTelemetry
+            )
+            return
         }
 
         // Feed helpers: clear the persistent workstream history.
@@ -4461,10 +4625,17 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
+        case "sidebar":
+            try runSidebarCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput
+            )
+
         case "claude-hook":
             cliTelemetry.breadcrumb("claude-hook.dispatch")
             do {
-                try runClaudeHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+                try runClaudeHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
                 cliTelemetry.breadcrumb("claude-hook.completed")
             } catch {
                 cliTelemetry.breadcrumb("claude-hook.failure")
@@ -4473,11 +4644,11 @@ struct CMUXCLI {
             }
         case "codex-hook": // Backwards compatibility for older installed Codex hooks. Hidden from help.
             guard let codexDef = Self.agentDef(named: "codex") else { print("{}"); return }
-            try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+            try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
             try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "hooks":
-            try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+            try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
 
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
@@ -4947,6 +5118,7 @@ struct CMUXCLI {
         "setup-hooks",
         "shortcuts",
         "simulate-app-active",
+        "sidebar",
         "sidebar-state",
         "split-off",
         "ssh",
@@ -5283,13 +5455,14 @@ struct CMUXCLI {
     func authenticateClientIfNeeded(
         _ client: SocketClient,
         explicitPassword: String?,
-        socketPath: String
+        socketPath: String,
+        responseTimeout: TimeInterval? = nil
     ) throws {
         if let socketPassword = SocketPasswordResolver.resolve(
             explicit: explicitPassword,
             socketPath: socketPath
         ) {
-            let authResponse = try client.send(command: "auth \(socketPassword)")
+            let authResponse = try client.send(command: "auth \(socketPassword)", responseTimeout: responseTimeout)
             if authResponse.hasPrefix("ERROR:"),
                !authResponse.contains("Unknown command 'auth'") {
                 throw CLIError(message: authResponse)
@@ -14358,6 +14531,23 @@ struct CMUXCLI {
               cmux right-sidebar set vault --no-focus
               cmux right-sidebar mode
             """)
+        case "sidebar":
+            return String(localized: "cli.sidebar.usage", defaultValue: """
+            Usage: cmux sidebar <validate|reload|select> [name|--all] [--json]
+
+            Validate, reload, or select custom left sidebars from ~/.config/cmux/sidebars.
+            Swift files win over JSON files with the same base name.
+
+            Commands:
+              validate [name]   Validate all custom sidebars, or one named sidebar
+              reload [name]     Validate all sidebars, then reload every valid one
+              select <name>     Validate and activate one custom sidebar
+
+            Examples:
+              cmux sidebar validate
+              cmux sidebar reload --all
+              cmux sidebar select finder.tree
+            """)
         case "set-app-focus":
             return """
             Usage: cmux set-app-focus <active|inactive|clear>
@@ -14783,6 +14973,174 @@ struct CMUXCLI {
         if parsed.positional.first?.lowercased() == "mode" {
             print(response)
         }
+    }
+
+    private func runSidebarCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput inheritedJSONOutput: Bool
+    ) throws {
+        var args = commandArgs
+        var jsonOutput = inheritedJSONOutput
+        var explicitAll = false
+        args.removeAll { arg in
+            if arg == "--json" {
+                jsonOutput = true
+                return true
+            }
+            if arg == "--all" {
+                explicitAll = true
+                return true
+            }
+            return false
+        }
+
+        guard let action = args.first?.lowercased() else {
+            throw CLIError(
+                message: String(
+                    localized: "cli.sidebar.error.missingCommand",
+                    defaultValue: "sidebar requires a subcommand: validate, reload, or select"
+                )
+            )
+        }
+
+        let remaining = Array(args.dropFirst())
+        let method: String
+        var params: [String: Any] = [:]
+
+        switch action {
+        case "validate", "reload":
+            guard remaining.count <= 1 else {
+                throw CLIError(
+                    message: String(
+                        format: String(
+                            localized: "cli.sidebar.error.unexpectedArguments",
+                            defaultValue: "sidebar %@ accepts at most one sidebar name"
+                        ),
+                        action
+                    )
+                )
+            }
+            guard !(explicitAll && !remaining.isEmpty) else {
+                throw CLIError(
+                    message: String(
+                        format: String(
+                            localized: "cli.sidebar.error.allWithName",
+                            defaultValue: "sidebar %@: use either --all or a sidebar name, not both"
+                        ),
+                        action
+                    )
+                )
+            }
+            if let name = remaining.first { params["name"] = name }
+            method = action == "validate" ? "sidebar.custom.validate" : "sidebar.custom.reload"
+
+        case "select":
+            guard !explicitAll else {
+                throw CLIError(
+                    message: String(
+                        localized: "cli.sidebar.error.selectAll",
+                        defaultValue: "sidebar select does not support --all"
+                    )
+                )
+            }
+            guard remaining.count == 1 else {
+                throw CLIError(
+                    message: String(
+                        localized: "cli.sidebar.error.selectRequiresName",
+                        defaultValue: "sidebar select requires one sidebar name"
+                    )
+                )
+            }
+            params["name"] = remaining[0]
+            method = "sidebar.custom.select"
+
+        default:
+            throw CLIError(
+                message: String(
+                    format: String(
+                        localized: "cli.sidebar.error.unknownCommand",
+                        defaultValue: "Unknown sidebar command '%@'"
+                    ),
+                    action
+                )
+            )
+        }
+
+        let payload = try client.sendV2(method: method, params: params)
+        if jsonOutput {
+            print(jsonString(payload))
+        } else {
+            printSidebarReport(payload, action: action)
+        }
+
+        let errorCount = intValue(payload["error_count"])
+        if errorCount > 0 {
+            exit(1)
+        }
+    }
+
+    private func printSidebarReport(_ payload: [String: Any], action: String) {
+        let sidebars = payload["sidebars"] as? [[String: Any]] ?? []
+        if sidebars.isEmpty {
+            print(String(localized: "cli.sidebar.noSidebars", defaultValue: "No custom sidebars found."))
+        }
+        for sidebar in sidebars {
+            let name = (sidebar["name"] as? String) ?? "(unknown)"
+            let path = (sidebar["path"] as? String) ?? ""
+            let kind = (sidebar["kind"] as? String) ?? ""
+            let ok = boolValue(sidebar["ok"])
+            if ok {
+                print(String(
+                    format: String(localized: "cli.sidebar.report.ok", defaultValue: "OK %@ [%@] %@"),
+                    name,
+                    kind,
+                    path
+                ))
+            } else {
+                let error = (sidebar["error"] as? String) ?? String(localized: "cli.sidebar.unknownError", defaultValue: "Unknown error")
+                print(String(
+                    format: String(localized: "cli.sidebar.report.error", defaultValue: "ERROR %@ [%@] %@: %@"),
+                    name,
+                    kind,
+                    path,
+                    error
+                ))
+            }
+        }
+
+        let validCount = intValue(payload["valid_count"])
+        let errorCount = intValue(payload["error_count"])
+        if action == "reload" {
+            let reloadedCount = intValue(payload["reloaded_count"])
+            print(String(
+                format: String(localized: "cli.sidebar.report.reloadSummary", defaultValue: "Reloaded %d valid sidebars. %d valid, %d invalid."),
+                reloadedCount,
+                validCount,
+                errorCount
+            ))
+        } else if action == "select", let selectedName = payload["selected_name"] as? String {
+            print(String(
+                format: String(localized: "cli.sidebar.report.selected", defaultValue: "Selected %@."),
+                selectedName
+            ))
+        } else {
+            print(String(
+                format: String(localized: "cli.sidebar.report.summary", defaultValue: "%d valid, %d invalid."),
+                validCount,
+                errorCount
+            ))
+        }
+    }
+
+    private func intValue(_ raw: Any?) -> Int {
+        if let value = Self.intValue(raw) { return value }
+        if let value = raw as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0 }
+        return 0
+    }
+
+    private func boolValue(_ raw: Any?) -> Bool {
+        Self.boolValue(raw)
     }
 
     private func parseRightSidebarCLIArguments(_ args: [String]) throws -> RightSidebarCLIArguments {
@@ -20755,7 +21113,8 @@ struct CMUXCLI {
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        socketPassword: String? = nil
     ) throws {
         let subcommand = commandArgs.first?.lowercased() ?? "help"
         let hookArgs = Array(commandArgs.dropFirst())
@@ -20783,7 +21142,8 @@ struct CMUXCLI {
                 source: "claude",
                 subcommand: subcommand,
                 parsedInput: parsedInput,
-                workspaceId: workspaceId ?? workspaceArg
+                workspaceId: workspaceId ?? workspaceArg,
+                socketPassword: socketPassword
             )
         }
         defer {
@@ -24418,11 +24778,20 @@ struct CMUXCLI {
         launchCommand: AgentHookLaunchCommandRecord?
     ) {
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
+        // Pin the resume binding to the directory the agent was *launched* in, not the drift-prone
+        // runtime cwd: cwd-namespaced agents (Claude, Grok, Gemini, …) file their session under the
+        // launch dir, so resuming from a worktree the agent later `cd`'d into fails with "No
+        // conversation found".
+        let resumeWorkingDirectory = AgentResumeWorkingDirectory().resolve(
+            kind: kind,
+            runtimeCwd: cwd,
+            launchWorkingDirectory: launchCommand?.workingDirectory
+        )
         guard let command = agentSurfaceResumeCommand(
             kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
-            workingDirectory: cwd,
+            workingDirectory: resumeWorkingDirectory,
             environment: resumeEnvironment
         ) else {
             clearAgentSurfaceResumeBinding(
@@ -24442,8 +24811,8 @@ struct CMUXCLI {
             "command": command,
             "auto_resume": true
         ]
-        if let cwd = normalizedHookValue(cwd) ?? normalizedHookValue(launchCommand?.workingDirectory) {
-            params["cwd"] = cwd
+        if let resumeWorkingDirectory {
+            params["cwd"] = resumeWorkingDirectory
         }
         if let resumeEnvironment, !resumeEnvironment.isEmpty {
             params["environment"] = resumeEnvironment
@@ -24479,46 +24848,21 @@ struct CMUXCLI {
         guard let normalizedSessionId else { return nil }
 
         let argv: [String]?
-        switch launchCommand?.launcher {
-        case "claudeTeams":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "cmux")
-            var tail = original.tail
-            let removedToken = tail.first == "claude-teams"
-            if removedToken { tail.removeFirst() }
-            argv = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: tail).map {
-                agentSurfaceResumePrefixedArguments(
-                    executable: original.executable,
-                    token: "claude-teams",
-                    option: "--resume",
-                    sessionId: normalizedSessionId,
-                    preserved: $0
-                )
-            }
-        case "omo":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "cmux")
-            var tail = original.tail
-            let removedToken = tail.first == "omo"
-            if removedToken { tail.removeFirst() }
-            argv = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: tail).map {
-                agentSurfaceResumePrefixedArguments(
-                    executable: original.executable,
-                    token: "omo",
-                    option: "--session",
-                    sessionId: normalizedSessionId,
-                    preserved: $0
-                )
-            }
-        case "codexTeams":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "cmux")
-            var tail = original.tail
-            if tail.first == "codex-teams" { tail.removeFirst() }
-            argv = AgentLaunchSanitizer.preservedCodexForkArguments(args: tail).map {
-                [original.executable, "codex-teams", "resume", normalizedSessionId] + $0
-            }
-        case "omx", "omc":
-            argv = nil
-        default:
-            argv = agentSurfaceResumeArguments(kind: kind, sessionId: normalizedSessionId, launchCommand: launchCommand)
+        switch AgentResumeArgv().launcherResolution(
+            launcher: launchCommand?.launcher,
+            sessionId: normalizedSessionId,
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
+        ) {
+        case .resolved(let resolved):
+            argv = resolved
+        case .passthrough:
+            argv = AgentResumeArgv().builtInKind(
+                kind: kind,
+                sessionId: normalizedSessionId,
+                executablePath: launchCommand?.executablePath,
+                arguments: launchCommand?.arguments ?? []
+            )
         }
 
         guard let argv, !argv.isEmpty else { return nil }
@@ -24528,102 +24872,6 @@ struct CMUXCLI {
             kind: kind,
             environment: environment
         )
-    }
-
-    private func agentSurfaceResumeArguments(
-        kind: String,
-        sessionId: String,
-        launchCommand: AgentHookLaunchCommandRecord?
-    ) -> [String]? {
-        switch kind {
-        case "claude":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "claude", option: "--resume", sessionId: sessionId)
-        case "codex":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            return AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail).map {
-                [original.executable, "resume", sessionId] + $0
-            }
-        case "pi":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "pi", option: "--session", sessionId: sessionId)
-        case "grok":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "grok", option: "-r", sessionId: sessionId)
-        case "amp":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "amp")
-            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
-                [original.executable, "threads", "continue"] + $0 + [sessionId]
-            }
-        case "cursor":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "cursor-agent", option: "--resume", sessionId: sessionId)
-        case "gemini":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "gemini", option: "--resume", sessionId: sessionId)
-        case "kiro":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "kiro-cli")
-            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
-                [original.executable, "chat", "--resume-id", sessionId] + $0
-            }
-        case "antigravity":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "agy", option: "--conversation", sessionId: sessionId)
-        case "opencode":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
-            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
-                [original.executable, "--session", sessionId] + $0
-            }
-        case "rovodev":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "acli")
-            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
-                [original.executable, "rovodev", "run", "--restore", sessionId] + $0
-            }
-        case "hermes-agent":
-            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "hermes")
-            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
-                [original.executable] + $0 + ["--resume", sessionId]
-            }
-        case "copilot":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "copilot", option: "--resume", sessionId: sessionId)
-        case "codebuddy":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "codebuddy", option: "--resume", sessionId: sessionId)
-        case "factory":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "droid", option: "--resume", sessionId: sessionId)
-        case "qoder":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "qodercli", option: "--resume", sessionId: sessionId)
-        default:
-            return nil
-        }
-    }
-
-    private func agentSurfaceResumeWithOption(
-        kind: String,
-        launchCommand: AgentHookLaunchCommandRecord?,
-        fallbackExecutable: String,
-        option: String,
-        sessionId: String
-    ) -> [String]? {
-        let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: fallbackExecutable)
-        return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
-            [original.executable, option, sessionId] + $0
-        }
-    }
-
-    private func agentSurfaceResumePrefixedArguments(
-        executable: String,
-        token: String,
-        option: String,
-        sessionId: String,
-        preserved: [String]
-    ) -> [String] {
-        [executable, token, option, sessionId] + preserved
-    }
-
-    private func agentSurfaceResumeCommandParts(
-        launchCommand: AgentHookLaunchCommandRecord?,
-        fallbackExecutable: String
-    ) -> (executable: String, tail: [String]) {
-        let arguments = launchCommand?.arguments ?? []
-        let executable = normalizedHookValue(launchCommand?.executablePath)
-            ?? arguments.first
-            ?? fallbackExecutable
-        let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
-        return (executable: executable, tail: tail)
     }
 
     private func agentSurfaceResumeShellCommand(
@@ -26706,6 +26954,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return nil
     }
 
+    private static func boolValue(_ value: Any?) -> Bool {
+        if let boolValue = value as? Bool {
+            return boolValue
+        }
+        if let number = value as? NSNumber {
+            return number.boolValue
+        }
+        if let string = value as? String {
+            return ["1", "true", "yes"].contains(string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        }
+        return false
+    }
+
     private static func tomlBasicStringContent(_ value: String) -> String {
         var escaped = ""
         escaped.reserveCapacity(value.count)
@@ -27070,7 +27331,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return normalizedHookValue(env["CMUX_SURFACE_ID"]) ?? ""
     }
 
-    private func runGenericAgentHook(def: AgentHookDef, commandArgs: [String], client: SocketClient, telemetry: CLISocketSentryTelemetry) throws {
+    private func runGenericAgentHook(
+        def: AgentHookDef,
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry,
+        socketPassword: String? = nil
+    ) throws {
         let env = ProcessInfo.processInfo.environment
         let subcommand = commandArgs.first?.lowercased() ?? ""
         let hookArgs = Array(commandArgs.dropFirst())
@@ -27305,7 +27572,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 source: def.name,
                 subcommand: subcommand,
                 parsedInput: input,
-                workspaceId: workspaceId ?? workspaceArg()
+                workspaceId: workspaceId ?? workspaceArg(),
+                socketPassword: socketPassword
             )
         }
         func shouldSuppressGenericFeedTelemetry() -> Bool {
@@ -28319,12 +28587,30 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     /// so session-start / prompt-submit / stop events show up in Feed's
     /// "All" view even when no permission/plan/question event fires.
     /// Failures are swallowed.
+    private func sendBestEffortFeedTelemetry(socketPath: String, line: String, socketPassword: String?) {
+        let oneWayClient = SocketClient(path: socketPath)
+        defer { oneWayClient.close() }
+        do {
+            try oneWayClient.connectWithoutRetry(responseTimeout: 0.05)
+            try authenticateClientIfNeeded(
+                oneWayClient,
+                explicitPassword: socketPassword,
+                socketPath: socketPath,
+                responseTimeout: 0.05
+            )
+            try oneWayClient.sendOneWay(command: line, writeTimeout: 0.05)
+        } catch {
+            return
+        }
+    }
+
     private func sendFeedTelemetry(
         client: SocketClient,
         source: String,
         subcommand: String,
         parsedInput: ClaudeHookParsedInput,
-        workspaceId: String? = nil
+        workspaceId: String? = nil,
+        socketPassword: String? = nil
     ) {
         let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
         guard !hookEventName.isEmpty else { return }
@@ -28373,7 +28659,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
 
         let frame: [String: Any] = [
-            "id": UUID().uuidString,
             "method": "feed.push",
             "params": [
                 "event": event,
@@ -28383,7 +28668,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let line = String(data: data, encoding: .utf8)
         else { return }
-        _ = try? client.send(command: line, responseTimeout: 0.75)
+        sendBestEffortFeedTelemetry(socketPath: client.socketPath, line: line, socketPassword: socketPassword)
     }
 
     private func feedContextForEvent(
@@ -30230,10 +30515,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     /// PermissionRequest.
     private func runFeedHook(
         commandArgs: [String],
-        client: SocketClient,
+        client: SocketClient? = nil,
+        socketPath: String? = nil,
+        socketPassword: String? = nil,
         telemetry: CLISocketSentryTelemetry
     ) throws {
-        _ = client
         _ = telemetry
         let source = optionValue(commandArgs, name: "--source") ?? ""
         guard !source.isEmpty else {
@@ -30355,18 +30641,61 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             "wait_timeout_seconds": waitTimeout,
         ]
 
-        let payload = try JSONSerialization.data(withJSONObject: [
-            "id": UUID().uuidString,
+        var request: [String: Any] = [
             "method": "feed.push",
             "params": params,
-        ])
+        ]
+        if waitTimeout > 0 {
+            request["id"] = UUID().uuidString
+        }
+        let payload = try JSONSerialization.data(withJSONObject: request)
         let line = String(data: payload, encoding: .utf8) ?? "{}"
+
+        if waitTimeout == 0 {
+            if let client {
+                _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
+            } else if let socketPath {
+                sendBestEffortFeedTelemetry(
+                    socketPath: socketPath,
+                    line: line,
+                    socketPassword: socketPassword
+                )
+            }
+            print("{}")
+            return
+        }
+
+        var ownedClient: SocketClient?
+        defer { ownedClient?.close() }
+        let activeClient: SocketClient
+        if let client {
+            activeClient = client
+        } else if let socketPath {
+            let feedClient = SocketClient(path: socketPath)
+            do {
+                try feedClient.connect()
+                try authenticateClientIfNeeded(
+                    feedClient,
+                    explicitPassword: socketPassword,
+                    socketPath: socketPath
+                )
+            } catch {
+                feedClient.close()
+                print("{}")
+                return
+            }
+            ownedClient = feedClient
+            activeClient = feedClient
+        } else {
+            print("{}")
+            return
+        }
 
         let response: String
         do {
-            response = try client.send(
+            response = try activeClient.send(
                 command: line,
-                responseTimeout: waitTimeout > 0 ? waitTimeout + 5 : nil
+                responseTimeout: waitTimeout + 5
             )
         } catch {
             print("{}")
@@ -30892,7 +31221,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private func runHooksSocketCommand(
         commandArgs: [String],
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        socketPassword: String? = nil
     ) throws {
         guard let first = commandArgs.first?.lowercased() else {
             throw CLIError(message: "Usage: cmux hooks <setup|uninstall|feed|claude|agent>")
@@ -30917,7 +31247,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "claude":
             telemetry.breadcrumb("hooks.claude.dispatch")
             do {
-                try runClaudeHook(commandArgs: rest, client: client, telemetry: telemetry)
+                try runClaudeHook(commandArgs: rest, client: client, telemetry: telemetry, socketPassword: socketPassword)
                 telemetry.breadcrumb("hooks.claude.completed")
             } catch {
                 telemetry.breadcrumb("hooks.claude.failure")
@@ -30931,7 +31261,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")
             do {
-                try runGenericAgentHook(def: def, commandArgs: rest, client: client, telemetry: telemetry)
+                try runGenericAgentHook(def: def, commandArgs: rest, client: client, telemetry: telemetry, socketPassword: socketPassword)
                 telemetry.breadcrumb("hooks.\(def.name).completed")
             } catch {
                 telemetry.breadcrumb("hooks.\(def.name).failure")
@@ -31527,6 +31857,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+          sidebar <validate|reload|select> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
           list-status [--workspace <id|ref|index>] [--window <id|ref|index>]

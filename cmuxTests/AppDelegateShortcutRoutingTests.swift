@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Carbon.HIToolbox
+import Combine
 import SwiftUI
 
 #if canImport(cmux_DEV)
@@ -4648,6 +4649,147 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testPrintableOptionTextBypassesConfiguredShortcutRouting() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window context")
+            return
+        }
+
+        let workspaceCountBefore = manager.tabs.count
+        let optionQShortcut = StoredShortcut(
+            key: "q",
+            command: false,
+            shift: false,
+            option: true,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .newTab, shortcut: optionQShortcut) {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "@",
+                charactersIgnoringModifiers: "q",
+                isARepeat: false,
+                keyCode: 12 // kVK_ANSI_Q
+            ) else {
+                XCTFail("Failed to construct Turkish-Q Option+Q event")
+                return
+            }
+
+            XCTAssertFalse(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "Option+Q that produces @ on Turkish Q should pass through as text input"
+            )
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+            XCTAssertEqual(
+                manager.tabs.count,
+                workspaceCountBefore,
+                "Printable Option text should not trigger the remapped New Workspace shortcut"
+            )
+        }
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+    }
+
+    func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before repair test"
+        )
+
+        XCTAssertTrue(window.makeFirstResponder(nil), "Expected test to clear the window first responder")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertFalse(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to lose first responder before repaired typing"
+        )
+        XCTAssertTrue(window.firstResponder == nil || window.firstResponder is NSWindow, "Expected a broken key-routing responder")
+
+#if DEBUG
+        var forwardedKeyDownCount = 0
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 0 else { return }
+            forwardedKeyDownCount += 1
+        }
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+        }
+#endif
+
+        guard let keyDown = makeKeyDownEvent(
+            key: "a",
+            modifiers: [],
+            keyCode: 0,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct typing event")
+            return
+        }
+
+        window.sendEvent(keyDown)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Typing should repair first responder back to the focused terminal surface"
+        )
+        XCTAssertTrue(
+            window.firstResponder === terminalView,
+            "Typing repair should restore the Ghostty surface view as first responder"
+        )
+#if DEBUG
+        // forwardedKeyDownCount is only observable through the DEBUG-only
+        // GhosttyNSView.debugGhosttySurfaceKeyEventObserver seam; the first-
+        // responder assertions above act as the Release-build proxy.
+        XCTAssertGreaterThan(forwardedKeyDownCount, 0, "Typing repair should forward the keyDown into Ghostty")
+#endif
+    }
+
     func testWindowPerformKeyEquivalentDefersTerminalPasteMenuMissToGhosttyBindingResolution() {
         let previousMainMenu = NSApp.mainMenu
         let probeWindow = NSWindow(
@@ -8459,6 +8601,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             remountedTextView.submissionText(),
             expectedImageSubmission(before: "hello ", url: originalURL, after: " world")
         )
+    }
+
+    func testTerminalPanelPreservesTextBoxDraftForUnmountWithoutPublishing() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+        let originalTextView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        originalTextView.string = "preserve this"
+
+        var objectWillChangeCount = 0
+        let cancellable = terminalPanel.objectWillChange.sink {
+            objectWillChangeCount += 1
+        }
+
+        terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
+
+        let draft = try XCTUnwrap(terminalPanel.sessionTextBoxDraftSnapshot())
+        XCTAssertEqual(textBoxSessionDraftPartSummaries(draft.parts), [.text("preserve this")])
+        XCTAssertEqual(
+            objectWillChangeCount,
+            0,
+            "TextBox unmount preservation runs from NSViewRepresentable.dismantleNSView and must not publish during SwiftUI teardown"
+        )
+        withExtendedLifetime(cancellable) {}
     }
 
     func testTerminalPanelCloseDisposesTextBoxAttachmentDrafts() throws {
