@@ -1,6 +1,7 @@
 import {
   activePaneEmphasisOptions,
   addTabStyleOptions,
+  accentIntensityOptions,
   accentOptions,
   backgroundEffectsOptions,
   backgroundFitOptions,
@@ -155,6 +156,28 @@ function chromeMotionDurationTokens(value = state.settings.chromeMotionMode) {
   return chromeMotionDurations.get(value) || chromeMotionDurations.get(defaultSettings.chromeMotionMode);
 }
 
+function accentIntensityCssVars(accent = state.settings.accent, value = state.settings.accentIntensity) {
+  if (value === "subtle") {
+    return {
+      hover: `color-mix(in oklch, ${accent} 70%, var(--color-muted) 30%)`,
+      focus: `color-mix(in oklch, ${accent} 58%, var(--color-text) 42%)`,
+      selection: `color-mix(in oklch, ${accent} 28%, var(--color-canvas) 72%)`
+    };
+  }
+  if (value === "vivid") {
+    return {
+      hover: `color-mix(in oklch, ${accent} 88%, var(--color-text) 12%)`,
+      focus: `color-mix(in oklch, ${accent} 92%, var(--color-text) 8%)`,
+      selection: `color-mix(in oklch, ${accent} 56%, var(--color-canvas) 44%)`
+    };
+  }
+  return {
+    hover: accent,
+    focus: `color-mix(in oklch, ${accent} 82%, var(--color-text) 18%)`,
+    selection: `color-mix(in oklch, ${accent} 40%, var(--color-canvas) 60%)`
+  };
+}
+
 const workspaceColorOptions = [...new Set([
   ...accentOptions,
   "oklch(62% 0.22 255)",
@@ -256,6 +279,7 @@ const performanceHealthSettingKeys = new Set([
 const appearancePreviewKeys = new Set([
   "theme",
   "accent",
+  "accentIntensity",
   "backgroundImage",
   "backgroundOpacity",
   "backgroundBlur",
@@ -329,6 +353,7 @@ const settingsInspectorSettingKeys = {
   appearance: [
     "theme",
     "accent",
+    "accentIntensity",
     "backgroundImage",
     "backgroundOpacity",
     "backgroundBlur",
@@ -612,6 +637,7 @@ const lookPackDefinitions = [
     settings: {
       theme: "graphite",
       accent: "oklch(66% 0.13 175)",
+      accentIntensity: "subtle",
       backgroundImage: "",
       backgroundOpacity: 10,
       backgroundBlur: 0,
@@ -630,6 +656,7 @@ const lookPackDefinitions = [
     settings: {
       theme: "forest",
       accent: "oklch(70% 0.16 145)",
+      accentIntensity: "subtle",
       backgroundImage: "",
       backgroundOpacity: 10,
       backgroundBlur: 0,
@@ -648,6 +675,7 @@ const lookPackDefinitions = [
     settings: {
       theme: "blueprint",
       accent: "oklch(72% 0.17 230)",
+      accentIntensity: "balanced",
       backgroundImage: "preset:blueprint-lines",
       backgroundOpacity: 18,
       backgroundBlur: 0,
@@ -666,6 +694,7 @@ const lookPackDefinitions = [
     settings: {
       theme: "harbor",
       accent: "oklch(66% 0.13 175)",
+      accentIntensity: "subtle",
       backgroundImage: "preset:dot-matrix",
       backgroundOpacity: 14,
       backgroundBlur: 0,
@@ -684,6 +713,7 @@ const lookPackDefinitions = [
     settings: {
       theme: "ember",
       accent: "oklch(74% 0.12 35)",
+      accentIntensity: "vivid",
       backgroundImage: "preset:soft-aurora",
       backgroundOpacity: 22,
       backgroundBlur: 4,
@@ -702,6 +732,7 @@ const lookPackDefinitions = [
     settings: {
       theme: "contrast",
       accent: "oklch(86% 0.11 70)",
+      accentIntensity: "vivid",
       backgroundImage: "preset:signal-bands",
       backgroundOpacity: 10,
       backgroundBlur: 0,
@@ -1023,6 +1054,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!backgroundPositionOptions.some(([id]) => id === next.backgroundPosition)) next.backgroundPosition = defaultSettings.backgroundPosition;
   if (!backgroundEffectsOptions.some(([id]) => id === next.backgroundEffects)) next.backgroundEffects = defaultSettings.backgroundEffects;
   if (!interfaceContrastOptions.some(([id]) => id === next.interfaceContrast)) next.interfaceContrast = defaultSettings.interfaceContrast;
+  if (!accentIntensityOptions.some(([id]) => id === next.accentIntensity)) next.accentIntensity = defaultSettings.accentIntensity;
   if (!themeOptions.some(([id]) => id === next.theme)) next.theme = defaultSettings.theme;
   next.accent = normalizeUiColor(next.accent, defaultSettings.accent);
   if (!["comfortable", "compact"].includes(next.density)) next.density = defaultSettings.density;
@@ -3035,6 +3067,7 @@ function settingsProfileSummary(settings) {
   const dividers = optionLabel(paneDividerSizeOptions, normalized.paneDividerSize, normalized.paneDividerSize);
   const activePane = optionLabel(activePaneEmphasisOptions, normalized.activePaneEmphasis, normalized.activePaneEmphasis);
   const actions = paneActionOptions.find(([id]) => id === normalized.paneActionMode)?.[1] || normalized.paneActionMode;
+  const accentIntensity = optionLabel(accentIntensityOptions, normalized.accentIntensity, normalized.accentIntensity);
   const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, "Flat");
   const contrast = optionLabel(interfaceContrastOptions, normalized.interfaceContrast, normalized.interfaceContrast);
   const chromeMotion = optionLabel(chromeMotionOptions, normalized.chromeMotionMode, normalized.chromeMotionMode);
@@ -3053,6 +3086,7 @@ function settingsProfileSummary(settings) {
     normalized.paneColorMarkers ? "colored pane markers" : "quiet pane markers",
     `${chromeMotion.toLowerCase()} motion`,
     `${browserHomeHost} home`,
+    `${accentIntensity.toLowerCase()} accent`,
     `${backgroundEffects.toLowerCase()} background`,
     `${contrast.toLowerCase()} contrast`,
     `${normalized.backgroundBlur}px soften`,
@@ -5114,6 +5148,7 @@ function settingsRenderSignature(settings = state.settings) {
   return [
     settings.theme,
     settings.accent,
+    settings.accentIntensity,
     settings.backgroundImage,
     settings.backgroundOpacity,
     settings.backgroundBlur,
@@ -5156,8 +5191,11 @@ function applySettings() {
   state.appliedSettingsSignature = signature;
   document.body.classList.remove(...themeOptions.filter(([id]) => id !== "cmux").map(([id]) => `theme-${id}`));
   if (state.settings.theme !== "cmux") document.body.classList.add(`theme-${state.settings.theme}`);
+  const accentVars = accentIntensityCssVars();
   setStylePropertyIfChanged(document.documentElement, "--color-accent", state.settings.accent);
-  setStylePropertyIfChanged(document.documentElement, "--color-accent-hover", state.settings.accent);
+  setStylePropertyIfChanged(document.documentElement, "--color-accent-hover", accentVars.hover);
+  setStylePropertyIfChanged(document.documentElement, "--color-focus", accentVars.focus);
+  setStylePropertyIfChanged(document.documentElement, "--color-selection", accentVars.selection);
   setStylePropertyIfChanged(elements.shell, "--sidebar-width", `${state.settings.sidebarWidth}px`);
   setStylePropertyIfChanged(elements.shell, "--inspector-width", `${state.settings.inspectorWidth}px`);
   setStylePropertyIfChanged(elements.shell, "--terminal-font-family", terminalFontStack());
@@ -12732,6 +12770,12 @@ function renderSettingsInspector(options = {}) {
     appearanceSection.append(settingRow("Accent", swatchGrid(accentColorPalette(), state.settings.accent, (accent) => updateSettings({ accent }))));
     appearanceSection.append(settingRow("Custom accent", colorPicker(state.settings.accent, (accent) => updateSettings({ accent })), false, "custom accent color hex picker"));
     appearanceSection.append(settingRow(
+      "Accent intensity",
+      settingSegmentedControl("accentIntensity", accentIntensityOptions, "accent intensity strength subtle balanced vivid hover focus selection ring", { compact: true }),
+      true,
+      "accent intensity strength subtle balanced vivid hover focus selection ring"
+    ));
+    appearanceSection.append(settingRow(
       "Interface contrast",
       settingSegmentedControl("interfaceContrast", interfaceContrastOptions, "interface contrast chrome border line divider soft balanced strong readable subtle", { compact: true }),
       true,
@@ -12740,20 +12784,20 @@ function renderSettingsInspector(options = {}) {
     appearanceSection.append(savedColorsDisclosurePanel());
     const appearanceActions = document.createElement("div");
     appearanceActions.className = "settings-actions appearance-actions";
-    appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look save profile copy paste reset theme accent contrast background terminal colors default profiles clipboard json");
+    appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look save profile copy paste reset theme accent intensity contrast background terminal colors default profiles clipboard json");
     const lookSettingsDefault = appearanceSettingsAreDefault();
-    const lookReset = settingsActionButton("Reset look", resetAppearanceSettings, "", `appearance look reset theme accent contrast background terminal colors default ${lookSettingsDefault ? "active current " : ""}`);
+    const lookReset = settingsActionButton("Reset look", resetAppearanceSettings, "", `appearance look reset theme accent intensity contrast background terminal colors default ${lookSettingsDefault ? "active current " : ""}`);
     lookReset.disabled = lookSettingsDefault;
     lookReset.title = lookReset.disabled
       ? "Look settings already match the default setup."
-      : "Reset theme, accent, interface contrast, app background, and terminal colors.";
-    const copyLook = settingsActionButton("Copy look", copyLookSettings, "", "appearance look copy theme accent contrast background terminal colors clipboard json");
-    copyLook.title = "Copy theme, accent, interface contrast, app background, and terminal colors as JSON.";
-    const pasteLook = settingsActionButton("Paste look", pasteLookSettings, "", "appearance look paste theme accent contrast background terminal colors clipboard json");
+      : "Reset theme, accent intensity, interface contrast, app background, and terminal colors.";
+    const copyLook = settingsActionButton("Copy look", copyLookSettings, "", "appearance look copy theme accent intensity contrast background terminal colors clipboard json");
+    copyLook.title = "Copy theme, accent intensity, interface contrast, app background, and terminal colors as JSON.";
+    const pasteLook = settingsActionButton("Paste look", pasteLookSettings, "", "appearance look paste theme accent intensity contrast background terminal colors clipboard json");
     pasteLook.title = "Apply copied cmux look JSON.";
     appearanceActions.append(
       applySettingsProfileSaveLimit(
-        settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent contrast background terminal layout performance"),
+        settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent intensity contrast background terminal layout performance"),
         "Save this look as a reusable Settings profile."
       ),
       copyLook,
@@ -13896,7 +13940,7 @@ function appearancePreviewPanel() {
   const preview = createAppearancePreview({
     settings: state.settings,
     themeLabel: optionLabel(themeOptions, state.settings.theme, "cmux"),
-    accentLabel: normalizeCustomPaletteColor(state.settings.accent) ? "Custom" : "Preset",
+    accentLabel: `${normalizeCustomPaletteColor(state.settings.accent) ? "Custom" : "Preset"} / ${optionLabel(accentIntensityOptions, state.settings.accentIntensity, state.settings.accentIntensity)}`,
     contrastLabel: optionLabel(interfaceContrastOptions, state.settings.interfaceContrast, state.settings.interfaceContrast),
     backgroundLabel: appearanceBackgroundLabel(state.settings.backgroundImage),
     terminalFontLabel: optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono"),
@@ -13910,7 +13954,7 @@ function appearancePreviewPanel() {
   });
   preview.style.setProperty("--preview-background-blur", `${state.settings.backgroundBlur}px`);
   preview.style.setProperty("--preview-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
-  preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent contrast background image strength soften blur terminal colors font");
+  preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent intensity contrast background image strength soften blur terminal colors font");
   return preview;
 }
 
@@ -14692,6 +14736,7 @@ function lookPackSummary(pack) {
   if (!settings) return "";
   return [
     optionLabel(themeOptions, settings.theme, settings.theme),
+    optionLabel(accentIntensityOptions, settings.accentIntensity, settings.accentIntensity),
     appearanceBackgroundLabel(settings.backgroundImage, settings),
     settings.terminalBackground ? "custom terminal" : "default terminal"
   ].join(" / ");
@@ -14873,7 +14918,7 @@ function themeChoiceGrid() {
 function lookPackGrid() {
   const grid = document.createElement("div");
   grid.className = "look-pack-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("look pack appearance theme accent background terminal color profile apply save copy");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("look pack appearance theme accent intensity background terminal color profile apply save copy");
   for (const pack of lookPackDefinitions) {
     const card = document.createElement("div");
     card.className = "look-pack-card";
@@ -14899,7 +14944,7 @@ function lookPackGrid() {
     card.querySelector(".look-pack-body").textContent = pack.body;
     const actions = card.querySelector(".look-pack-actions");
     actions.append(
-      settingsActionButton("Apply", () => applyLookPack(pack.id), "", `look pack apply theme accent background terminal color ${pack.label}`),
+      settingsActionButton("Apply", () => applyLookPack(pack.id), "", `look pack apply theme accent intensity background terminal color ${pack.label}`),
       settingsActionButton("Save", () => saveLookPackProfile(pack.id), "", `look pack save settings profile reusable ${pack.label}`),
       settingsActionButton("Copy", () => copyLookPackProfile(pack.id), "", `look pack copy settings profile clipboard json ${pack.label}`)
     );
@@ -14917,7 +14962,7 @@ function updateLookPackCard(card, pack) {
   const savedProfile = savedSettingsProfileForLookPack(pack);
   const summary = lookPackSummary(pack);
   card.classList.toggle("is-active", active);
-  const search = normalizeSettingsQuery(`look pack appearance theme accent background terminal color profile apply save copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${pack.label} ${pack.body} ${summary}`);
+  const search = normalizeSettingsQuery(`look pack appearance theme accent intensity background terminal color profile apply save copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${pack.label} ${pack.body} ${summary}`);
   if (card.dataset.settingsSearch !== search) {
     card.dataset.settingsSearch = search;
     updateSettingsSearchIndexItemSearch(card, search);
@@ -18565,7 +18610,8 @@ function isSettingsPresetIdActive(presetId) {
 }
 
 function accentModeLabel() {
-  return normalizeCustomPaletteColor(state.settings.accent) ? "Custom color" : "Preset color";
+  const source = normalizeCustomPaletteColor(state.settings.accent) ? "Custom color" : "Preset color";
+  return `${source} / ${optionLabel(accentIntensityOptions, state.settings.accentIntensity, state.settings.accentIntensity)}`;
 }
 
 function performanceModeLabel() {
@@ -19080,31 +19126,32 @@ function quickLookControlsPanel() {
   const profilesFull = savedSettingsProfilesFull();
   const themeLabel = optionLabel(themeOptions, state.settings.theme, state.settings.theme);
   const contrastLabel = optionLabel(interfaceContrastOptions, state.settings.interfaceContrast, state.settings.interfaceContrast);
+  const accentLabel = accentModeLabel();
   const backgroundLabel = appearanceBackgroundLabel(state.settings.backgroundImage);
   const actions = [
     quickOverviewControlButton("Save profile", saveCurrentLookProfile, {
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save this look as a reusable Settings profile.",
-      search: "quick setup look appearance save profile theme accent contrast background terminal colors reusable"
+      search: "quick setup look appearance save profile theme accent intensity contrast background terminal colors reusable"
     }),
     quickOverviewControlButton("Copy look", copyLookSettings, {
-      title: "Copy theme, accent, interface contrast, app background, and terminal colors as JSON.",
-      search: "quick setup look appearance copy theme accent contrast background terminal colors clipboard json"
+      title: "Copy theme, accent intensity, interface contrast, app background, and terminal colors as JSON.",
+      search: "quick setup look appearance copy theme accent intensity contrast background terminal colors clipboard json"
     }),
     quickOverviewControlButton("Paste look", pasteLookSettings, {
       title: "Apply copied cmux look JSON.",
-      search: "quick setup look appearance paste theme accent contrast background terminal colors clipboard json"
+      search: "quick setup look appearance paste theme accent intensity contrast background terminal colors clipboard json"
     }),
     quickOverviewControlButton("Reset look", resetAppearanceSettings, {
       disabled: lookSettingsDefault,
       title: lookSettingsDefault
         ? "Look settings already match the default setup."
-        : "Reset theme, accent, interface contrast, app background, and terminal colors.",
-      search: `quick setup look appearance reset default theme accent contrast background terminal colors ${lookSettingsDefault ? "active current" : ""}`
+        : "Reset theme, accent intensity, interface contrast, app background, and terminal colors.",
+      search: `quick setup look appearance reset default theme accent intensity contrast background terminal colors ${lookSettingsDefault ? "active current" : ""}`
     }),
     quickOverviewControlButton("Looks", () => openSettingsCategory("appearance"), {
       title: "Open full appearance settings.",
-      search: "quick setup look appearance settings theme accent contrast background terminal color packs"
+      search: "quick setup look appearance settings theme accent intensity contrast background terminal color packs"
     }),
     quickOverviewControlButton("Gallery", () => openSettingsCategory("appearance", { query: "theme gallery", focusSearch: false }), {
       title: "Open the theme gallery and look packs.",
@@ -19115,7 +19162,7 @@ function quickLookControlsPanel() {
     className: "quick-overview-look",
     title: "Look controls",
     meta: `${activeLookPackLabel()} / ${themeLabel} / ${contrastLabel}`,
-    search: `quick setup look appearance controls theme accent contrast background terminal colors profile copy paste reset gallery packs ${activeLookPackLabel()} ${themeLabel} ${contrastLabel} ${backgroundLabel} ${accentModeLabel()}`,
+    search: `quick setup look appearance controls theme accent intensity contrast background terminal colors profile copy paste reset gallery packs ${activeLookPackLabel()} ${themeLabel} ${contrastLabel} ${backgroundLabel} ${accentLabel}`,
     actions
   });
 }
@@ -26418,7 +26465,7 @@ function showToolbarMenu(event) {
         action.title = colorCopyTitle(state.settings.accent, defaultSettings.accent, "Copy the current accent color value.");
         return action;
       })(),
-      toolbarAction("Copy current look", copyLookSettings, false, "Copy theme, accent, interface contrast, app background, and terminal colors as JSON."),
+      toolbarAction("Copy current look", copyLookSettings, false, "Copy theme, accent intensity, interface contrast, app background, and terminal colors as JSON."),
       toolbarAction("Paste look", pasteLookSettings, false, "Apply a copied cmux look JSON payload."),
       contextMenuButton("Background settings", () => openSettingsCategory("appearance", { query: "background", focusSearch: true })),
       contextMenuButton("Copy saved backgrounds", copySavedBackgroundImages),
@@ -30499,6 +30546,7 @@ const workspaceChromePresets = [
 const appearanceResetSettings = [
   "theme",
   "accent",
+  "accentIntensity",
   "backgroundImage",
   "backgroundOpacity",
   "backgroundBlur",
@@ -30528,6 +30576,7 @@ function lookSettingsPayload() {
     summary: {
       theme: optionLabel(themeOptions, state.settings.theme, state.settings.theme),
       accent: state.settings.accent,
+      accentIntensity: optionLabel(accentIntensityOptions, state.settings.accentIntensity, state.settings.accentIntensity),
       contrast: optionLabel(interfaceContrastOptions, state.settings.interfaceContrast, state.settings.interfaceContrast),
       background: appearanceBackgroundLabel(state.settings.backgroundImage),
       terminalColors: terminalColorPalettePayload().effective
@@ -30786,6 +30835,7 @@ function copyWorkspaceChromePreset(presetId) {
 function lookSettingUpdateFromValue(key, raw) {
   if (key === "theme") return optionIdAllowed(themeOptions, raw) ? raw : null;
   if (key === "accent") return normalizeUiColor(raw, "") || null;
+  if (key === "accentIntensity") return optionIdAllowed(accentIntensityOptions, raw) ? raw : null;
   if (key === "backgroundImage") {
     if (raw === null) return "";
     if (typeof raw !== "string") return null;

@@ -5,6 +5,7 @@ const label = (key, fallback) => t(`config.${key}`, fallback);
 export const defaultSettings = {
   theme: "cmux",
   accent: "oklch(61% 0.22 255)",
+  accentIntensity: "balanced",
   backgroundImage: "",
   backgroundOpacity: 16,
   backgroundBlur: 0,
@@ -168,6 +169,12 @@ export const accentOptions = [
   "oklch(80% 0.1 115)",
   "oklch(66% 0.13 175)",
   "oklch(86% 0.11 70)"
+];
+
+export const accentIntensityOptions = [
+  ["subtle", label("accentIntensity.subtle", "Subtle"), label("accentIntensity.subtle.body", "Quieter hover and focus color")],
+  ["balanced", label("accentIntensity.balanced", "Balanced"), label("accentIntensity.balanced.body", "Default accent strength")],
+  ["vivid", label("accentIntensity.vivid", "Vivid"), label("accentIntensity.vivid.body", "Stronger focus and selection color")]
 ];
 
 export const backgroundPresets = [
@@ -501,6 +508,7 @@ export const settingsPresets = [
     settings: {
       theme: "cmux",
       accent: "oklch(61% 0.22 255)",
+      accentIntensity: "balanced",
       backgroundImage: "",
       backgroundOpacity: 16,
       backgroundBlur: 0,
@@ -555,6 +563,7 @@ export const settingsPresets = [
     settings: {
       theme: "graphite",
       accent: "oklch(66% 0.13 175)",
+      accentIntensity: "subtle",
       backgroundImage: "",
       backgroundOpacity: 12,
       backgroundBlur: 0,
@@ -609,6 +618,7 @@ export const settingsPresets = [
     settings: {
       theme: "graphite",
       accent: "oklch(66% 0.13 175)",
+      accentIntensity: "subtle",
       backgroundImage: "",
       backgroundOpacity: 6,
       backgroundBlur: 0,
@@ -664,6 +674,7 @@ export const settingsPresets = [
     settings: {
       theme: "harbor",
       accent: "oklch(66% 0.13 175)",
+      accentIntensity: "subtle",
       backgroundImage: "",
       backgroundOpacity: 10,
       backgroundBlur: 0,
@@ -718,6 +729,7 @@ export const settingsPresets = [
     settings: {
       theme: "graphite",
       accent: "oklch(72% 0.17 230)",
+      accentIntensity: "subtle",
       backgroundImage: "",
       backgroundOpacity: 0,
       backgroundBlur: 0,
@@ -772,6 +784,7 @@ export const settingsPresets = [
     settings: {
       theme: "contrast",
       accent: "oklch(86% 0.11 70)",
+      accentIntensity: "vivid",
       backgroundImage: "",
       backgroundOpacity: 0,
       backgroundBlur: 0,
@@ -826,6 +839,7 @@ export const settingsPresets = [
     settings: {
       theme: "orchid",
       accent: "oklch(74% 0.18 305)",
+      accentIntensity: "vivid",
       backgroundImage: "preset:soft-aurora",
       backgroundOpacity: 24,
       backgroundBlur: 4,
