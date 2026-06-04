@@ -105,6 +105,7 @@ extension ContentView {
                     workingDirectory: launch.terminalWorkingDirectory,
                     initialTerminalCommand: launch.initialTerminalCommand,
                     initialTerminalInput: launch.initialTerminalInput,
+                    initialTerminalEnvironment: launch.initialTerminalEnvironment,
                     inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
                     autoWelcomeIfNeeded: false
                 )

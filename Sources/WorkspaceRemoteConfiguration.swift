@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxFoundation
 #if canImport(Security)
 import Security
 #endif
@@ -28,7 +29,7 @@ private enum WorkspaceRemoteSSHOptionFilter {
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }.filter { option in
-            guard let key = optionKey(option) else { return true }
+            guard let key = SSHAgentSocketResolver().optionKey(option) else { return true }
             return !keys.contains(key)
         }
     }
@@ -55,21 +56,27 @@ private enum WorkspaceRemoteSSHOptionFilter {
         return normalizedOptional((trimmed as NSString).expandingTildeInPath) ?? trimmed
     }
 
-    static func hasOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        return options.contains { option in
-            optionKey(option) == loweredKey
-        }
+    /// Normalizes an SSH agent socket path and expands `~` so environment injection receives a usable path.
+    static func normalizedAgentSocketPath(_ value: String?) -> String? {
+        SSHAgentSocketResolver().normalizedAgentSocketPath(value)
     }
 
-    private static func optionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
+    /// Returns a normalized agent socket path only when it currently exists.
+    static func existingAgentSocketPath(_ value: String?) -> String? {
+        guard let path = normalizedAgentSocketPath(value),
+              FileManager.default.fileExists(atPath: path) else {
+            return nil
+        }
+        return path
+    }
+
+    static func hasOptionKey(_ options: [String], key: String) -> Bool {
+        SSHAgentSocketResolver().hasOptionKey(options, key: key)
+    }
+
+    /// Resolves a durable `ForwardAgent` SSH option into the current local agent socket path, when one is usable.
+    static func sshAgentSocketPath(for options: [String]) -> String? {
+        SSHAgentSocketResolver().agentSocketPath(for: options)
     }
 }
 
@@ -276,35 +283,11 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
     }
 
     private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        return options.contains { option in
-            option
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-                .first
-                .map(String.init)?
-                .lowercased() == loweredKey
-        }
+        SSHAgentSocketResolver().hasOptionKey(options, key: key)
     }
 
     private static func sshOptionValue(named name: String, in options: [String]) -> String? {
-        let loweredName = name.lowercased()
-        for option in options {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            if let equals = trimmed.firstIndex(of: "=") {
-                let key = String(trimmed[..<equals]).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard key.lowercased() == loweredName else { continue }
-                let value = String(trimmed[trimmed.index(after: equals)...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                return value.isEmpty ? nil : String(value)
-            }
-            let parts = trimmed.split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
-            guard parts.first.map({ String($0).lowercased() }) == loweredName else { continue }
-            guard parts.count > 1 else { return nil }
-            let value = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value
-        }
-        return nil
+        SSHAgentSocketResolver().optionValue(named: name, in: options)
     }
 
     private static func sshOptionValueIsDisabled(_ rawValue: String?, zeroIsDisabled: Bool = true) -> Bool {
@@ -336,6 +319,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let localSocketPath: String?
     let terminalStartupCommand: String?
     let foregroundAuthToken: String?
+    let agentSocketPath: String?
     let daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
     let preserveAfterTerminalExit: Bool
     let persistentDaemonSlot: String?
@@ -358,6 +342,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         localSocketPath: String?,
         terminalStartupCommand: String?,
         foregroundAuthToken: String? = nil,
+        agentSocketPath: String? = nil,
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
@@ -375,12 +360,28 @@ struct WorkspaceRemoteConfiguration: Equatable {
         self.localSocketPath = localSocketPath
         self.terminalStartupCommand = terminalStartupCommand
         self.foregroundAuthToken = foregroundAuthToken
+        self.agentSocketPath = WorkspaceRemoteSSHOptionFilter.normalizedAgentSocketPath(agentSocketPath)
         self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
         self.preserveAfterTerminalExit = preserveAfterTerminalExit
         self.persistentDaemonSlot = preserveAfterTerminalExit
             ? WorkspaceRemoteSSHOptionFilter.normalizedPersistentDaemonSlot(persistentDaemonSlot)
             : nil
         self.skipDaemonBootstrap = skipDaemonBootstrap
+    }
+
+    /// Resolves the SSH agent socket to use for a remote configuration from an explicit socket or durable options.
+    static func resolvedAgentSocketPath(
+        sshOptions: [String],
+        explicitAgentSocketPath: String? = nil,
+        explicitAgentSocketPathIsSet: Bool = false
+    ) -> String? {
+        if explicitAgentSocketPathIsSet {
+            return WorkspaceRemoteSSHOptionFilter.existingAgentSocketPath(explicitAgentSocketPath)
+        }
+        return WorkspaceRemoteSSHOptionFilter.existingAgentSocketPath(explicitAgentSocketPath)
+            ?? WorkspaceRemoteSSHOptionFilter.existingAgentSocketPath(
+                WorkspaceRemoteSSHOptionFilter.sshAgentSocketPath(for: sshOptions)
+            )
     }
 
     var displayTarget: String {
@@ -443,7 +444,8 @@ extension SessionRemoteWorkspaceSnapshot {
     func workspaceConfiguration(
         localSocketPath: String? = nil,
         allowPersistentPTYRestore: Bool = true,
-        preserveSSHOptions: Bool = false
+        preserveSSHOptions: Bool = false,
+        agentSocketPath overrideAgentSocketPath: String? = nil
     ) -> WorkspaceRemoteConfiguration? {
         guard transport == .ssh else { return nil }
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -520,6 +522,10 @@ extension SessionRemoteWorkspaceSnapshot {
                     sshOptions: restoredSSHOptions
                 ),
             foregroundAuthToken: foregroundAuthToken,
+            agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
+                sshOptions: restoredSSHOptions,
+                explicitAgentSocketPath: overrideAgentSocketPath
+            ),
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession,
             persistentDaemonSlot: preservePTYSession ? normalizedPersistentDaemonSlot : nil,
@@ -584,6 +590,22 @@ extension SessionRemoteWorkspaceSnapshot {
 }
 
 extension WorkspaceRemoteConfiguration {
+    var sshTerminalStartupEnvironment: [String: String]? {
+        guard let agentSocketPath = self.agentSocketPath else {
+            return nil
+        }
+        return ["SSH_AUTH_SOCK": agentSocketPath]
+    }
+
+    var sshProcessEnvironment: [String: String]? {
+        guard let agentSocketPath = self.agentSocketPath else {
+            return nil
+        }
+        var environment = ProcessInfo.processInfo.environment
+        environment["SSH_AUTH_SOCK"] = agentSocketPath
+        return environment
+    }
+
     static func forkedAgentSSHOptions(_ options: [String]) -> [String] {
         WorkspaceRemoteSSHOptionFilter.forkedWorkspaceOptions(options)
     }

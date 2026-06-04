@@ -11,7 +11,11 @@ import Testing
 @MainActor
 @Suite("Titlebar interactive controls")
 struct TitlebarInteractiveControlTests {
-    @Test func dragHandleYieldsToSwiftUITitlebarControlButton() {
+    /// `titlebarInteractiveControl()` registers the control's region (without
+    /// reparenting it). The explicit `WindowDragHandleView` must yield to that
+    /// registered region so a click toggles the control instead of starting a
+    /// window drag/resize, while empty titlebar chrome stays draggable.
+    @Test func dragHandleYieldsToRegisteredTitlebarControl() {
         _ = NSApplication.shared
 
         let window = NSWindow(
@@ -28,22 +32,14 @@ struct TitlebarInteractiveControlTests {
         let dragHandle = NSView(frame: container.bounds)
         container.addSubview(dragHandle)
 
-        let config = TitlebarControlsStyle.classic.config
-        let button = TitlebarControlButton(
-            config: config,
-            foregroundColor: .primary,
-            accessibilityIdentifier: "titlebarControl.test",
-            accessibilityLabel: "Test",
-            action: {}
-        ) {
-            Image(systemName: "sidebar.leading")
-        }
-        let buttonHost = NSHostingView(rootView: button)
-        buttonHost.frame = NSRect(x: 12, y: 14, width: config.buttonSize, height: config.buttonSize)
-        container.addSubview(buttonHost)
-        buttonHost.layoutSubtreeIfNeeded()
+        // Mirror how `titlebarInteractiveControl()` marks a control: a transparent
+        // region view sized to the control that registers itself with the registry.
+        let region = TitlebarInteractiveControlRegion.RegisteredView(
+            frame: NSRect(x: 12, y: 14, width: 24, height: 24)
+        )
+        container.addSubview(region)
 
-        let buttonPoint = NSPoint(x: buttonHost.frame.midX, y: buttonHost.frame.midY)
+        let buttonPoint = NSPoint(x: region.frame.midX, y: region.frame.midY)
         #expect(
             !windowDragHandleShouldCaptureHit(
                 dragHandle.convert(buttonPoint, from: nil),
@@ -51,7 +47,7 @@ struct TitlebarInteractiveControlTests {
                 eventType: .leftMouseDown,
                 eventWindow: window
             ),
-            "SwiftUI titlebar controls must block explicit titlebar dragging at their button hit region."
+            "A registered titlebar control region must block explicit titlebar dragging so its click reaches the control."
         )
 
         #expect(
@@ -61,11 +57,14 @@ struct TitlebarInteractiveControlTests {
                 eventType: .leftMouseDown,
                 eventWindow: window
             ),
-            "Empty titlebar chrome outside the interactive button should remain draggable."
+            "Empty titlebar chrome outside any interactive control should remain draggable."
         )
     }
 
-    @Test func interactiveControlSuppressesSyntheticTitlebarDoubleClick() {
+    /// A registered titlebar control region must read as a control hit so the
+    /// synthetic titlebar double-click (zoom/minimize) is suppressed over it,
+    /// while empty chrome still triggers the standard double-click action.
+    @Test func registeredTitlebarControlSuppressesSyntheticDoubleClick() {
         _ = NSApplication.shared
 
         let window = NSWindow(
@@ -79,16 +78,12 @@ struct TitlebarInteractiveControlTests {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 48))
         window.contentView = container
 
-        // Mirror how `titlebarInteractiveControl()` hosts a control: the host must
-        // register itself as a titlebar control hit region so the synthetic
-        // double-click monitors skip it instead of zooming/minimizing the window.
-        let host = TitlebarInteractiveHostingView(rootView: AnyView(Color.clear))
-        host.identifier = TitlebarInteractiveHostingView<AnyView>.viewIdentifier
-        host.frame = NSRect(x: 12, y: 14, width: 24, height: 24)
-        container.addSubview(host)
-        host.layoutSubtreeIfNeeded()
+        let region = TitlebarInteractiveControlRegion.RegisteredView(
+            frame: NSRect(x: 12, y: 14, width: 24, height: 24)
+        )
+        container.addSubview(region)
 
-        let insideControl = NSPoint(x: host.frame.midX, y: host.frame.midY)
+        let insideControl = NSPoint(x: region.frame.midX, y: region.frame.midY)
         #expect(
             isMinimalModeTitlebarControlHit(window: window, locationInWindow: insideControl),
             "A double-click on a titlebarInteractiveControl must register as a control hit so the synthetic titlebar double-click (zoom/minimize) is suppressed."
@@ -98,6 +93,22 @@ struct TitlebarInteractiveControlTests {
         #expect(
             !isMinimalModeTitlebarControlHit(window: window, locationInWindow: emptyTitlebar),
             "Empty titlebar chrome away from any interactive control must still trigger the standard titlebar double-click action."
+        )
+    }
+
+    /// The region marker must never intercept clicks itself; it is a registry
+    /// marker only, so the control it backs keeps receiving its own mouse-downs.
+    @Test func regionMarkerIsTransparentToHitTesting() {
+        let region = TitlebarInteractiveControlRegion.RegisteredView(
+            frame: NSRect(x: 0, y: 0, width: 24, height: 24)
+        )
+        #expect(
+            region.hitTest(NSPoint(x: 12, y: 12)) == nil,
+            "The interactive-control region marker must be transparent to hit-testing so the hosted control receives clicks."
+        )
+        #expect(
+            !region.mouseDownCanMoveWindow,
+            "The region marker must not let a stray mouse-down move the window."
         )
     }
 }

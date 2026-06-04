@@ -112,6 +112,7 @@ enum KeyboardShortcutSettings {
         case toggleTerminalCopyMode
         case focusTextBoxInput
         case attachTextBoxFile
+        case sendCtrlFToTerminal
 
         // Panes / splits
         case focusLeft
@@ -137,6 +138,9 @@ enum KeyboardShortcutSettings {
         case browserZoomIn
         case browserZoomOut
         case browserZoomReset
+        case markdownZoomIn
+        case markdownZoomOut
+        case markdownZoomReset
         case find
         case findInDirectory
         case findNext
@@ -145,7 +149,9 @@ enum KeyboardShortcutSettings {
         case useSelectionForFind
         case toggleBrowserDeveloperTools
         case showBrowserJavaScriptConsole
+        case toggleBrowserFocusMode
         case toggleReactGrab
+        case openDiffViewer
         case diffViewerScrollDown
         case diffViewerScrollUp
         case diffViewerScrollToBottom
@@ -206,6 +212,7 @@ enum KeyboardShortcutSettings {
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
+            case .sendCtrlFToTerminal: return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
             case .focusLeft: return String(localized: "shortcut.focusPaneLeft.label", defaultValue: "Focus Pane Left")
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
@@ -226,6 +233,9 @@ enum KeyboardShortcutSettings {
             case .browserZoomIn: return String(localized: "menu.view.zoomIn", defaultValue: "Zoom In")
             case .browserZoomOut: return String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out")
             case .browserZoomReset: return String(localized: "menu.view.actualSize", defaultValue: "Actual Size")
+            case .markdownZoomIn: return String(localized: "shortcut.markdownZoomIn.label", defaultValue: "Markdown Viewer: Zoom In")
+            case .markdownZoomOut: return String(localized: "shortcut.markdownZoomOut.label", defaultValue: "Markdown Viewer: Zoom Out")
+            case .markdownZoomReset: return String(localized: "shortcut.markdownZoomReset.label", defaultValue: "Markdown Viewer: Actual Size")
             case .find: return String(localized: "menu.find.find", defaultValue: "Find…")
             case .findInDirectory: return String(localized: "menu.find.findInDirectory", defaultValue: "Find in Directory…")
             case .findNext: return String(localized: "menu.find.findNext", defaultValue: "Find Next")
@@ -234,7 +244,9 @@ enum KeyboardShortcutSettings {
             case .useSelectionForFind: return String(localized: "menu.find.useSelectionForFind", defaultValue: "Use Selection for Find")
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
+            case .toggleBrowserFocusMode: return String(localized: "shortcut.toggleBrowserFocusMode.label", defaultValue: "Enter Browser Focus Mode")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
+            case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
             case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
             case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Diff Viewer: Scroll Up")
             case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Diff Viewer: Scroll to Bottom")
@@ -387,6 +399,13 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
             case .attachTextBoxFile:
                 return StoredShortcut(key: "a", command: true, shift: true, option: true, control: false)
+            case .sendCtrlFToTerminal:
+                // Unbound by default: this is a deliberate escape hatch for forwarding a
+                // control chord (e.g. Claude Code's Ctrl-F force-stop) to the focused
+                // terminal. Binding it to plain Ctrl-F would be self-referential, so users
+                // opt in via Settings; it stays reachable through the command palette and
+                // the `send_key ctrl-f` socket command.
+                return .unbound
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .toggleRightSidebar:
@@ -409,6 +428,14 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "-", command: true, shift: false, option: false, control: false)
             case .browserZoomReset:
                 return StoredShortcut(key: "0", command: true, shift: false, option: false, control: false)
+            case .markdownZoomIn:
+                // Same chord as browser zoom, but scoped to the markdown panel
+                // context so the two never collide.
+                return StoredShortcut(key: "=", command: true, shift: false, option: false, control: false)
+            case .markdownZoomOut:
+                return StoredShortcut(key: "-", command: true, shift: false, option: false, control: false)
+            case .markdownZoomReset:
+                return StoredShortcut(key: "0", command: true, shift: false, option: false, control: false)
             case .find:
                 return StoredShortcut(key: "f", command: true, shift: false, option: false, control: false)
             case .findInDirectory:
@@ -427,8 +454,23 @@ enum KeyboardShortcutSettings {
             case .showBrowserJavaScriptConsole:
                 // Safari default: Show JavaScript Console.
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
+            case .toggleBrowserFocusMode:
+                // Option+Cmd+Return: "enter" focus mode mnemonic. Option+Cmd is a
+                // modifier tier web pages rarely bind, so it stays out of the page's
+                // way while focus mode is off and cmux owns the shortcut, and it
+                // avoids the Ctrl+Cmd+Return global hotkey some screen recorders use.
+                // Exit stays double-Escape; rebind in Settings or cmux.json.
+                return StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+            case .openDiffViewer:
+                // Cmd+Ctrl+Shift+D. The plain Cmd+Ctrl+D chord is reserved by macOS for
+                // "Look Up & data detectors" — the OS swallows it before it reaches the
+                // app's key monitor — and the rest of the Cmd-based "D" family is taken
+                // by split actions (Cmd+D, Cmd+Shift+D, Cmd+Opt+D, Cmd+Shift+Opt+D).
+                // Adding Shift yields a chord that reaches cmux while keeping the "D for
+                // Diff" mnemonic. Rebindable in Settings → Keyboard Shortcuts.
+                return StoredShortcut(key: "d", command: true, shift: true, option: false, control: true)
             case .diffViewerScrollDown:
                 return StoredShortcut(key: "j", command: false, shift: false, option: false, control: false)
             case .diffViewerScrollUp:
@@ -1557,6 +1599,9 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         guard event.type == .keyDown else { return false }
+        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+            return false
+        }
 
         return matches(
             keyCode: Self.recordableKey(from: event)?.keyCode ?? event.keyCode,

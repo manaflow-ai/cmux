@@ -107,6 +107,7 @@ struct PanelContentView: View {
                     panel: extensionBrowserPanel,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
@@ -133,10 +134,6 @@ struct PanelContentView: View {
     }
 }
 
-private let panelFilePathHeaderIconSlotSize: CGFloat = 14
-private let panelFilePathHeaderHorizontalPadding: CGFloat = 6
-private let panelFilePathHeaderContentSpacing: CGFloat = 6
-
 struct PanelFilePathHeader<TrailingContent: View>: View {
     let iconSystemName: String
     let filePath: String
@@ -144,14 +141,10 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
     @ViewBuilder let trailingContent: () -> TrailingContent
 
     var body: some View {
-        HStack(spacing: panelFilePathHeaderContentSpacing) {
+        HStack(spacing: 8) {
             Image(systemName: iconSystemName)
-                .font(.system(size: panelFilePathHeaderIconSlotSize))
                 .foregroundStyle(.secondary)
-                .frame(
-                    width: panelFilePathHeaderIconSlotSize,
-                    height: panelFilePathHeaderIconSlotSize
-                )
+                .frame(width: 16)
             Text(filePath)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
@@ -161,7 +154,7 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
             Spacer(minLength: 8)
             trailingContent()
         }
-        .padding(.horizontal, panelFilePathHeaderHorizontalPadding)
+        .padding(.horizontal, 12)
         .frame(height: 30)
         .background(Color.clear)
     }

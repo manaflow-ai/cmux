@@ -8,9 +8,9 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "socketControlMode"
     )
 
-    public let socketPassword = JSONKey<String>(
+    public let socketPassword = SecretFileKey(
         id: "automation.socketPassword",
-        defaultValue: ""
+        fileName: "socket-control-password"
     )
 
     public let claudeCodeIntegration = DefaultsKey<Bool>(
@@ -37,6 +37,22 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "suppressSubagentNotifications"
     )
 
+    // Several agent-integration toggles are intentionally exposed under both
+    // `automation.*` (this catalog) and `integrations.*` (IntegrationsCatalogSection)
+    // with the same `userDefaultsKey`, so writes through either namespace land
+    // on the same persisted value. The shared keys are claudeCode*, cursor*,
+    // gemini*, kiro* (including kiroNotificationLevel), amp*,
+    // ripgrepCustomBinaryPath, and suppressSubagentNotifications. There is no
+    // precedence ambiguity because both DefaultsKey wrappers read/write the
+    // same `UserDefaults` slot — the dual namespace exists to keep the JSON
+    // config UX (`automation.*`) and the Settings-catalog UX
+    // (`integrations.*`) separately discoverable.
+    public let ampIntegration = DefaultsKey<Bool>(
+        id: "automation.ampIntegration",
+        defaultValue: true,
+        userDefaultsKey: "ampHooksEnabled"
+    )
+
     public let cursorIntegration = DefaultsKey<Bool>(
         id: "automation.cursorIntegration",
         defaultValue: false,
@@ -47,6 +63,18 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         id: "automation.geminiIntegration",
         defaultValue: false,
         userDefaultsKey: "geminiHooksEnabled"
+    )
+
+    public let kiroIntegration = DefaultsKey<Bool>(
+        id: "automation.kiroIntegration",
+        defaultValue: true,
+        userDefaultsKey: "kiroHooksEnabled"
+    )
+
+    public let kiroNotificationLevel = DefaultsKey<String>(
+        id: "automation.kiroNotificationLevel",
+        defaultValue: "standard",
+        userDefaultsKey: "kiroNotificationLevel"
     )
 
     public let portBase = DefaultsKey<Int>(

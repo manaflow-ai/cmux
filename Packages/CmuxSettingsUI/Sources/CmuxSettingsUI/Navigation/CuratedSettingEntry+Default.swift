@@ -41,6 +41,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "preferred-editor", title: "Open Files With", synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
             .init(section: .app, id: "supported-file-previews", title: "Open Supported Files in cmux", synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
             .init(section: .app, id: "markdown-viewer", title: "Open Markdown in cmux Viewer", synonyms: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
+            .init(section: .app, id: "file-editor-word-wrap", title: "File Editor Word Wrap", synonyms: "fileEditor.wordWrap file editor word wrap soft wrap reflow lines text horizontal scroll preview"),
             .init(section: .app, id: "terminal-config", title: "Terminal Config", synonyms: "ghostty config merged generated preview terminal configuration window open config"),
             .init(section: .app, id: "imessage-mode", title: "iMessage Mode", synonyms: "app.iMessageMode imessage message messages chat prompt prompts submitted texting reorder move workspace top agent send"),
             .init(section: .app, id: "reorder-notification", title: "Reorder on Notification", synonyms: "app.reorderOnNotification notification reorder move workspace top unread sort"),
@@ -96,7 +97,9 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
 
             // Beta
+            .init(section: .betaFeatures, id: "feed", title: "Feed", synonyms: "feed right sidebar agent decisions permissions questions approval beta unstable"),
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
+            .init(section: .betaFeatures, id: "customSidebars", title: "Custom Sidebars", synonyms: "custom sidebars swift json interpreted vibe beta unstable"),
 
             // Automation
             .init(section: .automation, id: "socket-mode", title: "Socket Control Mode", synonyms: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
@@ -127,7 +130,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .globalHotkey, id: "shortcut", title: "Show/Hide All Windows", synonyms: "global hotkey shortcut recorder key command option control"),
 
             // Keyboard shortcuts
-            .init(section: .keyboardShortcuts, id: "shortcuts", title: "Keyboard Shortcuts", synonyms: "shortcuts.bindings hotkeys keybindings key bindings commands keyboard accelerators chords cmux json"),
+            .init(section: .keyboardShortcuts, id: "shortcuts", title: "Keyboard Shortcuts", synonyms: "shortcuts.bindings hotkeys keybindings key bindings commands keyboard accelerators chords cmux json open diff viewer changes review git unstaged"),
             .init(section: .keyboardShortcuts, id: "shortcut-chords", title: "Shortcut Chords", synonyms: "tmux prefix ctrl-b control-b multi key sequence chord cmux json"),
             .init(section: .keyboardShortcuts, id: "reset-defaults", title: "Reset Default Shortcuts", synonyms: "reset restore default defaults built in builtin shortcuts hotkeys keybindings commands"),
 

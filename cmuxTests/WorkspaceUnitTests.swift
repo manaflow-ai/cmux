@@ -906,6 +906,67 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
+    func testSettingsFileStoreInvalidKiroNotificationLevelDoesNotSkipLaterAutomationKeys() throws {
+        let defaults = UserDefaults.standard
+        let previousKiroLevel = defaults.object(forKey: KiroIntegrationSettings.notificationLevelKey)
+        let previousPortBase = defaults.object(forKey: AutomationSettings.portBaseKey)
+        let previousPortRange = defaults.object(forKey: AutomationSettings.portRangeKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousKiroLevel {
+                defaults.set(previousKiroLevel, forKey: KiroIntegrationSettings.notificationLevelKey)
+            } else {
+                defaults.removeObject(forKey: KiroIntegrationSettings.notificationLevelKey)
+            }
+            if let previousPortBase {
+                defaults.set(previousPortBase, forKey: AutomationSettings.portBaseKey)
+            } else {
+                defaults.removeObject(forKey: AutomationSettings.portBaseKey)
+            }
+            if let previousPortRange {
+                defaults.set(previousPortRange, forKey: AutomationSettings.portRangeKey)
+            } else {
+                defaults.removeObject(forKey: AutomationSettings.portRangeKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: KiroIntegrationSettings.notificationLevelKey)
+        defaults.removeObject(forKey: AutomationSettings.portBaseKey)
+        defaults.removeObject(forKey: AutomationSettings.portRangeKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "kiroNotificationLevel": "loud",
+                "portBase": 32100,
+                "portRange": 42
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(defaults.object(forKey: KiroIntegrationSettings.notificationLevelKey))
+        XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portBaseKey), 32100)
+        XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portRangeKey), 42)
+    }
+
     func testSettingsFileStoreAppliesBrowserHiddenWebViewDiscardDelayAtMaximum() throws {
         let defaults = UserDefaults.standard
         let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
@@ -5820,18 +5881,20 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentWorkspaceLaunchInRemoteWorkspacePreservesRemoteContext() throws {
         let workspace = Workspace()
+        let agentSocketPath = "/tmp/cmux-fork-agent.sock"
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: 2222,
                 identityFile: "/Users/example/.ssh/cmux",
-                sshOptions: ["ServerAliveInterval=30"],
+                sshOptions: ["ServerAliveInterval=30", "ForwardAgent=yes"],
                 localProxyPort: nil,
                 relayPort: 64000,
                 relayID: "relay-fork",
                 relayToken: String(repeating: "a", count: 64),
                 localSocketPath: "/tmp/cmux-fork-remote.sock",
-                terminalStartupCommand: "ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -tt cmux-macmini"
+                terminalStartupCommand: "ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -o ForwardAgent=yes -tt cmux-macmini",
+                agentSocketPath: agentSocketPath
             ),
             autoConnect: false
         )
@@ -5862,14 +5925,18 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.terminalWorkingDirectory)
         XCTAssertEqual(
             launch.initialTerminalCommand,
-            "ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -tt cmux-macmini"
+            "ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -o ForwardAgent=yes -tt cmux-macmini"
         )
         XCTAssertEqual(launch.initialTerminalInput, snapshot.forkCommand.map { $0 + "\n" })
+        XCTAssertEqual(launch.initialTerminalEnvironment["SSH_AUTH_SOCK"], agentSocketPath)
         XCTAssertTrue(launch.autoConnectRemoteConfiguration)
         XCTAssertEqual(launch.remoteConfiguration?.destination, "cmux-macmini")
         XCTAssertEqual(launch.remoteConfiguration?.port, 2222)
         XCTAssertEqual(launch.remoteConfiguration?.identityFile, "/Users/example/.ssh/cmux")
-        XCTAssertEqual(launch.remoteConfiguration?.sshOptions, ["ServerAliveInterval=30"])
+        XCTAssertEqual(launch.remoteConfiguration?.sshOptions, ["ServerAliveInterval=30", "ForwardAgent=yes"])
+        XCTAssertEqual(launch.remoteConfiguration?.agentSocketPath, agentSocketPath)
+        XCTAssertEqual(launch.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(launch.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
         XCTAssertNil(launch.remoteConfiguration?.relayPort)
         XCTAssertNil(launch.remoteConfiguration?.localSocketPath)
     }

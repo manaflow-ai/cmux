@@ -142,8 +142,11 @@ extension CmuxSettingsFileStore {
         "automation.claudeBinaryPath",
         "automation.ripgrepBinaryPath",
         "automation.suppressSubagentNotifications",
+        "automation.ampIntegration",
         "automation.cursorIntegration",
         "automation.geminiIntegration",
+        "automation.kiroIntegration",
+        "automation.kiroNotificationLevel",
         "automation.portBase",
         "automation.portRange",
         "browser.defaultSearchEngine",
@@ -160,6 +163,10 @@ extension CmuxSettingsFileStore {
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
+        "markdown.fontSize",
+        "markdown.fontFamily",
+        "markdown.maxWidth",
+        "fileEditor.wordWrap",
         "shortcuts.bindings",
     ]
 }
