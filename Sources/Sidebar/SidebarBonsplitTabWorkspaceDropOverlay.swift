@@ -54,7 +54,7 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
             return true
         }
         if !isWorkspaceDropTargetCollectionActive, targets.isEmpty {
-            nsView.clearPendingDrop()
+            nsView.clearPendingDropIfIdle()
         }
         if !targets.isEmpty {
             DispatchQueue.main.async { [weak nsView] in
@@ -77,6 +77,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     private static let pasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
 
     private struct PendingDrop {
+        let requestId: UInt64
         let point: CGPoint
         let transfer: BonsplitTabDragPayload.Transfer
     }
@@ -89,6 +90,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     var performExistingWorkspaceMove: (UUID, BonsplitTabDragPayload.Transfer) -> Bool = { _, _ in false }
     var performNewWorkspaceMove: (Int, SidebarDropIndicator, BonsplitTabDragPayload.Transfer) -> Bool = { _, _, _ in false }
     private var isRequestingWorkspaceDropTargets = false
+    private var workspaceDropTargetRequestId: UInt64 = 0
     private var pendingDrop: PendingDrop?
 
     override var isFlipped: Bool { true }
@@ -119,6 +121,9 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         guard pendingDrop == nil else {
+            if !isRequestingWorkspaceDropTargets {
+                clearPendingDrop()
+            }
             setDropIndicator(nil)
             return
         }
@@ -145,6 +150,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         let action = action(for: sender)
         if let action, let transfer = acceptedTransfer(sender, action: action) {
             let moved = perform(action: action, transfer: transfer)
+            pendingDrop = nil
             updateWorkspaceDropTargetCollection(sender, isActive: false)
             setDropIndicator(nil)
 #if DEBUG
@@ -157,7 +163,11 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         }
 
         if let transfer = pendingTransfer(sender) {
-            pendingDrop = PendingDrop(point: localPoint(sender), transfer: transfer)
+            pendingDrop = PendingDrop(
+                requestId: workspaceDropTargetRequestId,
+                point: localPoint(sender),
+                transfer: transfer
+            )
 #if DEBUG
             dlog("sidebar.workspaceDropOverlay.perform pendingTargets=1")
 #endif
@@ -176,7 +186,12 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     }
 
     func performPendingDropIfPossible() {
-        guard let pendingDrop, !targets.isEmpty else { return }
+        guard let pendingDrop,
+              pendingDrop.requestId == workspaceDropTargetRequestId,
+              isRequestingWorkspaceDropTargets,
+              !targets.isEmpty else {
+            return
+        }
         self.pendingDrop = nil
         defer {
             updateWorkspaceDropTargetCollection(nil, isActive: false)
@@ -203,6 +218,12 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     func clearPendingDrop() {
         pendingDrop = nil
         isRequestingWorkspaceDropTargets = false
+        workspaceDropTargetRequestId &+= 1
+    }
+
+    func clearPendingDropIfIdle() {
+        guard !isRequestingWorkspaceDropTargets else { return }
+        clearPendingDrop()
     }
 
     private func perform(
@@ -219,6 +240,9 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
         guard pendingDrop == nil else {
+            if !isRequestingWorkspaceDropTargets {
+                clearPendingDrop()
+            }
             setDropIndicator(nil)
             return
         }
@@ -277,6 +301,9 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         )
         if !shouldRequestTargets {
             pendingDrop = nil
+        }
+        if shouldRequestTargets, !isRequestingWorkspaceDropTargets {
+            workspaceDropTargetRequestId &+= 1
         }
         isRequestingWorkspaceDropTargets = shouldRequestTargets
         setWorkspaceDropTargetCollectionActive(shouldRequestTargets)
