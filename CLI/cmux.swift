@@ -63,8 +63,17 @@ private struct CLISocketTransportError: Error, CustomStringConvertible, CLISocke
     }
 
     init(connectPath path: String, errnoValue: Int32) {
+        let format = String(
+            localized: "cli.socket.error.connectFailed",
+            defaultValue: "Failed to connect to socket at %@ (%@, errno %lld)"
+        )
         self.init(
-            message: "Failed to connect to socket at \(path) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))",
+            message: String.localizedStringWithFormat(
+                format,
+                path,
+                String(cString: strerror(errnoValue)),
+                Int64(errnoValue)
+            ),
             errnoValue: errnoValue
         )
     }
@@ -1845,10 +1854,20 @@ final class SocketClient {
                 operation.sawNewline = sawNewline
                 recordOperation(operation)
                 if data.isEmpty {
-                    throw CLISocketReadEOFError(message: "Socket closed before reply")
+                    throw CLISocketReadEOFError(
+                        message: String(
+                            localized: "cli.socket.error.closedBeforeReply",
+                            defaultValue: "Socket closed before reply"
+                        )
+                    )
                 }
                 if !sawNewline {
-                    throw CLISocketReadEOFError(message: "Socket closed before complete reply")
+                    throw CLISocketReadEOFError(
+                        message: String(
+                            localized: "cli.socket.error.closedBeforeCompleteReply",
+                            defaultValue: "Socket closed before complete reply"
+                        )
+                    )
                 }
                 receivedCompleteResponse = true
                 break
