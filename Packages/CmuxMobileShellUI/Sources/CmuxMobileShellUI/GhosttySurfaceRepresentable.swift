@@ -122,6 +122,24 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 surfaceView?.applyViewSize(cols: effective.columns, rows: effective.rows)
             }
         }
+
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {
+            // Forward to the Mac's real surface; libghostty scrolls scrollback
+            // (normal screen) or sends mouse-wheel to the program (alt screen).
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.store?.scrollTerminal(surfaceID: self.surfaceID, lines: lines, col: col, row: row)
+            }
+        }
+
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {
+            // Forward to the Mac's real surface as a left click; libghostty
+            // reports it to a TUI with mouse mode, or no-ops on a normal screen.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.store?.clickTerminal(surfaceID: self.surfaceID, col: col, row: row)
+            }
+        }
     }
 }
 #endif

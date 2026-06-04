@@ -4,6 +4,7 @@ import SwiftUI
 struct WorkspaceNavigationRow: View {
     let workspace: MobileWorkspacePreview
     let host: String
+    let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
@@ -13,7 +14,7 @@ struct WorkspaceNavigationRow: View {
             switch navigationStyle {
             case .push:
                 NavigationLink(value: workspace.id) {
-                    WorkspaceRow(workspace: workspace, host: host, isSelected: false)
+                    WorkspaceRow(workspace: workspace, host: host, connectionStatus: connectionStatus, isSelected: false)
                 }
                 .simultaneousGesture(TapGesture().onEnded {
                     selectWorkspace(workspace.id)
@@ -22,7 +23,7 @@ struct WorkspaceNavigationRow: View {
                 Button {
                     selectWorkspace(workspace.id)
                 } label: {
-                    WorkspaceRow(workspace: workspace, host: host, isSelected: isSelected)
+                    WorkspaceRow(workspace: workspace, host: host, connectionStatus: connectionStatus, isSelected: isSelected)
                 }
                 .buttonStyle(.plain)
             }
@@ -31,6 +32,6 @@ struct WorkspaceNavigationRow: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
         .accessibilityLabel(workspace.name)
-        .accessibilityValue(workspace.accessibilitySummary(host: host))
+        .accessibilityValue(workspace.accessibilitySummary(host: host, connectionStatus: connectionStatus))
     }
 }

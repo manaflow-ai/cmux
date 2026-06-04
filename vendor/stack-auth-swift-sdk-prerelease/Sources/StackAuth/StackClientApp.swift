@@ -838,6 +838,27 @@ public actor StackClientApp {
         }
         return await client.getRefreshToken()
     }
+
+    /// Forcibly mint a new access token from the stored refresh token, bypassing
+    /// the freshness check that ``getAccessToken(tokenStore:)`` applies.
+    ///
+    /// Use this after the server has rejected the current access token: a normal
+    /// ``getAccessToken(tokenStore:)`` would hand back the same still-"fresh
+    /// enough" token and the rejection would repeat. This serializes through
+    /// `RefreshLockManager` (no overlapping refresh exchanges) and only clears
+    /// the stored tokens on a definitive server rejection (HTTP 400/401); a
+    /// transient failure preserves them and returns `nil` so the caller can
+    /// retry without being signed out.
+    ///
+    /// - Returns: a freshly minted access token, or `nil` when no new token could
+    ///   be obtained (transient failure, or the refresh token was rejected).
+    public func fetchNewAccessToken(tokenStore: TokenStoreInit? = nil) async -> String? {
+        let overrideStore = resolveTokenStore(tokenStore)
+        if let overrideStore = overrideStore {
+            return await client.fetchNewAccessToken(tokenStoreOverride: overrideStore).accessToken
+        }
+        return await client.fetchNewAccessToken().accessToken
+    }
     
     public func getAuthHeaders(tokenStore: TokenStoreInit? = nil) async -> [String: String] {
         let overrideStore = resolveTokenStore(tokenStore)

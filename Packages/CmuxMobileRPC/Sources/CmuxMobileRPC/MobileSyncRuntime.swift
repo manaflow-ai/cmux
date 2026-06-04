@@ -11,6 +11,11 @@ public protocol MobileSyncRuntime: Sendable {
     var transportFactory: any CmxByteTransportFactory { get }
     /// Mints a Stack Auth access token for requests not covered by an attach ticket.
     var stackAccessTokenProvider: @Sendable () async throws -> String { get }
+    /// Force-mints a fresh Stack Auth access token, bypassing any cached-token
+    /// freshness check. The connection layer calls this exactly once after the
+    /// host rejects a request on auth grounds, so the retry presents a genuinely
+    /// new credential instead of re-sending the rejected (likely stale) token.
+    var stackAccessTokenForceRefresher: @Sendable () async throws -> String { get }
     /// Per-request timeout deadline, in nanoseconds.
     var rpcRequestTimeoutNanoseconds: UInt64 { get }
     /// Clock used to compare attach-ticket expiry, injected for testability.

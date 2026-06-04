@@ -36,7 +36,8 @@ struct cmuxApp: App {
 
         let runtime = CMUXMobileRuntime(
             transportFactory: transportFactory,
-            stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator)
+            stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
+            stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator)
         )
 
         return AppCompositionRoot(runtime: runtime, auth: auth, reachability: reachability)

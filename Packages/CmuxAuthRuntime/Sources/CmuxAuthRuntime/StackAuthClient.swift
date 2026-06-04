@@ -41,6 +41,10 @@ public struct StackAuthClient: AuthClient {
         await stack.getRefreshToken()
     }
 
+    public func forceRefreshAccessToken() async -> String? {
+        await stack.fetchNewAccessToken()
+    }
+
     public func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
         guard let user = try await stack.getUser(or: throwOnMissing ? .throw : .returnNull) else {
             return nil

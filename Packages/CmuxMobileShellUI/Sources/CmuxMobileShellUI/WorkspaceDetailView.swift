@@ -13,6 +13,7 @@ import AppKit
 
 struct WorkspaceDetailView: View {
     let host: String
+    let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
     @Binding var selectedTerminalID: MobileTerminalPreview.ID?
@@ -32,9 +33,10 @@ struct WorkspaceDetailView: View {
     }
 
     private func detailContent() -> some View {
-        // libghostty owns the bottom input accessory bar: it ships with
-        // `GhosttySurfaceView`'s `inputAccessoryView` (see
-        // `TerminalInputAccessoryAction`). The SwiftUI bar that used to
+        // `GhosttySurfaceView` owns the bottom accessory bar: it docks the
+        // `TerminalInputAccessoryAction` toolbar persistently at the bottom
+        // (above the keyboard when up, above the home indicator when down) and
+        // reserves its height in the terminal grid. The SwiftUI bar that used to
         // live here has been removed so the two stacked toolbars from
         // dogfood iosfin no longer fight for the same screen edge.
         Group {
@@ -45,8 +47,20 @@ struct WorkspaceDetailView: View {
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize
                 )
+                // Identity must track the selected terminal. The representable's
+                // coordinator binds its byte sink to the surfaceID at make time and
+                // `updateUIView` is a no-op, so without a per-terminal id SwiftUI
+                // reuses the first terminal's surface and the dropdown never switches.
+                // Keying on terminalID tears down the old surface (unregistering its
+                // sink via dismantleUIView) and builds the newly-selected one.
+                .id(terminalID)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(TerminalPalette.background)
+                // The surface positions its grid + docked toolbar from
+                // `keyboardHeight` directly, so opt out of SwiftUI keyboard
+                // avoidance; otherwise the view ALSO shrinks for the keyboard
+                // and the reservation double-counts (extra gap when open).
+                .ignoresSafeArea(.keyboard, edges: .bottom)
             } else {
                 TerminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -57,6 +71,11 @@ struct WorkspaceDetailView: View {
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(alignment: .topLeading) {
+            MobileMacConnectionStatusPill(host: host, status: connectionStatus)
+                .padding(.top, 10)
+                .padding(.leading, 10)
+        }
         #if os(iOS)
         .mobileTerminalSafeAreaExpansion(
             context: safeAreaContext,

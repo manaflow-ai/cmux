@@ -12,6 +12,18 @@ public protocol TokenProviding: Sendable {
     func accessToken() async throws -> String
     /// The current refresh token, or `nil` when there is no valid session.
     func refreshToken() async -> String?
+    /// Force-mint a fresh access token, bypassing the cached-token freshness
+    /// check.
+    ///
+    /// Call this after the host has rejected the current token so a retry
+    /// presents a genuinely new credential instead of re-sending the rejected
+    /// (likely stale) token.
+    /// - Throws: ``AuthError/networkError`` when the refresh failed transiently
+    ///   but the session is intact (a refresh token is still stored), so the
+    ///   caller should retry rather than sign out; ``AuthError/unauthorized``
+    ///   only when the session is genuinely gone.
+    /// - Returns: A freshly minted access token.
+    func forceRefreshAccessToken() async throws -> String
 }
 
 extension AuthCoordinator: TokenProviding {}

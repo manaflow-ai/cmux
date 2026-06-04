@@ -3,6 +3,26 @@ public import Foundation
 import Dispatch
 @preconcurrency import Network
 
+/// Why a connection attempt failed, classified from the underlying `NWError`
+/// so the UI can give an accurate, actionable message instead of a generic one.
+public enum CmxConnectFailureKind: Sendable, Equatable {
+    /// The host is reachable but nothing is listening on the port: the Mac app
+    /// is not running, or mobile pairing is turned off.
+    case connectionRefused
+    /// No route to the host: the Mac is off Tailscale, asleep, or offline.
+    case hostUnreachable
+    /// The connect attempt timed out (commonly the same as unreachable/asleep).
+    case timedOut
+    /// The OS blocked the connection (e.g. the iOS Local Network permission).
+    case permissionDenied
+    /// DNS resolution of the host failed.
+    case dnsFailed
+    /// The secure channel could not be established.
+    case secureChannelFailed
+    /// Anything else.
+    case generic
+}
+
 /// Errors raised while establishing or operating a ``CmxNetworkByteTransport``.
 public enum CmxNetworkByteTransportError: Error, Equatable, Sendable {
     /// The host was empty after trimming whitespace.
@@ -25,8 +45,10 @@ public enum CmxNetworkByteTransportError: Error, Equatable, Sendable {
     case sendAlreadyInProgress
     /// The connect deadline elapsed before the connection became ready.
     case connectionTimedOut
-    /// The connection failed; the associated value describes the cause.
-    case connectionFailed(String)
+    /// The connection failed; the associated values describe the cause and a
+    /// classified ``CmxConnectFailureKind`` so the UI can give an actionable
+    /// message.
+    case connectionFailed(String, CmxConnectFailureKind)
     /// A receive failed; the associated value describes the cause.
     case receiveFailed(String)
     /// A send failed; the associated value describes the cause.
@@ -275,8 +297,8 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             resumeConnectContinuations()
         case .waiting:
             break
-        case let .failed(errorDescription):
-            failTransport(.connectionFailed(errorDescription))
+        case let .failed(errorDescription, kind):
+            failTransport(.connectionFailed(errorDescription, kind))
         case .cancelled:
             switch state {
             case .closed, .failed:
@@ -631,8 +653,8 @@ private extension DispatchTimeInterval {
 
 private enum CmxNetworkConnectionEvent: Sendable {
     case ready
-    case waiting(String)
-    case failed(String)
+    case waiting(String, CmxConnectFailureKind)
+    case failed(String, CmxConnectFailureKind)
     case cancelled
     case other
 
@@ -641,9 +663,9 @@ private enum CmxNetworkConnectionEvent: Sendable {
         case .ready:
             self = .ready
         case let .waiting(error):
-            self = .waiting(error.cmxUserFacingDescription)
+            self = .waiting(error.cmxUserFacingDescription, error.cmxConnectFailureKind)
         case let .failed(error):
-            self = .failed(error.cmxUserFacingDescription)
+            self = .failed(error.cmxUserFacingDescription, error.cmxConnectFailureKind)
         case .cancelled:
             self = .cancelled
         case .setup, .preparing:
@@ -670,6 +692,33 @@ private extension NWError {
         #endif
         @unknown default:
             return "Network connection failed."
+        }
+    }
+
+    /// Classify this `NWError` into a ``CmxConnectFailureKind`` so the UI can
+    /// tell a user which knob to turn: app-not-running vs off-Tailscale vs
+    /// permission.
+    var cmxConnectFailureKind: CmxConnectFailureKind {
+        switch self {
+        case let .posix(code):
+            switch code {
+            case .ECONNREFUSED:
+                return .connectionRefused
+            case .EHOSTUNREACH, .ENETUNREACH, .ENETDOWN, .EHOSTDOWN, .ENETRESET, .ECONNABORTED:
+                return .hostUnreachable
+            case .ETIMEDOUT:
+                return .timedOut
+            case .EPERM, .EACCES:
+                return .permissionDenied
+            default:
+                return .generic
+            }
+        case .dns:
+            return .dnsFailed
+        case .tls:
+            return .secureChannelFailed
+        default:
+            return .generic
         }
     }
 }

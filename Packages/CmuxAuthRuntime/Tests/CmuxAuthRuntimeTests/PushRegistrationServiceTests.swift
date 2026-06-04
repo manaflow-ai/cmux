@@ -41,6 +41,10 @@ struct FakeTokenProvider: TokenProviding {
         return access
     }
     func refreshToken() async -> String? { refresh }
+    func forceRefreshAccessToken() async throws -> String {
+        guard let access else { throw AuthError.unauthorized }
+        return access
+    }
 }
 
 @Suite struct PushRegistrationServiceTests {

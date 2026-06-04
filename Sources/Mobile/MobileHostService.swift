@@ -292,7 +292,30 @@ final class MobileHostService {
         MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
     }
 
+    /// User-default key overriding ``isListeningEnabled``. When set, its boolean
+    /// value wins over the build-configuration default.
+    static let listeningEnabledDefaultsKey = "cmuxMobilePairingHostEnabled"
+
+    /// Whether the mobile pairing host should bind a network listener at all.
+    ///
+    /// Defaults **on** for dev and nightly builds so the iOS app pairs in dogfood
+    /// and in the nightly channel without setup, and **off** for stable: a stable
+    /// Mac that never pairs a phone must not expose a network listener for a
+    /// feature it can't use yet. The `cmuxMobilePairingHostEnabled` user default
+    /// overrides the default in any build (including stable), so the feature can
+    /// be flipped on without a new build once the iOS app ships broadly.
+    static var isListeningEnabled: Bool {
+        if let override = UserDefaults.standard.object(forKey: listeningEnabledDefaultsKey) as? Bool {
+            return override
+        }
+        return BuildFlavor.current != .stable
+    }
+
     func start() {
+        guard Self.isListeningEnabled else {
+            mobileHostLog.info("mobile host listener disabled; not binding")
+            return
+        }
         guard listener == nil else {
             return
         }
@@ -414,6 +437,22 @@ final class MobileHostService {
                 MobileHostRequestActivity.endConnection()
                 return
             }
+
+            #if !DEBUG
+            // Release builds never advertise a loopback route (the 127.0.0.1
+            // `debugLoopback` route is DEBUG-only, see `MobileRouteResolver`), so a
+            // legitimate phone always reaches the Mac over the Tailscale interface.
+            // A connection arriving on loopback in release can only be a local
+            // process (or a browser that somehow framed the binary protocol), never
+            // the real client, so refuse it outright. DEBUG keeps loopback so the
+            // iOS Simulator (which reaches the Mac via 127.0.0.1) can still pair.
+            if Self.isLoopbackConnection(connection) {
+                mobileHostLog.error("mobile host rejected loopback connection in release build")
+                connection.cancel()
+                MobileHostRequestActivity.endConnection()
+                return
+            }
+            #endif
 
             let id = UUID()
             let session = MobileHostConnection(
@@ -564,6 +603,37 @@ final class MobileHostService {
         Task { await session.start() }
     }
 
+    /// Whether an incoming connection's remote peer is on the loopback interface.
+    ///
+    /// Used to refuse local connections in release builds, where no legitimate
+    /// client ever connects via `127.0.0.1`/`::1`.
+    nonisolated static func isLoopbackConnection(_ connection: NWConnection) -> Bool {
+        isLoopbackEndpoint(connection.endpoint) || isLoopbackEndpoint(connection.currentPath?.remoteEndpoint)
+    }
+
+    nonisolated static func isLoopbackEndpoint(_ endpoint: NWEndpoint?) -> Bool {
+        guard case let .hostPort(host, _)? = endpoint else { return false }
+        switch host {
+        case let .ipv4(address):
+            // 127.0.0.0/8
+            return address.rawValue.first == 127
+        case let .ipv6(address):
+            let bytes = Array(address.rawValue)
+            guard bytes.count == 16 else { return false }
+            // ::1
+            let isV6Loopback = bytes[0..<15].allSatisfy { $0 == 0 } && bytes[15] == 1
+            // IPv4-mapped loopback ::ffff:127.0.0.0/8
+            let isV4MappedLoopback = bytes[0..<10].allSatisfy { $0 == 0 }
+                && bytes[10] == 0xff && bytes[11] == 0xff && bytes[12] == 127
+            return isV6Loopback || isV4MappedLoopback
+        case let .name(name, _):
+            let lowered = name.lowercased()
+            return lowered == "localhost" || lowered.hasSuffix(".localhost")
+        @unknown default:
+            return false
+        }
+    }
+
     private func removeConnection(id: UUID) {
         MobileHostConnectionRegistry.shared.remove(id: id)
         activeConnections.removeValue(forKey: id)
@@ -600,18 +670,13 @@ final class MobileHostService {
         guard Self.requiresAuthorization(method: request.method) else {
             return nil
         }
-        if let authorization = ticketStore.validAuthorization(authToken: request.auth?.attachToken) {
-            switch Self.ticketAuthorizationError(authorization: authorization, request: request) {
-            case nil:
-                return nil
-            case let error?:
-                if request.auth?.stackAccessToken == nil {
-                    return .failure(error)
-                }
-                // A ticket is intentionally narrow. Same-account Stack auth can
-                // still authorize broader operations such as creating workspaces.
-            }
-        }
+        // Stack auth is the SOLE authorization gate for the mobile data plane.
+        // The attach ticket is route-discovery and workspace-selection only; it
+        // never authorizes on its own. Every operation must present the Mac
+        // owner's same-account Stack access token. Consequences: a leaked or
+        // photographed QR is useless without the owner's signed-in account, and
+        // pairing is bound to "who is signed in on this Mac" rather than a stored
+        // ticket, so it survives Mac restarts and ticket expiry.
         #if DEBUG
         if let stackAccessToken = request.auth?.stackAccessToken,
            MobileHostDevStackAuthPolicy.authorize(
@@ -624,6 +689,16 @@ final class MobileHostService {
         do {
             try await Self.verifyStackAuthOffMainActor(auth: request.auth)
             return nil
+        } catch MobileHostAuthorizationError.accountMismatch {
+            // The presented Stack token is valid but belongs to a different
+            // account than the one signed in on this Mac. Surface a distinct code
+            // so the client can drive a re-authentication flow into the right
+            // account rather than showing a generic failure.
+            mobileHostLog.error("mobile host authorization rejected: account mismatch method=\(request.method, privacy: .public)")
+            return .failure(MobileHostRPCError(
+                code: "account_mismatch",
+                message: "Sign in with the account that owns this Mac to continue."
+            ))
         } catch {
             mobileHostLog.error("mobile host authorization failed method=\(request.method, privacy: .public) error=\(String(describing: error), privacy: .public)")
             return .failure(MobileHostRPCError(
@@ -707,7 +782,8 @@ final class MobileHostService {
             return nil
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.replay", "terminal.replay",
-             "mobile.terminal.viewport", "terminal.viewport":
+             "mobile.terminal.viewport", "terminal.viewport",
+             "mobile.terminal.scroll", "terminal.scroll":
             return ticketTerminalAuthorizationError(
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value,
@@ -814,7 +890,15 @@ final class MobileHostService {
 
     nonisolated private static func requiresAuthorization(method: String) -> Bool {
         switch method {
-        case "mobile.host.status", "mobile.attach_ticket.create":
+        // Only the unauthenticated host probe is exempt. `mobile.attach_ticket.create`
+        // mints a bearer credential, so it MUST be authorized: a network caller has no
+        // attach token yet, so it is routed through the same-account Stack Auth token
+        // (the iOS client always sends it for this method). Leaving it exempt would let
+        // any process that can speak the wire protocol self-issue a working ticket and
+        // take over the terminal. The on-Mac QR pairing mints tickets through the local
+        // automation socket (`TerminalController`), not this network path, so it is
+        // unaffected.
+        case "mobile.host.status":
             return false
         default:
             return true
@@ -1002,6 +1086,9 @@ private actor MobileHostStackAuthVerifier {
     }
 
     private var cache: [String: CacheEntry] = [:]
+    private var refreshingKeys: Set<String> = []
+    private static let cacheTTLSeconds: TimeInterval = 60
+    private static let refreshAheadWindowSeconds: TimeInterval = 15
 
     func verify(auth: MobileHostRPCAuth?) async throws {
         guard let accessToken = auth?.stackAccessToken else {
@@ -1014,30 +1101,58 @@ private actor MobileHostStackAuthVerifier {
         cache = cache.filter { $0.value.expiresAt > now }
         if let cached = cache[cacheKey], cached.expiresAt > now {
             remoteUserID = cached.userID
-        } else {
-            let stack = StackClientApp(
-                projectId: AuthEnvironment.stackProjectID,
-                publishableClientKey: AuthEnvironment.stackPublishableClientKey,
-                baseUrl: AuthEnvironment.stackBaseURL.absoluteString,
-                tokenStore: .custom(MobileHostAccessTokenStore(accessToken: accessToken)),
-                noAutomaticPrefetch: true
-            )
-            guard let user = try await Self.withVerificationTimeout({
-                try await stack.getUser(or: .throw)
-            }) else {
-                throw MobileHostAuthorizationError.invalidStackUser
+            // Refresh-ahead: when the cached binding is near expiry, re-verify in
+            // the background so an actively-typing client never blocks a keystroke
+            // on the network round-trip. Every mobile request now requires Stack
+            // auth, so the verification must stay off the critical path.
+            if cached.expiresAt.timeIntervalSince(now) < Self.refreshAheadWindowSeconds {
+                scheduleRefreshAhead(cacheKey: cacheKey, accessToken: accessToken)
             }
-            remoteUserID = await user.id
-            cache[cacheKey] = CacheEntry(
-                userID: remoteUserID,
-                expiresAt: now.addingTimeInterval(60)
-            )
+        } else {
+            remoteUserID = try await fetchAndCacheRemoteUserID(cacheKey: cacheKey, accessToken: accessToken)
         }
 
         let localUserID = await currentAuthenticatedLocalUserID()
         try MobileHostAuthorizationPolicy.authorizeStackUser(
             localUserID: localUserID,
             remoteUserID: remoteUserID
+        )
+    }
+
+    private func fetchAndCacheRemoteUserID(cacheKey: String, accessToken: String) async throws -> String {
+        let stack = Self.makeStackClient(accessToken: accessToken)
+        guard let user = try await Self.withVerificationTimeout({
+            try await stack.getUser(or: .throw)
+        }) else {
+            throw MobileHostAuthorizationError.invalidStackUser
+        }
+        let remoteUserID = await user.id
+        cache[cacheKey] = CacheEntry(
+            userID: remoteUserID,
+            expiresAt: Date().addingTimeInterval(Self.cacheTTLSeconds)
+        )
+        return remoteUserID
+    }
+
+    private func scheduleRefreshAhead(cacheKey: String, accessToken: String) {
+        guard !refreshingKeys.contains(cacheKey) else { return }
+        refreshingKeys.insert(cacheKey)
+        Task { await self.refreshAhead(cacheKey: cacheKey, accessToken: accessToken) }
+    }
+
+    private func refreshAhead(cacheKey: String, accessToken: String) async {
+        defer { refreshingKeys.remove(cacheKey) }
+        // Best-effort: on failure leave the existing entry to expire naturally.
+        _ = try? await fetchAndCacheRemoteUserID(cacheKey: cacheKey, accessToken: accessToken)
+    }
+
+    private static func makeStackClient(accessToken: String) -> StackClientApp {
+        StackClientApp(
+            projectId: AuthEnvironment.stackProjectID,
+            publishableClientKey: AuthEnvironment.stackPublishableClientKey,
+            baseUrl: AuthEnvironment.stackBaseURL.absoluteString,
+            tokenStore: .custom(MobileHostAccessTokenStore(accessToken: accessToken)),
+            noAutomaticPrefetch: true
         )
     }
 

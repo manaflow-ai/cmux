@@ -71,10 +71,70 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     }
 
     public func sendRequest(_ requestData: Data, timeoutNanoseconds: UInt64? = nil) async throws -> Data {
+        do {
+            return try await sendAuthenticatedRequest(
+                requestData,
+                timeoutNanoseconds: timeoutNanoseconds,
+                allowAuthRetry: true
+            )
+        } catch let error as MobileShellConnectionError {
+            // The host rejected this request on Stack-auth grounds. Before
+            // surfacing it (which drives the re-auth prompt), force exactly one
+            // fresh-token mint and retry once: the persisted access token is
+            // commonly just stale past its ~1h TTL while the refresh token is
+            // still valid, and a normal provider call would hand back the same
+            // stale token. An `account_mismatch` rejection is deliberately NOT
+            // retried here — it means the Mac is signed in to a different
+            // account, so retrying with a fresh token of THIS account cannot
+            // help and would only weaken the same-account gate; it surfaces as
+            // `.rpcError("account_mismatch", _)`, not `.authorizationFailed`.
+            guard case .authorizationFailed = error else { throw error }
+            try await forceRefreshStackTokenForRetry()
+            // Re-run with retry disabled so a fresh token that is still rejected
+            // surfaces as a definitive auth failure instead of looping.
+            return try await sendAuthenticatedRequest(
+                requestData,
+                timeoutNanoseconds: timeoutNanoseconds,
+                allowAuthRetry: false
+            )
+        }
+    }
+
+    /// Force a single Stack token refresh ahead of a retry.
+    ///
+    /// The force-refresher closure maps a transient refresh failure (session
+    /// intact) to `.connectionClosed` so a network blip stays retryable and does
+    /// not trip the re-auth prompt; a definitive failure surfaces as
+    /// `.authorizationFailed` to drive re-auth.
+    private func forceRefreshStackTokenForRetry() async throws {
+        do {
+            _ = try await runtime.stackAccessTokenForceRefresher()
+        } catch let error as MobileShellConnectionError {
+            throw error
+        } catch {
+            throw MobileShellConnectionError.authorizationFailed(
+                L10n.string(
+                    "mobile.pairing.stackAuthTokenUnavailable",
+                    defaultValue: "Sign in on your computer with the same account, then try again."
+                )
+            )
+        }
+    }
+
+    private func sendAuthenticatedRequest(
+        _ requestData: Data,
+        timeoutNanoseconds: UInt64?,
+        allowAuthRetry: Bool
+    ) async throws -> Data {
         // Multiplexed over a persistent transport: each request gets a unique
         // id, the session's reader task routes the response back here. No
         // connect/close per RPC, no head-of-line blocking between calls.
-        let (id, augmented) = try Self.requestWithGuaranteedID(requestData)
+        // `forceID` mints a brand-new id on the retry pass so it never collides
+        // with the first attempt's already-resolved pending continuation.
+        let (id, augmented) = try Self.requestWithGuaranteedID(
+            requestData,
+            forceID: !allowAuthRetry
+        )
         let authenticated = try await requestDataWithAuth(augmented)
         return try await Self.withRequestTimeout(
             timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
@@ -83,12 +143,15 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
-    private static func requestWithGuaranteedID(_ requestData: Data) throws -> (String, Data) {
+    private static func requestWithGuaranteedID(
+        _ requestData: Data,
+        forceID: Bool = false
+    ) throws -> (String, Data) {
         guard var dict = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             throw MobileShellConnectionError.invalidResponse
         }
         let id: String
-        if let existing = dict["id"] as? String, !existing.isEmpty {
+        if !forceID, let existing = dict["id"] as? String, !existing.isEmpty {
             id = existing
         } else {
             id = UUID().uuidString
@@ -125,6 +188,16 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             }
             do {
                 auth["stack_access_token"] = try await runtime.stackAccessTokenProvider()
+            } catch let error as MobileShellConnectionError {
+                // The provider already classified the failure: a transient
+                // token-fetch failure (offline / refresh server hiccup, session
+                // still intact) maps to `.connectionClosed` so the connection
+                // survives a network blip past the ~1h access-token TTL without a
+                // manual re-sign-in; only a definitive failure surfaces as
+                // `.authorizationFailed` to route to the re-auth prompt. Mapping
+                // everything to `.authorizationFailed` here is what made retry
+                // fail permanently.
+                throw error
             } catch {
                 throw MobileShellConnectionError.authorizationFailed(
                     L10n.string(

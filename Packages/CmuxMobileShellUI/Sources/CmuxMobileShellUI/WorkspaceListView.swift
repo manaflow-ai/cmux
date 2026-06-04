@@ -11,6 +11,7 @@ struct WorkspaceListView: View {
     let workspaces: [MobileWorkspacePreview]
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let host: String
+    let connectionStatus: MobileMacConnectionStatus
     let navigationStyle: WorkspaceNavigationStyle
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
@@ -19,11 +20,9 @@ struct WorkspaceListView: View {
     /// previews), the menu is hidden.
     var rescanQR: (() -> Void)?
     var signOut: (() -> Void)?
-    #if os(iOS)
-    @Environment(MobilePushCoordinator.self) private var pushCoordinator
-    #endif
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
+    @State private var showingSettings = false
 
     private var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -39,11 +38,19 @@ struct WorkspaceListView: View {
 
     var body: some View {
         List {
+            if connectionStatus != .connected {
+                Section {
+                    MobileMacConnectionStatusRow(host: host, status: connectionStatus)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .listRowSeparator(.hidden)
+                }
+            }
             Section {
                 ForEach(filteredWorkspaces) { workspace in
                     WorkspaceNavigationRow(
                         workspace: workspace,
                         host: host,
+                        connectionStatus: connectionStatus,
                         isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
                         navigationStyle: navigationStyle,
                         selectWorkspace: selectWorkspace
@@ -76,6 +83,13 @@ struct WorkspaceListView: View {
         .sheet(isPresented: $showingShortcutsSettings) {
             TerminalShortcutsSettingsView()
         }
+        .sheet(isPresented: $showingSettings) {
+            MobileSettingsView(
+                connectedHostName: host,
+                rescanQR: rescanQR,
+                signOut: signOut
+            )
+        }
         #endif
     }
 
@@ -88,6 +102,17 @@ struct WorkspaceListView: View {
     }
 
     private var settingsMenu: some View {
+        #if os(iOS)
+        // Open the full Settings page (account, terminal shortcuts,
+        // notifications, paired Mac) rather than a transient menu.
+        Button {
+            showingSettings = true
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
+        .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
+        #else
         Menu {
             Button {
                 showingShortcutsSettings = true
@@ -98,25 +123,6 @@ struct WorkspaceListView: View {
                 )
             }
             .accessibilityIdentifier("MobileWorkspaceTerminalShortcutsMenuItem")
-            #if os(iOS)
-            Button {
-                Task {
-                    if pushCoordinator.isEnabled {
-                        await pushCoordinator.disable()
-                    } else {
-                        _ = await pushCoordinator.enable()
-                    }
-                }
-            } label: {
-                Label(
-                    pushCoordinator.isEnabled
-                        ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Agent Notifications")
-                        : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me About Agents"),
-                    systemImage: pushCoordinator.isEnabled ? "bell.slash" : "bell"
-                )
-            }
-            .accessibilityIdentifier("MobileWorkspaceNotificationsMenuItem")
-            #endif
             if let rescanQR {
                 Button {
                     rescanQR()
@@ -144,5 +150,6 @@ struct WorkspaceListView: View {
         }
         .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
         .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
+        #endif
     }
 }

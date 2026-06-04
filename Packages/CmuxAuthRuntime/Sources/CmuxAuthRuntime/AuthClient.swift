@@ -14,6 +14,19 @@ public protocol AuthClient: Sendable {
     /// The current Stack refresh token, or `nil` when there is no live session.
     func refreshToken() async -> String?
 
+    /// Force-mint a fresh access token from the stored refresh token, bypassing
+    /// the cached-token freshness check.
+    ///
+    /// Call this after the server has rejected the current access token: a normal
+    /// ``accessToken()`` would hand back the same still-"fresh enough" token and
+    /// the rejection would repeat. Returns `nil` when no new token could be
+    /// obtained (a transient failure, or the refresh token was definitively
+    /// rejected and cleared). The caller distinguishes the two by checking
+    /// ``refreshToken()`` afterward: a surviving refresh token means the failure
+    /// was transient and the caller should retry rather than sign out.
+    /// - Returns: A freshly minted access token, or `nil` when none was obtained.
+    func forceRefreshAccessToken() async -> String?
+
     /// Fetch the signed-in user, returning `nil` when no user is present.
     ///
     /// - Parameter throwOnMissing: When `true`, the client throws on token

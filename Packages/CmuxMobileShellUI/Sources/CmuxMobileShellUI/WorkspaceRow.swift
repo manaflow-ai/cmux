@@ -5,6 +5,7 @@ import SwiftUI
 struct WorkspaceRow: View {
     let workspace: MobileWorkspacePreview
     let host: String
+    let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
 
     var body: some View {
@@ -20,7 +21,7 @@ struct WorkspaceRow: View {
 
                     Spacer(minLength: 8)
 
-                    Text(workspace.timestampOrStatus(host: host))
+                    Text(workspace.timestampOrStatus(host: host, connectionStatus: connectionStatus))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -33,10 +34,10 @@ struct WorkspaceRow: View {
 
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(workspace.statusColor)
+                        .fill(workspace.statusColor(connectionStatus: connectionStatus))
                         .frame(width: 7, height: 7)
 
-                    Text(workspace.detailLine(host: host))
+                    Text(workspace.detailLine(host: host, connectionStatus: connectionStatus))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

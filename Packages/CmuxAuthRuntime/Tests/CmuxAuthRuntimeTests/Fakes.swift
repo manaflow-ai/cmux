@@ -41,6 +41,7 @@ actor FakeAuthClient: AuthClient {
 
     func accessToken() async -> String? { access }
     func refreshToken() async -> String? { refresh }
+    func forceRefreshAccessToken() async -> String? { access }
 
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
         if let throwOnCurrentUser { throw throwOnCurrentUser }

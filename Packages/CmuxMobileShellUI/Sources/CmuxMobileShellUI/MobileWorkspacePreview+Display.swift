@@ -9,8 +9,15 @@ extension MobileWorkspacePreview {
         terminals.first?.name ?? name
     }
 
-    var statusColor: Color {
-        terminals.isEmpty ? .orange : .green
+    func statusColor(connectionStatus: MobileMacConnectionStatus) -> Color {
+        switch connectionStatus {
+        case .connected:
+            return terminals.isEmpty ? .orange : .green
+        case .reconnecting:
+            return .orange
+        case .unavailable:
+            return .red
+        }
     }
 
     var avatarSymbolName: String {
@@ -28,7 +35,10 @@ extension MobileWorkspacePreview {
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
-    func timestampOrStatus(host: String) -> String {
+    func timestampOrStatus(host: String, connectionStatus: MobileMacConnectionStatus) -> String {
+        if connectionStatus != .connected {
+            return connectionStatus.label
+        }
         let date = latestActivityDate
         guard date.timeIntervalSince1970 > 1 else {
             return host.isEmpty ? (terminals.first?.name ?? "") : host
@@ -39,16 +49,24 @@ extension MobileWorkspacePreview {
         return date.formatted(.dateTime.month(.defaultDigits).day(.defaultDigits))
     }
 
-    func detailLine(host: String) -> String {
+    func detailLine(host: String, connectionStatus: MobileMacConnectionStatus) -> String {
         let count = L10n.terminalCount(terminals.count)
+        guard connectionStatus == .connected else {
+            return count
+        }
         guard !host.isEmpty else {
             return count
         }
         return "\(host), \(count)"
     }
 
-    func accessibilitySummary(host: String) -> String {
-        "\(previewLine), \(detailLine(host: host))"
+    func accessibilitySummary(host: String, connectionStatus: MobileMacConnectionStatus) -> String {
+        let detail = detailLine(host: host, connectionStatus: connectionStatus)
+        // A healthy connection contributes no status text anywhere, including VoiceOver.
+        guard connectionStatus != .connected else {
+            return "\(previewLine), \(detail)"
+        }
+        return "\(previewLine), \(connectionStatus.label), \(detail)"
     }
 
     private var latestActivityDate: Date { .distantPast }

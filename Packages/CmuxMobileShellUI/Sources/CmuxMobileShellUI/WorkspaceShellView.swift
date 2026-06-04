@@ -48,7 +48,7 @@ struct WorkspaceShellView: View {
         }
         .accessibilityIdentifier("MobileWorkspaceShell")
         .overlay(alignment: .top) {
-            MobileConnectionRecoveryBanner(store: store)
+            MobileConnectionRecoveryBanner(store: store, signOut: signOut)
         }
     }
 
@@ -58,6 +58,7 @@ struct WorkspaceShellView: View {
                 workspaces: store.workspaces,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
+                connectionStatus: store.macConnectionStatus,
                 navigationStyle: .push,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
@@ -107,6 +108,7 @@ struct WorkspaceShellView: View {
                 workspaces: store.workspaces,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
+                connectionStatus: store.macConnectionStatus,
                 navigationStyle: .sidebar,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: store.createWorkspace,

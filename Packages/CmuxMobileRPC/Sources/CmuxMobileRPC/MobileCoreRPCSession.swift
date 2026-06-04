@@ -278,9 +278,15 @@ actor MobileCoreRPCSession {
         let errorPayload = envelope["error"] as? [String: Any]
         let message = (errorPayload?["message"] as? String) ?? "RPC error"
         let code = errorPayload?["code"] as? String
-        if code == "unauthorized" {
+        switch code {
+        case "unauthorized":
             cont.resume(returning: .failure(.authorizationFailed(message)))
-        } else {
+        case "account_mismatch":
+            // The Mac is signed in to a different cmux account. Surface a
+            // distinct error so the shell drives a re-auth flow into the owner's
+            // account rather than retrying with this account's fresh token.
+            cont.resume(returning: .failure(.accountMismatch(message)))
+        default:
             cont.resume(returning: .failure(.rpcError(code, message)))
         }
     }

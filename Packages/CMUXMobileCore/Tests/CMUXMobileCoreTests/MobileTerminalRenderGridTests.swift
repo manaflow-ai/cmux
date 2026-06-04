@@ -58,6 +58,52 @@ import Testing
     )
 }
 
+@Test func renderGridDeltaClearsShortenedRowForBackspace() throws {
+    // A held backspace shortens the prompt line ("echo hello" -> "echo hell").
+    // The delta must erase the whole row (ESC[2K) before repainting so the
+    // deleted trailing cell is cleared, not left stale. This is the consumer
+    // half of the held-backspace render path.
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 44,
+        columns: 12,
+        rows: 1,
+        text: "echo hell",
+        full: false,
+        changedRows: [0]
+    )
+
+    #expect(frame.full == false)
+    #expect(frame.clearedRows == [0])
+    #expect(frame.rowSpans == [
+        .init(row: 0, column: 0, text: "echo hell"),
+    ])
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    // Erase the row, then repaint the shortened text.
+    #expect(vt.contains("\u{1B}[1;1H\u{1B}[2K"))
+    #expect(vt.contains("echo hell"))
+}
+
+@Test func renderGridDeltaClearsRowEmptiedByBackspace() throws {
+    // Deleting an entire line leaves a row with no spans at all. The delta must
+    // still emit ESC[2K for that row so stale content does not survive on the
+    // consumer when there is nothing to repaint.
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 45,
+        columns: 12,
+        rows: 1,
+        text: "",
+        full: false,
+        changedRows: [0]
+    )
+
+    #expect(frame.clearedRows == [0])
+    #expect(frame.rowSpans.isEmpty)
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    #expect(vt.contains("\u{1B}[1;1H\u{1B}[2K"))
+}
+
 @Test func renderGridPatchPreservesRgbStylesAndCursorShape() throws {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",

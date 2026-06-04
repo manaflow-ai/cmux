@@ -15,6 +15,10 @@ public enum MobileShellConnectionError: LocalizedError {
     case attachTicketExpired
     /// Authorization failed; the associated value is a user-facing message.
     case authorizationFailed(String)
+    /// The Mac is signed in to a different cmux account than this device. The
+    /// associated value is a user-facing message; the caller should drive a
+    /// re-authentication flow into the owner's account rather than retry.
+    case accountMismatch(String)
     /// A server-reported RPC error: optional code plus a message.
     case rpcError(String?, String)
 
@@ -31,6 +35,8 @@ public enum MobileShellConnectionError: LocalizedError {
         case .attachTicketExpired:
             return "Mobile attach ticket expired"
         case let .authorizationFailed(message):
+            return message
+        case let .accountMismatch(message):
             return message
         case let .rpcError(_, message):
             return message

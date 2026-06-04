@@ -380,6 +380,29 @@ public final class AuthCoordinator {
         await client.refreshToken()
     }
 
+    /// Force-mint a fresh access token, bypassing the cached-token freshness
+    /// check. Call this after the host rejected the current token so the retry
+    /// presents a genuinely new credential instead of the same rejected one.
+    ///
+    /// - Returns: A freshly minted access token.
+    /// - Throws: ``AuthError/networkError`` when the refresh failed transiently
+    ///   but the session is intact (a refresh token is still stored), so the
+    ///   caller should retry rather than sign out; ``AuthError/unauthorized``
+    ///   only when the session is genuinely gone (the refresh token was
+    ///   definitively rejected and cleared).
+    public func forceRefreshAccessToken() async throws -> String {
+        if let token = await client.forceRefreshAccessToken() {
+            return token
+        }
+        // A surviving refresh token means the failure was transient
+        // (network/server), so stay retryable; a missing one means the SDK
+        // definitively cleared the session.
+        if await client.refreshToken() != nil {
+            throw AuthError.networkError
+        }
+        throw AuthError.unauthorized
+    }
+
     // MARK: - State helpers
 
     private func applySignedInUser(_ user: CMUXAuthUser) async {
