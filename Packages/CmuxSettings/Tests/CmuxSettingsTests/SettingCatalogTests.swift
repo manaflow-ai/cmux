@@ -18,18 +18,28 @@ struct SettingCatalogTests {
         // two entries sharing a (key, suite) while disagreeing on Value type or
         // default — that lets one surface clobber or mis-decode the other.
         // Assert agreement on the value contract instead of uniqueness.
-        var contractByStorageKey: [String: AnySettingKey.UserDefaultsValueContract] = [:]
+        struct StorageLocation: Hashable {
+            let suite: String?
+            let key: String
+        }
+        var contractByLocation: [StorageLocation: AnySettingKey.UserDefaultsValueContract] = [:]
         for entry in SettingCatalog().all {
-            guard case let .userDefaults(key, suite, _) = entry.kind,
-                  let contract = entry.userDefaultsValueContract else { continue }
-            let storageKey = "\(suite ?? "standard")::\(key)"
-            if let existing = contractByStorageKey[storageKey] {
+            guard case let .userDefaults(key, suite, _) = entry.kind else { continue }
+            // Every userDefaults entry must carry a contract; a missing one is a
+            // bug in AnySettingKey, so fail loudly rather than skipping silently.
+            #expect(
+                entry.userDefaultsValueContract != nil,
+                "UserDefaults entry \(entry.id) is missing a value contract"
+            )
+            guard let contract = entry.userDefaultsValueContract else { continue }
+            let location = StorageLocation(suite: suite, key: key)
+            if let existing = contractByLocation[location] {
                 #expect(
                     existing == contract,
-                    "UserDefaults key \(storageKey) is aliased by catalog entries that disagree on value contract: \(existing) vs \(contract)"
+                    "UserDefaults key \(suite ?? "standard")/\(key) is aliased by catalog entries that disagree on value contract: \(existing) vs \(contract)"
                 )
             } else {
-                contractByStorageKey[storageKey] = contract
+                contractByLocation[location] = contract
             }
         }
     }
