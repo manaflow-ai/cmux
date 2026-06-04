@@ -1089,6 +1089,7 @@ const state = {
   statusbarPerformanceRefreshTimer: 0,
   statusbarPerformanceRefreshAt: 0,
   settingsSearchIndex: [],
+  settingsSearchIndexItems: new WeakMap(),
   settingsSearchIndexVersion: 0,
   settingsSearchEmpty: null,
   settingsSearchClear: null,
@@ -21800,6 +21801,11 @@ function buildSettingsSearchIndex() {
 
 function rebuildSettingsSearchIndex() {
   state.settingsSearchIndex = buildSettingsSearchIndex();
+  state.settingsSearchIndexItems = new WeakMap();
+  for (const section of state.settingsSearchIndex) {
+    for (const record of section.items) state.settingsSearchIndexItems.set(record.item, record);
+    for (const record of section.groups) state.settingsSearchIndexItems.set(record.group, record);
+  }
   state.settingsSearchIndexVersion += 1;
   state.settingsSearchLastFilterSignature = "";
   state.settingsSearchDisclosuresOpenVersion = 0;
@@ -21808,10 +21814,17 @@ function rebuildSettingsSearchIndex() {
 }
 
 function updateSettingsSearchIndexItemSearch(target, search) {
+  const record = state.settingsSearchIndexItems.get(target);
+  if (record) {
+    record.search = normalizeSettingsQuery(search);
+    return;
+  }
   for (const section of state.settingsSearchIndex) {
-    const record = section.items.find((item) => item.item === target);
-    if (record) {
-      record.search = normalizeSettingsQuery(search);
+    const fallback = section.items.find((item) => item.item === target)
+      || section.groups.find((item) => item.group === target);
+    if (fallback) {
+      fallback.search = normalizeSettingsQuery(search);
+      state.settingsSearchIndexItems.set(target, fallback);
       return;
     }
   }
