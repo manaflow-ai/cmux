@@ -8,6 +8,7 @@ LOG_ROOT="${RUNNER_TEMP:-/tmp}/cmux-unit-isolated-logs"
 STATUS_ROOT="${RUNNER_TEMP:-/tmp}/cmux-unit-isolated-status"
 SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"
 SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"
+CLASS_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_CLASS_TIMEOUT_SECONDS:-300}"
 ORIGINAL_HOME="$HOME"
 SWIFT_COMPILER_SUPPORTS_6_2="$(
   xcrun swift -e '#if compiler(>=6.2)
@@ -108,23 +109,48 @@ run_one_class() {
   local status_file="$STATUS_ROOT/$class.status"
   local result_path="$RESULT_ROOT/$class.xcresult"
   local test_home="${RUNNER_TEMP:-/tmp}/cmux-unit-home-$class"
+  local timeout_seconds="$CLASS_TIMEOUT_SECONDS"
   rm -rf "$test_home" "$result_path"
   mkdir -p "$test_home"
 
   set +e
   env -u SSH_AUTH_SOCK \
-    HOME="$test_home" RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo" CFFIXED_USER_HOME="$test_home" \
-    scripts/ci/xcodebuild_noninteractive.py \
-      xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-      -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-      -derivedDataPath "$DERIVED_DATA_PATH" \
-      -disableAutomaticPackageResolution \
-      -destination "platform=macOS" \
-      -resultBundlePath "$result_path" \
-      -only-testing:"cmuxTests/$class" \
-      test-without-building >"$log_file" 2>&1
+      HOME="$test_home" RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo" CFFIXED_USER_HOME="$test_home" \
+      scripts/ci/xcodebuild_noninteractive.py \
+        xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+        -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+        -derivedDataPath "$DERIVED_DATA_PATH" \
+        -disableAutomaticPackageResolution \
+        -destination "platform=macOS" \
+        -resultBundlePath "$result_path" \
+        -only-testing:"cmuxTests/$class" \
+        test-without-building >"$log_file" 2>&1 &
+  local test_pid=$!
+  local deadline=$((SECONDS + timeout_seconds))
+  local timed_out=0
+  while kill -0 "$test_pid" 2>/dev/null; do
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      timed_out=1
+      echo "Timed out after ${timeout_seconds}s running $class; terminating xcodebuild" >>"$log_file"
+      kill -TERM "$test_pid" 2>/dev/null || true
+      sleep 5
+      if kill -0 "$test_pid" 2>/dev/null; then
+        echo "xcodebuild still running for $class after SIGTERM; sending SIGKILL" >>"$log_file"
+        kill -KILL "$test_pid" 2>/dev/null || true
+      fi
+      break
+    fi
+    sleep 1
+  done
+  wait "$test_pid"
   local exit_code=$?
   set -e
+
+  if [ "$timed_out" -ne 0 ]; then
+    echo "failed" >"$status_file"
+    echo "FAIL $class timed out after ${timeout_seconds}s"
+    return 0
+  fi
 
   if grep -Fq "Test Suite '$class' failed" "$log_file"; then
     echo "failed" >"$status_file"
@@ -153,7 +179,7 @@ run_one_class() {
   return 0
 }
 
-export SOURCE_PACKAGES_DIR DERIVED_DATA_PATH RESULT_ROOT LOG_ROOT STATUS_ROOT ORIGINAL_HOME
+export SOURCE_PACKAGES_DIR DERIVED_DATA_PATH RESULT_ROOT LOG_ROOT STATUS_ROOT ORIGINAL_HOME CLASS_TIMEOUT_SECONDS
 export -f run_one_class
 
 printf '%s\n' "${SELECTED_TEST_CLASSES[@]}" | while IFS= read -r class; do

@@ -585,6 +585,9 @@ check_cmux_unit_isolated_runner() {
     'RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo"' \
     'SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"' \
     'SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"' \
+    'CLASS_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_CLASS_TIMEOUT_SECONDS:-300}"' \
+    'Timed out after ${timeout_seconds}s running $class; terminating xcodebuild' \
+    'FAIL $class timed out after ${timeout_seconds}s' \
     "All \${#SELECTED_TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"
   do
     if ! grep -Fq -- "$pattern" "$CMUX_UNIT_ISOLATED_RUNNER"; then
