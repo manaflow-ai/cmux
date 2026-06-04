@@ -29,15 +29,3 @@ import Testing
     _ = await firstTask.value
     _ = await secondTask.value
 }
-
-@Test func transitionalNetworkReachabilityShimMirrorsAServiceOnMainActor() async {
-    let shim = await NetworkReachability(service: ReachabilityService())
-
-    // The transitional @Observable shim exposes the legacy accessors the deep
-    // call sites read, seeded optimistically online before the first path.
-    let isOnline = await shim.isOnline
-    let isOffline = await shim.isOffline
-    let generation = await shim.pathChangeGeneration
-    #expect(isOnline == !isOffline)
-    #expect(generation == 0)
-}
