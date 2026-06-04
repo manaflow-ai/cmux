@@ -699,6 +699,41 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
+    func testNonSocketPathWithTransientTextStillCapturesSentryTelemetry() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-sentry-fake-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let socketPath = root.appendingPathComponent("connection refused.sock", isDirectory: false).path
+        FileManager.default.createFile(atPath: socketPath, contents: Data())
+
+        let probePath = root.appendingPathComponent("sentry-probe.txt", isDirectory: false).path
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("is not a Unix socket"), result.stdout)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: probePath),
+            result.stdout
+        )
+    }
+
     func testThemesSetReloadsRunningAppAfterEveryThemeWrite() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
