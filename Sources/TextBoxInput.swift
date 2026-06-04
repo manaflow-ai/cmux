@@ -3360,6 +3360,7 @@ struct TextBoxInputView: NSViewRepresentable {
         var parent: TextBoxInputView
         private var pendingAttachmentUploadStateForNextLayout: Bool?
         private var pendingMarkedTextStateForNextLayout: Bool?
+        private var deliveredMarkedTextState: Bool?
 
         init(parent: TextBoxInputView) {
             self.parent = parent
@@ -3400,10 +3401,19 @@ struct TextBoxInputView: NSViewRepresentable {
         }
 
         func noteMarkedTextStateChanged(_ hasMarkedText: Bool, from textView: TextBoxInputTextView? = nil) {
-            if !hasMarkedText, let textView {
+            let pendingMarkedTextState = pendingMarkedTextStateForNextLayout
+            if textView != nil {
+                pendingMarkedTextStateForNextLayout = nil
+            }
+            if !hasMarkedText,
+               let textView,
+               deliveredMarkedTextState == true || pendingMarkedTextState == true {
                 publishTextViewContent(textView)
             }
-            parent.onMarkedTextStateChanged(hasMarkedText)
+            if deliveredMarkedTextState != hasMarkedText {
+                parent.onMarkedTextStateChanged(hasMarkedText)
+            }
+            deliveredMarkedTextState = hasMarkedText
         }
 
         private func publishTextViewContent(_ textView: TextBoxInputTextView) {
