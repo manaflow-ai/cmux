@@ -7464,7 +7464,11 @@ class TerminalController {
     private func v2ResolveWorkspaceColor(params: [String: Any]) -> V2WorkspaceColorResolution {
         guard let colorRaw = v2String(params, "color"),
               !colorRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return .failure(.err(code: "invalid_params", message: "Missing or invalid color", data: nil))
+            return .failure(.err(
+                code: "invalid_params",
+                message: String(localized: "socket.workspaceColor.invalidOrMissing", defaultValue: "Missing or invalid color."),
+                data: nil
+            ))
         }
 
         let colorInput = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -7481,7 +7485,7 @@ class TerminalController {
         let colorNames = effectivePalette.map(\.name)
         return .failure(.err(
             code: "invalid_params",
-            message: "Invalid color. Use a hex value (#RRGGBB) or a named color.",
+            message: String(localized: "socket.workspaceColor.invalid", defaultValue: "Invalid color. Use a color name or #RRGGBB."),
             data: ["named_colors": colorNames]
         ))
     }
@@ -7504,11 +7508,19 @@ class TerminalController {
 
     private func v2WorkspaceSetColor(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(
+                code: "unavailable",
+                message: String(localized: "socket.workspaceColor.unavailable", defaultValue: "No workspace window is available."),
+                data: nil
+            )
         }
         let requestedWorkspaceId = v2UUID(params, "workspace_id")
         if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.workspaceColor.invalidWorkspace", defaultValue: "Missing or invalid workspace_id."),
+                data: nil
+            )
         }
         let color: String
         switch v2ResolveWorkspaceColor(params: params) {
@@ -7518,7 +7530,11 @@ class TerminalController {
             return error
         }
 
-        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+        var result: V2CallResult = .err(
+            code: "not_found",
+            message: String(localized: "socket.workspaceColor.notFound", defaultValue: "Workspace not found."),
+            data: nil
+        )
         v2MainSync {
             let workspaceId = requestedWorkspaceId ?? tabManager.selectedTabId
             guard let workspaceId,
@@ -7539,14 +7555,26 @@ class TerminalController {
 
     private func v2WorkspaceClearColor(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(
+                code: "unavailable",
+                message: String(localized: "socket.workspaceColor.unavailable", defaultValue: "No workspace window is available."),
+                data: nil
+            )
         }
         let requestedWorkspaceId = v2UUID(params, "workspace_id")
         if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.workspaceColor.invalidWorkspace", defaultValue: "Missing or invalid workspace_id."),
+                data: nil
+            )
         }
 
-        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+        var result: V2CallResult = .err(
+            code: "not_found",
+            message: String(localized: "socket.workspaceColor.notFound", defaultValue: "Workspace not found."),
+            data: nil
+        )
         v2MainSync {
             let workspaceId = requestedWorkspaceId ?? tabManager.selectedTabId
             guard let workspaceId,

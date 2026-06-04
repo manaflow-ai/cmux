@@ -3652,7 +3652,7 @@ struct CMUXCLI {
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
                 let messageFormat = String(
                     localized: "cli.newWorkspace.error.unknownFlag",
-                    defaultValue: "new-workspace: unknown flag '%@'. Known flags: --name <title>, --description <text>, --color <name|#hex>, --command <text>, --cwd <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>"
+                    defaultValue: "new-workspace: unknown flag '%@'. Known flags: --name <title>, --description <text>, --color <name|#RRGGBB>, --command <text>, --cwd <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>"
                 )
                 throw CLIError(message: String(format: messageFormat, unknown))
             }
@@ -6183,7 +6183,10 @@ struct CMUXCLI {
             colorOpt ?? (action == "set_color" ? (inferredPositional.isEmpty ? nil : inferredPositional) : nil)
         )?.trimmingCharacters(in: .whitespacesAndNewlines)
         if action == "set_color", (color?.isEmpty ?? true) {
-            throw CLIError(message: "workspace-action set-color requires --color <name|#hex> (or a trailing color)")
+            throw CLIError(message: String(
+                localized: "cli.workspaceAction.error.missingSetColor",
+                defaultValue: "workspace-action set-color requires --color <name|#RRGGBB> (or a trailing color)"
+            ))
         }
 
         let description = (
@@ -6257,7 +6260,7 @@ struct CMUXCLI {
         if !clearsColor, (color?.isEmpty ?? true) {
             let messageFormat = String(
                 localized: "cli.workspaceColor.error.missingColor",
-                defaultValue: "%@ requires --color <name|#hex> (or a trailing color)"
+                defaultValue: "%@ requires --color <name|#RRGGBB> (or a trailing color)"
             )
             throw CLIError(message: String(format: messageFormat, commandName))
         }
@@ -12319,7 +12322,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace refs and indexes
               --title <text>               Title for rename
-              --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
+              --color <name|#RRGGBB>       Color name or #RRGGBB hex
               --description <text>         Description for set-description
 
             Named colors:
@@ -12339,14 +12342,14 @@ struct CMUXCLI {
             """
         case "set-color", "set-workspace-color":
             return String(localized: "cli.help.setColor", defaultValue: """
-            Usage: cmux set-color [--workspace <id|ref|index>] [--window <id|ref|index>] [--color <name|#hex> | <name|#hex>]
+            Usage: cmux set-color [--workspace <id|ref|index>] [--window <id|ref|index>] [--color <name|#RRGGBB> | <name|#RRGGBB>]
 
             Set the target workspace tab color.
 
             Flags:
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace refs and indexes
-              --color <name|#hex>          Color name or #RRGGBB hex
+              --color <name|#RRGGBB>       Color name or #RRGGBB hex
 
             Named colors:
               Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
@@ -12430,14 +12433,14 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return String(localized: "cli.help.newWorkspace", defaultValue: """
-            Usage: cmux new-workspace [--name <title>] [--description <text>] [--color <name|#hex>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--color <name|#RRGGBB>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
 
             Create a new workspace in the caller's window.
 
             Flags:
               --name <title>       Set a custom name for the new workspace
               --description <text> Set a custom description for the new workspace
-              --color <name|#hex>  Set a custom tab color for the new workspace
+              --color <name|#RRGGBB> Set a custom tab color for the new workspace
               --cwd <path>         Set the working directory for the new workspace
               --command <text>     Send text+Enter to the new workspace after creation
               --layout <json>      Create workspace with a predefined split layout (inline JSON).
@@ -30020,12 +30023,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
           reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
-          workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
-          set-color [--workspace <id|ref|index>] [--window <id|ref|index>] [--color <name|#hex> | <name|#hex>]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#RRGGBB>] [--description <text>]
+          set-color [--workspace <id|ref|index>] [--window <id|ref|index>] [--color <name|#RRGGBB> | <name|#RRGGBB>]
           clear-color [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
-          new-workspace [--name <title>] [--description <text>] [--color <name|#hex>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+          new-workspace [--name <title>] [--description <text>] [--color <name|#RRGGBB>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]

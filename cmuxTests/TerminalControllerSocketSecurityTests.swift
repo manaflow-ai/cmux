@@ -290,7 +290,6 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
         let result = try XCTUnwrap(response["result"] as? [String: Any])
         XCTAssertEqual(result["color"] as? String, "#ABC123")
-        XCTAssertEqual(result["custom_color"] as? String, "#ABC123")
         let workspaceId = try XCTUnwrap(result["workspace_id"] as? String)
         let workspaceUUID = try XCTUnwrap(UUID(uuidString: workspaceId))
         let createdWorkspace = try XCTUnwrap(manager.tabs.first { $0.id == workspaceUUID })

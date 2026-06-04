@@ -214,9 +214,9 @@ Workspace color commands:
 
 | Command | Contract |
 | --- | --- |
-| `set-color`, `set-workspace-color` | Sends v2 `workspace.set_color` with a normalized `workspace_id` when one is provided or resolved from caller context/current workspace. Accepts `--color <name|#hex>` or a trailing color argument. |
+| `set-color`, `set-workspace-color` | Sends v2 `workspace.set_color` with a normalized `workspace_id` when one is provided or resolved from caller context/current workspace. Accepts `--color <name or #RRGGBB>` or a trailing color argument. |
 | `clear-color`, `clear-workspace-color` | Sends v2 `workspace.clear_color` with a normalized `workspace_id` when one is provided or resolved from caller context/current workspace. |
-| `new-workspace --color <name|#hex>` | Sends v2 `workspace.create` with `color`; the app validates named colors and `#RRGGBB` hex before creating the workspace. |
+| `new-workspace --color <name or #RRGGBB>` | Sends v2 `workspace.create` with `color`; the app validates named colors and `#RRGGBB` hex before creating the workspace. |
 
 tmux compatibility commands:
 
