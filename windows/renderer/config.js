@@ -34,6 +34,7 @@ export const defaultSettings = {
   paletteQuickActionsMode: "auto",
   paletteDetailMode: "full",
   paletteResultLimit: "balanced",
+  palettePlacement: "top",
   workspaceRowSize: "auto",
   workspaceActiveStyle: "filled",
   workspaceColorStyle: "dot",
@@ -449,6 +450,12 @@ export const paletteResultLimitOptions = [
   ["extended", label("paletteResultLimit.extended", "Extended"), label("paletteResultLimit.extended.body", "Show 120 command results")]
 ];
 
+export const palettePlacementOptions = [
+  ["top", label("palettePlacement.top", "Top"), label("palettePlacement.top.body", "Open near the top for fast command search")],
+  ["center", label("palettePlacement.center", "Center"), label("palettePlacement.center.body", "Keep the palette centered over the workspace")],
+  ["wide", label("palettePlacement.wide", "Wide"), label("palettePlacement.wide.body", "Use a wider palette for long command names")]
+];
+
 export const workspaceRowSizeOptions = [
   ["auto", label("workspaceRowSize.auto", "Auto"), label("workspaceRowSize.auto.body", "Follow density")],
   ["compact", label("workspaceRowSize.compact", "Compact"), label("workspaceRowSize.compact.body", "More workspaces visible")],
@@ -694,6 +701,7 @@ export const settingsPresets = [
       paletteQuickActionsMode: "auto",
       paletteDetailMode: "full",
       paletteResultLimit: "balanced",
+      palettePlacement: "top",
       workspaceRowSize: "auto",
       workspaceActiveStyle: "filled",
       workspaceColorStyle: "dot",
@@ -772,6 +780,7 @@ export const settingsPresets = [
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
       paletteResultLimit: "focused",
+      palettePlacement: "top",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -850,6 +859,7 @@ export const settingsPresets = [
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
       paletteResultLimit: "focused",
+      palettePlacement: "top",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -929,6 +939,7 @@ export const settingsPresets = [
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
       paletteResultLimit: "focused",
+      palettePlacement: "top",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "line",
       workspaceColorStyle: "edge",
@@ -1007,6 +1018,7 @@ export const settingsPresets = [
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
       paletteResultLimit: "focused",
+      palettePlacement: "top",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -1085,6 +1097,7 @@ export const settingsPresets = [
       paletteQuickActionsMode: "auto",
       paletteDetailMode: "full",
       paletteResultLimit: "balanced",
+      palettePlacement: "center",
       workspaceRowSize: "roomy",
       workspaceActiveStyle: "line",
       workspaceColorStyle: "edge",
@@ -1163,6 +1176,7 @@ export const settingsPresets = [
       paletteQuickActionsMode: "auto",
       paletteDetailMode: "full",
       paletteResultLimit: "extended",
+      palettePlacement: "wide",
       workspaceRowSize: "roomy",
       workspaceActiveStyle: "filled",
       workspaceColorStyle: "tint",
