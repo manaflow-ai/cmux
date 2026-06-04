@@ -19207,17 +19207,120 @@ function workspaceNamingPanel(workspace) {
   return naming;
 }
 
+function paneBackgroundTarget(panel = activeTerminalPanelForSettings()) {
+  return resolveTerminalPanel(panel);
+}
+
+function paneBackgroundValue(panel = activeTerminalPanelForSettings()) {
+  return normalizeBackgroundValue(paneBackgroundTarget(panel)?.backgroundImage);
+}
+
+function paneBackgroundUsesApp(panel = activeTerminalPanelForSettings(), appBackground = state.settings.backgroundImage) {
+  const target = paneBackgroundTarget(panel);
+  const normalized = normalizeBackgroundValue(appBackground);
+  return Boolean(target && normalized && panelBackgroundMatches(target, normalized));
+}
+
+function paneBackgroundStatusLabel(panel = activeTerminalPanelForSettings()) {
+  const target = paneBackgroundTarget(panel);
+  if (!target) return "Select terminal";
+  const background = paneBackgroundValue(target);
+  return background ? appearanceBackgroundLabel(background) : "Default";
+}
+
+function paneBackgroundSourceLabel(background) {
+  const value = normalizeBackgroundValue(background);
+  if (!value) return "Uses terminal color";
+  if (backgroundPresetMap.has(value)) return "Built-in preset";
+  return backgroundFilePath(value) || value;
+}
+
+function paneBackgroundSummaryTitle(panel = activeTerminalPanelForSettings()) {
+  const background = paneBackgroundValue(panel);
+  return background ? `Pane background: ${appearanceBackgroundLabel(background)}` : "Pane background uses terminal colors";
+}
+
+function paneBackgroundBaseSearchText(panel = activeTerminalPanelForSettings(), background = paneBackgroundValue(panel)) {
+  const target = paneBackgroundTarget(panel);
+  return [
+    "active pane terminal background image wallpaper focused terminal specific pane",
+    target ? panelDisplayTitle(target, true) : "select terminal no terminal",
+    background ? appearanceBackgroundLabel(background) : "default terminal colors no image",
+    background
+  ].join(" ");
+}
+
+function paneBackgroundActionSearchText(actionId, panel = activeTerminalPanelForSettings(), extra = "") {
+  const actionTerms = {
+    apply: "apply url path file local input source",
+    paste: "paste clipboard copied image url local path",
+    choose: "choose browse local file picker wallpaper",
+    useApp: "use app whole window global image",
+    useAsApp: "use as app whole window global image",
+    save: "save reusable saved background library",
+    copySource: "copy source url file path clipboard",
+    openSource: "open source file url external",
+    clear: "clear remove reset default",
+    input: "url local path file input edit",
+    control: "choose paste apply use app save copy open clear source library",
+    preset: "background preset template apply built in",
+    saved: "saved background image wallpaper apply library reusable"
+  };
+  return normalizeSettingsQuery([
+    paneBackgroundBaseSearchText(panel),
+    actionTerms[actionId] || actionId,
+    extra
+  ].join(" "));
+}
+
+function paneBackgroundPaletteSearchText(kind, label, value, active = false, disabled = false) {
+  return paneBackgroundActionSearchText(kind, activeTerminalPanelForSettings(), [
+    label,
+    value,
+    active ? "active current" : "available",
+    disabled ? "unavailable disabled needs terminal" : ""
+  ].join(" "));
+}
+
+function paneBackgroundActionTitle(actionId, panel = activeTerminalPanelForSettings(), options = {}) {
+  const target = paneBackgroundTarget(panel);
+  const scope = options.scope || "this pane";
+  const sentenceScope = options.sentenceScope || (scope === "this pane" ? "This pane" : "The focused terminal");
+  const terminalRequiredTitle = options.terminalRequiredTitle || "Focus or create a terminal pane first.";
+  const background = normalizeBackgroundValue(options.background ?? target?.backgroundImage);
+  const appBackground = normalizeBackgroundValue(options.appBackground ?? state.settings.backgroundImage);
+  const usesApp = Boolean(target && appBackground && panelBackgroundMatches(target, appBackground));
+  if (!target) return terminalRequiredTitle;
+  if (actionId === "apply") return options.availableTitle || `Apply the typed image source to ${scope} background.`;
+  if (actionId === "choose") return options.availableTitle || `Choose an image for ${scope} background.`;
+  if (actionId === "paste") return options.availableTitle || `Paste an image URL, path, or copied image as ${scope} background.`;
+  if (actionId === "useApp") {
+    if (!appBackground) return "Choose an app background first.";
+    if (usesApp) return options.activeTitle || `${sentenceScope} already uses the app background.`;
+    return options.availableTitle || `Apply the app background to ${scope}.`;
+  }
+  if (actionId === "useAsApp") {
+    if (!background) return "Choose a pane background before using it for the app.";
+    if (normalizeBackgroundValue(state.settings.backgroundImage) === background) return "The app already uses this pane background.";
+    return options.availableTitle || "Use this pane background for the whole app.";
+  }
+  if (actionId === "save") return savedBackgroundImageSaveTitle(background, options.availableTitle || `Save ${scope} background image.`);
+  if (actionId === "copySource") return backgroundImageCopyTitle(background, options.availableTitle || `Copy ${scope} background source.`);
+  if (actionId === "openSource") return backgroundImageOpenTitle(background, options.availableTitle || `Open ${scope} background source.`);
+  if (actionId === "clear") {
+    if (!background) return options.emptyTitle || `${sentenceScope} background is already clear.`;
+    return options.availableTitle || `Clear ${scope} background.`;
+  }
+  return options.availableTitle || "Update this pane background.";
+}
+
 function paneBackgroundControlPanel(panel) {
-  const background = normalizeBackgroundValue(panel?.backgroundImage);
+  const background = paneBackgroundValue(panel);
   const hasBackground = Boolean(background);
-  const source = !hasBackground
-    ? "Uses terminal color"
-    : backgroundPresetMap.has(background)
-      ? "Built-in preset"
-      : backgroundFilePath(background) || background;
+  const source = paneBackgroundSourceLabel(background);
   const control = document.createElement("div");
   control.className = `active-pane-background${hasBackground ? " has-image" : ""}`;
-  control.dataset.settingsSearch = normalizeSettingsQuery("active pane terminal background image wallpaper choose use app save library clear open source");
+  control.dataset.settingsSearch = paneBackgroundActionSearchText("control", panel);
   control.style.setProperty("--active-pane-background-image", backgroundCss(background));
   control.style.setProperty("--active-pane-background-repeat", backgroundRepeatCss(background));
   control.style.setProperty("--active-pane-background-size", backgroundSizeCss(state.settings.backgroundFit));
@@ -19228,8 +19331,8 @@ function paneBackgroundControlPanel(panel) {
   const preview = document.createElement("button");
   preview.className = "active-pane-background-preview";
   preview.type = "button";
-  preview.title = "Choose pane background";
-  preview.setAttribute("aria-label", "Choose pane background");
+  preview.title = paneBackgroundActionTitle("choose", panel);
+  preview.setAttribute("aria-label", paneBackgroundActionTitle("choose", panel));
   preview.onclick = () => choosePanelBackgroundImage(panel);
 
   const copy = document.createElement("span");
@@ -19248,7 +19351,7 @@ function paneBackgroundControlPanel(panel) {
   input.className = "setting-control active-pane-background-input";
   input.value = isBackgroundPreset(background) ? "" : background;
   input.placeholder = "URL or C:\\path\\image.png";
-  input.dataset.settingsSearch = normalizeSettingsQuery("active pane terminal background url local path file image wallpaper input");
+  input.dataset.settingsSearch = paneBackgroundActionSearchText("input", panel);
   const applyInput = (showToast = false) => withDisabledControl(input, async () => {
     const next = input.value.trim();
     if (!next && isBackgroundPreset(background)) return null;
@@ -19269,31 +19372,32 @@ function paneBackgroundControlPanel(panel) {
 
   const actions = document.createElement("span");
   actions.className = "background-action-groups active-pane-background-actions";
-  const apply = settingsActionButton("Apply", () => applyInput(true), "primary", "active pane terminal background apply url path image");
-  const paste = settingsActionButton("Paste", () => pastePanelBackgroundImageFromClipboard(panel, input), "", "active pane terminal background paste clipboard image url local path");
-  const choose = settingsActionButton("Choose", () => choosePanelBackgroundImage(panel), "", "active pane terminal background choose local image");
-  const useApp = settingsActionButton("Use app", () => applyPanelBackgroundImage(state.settings.backgroundImage, panel), "", "active pane terminal background use app global image");
-  useApp.disabled = !state.settings.backgroundImage;
-  const useAsApp = settingsActionButton("Use as app", () => applyPaneBackgroundToApp(panel), "", "active pane terminal background use as app whole window image");
+  const apply = settingsActionButton("Apply", () => applyInput(true), "primary", paneBackgroundActionSearchText("apply", panel));
+  apply.title = paneBackgroundActionTitle("apply", panel);
+  const paste = settingsActionButton("Paste", () => pastePanelBackgroundImageFromClipboard(panel, input), "", paneBackgroundActionSearchText("paste", panel));
+  paste.title = paneBackgroundActionTitle("paste", panel);
+  const choose = settingsActionButton("Choose", () => choosePanelBackgroundImage(panel), "", paneBackgroundActionSearchText("choose", panel));
+  choose.title = paneBackgroundActionTitle("choose", panel);
+  const useApp = settingsActionButton("Use app", () => applyPanelBackgroundImage(state.settings.backgroundImage, panel), "", paneBackgroundActionSearchText("useApp", panel));
+  useApp.disabled = !state.settings.backgroundImage || paneBackgroundUsesApp(panel);
+  useApp.title = paneBackgroundActionTitle("useApp", panel);
+  const useAsApp = settingsActionButton("Use as app", () => applyPaneBackgroundToApp(panel), "", paneBackgroundActionSearchText("useAsApp", panel));
   useAsApp.disabled = !hasBackground || normalizeBackgroundValue(state.settings.backgroundImage) === background;
-  useAsApp.title = !hasBackground
-    ? "Choose a pane background before using it for the app."
-    : normalizeBackgroundValue(state.settings.backgroundImage) === background
-      ? "The app already uses this pane background."
-      : "Use this pane background for the whole app.";
-  const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: background }), "", "active pane terminal background save image wallpaper library");
-  applySavedBackgroundImageSaveLimit(save, background, "Save this pane background image.");
-  const copySource = settingsActionButton("Copy", () => copyBackgroundImageSource(background, "Pane background source copied."), "", "active pane terminal background copy source url file path");
-  copySource.title = backgroundImageCopyTitle(background, "Copy this pane background source.");
+  useAsApp.title = paneBackgroundActionTitle("useAsApp", panel);
+  const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: background }), "", paneBackgroundActionSearchText("save", panel));
+  applySavedBackgroundImageSaveLimit(save, background, paneBackgroundActionTitle("save", panel));
+  const copySource = settingsActionButton("Copy", () => copyBackgroundImageSource(background, "Pane background source copied."), "", paneBackgroundActionSearchText("copySource", panel));
+  copySource.title = paneBackgroundActionTitle("copySource", panel);
   copySource.disabled = !canCopyBackgroundImageSource(background);
-  const open = settingsActionButton("Open", () => openBackgroundImageSource(background), "", "active pane terminal background open source file url");
-  open.title = backgroundImageOpenTitle(background, "Open this pane background source.");
+  const open = settingsActionButton("Open", () => openBackgroundImageSource(background), "", paneBackgroundActionSearchText("openSource", panel));
+  open.title = paneBackgroundActionTitle("openSource", panel);
   open.disabled = !canOpenBackgroundImageSource(background);
-  const clear = settingsActionButton("Clear", () => applyPanelBackgroundImage("", panel), "danger", "active pane terminal background clear remove");
+  const clear = settingsActionButton("Clear", () => applyPanelBackgroundImage("", panel), "danger", paneBackgroundActionSearchText("clear", panel));
   clear.disabled = !hasBackground;
+  clear.title = paneBackgroundActionTitle("clear", panel);
   actions.append(
-    backgroundActionGroup("Image source", "active pane terminal background image choose paste apply", [apply, paste, choose]),
-    backgroundActionGroup("Pane image", "active pane terminal background use app use as app save copy open clear", [useApp, useAsApp, save, copySource, open, clear])
+    backgroundActionGroup("Image source", paneBackgroundActionSearchText("apply", panel, "choose paste"), [apply, paste, choose]),
+    backgroundActionGroup("Pane image", paneBackgroundActionSearchText("useApp", panel, "use as app save copy open clear"), [useApp, useAsApp, save, copySource, open, clear])
   );
 
   control.append(preview, copy, input, actions);
@@ -20234,9 +20338,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
   const backgroundChip = summary.querySelector(".active-pane-background-chip");
   if (panel.type === "terminal") {
     const backgroundLabel = paneBackground ? "Pane image" : "Default look";
-    const backgroundTitle = paneBackground
-      ? `Pane background: ${appearanceBackgroundLabel(paneBackground)}`
-      : "Pane background uses terminal colors";
+    const backgroundTitle = paneBackgroundSummaryTitle(panel);
     backgroundChip.style.setProperty("--active-pane-background-image", backgroundCss(paneBackground));
     backgroundChip.style.setProperty("--active-pane-background-repeat", backgroundRepeatCss(paneBackground));
     backgroundChip.style.setProperty("--active-pane-background-size", backgroundSizeCss(state.settings.backgroundFit));
@@ -20245,7 +20347,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     backgroundChip.style.setProperty("--active-pane-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
     backgroundChip.querySelector(".active-pane-background-chip-label").textContent = backgroundLabel;
     backgroundChip.title = `${backgroundTitle}. Click to choose.`;
-    backgroundChip.setAttribute("aria-label", `${backgroundTitle}. Choose pane background.`);
+    backgroundChip.setAttribute("aria-label", `${backgroundTitle}. ${paneBackgroundActionTitle("choose", panel)}`);
     backgroundChip.onclick = () => choosePanelBackgroundImage(panel);
   } else {
     backgroundChip.hidden = true;
@@ -24013,10 +24115,7 @@ function quickActionIconMarkup(icon) {
 }
 
 function activeTerminalPaneBackgroundLabel() {
-  const panel = activeTerminalPanelForSettings();
-  if (!panel) return "Select terminal";
-  const background = normalizeBackgroundValue(panel.backgroundImage);
-  return background ? appearanceBackgroundLabel(background) : "Default";
+  return paneBackgroundStatusLabel();
 }
 
 function quickAccentColorSaveModel() {
@@ -24053,10 +24152,10 @@ function quickTerminalBackgroundSaveModel() {
     saved,
     disabled: !panel || saved || !canSaveBackgroundImage(background),
     title: !panel
-      ? "Focus a terminal pane before saving its image."
+      ? paneBackgroundActionTitle("save", panel)
       : saved
         ? "Active terminal image is already saved."
-        : savedBackgroundImageSaveTitle(background, "Save this terminal background image.")
+        : paneBackgroundActionTitle("save", panel, { availableTitle: "Save this terminal background image." })
   };
 }
 
@@ -24075,6 +24174,10 @@ function quickActionTitle(action) {
   if (action.active?.() && action.activeTitle) return action.activeTitle();
   if (action.disabled?.() && action.disabledTitle) return action.disabledTitle();
   return `${action.label}: ${action.body}`;
+}
+
+function quickActionSearchText(action) {
+  return typeof action.search === "function" ? action.search() : action.search || "";
 }
 
 function quickSetupActionDefinitions() {
@@ -24241,9 +24344,9 @@ function quickSetupActionDefinitions() {
       body: "Set an image on only the active terminal.",
       meta: activeTerminalPaneBackgroundLabel,
       cta: "Choose",
-      search: "active pane terminal background image specific terminal wallpaper",
+      search: () => paneBackgroundActionSearchText("choose"),
       disabled: () => !activeTerminalPanelForSettings(),
-      disabledTitle: () => "Focus a terminal pane before setting its image.",
+      disabledTitle: () => paneBackgroundActionTitle("choose"),
       run: () => choosePanelBackgroundImage(activeTerminalPanelForSettings())
     },
     {
@@ -24255,7 +24358,7 @@ function quickSetupActionDefinitions() {
       cta: "Save",
       active: () => quickTerminalBackgroundSaveModel().saved,
       activeCta: "Saved",
-      search: "save active terminal pane background image wallpaper saved background library reusable",
+      search: () => paneBackgroundActionSearchText("save"),
       disabled: () => quickTerminalBackgroundSaveModel().disabled,
       title: () => quickTerminalBackgroundSaveModel().title,
       run: () => saveCustomBackgroundImage({ url: quickTerminalBackgroundSaveModel().background })
@@ -24404,7 +24507,7 @@ function quickSetupGuidePanel() {
     item.disabled = Boolean(action.disabled?.());
     const title = quickActionTitle(action);
     item.dataset.quickGuideAction = action.id;
-    item.dataset.settingsSearch = normalizeSettingsQuery(`quick recommended ${action.label} ${action.body} ${action.search}`);
+    item.dataset.settingsSearch = normalizeSettingsQuery(`quick recommended ${action.label} ${action.body} ${quickActionSearchText(action)}`);
     item.title = title;
     item.setAttribute("aria-label", `${action.label}. ${action.body} Current: ${action.meta()}.`);
     item.innerHTML = `
@@ -24446,7 +24549,7 @@ function quickSetupActionGrid() {
     button.disabled = disabled;
     button.title = quickActionTitle(action);
     button.dataset.quickAction = action.id;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`quick action ${action.label} ${action.body} ${action.search} ${active ? "active details" : ""}`);
+    button.dataset.settingsSearch = normalizeSettingsQuery(`quick action ${action.label} ${action.body} ${quickActionSearchText(action)} ${active ? "active details" : ""}`);
     button.setAttribute("aria-label", `${action.label}. ${action.body} Current: ${action.meta()}.${active ? " Active." : ""}`);
     button.innerHTML = `
       <span class="quick-action-icon" aria-hidden="true"></span>
@@ -30505,8 +30608,8 @@ function showPanelContextMenu(event, panel) {
   const surfaceActions = [];
   if (isTerminal) {
     const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
-    const paneBackground = normalizeBackgroundValue(panel.backgroundImage);
-    const paneUsesAppBackground = Boolean(appBackground && panelBackgroundMatches(panel, appBackground));
+    const paneBackground = paneBackgroundValue(panel);
+    const paneUsesAppBackground = paneBackgroundUsesApp(panel, appBackground);
     const useAppBackground = contextMenuButton(
       paneUsesAppBackground ? "App background active" : "Use app background",
       () => applyPanelBackgroundImage(appBackground, panel),
@@ -30514,11 +30617,9 @@ function showPanelContextMenu(event, panel) {
       "",
       { icon: "image" }
     );
-    useAppBackground.title = !appBackground
-      ? "Choose an app background first."
-      : paneUsesAppBackground
-        ? "This pane already uses the app background."
-        : "Apply the app background to this pane.";
+    useAppBackground.title = paneBackgroundActionTitle("useApp", panel, {
+      activeTitle: "This pane already uses the app background."
+    });
     const clearPaneBackground = contextMenuButton(
       "Clear pane background",
       () => applyPanelBackgroundImage("", panel),
@@ -30526,11 +30627,13 @@ function showPanelContextMenu(event, panel) {
       "",
       { icon: "close" }
     );
-    clearPaneBackground.title = paneBackground ? "Clear this pane background." : "Pane background is already clear.";
+    clearPaneBackground.title = paneBackgroundActionTitle("clear", panel, {
+      emptyTitle: "Pane background is already clear."
+    });
     const choosePaneBackground = contextMenuButton("Choose pane background", () => choosePanelBackgroundImage(panel), false, "", { icon: "image" });
-    choosePaneBackground.title = "Choose an image for this pane background.";
+    choosePaneBackground.title = paneBackgroundActionTitle("choose", panel);
     const pastePaneBackground = contextMenuButton("Paste pane background", () => pastePanelBackgroundImageFromClipboard(panel), false, "", { icon: "clipboard" });
-    pastePaneBackground.title = "Paste an image URL, path, or copied image as this pane background.";
+    pastePaneBackground.title = paneBackgroundActionTitle("paste", panel);
     const openPaneBackground = contextMenuButton(
       "Open pane background",
       () => openBackgroundImageSource(panel.backgroundImage),
@@ -30538,7 +30641,7 @@ function showPanelContextMenu(event, panel) {
       "",
       { icon: "external" }
     );
-    openPaneBackground.title = backgroundImageOpenTitle(panel.backgroundImage, "Open this pane background source.");
+    openPaneBackground.title = paneBackgroundActionTitle("openSource", panel);
     const copyPaneBackground = contextMenuButton(
       "Copy pane background source",
       () => copyBackgroundImageSource(panel.backgroundImage, "Pane background source copied."),
@@ -30546,7 +30649,7 @@ function showPanelContextMenu(event, panel) {
       "",
       { icon: "clipboard" }
     );
-    copyPaneBackground.title = backgroundImageCopyTitle(panel.backgroundImage, "Copy this pane background source.");
+    copyPaneBackground.title = paneBackgroundActionTitle("copySource", panel);
     surfaceActions.push(
       contextMenuButton("Find", () => openTerminalSearch(panel), false, "", { icon: "search" }),
       contextMenuButton("Find next", () => findNextInTerminal(panel), false, "", { icon: "arrowRight" }),
@@ -30570,7 +30673,7 @@ function showPanelContextMenu(event, panel) {
       useAppBackground,
       (() => {
         const action = contextMenuButton("Save pane background", () => saveCustomBackgroundImage({ url: panel.backgroundImage }), !canSaveBackgroundImage(panel.backgroundImage), "", { icon: "plus" });
-        action.title = savedBackgroundImageSaveTitle(panel.backgroundImage, "Save this pane background image.");
+        action.title = paneBackgroundActionTitle("save", panel);
         return action;
       })(),
       copyPaneBackground,
@@ -30924,18 +31027,24 @@ function showToolbarMenu(event) {
   const terminalRequiredTitle = "Focus or create a terminal pane first.";
   const browserRequiredTitle = "Focus or create a browser pane first.";
   const workspaceSwitchRequiredTitle = "Create another workspace before switching workspaces.";
-  const terminalUsesAppBackground = Boolean(
-    terminalActive && appBackground && panelBackgroundMatches(panel, appBackground)
-  );
-  const terminalBackgroundSaveTitle = terminalActive
-    ? savedBackgroundImageSaveTitle(panel.backgroundImage, "Save the focused terminal background image.")
-    : terminalRequiredTitle;
-  const terminalBackgroundOpenTitle = terminalActive
-    ? backgroundImageOpenTitle(panel.backgroundImage, "Open the focused terminal background source.")
-    : terminalRequiredTitle;
-  const terminalBackgroundCopyTitle = terminalActive
-    ? backgroundImageCopyTitle(panel.backgroundImage, "Copy the focused terminal background source.")
-    : terminalRequiredTitle;
+  const terminalUsesAppBackground = terminalActive && paneBackgroundUsesApp(panel, appBackground);
+  const focusedTerminalTitleOptions = {
+    scope: "the focused terminal",
+    sentenceScope: "Focused terminal",
+    terminalRequiredTitle
+  };
+  const terminalBackgroundSaveTitle = paneBackgroundActionTitle("save", panel, {
+    ...focusedTerminalTitleOptions,
+    availableTitle: "Save the focused terminal background image."
+  });
+  const terminalBackgroundOpenTitle = paneBackgroundActionTitle("openSource", panel, {
+    ...focusedTerminalTitleOptions,
+    availableTitle: "Open the focused terminal background source."
+  });
+  const terminalBackgroundCopyTitle = paneBackgroundActionTitle("copySource", panel, {
+    ...focusedTerminalTitleOptions,
+    availableTitle: "Copy the focused terminal background source."
+  });
   const toolbarAction = (label, action, disabled, availableTitle, unavailableTitle, tone = "", options = {}) => {
     const button = contextMenuButton(label, action, disabled, tone, options);
     const titleText = disabled ? (unavailableTitle || availableTitle) : (availableTitle || unavailableTitle);
@@ -31002,18 +31111,28 @@ function showToolbarMenu(event) {
       toolbarAction("Paste to terminal", pasteClipboardToTerminal, !terminalActive, "Paste clipboard text into the focused terminal.", terminalRequiredTitle),
       toolbarAction("Clear active terminal", clearActiveTerminal, !terminalActive, "Clear the focused terminal.", terminalRequiredTitle),
       toolbarAction("Restart terminal", restartActiveTerminal, !terminalActive, "Restart the focused terminal.", terminalRequiredTitle),
-      toolbarAction("Choose terminal background", () => choosePanelBackgroundImage(panel), !terminalActive, "Choose a background for the focused terminal.", terminalRequiredTitle),
-      toolbarAction("Paste terminal background", () => pastePanelBackgroundImageFromClipboard(panel), !terminalActive, "Paste an image URL, path, or copied image as the focused terminal background.", terminalRequiredTitle),
+      toolbarAction("Choose terminal background", () => choosePanelBackgroundImage(panel), !terminalActive, paneBackgroundActionTitle("choose", panel, {
+        ...focusedTerminalTitleOptions,
+        availableTitle: "Choose a background for the focused terminal."
+      }), terminalRequiredTitle),
+      toolbarAction("Paste terminal background", () => pastePanelBackgroundImageFromClipboard(panel), !terminalActive, paneBackgroundActionTitle("paste", panel, {
+        ...focusedTerminalTitleOptions,
+        availableTitle: "Paste an image URL, path, or copied image as the focused terminal background."
+      }), terminalRequiredTitle),
       toolbarAction(
         terminalUsesAppBackground ? "App background active" : "Use app background",
         () => applyPanelBackgroundImage(appBackground, panel),
         !terminalActive || !appBackground || terminalUsesAppBackground,
-        "Apply the app background to the focused terminal.",
-        !terminalActive
-          ? terminalRequiredTitle
-          : !appBackground
-            ? "Choose an app background first."
-            : "Focused terminal already uses the app background."
+        paneBackgroundActionTitle("useApp", panel, {
+          ...focusedTerminalTitleOptions,
+          availableTitle: "Apply the app background to the focused terminal.",
+          activeTitle: "Focused terminal already uses the app background."
+        }),
+        paneBackgroundActionTitle("useApp", panel, {
+          ...focusedTerminalTitleOptions,
+          availableTitle: "Apply the app background to the focused terminal.",
+          activeTitle: "Focused terminal already uses the app background."
+        })
       ),
       toolbarAction(
         "Save terminal background",
@@ -31036,7 +31155,15 @@ function showToolbarMenu(event) {
         "Open the focused terminal background source.",
         terminalBackgroundOpenTitle
       ),
-      toolbarAction("Clear terminal background", () => applyPanelBackgroundImage("", panel), !terminalActive || !terminalBackground, "Clear the focused terminal background.", terminalActive ? "Focused terminal background is already clear." : terminalRequiredTitle),
+      toolbarAction("Clear terminal background", () => applyPanelBackgroundImage("", panel), !terminalActive || !terminalBackground, paneBackgroundActionTitle("clear", panel, {
+        ...focusedTerminalTitleOptions,
+        availableTitle: "Clear the focused terminal background.",
+        emptyTitle: "Focused terminal background is already clear."
+      }), paneBackgroundActionTitle("clear", panel, {
+        ...focusedTerminalTitleOptions,
+        availableTitle: "Clear the focused terminal background.",
+        emptyTitle: "Focused terminal background is already clear."
+      })),
       toolbarAction("Choose all terminal backgrounds", () => chooseWorkspaceTerminalBackground(workspace), !hasTerminalPanes, "Choose an image for every terminal pane in this workspace.", "Open a terminal pane first."),
       toolbarAction("Paste all terminal backgrounds", () => pasteWorkspaceTerminalBackgroundFromClipboard(workspace), !hasTerminalPanes, "Paste an image URL, path, or copied image for every terminal pane in this workspace.", "Open a terminal pane first."),
       toolbarAction(
@@ -32049,7 +32176,7 @@ function quickSetupPaletteEntries() {
       disabled,
       icon: action.icon,
       title: quickActionTitle(action),
-      search: normalizeSettingsQuery(`quick setup action ${active ? "active current " : ""}${action.label} ${action.body} ${action.search} ${meta} ${cta}`),
+      search: normalizeSettingsQuery(`quick setup action ${active ? "active current " : ""}${action.label} ${action.body} ${quickActionSearchText(action)} ${meta} ${cta}`),
       run: action.run
     };
   });
@@ -33039,7 +33166,7 @@ function paletteEntries() {
       active: activePane,
       disabled: activePane || backgroundPaneTargetOption.disabled,
       title: backgroundPresetApplyTitle(preset, backgroundPaneTargetOption, activePane),
-      search: normalizeSettingsQuery(`background preset template image wallpaper apply active terminal pane ${preset.label} ${preset.value}`),
+      search: paneBackgroundPaletteSearchText("preset", preset.label, preset.value, activePane, backgroundPaneTargetOption.disabled),
       run: () => applyPanelBackgroundImage(preset.value, activeTerminalPanelForSettings())
     });
     entries.push({
@@ -33359,7 +33486,7 @@ function paletteEntries() {
       active: activePane,
       disabled: activePane || backgroundPaneTargetOption.disabled,
       title: savedBackgroundImageApplyTitle(background, backgroundPaneTargetOption, activePane),
-      search: normalizeSettingsQuery(`saved background image wallpaper apply active terminal pane ${background.label} ${background.url}`),
+      search: paneBackgroundPaletteSearchText("saved", background.label, background.url, activePane, backgroundPaneTargetOption.disabled),
       run: () => {
         if (!savedBackgroundImageActiveForTarget(background, "pane")) return applySavedBackgroundImageToPanel(background.id);
         toast(`This terminal already uses ${background.label}.`);
