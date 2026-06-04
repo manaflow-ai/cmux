@@ -7690,7 +7690,6 @@ const settingsCategoryCommandTargets = new Map([
 
 function customizationCommandPaletteSignature() {
   const parts = [];
-  appendSignatureValue(parts, totalDataStorageBytes());
   appendSignatureValue(parts, savedDataItemCount());
   appendSignatureValue(parts, recentDataItemCount());
   appendSignatureValue(parts, state.recentCommands.length);
@@ -7860,7 +7859,7 @@ function customizationCommandPaletteState(commandId) {
   const recentLabel = `${recentCount} recent item${recentCount === 1 ? "" : "s"}`;
   if (commandId === "settings.copyAppSetup") {
     return {
-      meta: formatBytes(totalDataStorageBytes()),
+      meta: `${savedStatus} / ${recentLabel}`,
       shortcut: "Copy",
       icon: "data",
       title: "Copy settings, profiles, blueprints, saved colors, backgrounds, snippets, and recent data as JSON.",
