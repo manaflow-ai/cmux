@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminalCopyMode
 import CmuxSocketControl
 import SwiftUI
 import AppKit
@@ -1372,133 +1373,6 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     return .external(fallback)
 }
 
-enum TerminalKeyboardCopyModeSelectionMove: String, Equatable {
-    case left
-    case right
-    case up
-    case down
-    case pageUp = "page_up"
-    case pageDown = "page_down"
-    case home
-    case end
-    case beginningOfLine = "beginning_of_line"
-    case endOfLine = "end_of_line"
-}
-
-enum TerminalKeyboardCopyModeAction: Equatable {
-    case exit
-    case startSelection
-    case clearSelection
-    case copyAndExit
-    case copyLineAndExit
-    case scrollLines(Int)
-    case scrollPage(Int)
-    case scrollHalfPage(Int)
-    case scrollToTop
-    case scrollToBottom
-    case jumpToPrompt(Int)
-    case startSearch
-    case searchNext
-    case searchPrevious
-    case adjustSelection(TerminalKeyboardCopyModeSelectionMove)
-}
-
-struct TerminalKeyboardCopyModeInputState: Equatable {
-    var countPrefix: Int?
-    var pendingYankLine = false
-    var pendingG = false
-
-    mutating func reset() {
-        countPrefix = nil
-        pendingYankLine = false
-        pendingG = false
-    }
-}
-
-struct TerminalKeyboardCopyModeCursor: Equatable {
-    var row: Int
-    var column: Int
-
-    func clamped(rows: Int, columns: Int) -> TerminalKeyboardCopyModeCursor {
-        var copy = self
-        copy.clamp(rows: rows, columns: columns)
-        return copy
-    }
-
-    mutating func clamp(rows: Int, columns: Int) {
-        row = Self.clamp(row, upperBound: rows)
-        column = Self.clamp(column, upperBound: columns)
-    }
-
-    mutating func move(
-        _ direction: TerminalKeyboardCopyModeSelectionMove,
-        count: Int,
-        rows: Int,
-        columns: Int
-    ) -> Int {
-        let clampedRows = max(rows, 1)
-        let clampedColumns = max(columns, 1)
-        let clampedCount = terminalKeyboardCopyModeClampCount(count)
-        clamp(rows: clampedRows, columns: clampedColumns)
-
-        switch direction {
-        case .left:
-            column = max(0, column - clampedCount)
-            return 0
-        case .right:
-            column = min(clampedColumns - 1, column + clampedCount)
-            return 0
-        case .up:
-            return moveVertically(delta: -clampedCount, rows: clampedRows)
-        case .down:
-            return moveVertically(delta: clampedCount, rows: clampedRows)
-        case .pageUp:
-            return moveVertically(delta: -(clampedRows * clampedCount), rows: clampedRows)
-        case .pageDown:
-            return moveVertically(delta: clampedRows * clampedCount, rows: clampedRows)
-        case .home:
-            row = 0
-            column = 0
-            return 0
-        case .end:
-            row = clampedRows - 1
-            column = clampedColumns - 1
-            return 0
-        case .beginningOfLine:
-            column = 0
-            return 0
-        case .endOfLine:
-            column = clampedColumns - 1
-            return 0
-        }
-    }
-
-    private mutating func moveVertically(delta: Int, rows: Int) -> Int {
-        let target = row + delta
-        if target < 0 {
-            row = 0
-            return target
-        }
-        if target >= rows {
-            row = rows - 1
-            return target - (rows - 1)
-        }
-        row = target
-        return 0
-    }
-
-    private static func clamp(_ value: Int, upperBound: Int) -> Int {
-        max(0, min(max(upperBound, 1) - 1, value))
-    }
-}
-
-enum TerminalKeyboardCopyModeResolution: Equatable {
-    case perform(TerminalKeyboardCopyModeAction, count: Int)
-    case consume
-}
-
-private let terminalKeyboardCopyModeMaxCount = 9_999
-
 private var terminalKeyboardCopyModeIndicatorText: String {
     String(localized: "ghostty.copy-mode.indicator", defaultValue: "vim")
 }
@@ -1509,10 +1383,6 @@ private var terminalKeyTableIndicatorDefaultText: String {
 
 private var terminalKeyTableIndicatorAccessibilityLabel: String {
     String(localized: "ghostty.key-table.icon.accessibility", defaultValue: "Key table")
-}
-
-private func terminalKeyboardCopyModeClampCount(_ value: Int) -> Int {
-    min(max(value, 1), terminalKeyboardCopyModeMaxCount)
 }
 
 private func terminalKeyTableIndicatorText(_ name: String) -> String {
@@ -1531,95 +1401,36 @@ private func terminalKeyTableIndicatorText(_ name: String) -> String {
     }
 }
 
-func terminalKeyboardCopyModeInitialViewportRow(
-    rows: Int,
-    imePointY: Double,
-    imeCellHeight: Double,
-    topPadding: Double = 0
-) -> Int {
-    let clampedRows = max(rows, 1)
-    guard imeCellHeight > 0 else { return clampedRows - 1 }
-
-    // `ghostty_surface_ime_point` returns a top-origin Y coordinate at the
-    // cursor baseline plus one cell-height. Convert that to a zero-based row.
-    let estimatedRow = Int(floor(((imePointY - topPadding) / imeCellHeight) - 1))
-    return max(0, min(clampedRows - 1, estimatedRow))
-}
-
-func terminalKeyboardCopyModeInitialViewportColumn(
-    columns: Int,
-    imePointX: Double,
-    imeCellWidth: Double,
-    leftPadding: Double = 0
-) -> Int {
-    let clampedColumns = max(columns, 1)
-    guard imeCellWidth > 0 else { return 0 }
-
-    // `ghostty_surface_ime_point` returns the horizontal midpoint of the
-    // terminal cursor cell, so flooring by cell width recovers its column.
-    let estimatedColumn = Int(floor((imePointX - leftPadding) / imeCellWidth))
-    return max(0, min(clampedColumns - 1, estimatedColumn))
-}
-
-func terminalKeyboardCopyModeCursorSelectionXRange(
-    rectMinX: Double,
-    rectMaxX: Double,
-    boundsWidth: Double
-) -> (startX: Double, endX: Double)? {
-    let maxX = boundsWidth - 1
-    guard maxX > 0 else { return nil }
-
-    let visibleMinX = min(max(rectMinX, 0), maxX)
-    let visibleMaxX = min(max(rectMaxX, 0), maxX)
-    let startX = min(max(visibleMinX + 0.5, 0), maxX)
-    let endX = min(max(visibleMaxX - 0.5, 0), maxX)
-    if endX > startX {
-        return (startX, endX)
-    }
-
-    let midpointX = min(max((visibleMinX + visibleMaxX) / 2, 0), maxX)
-    if midpointX < maxX {
-        return (midpointX, min(midpointX + 1, maxX))
-    }
-    let fallbackEndX = max(midpointX - 1, 0)
-    guard fallbackEndX < midpointX else { return nil }
-    return (midpointX, fallbackEndX)
-}
-
-private func terminalKeyboardCopyModeNormalizedModifiers(
+private func terminalKeyboardCopyModeModifiers(
     _ modifierFlags: NSEvent.ModifierFlags
-) -> NSEvent.ModifierFlags {
-    modifierFlags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-}
-
-private func terminalKeyboardCopyModeChars(
-    _ charactersIgnoringModifiers: String?,
-    keyCode: UInt16,
-    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String?
-) -> String {
-    let raw = charactersIgnoringModifiers?.unicodeScalars.first.map { String($0).lowercased() } ?? ""
-    if raw.allSatisfy(\.isASCII) { return raw }
-    // Non-ASCII input sources (Korean 두벌식, Japanese Kana, Zhuyin) translate the
-    // physical key to a layout character, so a vim key like `j` arrives as `ㅓ` and
-    // never matches the ASCII `switch chars` cases. Fall back to the ASCII-capable
-    // layout lookup (the same one the keyDown shortcut path uses) so copy-mode vim
-    // keys resolve regardless of the active input source. ASCII-emitting IMEs
-    // (Pinyin, romaji) keep `raw` and skip the fallback. The provider is injected
-    // so tests can supply a deterministic mapping without depending on the runner's
-    // input source. Pass [] like KeyboardLayout.normalizedCharacters does: the
-    // lookup lowercases its output and only honors shift/command, so modifiers are
-    // irrelevant for letter keys and this stays consistent with the shortcut path.
-    if let asciiScalar = asciiCharacterProvider(keyCode, [])?.unicodeScalars.first {
-        return String(asciiScalar).lowercased()
+) -> TerminalKeyboardCopyModeModifiers {
+    let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
+    var modifiers: TerminalKeyboardCopyModeModifiers = []
+    if normalized.contains(.command) {
+        modifiers.insert(.command)
     }
-    return raw
+    if normalized.contains(.shift) {
+        modifiers.insert(.shift)
+    }
+    if normalized.contains(.control) {
+        modifiers.insert(.control)
+    }
+    if normalized.contains(.numericPad) {
+        modifiers.insert(.numericPad)
+    }
+    if normalized.contains(.function) {
+        modifiers.insert(.function)
+    }
+    if normalized.contains(.capsLock) {
+        modifiers.insert(.capsLock)
+    }
+    return modifiers
 }
 
 func terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: NSEvent.ModifierFlags) -> Bool {
-    let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
-    return normalized.contains(.command)
+    CmuxTerminalCopyMode.terminalKeyboardCopyModeShouldBypassForShortcut(
+        modifiers: terminalKeyboardCopyModeModifiers(modifierFlags)
+    )
 }
 
 func terminalKeyboardCopyModeAction(
@@ -1629,100 +1440,15 @@ func terminalKeyboardCopyModeAction(
     hasSelection: Bool,
     asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> TerminalKeyboardCopyModeAction? {
-    let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
-    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers, keyCode: keyCode, asciiCharacterProvider: asciiCharacterProvider)
-
-    if keyCode == 53 { // Escape
-        return .exit
-    }
-
-    switch keyCode {
-    case 126: // Up
-        return .adjustSelection(.up)
-    case 125: // Down
-        return .adjustSelection(.down)
-    case 123: // Left
-        return .adjustSelection(.left)
-    case 124: // Right
-        return .adjustSelection(.right)
-    case 116: // Page Up
-        return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
-    case 121: // Page Down
-        return hasSelection ? .adjustSelection(.pageDown) : .scrollPage(1)
-    case 115: // Home
-        return hasSelection ? .adjustSelection(.home) : .scrollToTop
-    case 119: // End
-        return hasSelection ? .adjustSelection(.end) : .scrollToBottom
-    default:
-        break
-    }
-
-    if normalized == [.control] {
-        if chars == "u" || chars == "\u{15}" {
-            return hasSelection ? .adjustSelection(.pageUp) : .scrollHalfPage(-1)
+    CmuxTerminalCopyMode.terminalKeyboardCopyModeAction(
+        keyCode: keyCode,
+        charactersIgnoringModifiers: charactersIgnoringModifiers,
+        modifiers: terminalKeyboardCopyModeModifiers(modifierFlags),
+        hasSelection: hasSelection,
+        asciiCharacterProvider: { keyCode in
+            asciiCharacterProvider(keyCode, [])
         }
-        if chars == "d" || chars == "\u{04}" {
-            return hasSelection ? .adjustSelection(.pageDown) : .scrollHalfPage(1)
-        }
-        if chars == "b" || chars == "\u{02}" {
-            return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
-        }
-        if chars == "f" || chars == "\u{06}" {
-            return hasSelection ? .adjustSelection(.pageDown) : .scrollPage(1)
-        }
-        if chars == "y" || chars == "\u{19}" {
-            return hasSelection ? .adjustSelection(.up) : .scrollLines(-1)
-        }
-        if chars == "e" || chars == "\u{05}" {
-            return hasSelection ? .adjustSelection(.down) : .scrollLines(1)
-        }
-        return nil
-    }
-
-    guard normalized.isEmpty || normalized == [.shift] else { return nil }
-
-    switch chars {
-    case "q":
-        return .exit
-    case "v":
-        return hasSelection ? .clearSelection : .startSelection
-    case "y":
-        if normalized == [.shift], !hasSelection {
-            return .copyLineAndExit
-        }
-        return hasSelection ? .copyAndExit : nil
-    case "j":
-        return .adjustSelection(.down)
-    case "k":
-        return .adjustSelection(.up)
-    case "h":
-        return .adjustSelection(.left)
-    case "l":
-        return .adjustSelection(.right)
-    case "g":
-        if normalized == [.shift] {
-            return hasSelection ? .adjustSelection(.end) : .scrollToBottom
-        }
-        // Bare "g" is a prefix key (e.g. gg); handled in resolve.
-        return nil
-    case "0", "^":
-        return hasSelection ? .adjustSelection(.beginningOfLine) : nil
-    case "$", "4":
-        guard chars == "$" || normalized == [.shift] else { return nil }
-        return hasSelection ? .adjustSelection(.endOfLine) : nil
-    case "{", "[":
-        guard chars == "{" || normalized == [.shift] else { return nil }
-        return .jumpToPrompt(-1)
-    case "}", "]":
-        guard chars == "}" || normalized == [.shift] else { return nil }
-        return .jumpToPrompt(1)
-    case "/":
-        return .startSearch
-    case "n":
-        return normalized == [.shift] ? .searchPrevious : .searchNext
-    default:
-        return nil
-    }
+    )
 }
 
 func terminalKeyboardCopyModeResolve(
@@ -1733,78 +1459,16 @@ func terminalKeyboardCopyModeResolve(
     state: inout TerminalKeyboardCopyModeInputState,
     asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> TerminalKeyboardCopyModeResolution {
-    let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
-    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers, keyCode: keyCode, asciiCharacterProvider: asciiCharacterProvider)
-
-    if keyCode == 53 { // Escape
-        state.reset()
-        return .perform(.exit, count: 1)
-    }
-
-    if state.pendingYankLine {
-        if chars == "y", normalized.isEmpty || normalized == [.shift] {
-            let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
-            state.reset()
-            return .perform(.copyLineAndExit, count: count)
-        }
-        // Only `yy`/`Y` are supported as line-yank operators, so cancel the
-        // pending yank and treat this key as a fresh command.
-        state.pendingYankLine = false
-    }
-
-    if state.pendingG {
-        if chars == "g", normalized.isEmpty {
-            let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
-            let action: TerminalKeyboardCopyModeAction = hasSelection ? .adjustSelection(.home) : .scrollToTop
-            state.reset()
-            return .perform(action, count: count)
-        }
-        // Not `gg`, cancel and treat as fresh command.
-        state.pendingG = false
-    }
-
-    if normalized.isEmpty,
-       let scalar = chars.unicodeScalars.first,
-       scalar.isASCII,
-       scalar.value >= 48,
-       scalar.value <= 57 {
-        let digit = Int(scalar.value - 48)
-        if digit == 0 {
-            if let currentCount = state.countPrefix {
-                state.countPrefix = terminalKeyboardCopyModeClampCount(currentCount * 10)
-                return .consume
-            }
-        } else {
-            let currentCount = state.countPrefix ?? 0
-            state.countPrefix = terminalKeyboardCopyModeClampCount((currentCount * 10) + digit)
-            return .consume
-        }
-    }
-
-    if !hasSelection, chars == "y", normalized.isEmpty {
-        state.pendingYankLine = true
-        return .consume
-    }
-
-    if chars == "g", normalized.isEmpty {
-        state.pendingG = true
-        return .consume
-    }
-
-    guard let action = terminalKeyboardCopyModeAction(
+    CmuxTerminalCopyMode.terminalKeyboardCopyModeResolve(
         keyCode: keyCode,
         charactersIgnoringModifiers: charactersIgnoringModifiers,
-        modifierFlags: modifierFlags,
+        modifiers: terminalKeyboardCopyModeModifiers(modifierFlags),
         hasSelection: hasSelection,
-        asciiCharacterProvider: asciiCharacterProvider
-    ) else {
-        state.reset()
-        return .consume
-    }
-
-    let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
-    state.reset()
-    return .perform(action, count: count)
+        state: &state,
+        asciiCharacterProvider: { keyCode in
+            asciiCharacterProvider(keyCode, [])
+        }
+    )
 }
 
 private final class GhosttySurfaceCallbackContext {

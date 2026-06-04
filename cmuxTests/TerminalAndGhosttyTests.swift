@@ -1,4 +1,5 @@
 import XCTest
+import CmuxTerminalCopyMode
 import CmuxSocketControl
 import AppKit
 import SwiftUI
