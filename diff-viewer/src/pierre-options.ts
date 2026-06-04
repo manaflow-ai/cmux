@@ -58,8 +58,11 @@ export function codeViewUnsafeCSS(): string {
       --diffs-bg-buffer-override: transparent;
       --diffs-bg-context-override: transparent;
       --diffs-bg-context-gutter-override: transparent;
-      --cmux-diff-header-bg: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
-      --diffs-bg-separator-override: color-mix(in lab, var(--cmux-diff-bg) 88%, var(--cmux-diff-fg));
+      --cmux-diff-surface-bg: light-dark(
+        color-mix(in srgb, var(--cmux-diff-bg) 96%, #f5f5f0),
+        color-mix(in srgb, var(--cmux-diff-bg) 94%, #3e3d32)
+      );
+      --diffs-bg-separator-override: var(--cmux-diff-surface-bg);
       --diffs-addition-color-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
       --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
       --diffs-fg-number-addition-override: var(--diffs-addition-base);
@@ -77,7 +80,7 @@ export function codeViewUnsafeCSS(): string {
     [data-diffs-header] {
       container-type: scroll-state;
       container-name: sticky-header;
-      background-color: var(--cmux-diff-header-bg) !important;
+      background-color: var(--cmux-diff-surface-bg) !important;
       border-block: 1px solid var(--cmux-diff-border);
     }
     [data-line-type='change-addition'] {
@@ -162,7 +165,7 @@ export function fileTreeUnsafeCSS(): string {
       font-weight: 500;
     }
     [data-file-tree-sticky-overlay-content] {
-      background-color: var(--cmux-diff-tree-sticky-bg, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg))) !important;
+      background-color: var(--cmux-diff-tree-sticky-bg, var(--cmux-diff-bg)) !important;
       box-shadow: 0 1px 0 var(--trees-border-color);
     }
   `;
