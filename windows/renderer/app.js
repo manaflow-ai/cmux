@@ -27666,18 +27666,34 @@ function refreshRecentBrowserHomeActions() {
 function browserTabSessionsSettings() {
   const section = document.createElement("div");
   section.className = "recent-folder-list";
-  section.dataset.settingsSearch = normalizeSettingsQuery("browser tab sessions saved restore duplicate copy paste clipboard json active pane");
   const entries = browserTabSessionEntries();
+  const workspace = activeWorkspace();
+  const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
+  const paneQueueFull = paneCreationButtonsDisabled();
+  const paneQueueLabel = paneCreationQueueStatusLabel();
+  const pasteTarget = resolveBrowserPanel(focusedPanel());
+  const pasteTargetHost = pasteTarget
+    ? hostnameOf(browserPanelUrl(pasteTarget)) || panelDisplayTitle(pasteTarget, true)
+    : "";
+  const pasteDisabled = !pasteTarget && (!workspace || paneQueueFull);
+  section.dataset.settingsSearch = normalizeSettingsQuery(`browser tab sessions saved restore duplicate copy paste clipboard json active pane ${pasteTarget ? "active browser apply " : "new panes restore "}${pasteTargetHost} ${workspaceTitle} ${paneQueueLabel}`);
 
   const header = document.createElement("div");
   header.className = "recent-folder-header";
   const title = document.createElement("span");
   title.textContent = "Browser tab sessions";
-  const copyAll = settingsActionButton("Copy all", copyBrowserTabSessions, "", "browser tab sessions copy all saved clipboard json");
+  const copyAll = settingsActionButton("Copy all", copyBrowserTabSessions, "", `browser tab sessions copy all saved clipboard json ${browserTabSessionsMeta(entries)}`);
   copyAll.disabled = entries.length === 0;
   copyAll.title = copyAll.disabled ? "Open a browser pane before copying tab sessions." : "Copy all browser tab sessions as JSON.";
-  const paste = settingsActionButton("Paste", pasteBrowserTabSessions, "", "browser tab sessions paste restore clipboard json");
-  paste.title = "Paste copied browser tabs. Applies to the focused browser, or restores panes when none is focused.";
+  const paste = settingsActionButton("Paste", pasteBrowserTabSessions, "", `browser tab sessions paste restore clipboard json active pane ${pasteTarget ? "active browser apply " : "new panes restore "}${pasteTargetHost} ${workspaceTitle} ${paneQueueLabel}`);
+  paste.disabled = pasteDisabled;
+  paste.title = pasteTarget
+    ? "Paste copied tabs into the focused browser pane."
+    : !workspace
+      ? "Open a workspace or focus a browser pane before restoring browser tabs."
+      : paneQueueFull
+        ? paneCreationLimitLabel()
+        : "Paste copied browser tabs as new panes in the active workspace.";
   const headerActions = document.createElement("div");
   headerActions.className = "recent-folder-header-actions";
   headerActions.append(copyAll, paste);
@@ -27693,9 +27709,12 @@ function browserTabSessionsSettings() {
   }
 
   for (const entry of entries) {
+    const entryWorkspaceTitle = workspaceDisplayTitle(entry.workspace, "Workspace");
+    const entryTabCount = browserTabSessionCountLabel(entry.snapshot);
+    const duplicateDisabled = !entry.workspace || paneQueueFull;
     const card = document.createElement("div");
     card.className = "recent-folder-card";
-    card.dataset.settingsSearch = normalizeSettingsQuery(`browser tab session saved restore duplicate copy paste clipboard json ${entry.label} ${entry.workspace?.title || ""} ${entry.activeUrl}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`browser tab session saved restore duplicate copy paste clipboard json ${duplicateDisabled ? "unavailable " : "ready "}${entry.label} ${entryWorkspaceTitle} ${entryTabCount} ${entry.activeHost} ${entry.activeUrl} ${paneQueueLabel}`);
     const text = document.createElement("div");
     text.className = "recent-folder-text";
     const name = document.createElement("div");
@@ -27704,17 +27723,24 @@ function browserTabSessionsSettings() {
     name.title = entry.activeUrl;
     const path = document.createElement("div");
     path.className = "recent-folder-path";
-    path.textContent = `${entry.workspace?.title || "Workspace"} / ${browserTabSessionCountLabel(entry.snapshot)} / ${entry.activeHost}`;
+    path.textContent = `${entryWorkspaceTitle} / ${entryTabCount} / ${entry.activeHost}`;
     path.title = entry.activeUrl;
     text.append(name, path);
 
     const actions = document.createElement("div");
     actions.className = "recent-folder-actions command-snippet-actions is-built-in";
-    actions.append(
-      settingsActionButton("Focus", () => focusPanel(entry.id), "", `browser tab session focus active pane ${entry.label}`),
-      settingsActionButton("Copy", () => copyBrowserTabSessionByPanelId(entry.id), "", `browser tab session copy clipboard json ${entry.label}`),
-      settingsActionButton("Duplicate", () => duplicateBrowserTabSessionByPanelId(entry.id), "", `browser tab session duplicate restore open pane ${entry.label}`)
-    );
+    const focusAction = settingsActionButton("Focus", () => focusPanel(entry.id), "", `browser tab session focus active pane ${entry.label} ${entryWorkspaceTitle} ${entry.activeHost} ${entry.activeUrl}`);
+    focusAction.title = `Focus ${entry.label}.`;
+    const copyAction = settingsActionButton("Copy", () => copyBrowserTabSessionByPanelId(entry.id), "", `browser tab session copy saved clipboard json ${entry.label} ${entryWorkspaceTitle} ${entryTabCount} ${entry.activeHost} ${entry.activeUrl}`);
+    copyAction.title = `Copy ${entry.label} browser tabs as JSON.`;
+    const duplicateAction = settingsActionButton("Duplicate", () => duplicateBrowserTabSessionByPanelId(entry.id), "", `browser tab session duplicate restore open pane ${duplicateDisabled ? "unavailable " : "ready "}${entry.label} ${entryWorkspaceTitle} ${entryTabCount} ${entry.activeHost} ${entry.activeUrl} ${paneQueueLabel}`);
+    duplicateAction.disabled = duplicateDisabled;
+    duplicateAction.title = !entry.workspace
+      ? "Open a workspace before duplicating browser tab sessions."
+      : paneQueueFull
+        ? paneCreationLimitLabel()
+        : `Open a new browser pane with ${entryTabCount} from ${entry.label}.`;
+    actions.append(focusAction, copyAction, duplicateAction);
     card.append(text, actions);
     section.append(card);
   }
