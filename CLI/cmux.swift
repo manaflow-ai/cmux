@@ -1708,7 +1708,7 @@ final class SocketClient {
         if lastConfiguredReceiveTimeout != initialResponseTimeout {
             try configureReceiveTimeout(initialResponseTimeout)
         }
-        try configureSocketWriteSafety(initialResponseTimeout)
+        _ = try? configureSocketWriteSafety(initialResponseTimeout)
         var operation = CLISocketOperationTelemetry.State(
             name: CLISocketOperationTelemetry.operationName(for: command),
             timeout: initialResponseTimeout,
