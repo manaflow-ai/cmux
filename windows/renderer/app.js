@@ -3524,20 +3524,187 @@ function workspaceBlueprintLimitTitle() {
   return `Blueprint limit is ${workspaceBlueprintsLimit}. Delete one first.`;
 }
 
-function canSaveCurrentWorkspaceBlueprint(workspace = activeWorkspace()) {
-  return Boolean(workspace?.panels?.length && !workspaceBlueprintsFull());
+function workspaceBlueprintPaneCount(workspace = activeWorkspace()) {
+  return workspace?.panels?.length || 0;
 }
 
-function currentWorkspaceBlueprintSaveTitle(workspace = activeWorkspace(), availableTitle = "Save the current workspace pane layout as a reusable blueprint.") {
-  if (!workspace?.panels?.length) return "Open panes before saving a blueprint.";
+function workspaceBlueprintPaneCountLabel(paneCount = 0) {
+  const count = Math.max(0, Number(paneCount) || 0);
+  return `${count} pane${count === 1 ? "" : "s"}`;
+}
+
+function workspaceBlueprintCountLabel() {
+  return `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} saved blueprints`;
+}
+
+function canSaveCurrentWorkspaceBlueprint(workspace = activeWorkspace(), paneCount = workspaceBlueprintPaneCount(workspace)) {
+  return Boolean(paneCount && !workspaceBlueprintsFull());
+}
+
+function currentWorkspaceBlueprintSaveTitle(workspace = activeWorkspace(), availableTitle = "Save the current workspace pane layout as a reusable blueprint.", paneCount = workspaceBlueprintPaneCount(workspace)) {
+  if (!paneCount) return "Open panes before saving a blueprint.";
   if (workspaceBlueprintsFull()) return workspaceBlueprintLimitTitle();
   return availableTitle;
 }
 
-function applyWorkspaceBlueprintSaveLimit(button, workspace = activeWorkspace(), availableTitle = "Save the current workspace pane layout as a reusable blueprint.") {
+function currentWorkspaceBlueprintSaveSearchText(workspace = activeWorkspace(), blueprintsFull = workspaceBlueprintsFull(), paneCount = workspaceBlueprintPaneCount(workspace)) {
+  const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
+  return normalizeSettingsQuery([
+    "workspace blueprint layout save current reusable pane split terminal browser",
+    workspaceTitle,
+    workspaceBlueprintPaneCountLabel(paneCount),
+    blueprintsFull ? "limit full unavailable" : paneCount ? "ready available" : "unavailable needs panes",
+    workspaceBlueprintCountLabel()
+  ].join(" "));
+}
+
+function currentWorkspaceBlueprintMeta(workspace = activeWorkspace(), paneCount = workspaceBlueprintPaneCount(workspace)) {
+  if (!paneCount) return "Open panes first";
+  return `${workspaceBlueprintPaneCountLabel(paneCount)} / ${workspaceDisplayTitle(workspace, "No workspace")}`;
+}
+
+function currentWorkspaceBlueprintCopyTitle(workspace = activeWorkspace(), availableTitle = "Copy the current workspace pane layout as JSON.", paneCount = workspaceBlueprintPaneCount(workspace)) {
+  if (!paneCount) return "Open panes before copying a blueprint.";
+  return availableTitle;
+}
+
+function currentWorkspaceBlueprintCopySearchText(workspace = activeWorkspace(), paneCount = workspaceBlueprintPaneCount(workspace)) {
+  return normalizeSettingsQuery([
+    "workspace blueprint layout copy current clipboard json export pane split terminal browser",
+    workspaceDisplayTitle(workspace, "No workspace"),
+    workspaceBlueprintPaneCountLabel(paneCount),
+    paneCount ? "ready available" : "unavailable needs panes"
+  ].join(" "));
+}
+
+function workspaceBlueprintPasteTitle(blueprintsFull = workspaceBlueprintsFull(), availableTitle = "Paste a copied workspace blueprint.") {
+  return blueprintsFull ? workspaceBlueprintLimitTitle() : availableTitle;
+}
+
+function workspaceBlueprintPasteSearchText(blueprintsFull = workspaceBlueprintsFull()) {
+  return normalizeSettingsQuery([
+    "workspace blueprint layout paste import clipboard json saved reusable terminal browser panes",
+    blueprintsFull ? "limit full unavailable" : "ready available",
+    workspaceBlueprintCountLabel()
+  ].join(" "));
+}
+
+function workspaceBlueprintsPanelSearchText(workspace = activeWorkspace(), paneCount = workspaceBlueprintPaneCount(workspace), blueprintsFull = workspaceBlueprintsFull()) {
+  return normalizeSettingsQuery([
+    "workspace blueprints saved layout pane template terminal browser split apply add new save copy paste update rename delete clipboard json",
+    workspaceDisplayTitle(workspace, "No workspace"),
+    workspaceBlueprintPaneCountLabel(paneCount),
+    workspaceBlueprintCountLabel(),
+    blueprintsFull ? "limit full" : ""
+  ].join(" "));
+}
+
+function workspaceBlueprintBaseSearchText(blueprint, workspace = activeWorkspace(), paneCount = workspaceBlueprintPaneCount(workspace)) {
+  return [
+    "workspace blueprint saved layout pane template terminal browser split reusable",
+    blueprint?.label || "",
+    blueprint ? workspaceBlueprintSummary(blueprint) : "",
+    workspaceDisplayTitle(workspace, "No workspace"),
+    workspaceBlueprintPaneCountLabel(paneCount)
+  ].join(" ");
+}
+
+function workspaceBlueprintNewTitle(blueprint) {
+  if (!blueprint) return "Choose a workspace blueprint first.";
+  return `Create a new workspace from ${blueprint.label}.`;
+}
+
+function workspaceBlueprintNewSearchText(blueprint, workspace = activeWorkspace(), paneCount = workspaceBlueprintPaneCount(workspace)) {
+  return normalizeSettingsQuery([
+    workspaceBlueprintBaseSearchText(blueprint, workspace, paneCount),
+    "new workspace create from blueprint"
+  ].join(" "));
+}
+
+function workspaceBlueprintAddTitle(blueprint, active = false, workspace = activeWorkspace()) {
+  if (!blueprint) return "Choose a workspace blueprint first.";
+  if (active) return `${blueprint.label} matches the current workspace.`;
+  if (!workspace) return "Open a workspace before adding blueprint panes.";
+  return `Add ${blueprint.label} panes to ${workspaceDisplayTitle(workspace, "current workspace")}.`;
+}
+
+function workspaceBlueprintAddSearchText(blueprint, active = false, workspace = activeWorkspace(), paneCount = workspaceBlueprintPaneCount(workspace)) {
+  const unavailable = active || !workspace;
+  return normalizeSettingsQuery([
+    workspaceBlueprintBaseSearchText(blueprint, workspace, paneCount),
+    "add apply current workspace",
+    active ? "active current unavailable already applied" : unavailable ? "unavailable needs workspace" : "ready available"
+  ].join(" "));
+}
+
+function workspaceBlueprintCopyTitle(blueprint) {
+  if (!blueprint) return "Choose a workspace blueprint first.";
+  return `Copy ${blueprint.label} as a workspace blueprint JSON.`;
+}
+
+function workspaceBlueprintCopySearchText(blueprint, workspace = activeWorkspace(), paneCount = workspaceBlueprintPaneCount(workspace)) {
+  return normalizeSettingsQuery([
+    workspaceBlueprintBaseSearchText(blueprint, workspace, paneCount),
+    "copy clipboard json export"
+  ].join(" "));
+}
+
+function workspaceBlueprintUpdateTitle(blueprint, workspace = activeWorkspace(), paneCount = workspaceBlueprintPaneCount(workspace)) {
+  if (!blueprint) return "Choose a workspace blueprint first.";
+  if (!workspace) return "Open a workspace before updating a blueprint.";
+  if (!paneCount) return "Open panes before updating a blueprint.";
+  return `Replace ${blueprint.label} with the current ${workspaceDisplayTitle(workspace, "workspace")} layout.`;
+}
+
+function workspaceBlueprintUpdateSearchText(blueprint, workspace = activeWorkspace(), paneCount = workspaceBlueprintPaneCount(workspace)) {
+  return normalizeSettingsQuery([
+    workspaceBlueprintBaseSearchText(blueprint, workspace, paneCount),
+    "update replace current layout",
+    !workspace ? "unavailable needs workspace" : !paneCount ? "unavailable needs panes" : "ready available"
+  ].join(" "));
+}
+
+function workspaceBlueprintRenameTitle(blueprint) {
+  if (!blueprint) return "Choose a workspace blueprint first.";
+  return `Rename ${blueprint.label}.`;
+}
+
+function workspaceBlueprintRenameSearchText(blueprint, workspace = activeWorkspace(), paneCount = workspaceBlueprintPaneCount(workspace)) {
+  return normalizeSettingsQuery([
+    workspaceBlueprintBaseSearchText(blueprint, workspace, paneCount),
+    "rename edit name label"
+  ].join(" "));
+}
+
+function workspaceBlueprintDeleteTitle(blueprint) {
+  if (!blueprint) return "Choose a workspace blueprint first.";
+  return `Delete ${blueprint.label}.`;
+}
+
+function workspaceBlueprintDeleteSearchText(blueprint, workspace = activeWorkspace(), paneCount = workspaceBlueprintPaneCount(workspace)) {
+  return normalizeSettingsQuery([
+    workspaceBlueprintBaseSearchText(blueprint, workspace, paneCount),
+    "delete remove danger"
+  ].join(" "));
+}
+
+function workspaceBlueprintCardSearchText(blueprint, active = false, workspace = activeWorkspace(), paneCount = workspaceBlueprintPaneCount(workspace)) {
+  return normalizeSettingsQuery([
+    workspaceBlueprintBaseSearchText(blueprint, workspace, paneCount),
+    workspaceBlueprintNewSearchText(blueprint, workspace, paneCount),
+    workspaceBlueprintAddSearchText(blueprint, active, workspace, paneCount),
+    workspaceBlueprintCopySearchText(blueprint, workspace, paneCount),
+    workspaceBlueprintUpdateSearchText(blueprint, workspace, paneCount),
+    workspaceBlueprintRenameSearchText(blueprint, workspace, paneCount),
+    workspaceBlueprintDeleteSearchText(blueprint, workspace, paneCount),
+    active ? "active current" : ""
+  ].join(" "));
+}
+
+function applyWorkspaceBlueprintSaveLimit(button, workspace = activeWorkspace(), availableTitle = "Save the current workspace pane layout as a reusable blueprint.", paneCount = workspaceBlueprintPaneCount(workspace)) {
   if (!button) return button;
-  button.disabled = !canSaveCurrentWorkspaceBlueprint(workspace);
-  button.title = currentWorkspaceBlueprintSaveTitle(workspace, availableTitle);
+  button.disabled = !canSaveCurrentWorkspaceBlueprint(workspace, paneCount);
+  button.title = currentWorkspaceBlueprintSaveTitle(workspace, availableTitle, paneCount);
   return button;
 }
 
@@ -7733,29 +7900,27 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
     const paneCount = readyPanels.length;
     const full = workspaceBlueprintsFull();
     return {
-      meta: paneCount ? `${paneCount} pane${paneCount === 1 ? "" : "s"} / ${workspaceTitle}` : "Open panes first",
+      meta: currentWorkspaceBlueprintMeta(workspace, paneCount),
       shortcut: isCopy ? "Copy" : "Save",
       disabled: !paneCount || (!isCopy && full),
       icon: "blueprints",
-      title: !paneCount
-        ? "Open panes before using a workspace blueprint."
-        : !isCopy && full
-          ? workspaceBlueprintLimitTitle()
-          : isCopy
-            ? "Copy the current workspace pane layout as JSON."
-            : "Save the current workspace pane layout as a reusable blueprint.",
-      search: `workspace blueprint layout ${isCopy ? "copy export" : "save reusable"} ${workspaceTitle} ${paneCount} panes`
+      title: isCopy
+        ? currentWorkspaceBlueprintCopyTitle(workspace, "Copy the current workspace pane layout as JSON.", paneCount)
+        : currentWorkspaceBlueprintSaveTitle(workspace, "Save the current workspace pane layout as a reusable blueprint.", paneCount),
+      search: isCopy
+        ? currentWorkspaceBlueprintCopySearchText(workspace, paneCount)
+        : currentWorkspaceBlueprintSaveSearchText(workspace, full, paneCount)
     };
   }
   if (commandId === "workspace.pasteBlueprint") {
     const full = workspaceBlueprintsFull();
     return {
-      meta: `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} blueprints`,
+      meta: workspaceBlueprintCountLabel(),
       shortcut: "Paste",
       disabled: full,
       icon: "blueprints",
-      title: full ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint.",
-      search: "workspace blueprint paste import clipboard json saved reusable panes"
+      title: workspaceBlueprintPasteTitle(full),
+      search: workspaceBlueprintPasteSearchText(full)
     };
   }
   const starterCommand = workspaceStarterCommandIds.get(commandId);
@@ -17366,14 +17531,16 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
   const layoutActions = document.createElement("div");
   layoutActions.className = "settings-actions";
   layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar top bar style button style ghost filled tab bar quiet banded sidebar width settings panel width style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus mode simple clean copy paste clipboard json");
-  const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", "save current split pane layout workspace blueprint reusable");
-  applyWorkspaceBlueprintSaveLimit(saveLayoutAction, workspace, "Save the current workspace pane layout as a reusable blueprint.");
-  const copyLayoutAction = settingsActionButton("Copy layout", copyCurrentWorkspaceBlueprint, "", "copy current split pane layout workspace blueprint clipboard json");
-  copyLayoutAction.disabled = !workspace?.panels?.length;
-  copyLayoutAction.title = workspace?.panels?.length ? "Copy the current workspace pane layout as JSON." : "Open panes before copying a layout.";
-  const pasteLayoutAction = settingsActionButton("Paste blueprint", pasteWorkspaceBlueprint, "", "paste workspace blueprint split pane layout clipboard json reusable");
-  pasteLayoutAction.disabled = workspaceBlueprintsFull();
-  pasteLayoutAction.title = pasteLayoutAction.disabled ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint into the reusable layout library.";
+  const layoutPaneCount = workspaceBlueprintPaneCount(workspace);
+  const layoutBlueprintsFull = workspaceBlueprintsFull();
+  const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", currentWorkspaceBlueprintSaveSearchText(workspace, layoutBlueprintsFull, layoutPaneCount));
+  applyWorkspaceBlueprintSaveLimit(saveLayoutAction, workspace, "Save the current workspace pane layout as a reusable blueprint.", layoutPaneCount);
+  const copyLayoutAction = settingsActionButton("Copy layout", copyCurrentWorkspaceBlueprint, "", currentWorkspaceBlueprintCopySearchText(workspace, layoutPaneCount));
+  copyLayoutAction.disabled = !layoutPaneCount;
+  copyLayoutAction.title = currentWorkspaceBlueprintCopyTitle(workspace, "Copy the current workspace pane layout as JSON.", layoutPaneCount);
+  const pasteLayoutAction = settingsActionButton("Paste blueprint", pasteWorkspaceBlueprint, "", workspaceBlueprintPasteSearchText(layoutBlueprintsFull));
+  pasteLayoutAction.disabled = layoutBlueprintsFull;
+  pasteLayoutAction.title = workspaceBlueprintPasteTitle(layoutBlueprintsFull, "Paste a copied workspace blueprint into the reusable layout library.");
   const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
   const copySetupAction = settingsActionButton("Copy setup", copyLayoutSetup, "", "layout setup copy workspace chrome blueprint pane split toolbar top bar style button style ghost filled tab bar quiet banded sidebar style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus clipboard json");
   copySetupAction.title = workspace?.panels?.length
@@ -22498,7 +22665,7 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
 }
 
 function quickBlueprintControlsPanel(workspace = activeWorkspace()) {
-  const paneCount = workspace?.panels?.length || 0;
+  const paneCount = workspaceBlueprintPaneCount(workspace);
   const blueprintsFull = workspaceBlueprintsFull();
   const starter = workspaceStarterById("devTrio") || workspaceStarters[0] || null;
   const savedStarterBlueprint = starter ? workspaceStarterSavedBlueprint(starter) : null;
@@ -22511,19 +22678,19 @@ function quickBlueprintControlsPanel(workspace = activeWorkspace()) {
   const creationDisabled = paneCreationButtonsDisabled();
   const actions = [
     quickOverviewControlButton("Save layout", saveCurrentWorkspaceBlueprint, {
-      disabled: !canSaveCurrentWorkspaceBlueprint(workspace),
-      title: currentWorkspaceBlueprintSaveTitle(workspace, "Save the current workspace pane layout as a reusable blueprint."),
-      search: "quick setup workspace blueprint save current pane layout reusable"
+      disabled: !canSaveCurrentWorkspaceBlueprint(workspace, paneCount),
+      title: currentWorkspaceBlueprintSaveTitle(workspace, "Save the current workspace pane layout as a reusable blueprint.", paneCount),
+      search: normalizeSettingsQuery(`quick setup ${currentWorkspaceBlueprintSaveSearchText(workspace, blueprintsFull, paneCount)}`)
     }),
     quickOverviewControlButton("Copy layout", copyCurrentWorkspaceBlueprint, {
       disabled: paneCount === 0,
-      title: paneCount ? "Copy the current workspace pane layout as JSON." : "Open panes before copying a blueprint.",
-      search: "quick setup workspace blueprint copy current pane layout clipboard json"
+      title: currentWorkspaceBlueprintCopyTitle(workspace, "Copy the current workspace pane layout as JSON.", paneCount),
+      search: normalizeSettingsQuery(`quick setup ${currentWorkspaceBlueprintCopySearchText(workspace, paneCount)}`)
     }),
     quickOverviewControlButton("Paste", pasteWorkspaceBlueprint, {
       disabled: blueprintsFull,
-      title: blueprintsFull ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint.",
-      search: "quick setup workspace blueprint paste import clipboard json reusable"
+      title: workspaceBlueprintPasteTitle(blueprintsFull),
+      search: normalizeSettingsQuery(`quick setup ${workspaceBlueprintPasteSearchText(blueprintsFull)}`)
     }),
     quickOverviewControlButton(`New ${starterLabel}`, () => {
       if (starter) createWorkspaceFromStarter(starter.id);
@@ -29705,24 +29872,22 @@ function workspaceBlueprintsPanel() {
   wrapper.className = "workspace-blueprint-list";
   const workspace = activeWorkspace();
   const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
-  const paneCount = workspace?.panels?.length || 0;
-  const paneCountLabel = `${paneCount} pane${paneCount === 1 ? "" : "s"}`;
+  const paneCount = workspaceBlueprintPaneCount(workspace);
   const blueprintsFull = workspaceBlueprintsFull();
-  const blueprintCountLabel = `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} saved blueprints`;
-  wrapper.dataset.settingsSearch = normalizeSettingsQuery(`workspace blueprints saved layout pane template terminal browser split apply add new save copy paste update rename delete clipboard json ${workspaceTitle} ${paneCountLabel} ${blueprintCountLabel}`);
+  wrapper.dataset.settingsSearch = workspaceBlueprintsPanelSearchText(workspace, paneCount, blueprintsFull);
 
   const header = document.createElement("div");
   header.className = "recent-folder-header";
   const title = document.createElement("span");
   title.textContent = "Saved blueprints";
-  const save = settingsActionButton("Save", saveCurrentWorkspaceBlueprint, "", `save current workspace blueprint layout reusable ${workspaceTitle} ${paneCountLabel} ${blueprintsFull ? "limit full " : ""}`);
-  applyWorkspaceBlueprintSaveLimit(save, workspace, "Save the current workspace pane setup as a blueprint.");
-  const copyCurrent = settingsActionButton("Copy", copyCurrentWorkspaceBlueprint, "", `copy current workspace blueprint layout clipboard json ${workspaceTitle} ${paneCountLabel}`);
+  const save = settingsActionButton("Save", saveCurrentWorkspaceBlueprint, "", currentWorkspaceBlueprintSaveSearchText(workspace, blueprintsFull, paneCount));
+  applyWorkspaceBlueprintSaveLimit(save, workspace, "Save the current workspace pane setup as a blueprint.", paneCount);
+  const copyCurrent = settingsActionButton("Copy", copyCurrentWorkspaceBlueprint, "", currentWorkspaceBlueprintCopySearchText(workspace, paneCount));
   copyCurrent.disabled = !paneCount;
-  copyCurrent.title = copyCurrent.disabled ? "Open panes before copying a blueprint." : `Copy ${workspaceTitle} pane setup as JSON.`;
-  const paste = settingsActionButton("Paste", pasteWorkspaceBlueprint, "", `paste workspace blueprint layout clipboard json import saved reusable ${blueprintsFull ? "limit full " : ""}${blueprintCountLabel}`);
+  copyCurrent.title = currentWorkspaceBlueprintCopyTitle(workspace, `Copy ${workspaceTitle} pane setup as JSON.`, paneCount);
+  const paste = settingsActionButton("Paste", pasteWorkspaceBlueprint, "", workspaceBlueprintPasteSearchText(blueprintsFull));
   paste.disabled = blueprintsFull;
-  paste.title = paste.disabled ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint.";
+  paste.title = workspaceBlueprintPasteTitle(blueprintsFull);
   const headerActions = document.createElement("div");
   headerActions.className = "recent-folder-header-actions";
   headerActions.append(save, copyCurrent, paste);
@@ -29739,9 +29904,7 @@ function workspaceBlueprintsPanel() {
     for (const blueprint of state.workspaceBlueprints) {
       wrapper.append(workspaceBlueprintCard(blueprint, currentBlueprint, {
         workspace,
-        workspaceTitle,
-        paneCount,
-        paneCountLabel
+        paneCount
       }));
     }
   }
@@ -29756,16 +29919,13 @@ function workspaceBlueprintsPanel() {
 function workspaceBlueprintCard(blueprint, currentBlueprint = null, options = {}) {
   const active = workspaceBlueprintMatchesSnapshot(blueprint, currentBlueprint);
   const workspace = options.workspace || activeWorkspace();
-  const workspaceTitle = options.workspaceTitle || workspaceDisplayTitle(workspace, "No workspace");
-  const paneCount = Number.isInteger(options.paneCount) ? options.paneCount : workspace?.panels?.length || 0;
-  const paneCountLabel = options.paneCountLabel || `${paneCount} pane${paneCount === 1 ? "" : "s"}`;
+  const paneCount = Number.isInteger(options.paneCount) ? options.paneCount : workspaceBlueprintPaneCount(workspace);
   const summaryText = workspaceBlueprintSummary(blueprint);
   const addDisabled = active || !workspace;
   const updateDisabled = !workspace || !paneCount;
   const card = document.createElement("div");
   card.className = `recent-folder-card workspace-blueprint-card${active ? " is-active" : ""}`;
-  const activeSearch = active ? " active current" : "";
-  card.dataset.settingsSearch = normalizeSettingsQuery(`workspace blueprint saved layout pane template apply add new update rename delete copy paste clipboard json${activeSearch} ${addDisabled ? "unavailable " : "ready "}${blueprint.label} ${summaryText} ${workspaceTitle} ${paneCountLabel}`);
+  card.dataset.settingsSearch = workspaceBlueprintCardSearchText(blueprint, active, workspace, paneCount);
 
   const text = document.createElement("div");
   text.className = "recent-folder-text";
@@ -29789,28 +29949,20 @@ function workspaceBlueprintCard(blueprint, currentBlueprint = null, options = {}
 
   const actions = document.createElement("div");
   actions.className = "recent-folder-actions workspace-blueprint-actions";
-  const add = settingsActionButton(active ? "Active" : "Add", () => applyWorkspaceBlueprint(blueprint.id), active ? "primary" : "", `${active ? "active current " : ""}add apply workspace blueprint current workspace ${addDisabled ? "unavailable " : "ready "}${blueprint.label} ${summaryText} ${workspaceTitle}`);
+  const add = settingsActionButton(active ? "Active" : "Add", () => applyWorkspaceBlueprint(blueprint.id), active ? "primary" : "", workspaceBlueprintAddSearchText(blueprint, active, workspace, paneCount));
   add.disabled = addDisabled;
-  add.title = active
-    ? `${blueprint.label} matches the current workspace.`
-    : !workspace
-      ? "Open a workspace before adding blueprint panes."
-      : `Add ${blueprint.label} panes to ${workspaceTitle}.`;
-  const newWorkspace = settingsActionButton("New", () => createWorkspaceFromBlueprint(blueprint.id), "", `new workspace from blueprint create layout ${blueprint.label} ${summaryText}`);
-  newWorkspace.title = `Create a new workspace from ${blueprint.label}.`;
-  const copy = settingsActionButton("Copy", () => copySavedWorkspaceBlueprint(blueprint.id), "", `copy workspace blueprint clipboard json ${blueprint.label} ${summaryText}`);
-  copy.title = `Copy ${blueprint.label} as a workspace blueprint JSON.`;
-  const update = settingsActionButton("Update", () => updateWorkspaceBlueprint(blueprint.id), "", `update workspace blueprint current layout ${updateDisabled ? "needs panes unavailable " : "ready "}${blueprint.label} ${workspaceTitle} ${paneCountLabel}`);
+  add.title = workspaceBlueprintAddTitle(blueprint, active, workspace);
+  const newWorkspace = settingsActionButton("New", () => createWorkspaceFromBlueprint(blueprint.id), "", workspaceBlueprintNewSearchText(blueprint, workspace, paneCount));
+  newWorkspace.title = workspaceBlueprintNewTitle(blueprint);
+  const copy = settingsActionButton("Copy", () => copySavedWorkspaceBlueprint(blueprint.id), "", workspaceBlueprintCopySearchText(blueprint, workspace, paneCount));
+  copy.title = workspaceBlueprintCopyTitle(blueprint);
+  const update = settingsActionButton("Update", () => updateWorkspaceBlueprint(blueprint.id), "", workspaceBlueprintUpdateSearchText(blueprint, workspace, paneCount));
   update.disabled = updateDisabled;
-  update.title = !workspace
-    ? "Open a workspace before updating a blueprint."
-    : !paneCount
-      ? "Open panes before updating a blueprint."
-      : `Replace ${blueprint.label} with the current ${workspaceTitle} layout.`;
-  const rename = settingsActionButton("Rename", () => renameWorkspaceBlueprint(blueprint.id), "", `rename workspace blueprint ${blueprint.label}`);
-  rename.title = `Rename ${blueprint.label}.`;
-  const deleteAction = settingsActionButton("Delete", () => deleteWorkspaceBlueprint(blueprint.id), "danger", `delete workspace blueprint ${blueprint.label}`);
-  deleteAction.title = `Delete ${blueprint.label}.`;
+  update.title = workspaceBlueprintUpdateTitle(blueprint, workspace, paneCount);
+  const rename = settingsActionButton("Rename", () => renameWorkspaceBlueprint(blueprint.id), "", workspaceBlueprintRenameSearchText(blueprint, workspace, paneCount));
+  rename.title = workspaceBlueprintRenameTitle(blueprint);
+  const deleteAction = settingsActionButton("Delete", () => deleteWorkspaceBlueprint(blueprint.id), "danger", workspaceBlueprintDeleteSearchText(blueprint, workspace, paneCount));
+  deleteAction.title = workspaceBlueprintDeleteTitle(blueprint);
   actions.append(
     newWorkspace,
     add,
@@ -30648,6 +30800,13 @@ function showToolbarMenu(event) {
     if (titleText) button.title = titleText;
     return button;
   };
+  const copyWorkspaceBlueprintTitle = currentWorkspaceBlueprintCopyTitle(
+    workspace,
+    "Copy the current workspace pane layout as JSON.",
+    workspacePanelCount
+  );
+  const copyWorkspaceBlueprintUnavailableTitle = workspace ? copyWorkspaceBlueprintTitle : workspaceRequiredTitle;
+  const pasteWorkspaceBlueprintTitle = workspaceBlueprintPasteTitle(blueprintsFull);
   const title = document.createElement("div");
   title.className = "context-title";
   title.textContent = workspace?.title || "Workspace tools";
@@ -30801,12 +30960,24 @@ function showToolbarMenu(event) {
       toolbarAction("Paste recent folders", pasteRecentFolders, false, "Merge copied workspace folders into recent folders."),
       toolbarAction("Copy workspace setup", () => copyWorkspaceSetup(workspace), !workspace, "Copy this workspace name, color, and folder as JSON.", workspaceRequiredTitle),
       toolbarAction("Paste workspace setup", () => pasteWorkspaceSetup(workspace), !workspace, "Apply copied cmux workspace setup.", workspaceRequiredTitle),
-      toolbarAction("Copy workspace blueprint", copyCurrentWorkspaceBlueprint, !workspaceHasPanes, "Copy the current workspace pane layout as JSON.", workspace ? "Open panes before copying a blueprint." : workspaceRequiredTitle),
-      toolbarAction("Paste workspace blueprint", pasteWorkspaceBlueprint, blueprintsFull, "Paste a copied workspace blueprint.", workspaceBlueprintLimitTitle()),
+      toolbarAction(
+        "Copy workspace blueprint",
+        copyCurrentWorkspaceBlueprint,
+        !workspaceHasPanes,
+        copyWorkspaceBlueprintTitle,
+        copyWorkspaceBlueprintUnavailableTitle
+      ),
+      toolbarAction(
+        "Paste workspace blueprint",
+        pasteWorkspaceBlueprint,
+        blueprintsFull,
+        pasteWorkspaceBlueprintTitle,
+        pasteWorkspaceBlueprintTitle
+      ),
       contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
       (() => {
-        const action = contextMenuButton("Save workspace blueprint", saveCurrentWorkspaceBlueprint, !canSaveCurrentWorkspaceBlueprint(workspace));
-        action.title = currentWorkspaceBlueprintSaveTitle(workspace, "Save the current workspace as a reusable blueprint.");
+        const action = contextMenuButton("Save workspace blueprint", saveCurrentWorkspaceBlueprint, !canSaveCurrentWorkspaceBlueprint(workspace, workspacePanelCount));
+        action.title = currentWorkspaceBlueprintSaveTitle(workspace, "Save the current workspace as a reusable blueprint.", workspacePanelCount);
         return action;
       })(),
       (() => {
@@ -33121,23 +33292,21 @@ function paletteEntries() {
   entries.push({
     id: "workspaceBlueprint.copyCurrent",
     label: "Copy current workspace blueprint",
-    meta: paletteBlueprintPaneCount
-      ? `${paletteWorkspace.title || "Active workspace"} / ${paletteBlueprintPaneCount} pane${paletteBlueprintPaneCount === 1 ? "" : "s"}`
-      : "Open panes first",
+    meta: currentWorkspaceBlueprintMeta(paletteWorkspace, paletteBlueprintPaneCount),
     shortcut: "Copy",
     disabled: !paletteBlueprintPaneCount,
-    title: paletteBlueprintPaneCount ? "Copy the current workspace pane layout as JSON." : "Open panes before copying a blueprint.",
-    search: normalizeSettingsQuery(`workspace blueprint layout copy current clipboard json ${paletteWorkspace?.title || ""} ${paletteBlueprintPaneCount} panes`),
+    title: currentWorkspaceBlueprintCopyTitle(paletteWorkspace, "Copy the current workspace pane layout as JSON.", paletteBlueprintPaneCount),
+    search: currentWorkspaceBlueprintCopySearchText(paletteWorkspace, paletteBlueprintPaneCount),
     run: copyCurrentWorkspaceBlueprint
   });
   entries.push({
     id: "workspaceBlueprint.paste",
     label: "Paste workspace blueprint",
-    meta: `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} saved blueprints`,
+    meta: workspaceBlueprintCountLabel(),
     shortcut: "Paste",
     disabled: paletteBlueprintsFull,
-    title: paletteBlueprintsFull ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint.",
-    search: normalizeSettingsQuery("workspace blueprint layout paste import clipboard json saved reusable terminal browser panes"),
+    title: workspaceBlueprintPasteTitle(paletteBlueprintsFull),
+    search: workspaceBlueprintPasteSearchText(paletteBlueprintsFull),
     run: pasteWorkspaceBlueprint
   });
   const currentPaletteBlueprint = state.workspaceBlueprints.length > 0 ? currentWorkspaceBlueprintSnapshot("Current setup") : null;
@@ -33150,7 +33319,8 @@ function paletteEntries() {
       meta: active ? `Active / ${summary}` : summary,
       shortcut: active ? "Active" : "Blueprint",
       active,
-      search: normalizeSettingsQuery(`workspace blueprint layout template new add apply ${active ? "active current " : ""}${blueprint.label} ${summary}`),
+      title: workspaceBlueprintNewTitle(blueprint),
+      search: normalizeSettingsQuery(`${workspaceBlueprintNewSearchText(blueprint, paletteWorkspace, paletteBlueprintPaneCount)} ${active ? "active current" : ""}`),
       run: () => createWorkspaceFromBlueprint(blueprint.id)
     });
     entries.push({
@@ -33158,8 +33328,8 @@ function paletteEntries() {
       label: `Copy blueprint: ${blueprint.label}`,
       meta: summary,
       shortcut: "Copy",
-      title: `Copy ${blueprint.label} as a workspace blueprint JSON.`,
-      search: normalizeSettingsQuery(`workspace blueprint layout template saved copy clipboard json ${blueprint.label} ${summary}`),
+      title: workspaceBlueprintCopyTitle(blueprint),
+      search: workspaceBlueprintCopySearchText(blueprint, paletteWorkspace, paletteBlueprintPaneCount),
       run: () => copySavedWorkspaceBlueprint(blueprint.id)
     });
   }
