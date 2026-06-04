@@ -202,11 +202,18 @@ extension AppDelegate {
         shouldActivate: Bool = false
     ) -> Bool {
         let operations = ClosedItemHistoryStore.shared.operationSnapshot()
+        let legacyManagers = recentlyClosedLegacyBrowserManagers(preferredTabManager: preferredTabManager)
+        if let legacyManager = legacyManagers.first,
+           let legacyClosedAt = legacyManager.mostRecentLegacyClosedBrowserPanelClosedAt(),
+           operations.first(where: { !$0.isFullyRestored }).map({ legacyClosedAt > $0.closedAt }) ?? true,
+           legacyManager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
+            return true
+        }
         guard let op = operations.first(where: { !$0.isFullyRestored }) else {
             // Everything in the store is already live. Fall back to the legacy
             // browser-tab stack only (never re-restore a store entry, which would
             // duplicate something already on screen).
-            for manager in recentlyClosedLegacyBrowserManagers(preferredTabManager: preferredTabManager) {
+            for manager in legacyManagers {
                 if manager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
                     return true
                 }
@@ -261,7 +268,7 @@ extension AppDelegate {
         case .panel(let workspaceId, let panelId):
             guard let manager = tabManagerFor(tabId: workspaceId),
                   let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
-            return workspace.closePanel(panelId)
+            return workspace.closePanel(panelId, operationId: operationId)
         case .workspace(let workspaceId):
             guard let manager = tabManagerFor(tabId: workspaceId),
                   let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }

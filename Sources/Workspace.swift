@@ -768,17 +768,21 @@ extension Workspace {
         )
     }
 
-    private func consumeCloseHistoryEligibility(tabId: TabID, panelId: UUID?) -> Bool {
+    private func consumeCloseHistoryEligibility(tabId: TabID, panelId: UUID?) -> (isEligible: Bool, operationId: UUID?) {
         let eligibleByTab = closeHistoryEligibleTabIds.remove(tabId) != nil
         let eligibleByPanel = panelId.map { closeHistoryEligiblePanelIds.remove($0) != nil } ?? false
-        return eligibleByTab || eligibleByPanel
+        let operationIdByTab = closeHistoryOperationIdsByTabId.removeValue(forKey: tabId)
+        let operationIdByPanel = panelId.flatMap { closeHistoryOperationIdsByPanelId.removeValue(forKey: $0) }
+        return (eligibleByTab || eligibleByPanel, operationIdByTab ?? operationIdByPanel)
     }
 
     private func clearCloseHistoryEligibility(tabId: TabID, panelId: UUID? = nil) {
         closeHistoryEligibleTabIds.remove(tabId)
+        closeHistoryOperationIdsByTabId.removeValue(forKey: tabId)
         let resolvedPanelId = panelId ?? panelIdFromSurfaceId(tabId)
         if let resolvedPanelId {
             closeHistoryEligiblePanelIds.remove(resolvedPanelId)
+            closeHistoryOperationIdsByPanelId.removeValue(forKey: resolvedPanelId)
         }
     }
 
@@ -786,11 +790,12 @@ extension Workspace {
     private func pushClosedPanelHistoryIfEligible(for tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
         guard !suppressClosedPanelHistory else { return false }
         guard let panelId = panelIdFromSurfaceId(tab.id) else { return false }
-        guard consumeCloseHistoryEligibility(tabId: tab.id, panelId: panelId) else { return false }
+        let eligibility = consumeCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
+        guard eligibility.isEligible else { return false }
         guard let entry = closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane) else {
             return false
         }
-        ClosedItemHistoryStore.shared.push(.panel(entry))
+        ClosedItemHistoryStore.shared.push(.panel(entry), operationId: eligibility.operationId)
         return true
     }
 
@@ -11295,6 +11300,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var explicitUserCloseTabIds: Set<TabID> = []
     private var closeHistoryEligibleTabIds: Set<TabID> = []
     private var closeHistoryEligiblePanelIds: Set<UUID> = []
+    private var closeHistoryOperationIdsByTabId: [TabID: UUID] = [:]
+    private var closeHistoryOperationIdsByPanelId: [UUID: UUID] = [:]
     private var suppressClosedPanelHistory = false
     private var tabCloseButtonCloseTabIds: Set<TabID> = []
 
@@ -11382,18 +11389,24 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func markCloseHistoryEligible(panelId: UUID) {
+    func markCloseHistoryEligible(panelId: UUID, operationId: UUID? = nil) {
         closeHistoryEligiblePanelIds.insert(panelId)
+        if let operationId {
+            closeHistoryOperationIdsByPanelId[panelId] = operationId
+        }
         if let surfaceId = surfaceIdFromPanelId(panelId) {
             closeHistoryEligibleTabIds.insert(surfaceId)
+            if let operationId {
+                closeHistoryOperationIdsByTabId[surfaceId] = operationId
+            }
         }
     }
 
     @discardableResult
-    func requestCloseTabRecordingHistory(_ tabId: TabID, force: Bool) -> Bool {
+    func requestCloseTabRecordingHistory(_ tabId: TabID, force: Bool, operationId: UUID? = nil) -> Bool {
         let panelId = panelIdFromSurfaceId(tabId)
         if let panelId {
-            markCloseHistoryEligible(panelId: panelId)
+            markCloseHistoryEligible(panelId: panelId, operationId: operationId)
         }
 
         let closed = requestCloseTab(tabId, force: force)
@@ -15432,9 +15445,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
-    func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
+    func closePanel(_ panelId: UUID, force: Bool = false, operationId: UUID? = nil) -> Bool {
         if let tabId = surfaceIdFromPanelId(panelId) {
             // Close the tab in bonsplit (this triggers delegate callback)
+            if let operationId {
+                markCloseHistoryEligible(panelId: panelId, operationId: operationId)
+            }
             return requestCloseTab(tabId, force: force)
         }
 
@@ -15459,6 +15475,9 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
 
+        if let operationId, let selectedPanelId = panelIdFromSurfaceId(selected.id) {
+            markCloseHistoryEligible(panelId: selectedPanelId, operationId: operationId)
+        }
         let closed = requestCloseTab(selected.id, force: force)
 #if DEBUG
         cmuxDebugLog(
