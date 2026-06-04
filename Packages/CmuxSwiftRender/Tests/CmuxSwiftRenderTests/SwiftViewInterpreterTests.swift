@@ -780,4 +780,31 @@ import Testing
         #expect(node?.children.first?.children.isEmpty == true)
         #expect(node?.children.last?.text == "after")
     }
+
+    /// Authored source must never trap the interpreter: a non-finite or
+    /// out-of-range double passed to `Int(...)` evaluates to nil instead of
+    /// crashing the process (https://github.com/manaflow-ai/cmux/pull/5275
+    /// review finding).
+    @Test func intConversionOfNonFiniteDoubleDoesNotTrap() {
+        let node = interp.evaluate("""
+        VStack {
+            Text("\\(Int(1.0 / 0.0))")
+            Text("\\(Int(0.0 / 0.0))")
+            Text("\\(Int(1e300))")
+            Text("after")
+        }
+        """)
+        #expect(node?.kind == .vstack)
+        #expect(node?.children.last?.text == "after")
+    }
+
+    /// `Gauge(value:total:)` normalizes like ProgressView; the raw value
+    /// alone would render any total-relative gauge as full.
+    @Test func gaugeNormalizesValueAgainstTotal() {
+        let node = interp.evaluate("""
+        Gauge(value: 3.0, total: 12.0) { Text("load") }
+        """)
+        #expect(node?.kind == .gauge)
+        #expect(node?.value == 0.25)
+    }
 }
