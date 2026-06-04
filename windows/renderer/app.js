@@ -8772,7 +8772,11 @@ function workspaceDisplayTitle(workspace, fallback = "Workspace") {
 }
 
 function workspaceSuggestedTitle(workspace = activeWorkspace()) {
-  return folderName(workspace?.cwd) || workspace?.title || "Workspace";
+  return workspaceFolderNameSuggestion(workspace) || workspace?.title || "Workspace";
+}
+
+function workspaceFolderNameSuggestion(workspace = activeWorkspace()) {
+  return workspace ? folderName(workspace.cwd) : "";
 }
 
 function allPanelIds() {
@@ -14745,35 +14749,25 @@ function renderSettingsInspector(options = {}) {
     titleInput.className = "setting-control";
     titleInput.value = workspace?.title || "";
     titleInput.placeholder = "Workspace name";
-    titleInput.dataset.settingsSearch = normalizeSettingsQuery("workspace name rename title input");
+    titleInput.dataset.settingsSearch = workspaceRenameActionSearchText("input", workspace);
     titleInput.disabled = !workspace;
     let titleSave = null;
     let titleUseFolder = null;
-    const currentWorkspaceName = () => activeWorkspace()?.title || workspace?.title || "";
-    const suggestedWorkspaceName = () => workspaceSuggestedTitle(activeWorkspace() || workspace);
+    const workspaceNameTarget = () => activeWorkspace() || workspace;
+    const currentWorkspaceName = () => workspaceNameTarget()?.title || "";
+    const suggestedWorkspaceName = () => workspaceFolderNameSuggestion(workspaceNameTarget());
     const updateWorkspaceNameActions = () => {
+      const targetWorkspace = workspaceNameTarget();
       const nextTitle = titleInput.value.trim();
       const currentTitle = currentWorkspaceName();
       const suggestedTitle = suggestedWorkspaceName();
       if (titleSave) {
-        titleSave.disabled = !workspace || !nextTitle || nextTitle === currentTitle;
-        titleSave.title = !workspace
-          ? "Open a workspace before renaming it."
-          : !nextTitle
-            ? "Enter a workspace name first."
-            : nextTitle === currentTitle
-              ? "Workspace name is already current."
-              : "Save the active workspace name.";
+        titleSave.disabled = !targetWorkspace || !nextTitle || nextTitle === currentTitle;
+        titleSave.title = workspaceNameSaveTitle(targetWorkspace, nextTitle, currentTitle);
       }
       if (titleUseFolder) {
-        titleUseFolder.disabled = !workspace || !suggestedTitle || suggestedTitle === currentTitle;
-        titleUseFolder.title = !workspace
-          ? "Open a workspace before using its folder name."
-          : !suggestedTitle
-            ? "Set a workspace folder before using its name."
-            : suggestedTitle === currentTitle
-              ? "Workspace already uses the folder name."
-              : "Rename the workspace from its folder.";
+        titleUseFolder.disabled = !targetWorkspace || !suggestedTitle || suggestedTitle === currentTitle;
+        titleUseFolder.title = workspaceUseFolderNameTitle(targetWorkspace);
       }
     };
     const revertWorkspaceNameInput = () => {
@@ -14781,8 +14775,9 @@ function renderSettingsInspector(options = {}) {
       updateWorkspaceNameActions();
     };
     const saveWorkspaceNameInput = async (options = {}) => {
+      const targetWorkspace = workspaceNameTarget();
       const nextTitle = titleInput.value.trim();
-      if (!workspace) {
+      if (!targetWorkspace) {
         if (options.toast) toast("Open a workspace before renaming it.");
         return false;
       }
@@ -14796,7 +14791,7 @@ function renderSettingsInspector(options = {}) {
         if (options.toast) toast("Workspace name already current.");
         return false;
       }
-      const changed = await renameWorkspaceTo(titleInput.value);
+      const changed = await renameWorkspaceTo(titleInput.value, targetWorkspace.id);
       revertWorkspaceNameInput();
       if (options.toast) toast(changed ? "Workspace renamed." : "Workspace name already current.");
       return changed;
@@ -14812,19 +14807,31 @@ function renderSettingsInspector(options = {}) {
       }
     });
     titleInput.addEventListener("input", updateWorkspaceNameActions);
-    titleSave = settingsActionButton("Save", () => saveWorkspaceNameInput({ toast: true }), "primary", "workspace name rename save title");
+    titleSave = settingsActionButton("Save", () => saveWorkspaceNameInput({ toast: true }), "primary", workspaceRenameActionSearchText("save", workspace));
     titleUseFolder = settingsActionButton("Use folder", async () => {
+      const targetWorkspace = workspaceNameTarget();
       const suggestedTitle = suggestedWorkspaceName();
+      if (!targetWorkspace) {
+        updateWorkspaceNameActions();
+        toast("Open a workspace before using its folder name.");
+        return false;
+      }
+      if (!suggestedTitle) {
+        updateWorkspaceNameActions();
+        toast("Set a workspace folder before using its name.");
+        return false;
+      }
       titleInput.value = suggestedTitle;
-      const changed = await renameWorkspaceTo(suggestedTitle);
+      const changed = await renameWorkspaceTo(suggestedTitle, targetWorkspace.id);
       revertWorkspaceNameInput();
       toast(changed ? "Workspace name set from folder." : "Workspace already uses the folder name.");
-    }, "", "workspace name rename use folder directory title");
+      return changed;
+    }, "", workspaceRenameActionSearchText("useFolder", workspace));
     const titleControl = document.createElement("span");
     titleControl.className = "workspace-name-control";
     titleControl.append(titleInput, titleSave, titleUseFolder);
     updateWorkspaceNameActions();
-    workspaceSection.append(settingRow("Name", titleControl, false, "workspace name rename title save use folder"));
+    workspaceSection.append(settingRow("Name", titleControl, false, workspaceRenameActionSearchText("actions", workspace, "input save use folder")));
     const folderInput = document.createElement("input");
     folderInput.className = "setting-control";
     folderInput.readOnly = true;
@@ -19301,7 +19308,7 @@ function workspaceNamingPanel(workspace) {
     || workspace?.panels[0]
     || null;
   const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
-  const folderTitle = workspace ? folderName(workspace.cwd) : "";
+  const folderTitle = workspaceFolderNameSuggestion(workspace);
   const paneTitle = panel ? panelDisplayTitle(panel, true) : "No pane";
   const paneWorkspaceTitle = workspacePaneSuggestedTitle(workspace);
   const paneDefaultTitle = panel ? editablePaneTitle({ ...panel, title: "", titleLocked: false }) : "No pane";
@@ -20106,7 +20113,7 @@ function workspacePaneSuggestedTitle(workspace = activeWorkspace()) {
 
 function workspaceNamingBaseSearchText(workspace = activeWorkspace()) {
   const title = workspaceDisplayTitle(workspace, "No workspace");
-  const folderTitle = workspace ? folderName(workspace.cwd) : "";
+  const folderTitle = workspaceFolderNameSuggestion(workspace);
   const paneTitle = workspace?.panels?.length ? workspacePaneSuggestedTitle(workspace) : "";
   return [
     "workspace naming rename name title folder active pane tab default automatic generated custom",
@@ -20123,11 +20130,18 @@ function workspaceRenameActionTitle(workspace = activeWorkspace(), availableTitl
 }
 
 function workspaceUseFolderNameTitle(workspace = activeWorkspace(), availableTitle = "Rename the workspace from its folder.") {
-  const folderTitle = workspace ? folderName(workspace.cwd) : "";
+  const folderTitle = workspaceFolderNameSuggestion(workspace);
   if (!workspace) return "Open a workspace before using its folder name.";
   if (!folderTitle) return "Set a workspace folder before using its name.";
   if (folderTitle === workspace.title) return "Workspace already uses the folder name.";
   return availableTitle;
+}
+
+function workspaceNameSaveTitle(workspace = activeWorkspace(), nextTitle = "", currentTitle = workspace?.title || "") {
+  if (!workspace) return "Open a workspace before renaming it.";
+  if (!nextTitle) return "Enter a workspace name first.";
+  if (nextTitle === currentTitle) return "Workspace name is already current.";
+  return "Save the active workspace name.";
 }
 
 function workspaceUsePaneNameTitle(workspace = activeWorkspace(), availableTitle = "Rename the workspace from the active pane.") {
@@ -20142,7 +20156,9 @@ function workspaceRenameActionSearchText(actionId, workspace = activeWorkspace()
   const actionTerms = {
     panel: "settings panel overview",
     actions: "actions controls use folder active pane default automatic generated",
+    input: "input edit name title current custom",
     rename: "rename edit title name",
+    save: "save input edit title name",
     useFolder: "use folder directory cwd title suggested",
     usePane: "use active pane tab title page host folder terminal browser suggested"
   }[actionId] || actionId;
@@ -24481,9 +24497,10 @@ function quickSetupActionDefinitions() {
       body: "Name the active workspace without opening more chrome.",
       meta: () => activeWorkspace()?.title || "Workspace",
       cta: "Edit",
-      search: "rename workspace name title quick setup",
+      search: () => workspaceRenameActionSearchText("rename", activeWorkspace(), "quick setup guide"),
       disabled: () => !activeWorkspace(),
-      disabledTitle: () => "Open a workspace before renaming it.",
+      title: () => workspaceRenameActionTitle(activeWorkspace(), "Rename the active workspace from quick setup."),
+      disabledTitle: () => workspaceRenameActionTitle(activeWorkspace()),
       run: () => renameActiveWorkspace()
     },
     {
