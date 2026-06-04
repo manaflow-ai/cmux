@@ -39,7 +39,8 @@
     "contact": "Kontakt",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Sprog"
+    "language": "Sprog",
+    "assets": "Assets"
   },
   "home": {
     "taglinePrefix": "Terminalen bygget til ",
@@ -84,7 +85,7 @@
   },
   "community": {
     "title": "Fællesskab",
-    "description": "Forbind med andre cmux-brugere og teamet bag det.",
+    "description": "Gennemse projekter bygget af cmux-communityet, fra agent-hooks til multi-agent-orkestrering og fjernadgang.",
     "discord": "Discord",
     "discordAction": "Deltag i vores Discord",
     "discordDesc": "Chat med fællesskabet, få hjælp og del feedback",
@@ -100,7 +101,68 @@
     "linkedinAction": "Følg os",
     "linkedinDesc": "Virksomhedsnyheder og tekniske opdateringer",
     "metaTitle": "Fællesskab — cmux",
-    "metaDescription": "Bliv en del af cmux-fællesskabet på Discord, Twitter, GitHub og mere"
+    "metaDescription": "Gennemse alle projekter fra awesome-cmux på cmux-communitysiden",
+    "sourceAction": "Se awesome-cmux",
+    "sourceRowsLabel": "README-poster indekseret",
+    "projectsLabel": "projekter",
+    "areasLabel": "områder",
+    "placementsLabel": "kategori-matches",
+    "areasTitle": "Områder",
+    "projectsTitle": "Projekter",
+    "projectAction": "Åbn",
+    "starsLabel": "stjerner",
+    "officialLinksTitle": "Officielle links",
+    "filtersTitle": "Filtre",
+    "searchLabel": "Søg",
+    "searchPlaceholder": "Søg i projekter, agenter, sprog",
+    "kindLabel": "Kategori",
+    "kindAll": "Alle",
+    "kindNative": "Primær",
+    "kindPort": "Porteringer",
+    "kindAdjacent": "Inspireret",
+    "areaLabel": "Område",
+    "allAreas": "Alle områder",
+    "agentLabel": "AI-agent",
+    "allAgents": "Alle agenter",
+    "languageLabel": "Sprog",
+    "allLanguages": "Alle sprog",
+    "sortLabel": "Sorter",
+    "sortRecommended": "Anbefalet",
+    "sortStars": "Flest stjerner",
+    "sortName": "A til Z",
+    "resetFilters": "Nulstil",
+    "showingCount": "Viser {count} af {total}",
+    "noProjectsTitle": "Ingen projekter fundet",
+    "noProjectsDescription": "Ryd filtre, eller prøv en anden søgning.",
+    "nativeKindLabel": "Primær",
+    "portKindLabel": "Portering",
+    "adjacentKindLabel": "Inspireret",
+    "moreCategoriesLabel": "+{count} flere",
+    "categoryLabels": {
+      "sidebarStatusPills": "Sidebjælke og statuspiller",
+      "progressBarsEstimation": "Statuslinjer og estimering",
+      "sidebarLogsActivityFeed": "Sidebjælkelogge og aktivitetsfeed",
+      "desktopNotifications": "Skrivebordsnotifikationer",
+      "multiAgentOrchestration": "Multi-agent-orkestrering",
+      "browserAutomation": "Browserautomatisering",
+      "worktreesWorkspaceManagement": "Worktrees og workspace-styring",
+      "monitoringSessionRestore": "Overvågning og sessionsgendannelse",
+      "remoteMobileAccess": "Fjern- og mobiladgang",
+      "themesLayoutsConfig": "Temaer, layout og konfiguration",
+      "claudeCode": "Claude Code",
+      "pi": "Pi",
+      "openCode": "OpenCode",
+      "copilotAmp": "Copilot og Amp",
+      "multiAgentAgentAgnostic": "Multi-agent / agent-uafhængig",
+      "crossPlatformPorts": "Ports på tværs af platforme",
+      "alternativesTmuxBased": "Alternativer: tmux-baserede",
+      "alternativesOtherTerminalsWorkspaces": "Alternativer: andre terminaler og workspaces",
+      "alternativesForks": "Alternativer: forks",
+      "buildDistribution": "Build og distribution",
+      "upstreamDependencies": "Upstream-afhængigheder",
+      "archived": "Arkiveret"
+    },
+    "section": "fællesskab"
   },
   "blog": {
     "title": "Blog",
@@ -1199,7 +1261,31 @@
       "fallback": "cmux viser først reglerne og spørger, før de indsættes i det aktuelle arbejdsområde. Hvis cmux ikke åbner, skal du installere cmux og klikke på Åbn i cmux igen."
     }
   },
+  "download": {
+    "section": "download",
+    "metaTitle": "Tak fordi du downloadede cmux",
+    "metaDescription": "Dit cmux-download starter. Udforsk dokumentationen, deltag i Discord, og følg cmux på X.",
+    "heading": "Tak fordi du downloadede cmux!",
+    "subtext": "Klik <link>her</link>, hvis dit download ikke er startet."
+  },
   "testimonialSubtitles": {
     "steipete": "Skaber af OpenClaw. Grundlægger af PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Brandassets",
+    "metaDescription": "Download de lyse og mørke cmux-appikoner, som macOS-appen bruger.",
+    "title": "Brandassets",
+    "description": "Download de lyse og mørke cmux-appikoner, som macOS-appen bruger.",
+    "iconSection": "macOS-appikoner",
+    "download": "Download",
+    "assetAlt": "Forhåndsvisning af {name}",
+    "lightPreview": "Appikon til lys tilstand.",
+    "darkPreview": "Appikon til mørk tilstand."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Download lyst ikon",
+    "downloadDark": "Download mørkt ikon",
+    "brandPage": "Brandassets"
   }
 }

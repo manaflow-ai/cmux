@@ -39,7 +39,8 @@
     "contact": "联系我们",
     "nightly": "每夜构建",
     "copyright": "© {year} Manaflow",
-    "language": "语言"
+    "language": "语言",
+    "assets": "素材"
   },
   "home": {
     "taglinePrefix": "开源终端，专为 ",
@@ -84,7 +85,7 @@
   },
   "community": {
     "title": "社区",
-    "description": "与其他 cmux 用户和开发团队交流。",
+    "description": "浏览 cmux 社区构建的项目，涵盖代理钩子、多代理编排和远程访问。",
     "discord": "Discord",
     "discordAction": "加入 Discord",
     "discordDesc": "与社区交流、获取帮助、分享反馈",
@@ -100,7 +101,68 @@
     "linkedinAction": "关注我们",
     "linkedinDesc": "公司动态和工程更新",
     "metaTitle": "社区 — cmux",
-    "metaDescription": "在 Discord、Twitter、GitHub 等平台加入 cmux 社区"
+    "metaDescription": "在 cmux 社区页面浏览 awesome-cmux 中的所有项目",
+    "sourceAction": "查看 awesome-cmux",
+    "sourceRowsLabel": "已索引 README 条目",
+    "projectsLabel": "项目",
+    "areasLabel": "领域",
+    "placementsLabel": "分类匹配",
+    "areasTitle": "领域",
+    "projectsTitle": "项目",
+    "projectAction": "打开",
+    "starsLabel": "星标",
+    "officialLinksTitle": "官方链接",
+    "filtersTitle": "筛选",
+    "searchLabel": "搜索",
+    "searchPlaceholder": "搜索项目、代理、语言",
+    "kindLabel": "类型",
+    "kindAll": "全部",
+    "kindNative": "主要",
+    "kindPort": "移植",
+    "kindAdjacent": "受启发",
+    "areaLabel": "领域",
+    "allAreas": "所有领域",
+    "agentLabel": "代理",
+    "allAgents": "所有代理",
+    "languageLabel": "语言",
+    "allLanguages": "所有语言",
+    "sortLabel": "排序",
+    "sortRecommended": "推荐",
+    "sortStars": "星标最多",
+    "sortName": "A 到 Z",
+    "resetFilters": "重置",
+    "showingCount": "显示 {count} / {total}",
+    "noProjectsTitle": "未找到项目",
+    "noProjectsDescription": "清除筛选或尝试其他搜索。",
+    "nativeKindLabel": "主要",
+    "portKindLabel": "移植",
+    "adjacentKindLabel": "受启发",
+    "moreCategoriesLabel": "+{count} 个更多",
+    "categoryLabels": {
+      "sidebarStatusPills": "侧边栏和状态标签",
+      "progressBarsEstimation": "进度条和估算",
+      "sidebarLogsActivityFeed": "侧边栏日志和活动动态",
+      "desktopNotifications": "桌面通知",
+      "multiAgentOrchestration": "多代理编排",
+      "browserAutomation": "浏览器自动化",
+      "worktreesWorkspaceManagement": "Worktree 和工作区管理",
+      "monitoringSessionRestore": "监控和会话恢复",
+      "remoteMobileAccess": "远程和移动访问",
+      "themesLayoutsConfig": "主题、布局和配置",
+      "claudeCode": "Claude Code",
+      "pi": "Pi",
+      "openCode": "OpenCode",
+      "copilotAmp": "Copilot 和 Amp",
+      "multiAgentAgentAgnostic": "多代理 / 代理无关",
+      "crossPlatformPorts": "跨平台移植",
+      "alternativesTmuxBased": "替代方案：基于 tmux",
+      "alternativesOtherTerminalsWorkspaces": "替代方案：其他终端和工作区",
+      "alternativesForks": "替代方案：分支",
+      "buildDistribution": "构建和分发",
+      "upstreamDependencies": "上游依赖",
+      "archived": "已归档"
+    },
+    "section": "社区"
   },
   "blog": {
     "title": "博客",
@@ -1199,7 +1261,31 @@
       "fallback": "cmux 首先显示规则并在将它们粘贴到当前工作区之前进行询问。如果 cmux 未打开，请安装 cmux 并再次单击“在 cmux 中打开”。"
     }
   },
+  "download": {
+    "section": "下载",
+    "metaTitle": "感谢下载 cmux",
+    "metaDescription": "您的 cmux 下载即将开始。浏览文档、加入 Discord，并在 X 上关注 cmux。",
+    "heading": "感谢下载 cmux！",
+    "subtext": "如果下载没有开始，请点击<link>这里</link>。"
+  },
   "testimonialSubtitles": {
     "steipete": "OpenClaw 创建者。PSPDFKit 创始人。"
+  },
+  "brandAssets": {
+    "metaTitle": "品牌素材",
+    "metaDescription": "下载 macOS 应用使用的 cmux 浅色和深色应用图标。",
+    "title": "品牌素材",
+    "description": "下载 macOS 应用使用的 cmux 浅色和深色应用图标。",
+    "iconSection": "macOS 应用图标",
+    "download": "下载",
+    "assetAlt": "{name} 预览",
+    "lightPreview": "浅色模式应用图标。",
+    "darkPreview": "深色模式应用图标。"
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "下载浅色图标",
+    "downloadDark": "下载深色图标",
+    "brandPage": "品牌素材"
   }
 }

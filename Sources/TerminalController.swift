@@ -1,6 +1,7 @@
 import AppKit
 import CmuxSettings
 import CmuxSocketControl
+import CmuxSwiftRenderUI
 import Carbon.HIToolbox
 import CMUXWorkstream
 import Foundation
@@ -2289,6 +2290,9 @@ class TerminalController {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        "sidebar.custom.validate",
+        "sidebar.custom.reload",
+        "sidebar.custom.select",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via
@@ -2428,6 +2432,12 @@ class TerminalController {
             return v2Result(id: request.id, v2WorkspaceRemotePTYBridge(params: request.params))
         case "workspace.remote.pty_resize":
             return v2Result(id: request.id, v2WorkspaceRemotePTYResize(params: request.params))
+        case "sidebar.custom.validate":
+            return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
+        case "sidebar.custom.reload":
+            return v2Result(id: request.id, v2CustomSidebarReload(params: request.params))
+        case "sidebar.custom.select":
+            return v2Result(id: request.id, v2CustomSidebarSelect(params: request.params))
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
@@ -5544,6 +5554,117 @@ class TerminalController {
         ])
     }
 
+    private nonisolated func v2CustomSidebarValidate(params: [String: Any]) -> V2CallResult {
+        let name = v2CustomSidebarName(params: params)
+        if let name, name.isEmpty {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.invalidName",
+                    defaultValue: "Sidebar name must not be empty."
+                ),
+                data: nil
+            )
+        }
+        let report = v2CustomSidebarValidationReport(name: name)
+        return .ok(v2CustomSidebarReportPayload(report))
+    }
+
+    private nonisolated func v2CustomSidebarReload(params: [String: Any]) -> V2CallResult {
+        let name = v2CustomSidebarName(params: params)
+        if let name, name.isEmpty {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.invalidName",
+                    defaultValue: "Sidebar name must not be empty."
+                ),
+                data: nil
+            )
+        }
+        let report = v2CustomSidebarValidationReport(name: name)
+        let validNames = report.validNames
+        let reloadNames = report.names
+        if !reloadNames.isEmpty {
+            v2MainSync {
+                NotificationCenter.default.post(
+                    name: .customSidebarReloadRequested,
+                    object: nil,
+                    userInfo: ["names": reloadNames]
+                )
+            }
+        }
+        var payload = v2CustomSidebarReportPayload(report)
+        payload["reloaded_count"] = validNames.count
+        payload["reloaded_names"] = validNames
+        return .ok(payload)
+    }
+
+    private nonisolated func v2CustomSidebarSelect(params: [String: Any]) -> V2CallResult {
+        guard let name = v2CustomSidebarName(params: params), !name.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.selectMissingName",
+                    defaultValue: "Select requires a sidebar name."
+                ),
+                data: nil
+            )
+        }
+
+        let report = v2CustomSidebarValidationReport(name: name)
+        guard let entry = report.entries.first else {
+            return .ok(v2CustomSidebarReportPayload(report))
+        }
+        if let errorMessage = entry.errorMessage {
+            var payload = v2CustomSidebarReportPayload(report)
+            payload["message"] = errorMessage
+            return .ok(payload)
+        }
+
+        let providerId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+        v2MainSync {
+            UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
+            CmuxExtensionSidebarSelection.setProviderId(providerId)
+            NotificationCenter.default.post(
+                name: .customSidebarReloadRequested,
+                object: nil,
+                userInfo: ["names": [name]]
+            )
+        }
+        var payload = v2CustomSidebarReportPayload(report)
+        payload["selected_provider_id"] = providerId
+        payload["selected_name"] = name
+        return .ok(payload)
+    }
+
+    private nonisolated func v2CustomSidebarName(params: [String: Any]) -> String? {
+        guard let raw = params["name"] as? String else { return nil }
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private nonisolated func v2CustomSidebarValidationReport(name: String?) -> CustomSidebarValidationReport {
+        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
+        return CustomSidebarValidator().validate(directory: directory, name: name)
+    }
+
+    private nonisolated func v2CustomSidebarReportPayload(_ report: CustomSidebarValidationReport) -> [String: Any] {
+        [
+            "directory": CmuxExtensionSidebarSelection.customSidebarsDirectory.path,
+            "valid_count": report.validCount,
+            "error_count": report.errorCount,
+            "sidebars": report.entries.map { entry in
+                [
+                    "name": entry.name,
+                    "path": entry.fileURL.path,
+                    "kind": entry.kind.rawValue,
+                    "ok": entry.isValid,
+                    "error": v2OrNull(entry.errorMessage)
+                ] as [String: Any]
+            }
+        ]
+    }
+
     private func v2ExtensionSidebarSnapshot(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -6878,6 +6999,9 @@ class TerminalController {
         let foregroundAuthToken = v2RawString(params, "foreground_auth_token")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let localSocketPath = v2RawString(params, "local_socket_path")
+        let hasExplicitAgentSocketPath = v2HasNonNullParam(params, "ssh_auth_sock")
+        let agentSocketPath = v2RawString(params, "ssh_auth_sock")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
@@ -6966,6 +7090,7 @@ class TerminalController {
             "target=\(destination) transport=\(transport.rawValue) port=\(sshPort.map(String.init) ?? "nil") " +
             "autoConnect=\(autoConnect ? 1 : 0) relayPort=\(relayPort.map(String.init) ?? "nil") " +
             "localSocket=\(localSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? localSocketPath! : "nil") " +
+            "sshAuthSock=\(agentSocketPath?.isEmpty == false ? 1 : 0) " +
             "sshOptions=\(sshOptions.joined(separator: "|"))"
         )
 #endif
@@ -6994,6 +7119,11 @@ class TerminalController {
                 localSocketPath: localSocketPath,
                 terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
                 foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
+                agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
+                    sshOptions: sshOptions,
+                    explicitAgentSocketPath: agentSocketPath,
+                    explicitAgentSocketPathIsSet: hasExplicitAgentSocketPath
+                ),
                 daemonWebSocketEndpoint: daemonWebSocketEndpoint,
                 preserveAfterTerminalExit: preserveAfterTerminalExit,
                 persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
