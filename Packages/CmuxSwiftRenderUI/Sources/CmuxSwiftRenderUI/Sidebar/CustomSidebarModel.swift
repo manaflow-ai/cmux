@@ -21,7 +21,7 @@ final class CustomSidebarModel {
     private(set) var state: State = .missing
     let fileURL: URL
 
-    private var reloadTask: Task<Void, Never>?
+    private var reloadObserver: NSObjectProtocol?
 
     private let interpreter = SwiftViewInterpreter()
     // Cache the parsed Swift program so re-rendering against live data (the
@@ -58,19 +58,26 @@ final class CustomSidebarModel {
     /// Idempotent.
     func start() {
         reload()
-        guard reloadTask == nil else { return }
-        reloadTask = Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .customSidebarReloadRequested) {
+        guard reloadObserver == nil else { return }
+        reloadObserver = NotificationCenter.default.addObserver(
+            forName: .customSidebarReloadRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let names = notification.userInfo?["names"] as? [String]
+            Task { @MainActor [weak self] in
                 guard let self else { return }
-                guard self.matchesReloadRequest(notification) else { continue }
+                guard self.matchesReloadRequest(names: names) else { return }
                 self.reload()
             }
         }
     }
 
     func stop() {
-        reloadTask?.cancel()
-        reloadTask = nil
+        if let reloadObserver {
+            NotificationCenter.default.removeObserver(reloadObserver)
+            self.reloadObserver = nil
+        }
     }
 
     /// Re-reads the file: stores `.swift` source verbatim, decodes `.json`.
@@ -96,8 +103,8 @@ final class CustomSidebarModel {
         }
     }
 
-    private func matchesReloadRequest(_ notification: Notification) -> Bool {
-        guard let names = notification.userInfo?["names"] as? [String], !names.isEmpty else {
+    private func matchesReloadRequest(names: [String]?) -> Bool {
+        guard let names, !names.isEmpty else {
             return true
         }
         let name = fileURL.deletingPathExtension().lastPathComponent
