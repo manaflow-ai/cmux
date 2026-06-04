@@ -1,7 +1,7 @@
 /// A modifier applied to a ``RenderNode`` (e.g. `.frame(maxWidth: .infinity)`),
 /// captured with its labeled argument list so multi-argument modifiers like
 /// `.frame` can be applied precisely.
-public struct RenderModifier: Sendable, Equatable {
+public struct RenderModifier: Codable, Sendable, Equatable {
     public let name: String
     public let args: [ModifierArg]
 

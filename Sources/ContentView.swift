@@ -7,6 +7,8 @@ import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSidebarInterpreterClient
+import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import CmuxUpdater
@@ -10482,6 +10484,14 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    /// Out-of-process render worker for custom sidebars: interprets AND
+    /// renders untrusted vibe-coded source in a supervised worker (this app
+    /// re-executing its own binary in render-worker mode) and shares the
+    /// resulting layer tree, so neither an interpreter nor a renderer fault
+    /// can crash the host. Created once per sidebar host; the worker spawns
+    /// lazily on the first scene and is reused, relaunching transparently
+    /// after a crash or hang.
+    @State private var sidebarRenderWorkerClient = RenderWorkerClient.reexecingCurrentBinary()
     /// Bumped whenever any workspace's currentDirectory changes; the group
     /// header's resolved cwd-based config (color/icon/context menu /
     /// newWorkspacePlacement) reads it through the body, so a state
@@ -11164,17 +11174,23 @@ struct VerticalTabsSidebar: View {
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
             // default sidebar's TimelineView. No banned timers involved.
+            // Fully out-of-process: the render worker interprets AND renders
+            // the file; this view only hosts the worker's remote layer and
+            // forwards input, so no file-derived view code runs in the host.
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                CustomSidebarView(
+                // No .id(customSidebarURL): the worker swaps files in place on
+                // the next scene message, so remounting the surface would only
+                // flash the previous sidebar's pixels during the switch.
+                RemoteCustomSidebarView(
                     fileURL: customSidebarURL,
                     dataContext: customSidebarDataContext(now: timeline.date),
                     dispatch: makeCmuxSidebarActionDispatch(),
                     contentInsets: CustomSidebarContentInsets(
                         top: SidebarWorkspaceScrollInsets.workspaceList.top,
                         bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
-                    )
+                    ),
+                    client: sidebarRenderWorkerClient
                 )
-                    .id(customSidebarURL)
             }
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
