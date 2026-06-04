@@ -5179,9 +5179,9 @@ async function applyBackgroundValueToTarget(value, target = state.backgroundAppl
   return applyCustomBackgroundImage(value, options);
 }
 
-function backgroundSetupTargetDefault(target = state.backgroundApplyTarget) {
+function backgroundSetupTargetDefault(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
   const scope = normalizeBackgroundApplyTarget(target);
-  const status = activeBackgroundTargetStatus(scope);
+  const status = activeBackgroundTargetStatus(scope, workspace);
   return !status.hasValue && backgroundTuningSettingsDefault();
 }
 
@@ -15393,7 +15393,7 @@ function refreshBackgroundPreviewNodes() {
       setTitleIfChanged(pasteSetup, `Paste copied background setup to ${targetLabel}.`);
     }
     if (resetSetup) {
-      const setupDefault = backgroundSetupTargetDefault(targetStatus.scope);
+      const setupDefault = backgroundSetupTargetDefault(targetStatus.scope, workspace);
       setDisabledIfChanged(resetSetup, !targetStatus.canTarget || setupDefault);
       setTitleIfChanged(resetSetup, !targetStatus.canTarget
         ? `${backgroundApplyTargetOption(targetStatus.scope).label} cannot use a background right now.`
@@ -21579,6 +21579,11 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
   const terminalSave = quickTerminalBackgroundSaveModel();
   const paneOption = backgroundApplyTargetOption("pane", workspace);
   const allOption = backgroundApplyTargetOption("all", workspace);
+  const targetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
+  const targetOption = backgroundApplyTargetOption(targetStatus.scope, workspace);
+  const targetModel = activeBackgroundPanelViewModel(targetStatus.scope, workspace);
+  const targetLabel = targetOption.label.toLowerCase();
+  const setupDefault = backgroundSetupTargetDefault(targetStatus.scope, workspace);
   const hasSavedBackgrounds = state.savedBackgroundImages.length > 0;
   const appLabel = appSave.background ? appearanceBackgroundLabel(appSave.background) : "No app image";
   const paneTitle = paneOption.disabled
@@ -21616,6 +21621,31 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
       title: terminalSave.title,
       search: "quick setup background active terminal image save saved library reusable wallpaper"
     }),
+    quickOverviewControlButton("Copy setup", () => copyBackgroundSetup(targetStatus.scope), {
+      disabled: !targetStatus.canTarget || targetModel.mixed,
+      title: !targetStatus.canTarget
+        ? `${targetOption.label}: ${targetOption.meta}.`
+        : targetModel.mixed
+          ? "Terminal backgrounds are mixed. Choose one background first."
+          : `Copy ${targetLabel} background and tuning.`,
+      search: `quick setup background copy setup current target image tuning opacity fit position effects chrome readable soft immersive clipboard json ${targetOption.label} ${targetOption.meta} ${targetModel.label}`
+    }),
+    quickOverviewControlButton("Paste setup", () => pasteBackgroundSetup(targetStatus.scope), {
+      disabled: !targetStatus.canTarget,
+      title: !targetStatus.canTarget
+        ? `${targetOption.label}: ${targetOption.meta}.`
+        : `Paste copied background setup to ${targetLabel}.`,
+      search: `quick setup background paste setup target image tuning opacity fit position effects chrome readable soft immersive clipboard json ${targetOption.label} ${targetOption.meta} ${targetModel.label}`
+    }),
+    quickOverviewControlButton("Reset setup", () => resetBackgroundSetup(targetStatus.scope), {
+      disabled: !targetStatus.canTarget || setupDefault,
+      title: !targetStatus.canTarget
+        ? `${targetOption.label}: ${targetOption.meta}.`
+        : setupDefault
+          ? `${targetOption.label} background setup already uses defaults.`
+          : `Clear ${targetLabel} and reset background tuning to defaults.`,
+      search: `quick setup background reset setup target defaults clear image tuning opacity fit position effects chrome readable soft immersive ${setupDefault ? "active current " : ""}${targetOption.label} ${targetOption.meta} ${targetModel.label}`
+    }),
     quickOverviewControlButton("Copy library", copySavedBackgroundImages, {
       disabled: !hasSavedBackgrounds,
       title: hasSavedBackgrounds ? "Copy saved background images as JSON." : "Saved background library is empty.",
@@ -21633,8 +21663,8 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
   return quickOverviewControlsPanel({
     className: "quick-overview-backgrounds",
     title: "Background controls",
-    meta: `${appLabel} / ${scope.all} / ${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved`,
-    search: `quick setup background controls app terminal all panes wallpaper image saved library copy paste ${appLabel} ${scope.pane} ${scope.all}`,
+    meta: `${targetOption.label}: ${targetModel.label} / ${appLabel} / ${scope.all} / ${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved`,
+    search: `quick setup background controls app terminal all panes wallpaper image setup saved library copy paste reset ${targetOption.label} ${targetModel.label} ${targetOption.meta} ${appLabel} ${scope.pane} ${scope.all}`,
     actions
   });
 }
@@ -30385,6 +30415,7 @@ function paletteEntries() {
   ]) {
     const model = activeBackgroundPanelViewModel(id, paletteWorkspace);
     const label = option.label.toLowerCase();
+    const setupDefault = backgroundSetupTargetDefault(id, paletteWorkspace);
     entries.push({
       id: `backgroundSetup.copy.${id}`,
       label: `Copy ${label} background setup`,
@@ -30404,6 +30435,20 @@ function paletteEntries() {
       title: option.disabled ? `${option.label}: ${option.meta}.` : `Paste copied background setup to ${label}.`,
       search: normalizeSettingsQuery(`background setup paste apply ${label} image tuning opacity fit position effects chrome readable soft immersive clipboard json ${model.label} ${option.meta}`),
       run: () => pasteBackgroundSetup(id)
+    });
+    entries.push({
+      id: `backgroundSetup.reset.${id}`,
+      label: `Reset ${label} background setup`,
+      meta: `${model.label} / ${option.meta}`,
+      shortcut: "Reset",
+      disabled: option.disabled || setupDefault,
+      title: option.disabled
+        ? `${option.label}: ${option.meta}.`
+        : setupDefault
+          ? `${option.label} background setup already uses defaults.`
+          : `Clear ${label} and reset background tuning to defaults.`,
+      search: normalizeSettingsQuery(`background setup reset defaults clear ${label} image tuning opacity fit position effects chrome readable soft immersive ${setupDefault ? "active current " : ""}${model.label} ${option.meta}`),
+      run: () => resetBackgroundSetup(id)
     });
   }
   for (const preset of backgroundPresets) {
