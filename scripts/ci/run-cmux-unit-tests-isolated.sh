@@ -200,17 +200,36 @@ while [ "$class_offset" -lt "${#SELECTED_TEST_CLASSES[@]}" ]; do
       CRASH_RETRY_TESTS=()
       while IFS= read -r test_identifier; do
         CRASH_RETRY_TESTS+=("$test_identifier")
-      done < <(
-        awk '
-          /^Failing tests:/ { collecting=1; next }
-          collecting && /^[[:space:]]+[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\(\)/ {
-            gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
-            sub(/\(\)$/, "", $0)
-            print $0
-          }
-          collecting && /^$/ { collecting=0 }
-        ' "$BATCH_LOG"
-      )
+	      done < <(
+	        awk '
+	          function emit(test_identifier) {
+	            if (test_identifier != "" && !seen[test_identifier]++) {
+	              print test_identifier
+	            }
+	          }
+	          /^Failing tests:/ { collecting=1; next }
+	          collecting && /^[[:space:]]+[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\(\)/ {
+	            gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
+	            sub(/\(\)$/, "", $0)
+	            emit($0)
+	          }
+	          collecting && /^$/ { collecting=0 }
+	          /Test Case '\''-\[cmuxTests\.[A-Za-z_][A-Za-z0-9_]* [A-Za-z_][A-Za-z0-9_]*\]'\'' started\./ {
+	            test_identifier = $0
+	            sub(/^.*Test Case '\''-\[cmuxTests\./, "", test_identifier)
+	            sub(/\]'\'' started\..*$/, "", test_identifier)
+	            sub(/ /, ".", test_identifier)
+	            in_flight_test = test_identifier
+	          }
+	          /Test Case '\''-\[cmuxTests\.[A-Za-z_][A-Za-z0-9_]* [A-Za-z_][A-Za-z0-9_]*\]'\'' (passed|failed)/ {
+	            in_flight_test = ""
+	          }
+	          /Restarting after unexpected exit, crash, or test timeout/ {
+	            emit(in_flight_test)
+	            in_flight_test = ""
+	          }
+	        ' "$BATCH_LOG"
+	      )
 
       if [ "${#CRASH_RETRY_TESTS[@]}" -gt 0 ]; then
         echo "Retrying ${#CRASH_RETRY_TESTS[@]} crash-reported XCTest methods from $BATCH_LABEL in fresh app-host processes" >&2
