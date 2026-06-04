@@ -25,17 +25,6 @@ public struct SidebarTapTarget: Equatable, Sendable {
     }
 }
 
-/// Accumulates every ``SidebarTapTarget`` in the rendered sidebar.
-public struct SidebarTapTargetsKey: PreferenceKey {
-    /// No targets until the render tree reports some.
-    public static let defaultValue: [SidebarTapTarget] = []
-
-    /// Concatenates targets from sibling subtrees.
-    public static func reduce(value: inout [SidebarTapTarget], nextValue: () -> [SidebarTapTarget]) {
-        value.append(contentsOf: nextValue())
-    }
-}
-
 extension View {
     /// Reports this view's global frame as a tappable region firing `action`.
     /// No-op when `action` is `nil`.

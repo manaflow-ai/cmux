@@ -22,6 +22,7 @@ final class RemoteSidebarSurfaceView: NSView {
     private var eventsTask: Task<Void, Never>?
     private var outboxTask: Task<Void, Never>?
     private var reloadObserver: NSObjectProtocol?
+    private var windowCloseObserver: NSObjectProtocol?
     private let outbox: AsyncStream<RenderWorkerInbound>.Continuation
     private var lastPushedScene: PushedScene?
 
@@ -98,6 +99,10 @@ final class RemoteSidebarSurfaceView: NSView {
     /// the worker itself stays alive for the next mount (cheap, and keeps
     /// provider switches snappy).
     func teardown() {
+        if let windowCloseObserver {
+            NotificationCenter.default.removeObserver(windowCloseObserver)
+            self.windowCloseObserver = nil
+        }
         if let reloadObserver {
             NotificationCenter.default.removeObserver(reloadObserver)
             self.reloadObserver = nil
@@ -147,6 +152,26 @@ final class RemoteSidebarSurfaceView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         pushGeometry()
+        armWindowCloseReaper()
+    }
+
+    /// Terminates the worker when this surface's window closes. Provider
+    /// switches and sidebar toggles keep the worker warm (the client outlives
+    /// the surface), so without this a closed window's worker would idle until
+    /// app exit.
+    private func armWindowCloseReaper() {
+        if let windowCloseObserver {
+            NotificationCenter.default.removeObserver(windowCloseObserver)
+            self.windowCloseObserver = nil
+        }
+        guard let window else { return }
+        windowCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [client] _ in
+            Task { await client.shutdown() }
+        }
     }
 
     private func pushGeometry() {

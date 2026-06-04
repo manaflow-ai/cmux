@@ -26,9 +26,18 @@ public struct LengthPrefixedMessageChannel: Sendable {
         self.writeFD = writeFD
     }
 
+    /// Frames larger than this are protocol violations: real traffic is JSON
+    /// of sidebar source + data context (KBs). The cap stops a corrupted or
+    /// hostile peer's length header from forcing a giant allocation.
+    public static let maximumFrameLength = 64 * 1024 * 1024
+
     /// Writes `payload` as one length-prefixed frame. Throws ``ChannelError``
-    /// if the descriptor is closed or errors mid-write.
+    /// if the descriptor is closed or errors mid-write, or if `payload`
+    /// exceeds ``maximumFrameLength``.
     public func sendMessage(_ payload: Data) throws {
+        guard payload.count <= Self.maximumFrameLength else {
+            throw ChannelError.frameTooLarge
+        }
         let count = UInt32(payload.count)
         var header = Data(count: 4)
         header[0] = UInt8((count >> 24) & 0xFF)
@@ -49,6 +58,9 @@ public struct LengthPrefixedMessageChannel: Sendable {
             | (UInt32(header[2]) << 8)
             | UInt32(header[3])
         if count == 0 { return Data() }
+        // A peer-controlled length: treat an oversized header like EOF (the
+        // peer is broken or hostile) instead of allocating what it asks for.
+        guard count <= UInt32(Self.maximumFrameLength) else { return nil }
         return readExactly(Int(count))
     }
 
@@ -94,4 +106,6 @@ public struct LengthPrefixedMessageChannel: Sendable {
 /// descriptor, typically because the peer process exited).
 public enum ChannelError: Error, Sendable {
     case writeFailed
+    /// The outbound payload exceeds ``LengthPrefixedMessageChannel/maximumFrameLength``.
+    case frameTooLarge
 }

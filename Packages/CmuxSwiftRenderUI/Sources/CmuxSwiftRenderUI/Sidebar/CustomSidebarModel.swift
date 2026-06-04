@@ -95,18 +95,7 @@ public final class CustomSidebarModel {
     /// reload requests. Idempotent.
     public func start() {
         reload()
-        if watchTask == nil {
-            // Leading-edge throttle coalesces the burst of kqueue events an
-            // atomic save emits into one reload.
-            let watcher = FileWatcher(path: fileURL.path, throttle: .milliseconds(150))
-            self.watcher = watcher
-            watchTask = Task { [weak self] in
-                for await _ in watcher.events {
-                    guard let self else { return }
-                    self.reload()
-                }
-            }
-        }
+        startWatcher()
         if reloadObserver == nil {
             reloadObserver = NotificationCenter.default.addObserver(
                 forName: .customSidebarReloadRequested,
@@ -124,12 +113,7 @@ public final class CustomSidebarModel {
     /// Stops watching the file and listening for reloads. Safe to call
     /// repeatedly.
     public func stop() {
-        watchTask?.cancel()
-        watchTask = nil
-        if let watcher {
-            self.watcher = nil
-            Task { await watcher.stop() }
-        }
+        stopWatcher()
         if let reloadObserver {
             NotificationCenter.default.removeObserver(reloadObserver)
             self.reloadObserver = nil
@@ -145,9 +129,45 @@ public final class CustomSidebarModel {
         reload()
     }
 
+    /// (Re)arms the kqueue watcher on the currently resolved file. Reload can
+    /// flip the resolved extension (`name.swift` <-> `name.json`); the watcher
+    /// must follow or hot reload silently stops after a flip.
+    private var watchedPath: String?
+
+    private func startWatcher() {
+        let path = fileURL.path
+        guard watchedPath != path else { return }
+        stopWatcher()
+        watchedPath = path
+        // Leading-edge throttle coalesces the burst of kqueue events an
+        // atomic save emits into one reload.
+        let watcher = FileWatcher(path: path, throttle: .milliseconds(150))
+        self.watcher = watcher
+        watchTask = Task { [weak self] in
+            for await _ in watcher.events {
+                guard let self else { return }
+                self.reload()
+            }
+        }
+    }
+
+    private func stopWatcher() {
+        watchTask?.cancel()
+        watchTask = nil
+        watchedPath = nil
+        if let watcher {
+            self.watcher = nil
+            Task { await watcher.stop() }
+        }
+    }
+
     /// Re-reads the file: stores `.swift` source verbatim, decodes `.json`.
     public func reload() {
-        defer { sourceRevision += 1 } // re-fire the view's render trigger
+        defer {
+            sourceRevision += 1 // re-fire the view's render trigger
+            // Follow extension flips with the watcher; no-op when unchanged.
+            if watchTask != nil || watchedPath != nil { startWatcher() }
+        }
         fileURL = preferredFileURL()
         guard fileManager.fileExists(atPath: fileURL.path) else {
             state = .missing
