@@ -114,6 +114,10 @@ function renderEmptyWorkspaceLaunchers(node, options) {
   replaceChildrenIfChanged(host, cards);
 }
 
+function normalizedEmptyWorkspaceMode(mode) {
+  return mode === "compact" || mode === "quiet" ? mode : "guided";
+}
+
 export function createEmptyWorkspaceView(options = {}) {
   const node = document.createElement("div");
   node.className = "empty-workspace";
@@ -130,6 +134,11 @@ export function createEmptyWorkspaceView(options = {}) {
 
 export function updateEmptyWorkspaceView(node, options = {}) {
   if (!node) return;
+  const mode = normalizedEmptyWorkspaceMode(options.mode);
+  setDatasetIfChanged(node, "emptyWorkspaceMode", mode);
+  toggleClassIfChanged(node, "empty-workspace-mode-guided", mode === "guided");
+  toggleClassIfChanged(node, "empty-workspace-mode-compact", mode === "compact");
+  toggleClassIfChanged(node, "empty-workspace-mode-quiet", mode === "quiet");
   ensureEmptyWorkspaceLogo(node);
   setTextIfChanged(node.querySelector(".empty-workspace-title"), options.title || "cmux");
   setTextIfChanged(node.querySelector(".empty-workspace-body"), options.bodyText || "Start with a shell or browser.");
