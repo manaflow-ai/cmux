@@ -16,7 +16,13 @@ function localizedEntries(source) {
 }
 
 export function normalizeSettingsQuery(value) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 export const searchTokenAliases = new Map(localizedEntries(localizedSearchTokenAliases));
