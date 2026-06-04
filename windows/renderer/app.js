@@ -5182,15 +5182,28 @@ function backgroundCommandPaletteSignature() {
   const terminal = activeTerminalPanelForSettings();
   const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
   const terminalBackground = normalizeBackgroundValue(terminal?.backgroundImage);
-  const terminalCount = workspaceTerminalPanels(workspace).length;
+  const terminalPanels = workspaceTerminalPanels(workspace);
+  const terminalCount = terminalPanels.length;
   const parts = [];
   appendSignatureValue(parts, workspace?.id || "");
   appendSignatureValue(parts, terminal?.id || "");
+  appendSignatureValue(parts, state.backgroundApplyTarget);
   appendSignatureValue(parts, appBackground);
   appendSignatureValue(parts, terminalBackground);
   appendSignatureValue(parts, terminalCount);
   appendSignatureValue(parts, terminalBackgroundsMatch(workspace, ""));
   appendSignatureValue(parts, Boolean(appBackground && terminalBackgroundsMatch(workspace, appBackground)));
+  for (const target of ["app", "pane", "all"]) {
+    const model = activeBackgroundPanelViewModel(target, workspace);
+    appendSignatureValue(parts, target);
+    appendSignatureValue(parts, normalizeBackgroundValue(model.background));
+    appendSignatureValue(parts, model.label);
+    appendSignatureValue(parts, model.mixed);
+  }
+  appendSignatureArray(parts, terminalPanels, (nextParts, panel) => {
+    appendSignatureValue(nextParts, panel.id);
+    appendSignatureValue(nextParts, normalizeBackgroundValue(panel.backgroundImage));
+  });
   return parts.join("");
 }
 
@@ -16184,6 +16197,7 @@ function quickSettingsSignature() {
   appendSignatureValue(parts, state.customColorPalette.length);
   appendSignatureValue(parts, state.customColorPalette.join(","));
   appendSignatureValue(parts, state.colorApplyTarget);
+  appendSignatureValue(parts, state.backgroundApplyTarget);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
   appendSignatureValue(parts, state.savedBackgroundImages.map((background) => background.url).join(","));
   appendSignatureArray(parts, dataStorageEntries(), (nextParts, entry) => {
@@ -24672,6 +24686,7 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
   const targetModel = activeBackgroundPanelViewModel(targetStatus.scope, workspace);
   const targetLabel = targetOption.label.toLowerCase();
   const setupDefault = backgroundSetupTargetDefault(targetStatus.scope, workspace);
+  const everywhereModel = currentBackgroundEverywhereModel(targetStatus.scope, workspace);
   const hasSavedBackgrounds = state.savedBackgroundImages.length > 0;
   const appLabel = appSave.background ? appearanceBackgroundLabel(appSave.background) : "No app image";
   const paneTitle = paneOption.disabled
@@ -24704,6 +24719,11 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
       disabled: allChoose.disabled,
       title: allChoose.title,
       search: `quick setup background ${allChoose.search} ${allOption.meta}`
+    }),
+    quickOverviewControlButton("Everywhere", () => applyCurrentBackgroundEverywhere(targetStatus.scope, workspace), {
+      disabled: everywhereModel.disabled,
+      title: everywhereModel.title,
+      search: `quick setup background apply current target everywhere app whole window all terminal panes ${everywhereModel.search}`
     }),
     quickOverviewControlButton("Save terminal", () => saveCustomBackgroundImage({ url: terminalSave.background }), {
       disabled: terminalSave.disabled,
@@ -24753,7 +24773,7 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
     className: "quick-overview-backgrounds",
     title: "Background controls",
     meta: `${targetOption.label}: ${targetModel.label} / ${appLabel} / ${scope.all} / ${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved`,
-    search: `quick setup background controls app terminal all panes wallpaper image setup saved library copy paste reset ${targetOption.label} ${targetModel.label} ${targetOption.meta} ${appLabel} ${scope.pane} ${scope.all}`,
+    search: `quick setup background controls app terminal all panes everywhere wallpaper image setup saved library copy paste reset ${targetOption.label} ${targetModel.label} ${targetOption.meta} ${appLabel} ${scope.pane} ${scope.all} ${everywhereModel.search}`,
     actions
   });
 }
@@ -28567,6 +28587,51 @@ function backgroundEverywhereApplyModel(value, label = "Background", workspace =
   };
 }
 
+function currentBackgroundEverywhereModel(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  const option = backgroundApplyTargetOption(scope, workspace);
+  const status = activeBackgroundTargetStatus(scope, workspace);
+  const model = activeBackgroundPanelViewModel(scope, workspace);
+  const background = model.mixed ? "" : normalizedSavedBackgroundValue(model.background);
+  const base = backgroundEverywhereApplyModel(background, model.label, workspace);
+  if (!status.canTarget) {
+    return {
+      ...base,
+      disabled: true,
+      title: `${option.label}: ${option.meta}.`,
+      source: `${option.label} - ${option.meta}`,
+      label: model.label,
+      search: normalizeSettingsQuery(`current background apply everywhere unavailable ${option.label} ${option.meta}`)
+    };
+  }
+  if (model.mixed) {
+    return {
+      ...base,
+      disabled: true,
+      title: "Terminal backgrounds are mixed. Choose one background first.",
+      source: `${option.label} - ${option.meta}`,
+      label: model.label,
+      search: normalizeSettingsQuery(`current background apply everywhere unavailable mixed terminal backgrounds ${option.label} ${option.meta}`)
+    };
+  }
+  if (!background) {
+    return {
+      ...base,
+      disabled: true,
+      title: `Choose a background for ${option.label.toLowerCase()} before applying it everywhere.`,
+      source: `${option.label} - ${option.meta}`,
+      label: model.label,
+      search: normalizeSettingsQuery(`current background apply everywhere no background ${option.label} ${option.meta}`)
+    };
+  }
+  return {
+    ...base,
+    source: `${option.label} - ${option.meta}`,
+    label: model.label,
+    search: normalizeSettingsQuery(`current background apply everywhere app whole window all terminal panes workspace ${base.search} ${option.label} ${option.meta} ${model.label}`)
+  };
+}
+
 async function applyBackgroundValueEverywhere(value, options = {}) {
   const label = options.label || "Background";
   const workspace = options.workspace || activeWorkspace();
@@ -28604,6 +28669,15 @@ async function applyBackgroundValueEverywhere(value, options = {}) {
     toast(model.title);
   }
   return changed;
+}
+
+async function applyCurrentBackgroundEverywhere(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
+  const model = currentBackgroundEverywhereModel(target, workspace);
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applyBackgroundValueEverywhere(model.background, { label: model.label, workspace });
 }
 
 function workspaceTerminalBackgroundState(workspace = activeWorkspace(), appBackground = state.settings.backgroundImage) {
@@ -34677,6 +34751,7 @@ function paletteEntries() {
     const model = activeBackgroundPanelViewModel(id, paletteWorkspace);
     const label = option.label.toLowerCase();
     const setupDefault = backgroundSetupTargetDefault(id, paletteWorkspace);
+    const everywhereModel = currentBackgroundEverywhereModel(id, paletteWorkspace);
     entries.push({
       id: `backgroundSetup.copy.${id}`,
       label: `Copy ${label} background setup`,
@@ -34710,6 +34785,17 @@ function paletteEntries() {
           : `Clear ${label} and reset background tuning to defaults.`,
       search: normalizeSettingsQuery(`background setup reset defaults clear ${label} image tuning opacity fit position effects chrome readable soft immersive ${setupDefault ? "active current " : ""}${model.label} ${option.meta}`),
       run: () => resetBackgroundSetup(id)
+    });
+    entries.push({
+      id: `backgroundSetup.everywhere.${id}`,
+      label: `Apply ${label} background everywhere`,
+      meta: everywhereModel.active ? `Active / ${everywhereModel.meta}` : `${model.label} / ${everywhereModel.meta}`,
+      shortcut: everywhereModel.active ? "Active" : "Look",
+      active: everywhereModel.active,
+      disabled: everywhereModel.disabled,
+      title: everywhereModel.title,
+      search: normalizeSettingsQuery(`background setup current ${label} apply everywhere app whole window all terminal panes workspace ${everywhereModel.search}`),
+      run: () => applyCurrentBackgroundEverywhere(id, paletteWorkspace)
     });
   }
   for (const preset of backgroundPresets) {
