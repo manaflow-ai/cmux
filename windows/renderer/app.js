@@ -17243,6 +17243,7 @@ function workspaceNamingPanel(workspace) {
   const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
   const folderTitle = workspace ? folderName(workspace.cwd) : "";
   const paneTitle = panel ? panelDisplayTitle(panel, true) : "No pane";
+  const paneWorkspaceTitle = workspacePaneSuggestedTitle(workspace);
   const paneDefaultTitle = panel ? editablePaneTitle({ ...panel, title: "", titleLocked: false }) : "No pane";
   const paneMode = !panel ? "No pane" : panel.titleLocked ? "Pane custom" : "Pane auto";
   const panelIsPending = Boolean(panel && isPendingPanel(panel));
@@ -17269,7 +17270,7 @@ function workspaceNamingPanel(workspace) {
 
   const actions = document.createElement("div");
   actions.className = "settings-actions workspace-naming-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery("workspace pane naming actions rename use folder default automatic generated");
+  actions.dataset.settingsSearch = normalizeSettingsQuery("workspace pane naming actions rename use folder active pane page tab default automatic generated");
   const renameWorkspaceAction = settingsActionButton("Rename workspace", () => renameWorkspaceById(workspace.id, workspace.title), "", "workspace naming rename title");
   renameWorkspaceAction.disabled = !workspace;
   renameWorkspaceAction.title = workspace ? "Rename the active workspace." : "Open a workspace before renaming it.";
@@ -17287,6 +17288,20 @@ function workspaceNamingPanel(workspace) {
       : folderTitle === workspace.title
         ? "Workspace already uses the folder name."
         : "Rename the workspace from its folder.";
+  const usePaneAction = settingsActionButton("Use pane", async () => {
+    if (!workspace || !paneWorkspaceTitle) return false;
+    const changed = await renameWorkspaceTo(paneWorkspaceTitle, workspace.id);
+    toast(changed ? "Workspace name set from the active pane." : "Workspace already uses the active pane name.");
+    return changed;
+  }, "", "workspace naming active pane suggested tab title page host folder terminal browser");
+  usePaneAction.disabled = !workspace || !paneWorkspaceTitle || paneWorkspaceTitle === workspace.title;
+  usePaneAction.title = !workspace
+    ? "Open a workspace before using its active pane name."
+    : !paneWorkspaceTitle
+      ? "Open or rename a pane before using it as the workspace name."
+      : paneWorkspaceTitle === workspace.title
+        ? "Workspace already uses the active pane name."
+        : "Rename the workspace from the active pane.";
   const renamePaneAction = settingsActionButton("Rename pane", () => renamePanel(panel), "", "active pane naming rename tab title");
   renamePaneAction.disabled = !panel || panelIsPending;
   renamePaneAction.title = !panel
@@ -17312,7 +17327,7 @@ function workspaceNamingPanel(workspace) {
       : panel.titleLocked
         ? "Restore the generated pane name."
         : "Pane already uses the generated name.";
-  actions.append(renameWorkspaceAction, useFolderAction, renamePaneAction, useDefaultPaneAction);
+  actions.append(renameWorkspaceAction, useFolderAction, usePaneAction, renamePaneAction, useDefaultPaneAction);
   naming.append(actions);
   return naming;
 }
@@ -17631,6 +17646,22 @@ function paneTitleSuggestion(panel, workspace = activeWorkspace()) {
     workspace?.cwdShort
   ].map((value) => (value ? folderName(value) : ""));
   return candidates.find((candidate) => candidate && candidate !== "~" && candidate !== "Workspace") || "Terminal";
+}
+
+function workspacePaneSuggestedTitle(workspace = activeWorkspace()) {
+  if (!workspace) return "";
+  const panels = workspace.panels || [];
+  const panel = panels.find((candidate) => candidate.id === workspace.activePanelId)
+    || panels[0]
+    || focusedPanel();
+  if (!panel || isPendingPanel(panel)) return "";
+  const candidates = [
+    panelDisplayTitle(panel, true),
+    editablePaneTitle(panel),
+    paneTitleSuggestion(panel, workspace)
+  ].map((value) => String(value || "").trim());
+  const suggestion = candidates.find((candidate) => candidate && !["~", "Workspace", "Terminal", "Browser"].includes(candidate)) || "";
+  return suggestion.slice(0, 80);
 }
 
 const paneSetupPresetDefinitions = [
