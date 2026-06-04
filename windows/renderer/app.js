@@ -334,7 +334,10 @@ const performanceSetupSettings = [
   "palettePlacement",
   "paneActionMode",
   "paneSurfaceStyle",
+  "paneDividerSize",
+  "paneDividerStyle",
   "paneSpacing",
+  "activePaneEmphasis",
   "terminalPadding"
 ];
 const performanceSetupPreviewKeys = new Set(performanceSetupSettings);
@@ -7544,7 +7547,7 @@ function customizationCommandPaletteState(commandId) {
       title: setupDefault
         ? "Performance setup already uses defaults."
         : "Reset performance tuning, motion, output, browser, lightweight chrome, and history settings to defaults.",
-      search: normalizeSettingsQuery(`performance setup reset defaults speed lag smooth tune motion output terminal browser chrome history workspace palette toast background ${setupDefault ? "active current " : ""}${summary.mode} ${summary.adaptiveGuard} ${summary.motion} ${summary.chrome} ${summary.background} ${summary.terminalStartup} ${summary.inactiveOutput} ${summary.resume} ${summary.cursor} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.padding} ${summary.history}`)
+      search: normalizeSettingsQuery(`performance setup reset defaults speed lag smooth tune motion output terminal browser chrome history workspace palette toast background split dividers resize grip active pane emphasis ${setupDefault ? "active current " : ""}${summary.mode} ${summary.adaptiveGuard} ${summary.motion} ${summary.chrome} ${summary.dividers} ${summary.dividerStyle} ${summary.paneSpacing} ${summary.activePane} ${summary.background} ${summary.terminalStartup} ${summary.inactiveOutput} ${summary.resume} ${summary.cursor} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.padding} ${summary.history}`)
     };
   }
   if (commandId === "settings.tunePerformance" || commandId === "settings.cleanFast" || commandId === "settings.saveCleanFastProfile" || commandId === "settings.savePerformanceProfile" || commandId === "settings.copyPerformanceSetup" || commandId === "settings.pastePerformanceSetup" || commandId === "settings.copyDiagnostics") {
@@ -7552,7 +7555,7 @@ function customizationCommandPaletteState(commandId) {
     const profileCount = savedSettingsProfileCountLabel();
     const profilesFull = savedSettingsProfilesFull();
     const performanceMeta = `${summary.mode} / ${summary.motion} / ${summary.history}`;
-    const search = normalizeSettingsQuery(`performance speed lag smooth tune setup motion output terminal browser chrome history workspace palette toast background clean fast profile reusable diagnostics clipboard json ${summary.mode} ${summary.adaptiveGuard} ${summary.motion} ${summary.chrome} ${summary.background} ${summary.terminalStartup} ${summary.inactiveOutput} ${summary.resume} ${summary.cursor} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.padding} ${summary.history}`);
+    const search = normalizeSettingsQuery(`performance speed lag smooth tune setup motion output terminal browser chrome history workspace palette toast background clean fast profile reusable diagnostics clipboard json split dividers resize grip line minimal active pane emphasis ${summary.mode} ${summary.adaptiveGuard} ${summary.motion} ${summary.chrome} ${summary.dividers} ${summary.dividerStyle} ${summary.paneSpacing} ${summary.activePane} ${summary.background} ${summary.terminalStartup} ${summary.inactiveOutput} ${summary.resume} ${summary.cursor} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.padding} ${summary.history}`);
     if (commandId === "settings.tunePerformance") {
       const active = state.settings.performanceMode;
       return {
@@ -15287,7 +15290,7 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(scrollbackRow);
     const performanceActions = document.createElement("div");
     performanceActions.className = "settings-actions";
-    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy paste setup workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface padding background opacity soften blur effects motion speed diagnostics report lag debug browser pane chrome compact content full controls tabs address");
+    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy paste setup workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface split dividers resize grip line minimal active pane emphasis padding background opacity soften blur effects motion speed diagnostics report lag debug browser pane chrome compact content full controls tabs address");
     const speedPresetActive = isSettingsPresetIdActive("performance");
     const speedPreset = settingsActionButton(
       speedPresetActive ? "Speed active" : "Speed preset",
@@ -15312,8 +15315,8 @@ function renderSettingsInspector(options = {}) {
         settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
         "Save current performance settings as a reusable profile."
       ),
-      settingsActionButton("Copy setup", copyPerformanceSetup, "", "performance setup copy speed lag motion speed snappy balanced calm workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface spacing gap gutter padding background opacity effects chrome readable soft immersive terminal startup inactive browser suspend pane chrome compact content full controls tabs address clipboard json"),
-      settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion speed snappy balanced calm workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface spacing gap gutter padding background opacity effects chrome readable soft immersive terminal startup inactive browser suspend pane chrome compact content full controls tabs address clipboard json"),
+      settingsActionButton("Copy setup", copyPerformanceSetup, "", "performance setup copy speed lag motion speed snappy balanced calm workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface split dividers resize grip line minimal active pane emphasis spacing gap gutter padding background opacity effects chrome readable soft immersive terminal startup inactive browser suspend pane chrome compact content full controls tabs address clipboard json"),
+      settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion speed snappy balanced calm workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface split dividers resize grip line minimal active pane emphasis spacing gap gutter padding background opacity effects chrome readable soft immersive terminal startup inactive browser suspend pane chrome compact content full controls tabs address clipboard json"),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
       speedPreset,
       resetPerformanceSetupAction,
@@ -22303,6 +22306,28 @@ const performanceHealthCheckDefinitions = [
     search: "workspace chrome compact density toolbar top bar style buttons ghost tab bar quiet sidebar style rail tools primary settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact result limit focused balanced extended results placement position top center wide quick actions hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls pane spacing gap gutter terminal padding lighter ui"
   },
   {
+    id: "splitDividers",
+    label: "Split dividers",
+    body: "Uses slim dividers, minimal resize chrome, and a quiet active-pane treatment for lighter split workspaces.",
+    actionLabel: "Slim",
+    readyLabel: "Slim",
+    issue: () => state.settings.paneDividerSize !== "slim"
+      || state.settings.paneDividerStyle !== "minimal"
+      || state.settings.activePaneEmphasis !== "quiet",
+    meta: () => {
+      const dividers = optionLabel(paneDividerSizeOptions, state.settings.paneDividerSize, state.settings.paneDividerSize);
+      const dividerStyle = optionLabel(paneDividerStyleOptions, state.settings.paneDividerStyle, state.settings.paneDividerStyle);
+      const activePane = optionLabel(activePaneEmphasisOptions, state.settings.activePaneEmphasis, state.settings.activePaneEmphasis);
+      return `${dividers} / ${dividerStyle} / ${activePane} active`;
+    },
+    updates: () => ({
+      paneDividerSize: "slim",
+      paneDividerStyle: "minimal",
+      activePaneEmphasis: "quiet"
+    }),
+    search: "pane split dividers resize grip slim line minimal active pane emphasis focus highlight quiet strong visual clutter performance"
+  },
+  {
     id: "statusbar",
     label: "Status bar",
     body: "Keeps the footer quiet and stops live performance status refreshes while tuning lag.",
@@ -22589,7 +22614,10 @@ function performanceSetupSummaryForSettings(settings) {
   const palettePlacement = optionLabel(palettePlacementOptions, normalized.palettePlacement, normalized.palettePlacement);
   const controls = optionLabel(paneActionOptions, normalized.paneActionMode, normalized.paneActionMode);
   const paneSurface = optionLabel(paneSurfaceStyleOptions, normalized.paneSurfaceStyle, normalized.paneSurfaceStyle);
+  const dividers = optionLabel(paneDividerSizeOptions, normalized.paneDividerSize, normalized.paneDividerSize);
+  const dividerStyle = optionLabel(paneDividerStyleOptions, normalized.paneDividerStyle, normalized.paneDividerStyle);
   const spacing = optionLabel(paneSpacingOptions, normalized.paneSpacing, normalized.paneSpacing);
+  const activePane = optionLabel(activePaneEmphasisOptions, normalized.activePaneEmphasis, normalized.activePaneEmphasis);
   const motionSpeed = optionLabel(chromeMotionOptions, normalized.chromeMotionMode, normalized.chromeMotionMode);
   const depth = optionLabel(interfaceDepthOptions, normalized.interfaceDepth, normalized.interfaceDepth);
   const browserChrome = browserChromeModeLabel(normalized.browserChromeMode);
@@ -22611,7 +22639,10 @@ function performanceSetupSummaryForSettings(settings) {
     palettePlacement,
     controls,
     paneSurface,
+    dividers,
+    dividerStyle,
     paneSpacing: spacing,
+    activePane,
     depth,
     background: `${backgroundEffects} / ${backgroundChrome} chrome / ${normalized.backgroundOpacity}% / ${normalized.backgroundBlur}px soften`,
     backgroundChrome,
@@ -22767,7 +22798,10 @@ function performanceSetupSettingUpdateFromValue(key, raw) {
   if (key === "palettePlacement") return optionIdAllowed(palettePlacementOptions, raw) ? raw : null;
   if (key === "paneActionMode") return optionIdAllowed(paneActionOptions, raw) ? raw : null;
   if (key === "paneSurfaceStyle") return optionIdAllowed(paneSurfaceStyleOptions, raw) ? raw : null;
+  if (key === "paneDividerSize") return optionIdAllowed(paneDividerSizeOptions, raw) ? raw : null;
+  if (key === "paneDividerStyle") return optionIdAllowed(paneDividerStyleOptions, raw) ? raw : null;
   if (key === "paneSpacing") return optionIdAllowed(paneSpacingOptions, raw) ? raw : null;
+  if (key === "activePaneEmphasis") return optionIdAllowed(activePaneEmphasisOptions, raw) ? raw : null;
   if (key === "backgroundOpacity") {
     if (raw === null || raw === "" || typeof raw === "boolean" || typeof raw === "object") return null;
     const value = Number(raw);
@@ -22863,7 +22897,7 @@ function performanceTuningPresetSearchText(preset, settings = performanceTuningP
   const summary = performanceSetupSummaryForSettings(settings || {});
   const active = isActivePerformanceTuningPreset(preset);
   return normalizeSettingsQuery([
-    `performance tuning preset setup apply copy speed lag smooth low motion ${active ? "active current unavailable " : "ready "}speed snappy balanced calm live panes workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy result limit focused balanced extended results placement position top center wide quick actions auto hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls spacing gap gutter padding surface depth shadow background opacity effects glass flat chrome readable soft immersive terminal output browser preview pane chrome compact content full controls tabs address suspend history scrollback`,
+    `performance tuning preset setup apply copy speed lag smooth low motion ${active ? "active current unavailable " : "ready "}speed snappy balanced calm live panes workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy result limit focused balanced extended results placement position top center wide quick actions auto hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls split dividers resize grip line minimal active pane emphasis spacing gap gutter padding surface depth shadow background opacity effects glass flat chrome readable soft immersive terminal output browser preview pane chrome compact content full controls tabs address suspend history scrollback`,
     preset?.label,
     preset?.body,
     summary.mode,
@@ -22882,7 +22916,10 @@ function performanceTuningPresetSearchText(preset, settings = performanceTuningP
     summary.palettePlacement,
     summary.controls,
     summary.paneSurface,
+    summary.dividers,
+    summary.dividerStyle,
     summary.paneSpacing,
+    summary.activePane,
     summary.depth,
     summary.background,
     summary.backgroundChrome,
@@ -22911,7 +22948,7 @@ function performanceTuningPresetTitle(preset, active) {
 
 function performanceTuningPresetCopySearchText(preset, settings = performanceTuningPresetSettings(preset)) {
   const summary = performanceSetupSummaryForSettings(settings || {});
-  return normalizeSettingsQuery(`performance tuning preset copy setup clipboard json speed lag smooth motion speed snappy balanced calm workspace chrome top bar style tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface spacing gap gutter background opacity effects chrome readable soft immersive browser pane compact content full controls tabs address ${preset?.label || ""} ${preset?.body || ""} ${summary.mode} ${summary.motion} ${summary.chrome} ${summary.topbar} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.paneSpacing} ${summary.background} ${summary.backgroundChrome} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.history}`);
+  return normalizeSettingsQuery(`performance tuning preset copy setup clipboard json speed lag smooth motion speed snappy balanced calm workspace chrome top bar style tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface split dividers resize grip line minimal active pane emphasis spacing gap gutter background opacity effects chrome readable soft immersive browser pane compact content full controls tabs address ${preset?.label || ""} ${preset?.body || ""} ${summary.mode} ${summary.motion} ${summary.chrome} ${summary.topbar} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.dividers} ${summary.dividerStyle} ${summary.paneSpacing} ${summary.activePane} ${summary.background} ${summary.backgroundChrome} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.history}`);
 }
 
 function performanceTuningPresetCopyTitle(preset) {
@@ -25710,7 +25747,7 @@ function performanceHealthChecklist() {
   const panel = document.createElement("div");
   panel.className = "performance-health-panel";
   panel.dataset.performanceHealth = "true";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("performance health checklist fixes speed lag smooth workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface padding background soften blur motion terminal browser adaptive guard");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("performance health checklist fixes speed lag smooth workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface split dividers resize grip line minimal active pane emphasis padding background soften blur motion terminal browser adaptive guard");
   panel.dataset.settingsSearch = normalizeSettingsQuery(`${panel.dataset.settingsSearch} status bar footer performance`);
   panel.innerHTML = `
     <div class="performance-health-head">
@@ -25818,7 +25855,7 @@ function refreshPerformanceHealthPanel(panel = elements.inspectorBody.querySelec
 function performanceTuningPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "performance-tune-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface spacing gap gutter padding surface depth shadow background opacity soften blur effects motion speed snappy balanced calm glass flat browser preview pane chrome compact content full controls tabs address apply copy setup history scrollback");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface split dividers resize grip line minimal active pane emphasis spacing gap gutter padding surface depth shadow background opacity soften blur effects motion speed snappy balanced calm glass flat browser preview pane chrome compact content full controls tabs address apply copy setup history scrollback");
   for (const preset of performanceTuningPresets) {
     const settings = performanceTuningPresetSettings(preset);
     if (!settings) continue;
@@ -26756,7 +26793,10 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     paneActionMode: "essential",
     paneColorMarkers: false,
     paneMarkerStyle: "dot",
+    paneDividerSize: "slim",
+    paneDividerStyle: "minimal",
     paneSpacing: "none",
+    activePaneEmphasis: "quiet",
     inactivePaneDimming: "normal",
     showStatusbar: false,
     terminalPadding: Math.min(state.settings.terminalPadding, 4),
