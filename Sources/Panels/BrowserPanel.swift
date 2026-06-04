@@ -1742,6 +1742,13 @@ final class BrowserHistoryStore: ObservableObject {
         }
     }
 
+    // Single source of truth for history. `private(set)` + `@MainActor` means
+    // every mutation runs through this setter, so `didSet` is the one enforced
+    // invalidation point for the derived `cachedSuggestionCandidates`. It must
+    // stay `@Published` for SwiftUI observation, so a memoized cache invalidated
+    // here is the idiomatic shape. Do not add a writer that bypasses the setter
+    // (e.g. an unsafe-buffer bulk write or an external `Binding<[Entry]>`)
+    // without invalidating the cache.
     @Published private(set) var entries: [Entry] = [] {
         didSet { suggestionCandidatesDirty = true }
     }
