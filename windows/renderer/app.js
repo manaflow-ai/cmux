@@ -5611,6 +5611,47 @@ function savedColorEverywhereModel(color, workspace = activeWorkspace()) {
   };
 }
 
+function currentColorEverywhereModel(target = state.colorApplyTarget, workspace = activeWorkspace()) {
+  const scope = normalizeColorApplyTarget(target);
+  const option = colorApplyTargetOption(scope, workspace);
+  const mixedAllPanes = scope === "all" && /\d+\s+colors/.test(option.status);
+  const normalized = mixedAllPanes ? "" : normalizeCustomPaletteColor(option.color);
+  const base = savedColorEverywhereModel(normalized, workspace);
+  const source = `${option.label} - ${option.meta}`;
+  if (option.disabled) {
+    return {
+      ...base,
+      disabled: true,
+      title: `${option.label}: ${option.meta}.`,
+      source,
+      search: normalizeSettingsQuery(`current color apply everywhere unavailable ${option.label} ${option.meta} ${option.status}`)
+    };
+  }
+  if (mixedAllPanes) {
+    return {
+      ...base,
+      disabled: true,
+      title: "All panes use multiple colors. Choose a single pane, workspace, or accent color first.",
+      source,
+      search: normalizeSettingsQuery(`current color apply everywhere unavailable mixed all panes multiple colors ${option.status} ${option.meta}`)
+    };
+  }
+  if (!normalized) {
+    return {
+      ...base,
+      disabled: true,
+      title: `Use a custom hex ${option.label.toLowerCase()} color before applying it everywhere.`,
+      source,
+      search: normalizeSettingsQuery(`current color apply everywhere needs custom hex color ${option.label} ${option.meta} ${option.status}`)
+    };
+  }
+  return {
+    ...base,
+    source,
+    search: normalizeSettingsQuery(`current color apply everywhere all scopes accent workspace all panes app chrome tab markers ${base.search} ${option.label} ${option.meta} ${option.status}`)
+  };
+}
+
 function colorTargetDefault(target = state.colorApplyTarget, workspace = activeWorkspace()) {
   const scope = normalizeColorApplyTarget(target);
   if (scope === "accent") return colorKey(state.settings.accent) === colorKey(defaultSettings.accent);
@@ -5746,6 +5787,15 @@ async function applySavedColorEverywhere(color, workspace = activeWorkspace()) {
   refreshAppearanceSettingsForColorChange();
   toast(`Color applied to ${changed.join(", ")}.`);
   return true;
+}
+
+async function applyCurrentColorEverywhere(target = state.colorApplyTarget, workspace = activeWorkspace()) {
+  const model = currentColorEverywhereModel(target, workspace);
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applySavedColorEverywhere(model.normalized, workspace);
 }
 
 async function pasteColorToTarget(target = state.colorApplyTarget) {
@@ -24475,6 +24525,7 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
   const targetHasMultipleColors = targetOption.id === "all" && /\d+\s+colors/.test(targetOption.status);
   const copyTargetDisabled = targetOption.disabled || targetHasMultipleColors || !canCopyColorValue(targetOption.color, defaultSettings.accent);
   const targetDefault = colorTargetDefault(state.colorApplyTarget, workspace);
+  const everywhereModel = currentColorEverywhereModel(state.colorApplyTarget, workspace);
   const copyTargetTitle = targetOption.disabled
     ? `${targetOption.label}: ${targetOption.meta}.`
     : targetHasMultipleColors
@@ -24500,6 +24551,11 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
       disabled: copyTargetDisabled,
       title: copyTargetTitle,
       search: `quick setup color copy current target value clipboard ${targetOption.label} ${targetOption.meta}`
+    }),
+    quickOverviewControlButton("Everywhere", () => applyCurrentColorEverywhere(state.colorApplyTarget, workspace), {
+      disabled: everywhereModel.disabled,
+      title: everywhereModel.title,
+      search: `quick setup color apply current target everywhere all scopes accent workspace all panes ${everywhereModel.search}`
     }),
     quickOverviewControlButton("Paste target", () => pasteColorToTarget(state.colorApplyTarget), {
       disabled: targetOption.disabled,
@@ -24533,7 +24589,7 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
     className: "quick-overview-colors",
     title: "Color controls",
     meta: `${targetOption.label}: ${targetOption.status} / ${state.customColorPalette.length}/${customColorPaletteLimit} saved`,
-    search: `quick setup color controls accent workspace pane all saved palette copy paste reset target ${targetOption.label} ${targetOption.status} ${targetOption.meta}`,
+    search: `quick setup color controls accent workspace pane all everywhere saved palette copy paste reset target ${targetOption.label} ${targetOption.status} ${targetOption.meta} ${everywhereModel.search}`,
     actions
   });
 }
@@ -34861,6 +34917,18 @@ function paletteEntries() {
   ]) {
     const label = option.label.toLowerCase();
     const targetDefault = colorTargetDefault(id, paletteWorkspace);
+    const everywhereModel = currentColorEverywhereModel(id, paletteWorkspace);
+    entries.push({
+      id: `currentColor.everywhere.${id}`,
+      label: `Apply ${label} color everywhere`,
+      meta: everywhereModel.active ? "Active / Accent, workspace, panes" : `${option.status} / ${everywhereModel.meta}`,
+      shortcut: everywhereModel.active ? "Active" : "Color",
+      active: everywhereModel.active,
+      disabled: everywhereModel.disabled,
+      title: everywhereModel.title,
+      search: normalizeSettingsQuery(`current ${label} color apply everywhere accent workspace all panes ${everywhereModel.search}`),
+      run: () => applyCurrentColorEverywhere(id, paletteWorkspace)
+    });
     entries.push({
       id: `currentColor.paste.${id}`,
       label: `Paste color to ${label}`,
