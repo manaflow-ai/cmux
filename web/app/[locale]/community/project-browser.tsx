@@ -57,6 +57,7 @@ function compareProjectStars(
 
 function projectMatchesQuery(
   project: AwesomeCmuxProject,
+  description: string,
   query: string,
   categoryLabels: ReadonlyMap<string, string>,
 ) {
@@ -66,7 +67,7 @@ function projectMatchesQuery(
 
   const searchableText = [
     project.name,
-    project.description,
+    description,
     project.agent,
     project.language,
     ...project.categories.map(
@@ -82,10 +83,12 @@ function projectMatchesQuery(
 
 function ProjectCard({
   project,
+  description,
   categoryLabels,
   numberFormatter,
 }: {
   project: AwesomeCmuxProject;
+  description: string;
   categoryLabels: ReadonlyMap<string, string>;
   numberFormatter: Intl.NumberFormat;
 }) {
@@ -129,9 +132,7 @@ function ProjectCard({
         )}
       </div>
 
-      <p className="mt-3 flex-1 text-sm leading-6 text-muted">
-        {project.description}
-      </p>
+      <p className="mt-3 flex-1 text-sm leading-6 text-muted">{description}</p>
 
       <div className="mt-4 flex flex-wrap gap-1.5">
         {visibleCategories.map((category) => (
@@ -195,6 +196,16 @@ export function CommunityProjectBrowser({
     () => new Map(projects.map((project, index) => [project.url, index])),
     [projects],
   );
+  const projectDescriptions = useMemo(
+    () =>
+      new Map(
+        projects.map((project) => [
+          project.url,
+          t(`projectDescriptions.${project.descriptionKey}`),
+        ]),
+      ),
+    [projects, t],
+  );
 
   const categoryLabels = useMemo(() => {
     const labels = new Map<string, string>();
@@ -226,9 +237,22 @@ export function CommunityProjectBrowser({
           return false;
         }
 
-        return projectMatchesQuery(project, normalizedQuery, categoryLabels);
+        return projectMatchesQuery(
+          project,
+          projectDescriptions.get(project.url) ?? "",
+          normalizedQuery,
+          categoryLabels,
+        );
       }),
-    [agent, category, categoryLabels, language, normalizedQuery, projects],
+    [
+      agent,
+      category,
+      categoryLabels,
+      language,
+      normalizedQuery,
+      projectDescriptions,
+      projects,
+    ],
   );
 
   const sortedProjects = useMemo(() => {
@@ -370,6 +394,7 @@ export function CommunityProjectBrowser({
             <ProjectCard
               key={project.url}
               project={project}
+              description={projectDescriptions.get(project.url) ?? ""}
               categoryLabels={categoryLabels}
               numberFormatter={numberFormatter}
             />
