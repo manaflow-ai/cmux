@@ -9934,11 +9934,22 @@ struct ContentView: View {
             ?? tabManager.addWorkspace(select: true).id
         return authorizeDirectoryToolIfNeeded(tool) {
             let launchHandle = DirectoryToolWebServerLaunchHandle()
-            var progressController: DirectoryToolLaunchProgressController!
-            progressController = DirectoryToolLaunchProgressController(
-                tool: tool,
-                command: tool.command ?? "",
-                directoryURL: directoryURL,
+            var progressController: DirectoryToolLaunchPanelController!
+            progressController = DirectoryToolLaunchPanelController(
+                title: DirectoryToolLaunchPanelController.startingTitle(displayName: tool.subtitle ?? tool.title),
+                initialMessage: String(
+                    localized: "directoryTool.launchProgress.reviewCommand",
+                    defaultValue: "Review the command before running it."
+                ),
+                launchingMessage: String(
+                    localized: "directoryTool.launchProgress.message",
+                    defaultValue: "Waiting for the tool to print a local URL."
+                ),
+                initialOutput: DirectoryToolLaunchPanelController.commandPreview(
+                    command: tool.command ?? "",
+                    directoryURL: directoryURL
+                ),
+                requiresApproval: true,
                 onAllow: { progressController in
                     DirectoryToolWebServerController.shared.ensureWebServerURL(
                         tool: tool,
@@ -9949,9 +9960,9 @@ struct ContentView: View {
                         }
                     ) { result in
                         guard !launchHandle.cancelled else { return }
-                        progressController.close()
                         switch result {
                         case .opened(let webServerURL):
+                            progressController.close()
                             guard tabManager.openBrowser(
                                   inWorkspace: targetWorkspaceId,
                                   url: webServerURL,
@@ -9961,6 +9972,13 @@ struct ContentView: View {
                                 return
                             }
                         case .failed(let failure):
+                            progressController.finish(
+                                message: directoryToolLaunchProgressFailureMessage(failure),
+                                stopTitle: String(
+                                    localized: "directoryTool.launchProgress.hide",
+                                    defaultValue: "Hide"
+                                )
+                            )
                             showDirectoryToolLaunchFailureAlert(
                                 tool: tool,
                                 failure: failure,
@@ -9974,209 +9992,6 @@ struct ContentView: View {
                 }
             )
             progressController.show(presentingWindow: NSApp.keyWindow ?? NSApp.mainWindow)
-        }
-    }
-
-    private final class DirectoryToolLaunchProgressController: NSObject, NSWindowDelegate {
-        private let panel: NSPanel
-        private let spinner: NSProgressIndicator
-        private let messageLabel: NSTextField
-        private let outputTextView: NSTextView
-        private let allowButton: NSButton
-        private let stopButton: NSButton
-        private let noOutputText: String
-        private let launchingMessage: String
-        private let onAllow: (DirectoryToolLaunchProgressController) -> Void
-        private let onStop: () -> Void
-        private var isClosed = false
-        private var didAllow = false
-
-        init(
-            tool: CmuxResolvedDirectoryTool,
-            command: String,
-            directoryURL: URL,
-            onAllow: @escaping (DirectoryToolLaunchProgressController) -> Void,
-            onStop: @escaping () -> Void
-        ) {
-            self.onAllow = onAllow
-            self.onStop = onStop
-            let titleFormat = String(
-                localized: "directoryTool.launchProgress.title",
-                defaultValue: "Starting %@"
-            )
-            let title = String(format: titleFormat, tool.subtitle ?? tool.title)
-            let message = String(
-                localized: "directoryTool.launchProgress.reviewCommand",
-                defaultValue: "Review the command before running it."
-            )
-            launchingMessage = String(
-                localized: "directoryTool.launchProgress.message",
-                defaultValue: "Waiting for the tool to print a local URL."
-            )
-            noOutputText = String(
-                localized: "directoryTool.launchProgress.noOutput",
-                defaultValue: "No output yet."
-            )
-
-            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 256))
-
-            spinner = NSProgressIndicator()
-            spinner.style = .spinning
-            spinner.controlSize = .regular
-            spinner.isIndeterminate = true
-            spinner.isHidden = true
-
-            let titleLabel = NSTextField(labelWithString: title)
-            titleLabel.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-            titleLabel.lineBreakMode = .byTruncatingTail
-
-            messageLabel = NSTextField(labelWithString: message)
-            messageLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-            messageLabel.textColor = .secondaryLabelColor
-            messageLabel.lineBreakMode = .byWordWrapping
-            messageLabel.maximumNumberOfLines = 2
-
-            let headerStack = NSStackView(views: [spinner, titleLabel])
-            headerStack.orientation = .horizontal
-            headerStack.alignment = .centerY
-            headerStack.spacing = 10
-
-            outputTextView = NSTextView()
-            outputTextView.isEditable = false
-            outputTextView.isSelectable = true
-            outputTextView.drawsBackground = false
-            outputTextView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-            outputTextView.textColor = .secondaryLabelColor
-            outputTextView.textContainerInset = NSSize(width: 8, height: 8)
-            outputTextView.string = Self.commandPreview(command: command, directoryURL: directoryURL)
-
-            let scrollView = NSScrollView()
-            scrollView.hasVerticalScroller = true
-            scrollView.drawsBackground = true
-            scrollView.backgroundColor = .textBackgroundColor.withAlphaComponent(0.65)
-            scrollView.borderType = .lineBorder
-            scrollView.documentView = outputTextView
-
-            allowButton = NSButton(title: String(
-                localized: "directoryTool.launchProgress.allow",
-                defaultValue: "Allow"
-            ), target: nil, action: nil)
-            allowButton.bezelStyle = .rounded
-            allowButton.keyEquivalent = "\r"
-
-            stopButton = NSButton(title: String(
-                localized: "directoryTool.launchProgress.cancel",
-                defaultValue: "Cancel"
-            ), target: nil, action: nil)
-            stopButton.bezelStyle = .rounded
-
-            let footerStack = NSStackView(views: [NSView(), stopButton, allowButton])
-            footerStack.orientation = .horizontal
-            footerStack.alignment = .centerY
-            footerStack.spacing = 8
-
-            let stack = NSStackView(views: [headerStack, messageLabel, scrollView, footerStack])
-            stack.orientation = .vertical
-            stack.alignment = .leading
-            stack.spacing = 10
-            stack.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview(stack)
-
-            NSLayoutConstraint.activate([
-                stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-                stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-                stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-                stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
-                spinner.widthAnchor.constraint(equalToConstant: 18),
-                spinner.heightAnchor.constraint(equalToConstant: 18),
-                titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: stack.trailingAnchor),
-                messageLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
-                scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
-                scrollView.heightAnchor.constraint(equalToConstant: 128)
-            ])
-
-            panel = NSPanel(
-                contentRect: contentView.frame,
-                styleMask: [.titled, .closable, .nonactivatingPanel],
-                backing: .buffered,
-                defer: false
-            )
-            panel.title = title
-            panel.contentView = contentView
-            panel.level = .floating
-            panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-            panel.isReleasedWhenClosed = false
-
-            super.init()
-
-            panel.delegate = self
-            allowButton.target = self
-            allowButton.action = #selector(allow)
-            stopButton.target = self
-            stopButton.action = #selector(stop)
-        }
-
-        private static func commandPreview(command: String, directoryURL: URL) -> String {
-            """
-            cd \(directoryURL.path)
-            \(command)
-            """
-        }
-
-        func show(presentingWindow: NSWindow?) {
-            guard !isClosed else { return }
-            if let presentingWindow {
-                let windowFrame = presentingWindow.frame
-                let panelFrame = panel.frame
-                let origin = NSPoint(
-                    x: windowFrame.midX - panelFrame.width / 2,
-                    y: windowFrame.maxY - panelFrame.height - 72
-                )
-                panel.setFrameOrigin(origin)
-            } else {
-                panel.center()
-            }
-            panel.orderFrontRegardless()
-        }
-
-        func updateOutput(_ output: String) {
-            guard !isClosed else { return }
-            let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-            outputTextView.string = trimmed.isEmpty ? noOutputText : trimmed
-            outputTextView.scrollToEndOfDocument(nil)
-        }
-
-        func close() {
-            guard !isClosed else { return }
-            isClosed = true
-            panel.close()
-        }
-
-        func windowWillClose(_ notification: Notification) {
-            if !isClosed && !didAllow {
-                onStop()
-            }
-            isClosed = true
-        }
-
-        @objc private func allow() {
-            guard !didAllow, !isClosed else { return }
-            didAllow = true
-            spinner.isHidden = false
-            spinner.startAnimation(nil)
-            messageLabel.stringValue = launchingMessage
-            outputTextView.string = noOutputText
-            allowButton.isHidden = true
-            stopButton.title = String(
-                localized: "directoryTool.launchProgress.stop",
-                defaultValue: "Stop"
-            )
-            onAllow(self)
-        }
-
-        @objc private func stop() {
-            onStop()
-            close()
         }
     }
 
@@ -10270,13 +10085,34 @@ struct ContentView: View {
             message = String(format: installFormat, message, installCommand)
         }
 
-        let output = failure.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !output.isEmpty else { return message }
-        let outputFormat = String(
-            localized: "directoryTool.launchFailure.outputFormat",
-            defaultValue: "%@\n\nOutput:\n%@"
-        )
-        return String(format: outputFormat, message, output)
+        return message
+    }
+
+    private func directoryToolLaunchProgressFailureMessage(
+        _ failure: DirectoryToolWebServerController.LaunchFailure
+    ) -> String {
+        switch failure.reason {
+        case .invalidConfiguration:
+            return String(
+                localized: "directoryTool.launchFailure.invalidConfiguration",
+                defaultValue: "This directory tool is missing a command."
+            )
+        case .launchFailed:
+            return String(
+                localized: "directoryTool.launchFailure.launchFailed",
+                defaultValue: "cmux could not launch this directory tool."
+            )
+        case .exitedWithoutURL:
+            return String(
+                localized: "directoryTool.launchFailure.exitedWithoutURL",
+                defaultValue: "The directory tool exited before printing a local URL."
+            )
+        case .timedOut:
+            return String(
+                localized: "directoryTool.launchFailure.timedOut",
+                defaultValue: "The directory tool did not print a local URL before the startup timeout."
+            )
+        }
     }
 
     private func runDirectoryToolInstallCommand(

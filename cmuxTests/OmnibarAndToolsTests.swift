@@ -308,6 +308,21 @@ final class ServeWebOutputCollectorTests: XCTestCase {
         XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
         XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:9001?tkn=final-token")
     }
+
+    func testReportsOutputSnippetAsTextArrives() {
+        var snippets: [String] = []
+        let collector = ServeWebOutputCollector { snippet in
+            snippets.append(snippet)
+        }
+
+        collector.append(Data("Starting VS Code server\n".utf8))
+        collector.append(Data("Preparing web UI\n".utf8))
+
+        XCTAssertEqual(snippets, [
+            "Starting VS Code server",
+            "Starting VS Code server\nPreparing web UI"
+        ])
+    }
 }
 
 
