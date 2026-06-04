@@ -581,17 +581,19 @@ check_cmux_unit_isolated_runner() {
     '-only-testing:cmuxTests/$class' \
     '"${ONLY_TESTING_ARGS[@]}"' \
     'env -u SSH_AUTH_SOCK' \
-    'HOME="$SHARD_HOME"' \
-    'CFFIXED_USER_HOME="$SHARD_HOME"' \
+    'CMUX_UNIT_TEST_BATCH_SIZE must be a positive integer' \
+    'HOME="$BATCH_HOME"' \
+    'CFFIXED_USER_HOME="$BATCH_HOME"' \
     'RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo"' \
     'SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"' \
     'SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"' \
-    'SHARD_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_SHARD_TIMEOUT_SECONDS:-2400}"' \
-    'Timed out after ${SHARD_TIMEOUT_SECONDS}s running $SHARD_LABEL; terminating xcodebuild' \
-    'FAIL $SHARD_LABEL timed out after ${SHARD_TIMEOUT_SECONDS}s' \
-    'tail -n 260 "$SHARD_LOG"' \
+    'BATCH_SIZE="${CMUX_UNIT_TEST_BATCH_SIZE:-8}"' \
+    'BATCH_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_BATCH_TIMEOUT_SECONDS:-900}"' \
+    'Timed out after ${BATCH_TIMEOUT_SECONDS}s running $BATCH_LABEL; terminating xcodebuild' \
+    'FAIL $BATCH_LABEL timed out after ${BATCH_TIMEOUT_SECONDS}s' \
+    'tail -n 1200 "$BATCH_LOG"' \
     'exit 124' \
-    "All \${#SELECTED_TEST_CLASSES[@]} selected cmuxTests XCTestCase classes passed in \$SHARD_LABEL"
+    "All \${#SELECTED_TEST_CLASSES[@]} selected cmuxTests XCTestCase classes passed in \$SHARD_LABEL batches"
   do
     if ! grep -Fq -- "$pattern" "$CMUX_UNIT_ISOLATED_RUNNER"; then
       echo "FAIL: run-cmux-unit-tests-isolated.sh missing required isolation pattern: $pattern"
