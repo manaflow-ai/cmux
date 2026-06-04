@@ -142,6 +142,7 @@ private final class CLISocketSentryTelemetry {
 
     func captureError(stage: String, error: Error, data: [String: Any] = [:]) {
         guard shouldEmit else { return }
+        guard !shouldSuppressCapture(stage: stage, error: error, data: data) else { return }
         recordCaptureProbe(stage: stage, error: error)
 #if canImport(Sentry)
         Self.ensureStarted()
@@ -170,6 +171,26 @@ private final class CLISocketSentryTelemetry {
 
     private var shouldEmit: Bool {
         !disabledByEnv
+    }
+
+    private func shouldSuppressCapture(stage: String, error: Error, data: [String: Any]) -> Bool {
+        guard isSocketTransportStage(stage: stage, data: data) else {
+            return false
+        }
+
+        let description = String(describing: error).lowercased()
+        return description.contains("socket not found at") ||
+            description.contains("connection refused") ||
+            description.contains("broken pipe") ||
+            description.contains("errno 32") ||
+            description.contains("errno 61")
+    }
+
+    private func isSocketTransportStage(stage: String, data: [String: Any]) -> Bool {
+        stage == "socket_connect" ||
+            stage.hasPrefix("socket_command") ||
+            data["socket_phase"] != nil ||
+            data["socket_operation"] != nil
     }
 
     private func recordCaptureProbe(stage: String, error: Error) {
