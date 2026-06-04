@@ -156,7 +156,7 @@ check_virtual_display_step_waits_for_readiness() {
     in_step && /\[ -s "\$VDISPLAY_READY" \] && \[ -s "\$VDISPLAY_ID_PATH" \]/ { saw_ready_poll=1 }
     in_step && /Virtual display helper exited before readiness/ { saw_exit_message=1 }
     in_step && /Timed out waiting for virtual display readiness/ { saw_timeout_message=1 }
-    in_step && /seq 1 300/ { saw_long_poll=1 }
+    in_step && /seq 1 900/ { saw_long_poll=1 }
     in_step && /^[[:space:]]*sleep 3$/ { saw_fixed_sleep=1 }
     END { exit(saw_step && saw_ready_arg && saw_id_arg && saw_ready_poll && saw_exit_message && saw_timeout_message && saw_long_poll && !saw_fixed_sleep ? 0 : 1) }
   ' "$file"; then
@@ -189,7 +189,7 @@ check_test_depot_fails_closed() {
     in_step && /\[ -s "\$VDISPLAY_READY" \] && \[ -s "\$VDISPLAY_ID_PATH" \]/ { saw_ready_poll=1 }
     in_step && /Virtual display helper exited before readiness/ { saw_exit_message=1 }
     in_step && /Timed out waiting for virtual display readiness/ { saw_timeout_message=1 }
-    in_step && /seq 1 300/ { saw_long_poll=1 }
+    in_step && /seq 1 900/ { saw_long_poll=1 }
     in_step && /^[[:space:]]*sleep 3$/ { saw_fixed_sleep=1 }
     END { exit(saw_ready_arg && saw_id_arg && saw_ready_poll && saw_exit_message && saw_timeout_message && saw_long_poll && !saw_fixed_sleep ? 0 : 1) }
   ' "$TEST_DEPOT_FILE"; then
