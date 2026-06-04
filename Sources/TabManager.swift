@@ -4042,9 +4042,7 @@ class TabManager: ObservableObject {
             let mtimeNanoseconds = readBigEndianUInt32(bytes, at: offset + 12)
             let mode = readBigEndianUInt32(bytes, at: offset + 24)
             let size = readBigEndianUInt32(bytes, at: offset + 36)
-            let objectID = bytes[(offset + 40)..<(offset + 60)].map {
-                String(format: "%02x", $0)
-            }.joined()
+            let objectID = gitHexString(bytes[(offset + 40)..<(offset + 60)])
             let flags = readBigEndianUInt16(bytes, at: offset + 60)
             let pathLength = Int(flags & 0x0fff)
             let hasExtendedFlags = version >= 3 && (flags & 0x4000) != 0
@@ -4112,7 +4110,7 @@ class TabManager: ObservableObject {
             }
         }
 
-        let checksum = bytes[(bytes.count - 20)..<bytes.count].map { String(format: "%02x", $0) }.joined()
+        let checksum = gitHexString(bytes[(bytes.count - 20)..<bytes.count])
         return GitIndexSnapshot(
             entries: entries,
             signature: checksum,
@@ -4150,7 +4148,7 @@ class TabManager: ObservableObject {
             appendString(entry.objectID)
             appendByte(0)
         }
-        return String(format: "%016llx", CUnsignedLongLong(hash))
+        return gitHexString(hash)
     }
 
     private nonisolated static func gitlinkWorktreeCommit(
@@ -4213,7 +4211,28 @@ class TabManager: ObservableObject {
         guard let data = try? Data(contentsOf: indexURL), data.count >= 20 else {
             return nil
         }
-        return data.suffix(20).map { String(format: "%02x", $0) }.joined()
+        return gitHexString(data.suffix(20))
+    }
+
+    private nonisolated static func gitHexString<C: Collection>(_ bytes: C) -> String where C.Element == UInt8 {
+        let table = Array("0123456789abcdef".utf8)
+        var encoded: [UInt8] = []
+        encoded.reserveCapacity(bytes.count * 2)
+        for byte in bytes {
+            encoded.append(table[Int(byte >> 4)])
+            encoded.append(table[Int(byte & 0x0f)])
+        }
+        return String(decoding: encoded, as: UTF8.self)
+    }
+
+    private nonisolated static func gitHexString(_ value: UInt64) -> String {
+        let table = Array("0123456789abcdef".utf8)
+        var encoded = Array(repeating: UInt8(ascii: "0"), count: 16)
+        for index in 0..<16 {
+            let shift = UInt64((15 - index) * 4)
+            encoded[index] = table[Int((value >> shift) & 0x0f)]
+        }
+        return String(decoding: encoded, as: UTF8.self)
     }
 
     private nonisolated static func readGitIndexV4PathStripLength(
@@ -4899,6 +4918,15 @@ class TabManager: ObservableObject {
             return []
         }
         return githubRepositorySlugs(fromGitRemoteVOutput: output)
+    }
+
+    nonisolated static func gitTrackedChangesSnapshotForTesting(
+        directory: String
+    ) -> (isDirty: Bool, indexSignature: String?, indexContentSignature: String?)? {
+        guard let repository = resolveGitRepository(containing: directory) else {
+            return nil
+        }
+        return gitTrackedChangesSnapshot(repository: repository)
     }
 #endif
 
