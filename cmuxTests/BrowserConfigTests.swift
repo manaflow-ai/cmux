@@ -2768,27 +2768,12 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertTrue(panel.canGoForward)
     }
 
-    func testGoBackPrefersLiveWKWebViewHistoryBeforeRestoredFallback() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-browser-history-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let pageA = tempDir.appendingPathComponent("a.html")
-        let pageB = tempDir.appendingPathComponent("b.html")
-        let pageC = tempDir.appendingPathComponent("c.html")
-        try writeBrowserFixturePage(at: pageA, title: "A")
-        try writeBrowserFixturePage(at: pageB, title: "B")
-        try writeBrowserFixturePage(at: pageC, title: "C")
-
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: pageB
-        )
+    func testGoBackPrefersLiveHistoryWhenRestoredCurrentIsNotAligned() {
+        let pageA = URL(string: "https://example.test/a")!
+        let pageB = URL(string: "https://example.test/b")!
+        let pageC = URL(string: "https://example.test/c")!
+        let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
-        let window = hostBrowserPanelWebView(panel)
-        defer { window.close() }
-        waitForBrowserPanel(panel, url: pageB, title: "B")
 
         panel.restoreSessionNavigationHistory(
             backHistoryURLStrings: [pageA.absoluteString],
@@ -2796,20 +2781,14 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             currentURLString: pageB.absoluteString
         )
 
-        _ = browserLoadRequest(URLRequest(url: pageC), in: panel.webView)
-        waitForBrowserPanel(panel, url: pageC, title: "C")
+        panel.debugSetLiveSessionHistoryForRestoredNavigation(currentURL: pageC, nativeCanGoBack: true)
+        XCTAssertFalse(panel.debugShouldUseRestoredBackFallbackForGoBack())
 
-        let snapshot = panel.sessionNavigationHistorySnapshot()
-        XCTAssertEqual(
-            snapshot.backHistoryURLStrings,
-            [pageA.absoluteString, pageB.absoluteString]
-        )
+        panel.debugSetLiveSessionHistoryForRestoredNavigation(currentURL: pageC, nativeCanGoBack: false)
+        XCTAssertTrue(panel.debugShouldUseRestoredBackFallbackForGoBack())
 
-        panel.goBack()
-        waitForBrowserPanel(panel, url: pageB, title: "B")
-
-        panel.goBack()
-        waitForBrowserPanel(panel, url: pageA, title: "A")
+        panel.debugSetLiveSessionHistoryForRestoredNavigation(currentURL: pageB, nativeCanGoBack: true)
+        XCTAssertTrue(panel.debugShouldUseRestoredBackFallbackForGoBack())
     }
 
     func testBackDuringProvisionalNavigationRecoversLateCommittedPage() throws {

@@ -5415,6 +5415,21 @@ final class BrowserPanel: Panel, ObservableObject {
             return .loadTarget(targetURL)
         }
     }
+
+    func debugSetLiveSessionHistoryForRestoredNavigation(
+        currentURL: URL?,
+        nativeCanGoBack: Bool,
+        nativeCanGoForward: Bool = false
+    ) {
+        self.currentURL = currentURL
+        self.nativeCanGoBack = nativeCanGoBack
+        self.nativeCanGoForward = nativeCanGoForward
+        refreshNavigationAvailability()
+    }
+
+    func debugShouldUseRestoredBackFallbackForGoBack() -> Bool {
+        shouldUseRestoredBackFallbackForGoBack()
+    }
 #endif
 
     private func clearWebContentTerminationRecovery() {
@@ -6437,7 +6452,7 @@ extension BrowserPanel {
         if usesRestoredSessionHistory {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
-            if (isLiveSessionHistoryAlignedWithRestoredCurrent || !nativeCanGoBack),
+            if shouldUseRestoredBackFallbackForGoBack(),
                let targetURL = restoredBackHistoryStack.popLast() {
                 if let current = resolvedCurrentSessionHistoryURL() {
                     restoredForwardHistoryStack.append(current)
@@ -6462,6 +6477,12 @@ extension BrowserPanel {
         }
 
         webView.goBack()
+    }
+
+    private func shouldUseRestoredBackFallbackForGoBack() -> Bool {
+        usesRestoredSessionHistory &&
+            !restoredBackHistoryStack.isEmpty &&
+            (isLiveSessionHistoryAlignedWithRestoredCurrent || !nativeCanGoBack)
     }
 
     /// Go forward in history

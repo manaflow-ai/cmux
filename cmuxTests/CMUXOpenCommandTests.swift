@@ -699,6 +699,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         let socketPath = makeSocketPath("diff-empty")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
+        let workspaceId = UUID().uuidString.lowercased()
+        let surfaceId = UUID().uuidString.lowercased()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -707,11 +709,20 @@ final class CMUXOpenCommandTests: XCTestCase {
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = Self.v2Payload(from: line),
                   let id = payload["id"] as? String,
-                  let method = payload["method"] as? String,
-                  method == "browser.open_split",
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "surface.list" {
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": surfaceId, "ref": "surface:1", "index": 1, "focused": true]]]
+                )
+            }
+            guard method == "browser.open_split",
                   let params = payload["params"] as? [String: Any],
                   let rawURL = params["url"] as? String else {
-                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
             }
             return Self.v2Response(
                 id: id,
@@ -724,6 +735,10 @@ final class CMUXOpenCommandTests: XCTestCase {
             cliPath: cliPath,
             socketPath: socketPath,
             arguments: ["diff", "--unstaged"],
+            environmentOverrides: [
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+            ],
             currentDirectoryURL: repoURL
         )
 
@@ -1609,6 +1624,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         let socketPath = makeSocketPath("diff-pending")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
+        let workspaceId = UUID().uuidString.lowercased()
+        let surfaceId = UUID().uuidString.lowercased()
         let openedURLBox = AsyncValueBox<String?>(nil)
         let openedHTMLURLBox = AsyncValueBox<URL?>(nil)
         let pendingHTMLBox = AsyncValueBox<String?>(nil)
@@ -1622,11 +1639,20 @@ final class CMUXOpenCommandTests: XCTestCase {
         let serverClosed = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = Self.v2Payload(from: line),
                   let id = payload["id"] as? String,
-                  let method = payload["method"] as? String,
-                  method == "browser.open_split",
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "surface.list" {
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": surfaceId, "ref": "surface:1", "index": 1, "focused": true]]]
+                )
+            }
+            guard method == "browser.open_split",
                   let params = payload["params"] as? [String: Any],
                   let rawURL = params["url"] as? String else {
-                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
             }
             openedURLBox.set(rawURL)
             diffHadStartedWhenOpenedBox.set(FileManager.default.fileExists(atPath: diffStartedURL.path))
@@ -1650,6 +1676,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_FAKE_GIT_REPO_ROOT"] = repoURL.path
         environment["CMUX_FAKE_GIT_STARTED"] = diffStartedURL.path
         environment["CMUX_FAKE_GIT_RELEASE"] = releaseDiffURL.path
