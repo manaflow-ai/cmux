@@ -12565,6 +12565,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 hasWorkspaceManualUnreadOnPanel
             if isPanelUnread {
                 workspace.markPanelRead(panelId)
+                notificationStore.clearFocusedReadIndicator(forTabId: target.tabId, surfaceId: panelId)
                 if hasWorkspaceManualUnreadOnPanel {
                     _ = notificationStore.clearManualUnread(forTabId: target.tabId)
                 }
