@@ -5101,6 +5101,18 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 
+    func testDoesNotRouteLineFragmentFileURLIntoCmux() throws {
+        let url = try XCTUnwrap(URL(string: "file:///tmp/cmux-fixture.swift#L42:5"))
+
+        XCTAssertFalse(cmuxShouldRouteTerminalLocalFileURLInCmux(url))
+    }
+
+    func testRoutesPlainFileURLIntoCmuxWhenEligible() throws {
+        let url = URL(fileURLWithPath: "/tmp/cmux-fixture.swift")
+
+        XCTAssertTrue(cmuxShouldRouteTerminalLocalFileURLInCmux(url))
+    }
+
     func testResolvesRelativeFileSchemeAgainstTerminalCwd() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -1457,6 +1457,10 @@ private func cmuxIsLocalFileURL(_ url: URL) -> Bool {
     return host == nil || host?.isEmpty == true || host == "localhost"
 }
 
+func cmuxShouldRouteTerminalLocalFileURLInCmux(_ url: URL) -> Bool {
+    url.fragment == nil
+}
+
 private struct TerminalOpenURLActionContext: Sendable {
     let urlString: String
     let cwd: String?
@@ -4993,7 +4997,8 @@ class GhosttyApp {
 
         if cmuxIsLocalFileURL(target.url) {
             let fileURL = target.url
-            if let sourcePanelId = context.sourcePanelId,
+            if cmuxShouldRouteTerminalLocalFileURLInCmux(fileURL),
+               let sourcePanelId = context.sourcePanelId,
                let workspace = Self.sourceWorkspaceForOpenURLAction(
                     sourceWorkspaceId: context.sourceWorkspaceId,
                     sourcePanelId: sourcePanelId
