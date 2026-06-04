@@ -39,6 +39,9 @@
          location = "container:Packages/CmuxMobileRPC">
       </FileRef>
       <FileRef
+         location = "container:Packages/CmuxMobileShell">
+      </FileRef>
+      <FileRef
          location = "container:Packages/CmuxMobileShellModel">
       </FileRef>
       <FileRef

@@ -1,10 +1,10 @@
 import Testing
-@testable import CmuxMobileShellUI
+@testable import CmuxMobileWorkspace
 
 /// The pairing scanner only accepts `cmux-ios://` QR payloads. This guards the
-/// predicate the UI hands to ``CmuxMobileCamera`` so a generic QR code (a URL, a
+/// predicate the UI hands to the camera service so a generic QR code (a URL, a
 /// Wi-Fi join code) can never be mistaken for a pairing link.
-@Suite struct MobilePairingScannerPredicateTests {
+@Suite struct MobilePairingScannerPolicyTests {
     @Test(arguments: [
         ("cmux-ios://attach?ticket=abc", true),
         ("cmux-ios://", true),
@@ -13,6 +13,6 @@ import Testing
         ("", false),
     ])
     func acceptsOnlyPairingLinks(code: String, expected: Bool) {
-        #expect(mobilePairingScannerAcceptsCode(code) == expected)
+        #expect(MobilePairingScannerPolicy.acceptsCode(code) == expected)
     }
 }

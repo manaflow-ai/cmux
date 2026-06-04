@@ -1,3 +1,4 @@
+import CmuxMobileWorkspace
 import CmuxMobileCamera
 import CmuxMobileSupport
 import SwiftUI
@@ -24,7 +25,7 @@ struct QRCodeScannerView: UIViewControllerRepresentable {
         context.coordinator.observe(stream: stream)
         return QRCodeCaptureController(
             stream: stream,
-            accepts: mobilePairingScannerAcceptsCode,
+            accepts: MobilePairingScannerPolicy.acceptsCode,
             unavailableText: L10n.string("mobile.pairing.cameraUnavailable", defaultValue: "Camera Unavailable")
         )
     }
