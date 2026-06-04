@@ -17,8 +17,11 @@ public import Foundation
 /// concrete ``UpdateLogging`` and ``UpdateActionDelegate``.
 @MainActor
 public final class UpdateController {
+    /// Describes which passive update checks should run after updater startup.
     nonisolated public struct LaunchProbePlan: Equatable, Sendable {
+        /// Whether startup should immediately fetch update metadata.
         public let probesImmediately: Bool
+        /// Whether startup should schedule later passive metadata checks.
         public let schedulesPeriodicProbes: Bool
     }
 

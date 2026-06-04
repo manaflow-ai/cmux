@@ -202,12 +202,11 @@ final class PostHogAnalytics {
             block()
             return
         }
-        let semaphore = DispatchSemaphore(value: 0)
-        workQueue.async {
+        let item = DispatchWorkItem {
             block()
-            semaphore.signal()
         }
-        _ = semaphore.wait(timeout: .now() + timeout)
+        workQueue.async(execute: item)
+        _ = item.wait(timeout: .now() + timeout)
     }
 
     private func flushOnWorkQueue() {
