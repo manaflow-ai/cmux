@@ -1200,6 +1200,10 @@ class TabManager: ObservableObject {
     // slugs) off the main actor. Stateless; the reads are pure functions of the
     // directory argument.
     private let gitMetadataService: GitMetadataService
+    // Caps how many git-index parses run at once so a burst of per-panel probes
+    // (workspace restore, fallback timer, file-watch flurry) can't saturate
+    // every core (https://github.com/manaflow-ai/cmux/issues/4639).
+    private let gitProbeLimiter = GitProbeConcurrencyLimiter(maxConcurrent: 4)
 
     // Resolves GitHub PR badges (slug resolution, REST fetch, candidate
     // matching). Stateless; the repo cache stays here in
@@ -3005,29 +3009,31 @@ class TabManager: ObservableObject {
     private nonisolated func initialWorkspaceGitMetadataSnapshot(
         for directory: String
     ) async -> InitialWorkspaceGitMetadataSnapshot {
-        let metadata = await gitMetadataService.workspaceMetadata(for: directory)
-        guard metadata.isRepository else {
+        await gitProbeLimiter.run {
+            let metadata = await self.gitMetadataService.workspaceMetadata(for: directory)
+            guard metadata.isRepository else {
+                return InitialWorkspaceGitMetadataSnapshot(
+                    isRepository: false,
+                    branch: nil,
+                    isDirty: false,
+                    indexSignature: nil,
+                    indexContentSignature: nil,
+                    headSignature: nil,
+                    pullRequest: .notFound
+                )
+            }
+
+            let branch = GitMetadataService.normalizedBranchName(metadata.branch)
             return InitialWorkspaceGitMetadataSnapshot(
-                isRepository: false,
-                branch: nil,
-                isDirty: false,
-                indexSignature: nil,
-                indexContentSignature: nil,
-                headSignature: nil,
-                pullRequest: .notFound
+                isRepository: true,
+                branch: branch,
+                isDirty: metadata.isDirty,
+                indexSignature: metadata.indexSignature,
+                indexContentSignature: metadata.indexContentSignature,
+                headSignature: metadata.headSignature,
+                pullRequest: branch == nil ? .notFound : .deferred
             )
         }
-
-        let branch = GitMetadataService.normalizedBranchName(metadata.branch)
-        return InitialWorkspaceGitMetadataSnapshot(
-            isRepository: true,
-            branch: branch,
-            isDirty: metadata.isDirty,
-            indexSignature: metadata.indexSignature,
-            indexContentSignature: metadata.indexContentSignature,
-            headSignature: metadata.headSignature,
-            pullRequest: branch == nil ? .notFound : .deferred
-        )
     }
 
     func requestBackgroundWorkspaceLoad(for workspaceId: UUID) {
