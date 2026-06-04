@@ -6218,6 +6218,7 @@ final class WorkspaceRemoteSessionController {
     // override closure owns synchronization for any captured test-only state.
     nonisolated(unsafe) static var runProcessOverrideForTesting: ((String, [String], Data?, TimeInterval) throws -> (status: Int32, stdout: String, stderr: String))?
     nonisolated(unsafe) static var runProcessReadHandlesDidInstallForTesting: ((FileHandle, FileHandle) -> Void)?
+    nonisolated(unsafe) static var captureCommandStandardOutputOverrideForTesting: ((String, [String]) -> String?)?
 #endif
 
     enum PortScanKickReason: String {
@@ -8876,6 +8877,12 @@ final class WorkspaceRemoteSessionController {
         executablePath: String,
         arguments: [String]
     ) -> String? {
+#if DEBUG
+        if let override = captureCommandStandardOutputOverrideForTesting {
+            return override(executablePath, arguments)
+        }
+#endif
+
         let process = Process()
         let stdoutPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)

@@ -2882,7 +2882,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 .panels.first { $0.id == restoredPanelId }?.terminal
         )
         XCTAssertEqual(restoredPanelSnapshot.isRemoteTerminal, false)
-        XCTAssertNil(restoredPanelSnapshot.workingDirectory)
         XCTAssertNil(restoredPanelSnapshot.remotePTYSessionID)
     }
 

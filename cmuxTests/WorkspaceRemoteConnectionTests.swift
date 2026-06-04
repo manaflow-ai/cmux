@@ -1889,6 +1889,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let scpInvoked = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var scpDestination: String?
+        WorkspaceRemoteSessionController.captureCommandStandardOutputOverrideForTesting = { executablePath, arguments in
+            XCTAssertEqual(executablePath, "/bin/ps")
+            XCTAssertEqual(arguments, ["-axo", "pid=,ppid=,command="])
+            return ""
+        }
         WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
             let executableName = URL(fileURLWithPath: executable).lastPathComponent
             if executable == "/usr/bin/ssh" {
@@ -1940,7 +1945,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             XCTFail("unexpected executable \(executable)")
             return (status: 1, stdout: "", stderr: "unexpected executable")
         }
-        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+        defer {
+            WorkspaceRemoteSessionController.captureCommandStandardOutputOverrideForTesting = nil
+            WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil
+        }
 
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
