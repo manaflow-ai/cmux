@@ -5824,6 +5824,63 @@ async function applyCurrentBackgroundToTarget() {
   return applyBackgroundValueToTarget(state.settings.backgroundImage, target, { toast: true });
 }
 
+function activeBackgroundUseAsAppModel(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  const targetStatus = activeBackgroundTargetStatus(scope, workspace);
+  const model = activeBackgroundPanelViewModel(scope, workspace);
+  const background = normalizeBackgroundValue(model.background);
+  const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
+  const sourceLabel = scope === "all" ? "shared terminal background" : "pane background";
+  if (scope === "app") {
+    return {
+      active: false,
+      disabled: true,
+      title: "Select a terminal background target before using it as the app background."
+    };
+  }
+  if (!targetStatus.canTarget) {
+    return {
+      active: false,
+      disabled: true,
+      title: `${backgroundApplyTargetOption(scope, workspace).label} cannot use a background right now.`
+    };
+  }
+  if (model.mixed) {
+    return {
+      active: false,
+      disabled: true,
+      title: "Terminal backgrounds are mixed. Choose one shared terminal background first."
+    };
+  }
+  if (!background) {
+    return {
+      active: false,
+      disabled: true,
+      title: scope === "all"
+        ? "Set one shared terminal background first."
+        : "Choose a pane background before using it for the app."
+    };
+  }
+  const active = Boolean(appBackground && appBackground === background);
+  return {
+    active,
+    disabled: active,
+    title: active
+      ? `The app already uses this ${sourceLabel}.`
+      : `Use this ${sourceLabel} for the whole app.`
+  };
+}
+
+async function applySelectedBackgroundToApp(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  if (scope === "app") {
+    toast("Select a terminal background before using it for the app.");
+    return false;
+  }
+  if (scope === "pane") return applyPaneBackgroundToApp(activeTerminalPanelForSettings());
+  return applyWorkspaceTerminalBackgroundToApp(workspace);
+}
+
 async function applyPaneBackgroundToApp(panel = activeTerminalPanelForSettings()) {
   const terminalPanel = resolveTerminalPanel(panel);
   if (!terminalPanel) {
@@ -16633,11 +16690,16 @@ function activeBackgroundPanel(options = {}) {
   applyCurrent.dataset.backgroundAction = "apply-current";
   applyCurrent.title = `Use the whole-app background on ${targetLabel}`;
   applyCurrent.disabled = !state.settings.backgroundImage || !targetStatus.canTarget || targetStatus.scope === "app";
+  const useAsAppModel = activeBackgroundUseAsAppModel(targetStatus.scope);
+  const useAsApp = settingsActionButton(useAsAppModel.active ? "App active" : "Use as app", () => applySelectedBackgroundToApp(state.backgroundApplyTarget), "", "active background use selected target image as app whole window pane all terminals");
+  useAsApp.dataset.backgroundAction = "use-as-app";
+  useAsApp.disabled = useAsAppModel.disabled;
+  useAsApp.title = useAsAppModel.title;
   const clear = settingsActionButton(backgroundApplyTargetClearLabel(targetStatus.scope), clearBackgroundApplyTarget, "danger", "active background clear selected target app pane all terminals");
   clear.dataset.backgroundAction = "clear";
   clear.title = `Clear ${targetLabel}`;
   clear.disabled = !targetStatus.canTarget || !targetStatus.hasValue;
-  const scopeGroup = backgroundActionGroup("Target", "active background selected target app pane all terminals use app clear", [applyCurrent, clear]);
+  const scopeGroup = backgroundActionGroup("Target", "active background selected target app pane all terminals use app use as app clear", [applyCurrent, useAsApp, clear]);
   scopeGroup.classList.add("background-action-group-scope");
   actions.append(imageGroup, setupGroup, scopeGroup);
   if (options.tuning) {
@@ -16780,6 +16842,7 @@ function refreshBackgroundPreviewNodes() {
     const resetSetup = panel.querySelector('[data-background-action="reset-setup"]');
     const applyTyped = panel.querySelector('[data-background-action="apply-typed"]');
     const applyCurrent = panel.querySelector('[data-background-action="apply-current"]');
+    const useAsApp = panel.querySelector('[data-background-action="use-as-app"]');
     const open = panel.querySelector('[data-background-action="open"]');
     const clear = panel.querySelector('[data-background-action="clear"]');
     const resetTune = panel.querySelector('[data-background-action="reset-tune"]');
@@ -16832,6 +16895,12 @@ function refreshBackgroundPreviewNodes() {
     if (applyCurrent) {
       setDisabledIfChanged(applyCurrent, !state.settings.backgroundImage || !targetStatus.canTarget || targetStatus.scope === "app");
       setTitleIfChanged(applyCurrent, `Use the whole-app background on ${targetLabel}`);
+    }
+    if (useAsApp) {
+      const useAsAppModel = activeBackgroundUseAsAppModel(targetStatus.scope, workspace);
+      setDisabledIfChanged(useAsApp, useAsAppModel.disabled);
+      setTitleIfChanged(useAsApp, useAsAppModel.title);
+      setSettingsActionLabel(useAsApp, useAsAppModel.active ? "App active" : "Use as app");
     }
     if (open) {
       setDisabledIfChanged(open, !canOpenBackgroundImageSource(model.background));
