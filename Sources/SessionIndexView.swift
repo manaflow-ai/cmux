@@ -732,11 +732,29 @@ private func sessionRowMenuItems(
     if let onDelete, entry.isDeletable {
         Divider()
         Button(role: .destructive) {
+            guard confirmSessionTranscriptDelete(entry) else { return }
             _ = onDelete(entry)
         } label: {
             Text(String(localized: "sessionIndex.row.delete", defaultValue: "Delete from History"))
         }
     }
+}
+
+@MainActor
+private func confirmSessionTranscriptDelete(_ entry: SessionEntry) -> Bool {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = String(localized: "sessionIndex.deleteConfirm.title", defaultValue: "Delete Session Transcript?")
+    alert.informativeText = String(
+        format: String(
+            localized: "sessionIndex.deleteConfirm.message",
+            defaultValue: "This moves the transcript file for \"%@\" to Trash and removes it from Vault."
+        ),
+        entry.displayTitle
+    )
+    alert.addButton(withTitle: String(localized: "sessionIndex.deleteConfirm.confirm", defaultValue: "Move to Trash"))
+    alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+    return runCmuxModalAlert(alert) == .alertFirstButtonReturn
 }
 
 // MARK: - Session transcript preview

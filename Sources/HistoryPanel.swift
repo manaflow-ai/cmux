@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// A first-class workspace pane that browses the closed-item history (closed
 /// terminals, browsers, panes, workspaces, and windows) and lets the user reopen
