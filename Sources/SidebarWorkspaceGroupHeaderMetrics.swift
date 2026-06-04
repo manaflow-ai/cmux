@@ -54,23 +54,23 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     static let basePlusFrame: CGFloat = 18
 
     /// Scaled chevron glyph point size.
-    var chevronFontSize: CGFloat { Self.baseChevronFontSize }
+    var chevronFontSize: CGFloat { Self.baseChevronFontSize * fontScale }
     /// Scaled chevron tap-target frame edge.
-    var chevronFrame: CGFloat { Self.baseChevronFrame }
+    var chevronFrame: CGFloat { Self.baseChevronFrame * fontScale }
     /// Scaled folder/group icon point size.
-    var iconFontSize: CGFloat { Self.baseIconFontSize }
+    var iconFontSize: CGFloat { Self.baseIconFontSize * fontScale }
     /// Scaled folder/group icon frame edge.
-    var iconFrame: CGFloat { Self.baseIconFrame }
+    var iconFrame: CGFloat { Self.baseIconFrame * fontScale }
     /// Scaled group name point size.
-    var nameFontSize: CGFloat { Self.baseNameFontSize }
+    var nameFontSize: CGFloat { Self.baseNameFontSize * fontScale }
     /// Scaled unread badge point size.
-    var unreadFontSize: CGFloat { Self.baseUnreadFontSize }
+    var unreadFontSize: CGFloat { Self.baseUnreadFontSize * fontScale }
     /// Scaled unread badge horizontal padding.
-    var unreadHorizontalPadding: CGFloat { Self.baseUnreadHorizontalPadding }
+    var unreadHorizontalPadding: CGFloat { Self.baseUnreadHorizontalPadding * fontScale }
     /// Scaled unread badge vertical padding.
-    var unreadVerticalPadding: CGFloat { Self.baseUnreadVerticalPadding }
+    var unreadVerticalPadding: CGFloat { Self.baseUnreadVerticalPadding * fontScale }
     /// Scaled plus-button glyph point size.
-    var plusFontSize: CGFloat { Self.basePlusFontSize }
+    var plusFontSize: CGFloat { Self.basePlusFontSize * fontScale }
     /// Scaled plus-button frame edge.
-    var plusFrame: CGFloat { Self.basePlusFrame }
+    var plusFrame: CGFloat { Self.basePlusFrame * fontScale }
 }
