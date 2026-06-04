@@ -13994,6 +13994,7 @@ function renderSettingsInspector(options = {}) {
     colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color text typography reset default background foreground cursor save copy paste terminal profile setup reusable clipboard json font size line height padding history shell cursor blink shape");
     const terminalColorsReset = isTerminalColorPresetIdActive("cmux");
     const terminalTextDefault = terminalTextSettings.every((key) => state.settings[key] === defaultSettings[key]);
+    const terminalSetupDefault = terminalSetupSettingsAreDefault();
     const copyTerminalSetupAction = settingsActionButton("Copy setup", copyTerminalSetup, "", "terminal setup copy font size line height padding history color cursor shell clipboard json");
     copyTerminalSetupAction.title = "Copy the current terminal font, spacing, colors, cursor, and shell setup.";
     const pasteTerminalSetupAction = settingsActionButton("Paste setup", pasteTerminalSetup, "", "terminal setup paste font size line height padding history color cursor shell clipboard json");
@@ -14012,6 +14013,11 @@ function renderSettingsInspector(options = {}) {
     resetTerminalColors.title = terminalColorsReset
       ? "Terminal colors already match the cmux default."
       : "Reset background, text, and cursor colors to the cmux default.";
+    const resetTerminalSetupAction = settingsActionButton("Reset setup", resetTerminalSetupSettings, "", `terminal setup reset default font size line height padding history color cursor shell ${terminalSetupDefault ? "active current " : ""}`);
+    resetTerminalSetupAction.disabled = terminalSetupDefault;
+    resetTerminalSetupAction.title = terminalSetupDefault
+      ? "Terminal setup already uses defaults."
+      : "Reset terminal font, spacing, history, colors, cursor, and default shell.";
     colorActions.append(
       applySettingsProfileSaveLimit(
         settingsActionButton("Save terminal profile", saveCurrentTerminalProfile, "primary", "terminal save profile setup font color cursor shell reusable"),
@@ -14021,6 +14027,7 @@ function renderSettingsInspector(options = {}) {
       pasteTerminalSetupAction,
       copyTerminalColors,
       pasteTerminalColors,
+      resetTerminalSetupAction,
       resetTerminalText,
       resetTerminalColors
     );
@@ -25383,6 +25390,23 @@ function applyTerminalSetupUpdates(updates, options = {}) {
   }
   if (state.inspectorMode === "settings") renderSettingsInspector();
   toast(options.toastText || "Terminal setup applied.");
+  return true;
+}
+
+function terminalSetupSettingsAreDefault() {
+  return settingsKeysMatchDefaults(terminalSetupSettings);
+}
+
+function resetTerminalSetupSettings() {
+  const updates = {};
+  for (const key of terminalSetupSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Terminal setup already uses defaults.");
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast("Terminal setup reset.");
   return true;
 }
 
