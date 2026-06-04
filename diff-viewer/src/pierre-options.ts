@@ -78,6 +78,10 @@ export function codeViewUnsafeCSS(): string {
       container-type: scroll-state;
       container-name: sticky-header;
     }
+    [data-diffs-header=default] {
+      background-color: color-mix(in srgb, var(--cmux-diff-fg) 7%, transparent);
+      border-block: 1px solid var(--cmux-diff-border);
+    }
     [data-line-type='change-addition'] {
       color: var(--diffs-addition-base);
     }
