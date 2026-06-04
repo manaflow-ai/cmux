@@ -704,7 +704,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     struct TerminationSessionPersistencePlan: Equatable, Sendable {
         let saveSnapshot: Bool
         let includeScrollback: Bool
-        let preserveExistingScrollback: Bool
         let flushClosedItemHistory: Bool
     }
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
@@ -3784,7 +3783,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     private func saveSessionSnapshot(
         includeScrollback: Bool,
-        preserveExistingScrollback: Bool = false,
         removeWhenEmpty: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
@@ -3840,15 +3838,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         debugLogSessionSaveSnapshot(snapshot, includeScrollback: includeScrollback)
 #endif
-        let snapshotToPersist = preserveExistingScrollback
-            ? Self.sessionSnapshotByPreservingExistingScrollback(
-                in: snapshot,
-                existingSnapshot: SessionPersistenceStore.load()
-            )
-            : snapshot
-
         return persistSessionSnapshot(
-            snapshotToPersist,
+            snapshot,
             removeWhenEmpty: false,
             persistedGeometryData: persistedGeometryData,
             synchronously: writeSynchronously
@@ -3937,7 +3928,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return .init(
                 saveSnapshot: false,
                 includeScrollback: false,
-                preserveExistingScrollback: false,
                 flushClosedItemHistory: false
             )
         }
@@ -3945,16 +3935,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch reason {
         case .applicationWillTerminate, .workspaceWillPowerOff, .sessionDidResignWhileTerminating:
             return .init(
-                saveSnapshot: true,
+                saveSnapshot: false,
                 includeScrollback: false,
-                preserveExistingScrollback: true,
                 flushClosedItemHistory: true
             )
         case .updateRelaunch:
             return .init(
                 saveSnapshot: true,
                 includeScrollback: true,
-                preserveExistingScrollback: false,
                 flushClosedItemHistory: true
             )
         }
@@ -4095,13 +4083,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     private func saveSessionSnapshotIncludingProcessDetectedIndexes(
         includeScrollback: Bool,
-        preserveExistingScrollback: Bool = false,
         removeWhenEmpty: Bool = false
     ) -> Bool {
         let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
-            preserveExistingScrollback: preserveExistingScrollback,
             removeWhenEmpty: removeWhenEmpty,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
             surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
@@ -4136,7 +4122,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if plan.saveSnapshot {
             didSaveSnapshot = saveSessionSnapshotIncludingProcessDetectedIndexes(
                 includeScrollback: plan.includeScrollback,
-                preserveExistingScrollback: plan.preserveExistingScrollback,
                 removeWhenEmpty: false
             )
         }
@@ -4319,83 +4304,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             createdAt: Date().timeIntervalSince1970,
             windows: windows
         )
-    }
-
-    nonisolated static func sessionSnapshotByPreservingExistingScrollback(
-        in snapshot: AppSessionSnapshot,
-        existingSnapshot: AppSessionSnapshot?
-    ) -> AppSessionSnapshot {
-        guard let existingSnapshot else { return snapshot }
-        var mergedSnapshot = snapshot
-        var existingWindowsById: [UUID: SessionWindowSnapshot] = [:]
-        for window in existingSnapshot.windows {
-            guard let windowId = window.windowId else { continue }
-            existingWindowsById[windowId] = window
-        }
-
-        for windowIndex in mergedSnapshot.windows.indices {
-            let currentWindow = mergedSnapshot.windows[windowIndex]
-            let existingWindow = currentWindow.windowId.flatMap { existingWindowsById[$0] }
-                ?? (windowIndex < existingSnapshot.windows.count ? existingSnapshot.windows[windowIndex] : nil)
-            guard let existingWindow else { continue }
-            mergedSnapshot.windows[windowIndex] = sessionWindowSnapshotByPreservingExistingScrollback(
-                in: currentWindow,
-                existingWindow: existingWindow
-            )
-        }
-        return mergedSnapshot
-    }
-
-    private nonisolated static func sessionWindowSnapshotByPreservingExistingScrollback(
-        in window: SessionWindowSnapshot,
-        existingWindow: SessionWindowSnapshot
-    ) -> SessionWindowSnapshot {
-        var mergedWindow = window
-        var existingWorkspacesById: [UUID: SessionWorkspaceSnapshot] = [:]
-        for workspace in existingWindow.tabManager.workspaces {
-            guard let workspaceId = workspace.workspaceId else { continue }
-            existingWorkspacesById[workspaceId] = workspace
-        }
-
-        for workspaceIndex in mergedWindow.tabManager.workspaces.indices {
-            let currentWorkspace = mergedWindow.tabManager.workspaces[workspaceIndex]
-            let existingWorkspace = currentWorkspace.workspaceId.flatMap { existingWorkspacesById[$0] }
-                ?? (
-                    workspaceIndex < existingWindow.tabManager.workspaces.count
-                        ? existingWindow.tabManager.workspaces[workspaceIndex]
-                        : nil
-                )
-            guard let existingWorkspace else { continue }
-            mergedWindow.tabManager.workspaces[workspaceIndex] = sessionWorkspaceSnapshotByPreservingExistingScrollback(
-                in: currentWorkspace,
-                existingWorkspace: existingWorkspace
-            )
-        }
-        return mergedWindow
-    }
-
-    private nonisolated static func sessionWorkspaceSnapshotByPreservingExistingScrollback(
-        in workspace: SessionWorkspaceSnapshot,
-        existingWorkspace: SessionWorkspaceSnapshot
-    ) -> SessionWorkspaceSnapshot {
-        var mergedWorkspace = workspace
-        var existingPanelsById: [UUID: SessionPanelSnapshot] = [:]
-        for panel in existingWorkspace.panels {
-            existingPanelsById[panel.id] = panel
-        }
-        for panelIndex in mergedWorkspace.panels.indices {
-            var currentPanel = mergedWorkspace.panels[panelIndex]
-            guard currentPanel.terminal?.scrollback == nil,
-                  let existingScrollback = existingPanelsById[currentPanel.id]?.terminal?.scrollback,
-                  !existingScrollback.isEmpty,
-                  var terminal = currentPanel.terminal else {
-                continue
-            }
-            terminal.scrollback = existingScrollback
-            currentPanel.terminal = terminal
-            mergedWorkspace.panels[panelIndex] = currentPanel
-        }
-        return mergedWorkspace
     }
 
     private func sessionWindowSnapshot(
