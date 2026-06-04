@@ -274,8 +274,8 @@ extension AppDelegate {
                   let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
             manager.closeWorkspace(workspace, operationId: operationId)
             return !manager.tabs.contains(where: { $0.id == workspaceId })
-        case .window:
-            return false
+        case .window(let windowId):
+            return closeMainWindow(windowId: windowId, operationId: operationId)
         }
     }
 
@@ -283,7 +283,7 @@ extension AppDelegate {
     /// undo-close). Re-closing records the close again, so the item returns to
     /// history and can be reopened once more. Best-effort: if the reopened item
     /// is already gone, the redo target is cleared and this returns false.
-    /// Panels and workspaces only; window reopens are not redoable.
+    /// Single-item window redo is not supported; op-atomic redo handles windows.
     @discardableResult
     func redoLastReopen(preferredTabManager: TabManager? = nil) -> Bool {
         guard let target = ClosedItemHistoryStore.shared.redoTarget else { return false }

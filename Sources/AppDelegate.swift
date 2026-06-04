@@ -1060,6 +1060,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didBootstrapInitialMainWindow = false
     private var isTerminatingApp = false
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
+    private var closedWindowHistoryOperationIdsByWindowId: [UUID: UUID] = [:]
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
 #endif
@@ -5463,10 +5464,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didFocus
     }
 
-    func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
+    func closeMainWindow(windowId: UUID, recordHistory: Bool = true, operationId: UUID? = nil) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
         if !recordHistory {
             closedWindowHistorySuppressedWindowIds.insert(windowId)
+            closedWindowHistoryOperationIdsByWindowId.removeValue(forKey: windowId)
+        } else if let operationId {
+            closedWindowHistoryOperationIdsByWindowId[windowId] = operationId
         }
         window.performClose(nil)
         return true
@@ -5475,6 +5479,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func discardMainWindowWithoutClosedHistory(windowId: UUID) {
         guard let window = windowForMainWindowId(windowId) else { return }
         closedWindowHistorySuppressedWindowIds.insert(windowId)
+        closedWindowHistoryOperationIdsByWindowId.removeValue(forKey: windowId)
         window.close()
     }
 
@@ -8072,6 +8077,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
             if !shouldClose {
                 self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
+                self?.closedWindowHistoryOperationIdsByWindowId.removeValue(forKey: windowId)
             }
             return shouldClose
         }
@@ -15793,6 +15799,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func recordClosedWindowHistoryIfNeeded(for context: MainWindowContext) {
+        let operationId = closedWindowHistoryOperationIdsByWindowId.removeValue(forKey: context.windowId)
         let shouldSuppressClosedWindowHistory = closedWindowHistorySuppressedWindowIds.remove(context.windowId) != nil
         guard !shouldSuppressClosedWindowHistory,
               !isTerminatingApp,
@@ -15811,7 +15818,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             windowId: context.windowId,
             snapshot: snapshot,
             workspaceIds: context.tabManager.sessionSnapshotWorkspaceIds()
-        )))
+        )), operationId: operationId)
     }
 
 #if DEBUG
