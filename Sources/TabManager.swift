@@ -6676,10 +6676,21 @@ class TabManager: ObservableObject {
 
     private func windowTitle(for tab: Workspace?) -> String {
         guard let tab else { return "cmux" }
-        let trimmedTitle = resolvedWorkspaceDisplayTitle(for: tab)
+        let focusedPanelTitle = tab.focusedPanelId.flatMap { panelId in
+            tab.panelTitle(panelId: panelId)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let workspaceTitle = resolvedWorkspaceDisplayTitle(for: tab)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedTitle.isEmpty {
-            return trimmedTitle
+
+        var components: [String] = []
+        if !workspaceTitle.isEmpty {
+            components.append(workspaceTitle)
+        }
+        if let focusedPanelTitle, !focusedPanelTitle.isEmpty, !components.contains(focusedPanelTitle) {
+            components.append(focusedPanelTitle)
+        }
+        if !components.isEmpty {
+            return components.joined(separator: " - ")
         }
         let trimmedDirectory = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory

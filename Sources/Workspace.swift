@@ -11703,6 +11703,9 @@ final class Workspace: Identifiable, ObservableObject {
                 isLoading: loadingUpdate,
                 isAudioMuted: mutedUpdate
             )
+            if titleUpdate != nil {
+                self.notifyFocusedSurfaceTitleDidChangeIfNeeded(panelId: browserPanel.id)
+            }
         }
         panelSubscriptions[browserPanel.id] = subscription
         publishBrowserOpenTabSuggestion(for: browserPanel)
@@ -11771,6 +11774,7 @@ final class Workspace: Identifiable, ObservableObject {
                     hasCustomTitle: self.panelCustomTitles[markdownPanel.id] != nil,
                     isDirty: dirtyUpdate
                 )
+                self.notifyFocusedSurfaceTitleDidChangeIfNeeded(panelId: markdownPanel.id)
             }
         panelSubscriptions[markdownPanel.id] = subscription
     }
@@ -12075,6 +12079,7 @@ final class Workspace: Identifiable, ObservableObject {
             title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
+        notifyFocusedSurfaceTitleDidChangeIfNeeded(panelId: panelId)
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {
@@ -12162,6 +12167,11 @@ final class Workspace: Identifiable, ObservableObject {
         guard let panel = panels[panelId] else { return nil }
         let fallback = panelTitles[panelId] ?? panel.displayTitle
         return resolvedPanelTitle(panelId: panelId, fallback: fallback)
+    }
+
+    private func notifyFocusedSurfaceTitleDidChangeIfNeeded(panelId: UUID) {
+        guard panelId == focusedPanelId else { return }
+        owningTabManager?.focusedSurfaceTitleDidChange(tabId: id)
     }
 
     func setPanelPinned(panelId: UUID, pinned: Bool) {
