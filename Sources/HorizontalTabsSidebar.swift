@@ -66,6 +66,7 @@ struct HorizontalTabsSidebar: View {
                     scrollToSelectedWorkspace(proxy, selectedWorkspaceId: newValue)
                 }
                 .onChange(of: snapshots.map(\.id)) { _, _ in
+                    reconcileSelectionWithRenderedOrder()
                     scrollToSelectedWorkspace(proxy, selectedWorkspaceId: tabManager.selectedTabId)
                 }
             }
@@ -158,7 +159,7 @@ struct HorizontalTabsSidebar: View {
             customColorHex: customColorHex,
             unreadCount: unreadCount,
             shortcutLabel: shortcutLabel,
-            canCloseWorkspace: workspaceCount > 1,
+            canCloseWorkspace: workspaceCount > 1 && !isPinned && tabManager.canCloseWorkspace(workspace),
             accessibilityTitle: String.localizedStringWithFormat(
                 String(
                     localized: "accessibility.workspacePosition",
@@ -180,17 +181,27 @@ struct HorizontalTabsSidebar: View {
     }
 
     private func selectWorkspace(_ workspaceId: UUID) {
-        guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceId }) else { return }
-        let workspace = tabManager.tabs[index]
+        let renderedWorkspaceIds = workspaceSnapshots.map(\.id)
+        guard let index = renderedWorkspaceIds.firstIndex(of: workspaceId),
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            lastSidebarSelectionIndex = nil
+            return
+        }
         let modifiers = NSEvent.modifierFlags
         let isCommand = modifiers.contains(.command)
         let isShift = modifiers.contains(.shift)
         let wasSelected = tabManager.selectedTabId == workspaceId
+        let validLastIndex = lastSidebarSelectionIndex.flatMap {
+            renderedWorkspaceIds.indices.contains($0) ? $0 : nil
+        }
+        if lastSidebarSelectionIndex != nil, validLastIndex == nil {
+            lastSidebarSelectionIndex = nil
+        }
 
-        if isShift, let lastIndex = lastSidebarSelectionIndex {
+        if isShift, let lastIndex = validLastIndex {
             let lower = min(lastIndex, index)
             let upper = max(lastIndex, index)
-            let rangeIds = tabManager.tabs[lower...upper].map(\.id)
+            let rangeIds = Array(renderedWorkspaceIds[lower...upper])
             if isCommand {
                 selectedTabIds.formUnion(rangeIds)
             } else {
@@ -218,15 +229,34 @@ struct HorizontalTabsSidebar: View {
     }
 
     private func closeWorkspace(_ workspaceId: UUID) {
-        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-        tabManager.closeWorkspaceWithConfirmation(workspace)
-        let existingIds = Set(tabManager.tabs.map(\.id))
-        selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
-        if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
-            selectedTabIds = [selectedId]
+        let closeableWorkspaceIds = Set(
+            workspaceSnapshots
+                .filter(\.canCloseWorkspace)
+                .map(\.id)
+        )
+        guard closeableWorkspaceIds.contains(workspaceId),
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+              tabManager.closeWorkspaceWithConfirmation(workspace) else { return }
+        reconcileSelectionWithRenderedOrder()
+    }
+
+    private func reconcileSelectionWithRenderedOrder() {
+        let renderedWorkspaceIds = workspaceSnapshots.map(\.id)
+        let nextSelectionIds = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+            previousSelectionIds: selectedTabIds,
+            liveWorkspaceIds: renderedWorkspaceIds,
+            fallbackSelectedWorkspaceId: tabManager.selectedTabId
+        )
+        if selectedTabIds != nextSelectionIds {
+            selectedTabIds = nextSelectionIds
         }
-        if let selectedId = tabManager.selectedTabId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+        let nextAnchorIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndex(
+            preferredWorkspaceId: tabManager.selectedTabId,
+            selectedWorkspaceIds: nextSelectionIds,
+            liveWorkspaceIds: renderedWorkspaceIds
+        )
+        if lastSidebarSelectionIndex != nextAnchorIndex {
+            lastSidebarSelectionIndex = nextAnchorIndex
         }
     }
 }
