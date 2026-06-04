@@ -87,34 +87,88 @@ struct HorizontalTabsSidebar: View {
     private var workspaceSnapshots: [HorizontalWorkspaceTabSnapshot] {
         let tabs = tabManager.tabs
         let workspaceCount = tabs.count
+        let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
+            ($0.element.id, $0.offset)
+        })
+        let groupsById = Dictionary(uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0) })
+        let renderItems = SidebarWorkspaceRenderItem.renderItems(
+            tabs: tabs,
+            groupsById: groupsById
+        )
         let shortcut = KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
-        return tabs.enumerated().map { index, workspace in
-            let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
-                at: index,
-                workspaceCount: workspaceCount
-            )
-            let shortcutLabel = shortcutDigit.map { "\(shortcut.numberedDigitHintPrefix)\($0)" }
-            return HorizontalWorkspaceTabSnapshot(
-                id: workspace.id,
-                title: workspace.title,
-                isActive: tabManager.selectedTabId == workspace.id,
-                isMultiSelected: selectedTabIds.contains(workspace.id),
-                isPinned: workspace.isPinned,
-                customColorHex: workspace.customColor,
-                unreadCount: notificationStore.unreadCount(forTabId: workspace.id),
-                shortcutLabel: shortcutLabel,
-                canCloseWorkspace: workspaceCount > 1,
-                accessibilityTitle: String.localizedStringWithFormat(
-                    String(
-                        localized: "accessibility.workspacePosition",
-                        defaultValue: "%1$@, workspace %2$lld of %3$lld"
-                    ),
-                    workspace.title,
-                    Int64(index + 1),
-                    Int64(workspaceCount)
+        return renderItems.compactMap { item in
+            switch item {
+            case .groupHeader(let group, let memberWorkspaceIds):
+                guard let anchorWorkspace = workspaceById[group.anchorWorkspaceId] else { return nil }
+                let anchorUnreadCount: Int
+                if group.isCollapsed {
+                    anchorUnreadCount = memberWorkspaceIds.reduce(0) { partial, workspaceId in
+                        partial + notificationStore.unreadCount(forTabId: workspaceId)
+                    }
+                } else {
+                    anchorUnreadCount = notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
+                }
+                return workspaceSnapshot(
+                    workspace: anchorWorkspace,
+                    title: group.name,
+                    index: tabIndexById[group.anchorWorkspaceId] ?? 0,
+                    workspaceCount: workspaceCount,
+                    shortcut: shortcut,
+                    isPinned: group.isPinned,
+                    customColorHex: group.customColor ?? anchorWorkspace.customColor,
+                    unreadCount: anchorUnreadCount
                 )
-            )
+            case .workspace(let workspace):
+                return workspaceSnapshot(
+                    workspace: workspace,
+                    title: workspace.title,
+                    index: tabIndexById[workspace.id] ?? 0,
+                    workspaceCount: workspaceCount,
+                    shortcut: shortcut,
+                    isPinned: workspace.isPinned,
+                    customColorHex: workspace.customColor,
+                    unreadCount: notificationStore.unreadCount(forTabId: workspace.id)
+                )
+            }
         }
+    }
+
+    private func workspaceSnapshot(
+        workspace: Workspace,
+        title: String,
+        index: Int,
+        workspaceCount: Int,
+        shortcut: StoredShortcut,
+        isPinned: Bool,
+        customColorHex: String?,
+        unreadCount: Int
+    ) -> HorizontalWorkspaceTabSnapshot {
+        let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
+            at: index,
+            workspaceCount: workspaceCount
+        )
+        let shortcutLabel = shortcutDigit.map { "\(shortcut.numberedDigitHintPrefix)\($0)" }
+        return HorizontalWorkspaceTabSnapshot(
+            id: workspace.id,
+            title: title,
+            isActive: tabManager.selectedTabId == workspace.id,
+            isMultiSelected: selectedTabIds.contains(workspace.id),
+            isPinned: isPinned,
+            customColorHex: customColorHex,
+            unreadCount: unreadCount,
+            shortcutLabel: shortcutLabel,
+            canCloseWorkspace: workspaceCount > 1,
+            accessibilityTitle: String.localizedStringWithFormat(
+                String(
+                    localized: "accessibility.workspacePosition",
+                    defaultValue: "%1$@, workspace %2$lld of %3$lld"
+                ),
+                title,
+                Int64(index + 1),
+                Int64(workspaceCount)
+            )
+        )
     }
 
     private func scrollToSelectedWorkspace(
