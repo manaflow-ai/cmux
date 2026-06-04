@@ -293,11 +293,7 @@ final class FeedSidebarUITests: XCTestCase {
     }
 
     private func launchAndEnsureUsable(_ app: XCUIApplication) {
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
-            app.launch()
-        }
+        app.launch()
 
         if app.state == .runningForeground {
             return
