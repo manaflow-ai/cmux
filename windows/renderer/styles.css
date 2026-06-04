@@ -8215,6 +8215,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   height: 8px;
 }
 
+.layout-settings-preview.palette-actions-hidden .layout-preview-overlay span:nth-child(2) {
+  display: none;
+}
+
 .layout-preview-switcher {
   position: absolute;
   top: 88px;

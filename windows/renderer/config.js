@@ -31,6 +31,7 @@ export const defaultSettings = {
   overlayStyle: "subtle",
   switcherStyle: "subtle",
   paletteDensity: "balanced",
+  paletteQuickActionsMode: "auto",
   workspaceRowSize: "auto",
   workspaceActiveStyle: "filled",
   workspaceColorStyle: "dot",
@@ -430,6 +431,11 @@ export const paletteDensityOptions = [
   ["roomy", label("paletteDensity.roomy", "Roomy"), label("paletteDensity.roomy.body", "Larger command rows")]
 ];
 
+export const paletteQuickActionsModeOptions = [
+  ["auto", label("paletteQuickActions.auto", "Auto"), label("paletteQuickActions.auto.body", "Show quick actions before searching")],
+  ["hidden", label("paletteQuickActions.hidden", "Hidden"), label("paletteQuickActions.hidden.body", "Show command results only")]
+];
+
 export const workspaceRowSizeOptions = [
   ["auto", label("workspaceRowSize.auto", "Auto"), label("workspaceRowSize.auto.body", "Follow density")],
   ["compact", label("workspaceRowSize.compact", "Compact"), label("workspaceRowSize.compact.body", "More workspaces visible")],
@@ -672,6 +678,7 @@ export const settingsPresets = [
       overlayStyle: "subtle",
       switcherStyle: "subtle",
       paletteDensity: "balanced",
+      paletteQuickActionsMode: "auto",
       workspaceRowSize: "auto",
       workspaceActiveStyle: "filled",
       workspaceColorStyle: "dot",
@@ -747,6 +754,7 @@ export const settingsPresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       paletteDensity: "compact",
+      paletteQuickActionsMode: "hidden",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -822,6 +830,7 @@ export const settingsPresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       paletteDensity: "compact",
+      paletteQuickActionsMode: "hidden",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -898,6 +907,7 @@ export const settingsPresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       paletteDensity: "compact",
+      paletteQuickActionsMode: "hidden",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "line",
       workspaceColorStyle: "edge",
@@ -973,6 +983,7 @@ export const settingsPresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       paletteDensity: "compact",
+      paletteQuickActionsMode: "hidden",
       workspaceRowSize: "compact",
       workspaceActiveStyle: "subtle",
       workspaceColorStyle: "dot",
@@ -1048,6 +1059,7 @@ export const settingsPresets = [
       overlayStyle: "solid",
       switcherStyle: "solid",
       paletteDensity: "roomy",
+      paletteQuickActionsMode: "auto",
       workspaceRowSize: "roomy",
       workspaceActiveStyle: "line",
       workspaceColorStyle: "edge",
@@ -1123,6 +1135,7 @@ export const settingsPresets = [
       overlayStyle: "solid",
       switcherStyle: "solid",
       paletteDensity: "roomy",
+      paletteQuickActionsMode: "auto",
       workspaceRowSize: "roomy",
       workspaceActiveStyle: "filled",
       workspaceColorStyle: "tint",
