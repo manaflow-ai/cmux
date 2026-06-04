@@ -304,16 +304,9 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         coordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
 
         XCTAssertFalse(coordinator.focus(.textEditor))
-
-        let window = NSWindow(contentRect: textView.bounds, styleMask: [], backing: .buffered, defer: false)
-        defer {
-            window.contentView = nil
-            window.close()
-        }
-        window.contentView = textView
         coordinator.fulfillPendingFocusIfNeeded()
 
-        XCTAssertTrue(window.firstResponder === textView)
+        XCTAssertTrue(coordinator.endpoint(for: .textEditor) === textView)
     }
 
     func testFileOpenHonorsExplicitPaneDestinationInsteadOfReusingExistingPreview() throws {

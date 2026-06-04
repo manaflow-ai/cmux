@@ -9377,7 +9377,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     markedTextBefore: markedTextBefore
                 )
             let suppressComposingFallbackText = keyEvent.composing
-            if let text = shiftBackquoteEscapeFallbackText(for: event) ?? textForKeyEvent(translationEvent) {
+            if let text = Self.shiftBackquoteEscapeFallbackText(for: event) ?? textForKeyEvent(translationEvent) {
                 if shouldSendText(text),
                    !suppressShiftSpaceFallbackText,
                    !suppressComposingFallbackText {
@@ -9675,7 +9675,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return chars
     }
 
-    private func shiftBackquoteEscapeFallbackText(for event: NSEvent) -> String? {
+    static func shiftBackquoteEscapeFallbackText(for event: NSEvent) -> String? {
         guard event.keyCode == 50 else { return nil }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.shift),

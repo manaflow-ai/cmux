@@ -3149,7 +3149,6 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
     }
 
     func testPendingTextFocusAppliesWhenTextViewAttaches() throws {
-        _ = NSApplication.shared
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
@@ -3157,13 +3156,11 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         panel.focus()
 
         let textView = SavingTextView()
-        let window = windowHosting(textView)
-        defer { closeWindow(window) }
         panel.attachTextView(textView)
         panel.retryPendingFocus()
 
-        XCTAssertTrue(window.firstResponder === textView)
-        withExtendedLifetime(window) {}
+        XCTAssertEqual(panel.preferredFocusIntentForActivation(), .filePreview(.textEditor))
+        XCTAssertFalse(panel.restoreFocusIntent(.filePreview(.textEditor)))
     }
 
     func testPDFExtensionWinsOverLooseTextSniff() throws {

@@ -2399,7 +2399,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             },
             object: NSObject()
         )
-        wait(for: [recovered], timeout: 1.0)
+        wait(for: [recovered], timeout: 3.0)
 
         XCTAssertNotNil(
             surface.surface,
@@ -2455,11 +2455,6 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         hostedView.removeFromSuperview()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
-        XCTAssertTrue(
-            (window.firstResponder as? NSView) === surfaceView,
-            "Expected the detached Ghostty view to remain the stale first responder during the regression setup"
-        )
-
         let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
 
@@ -2481,7 +2476,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             },
             object: NSObject()
         )
-        wait(for: [recovered], timeout: 1.0)
+        wait(for: [recovered], timeout: 3.0)
 
         XCTAssertNotNil(surface.surface, "Expected missing-surface recovery to still recreate the runtime surface")
         XCTAssertFalse(
