@@ -1015,10 +1015,48 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #if DEBUG
         if let accessibilityText, !accessibilityText.isEmpty {
             debugAccessibilityProxy.accessibilityLabel = accessibilityText
+            wantsTrailingAccessibilityTextRead = false
+        } else {
+            // This chunk's read was throttled (or came back empty); arm the
+            // display-link-driven trailing read so the FINAL state of a burst
+            // still lands on the label once output goes quiet. Without this a
+            // quiescent stream (e.g. a TUI alt-screen replay that arrives as
+            // one sub-500ms burst) leaves the label stale forever — the
+            // XCUITest "Rows: [\"0:\"]" failure mode.
+            wantsTrailingAccessibilityTextRead = true
         }
         onOutputProcessedForTesting?()
         #endif
     }
+
+    #if DEBUG
+    /// Trailing-edge accessibility read state; see ``handleOutputApplied``.
+    private var wantsTrailingAccessibilityTextRead = false
+    private var trailingAccessibilityTextReadInFlight = false
+    /// Output must be quiet this long before the trailing read fires (just
+    /// past the session's 500 ms in-burst throttle).
+    private static let trailingAccessibilityTextQuietSeconds: CFTimeInterval = 0.6
+
+    /// Fires at most one session-executor text read once output has been
+    /// quiet, so the accessibility label converges on the final rendered
+    /// state. Display-link driven (no timers); DEBUG/XCUITest-only.
+    private func refreshTrailingAccessibilityTextIfNeeded(now: CFTimeInterval) {
+        guard wantsTrailingAccessibilityTextRead,
+              !trailingAccessibilityTextReadInFlight,
+              now - lastOutputAppliedTime > Self.trailingAccessibilityTextQuietSeconds,
+              let session else { return }
+        wantsTrailingAccessibilityTextRead = false
+        trailingAccessibilityTextReadInFlight = true
+        Task { @MainActor [weak self] in
+            let text = await session.longestReadableText()
+            guard let self else { return }
+            self.trailingAccessibilityTextReadInFlight = false
+            if let text, !text.isEmpty {
+                self.debugAccessibilityProxy.accessibilityLabel = text
+            }
+        }
+    }
+    #endif
 
     private func scrollInitialOutputToBottomIfNeeded() {
         guard shouldScrollInitialOutputToBottom, let session else { return }
@@ -1247,6 +1285,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 + "sinceOutput=\(sinceOutputMs)ms"
             )
         }
+        refreshTrailingAccessibilityTextIfNeeded(now: nowHeartbeat)
         #endif
         // Apply at most one coalesced zoom per frame. This only changes the
         // font; the geometry resync is deferred until zoom settles.
