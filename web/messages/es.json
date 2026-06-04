@@ -160,7 +160,8 @@
       "buildDistribution": "Compilación y distribución",
       "upstreamDependencies": "Dependencias upstream",
       "archived": "Archivados"
-    }
+    },
+    "section": "comunidad"
   },
   "blog": {
     "title": "Blog",
@@ -1258,6 +1259,13 @@
       "intro": "Esta página abre reglas en el espacio de trabajo cmux actual.",
       "fallback": "cmux muestra las reglas primero y pregunta antes de pegarlas en el espacio de trabajo actual. Si cmux no se abre, instale cmux y haga clic en Abrir en cmux nuevamente."
     }
+  },
+  "download": {
+    "section": "descargar",
+    "metaTitle": "Gracias por descargar cmux",
+    "metaDescription": "Tu descarga de cmux está comenzando. Explora la documentación, únete al Discord y sigue a cmux en X.",
+    "heading": "¡Gracias por descargar cmux!",
+    "subtext": "Haz clic <link>aquí</link> si tu descarga no ha comenzado."
   },
   "testimonialSubtitles": {
     "steipete": "Creador de OpenClaw. Fundador de PSPDFKit."

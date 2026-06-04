@@ -160,7 +160,8 @@
       "buildDistribution": "Build og distribution",
       "upstreamDependencies": "Upstream-afhængigheder",
       "archived": "Arkiveret"
-    }
+    },
+    "section": "fællesskab"
   },
   "blog": {
     "title": "Blog",
@@ -1258,6 +1259,13 @@
       "intro": "Denne side åbner regler i det aktuelle cmux-arbejdsområde.",
       "fallback": "cmux viser først reglerne og spørger, før de indsættes i det aktuelle arbejdsområde. Hvis cmux ikke åbner, skal du installere cmux og klikke på Åbn i cmux igen."
     }
+  },
+  "download": {
+    "section": "download",
+    "metaTitle": "Tak fordi du downloadede cmux",
+    "metaDescription": "Dit cmux-download starter. Udforsk dokumentationen, deltag i Discord, og følg cmux på X.",
+    "heading": "Tak fordi du downloadede cmux!",
+    "subtext": "Klik <link>her</link>, hvis dit download ikke er startet."
   },
   "testimonialSubtitles": {
     "steipete": "Skaber af OpenClaw. Grundlægger af PSPDFKit."

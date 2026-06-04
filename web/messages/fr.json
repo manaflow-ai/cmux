@@ -160,7 +160,8 @@
       "buildDistribution": "Build et distribution",
       "upstreamDependencies": "Dépendances upstream",
       "archived": "Archivés"
-    }
+    },
+    "section": "communauté"
   },
   "blog": {
     "title": "Blog",
@@ -1258,6 +1259,13 @@
       "intro": "Cette page ouvre les règles dans l'espace de travail cmux actuel.",
       "fallback": "cmux affiche d'abord les règles et demande avant de les coller dans l'espace de travail actuel. Si cmux ne s'ouvre pas, installez cmux et cliquez à nouveau sur Ouvrir dans cmux."
     }
+  },
+  "download": {
+    "section": "télécharger",
+    "metaTitle": "Merci d'avoir téléchargé cmux",
+    "metaDescription": "Votre téléchargement de cmux démarre. Explorez la documentation, rejoignez le Discord et suivez cmux sur X.",
+    "heading": "Merci d'avoir téléchargé cmux !",
+    "subtext": "Cliquez <link>ici</link> si votre téléchargement n'a pas démarré."
   },
   "testimonialSubtitles": {
     "steipete": "Créateur d’OpenClaw. Fondateur de PSPDFKit."

@@ -160,7 +160,8 @@
       "buildDistribution": "Build & Distribution",
       "upstreamDependencies": "Upstream Dependencies",
       "archived": "Archived"
-    }
+    },
+    "section": "community"
   },
   "blog": {
     "title": "Blog",
@@ -1496,6 +1497,13 @@
       "intro": "This page opens rules in the current cmux workspace.",
       "fallback": "cmux shows the rules first and asks before pasting them into the current workspace. If cmux does not open, install cmux and click Open in cmux again."
     }
+  },
+  "download": {
+    "section": "download",
+    "metaTitle": "Thanks for downloading cmux",
+    "metaDescription": "Your cmux download is starting. Explore the docs, join the Discord, and follow cmux on X.",
+    "heading": "Thanks for downloading cmux!",
+    "subtext": "Click <link>here</link> if your download hasn't started."
   },
   "legal": {
     "privacyPolicy": "Privacy Policy",

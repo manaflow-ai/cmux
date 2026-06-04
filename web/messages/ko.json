@@ -160,7 +160,8 @@
       "buildDistribution": "빌드 및 배포",
       "upstreamDependencies": "업스트림 의존성",
       "archived": "보관됨"
-    }
+    },
+    "section": "커뮤니티"
   },
   "blog": {
     "title": "블로그",
@@ -1258,6 +1259,13 @@
       "intro": "이 페이지는 현재 cmux 작업 공간의 규칙을 엽니다.",
       "fallback": "cmux는 규칙을 먼저 표시하고 이를 현재 작업 공간에 붙여넣기 전에 묻습니다. cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭합니다."
     }
+  },
+  "download": {
+    "section": "다운로드",
+    "metaTitle": "cmux를 다운로드해 주셔서 감사합니다",
+    "metaDescription": "cmux 다운로드가 시작됩니다. 문서를 살펴보고 Discord에 참여하고 X에서 cmux를 팔로우하세요.",
+    "heading": "cmux를 다운로드해 주셔서 감사합니다!",
+    "subtext": "다운로드가 시작되지 않으면 <link>여기</link>를 클릭하세요."
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw 개발자. PSPDFKit 창립자."

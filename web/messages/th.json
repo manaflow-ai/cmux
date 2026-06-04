@@ -160,7 +160,8 @@
       "buildDistribution": "การ build และการแจกจ่าย",
       "upstreamDependencies": "การพึ่งพา upstream",
       "archived": "เก็บถาวร"
-    }
+    },
+    "section": "ชุมชน"
   },
   "blog": {
     "title": "บล็อก",
@@ -1258,6 +1259,13 @@
       "intro": "หน้านี้จะเปิดกฎในพื้นที่ทำงาน cmux ปัจจุบัน",
       "fallback": "cmux จะแสดงกฎก่อนและถามก่อนที่จะวางลงในพื้นที่ทำงานปัจจุบัน หาก cmux ไม่เปิดขึ้น ให้ติดตั้ง cmux แล้วคลิก Open in cmux อีกครั้ง"
     }
+  },
+  "download": {
+    "section": "ดาวน์โหลด",
+    "metaTitle": "ขอบคุณที่ดาวน์โหลด cmux",
+    "metaDescription": "การดาวน์โหลด cmux กำลังเริ่มต้น สำรวจเอกสาร เข้าร่วม Discord และติดตาม cmux บน X",
+    "heading": "ขอบคุณที่ดาวน์โหลด cmux!",
+    "subtext": "คลิก<link>ที่นี่</link>หากการดาวน์โหลดยังไม่เริ่ม"
   },
   "testimonialSubtitles": {
     "steipete": "ผู้สร้าง OpenClaw ผู้ก่อตั้ง PSPDFKit"

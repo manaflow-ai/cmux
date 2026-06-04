@@ -160,7 +160,8 @@
       "buildDistribution": "建置和發佈",
       "upstreamDependencies": "上游相依項",
       "archived": "已封存"
-    }
+    },
+    "section": "社群"
   },
   "blog": {
     "title": "部落格",
@@ -1258,6 +1259,13 @@
       "intro": "此頁面開啟目前 cmux 工作區中的規則。",
       "fallback": "cmux 首先顯示規則並在將它們貼到目前工作區之前進行詢問。如果 cmux 未開啟，請安裝 cmux 並再次按一下「在 cmux 中開啟」。"
     }
+  },
+  "download": {
+    "section": "下載",
+    "metaTitle": "感謝下載 cmux",
+    "metaDescription": "您的 cmux 下載即將開始。瀏覽文件、加入 Discord，並在 X 上追蹤 cmux。",
+    "heading": "感謝下載 cmux！",
+    "subtext": "如果下載沒有開始，請點擊<link>這裡</link>。"
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw 建立者。PSPDFKit 創辦人。"
