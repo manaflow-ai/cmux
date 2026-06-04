@@ -19,7 +19,9 @@ final class CustomSidebarModel {
     }
 
     private(set) var state: State = .missing
-    let fileURL: URL
+    private var fileURL: URL
+    private let directoryURL: URL
+    private let sidebarName: String
 
     private var reloadObserver: NSObjectProtocol?
 
@@ -33,6 +35,8 @@ final class CustomSidebarModel {
 
     init(fileURL: URL) {
         self.fileURL = fileURL
+        directoryURL = fileURL.deletingLastPathComponent()
+        sidebarName = fileURL.deletingPathExtension().lastPathComponent
     }
 
     /// Interprets the current Swift source against `dataContext`, reusing a
@@ -82,6 +86,7 @@ final class CustomSidebarModel {
 
     /// Re-reads the file: stores `.swift` source verbatim, decodes `.json`.
     func reload() {
+        fileURL = preferredFileURL()
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             state = .missing
             return
@@ -107,7 +112,20 @@ final class CustomSidebarModel {
         guard let names, !names.isEmpty else {
             return true
         }
-        let name = fileURL.deletingPathExtension().lastPathComponent
-        return names.contains(name)
+        return names.contains(sidebarName)
+    }
+
+    private func preferredFileURL() -> URL {
+        let swiftURL = directoryURL.appendingPathComponent("\(sidebarName).swift")
+        if FileManager.default.fileExists(atPath: swiftURL.path) {
+            return swiftURL
+        }
+
+        let jsonURL = directoryURL.appendingPathComponent("\(sidebarName).json")
+        if FileManager.default.fileExists(atPath: jsonURL.path) {
+            return jsonURL
+        }
+
+        return fileURL
     }
 }

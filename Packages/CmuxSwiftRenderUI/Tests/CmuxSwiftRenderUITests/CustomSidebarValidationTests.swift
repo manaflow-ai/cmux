@@ -61,6 +61,44 @@ struct CustomSidebarValidationTests {
         #expect(report.entries.first?.errorMessage == "Sidebar file is missing.")
     }
 
+    @MainActor
+    @Test("model re-resolves preferred file kind on reload")
+    func modelReresolvesPreferredFileKind() throws {
+        let directory = try temporaryDirectory()
+        let jsonURL = directory.appendingPathComponent("finder.json")
+        let swiftURL = directory.appendingPathComponent("finder.swift")
+
+        try """
+        {"version":1,"root":{"type":"text","text":"JSON"}}
+        """.write(to: jsonURL, atomically: true, encoding: .utf8)
+
+        let model = CustomSidebarModel(fileURL: jsonURL)
+        model.reload()
+        guard case .json = model.state else {
+            Issue.record("Expected JSON sidebar state before Swift file exists")
+            return
+        }
+
+        try """
+        Text("Swift")
+        """.write(to: swiftURL, atomically: true, encoding: .utf8)
+
+        model.reload()
+        guard case let .swiftSource(source) = model.state else {
+            Issue.record("Expected Swift sidebar state after Swift file is added")
+            return
+        }
+        #expect(source.contains("Text(\"Swift\")"))
+
+        try FileManager.default.removeItem(at: swiftURL)
+
+        model.reload()
+        guard case .json = model.state else {
+            Issue.record("Expected JSON sidebar state after Swift file is removed")
+            return
+        }
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-sidebar-validation-\(UUID().uuidString)", isDirectory: true)
