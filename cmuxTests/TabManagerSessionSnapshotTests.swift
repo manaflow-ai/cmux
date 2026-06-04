@@ -1220,8 +1220,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             var snapshot = workspace.sessionSnapshot(includeScrollback: false)
             snapshot.customTitle = title
             return ClosedItemHistoryRecord(
-                operationId: operationId,
                 closedAt: Date(timeIntervalSince1970: closedAt),
+                operationId: operationId,
                 entry: .workspace(ClosedWorkspaceHistoryEntry(
                     workspaceId: UUID(),
                     windowId: nil,

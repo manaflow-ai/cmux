@@ -5464,6 +5464,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didFocus
     }
 
+    @discardableResult
     func closeMainWindow(windowId: UUID, recordHistory: Bool = true, operationId: UUID? = nil) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
         if !recordHistory {
