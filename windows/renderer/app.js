@@ -22041,6 +22041,43 @@ const performanceTuningPresets = [
   }
 ];
 
+function performanceBackgroundWorkload(workspace = activeWorkspace()) {
+  const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
+  const terminalBackgroundCount = workspaceTerminalPanels(workspace)
+    .filter((panel) => normalizeBackgroundValue(panel.backgroundImage))
+    .length;
+  if (appBackground && terminalBackgroundCount) {
+    return {
+      hasImage: true,
+      label: `App + ${terminalBackgroundCount} terminal${terminalBackgroundCount === 1 ? "" : "s"}`,
+      appBackground,
+      terminalBackgroundCount
+    };
+  }
+  if (appBackground) {
+    return {
+      hasImage: true,
+      label: "App background",
+      appBackground,
+      terminalBackgroundCount
+    };
+  }
+  if (terminalBackgroundCount) {
+    return {
+      hasImage: true,
+      label: `${terminalBackgroundCount} terminal background${terminalBackgroundCount === 1 ? "" : "s"}`,
+      appBackground,
+      terminalBackgroundCount
+    };
+  }
+  return {
+    hasImage: false,
+    label: "No image",
+    appBackground,
+    terminalBackgroundCount
+  };
+}
+
 const performanceHealthCheckDefinitions = [
   {
     id: "adaptiveGuard",
@@ -22078,21 +22115,22 @@ const performanceHealthCheckDefinitions = [
   {
     id: "backgroundWeight",
     label: "Background weight",
-    body: "Keeps images usable while removing glass, high-opacity background work, and transparent chrome.",
+    body: "Keeps app and terminal background images usable while removing glass, high-opacity background work, and transparent chrome.",
     actionLabel: "Lighten",
     readyLabel: "Light",
-    issue: () => Boolean(state.settings.backgroundImage) && (
+    issue: () => performanceBackgroundWorkload().hasImage && (
       state.settings.backgroundEffects !== "flat"
       || state.settings.backgroundChromeMode !== "readable"
       || state.settings.backgroundOpacity > performanceHealthBackgroundOpacityLimit
       || state.settings.backgroundBlur > 0
     ),
     meta: () => {
-      if (!state.settings.backgroundImage) return "No image";
-      if (state.settings.backgroundEffects !== "flat") return optionLabel(backgroundEffectsOptions, state.settings.backgroundEffects, state.settings.backgroundEffects);
-      if (state.settings.backgroundChromeMode !== "readable") return `${optionLabel(backgroundChromeOptions, state.settings.backgroundChromeMode, state.settings.backgroundChromeMode)} chrome`;
-      if (state.settings.backgroundBlur > 0) return `${state.settings.backgroundBlur}px soften`;
-      return `${state.settings.backgroundOpacity}% opacity`;
+      const workload = performanceBackgroundWorkload();
+      if (!workload.hasImage) return "No image";
+      if (state.settings.backgroundEffects !== "flat") return `${workload.label} / ${optionLabel(backgroundEffectsOptions, state.settings.backgroundEffects, state.settings.backgroundEffects)}`;
+      if (state.settings.backgroundChromeMode !== "readable") return `${workload.label} / ${optionLabel(backgroundChromeOptions, state.settings.backgroundChromeMode, state.settings.backgroundChromeMode)} chrome`;
+      if (state.settings.backgroundBlur > 0) return `${workload.label} / ${state.settings.backgroundBlur}px soften`;
+      return `${workload.label} / ${state.settings.backgroundOpacity}% opacity`;
     },
     updates: () => ({
       backgroundEffects: "flat",
@@ -22100,7 +22138,7 @@ const performanceHealthCheckDefinitions = [
       backgroundOpacity: Math.min(state.settings.backgroundOpacity, performanceHealthBackgroundOpacityLimit),
       backgroundBlur: 0
     }),
-    search: "background image opacity soften blur glass effects wallpaper slow chrome readable soft immersive"
+    search: "background image terminal pane app opacity soften blur glass effects wallpaper slow chrome readable soft immersive"
   },
   {
     id: "surfaceDepth",
