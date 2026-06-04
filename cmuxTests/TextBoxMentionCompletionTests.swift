@@ -976,6 +976,37 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionCandidateIndexDoesNotReturnUnvalidatedNucleoRows() {
+        let skillNames = [
+            "agent-browser",
+            "agent-cli-integration",
+            "algorithmic-complexity-audit",
+            "auto-issue",
+            "cleanup-dev-builds",
+            "close-issues",
+            "pi-agent-rust",
+            "xcodebuildmcp-cli"
+        ] + (0..<40).map { String(format: "zzz-distractor-%02d", $0) }
+        let candidates = skillNames.map { skillName in
+            TextBoxMentionCandidate(
+                title: "/\(skillName)",
+                subtitle: "/tmp/skills/\(skillName)/SKILL.md",
+                targetPath: "/tmp/skills/\(skillName)/SKILL.md",
+                systemImageName: "sparkle.magnifyingglass",
+                searchKey: skillName,
+                priority: 0
+            )
+        }
+
+        let matches = TextBoxMentionCandidateIndex(candidates: candidates).rankedCandidates(
+            matching: "iterate-pr",
+            limit: 500
+        )
+
+        #expect(matches.isEmpty)
+    }
+
+    @Test
     func testTextBoxMentionRefreshClearsRowsWhenSameTriggerQueryBecomesNonEmpty() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$"
@@ -1038,6 +1069,45 @@ struct TextBoxMentionCompletionTests {
         #expect(textView.debugMentionSuggestionCount() == 1)
         #expect(!textView.debugMentionSuggestionsAreCurrent())
         #expect(!textView.debugAcceptMentionCompletion())
+    }
+
+    @Test
+    func testTextBoxMentionRefreshFiltersStaleRowsWhenSameTriggerQueryNarrows() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$it"
+        textView.setSelectedRange(NSRange(location: 3, length: 0))
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/agent-browser/SKILL.md",
+            title: "$agent-browser",
+            subtitle: "/tmp/agent-browser/SKILL.md",
+            insertionText: "$agent-browser",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+        let currentSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/iterate-pr/SKILL.md",
+            title: "$iterate-pr",
+            subtitle: "/tmp/iterate-pr/SKILL.md",
+            insertionText: "$iterate-pr",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 3),
+                query: "it",
+                trigger: "$"
+            ),
+            suggestions: [staleSuggestion, currentSuggestion]
+        )
+
+        textView.string = "$iterate-pr"
+        textView.setSelectedRange(NSRange(location: 11, length: 0))
+        textView.refreshMentionCompletions()
+
+        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
+        #expect(!textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
     }
 
     @Test

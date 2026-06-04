@@ -76,6 +76,9 @@ final class TextBoxMentionCompletionController {
             suggestions = []
             suggestionsQuery = nil
             suggestionsRootDirectory = nil
+        } else if previousActiveQuery?.query != query.query,
+                  !query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            filterVisibleStaleSuggestions(matching: query.query)
         }
         lookupTask?.cancel()
         lookupGeneration &+= 1
@@ -126,6 +129,36 @@ final class TextBoxMentionCompletionController {
         onStateChanged?()
     }
 
+    private func filterVisibleStaleSuggestions(matching query: String) {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty, !suggestions.isEmpty else { return }
+        suggestions = suggestions.filter { suggestion in
+            Self.title(suggestion.title, matches: trimmedQuery)
+        }
+        selectionIndex = suggestions.isEmpty ? 0 : min(selectionIndex, suggestions.count - 1)
+    }
+
+    private static func title(_ title: String, matches query: String) -> Bool {
+        let normalizedTitle = title
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/$@"))
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        let normalizedQuery = query
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        guard !normalizedQuery.isEmpty else { return true }
+        guard !normalizedTitle.isEmpty else { return false }
+        if normalizedTitle.contains(normalizedQuery) { return true }
+
+        var candidateIndex = normalizedTitle.startIndex
+        for queryCharacter in normalizedQuery {
+            guard let matchIndex = normalizedTitle[candidateIndex...].firstIndex(of: queryCharacter) else {
+                return false
+            }
+            candidateIndex = normalizedTitle.index(after: matchIndex)
+        }
+        return true
+    }
+
     deinit {
         lookupTask?.cancel()
     }
@@ -160,6 +193,10 @@ final class TextBoxMentionCompletionController {
 
     var debugShouldShowPopover: Bool {
         shouldShowPopover
+    }
+
+    var debugSuggestionTitles: [String] {
+        suggestions.map(\.title)
     }
 #endif
 }

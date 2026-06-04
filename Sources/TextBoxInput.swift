@@ -4970,6 +4970,10 @@ final class TextBoxInputTextView: NSTextView {
         mentionCompletionController.debugSuggestionCount
     }
 
+    func debugMentionSuggestionTitles() -> [String] {
+        mentionCompletionController.debugSuggestionTitles
+    }
+
     func debugMentionSuggestionsAreCurrent() -> Bool {
         mentionCompletionController.debugHasCurrentSuggestions
     }

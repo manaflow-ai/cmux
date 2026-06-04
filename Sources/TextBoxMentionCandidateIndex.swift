@@ -64,10 +64,15 @@ struct TextBoxMentionCandidateIndex: Sendable {
                 limit: limit,
                 shouldCancel: shouldCancel
             )
-            return Self.mergedRankedCandidates(
-                swiftMatches,
-                nucleoMatches: nucleoResults.map(\.payload),
-                limit: limit
+            if !swiftMatches.isEmpty {
+                return swiftMatches
+            }
+            if shouldCancel() { return [] }
+            return Self.swiftRankedCandidates(
+                entries: corpus,
+                query: query,
+                limit: limit,
+                shouldCancel: shouldCancel
             )
         }
 
@@ -100,29 +105,4 @@ struct TextBoxMentionCandidateIndex: Sendable {
         .map(\.payload)
     }
 
-    private static func mergedRankedCandidates(
-        _ swiftMatches: [TextBoxMentionCandidate],
-        nucleoMatches: [TextBoxMentionCandidate],
-        limit: Int
-    ) -> [TextBoxMentionCandidate] {
-        var merged: [TextBoxMentionCandidate] = []
-        var seenTargetPaths = Set<String>()
-        merged.reserveCapacity(min(limit, swiftMatches.count + nucleoMatches.count))
-
-        func append(_ candidate: TextBoxMentionCandidate) {
-            guard merged.count < limit,
-                  seenTargetPaths.insert(candidate.targetPath).inserted else {
-                return
-            }
-            merged.append(candidate)
-        }
-
-        for candidate in swiftMatches {
-            append(candidate)
-        }
-        for candidate in nucleoMatches {
-            append(candidate)
-        }
-        return merged
-    }
 }
