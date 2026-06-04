@@ -3,6 +3,41 @@ import Bonsplit
 import SwiftUI
 
 struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
+    final class TargetBridge {
+        fileprivate weak var view: SidebarBonsplitTabWorkspaceDropView?
+        fileprivate var targets: [SidebarDropPlanner.WorkspaceDropTarget] = []
+
+        func updateTargets(_ targets: [SidebarDropPlanner.WorkspaceDropTarget]) {
+            self.targets = targets
+            guard !targets.isEmpty else { return }
+            DispatchQueue.main.async { [weak view] in
+                view?.performPendingDropIfPossible()
+            }
+        }
+
+        func clearTargets() {
+            targets = []
+        }
+    }
+
+    struct TargetWriter: View {
+        let targetBridge: TargetBridge
+        let targets: [SidebarDropPlanner.WorkspaceDropTarget]
+
+        var body: some View {
+            Color.clear
+                .onAppear {
+                    targetBridge.updateTargets(targets)
+                }
+                .onChange(of: targets) { _, newTargets in
+                    targetBridge.updateTargets(newTargets)
+                }
+                .onDisappear {
+                    targetBridge.clearTargets()
+                }
+        }
+    }
+
     let currentSelectedTabId: () -> UUID?
     let sidebarIndexForTabId: (UUID) -> Int?
     let moveToExistingWorkspace: (UUID, BonsplitTabDragPayload.Transfer) -> Bool
@@ -13,14 +48,15 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     let updateAutoscroll: () -> Void
     let setWorkspaceDropTargetCollectionActive: (Bool) -> Void
     let isWorkspaceDropTargetCollectionActive: Bool
-    let targets: [SidebarDropPlanner.WorkspaceDropTarget]
+    let targetBridge: TargetBridge
 
     func makeNSView(context: Context) -> SidebarBonsplitTabWorkspaceDropView {
         SidebarBonsplitTabWorkspaceDropView()
     }
 
     func updateNSView(_ nsView: SidebarBonsplitTabWorkspaceDropView, context: Context) {
-        nsView.targets = targets
+        targetBridge.view = nsView
+        nsView.targetBridge = targetBridge
         nsView.canPerformAction = { action, transfer in
             guard let app = AppDelegate.shared else {
                 return false
@@ -53,10 +89,10 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
             syncSidebarSelection(preferredSelectedTabId: destinationWorkspaceId)
             return true
         }
-        if !isWorkspaceDropTargetCollectionActive, targets.isEmpty {
+        if !isWorkspaceDropTargetCollectionActive, targetBridge.targets.isEmpty {
             nsView.clearPendingDropIfIdle()
         }
-        if !targets.isEmpty {
+        if !targetBridge.targets.isEmpty {
             DispatchQueue.main.async { [weak nsView] in
                 nsView?.performPendingDropIfPossible()
             }
@@ -82,7 +118,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         let transfer: BonsplitTabDragPayload.Transfer
     }
 
-    var targets: [SidebarDropPlanner.WorkspaceDropTarget] = []
+    var targetBridge: SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge?
     var canPerformAction: (SidebarDropPlanner.WorkspaceDropAction, BonsplitTabDragPayload.Transfer) -> Bool = { _, _ in false }
     var updateAutoscroll: () -> Void = {}
     var setWorkspaceDropTargetCollectionActive: (Bool) -> Void = { _ in }
@@ -92,6 +128,9 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     private var isRequestingWorkspaceDropTargets = false
     private var workspaceDropTargetRequestId: UInt64 = 0
     private var pendingDrop: PendingDrop?
+    private var targets: [SidebarDropPlanner.WorkspaceDropTarget] {
+        targetBridge?.targets ?? []
+    }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }

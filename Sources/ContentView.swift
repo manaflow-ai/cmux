@@ -10450,6 +10450,7 @@ struct VerticalTabsSidebar: View {
     // Bonsplit tab drags arrive through AppKit pasteboard callbacks, not
     // `SidebarDragState`, so they need a separate transient collection flag.
     @State private var isBonsplitWorkspaceDropTargetCollectionActive = false
+    @State private var bonsplitWorkspaceDropTargetBridge = SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge()
     // Freezes `showsModifierShortcutHints` for the workspace whose context menu
     // is open. Set on the row's contextMenu.onAppear and cleared on
     // .onDisappear so modifier-key transitions don't flip the badges on the
@@ -12245,11 +12246,18 @@ struct VerticalTabsSidebar: View {
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
 
+        let rowsWithDropOverlay = rows
+            .overlay {
+                bonsplitWorkspaceDropOverlay()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
         if shouldCollectWorkspaceDropTargets {
-            rows
+            rowsWithDropOverlay
                 .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
                     GeometryReader { proxy in
-                        bonsplitWorkspaceDropOverlay(
+                        SidebarBonsplitTabWorkspaceDropOverlay.TargetWriter(
+                            targetBridge: bonsplitWorkspaceDropTargetBridge,
                             targets: renderContext.tabs.compactMap { tab in
                                 guard let anchor = anchors[tab.id] else { return nil }
                                 return SidebarDropPlanner.WorkspaceDropTarget(
@@ -12262,18 +12270,11 @@ struct VerticalTabsSidebar: View {
                     }
                 }
         } else {
-            // Keep Bonsplit drag capture available without collecting per-row bounds anchors at rest.
-            rows
-                .overlay {
-                    bonsplitWorkspaceDropOverlay(targets: [])
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+            rowsWithDropOverlay
         }
     }
 
-    private func bonsplitWorkspaceDropOverlay(
-        targets: [SidebarDropPlanner.WorkspaceDropTarget]
-    ) -> some View {
+    private func bonsplitWorkspaceDropOverlay() -> some View {
         SidebarBonsplitTabWorkspaceDropOverlay(
             currentSelectedTabId: {
                 tabManager.selectedTabId
@@ -12320,7 +12321,7 @@ struct VerticalTabsSidebar: View {
                 isBonsplitWorkspaceDropTargetCollectionActive = isActive
             },
             isWorkspaceDropTargetCollectionActive: isBonsplitWorkspaceDropTargetCollectionActive,
-            targets: targets
+            targetBridge: bonsplitWorkspaceDropTargetBridge
         )
     }
 
