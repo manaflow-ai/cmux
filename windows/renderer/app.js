@@ -23281,6 +23281,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     terminalStartupMode: "fast",
     terminalPauseInactiveOutput: true,
     terminalSmoothResumedOutput: true,
+    terminalCursorBlink: false,
     browserSuspendInactive: true
   });
   if (!changed) {
