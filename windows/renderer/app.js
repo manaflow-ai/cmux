@@ -6,6 +6,7 @@ import {
   backgroundChromeOptions,
   backgroundEffectsOptions,
   backgroundFitOptions,
+  backgroundRepeatOptions,
   backgroundPositionOptions,
   backgroundPresets,
   browserChromeOptions,
@@ -358,6 +359,7 @@ const appearancePreviewKeys = new Set([
   "backgroundOpacity",
   "backgroundBlur",
   "backgroundFit",
+  "backgroundRepeatMode",
   "backgroundPosition",
   "backgroundEffects",
   "backgroundChromeMode",
@@ -372,6 +374,7 @@ const backgroundPreviewKeys = new Set([
   "backgroundImage",
   "backgroundOpacity",
   "backgroundFit",
+  "backgroundRepeatMode",
   "backgroundPosition",
   "backgroundEffects",
   "backgroundChromeMode"
@@ -469,6 +472,7 @@ const settingsInspectorSettingKeys = {
     "backgroundOpacity",
     "backgroundBlur",
     "backgroundFit",
+    "backgroundRepeatMode",
     "backgroundPosition",
     "backgroundEffects",
     "backgroundChromeMode",
@@ -819,6 +823,7 @@ const lookPackDefinitions = [
       backgroundOpacity: 10,
       backgroundBlur: 0,
       backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "readable",
@@ -841,6 +846,7 @@ const lookPackDefinitions = [
       backgroundOpacity: 10,
       backgroundBlur: 0,
       backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "readable",
@@ -863,6 +869,7 @@ const lookPackDefinitions = [
       backgroundOpacity: 18,
       backgroundBlur: 0,
       backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "soft",
@@ -885,6 +892,7 @@ const lookPackDefinitions = [
       backgroundOpacity: 14,
       backgroundBlur: 0,
       backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "soft",
@@ -907,6 +915,7 @@ const lookPackDefinitions = [
       backgroundOpacity: 22,
       backgroundBlur: 4,
       backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
       backgroundPosition: "center",
       backgroundEffects: "glass",
       backgroundChromeMode: "immersive",
@@ -929,6 +938,7 @@ const lookPackDefinitions = [
       backgroundOpacity: 10,
       backgroundBlur: 0,
       backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "readable",
@@ -1250,6 +1260,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.backgroundOpacity = clamp(next.backgroundOpacity, 0, 42);
   next.backgroundBlur = clamp(next.backgroundBlur, 0, 12);
   if (!backgroundFitOptions.some(([id]) => id === next.backgroundFit)) next.backgroundFit = defaultSettings.backgroundFit;
+  if (!backgroundRepeatOptions.some(([id]) => id === next.backgroundRepeatMode)) next.backgroundRepeatMode = defaultSettings.backgroundRepeatMode;
   if (!backgroundPositionOptions.some(([id]) => id === next.backgroundPosition)) next.backgroundPosition = defaultSettings.backgroundPosition;
   if (!backgroundEffectsOptions.some(([id]) => id === next.backgroundEffects)) next.backgroundEffects = defaultSettings.backgroundEffects;
   if (!backgroundChromeOptions.some(([id]) => id === next.backgroundChromeMode)) next.backgroundChromeMode = defaultSettings.backgroundChromeMode;
@@ -1520,7 +1531,9 @@ function backgroundSizeCss(value) {
   return "cover";
 }
 
-function backgroundRepeatCss(value) {
+function backgroundRepeatCss(value, mode = state.settings.backgroundRepeatMode) {
+  if (mode === "repeat") return "repeat";
+  if (mode === "no-repeat") return "no-repeat";
   const normalized = normalizeBackgroundValue(value);
   return normalized && !isBackgroundPreset(normalized) ? "no-repeat" : "repeat";
 }
@@ -5080,6 +5093,7 @@ const backgroundSetupSettings = [
   "backgroundOpacity",
   "backgroundBlur",
   "backgroundFit",
+  "backgroundRepeatMode",
   "backgroundPosition",
   "backgroundEffects",
   "backgroundChromeMode"
@@ -5109,6 +5123,7 @@ function backgroundSetupPayload(target = state.backgroundApplyTarget) {
       target: backgroundApplyTargetOption(scope).label,
       background: model.label,
       fit: optionLabel(backgroundFitOptions, state.settings.backgroundFit, state.settings.backgroundFit),
+      repeat: optionLabel(backgroundRepeatOptions, state.settings.backgroundRepeatMode, state.settings.backgroundRepeatMode),
       position: optionLabel(backgroundPositionOptions, state.settings.backgroundPosition, state.settings.backgroundPosition),
       effects: optionLabel(backgroundEffectsOptions, state.settings.backgroundEffects, state.settings.backgroundEffects),
       chrome: optionLabel(backgroundChromeOptions, state.settings.backgroundChromeMode, state.settings.backgroundChromeMode),
@@ -5176,7 +5191,7 @@ function backgroundSetupUpdatesFromPayload(payload) {
     backgroundImage = normalized;
     break;
   }
-  for (const key of ["backgroundOpacity", "backgroundBlur", "backgroundFit", "backgroundPosition", "backgroundEffects", "backgroundChromeMode"]) {
+  for (const key of ["backgroundOpacity", "backgroundBlur", "backgroundFit", "backgroundRepeatMode", "backgroundPosition", "backgroundEffects", "backgroundChromeMode"]) {
     if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
     const value = lookSettingUpdateFromValue(key, source[key]);
     if (value === null) return null;
@@ -5456,6 +5471,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.backgroundOpacity,
     settings.backgroundBlur,
     settings.backgroundFit,
+    settings.backgroundRepeatMode,
     settings.backgroundPosition,
     settings.backgroundEffects,
     settings.backgroundChromeMode,
@@ -14380,10 +14396,11 @@ function appearanceBackgroundLabel(value, settingsSource = state.settings) {
   const preset = backgroundPresetMap.get(normalized);
   const label = preset ? preset.label : defaultBackgroundLabel(normalized);
   const fit = optionLabel(backgroundFitOptions, settingsSource?.backgroundFit, t("config.backgroundFit.cover"));
+  const repeat = optionLabel(backgroundRepeatOptions, settingsSource?.backgroundRepeatMode, t("config.backgroundRepeat.auto"));
   const effects = optionLabel(backgroundEffectsOptions, settingsSource?.backgroundEffects, t("config.backgroundEffects.flat"));
   const chrome = optionLabel(backgroundChromeOptions, settingsSource?.backgroundChromeMode, t("config.backgroundChrome.soft", "Soft"));
   const blur = Math.max(0, Math.round(Number(settingsSource?.backgroundBlur) || 0));
-  return [label, fit, effects, `${chrome} chrome`, blur ? `${blur}px soften` : ""].filter(Boolean).join(" / ");
+  return [label, fit, settingsSource?.backgroundRepeatMode === "auto" ? "" : repeat, effects, `${chrome} chrome`, blur ? `${blur}px soften` : ""].filter(Boolean).join(" / ");
 }
 
 function appearancePreviewPanel() {
@@ -14400,7 +14417,7 @@ function appearancePreviewPanel() {
     backgroundImage: backgroundCss(state.settings.backgroundImage),
     backgroundBlur: state.settings.backgroundBlur,
     backgroundSize: backgroundSizeCss(state.settings.backgroundFit),
-    backgroundRepeat: backgroundRepeatCss(state.settings.backgroundImage),
+    backgroundRepeat: backgroundRepeatCss(state.settings.backgroundImage, state.settings.backgroundRepeatMode),
     backgroundPosition: backgroundPositionCss(state.settings.backgroundPosition)
   });
   preview.style.setProperty("--preview-background-blur", `${state.settings.backgroundBlur}px`);
@@ -14529,12 +14546,13 @@ function backgroundTuningPresetGrid() {
 function backgroundTuningPanel(onCommit = null) {
   const panel = document.createElement("div");
   panel.className = "background-tuning-panel";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("background image fit position effects opacity strength soften blur wallpaper transparency tune chrome readable soft immersive");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("background image fit repeat tile position effects opacity strength soften blur wallpaper transparency tune chrome readable soft immersive");
 
   const controls = document.createElement("div");
   controls.className = "background-tuning-grid";
   controls.append(
     backgroundTuningSelect("Fit", "backgroundFit", backgroundFitOptions, onCommit),
+    backgroundTuningSelect("Repeat", "backgroundRepeatMode", backgroundRepeatOptions, onCommit),
     backgroundTuningSelect("Position", "backgroundPosition", backgroundPositionOptions, onCommit),
     backgroundTuningSelect("Effects", "backgroundEffects", backgroundEffectsOptions, onCommit),
     backgroundTuningSelect("Chrome", "backgroundChromeMode", backgroundChromeOptions, onCommit)
@@ -14723,7 +14741,7 @@ function activeBackgroundPanelViewModel(target = state.backgroundApplyTarget, wo
     label: mixed ? "Mixed terminal backgrounds" : hasBackground ? appearanceBackgroundLabel(background) : "None",
     source: mixed ? "Terminal panes have different backgrounds." : backgroundSourceText(background, emptySource),
     image: mixed ? "none" : backgroundCss(background),
-    repeat: mixed ? "no-repeat" : backgroundRepeatCss(background),
+    repeat: mixed ? "no-repeat" : backgroundRepeatCss(background, state.settings.backgroundRepeatMode),
     size: backgroundSizeCss(state.settings.backgroundFit),
     position: backgroundPositionCss(state.settings.backgroundPosition)
   };
@@ -14787,7 +14805,7 @@ function activeBackgroundPanel(options = {}) {
   const model = activeBackgroundPanelViewModel();
   panel.className = `active-background-panel${model.hasBackground ? " has-image" : ""}`;
   panel.dataset.activeBackgroundTuning = options.tuning ? "true" : "false";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear copy paste setup fit position effects opacity strength soften blur transparency tune chrome readable soft immersive");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear copy paste setup fit repeat tile position effects opacity strength soften blur transparency tune chrome readable soft immersive");
   panel.style.setProperty("--active-background-image", model.image);
   panel.style.setProperty("--active-background-repeat", model.repeat);
   panel.style.setProperty("--active-background-size", model.size);
@@ -14903,6 +14921,7 @@ function activeBackgroundPanel(options = {}) {
   if (options.tuning) {
     const refreshBackgroundSummary = () => {
       const nextModel = activeBackgroundPanelViewModel();
+      panel.style.setProperty("--active-background-repeat", backgroundRepeatCss(nextModel.background, state.settings.backgroundRepeatMode));
       panel.style.setProperty("--active-background-size", backgroundSizeCss(state.settings.backgroundFit));
       panel.style.setProperty("--active-background-position", backgroundPositionCss(state.settings.backgroundPosition));
       panel.querySelector(".active-background-title").textContent = nextModel.label;
@@ -14940,7 +14959,7 @@ function activeBackgroundViewModel(settings = state.settings) {
         ? "Built-in preset"
         : filePath || normalized,
     image: backgroundCss(background),
-    repeat: backgroundRepeatCss(background),
+    repeat: backgroundRepeatCss(background, settings.backgroundRepeatMode),
     size: backgroundSizeCss(settings.backgroundFit),
     position: backgroundPositionCss(settings.backgroundPosition)
   };
@@ -32182,6 +32201,7 @@ const appearanceResetSettings = [
   "backgroundOpacity",
   "backgroundBlur",
   "backgroundFit",
+  "backgroundRepeatMode",
   "backgroundPosition",
   "backgroundEffects",
   "backgroundChromeMode",
@@ -32214,6 +32234,7 @@ function lookSettingsPayload() {
       contrast: optionLabel(interfaceContrastOptions, state.settings.interfaceContrast, state.settings.interfaceContrast),
       depth: optionLabel(interfaceDepthOptions, state.settings.interfaceDepth, state.settings.interfaceDepth),
       background: appearanceBackgroundLabel(state.settings.backgroundImage),
+      backgroundRepeat: optionLabel(backgroundRepeatOptions, state.settings.backgroundRepeatMode, state.settings.backgroundRepeatMode),
       backgroundChrome: optionLabel(backgroundChromeOptions, state.settings.backgroundChromeMode, state.settings.backgroundChromeMode),
       terminalColors: terminalColorPalettePayload().effective
     },
@@ -32579,6 +32600,7 @@ function lookSettingUpdateFromValue(key, raw) {
     return Number.isFinite(value) ? clamp(Math.round(value), 0, 12) : null;
   }
   if (key === "backgroundFit") return optionIdAllowed(backgroundFitOptions, raw) ? raw : null;
+  if (key === "backgroundRepeatMode") return optionIdAllowed(backgroundRepeatOptions, raw) ? raw : null;
   if (key === "backgroundPosition") return optionIdAllowed(backgroundPositionOptions, raw) ? raw : null;
   if (key === "backgroundEffects") return optionIdAllowed(backgroundEffectsOptions, raw) ? raw : null;
   if (key === "backgroundChromeMode") return optionIdAllowed(backgroundChromeOptions, raw) ? raw : null;

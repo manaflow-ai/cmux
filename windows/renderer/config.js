@@ -11,6 +11,7 @@ export const defaultSettings = {
   backgroundOpacity: 16,
   backgroundBlur: 0,
   backgroundFit: "cover",
+  backgroundRepeatMode: "auto",
   backgroundPosition: "center",
   backgroundEffects: "flat",
   backgroundChromeMode: "soft",
@@ -279,6 +280,12 @@ export const backgroundFitOptions = [
   ["contain", label("backgroundFit.contain", "Fit")],
   ["stretch", label("backgroundFit.stretch", "Stretch")],
   ["auto", label("backgroundFit.auto", "Original")]
+];
+
+export const backgroundRepeatOptions = [
+  ["auto", label("backgroundRepeat.auto", "Auto")],
+  ["no-repeat", label("backgroundRepeat.noRepeat", "No repeat")],
+  ["repeat", label("backgroundRepeat.repeat", "Tile")]
 ];
 
 export const backgroundPositionOptions = [
@@ -763,6 +770,7 @@ export const settingsPresets = [
       backgroundOpacity: 16,
       backgroundBlur: 0,
       backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "soft",
@@ -850,6 +858,7 @@ export const settingsPresets = [
       backgroundOpacity: 12,
       backgroundBlur: 0,
       backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "soft",
@@ -937,6 +946,7 @@ export const settingsPresets = [
       backgroundOpacity: 6,
       backgroundBlur: 0,
       backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "readable",
@@ -1025,6 +1035,7 @@ export const settingsPresets = [
       backgroundOpacity: 10,
       backgroundBlur: 0,
       backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "soft",
@@ -1112,6 +1123,7 @@ export const settingsPresets = [
       backgroundOpacity: 0,
       backgroundBlur: 0,
       backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "readable",
@@ -1199,6 +1211,7 @@ export const settingsPresets = [
       backgroundOpacity: 0,
       backgroundBlur: 0,
       backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "readable",
@@ -1286,6 +1299,7 @@ export const settingsPresets = [
       backgroundOpacity: 24,
       backgroundBlur: 4,
       backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
       backgroundPosition: "center",
       backgroundEffects: "glass",
       backgroundChromeMode: "immersive",
