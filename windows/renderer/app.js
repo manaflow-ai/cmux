@@ -1009,6 +1009,8 @@ const state = {
   paletteEntriesCacheSignature: "",
   paletteEntriesCacheRevision: 0,
   paletteEntriesCacheRevisionSeen: -1,
+  paletteQueryCacheKey: "",
+  paletteQueryCacheResult: null,
   surfaceTabScrollFrame: 0,
   surfaceTabScrollTargetId: "",
   surfaceTabScrollStateFrame: 0,
@@ -33977,13 +33979,20 @@ function flushPaletteRender() {
 
 function bumpPaletteEntriesCacheRevision() {
   state.paletteEntriesCacheRevision += 1;
+  resetPaletteQueryCache();
 }
 
 function resetPaletteEntriesCache() {
   state.paletteEntriesCache = null;
   state.paletteEntriesCacheSignature = "";
   state.paletteEntriesCacheRevisionSeen = -1;
+  resetPaletteQueryCache();
   state.paletteListSignature = "";
+}
+
+function resetPaletteQueryCache() {
+  state.paletteQueryCacheKey = "";
+  state.paletteQueryCacheResult = null;
 }
 
 function paletteEntriesForOpenSession() {
@@ -33997,6 +34006,7 @@ function paletteEntriesForOpenSession() {
   if (!state.paletteEntriesCache || state.paletteEntriesCacheSignature !== signature) {
     state.paletteEntriesCache = preparePaletteEntries(paletteEntries());
     state.paletteEntriesCacheSignature = signature;
+    resetPaletteQueryCache();
     state.paletteListSignature = "";
   }
   state.paletteEntriesCacheRevisionSeen = state.paletteEntriesCacheRevision;
@@ -34242,11 +34252,19 @@ function renderPalette() {
 function paletteEntriesForQuery(query, tokens, resultLimit = paletteVisibleResultLimit()) {
   const entries = paletteEntriesForOpenSession();
   const visibleLimit = Math.max(0, Number(resultLimit) || 0);
+  const cacheKey = paletteQueryCacheKey(query, visibleLimit);
+  if (state.paletteQueryCacheResult && state.paletteQueryCacheKey === cacheKey) {
+    return state.paletteQueryCacheResult;
+  }
+  let result;
   if (!query) {
-    return {
+    result = {
       entries: entries.slice(0, visibleLimit),
       totalCount: entries.length
     };
+    state.paletteQueryCacheKey = cacheKey;
+    state.paletteQueryCacheResult = result;
+    return result;
   }
   const matches = [];
   let totalCount = 0;
@@ -34255,6 +34273,7 @@ function paletteEntriesForQuery(query, tokens, resultLimit = paletteVisibleResul
     const entry = entries[index];
     if (!paletteEntryMatches(entry, tokens)) continue;
     totalCount += 1;
+    if (visibleLimit === 0) continue;
     const match = {
       entry,
       index,
@@ -34269,10 +34288,17 @@ function paletteEntriesForQuery(query, tokens, resultLimit = paletteVisibleResul
     }
   }
   matches.sort(comparePaletteQueryMatch);
-  return {
+  result = {
     entries: matches.map(({ entry }) => entry),
     totalCount
   };
+  state.paletteQueryCacheKey = cacheKey;
+  state.paletteQueryCacheResult = result;
+  return result;
+}
+
+function paletteQueryCacheKey(query, visibleLimit) {
+  return `${state.paletteEntriesCacheRevisionSeen}|${visibleLimit}|${query.length}|${query}`;
 }
 
 function paletteQueryWorstMatchIndex(matches) {
