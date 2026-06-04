@@ -3151,6 +3151,83 @@ function canSaveCustomColor(color) {
   return Boolean(normalized && (customColorPaletteHasColor(normalized) || !customColorPaletteFull()));
 }
 
+function currentColorSetColors(workspace = activeWorkspace()) {
+  const activePaneColor = paneColorValue(activePaneForColorTarget(), workspace);
+  return uniqueColors([
+    state.settings.accent,
+    workspace?.color,
+    activePaneColor,
+    state.settings.terminalBackground,
+    state.settings.terminalForeground,
+    state.settings.terminalCursorColor,
+    ...(workspace?.panels || []).map((panel) => panel.color)
+  ].map(normalizeCustomPaletteColor).filter(Boolean));
+}
+
+function currentColorSetSaveModel(workspace = activeWorkspace()) {
+  const colors = currentColorSetColors(workspace);
+  const newColors = colors.filter((color) => !customColorPaletteHasColor(color));
+  const remaining = Math.max(0, customColorPaletteLimit - state.customColorPalette.length);
+  const saved = colors.length > 0 && newColors.length === 0;
+  const colorCount = colors.length;
+  const newCount = newColors.length;
+  if (colorCount === 0) {
+    return {
+      colors,
+      newColors,
+      saved: false,
+      disabled: true,
+      meta: "No custom hex colors",
+      title: "Use a custom hex accent, workspace, pane, or terminal color before saving a set.",
+      search: "no custom hex colors"
+    };
+  }
+  if (newCount > remaining) {
+    return {
+      colors,
+      newColors,
+      saved: false,
+      disabled: true,
+      meta: `${colorCount} in use / ${remaining} slots`,
+      title: remaining
+        ? `Saved color palette has room for ${remaining} more color${remaining === 1 ? "" : "s"}.`
+        : customColorPaletteLimitTitle(),
+      search: `${colorCount} current ${newCount} new ${remaining} slots limit full`
+    };
+  }
+  return {
+    colors,
+    newColors,
+    saved,
+    disabled: saved,
+    meta: saved
+      ? `${colorCount} color${colorCount === 1 ? "" : "s"} saved`
+      : `${newCount} new / ${colorCount} in use`,
+    title: saved
+      ? "Current custom color set is already saved."
+      : "Save current custom accent, workspace, pane, and terminal colors to the reusable palette.",
+    search: `${colorCount} current ${newCount} new ${colors.join(" ")}`
+  };
+}
+
+function saveCurrentColorSetToPalette(workspace = activeWorkspace()) {
+  const model = currentColorSetSaveModel(workspace);
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  const next = uniqueColors([...model.colors, ...state.customColorPalette]).slice(0, customColorPaletteLimit);
+  if (stableJson(next) === stableJson(state.customColorPalette)) {
+    toast("Current custom color set is already saved.");
+    return false;
+  }
+  state.customColorPalette = next;
+  saveCustomColorPalette();
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast(`${model.newColors.length} current color${model.newColors.length === 1 ? "" : "s"} saved.`);
+  return true;
+}
+
 function currentColorSaveModel(target = state.colorApplyTarget, workspace = activeWorkspace()) {
   const scope = normalizeColorApplyTarget(target);
   const option = colorApplyTargetOption(scope, workspace);
@@ -7121,6 +7198,7 @@ const commands = [
   { id: "settings.saveWorkspaceColor", label: "Save Current Workspace Color", shortcut: "", run: () => saveCurrentColorToPalette("workspace") },
   { id: "settings.savePaneColor", label: "Save Active Pane Color", shortcut: "", run: () => saveCurrentColorToPalette("pane") },
   { id: "settings.saveAllPaneColors", label: "Save All Pane Color", shortcut: "", run: () => saveCurrentColorToPalette("all") },
+  { id: "settings.saveCurrentColorSet", label: "Save Current Color Set", shortcut: "", run: () => saveCurrentColorSetToPalette() },
   { id: "settings.backgrounds", label: "Open Background Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "background", focusSearch: true }) },
   { id: "settings.saveBackground", label: "Save Current Background", shortcut: "", run: () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }) },
   { id: "settings.copySavedBackgrounds", label: "Copy Saved Backgrounds", shortcut: "", run: () => copySavedBackgroundImages() },
@@ -7229,6 +7307,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.saveWorkspaceColor",
   "settings.savePaneColor",
   "settings.saveAllPaneColors",
+  "settings.saveCurrentColorSet",
   "settings.saveBackground",
   "settings.copySavedBackgrounds",
   "settings.pasteSavedBackgrounds"
@@ -7278,6 +7357,11 @@ function customizationCommandPaletteSignature() {
     appendSignatureValue(parts, Boolean(model.disabled));
     appendSignatureValue(parts, model.title || "");
   }
+  const colorSet = currentColorSetSaveModel();
+  appendSignatureValue(parts, colorSet.colors.join(","));
+  appendSignatureValue(parts, colorSet.newColors.join(","));
+  appendSignatureValue(parts, Boolean(colorSet.disabled));
+  appendSignatureValue(parts, colorSet.title || "");
   const appBackground = quickAppBackgroundSaveModel();
   appendSignatureValue(parts, appBackground.background || "");
   appendSignatureValue(parts, Boolean(appBackground.saved));
@@ -7291,6 +7375,18 @@ function customizationCommandPaletteSignature() {
 }
 
 function customizationColorCommandPaletteState(commandId) {
+  if (commandId === "settings.saveCurrentColorSet") {
+    const model = currentColorSetSaveModel();
+    return {
+      meta: model.meta,
+      shortcut: model.saved ? "Saved" : "Save",
+      active: model.saved,
+      disabled: model.disabled,
+      icon: "appearance",
+      title: model.title,
+      search: normalizeSettingsQuery(`saved color palette save current set accent workspace pane terminal custom reusable library ${model.search}`)
+    };
+  }
   const targetByCommand = {
     "settings.saveAccentColor": "accent",
     "settings.saveWorkspaceColor": "workspace",
@@ -27755,6 +27851,10 @@ function savedColorPalettePanel() {
     savePane.disabled = true;
     savePane.title = paneColorActionTitle("save", pane, workspace);
   }
+  const colorSetModel = currentColorSetSaveModel(workspace);
+  const saveColorSet = settingsActionButton("Save current set", () => saveCurrentColorSetToPalette(workspace), "", `saved color save current set accent workspace pane terminal reusable palette ${colorSetModel.search}`);
+  saveColorSet.disabled = colorSetModel.disabled;
+  saveColorSet.title = colorSetModel.title;
   const clearWorkspace = settingsActionButton("Clear workspace", () => clearWorkspaceColor(workspace), "", "saved color clear workspace color default reset");
   clearWorkspace.disabled = !workspace?.color;
   clearWorkspace.title = !workspace
@@ -27769,7 +27869,7 @@ function savedColorPalettePanel() {
     : clearPanes.disabled
       ? "Pane colors are already default."
       : "Clear pane colors in the active workspace.";
-  actions.append(copyPalette, pastePalette, pasteColor, resetTarget, saveAccent, saveWorkspace, savePane, clearWorkspace, clearPanes);
+  actions.append(copyPalette, pastePalette, pasteColor, resetTarget, saveAccent, saveWorkspace, savePane, saveColorSet, clearWorkspace, clearPanes);
   panel.append(actions);
 
   if (state.customColorPalette.length === 0) {
