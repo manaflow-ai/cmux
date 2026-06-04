@@ -1035,6 +1035,7 @@ const state = {
   sidebarResizing: null,
   inspectorResizing: null,
   panePointerDrag: null,
+  paneChromeResizeObserver: null,
   lastInteractedPanelId: null,
   renderFrame: 0,
   paneLayoutFrame: 0,
@@ -5552,6 +5553,7 @@ function applySettings() {
   setStylePropertyIfChanged(elements.shell, "--pane-splitter-size", `${paneDividerSizePx()}px`);
   setStylePropertyIfChanged(elements.shell, "--pane-spacing", `${state.settings.performanceMode ? 0 : paneSpacingPx()}px`);
   toggleClassIfChanged(elements.shell, "density-compact", state.settings.density === "compact");
+  toggleClassIfChanged(elements.shell, "pane-header-auto", state.settings.paneHeaderMode === "auto");
   toggleClassIfChanged(elements.shell, "pane-header-compact", state.settings.paneHeaderMode === "compact");
   toggleClassIfChanged(elements.shell, "pane-header-full", state.settings.paneHeaderMode === "full");
   toggleClassIfChanged(elements.shell, "pane-header-hidden", state.settings.paneHeaderMode === "hidden");
@@ -5741,6 +5743,9 @@ function updateSettings(updates, options = {}) {
   }
   if (changedKeys.some((key) => surfaceTabLayoutKeys.has(key))) {
     scheduleSurfaceTabsOverflowRefresh({ ensureActive: true });
+  }
+  if (changedKeys.includes("paneHeaderMode")) {
+    for (const pane of state.paneCache.values()) updatePaneChromeSizeClass(pane);
   }
   if (changedKeys.includes("terminalPauseInactiveOutput") || changedKeys.includes("performanceMode")) {
     resumeTerminalOutputAfterActivityChange();
@@ -9371,6 +9376,35 @@ function updatePaneToolState(button, icon, label) {
   setAttributeIfChanged(button, "aria-label", label);
 }
 
+function updatePaneChromeSizeClass(pane) {
+  if (!pane) return;
+  const width = pane.clientWidth || 0;
+  const height = pane.clientHeight || 0;
+  const compact = width > 0 && (width <= 520 || (height > 0 && height <= 260));
+  const minimal = width > 0 && (width <= 280 || (height > 0 && height <= 170));
+  toggleClassIfChanged(pane, "pane-chrome-auto-compact", compact);
+  toggleClassIfChanged(pane, "pane-chrome-auto-minimal", minimal);
+}
+
+function ensurePaneChromeResizeObserver() {
+  if (typeof ResizeObserver !== "function") return null;
+  if (!state.paneChromeResizeObserver) {
+    state.paneChromeResizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) updatePaneChromeSizeClass(entry.target);
+    });
+  }
+  return state.paneChromeResizeObserver;
+}
+
+function observePaneChromeSize(pane) {
+  updatePaneChromeSizeClass(pane);
+  if (pane?._paneChromeObserved) return;
+  const observer = ensurePaneChromeResizeObserver();
+  if (!observer) return;
+  observer.observe(pane);
+  pane._paneChromeObserved = true;
+}
+
 function updatePaneChromeState(pane, panel, workspace) {
   if (!pane || !panel) return;
   const parts = paneParts(pane);
@@ -9409,6 +9443,7 @@ function updatePaneTypeBadge(badge, type) {
 function renderPaneNode(panel, workspace, visibleCount) {
   let pane = state.paneCache.get(panel.id) || elements.paneGrid.querySelector(`[data-panel-id="${panel.id}"]`);
   if (!pane) pane = createPane(panel);
+  observePaneChromeSize(pane);
   const parts = paneParts(pane);
   setDatasetIfChanged(pane, "panelId", panel.id);
   updatePaneChromeState(pane, panel, workspace);
@@ -10592,6 +10627,10 @@ function cleanupPanel(panelId) {
   browserSession?.tabResizeObserver?.disconnect?.();
   browserSession?.detachTabWheelScroll?.();
   const pane = state.paneCache.get(panelId);
+  if (pane?._paneChromeObserved) {
+    state.paneChromeResizeObserver?.unobserve?.(pane);
+    pane._paneChromeObserved = false;
+  }
   pane?.remove();
   state.paneCache.delete(panelId);
   state.browserViews.delete(panelId);
@@ -13502,10 +13541,10 @@ function renderSettingsInspector(options = {}) {
       settingSegmentedControl("paneHeaderMode", paneHeaderOptions.map(([value, label]) => [
         value,
         label,
-        value === "compact" ? "Small title bar" : value === "full" ? "Title with tools" : "Hide pane chrome"
-      ]), "terminal pane header chrome compact hidden content only toolbar"),
+        value === "auto" ? "Adapts to pane size" : value === "compact" ? "Small title bar" : value === "full" ? "Title with tools" : "Hide pane chrome"
+      ]), "terminal pane header chrome auto adaptive responsive compact hidden content only toolbar"),
       true,
-      "terminal pane header chrome compact hidden content only toolbar"
+      "terminal pane header chrome auto adaptive responsive compact hidden content only toolbar"
     ));
     layoutSection.append(settingRow(
       "Pane controls",
@@ -31709,7 +31748,7 @@ const workspaceChromePresets = [
   {
     id: "default",
     label: "Default",
-    body: "Balanced sidebar, compact pane headers, visible tabs and status.",
+    body: "Balanced sidebar, adaptive pane headers, visible tabs and status.",
     settings: {
       density: defaultSettings.density,
       paneHeaderMode: defaultSettings.paneHeaderMode,

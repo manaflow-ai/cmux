@@ -23,7 +23,7 @@ export const defaultSettings = {
   browserChromeMode: "full",
   browserZoom: "100",
   density: "comfortable",
-  paneHeaderMode: "compact",
+  paneHeaderMode: "auto",
   paneActionMode: "essential",
   newPanePlacement: "right",
   paneSurfaceStyle: "subtle",
@@ -527,6 +527,7 @@ export const workspaceColorStyleOptions = [
 ];
 
 export const paneHeaderOptions = [
+  ["auto", label("paneHeader.auto", "Auto")],
   ["compact", label("paneHeader.compact", "Compact")],
   ["full", label("paneHeader.full", "Full")],
   ["hidden", label("paneHeader.hidden", "Content only")]
@@ -752,7 +753,7 @@ export const settingsPresets = [
       interfaceContrast: "balanced",
       interfaceDepth: "soft",
       density: "comfortable",
-      paneHeaderMode: "compact",
+      paneHeaderMode: "auto",
       paneActionMode: "essential",
       newPanePlacement: "right",
       paneSurfaceStyle: "subtle",
@@ -839,7 +840,7 @@ export const settingsPresets = [
       interfaceContrast: "soft",
       interfaceDepth: "flat",
       density: "compact",
-      paneHeaderMode: "compact",
+      paneHeaderMode: "auto",
       paneActionMode: "essential",
       newPanePlacement: "right",
       paneSurfaceStyle: "quiet",
@@ -926,7 +927,7 @@ export const settingsPresets = [
       interfaceContrast: "soft",
       interfaceDepth: "flat",
       density: "compact",
-      paneHeaderMode: "compact",
+      paneHeaderMode: "auto",
       paneActionMode: "essential",
       newPanePlacement: "right",
       paneSurfaceStyle: "quiet",

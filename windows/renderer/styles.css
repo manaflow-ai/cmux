@@ -3540,6 +3540,14 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   --pane-drop-top: 22px;
 }
 
+.shell.pane-header-auto {
+  --pane-drop-top: 31px;
+}
+
+.shell.density-compact.pane-header-auto {
+  --pane-drop-top: 28px;
+}
+
 .shell.pane-header-hidden {
   --pane-drop-top: 0px;
 }
@@ -3636,6 +3644,121 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   flex-basis: 18px;
   height: 16px;
   font-size: 10px;
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-compact {
+  --pane-drop-top: 22px;
+  grid-template-rows: 22px minmax(0, 1fr);
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-compact .pane-header {
+  gap: 5px;
+  padding: 0 6px;
+  border-bottom-color: color-mix(in oklch, var(--color-line) 64%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 86%, var(--color-canvas) 14%);
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-compact .pane-grip {
+  width: 10px;
+  height: 12px;
+  opacity: .2;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-compact .pane-grip::before {
+  left: 1px;
+  top: 1px;
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-compact:hover .pane-grip,
+.shell.pane-header-auto .pane.pane-chrome-auto-compact.is-active .pane-grip,
+.shell.pane-header-auto .pane.pane-chrome-auto-compact .pane-header:focus-within .pane-grip {
+  opacity: .72;
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-compact .pane-type {
+  display: none;
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-compact .pane-title {
+  display: block;
+  min-width: 22px;
+  color: var(--color-faint);
+  font-size: 11px;
+  line-height: 1;
+  opacity: .86;
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-compact:hover .pane-title,
+.shell.pane-header-auto .pane.pane-chrome-auto-compact.is-active .pane-title,
+.shell.pane-header-auto .pane.pane-chrome-auto-compact .pane-header:focus-within .pane-title {
+  color: var(--color-muted);
+  opacity: 1;
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-compact .pane-toolbar {
+  --pane-toolbar-width: min(108px, 100%);
+  margin-left: auto;
+  gap: 2px;
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-compact:hover .pane-toolbar,
+.shell.pane-header-auto .pane.pane-chrome-auto-compact.is-active .pane-toolbar,
+.shell.pane-header-auto .pane.pane-chrome-auto-compact .pane-header:focus-within .pane-toolbar {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.shell.pane-header-auto.pane-actions-essential .pane.pane-chrome-auto-compact .pane-toolbar {
+  --pane-toolbar-width: min(46px, 42cqw);
+}
+
+.shell.pane-header-auto.pane-actions-split .pane.pane-chrome-auto-compact .pane-toolbar {
+  --pane-toolbar-width: min(100px, 50cqw);
+}
+
+.shell.pane-header-auto.pane-actions-full .pane.pane-chrome-auto-compact .pane-toolbar {
+  --pane-toolbar-width: min(148px, 58cqw);
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-compact .pane-tool {
+  width: 18px;
+  flex-basis: 18px;
+  height: 16px;
+  font-size: 10px;
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-minimal:not(.is-minimized):not(.is-pending) {
+  --pane-drop-top: 0px;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-minimal:not(.is-minimized):not(.is-pending) .pane-header {
+  position: absolute;
+  z-index: 5;
+  top: var(--space-1);
+  left: var(--space-1);
+  right: var(--space-1);
+  height: 22px;
+  border: 1px solid color-mix(in oklch, var(--color-line) 70%, transparent);
+  border-radius: var(--radius-1);
+  box-shadow: 0 8px 20px color-mix(in oklch, var(--color-canvas) 30%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.shell.pane-header-auto .pane.pane-chrome-auto-minimal:not(.is-minimized):not(.is-pending):hover .pane-header,
+.shell.pane-header-auto .pane.pane-chrome-auto-minimal:not(.is-minimized):not(.is-pending).has-attention .pane-header,
+.shell.pane-header-auto .pane.pane-chrome-auto-minimal:not(.is-minimized):not(.is-pending).is-dragging .pane-header,
+.shell.pane-header-auto .pane.pane-chrome-auto-minimal:not(.is-minimized):not(.is-pending) .pane-header:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 @container (max-width: 340px) {
@@ -9257,6 +9380,15 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .layout-settings-preview.pane-header-full .layout-preview-pane {
   grid-template-rows: 24px 1fr 1fr;
+}
+
+.layout-settings-preview.pane-header-auto .layout-preview-pane {
+  grid-template-rows: 20px 1fr 1fr;
+}
+
+.layout-settings-preview.pane-header-auto .layout-preview-pane-header {
+  grid-template-columns: minmax(0, 1fr) 28px;
+  opacity: .86;
 }
 
 .layout-settings-preview.pane-header-hidden .layout-preview-pane {
