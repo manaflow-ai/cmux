@@ -610,7 +610,7 @@ final class MarkdownPanelTests: XCTestCase {
         let coordinator = MarkdownWebRenderer.Coordinator()
         coordinator.filePath = markdownURL.path
         configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
-        let fixture = makeMarkdownTestWebView(frame: frame, configuration: configuration, useMarkdownWebView: true)
+        let fixture = makeMarkdownTestMarkdownWebView(frame: frame, configuration: configuration)
         let webView = fixture.webView
         coordinator.webView = webView
         defer {
@@ -747,7 +747,7 @@ final class MarkdownPanelTests: XCTestCase {
         coordinator.filePath = markdownURL.path
         configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
         configuration.setURLSchemeHandler(remoteImageHandler, forURLScheme: MarkdownWebRenderer.remoteImageURLScheme)
-        let fixture = makeMarkdownTestWebView(frame: frame, configuration: configuration, useMarkdownWebView: true)
+        let fixture = makeMarkdownTestMarkdownWebView(frame: frame, configuration: configuration)
         let webView = fixture.webView
         coordinator.webView = webView
         defer {
@@ -1435,13 +1435,25 @@ final class MarkdownPanelTests: XCTestCase {
 
     private func makeMarkdownTestWebView(
         frame: NSRect,
-        configuration: WKWebViewConfiguration? = nil,
-        useMarkdownWebView: Bool = false
+        configuration: WKWebViewConfiguration? = nil
     ) -> (webView: WKWebView, close: () -> Void) {
         let resolvedConfiguration = configuration ?? makeMarkdownTestWebViewConfiguration()
-        let webView: WKWebView = useMarkdownWebView
-            ? MarkdownWebView(frame: frame, configuration: resolvedConfiguration)
-            : WKWebView(frame: frame, configuration: resolvedConfiguration)
+        let webView = WKWebView(frame: frame, configuration: resolvedConfiguration)
+        return attachMarkdownTestWebView(webView, frame: frame)
+    }
+
+    private func makeMarkdownTestMarkdownWebView(
+        frame: NSRect,
+        configuration: WKWebViewConfiguration
+    ) -> (webView: MarkdownWebView, close: () -> Void) {
+        let webView = MarkdownWebView(frame: frame, configuration: configuration)
+        return attachMarkdownTestWebView(webView, frame: frame)
+    }
+
+    private func attachMarkdownTestWebView<WebView: WKWebView>(
+        _ webView: WebView,
+        frame: NSRect
+    ) -> (webView: WebView, close: () -> Void) {
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
         webView.layoutSubtreeIfNeeded()
