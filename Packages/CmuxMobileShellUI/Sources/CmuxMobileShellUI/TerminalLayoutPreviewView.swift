@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxMobileGhosttyEngine
 import CmuxMobileTerminal
 import SwiftUI
 import UIKit
@@ -28,12 +29,15 @@ struct TerminalLayoutPreviewView: View {
 }
 
 private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
+    /// Root-constructed engine provider from the SwiftUI environment.
+    @Environment(GhosttyEngineProvider.self) private var engineProvider
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> UIView {
-        let runtime: GhosttyRuntime
+        let engine: GhosttyEngineService
         do {
-            runtime = try GhosttyRuntime.shared()
+            engine = try engineProvider.engine()
         } catch {
             let label = UILabel()
             label.numberOfLines = 0
@@ -42,7 +46,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
             return label
         }
         let view = GhosttySurfaceView(
-            runtime: runtime,
+            engine: engine,
             delegate: context.coordinator,
             fontSize: MobileTerminalFontPreference.defaultSize
         )

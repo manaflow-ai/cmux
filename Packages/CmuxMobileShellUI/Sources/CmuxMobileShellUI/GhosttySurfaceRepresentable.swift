@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CMUXMobileCore
 import CmuxMobileDiagnostics
+import CmuxMobileGhosttyEngine
 import CmuxMobileShell
 import CmuxMobileTerminal
 import SwiftUI
@@ -16,15 +17,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let surfaceID: String
     let store: CMUXMobileShellStore
     let fontSize: Float32
+    /// Root-constructed engine provider, carried by the SwiftUI environment
+    /// from `CMUXMobileRootScene` (replaces `GhosttyRuntime.shared()`).
+    @Environment(GhosttyEngineProvider.self) private var engineProvider
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
     }
 
     func makeUIView(context: Context) -> UIView {
-        let runtime: GhosttyRuntime
+        let engine: GhosttyEngineService
         do {
-            runtime = try GhosttyRuntime.shared()
+            engine = try engineProvider.engine()
         } catch {
             let fallback = UILabel()
             fallback.numberOfLines = 0
@@ -34,7 +38,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             return fallback
         }
         let view = GhosttySurfaceView(
-            runtime: runtime,
+            engine: engine,
             delegate: context.coordinator,
             fontSize: fontSize
         )

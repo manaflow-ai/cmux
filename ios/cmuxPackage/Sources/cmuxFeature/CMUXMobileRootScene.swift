@@ -7,6 +7,9 @@ import Foundation
 import OSLog
 import SwiftUI
 
+#if canImport(UIKit)
+import CmuxMobileGhosttyEngine
+#endif
 #if canImport(UIKit) && DEBUG
 import CmuxMobileTerminal
 #endif
@@ -32,6 +35,10 @@ public struct CMUXMobileRootScene: View {
     private let reachability: any ReachabilityProviding
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
+    /// Root-constructed Ghostty engine provider, injected into the SwiftUI
+    /// environment so terminal surfaces resolve the engine without a
+    /// singleton.
+    private let terminalEngine: GhosttyEngineProvider
     #endif
     private let pairedMacStore: (any MobilePairedMacStoring)?
 
@@ -44,16 +51,19 @@ public struct CMUXMobileRootScene: View {
     ///     the shell store (already used to build `auth`).
     ///   - pushCoordinator: The app-root push coordinator (shared with the app
     ///     delegate) injected into the environment.
+    ///   - terminalEngine: The root-constructed Ghostty engine provider.
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
-        pushCoordinator: MobilePushCoordinator
+        pushCoordinator: MobilePushCoordinator,
+        terminalEngine: GhosttyEngineProvider
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
         self.pushCoordinator = pushCoordinator
+        self.terminalEngine = terminalEngine
         self.pairedMacStore = Self.openPairedMacStore()
     }
     #else
@@ -86,6 +96,7 @@ public struct CMUXMobileRootScene: View {
             .environment(auth.coordinator)
             #if os(iOS)
             .environment(pushCoordinator)
+            .environment(terminalEngine)
             #endif
     }
 
@@ -93,9 +104,9 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if canImport(UIKit) && DEBUG
         if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
-            MobileZoomStressView()
+            MobileZoomStressView(engineProvider: terminalEngine)
         } else if ProcessInfo.processInfo.environment["CMUX_LATENCY_PROBE"] == "1" {
-            MobileTerminalLatencyProbeView()
+            MobileTerminalLatencyProbeView(engineProvider: terminalEngine)
         } else {
             CMUXMobileAppView(store: makeStore())
         }

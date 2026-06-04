@@ -1,6 +1,7 @@
 #if canImport(UIKit) && DEBUG
 import CMUXMobileCore
 import CmuxMobileDiagnostics
+import CmuxMobileGhosttyEngine
 import CmuxMobileTerminalKit
 import OSLog
 import SwiftUI
@@ -30,28 +31,34 @@ private let probeLog = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghos
 ///
 /// Driven by `scripts/measure-ios-terminal-latency.sh` via `simctl`. DEBUG-only.
 public struct MobileTerminalLatencyProbeView: View {
-    /// Creates the probe view.
-    public init() {}
+    private let engineProvider: GhosttyEngineProvider
+
+    /// Creates the probe view over the injected engine provider.
+    public init(engineProvider: GhosttyEngineProvider) {
+        self.engineProvider = engineProvider
+    }
 
     /// Mounts the probe's surface host full-bleed on a black backdrop.
     public var body: some View {
-        LatencyProbeRepresentable()
+        LatencyProbeRepresentable(engineProvider: engineProvider)
             .ignoresSafeArea()
             .background(Color.black)
     }
 }
 
 private struct LatencyProbeRepresentable: UIViewRepresentable {
+    let engineProvider: GhosttyEngineProvider
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> UIView {
-        guard let runtime = try? GhosttyRuntime.shared() else {
+        guard let engine = try? engineProvider.engine() else {
             let label = UILabel()
             label.text = "LatencyProbe: runtime init failed"
             label.textColor = .white
             return label
         }
-        let view = GhosttySurfaceView(runtime: runtime, delegate: context.coordinator, fontSize: 12)
+        let view = GhosttySurfaceView(engine: engine, delegate: context.coordinator, fontSize: 12)
         context.coordinator.surfaceView = view
         context.coordinator.start()
         return view
@@ -135,7 +142,7 @@ private struct LatencyProbeRepresentable: UIViewRepresentable {
             // and look for it in the surface's readable text.
             let marker = "LATENCYPROBE-END"
             _ = await measureKeystroke(view, text: marker)
-            let verified = view.accessibilityRenderedTextForTesting()?.contains(marker) ?? false
+            let verified = (await view.renderedSurfaceTextForTesting())?.contains(marker) ?? false
 
             guard !Task.isCancelled else { return }
             let intervals = await runCadencePhase(view, seconds: Self.cadenceSeconds)
