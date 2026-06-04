@@ -72,11 +72,12 @@ public struct TerminalSection: View {
         tabsFillSaveFailed = false
         tabsFillSaveTask = Task {
             let saved = await hostActions.setSurfaceTabsFillPaneWidth(enabled)
-            guard !Task.isCancelled else { return }
             if saved {
                 tabsFillPaneWidthLastSaved = enabled
-                tabsFillSaveFailed = false
-            } else {
+                if !Task.isCancelled {
+                    tabsFillSaveFailed = false
+                }
+            } else if !Task.isCancelled {
                 tabsFillPaneWidth = tabsFillPaneWidthLastSaved
                 tabsFillSaveFailed = true
             }
