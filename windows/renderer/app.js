@@ -20972,13 +20972,51 @@ function quickOverviewControlsPanel(options = {}) {
 function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount = 0) {
   const hasWorkspace = Boolean(workspace);
   const workspaceName = workspaceDisplayTitle(workspace, "No workspace");
+  const folderTitle = workspace ? folderName(workspace.cwd) : "";
+  const paneTitle = workspacePaneSuggestedTitle(workspace);
   const paneSummary = `${terminalCount} terminal${terminalCount === 1 ? "" : "s"} / ${browserCount} browser${browserCount === 1 ? "" : "s"}`;
   const disabledTitle = "Open a workspace before changing workspace setup.";
+  const refreshQuick = (result) => {
+    if (result !== false && state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
+    return result;
+  };
   const actions = [
     quickOverviewControlButton("Rename", renameActiveWorkspace, {
       disabled: !hasWorkspace,
       title: hasWorkspace ? "Rename the active workspace." : disabledTitle,
       search: "quick setup workspace rename name title"
+    }),
+    quickOverviewControlButton("Use folder", async () => {
+      if (!workspace || !folderTitle) return false;
+      const changed = await renameWorkspaceTo(folderTitle, workspace.id);
+      toast(changed ? "Workspace name set from folder." : "Workspace already uses the folder name.");
+      return refreshQuick(changed);
+    }, {
+      disabled: !hasWorkspace || !folderTitle || folderTitle === workspace?.title,
+      title: !hasWorkspace
+        ? disabledTitle
+        : !folderTitle
+          ? "Set a workspace folder before using its name."
+          : folderTitle === workspace?.title
+            ? "Workspace already uses the folder name."
+            : "Rename the workspace from its folder.",
+      search: `quick setup workspace rename use folder directory cwd title ${folderTitle}`
+    }),
+    quickOverviewControlButton("Use pane", async () => {
+      if (!workspace || !paneTitle) return false;
+      const changed = await renameWorkspaceTo(paneTitle, workspace.id);
+      toast(changed ? "Workspace name set from the active pane." : "Workspace already uses the active pane name.");
+      return refreshQuick(changed);
+    }, {
+      disabled: !hasWorkspace || !paneTitle || paneTitle === workspace?.title,
+      title: !hasWorkspace
+        ? disabledTitle
+        : !paneTitle
+          ? "Open or rename a pane before using it as the workspace name."
+          : paneTitle === workspace?.title
+            ? "Workspace already uses the active pane name."
+            : "Rename the workspace from the active pane.",
+      search: `quick setup workspace rename use active pane tab title terminal browser ${paneTitle}`
     }),
     quickOverviewControlButton("Folder", () => chooseWorkspaceFolder(workspace), {
       disabled: !hasWorkspace,
@@ -21005,7 +21043,7 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
     className: "quick-overview-workspace",
     title: "Workspace controls",
     meta: hasWorkspace ? `${workspaceName} / ${paneSummary}` : "Open a workspace first",
-    search: `quick setup workspace controls rename folder layout copy paste setup ${workspaceName} ${paneSummary}`,
+    search: `quick setup workspace controls rename folder active pane layout copy paste setup ${workspaceName} ${folderTitle} ${paneTitle} ${paneSummary}`,
     actions
   });
 }
