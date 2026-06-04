@@ -1268,7 +1268,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
         XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.control]))
     }
 
-    func testJKWithoutSelectionScrollByLine() {
+    func testVimMotionsWithoutSelectionMoveCursorInsteadOfViewport() {
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
                 keyCode: 38,
@@ -1276,7 +1276,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [],
                 hasSelection: false
             ),
-            .scrollLines(1)
+            .adjustSelection(.down)
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -1285,7 +1285,25 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [],
                 hasSelection: false
             ),
-            .scrollLines(-1)
+            .adjustSelection(.up)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 4,
+                charactersIgnoringModifiers: "h",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .adjustSelection(.left)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 37,
+                charactersIgnoringModifiers: "l",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .adjustSelection(.right)
         )
     }
 
