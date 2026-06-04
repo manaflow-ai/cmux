@@ -55,6 +55,18 @@ extension RightSidebarMode {
     }
 }
 
+nonisolated enum FileExplorerRootSyncPolicy {
+    static func shouldSyncFileExplorerStore(isRightSidebarVisible: Bool, mode: RightSidebarMode) -> Bool {
+        guard isRightSidebarVisible else { return false }
+        switch mode {
+        case .files, .find:
+            return true
+        case .sessions, .feed, .dock:
+            return false
+        }
+    }
+}
+
 extension RightSidebarMode {
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
@@ -414,7 +426,7 @@ struct RightSidebarPanelView: View {
     }
 
     private var sessionIndexDirectory: String? {
-        fileExplorerStore.rootPath.isEmpty ? nil : fileExplorerStore.rootPath
+        sessionIndexStore.currentDirectory
     }
 
     private func selectMode(_ mode: RightSidebarMode) {
