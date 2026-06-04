@@ -2779,6 +2779,60 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         )
     }
 
+    func testFailedSplitSurfaceBetweenTopLevelTabControllersRestoresSourceController() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let firstLayoutController = workspace.bonsplitController
+        let firstLayoutPane = try XCTUnwrap(firstLayoutController.allPaneIds.first)
+
+        manager.newSurface()
+        let secondLayoutController = workspace.bonsplitController
+        let secondPaneId = try XCTUnwrap(secondLayoutController.focusedPaneId ?? secondLayoutController.allPaneIds.first)
+        let secondInitialTabIds = secondLayoutController.tabs(inPane: secondPaneId).map(\.id)
+        var destinationConfiguration = secondLayoutController.configuration
+        destinationConfiguration.allowSplits = false
+        secondLayoutController.configuration = destinationConfiguration
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        XCTAssertFalse(
+            workspace.splitSurface(
+                panelId: firstPanelId,
+                targetPane: secondPaneId,
+                orientation: .horizontal,
+                insertFirst: false,
+                focus: false
+            ),
+            "Expected a destination split veto to fail the cross-top-tab split"
+        )
+
+        let restoredTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(firstPanelId))
+        XCTAssertEqual(
+            workspace.selectedTopLevelTabId,
+            firstTopTabId,
+            "Expected a failed non-focus split into another top tab not to switch the visible top tab"
+        )
+        XCTAssertTrue(
+            workspace.bonsplitController(containingPanelId: firstPanelId) === firstLayoutController,
+            "Expected failed cross-top-tab split to restore the panel to its source controller"
+        )
+        XCTAssertEqual(
+            workspace.paneId(forPanelId: firstPanelId),
+            firstLayoutPane,
+            "Expected failed cross-top-tab split to restore the panel to its source pane"
+        )
+        XCTAssertTrue(
+            firstLayoutController.tabs(inPane: firstLayoutPane).contains { $0.id == restoredTabId },
+            "Expected the restored panel tab to be present in the source pane"
+        )
+        XCTAssertEqual(
+            secondLayoutController.tabs(inPane: secondPaneId).map(\.id),
+            secondInitialTabIds,
+            "Expected failed cross-top-tab split to remove the transient destination attachment"
+        )
+    }
+
     func testReorderSurfaceInHiddenTopLevelTabDoesNotSelectItWhenFocusFalse() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)

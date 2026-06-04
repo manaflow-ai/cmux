@@ -16441,18 +16441,37 @@ final class Workspace: Identifiable, ObservableObject {
                 insertFirst: insertFirst
             ) != nil
         } else {
-            guard let detached = detachSurface(panelId: panelId),
-                  attachDetachedSurface(detached, inPane: paneId, focus: false) != nil,
-                  let attachedTabId = surfaceIdFromPanelId(panelId) else {
+            let sourcePaneId = paneId(forPanelId: panelId)
+            let sourceIndex = indexInPane(forPanelId: panelId)
+            guard let detached = detachSurface(panelId: panelId) else {
                 return false
             }
-            didSplit = destinationController.splitPane(
+            guard attachDetachedSurface(detached, inPane: paneId, focus: false) != nil,
+                  let attachedTabId = surfaceIdFromPanelId(panelId) else {
+                rollbackDetachedSurfaceTransfer(
+                    detached,
+                    toPane: sourcePaneId,
+                    atIndex: sourceIndex,
+                    in: sourceController
+                )
+                return false
+            }
+            guard destinationController.splitPane(
                 paneId,
                 orientation: orientation,
                 movingTab: attachedTabId,
                 insertFirst: insertFirst
-            ) != nil
+            ) != nil else {
+                rollbackAttachedSurfaceTransfer(
+                    panelId: panelId,
+                    toPane: sourcePaneId,
+                    atIndex: sourceIndex,
+                    in: sourceController
+                )
+                return false
+            }
             ensureReplacementTerminalIfLayoutBecameEmpty(sourceController)
+            didSplit = true
         }
 
         guard didSplit else { return false }
@@ -16482,8 +16501,18 @@ final class Workspace: Identifiable, ObservableObject {
               let destinationController = bonsplitController(containingPaneId: paneId) else { return false }
 
         if sourceController !== destinationController {
-            guard let detached = detachSurface(panelId: panelId),
-                  attachDetachedSurface(detached, inPane: paneId, atIndex: index, focus: focus) != nil else {
+            let sourcePaneId = paneId(forPanelId: panelId)
+            let sourceIndex = indexInPane(forPanelId: panelId)
+            guard let detached = detachSurface(panelId: panelId) else {
+                return false
+            }
+            guard attachDetachedSurface(detached, inPane: paneId, atIndex: index, focus: focus) != nil else {
+                rollbackDetachedSurfaceTransfer(
+                    detached,
+                    toPane: sourcePaneId,
+                    atIndex: sourceIndex,
+                    in: sourceController
+                )
                 return false
             }
             ensureReplacementTerminalIfLayoutBecameEmpty(sourceController)
@@ -16508,6 +16537,64 @@ final class Workspace: Identifiable, ObservableObject {
         }
         scheduleTerminalGeometryReconcile()
         return true
+    }
+
+    private func rollbackDetachedSurfaceTransfer(
+        _ detached: DetachedSurfaceTransfer,
+        toPane sourcePaneId: PaneID?,
+        atIndex sourceIndex: Int?,
+        in sourceController: BonsplitController
+    ) {
+        guard restoreDetachedSurfaceTransfer(
+            detached,
+            toPane: sourcePaneId,
+            atIndex: sourceIndex,
+            in: sourceController
+        ) else {
+            ensureReplacementTerminalIfLayoutBecameEmpty(sourceController)
+            return
+        }
+    }
+
+    private func rollbackAttachedSurfaceTransfer(
+        panelId: UUID,
+        toPane sourcePaneId: PaneID?,
+        atIndex sourceIndex: Int?,
+        in sourceController: BonsplitController
+    ) {
+        guard let detached = detachSurface(panelId: panelId) else {
+            ensureReplacementTerminalIfLayoutBecameEmpty(sourceController)
+            return
+        }
+        rollbackDetachedSurfaceTransfer(
+            detached,
+            toPane: sourcePaneId,
+            atIndex: sourceIndex,
+            in: sourceController
+        )
+    }
+
+    private func restoreDetachedSurfaceTransfer(
+        _ detached: DetachedSurfaceTransfer,
+        toPane sourcePaneId: PaneID?,
+        atIndex sourceIndex: Int?,
+        in sourceController: BonsplitController
+    ) -> Bool {
+        let restorePaneId: PaneID? = {
+            if let sourcePaneId,
+               sourceController.allPaneIds.contains(sourcePaneId) {
+                return sourcePaneId
+            }
+            return sourceController.focusedPaneId ?? sourceController.allPaneIds.first
+        }()
+
+        guard let restorePaneId else { return false }
+        return attachDetachedSurface(
+            detached,
+            inPane: restorePaneId,
+            atIndex: sourceIndex,
+            focus: false
+        ) != nil
     }
 
     @discardableResult
