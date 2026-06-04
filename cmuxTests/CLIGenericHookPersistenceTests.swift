@@ -1370,7 +1370,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
-            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+            guard let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            if method == "feed.push" {
+                return nil
+            }
+            guard let id = payload["id"] as? String else {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
             }
             switch method {
@@ -1378,8 +1384,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
             case "surface.resume.set":
                 return self.v2Response(id: id, ok: true, result: ["ok": true])
-            case "feed.push":
-                return nil
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
