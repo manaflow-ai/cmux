@@ -34964,6 +34964,28 @@ function paletteEntries() {
       search: normalizeSettingsQuery(`terminal command snippet shell copy clipboard json ${snippet.builtIn ? "built in" : "custom saved"} ${snippet.label} ${snippetCommand}`),
       run: () => copyCommandSnippet(snippet.id)
     });
+    if (!snippet.builtIn) {
+      entries.push({
+        id: `commandSnippet.edit.${snippet.id}`,
+        label: `Edit snippet: ${snippet.label}`,
+        meta: snippetCommand,
+        shortcut: "Edit",
+        icon: "terminal",
+        title: `Edit ${snippet.label}.`,
+        search: normalizeSettingsQuery(`terminal command snippet shell edit custom saved ${snippet.label} ${snippetCommand}`),
+        run: () => editCustomCommandSnippet(snippet.id)
+      });
+      entries.push({
+        id: `commandSnippet.delete.${snippet.id}`,
+        label: `Delete snippet: ${snippet.label}`,
+        meta: snippetCommand,
+        shortcut: "Delete",
+        icon: "terminal",
+        title: `Delete ${snippet.label}.`,
+        search: normalizeSettingsQuery(`terminal command snippet shell delete remove custom saved ${snippet.label} ${snippetCommand}`),
+        run: () => deleteCustomCommandSnippet(snippet.id)
+      });
+    }
   }
   entries.push({
     id: "terminal.copySetup",
