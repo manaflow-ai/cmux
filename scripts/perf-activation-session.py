@@ -293,6 +293,18 @@ class CmuxPerfRunner:
         except OSError:
             return None
 
+    def read_session_snapshot(self) -> dict:
+        with self.session_snapshot_path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def restored_session_snapshot_is_complete(self, snapshot: dict) -> tuple[bool, dict[str, int]]:
+        shape = self.session_snapshot_shape(snapshot)
+        return (
+            shape["workspaces"] >= self.args.workspace_count
+            and shape["terminals"] >= self.args.budget_min_terminal_surfaces,
+            shape,
+        )
+
     def wait_for_restored_session_snapshot(
         self,
         previous_mtime_ns: int | None,
@@ -301,15 +313,23 @@ class CmuxPerfRunner:
         start = now_ms()
         deadline = time.monotonic() + timeout_s
         last_error = ""
+        last_shape: dict[str, int] | None = None
 
         while time.monotonic() < deadline:
             current_mtime_ns = self.session_snapshot_mtime_ns()
-            if current_mtime_ns is not None and current_mtime_ns != previous_mtime_ns:
+            if current_mtime_ns is not None:
                 try:
-                    with self.session_snapshot_path.open("r", encoding="utf-8") as handle:
-                        snapshot = json.load(handle)
-                    self.result["measurements"]["restore_snapshot_file_wait_ms"] = rounded_ms(now_ms() - start)
-                    return snapshot
+                    snapshot = self.read_session_snapshot()
+                    shape_satisfied, last_shape = self.restored_session_snapshot_is_complete(snapshot)
+                    mtime_changed = current_mtime_ns != previous_mtime_ns
+                    if mtime_changed or shape_satisfied:
+                        self.result["measurements"]["restore_snapshot_file_wait_ms"] = rounded_ms(
+                            now_ms() - start
+                        )
+                        self.result["fixture"]["restore_snapshot_file_reason"] = (
+                            "mtime_changed" if mtime_changed else "shape_satisfied"
+                        )
+                        return snapshot
                 except (OSError, json.JSONDecodeError) as exc:
                     last_error = str(exc)
             time.sleep(0.1)
@@ -319,6 +339,7 @@ class CmuxPerfRunner:
             "previous_mtime_ns": previous_mtime_ns,
             "current_mtime_ns": self.session_snapshot_mtime_ns(),
             "last_error": last_error,
+            "last_shape": last_shape,
             "timeout_s": timeout_s,
         }
         raise PerfFailure(f"restore_session_snapshot_file: not updated after {timeout_s}s")

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import types
 from unittest import mock
@@ -227,6 +228,38 @@ def test_post_restore_shape_uses_persisted_session_snapshot() -> None:
         "progress_entries": 1,
         "git_entries": 2,
     }
+
+
+def test_restored_session_snapshot_accepts_complete_idempotent_save(tmp_path: pathlib.Path) -> None:
+    runner = object.__new__(perf_activation_session.CmuxPerfRunner)
+    runner.args = types.SimpleNamespace(workspace_count=2, budget_min_terminal_surfaces=2)
+    runner.result = {"measurements": {}, "fixture": {}}
+    runner.session_snapshot_path = tmp_path / "session.json"
+    snapshot = {
+        "windows": [
+            {
+                "tabManager": {
+                    "workspaces": [
+                        {"panels": [{"terminal": {}}, {"browser": {}}]},
+                        {"panels": [{"terminal": {}}]},
+                    ]
+                }
+            }
+        ]
+    }
+    runner.session_snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+    previous_mtime_ns = runner.session_snapshot_mtime_ns()
+
+    with mock.patch.object(perf_activation_session.time, "sleep") as sleep:
+        restored_snapshot = runner.wait_for_restored_session_snapshot(
+            previous_mtime_ns=previous_mtime_ns,
+            timeout_s=5,
+        )
+
+    assert restored_snapshot == snapshot
+    assert runner.result["fixture"]["restore_snapshot_file_reason"] == "shape_satisfied"
+    assert runner.result["measurements"]["restore_snapshot_file_wait_ms"] >= 0
+    sleep.assert_not_called()
 
 
 def test_session_snapshot_path_uses_swift_safe_bundle_id() -> None:
