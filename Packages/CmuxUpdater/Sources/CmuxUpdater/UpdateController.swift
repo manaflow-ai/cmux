@@ -321,7 +321,7 @@ public final class UpdateController {
             log.append(
                 "updater started (autoChecks=\(updater.automaticallyChecksForUpdates), interval=\(interval)s, autoDownloads=\(updater.automaticallyDownloadsUpdates))"
             )
-            startLaunchUpdateProbeIfNeeded()
+            startBackgroundUpdateProbeIfNeeded()
         } catch {
             model.setState(.error(.init(
                 error: error,
@@ -337,16 +337,22 @@ public final class UpdateController {
         }
     }
 
-    private func startLaunchUpdateProbeIfNeeded() {
+    nonisolated static func shouldProbeImmediatelyOnLaunch(automaticallyChecksForUpdates: Bool) -> Bool {
+        false
+    }
+
+    private func startBackgroundUpdateProbeIfNeeded() {
         guard updater.automaticallyChecksForUpdates else {
-            log.append("launch update probe skipped (automatic checks disabled)")
+            log.append("background update probe skipped (automatic checks disabled)")
             return
         }
 
-        // Probe immediately on launch so the sidebar can surface a passive update indicator
-        // without waiting for Sparkle's scheduled check or opening interactive update UI.
-        log.append("starting launch update probe")
-        updater.checkForUpdateInformation()
+        if Self.shouldProbeImmediatelyOnLaunch(automaticallyChecksForUpdates: updater.automaticallyChecksForUpdates) {
+            log.append("starting launch update probe")
+            updater.checkForUpdateInformation()
+        } else {
+            log.append("launch update probe skipped (deferred to periodic/user checks)")
+        }
 
         // Re-probe periodically so the banner appears even if the app has been running for a
         // while when a new version is published. Genuine periodic schedule via the clock.
