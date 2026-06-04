@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import CmuxMobileTerminalKit
 import SwiftUI
 
 /// Editor for the terminal input-accessory shortcut bar: toggle which shortcuts

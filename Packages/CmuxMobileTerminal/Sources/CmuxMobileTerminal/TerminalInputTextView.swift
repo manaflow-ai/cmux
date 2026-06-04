@@ -13,19 +13,11 @@ final class TerminalInputTextView: UITextView {
     /// (when the keyboard is up) and show-keyboard (when down) via
     /// ``setKeyboardShown(_:)``.
     private weak var dismissButton: UIButton?
-    /// The armed/sticky modifier state machine, extracted into the testable
-    /// ``TerminalInputModifierState`` reducer. This view is now a dumb
-    /// first-responder that forwards taps into the reducer and reads its state
-    /// back for byte encoding and button styling.
-    private var modifierState = TerminalInputModifierState()
-    private var controlAccessoryArmed: Bool { modifierState.isArmed(.control) }
-    private var alternateAccessoryArmed: Bool { modifierState.isArmed(.alternate) }
-    private var commandAccessoryArmed: Bool { modifierState.isArmed(.command) }
-    private var shiftAccessoryArmed: Bool { modifierState.isArmed(.shift) }
-    private var controlAccessorySticky: Bool { modifierState.isStickyOn(.control) }
-    private var alternateAccessorySticky: Bool { modifierState.isStickyOn(.alternate) }
-    private var commandAccessorySticky: Bool { modifierState.isStickyOn(.command) }
-    private var shiftAccessorySticky: Bool { modifierState.isStickyOn(.shift) }
+    /// The extracted input policy (DECOMPOSITION-PLAN §2c): owns the
+    /// armed/sticky modifier machine and every committed-text / backspace /
+    /// accessory-tap byte translation. This view is a dumb first responder
+    /// that forwards events and dispatches the returned emissions.
+    private let inputCoordinator = TerminalInputCoordinator()
     private var pendingDirectInsertMirrorText = ""
 
     /// Monotonic-ish tap timestamp for the reducer's double-tap window. Uses
@@ -270,8 +262,8 @@ final class TerminalInputTextView: UITextView {
         }
         // Disarm command state if switching away from Mac remote (clears a
         // sticky lock too, matching the legacy unconditional setter).
-        if !isMacRemote && commandAccessoryArmed {
-            modifierState.disarmAll()
+        if !isMacRemote && inputCoordinator.isArmed(.command) {
+            inputCoordinator.disarmAll()
             refreshAccessoryButtonStyles()
         }
     }
@@ -326,38 +318,20 @@ final class TerminalInputTextView: UITextView {
     }
 
     override func deleteBackward() {
-        if commandAccessoryArmed, markedTextRange == nil, !hasText {
-            if !commandAccessorySticky {
-                setCommandAccessoryArmed(false)
-            }
-            // Cmd+Backspace on Mac = delete to start of line (Ctrl+U / 0x15)
-            onEscapeSequence?(Data([0x15]))
-            return
-        }
-        if alternateAccessoryArmed, markedTextRange == nil, !hasText {
-            if !alternateAccessorySticky {
-                setAlternateAccessoryArmed(false)
-            }
-            if let output = TerminalHardwareKeyResolver.data(
-                input: UIKeyCommand.inputDelete,
-                modifierFlags: [.alternate]
-            ) {
-                onEscapeSequence?(output)
-            }
-            return
-        }
-        if controlAccessoryArmed, markedTextRange == nil, !hasText {
-            if !controlAccessorySticky {
-                setControlAccessoryArmed(false)
-            }
-            onBackspace?()
-            return
-        }
         if markedTextRange != nil || hasText {
             super.deleteBackward()
             return
         }
-        onBackspace?()
+        let resolution = inputCoordinator.resolveBackspace()
+        refreshAccessoryButtonStyles()
+        switch resolution {
+        case .plainDelete:
+            onBackspace?()
+        case .emission(let emission):
+            dispatch(emission)
+        case .suppressed:
+            break
+        }
     }
 
     func simulateTextChangeForTesting(_ text: String, isComposing: Bool) {
@@ -376,7 +350,7 @@ final class TerminalInputTextView: UITextView {
 
     private func resetStickyTapTimeForTesting(_ action: TerminalInputAccessoryAction) {
         guard action.isModifier else { return }
-        modifierState.clearDoubleTapWindow()
+        inputCoordinator.clearDoubleTapWindow()
     }
 
     @objc
@@ -453,84 +427,26 @@ final class TerminalInputTextView: UITextView {
     }
 
     private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
-        if let zoomDirection = action.zoomDirection {
-            disarmAllModifiers()
-            refreshAccessoryButtonStyles()
-            onZoom?(zoomDirection)
-            return
-        }
-
-        if controlAccessoryArmed,
-           !action.isModifier {
-            if !controlAccessorySticky {
-                setControlAccessoryArmed(false)
-            }
-            if let output = action.output {
-                onEscapeSequence?(output)
-            }
-            return
-        }
-
-        if alternateAccessoryArmed,
-           !action.isModifier {
-            if !alternateAccessorySticky {
-                setAlternateAccessoryArmed(false)
-            }
-            if let output = alternateAccessoryOutput(for: action) {
-                onEscapeSequence?(output)
-            }
-            return
-        }
-
-        if commandAccessoryArmed,
-           !action.isModifier {
-            if !commandAccessorySticky {
-                setCommandAccessoryArmed(false)
-            }
-            if let output = commandAccessoryOutput(for: action) {
-                onEscapeSequence?(output)
-            }
-            return
-        }
-
-        switch action {
-        case .control:
-            toggleControlModifier()
-        case .alternate:
-            toggleAlternateModifier()
-        case .command:
-            toggleCommandModifier()
-        case .shift:
-            toggleShiftModifier()
-        default:
-            if let output = action.output {
-                onEscapeSequence?(output)
-            }
-        }
-    }
-
-    private func disarmAllModifiers() {
-        modifierState.disarmAll()
-    }
-
-    private func toggleControlModifier() {
-        modifierState.tap(.control, now: Self.tapNow())
+        let resolution = inputCoordinator.resolveAccessoryAction(action, now: Self.tapNow())
         refreshAccessoryButtonStyles()
+        switch resolution {
+        case .none:
+            break
+        case .zoom(let direction):
+            onZoom?(direction)
+        case .emission(let emission):
+            dispatch(emission)
+        }
     }
 
-    private func toggleAlternateModifier() {
-        modifierState.tap(.alternate, now: Self.tapNow())
-        refreshAccessoryButtonStyles()
-    }
-
-    private func toggleCommandModifier() {
-        modifierState.tap(.command, now: Self.tapNow())
-        refreshAccessoryButtonStyles()
-    }
-
-    private func toggleShiftModifier() {
-        modifierState.tap(.shift, now: Self.tapNow())
-        refreshAccessoryButtonStyles()
+    /// Routes one resolved emission to the matching send closure.
+    private func dispatch(_ emission: TerminalInputEmission) {
+        switch emission {
+        case .sendText(let text):
+            onText?(text)
+        case .sendBytes(let bytes):
+            onEscapeSequence?(bytes)
+        }
     }
 
     private func refreshAccessoryButtonStyles() {
@@ -595,162 +511,29 @@ final class TerminalInputTextView: UITextView {
 
     private func emitCommittedText(_ committedText: String, source: String) {
         TerminalInputDebugLog.log("proxy.emit source=\(source) text=\(TerminalInputDebugLog.textSummary(committedText))")
-        if controlAccessoryArmed {
-            if !controlAccessorySticky {
-                setControlAccessoryArmed(false)
-            }
-            if let controlSequence = controlSequence(for: committedText) {
-                onEscapeSequence?(controlSequence)
-            } else {
-                onText?(committedText)
-            }
-        } else if alternateAccessoryArmed {
-            if !alternateAccessorySticky {
-                setAlternateAccessoryArmed(false)
-            }
-            if let alternateSequence = alternateSequence(for: committedText) {
-                onEscapeSequence?(alternateSequence)
-            } else {
-                onText?(committedText)
-            }
-        } else if commandAccessoryArmed {
-            if !commandAccessorySticky {
-                setCommandAccessoryArmed(false)
-            }
-            if let commandSequence = commandTextSequence(for: committedText) {
-                onEscapeSequence?(commandSequence)
-            } else {
-                onText?(committedText)
-            }
-        } else if shiftAccessoryArmed {
-            if !shiftAccessorySticky {
-                setShiftAccessoryArmed(false)
-            }
-            onText?(committedText.uppercased())
-        } else {
-            onText?(committedText)
-        }
-    }
-
-    /// Translate Cmd+<letter> typed through the soft keyboard into Mac-terminal
-    /// readline shortcuts (cmd+a = start of line, cmd+e = end, cmd+k = kill line, etc).
-    private func commandTextSequence(for text: String) -> Data? {
-        guard text.count == 1, let char = text.lowercased().first else { return nil }
-        switch char {
-        case "a": return Data([0x01]) // Ctrl+A - beginning of line
-        case "e": return Data([0x05]) // Ctrl+E - end of line
-        case "k": return Data([0x0B]) // Ctrl+K - kill to end of line
-        case "u": return Data([0x15]) // Ctrl+U - kill to start of line
-        case "w": return Data([0x17]) // Ctrl+W - delete previous word
-        case "l": return Data([0x0C]) // Ctrl+L - clear screen
-        case "c": return Data([0x03]) // Ctrl+C - SIGINT
-        case "d": return Data([0x04]) // Ctrl+D - EOF
-        default: return nil
-        }
-    }
-
-    private func controlSequence(for text: String) -> Data? {
-        guard text.count == 1 else { return nil }
-        return TerminalHardwareKeyResolver.data(input: text, modifierFlags: [.control])
-    }
-
-    private func alternateSequence(for text: String) -> Data? {
-        guard let encoded = text.data(using: .utf8), !encoded.isEmpty else { return nil }
-        var sequence = Data([0x1B])
-        sequence.append(encoded)
-        return sequence
-    }
-
-    private func alternateAccessoryOutput(for action: TerminalInputAccessoryAction) -> Data? {
-        switch action {
-        case .leftArrow:
-            return TerminalHardwareKeyResolver.data(
-                input: UIKeyCommand.inputLeftArrow,
-                modifierFlags: [.alternate]
-            )
-        case .rightArrow:
-            return TerminalHardwareKeyResolver.data(
-                input: UIKeyCommand.inputRightArrow,
-                modifierFlags: [.alternate]
-            )
-        case .control, .alternate, .command:
-            return nil
-        default:
-            guard let output = action.output else { return nil }
-            var sequence = Data([0x1B])
-            sequence.append(output)
-            return sequence
-        }
-    }
-
-    /// Translate Cmd+<key> into the equivalent Mac-terminal readline sequence.
-    /// Cmd+Left/Right = start/end of line (Ctrl+A / Ctrl+E).
-    /// Cmd+Backspace is handled directly in deleteBackward() as Ctrl+U.
-    private func commandAccessoryOutput(for action: TerminalInputAccessoryAction) -> Data? {
-        switch action {
-        case .leftArrow:
-            return Data([0x01]) // Ctrl+A - beginning of line
-        case .rightArrow:
-            return Data([0x05]) // Ctrl+E - end of line
-        case .upArrow:
-            // Cmd+Up on Mac often scrolls; just send the raw arrow
-            return TerminalHardwareKeyResolver.data(
-                input: UIKeyCommand.inputUpArrow,
-                modifierFlags: []
-            )
-        case .downArrow:
-            return TerminalHardwareKeyResolver.data(
-                input: UIKeyCommand.inputDownArrow,
-                modifierFlags: []
-            )
-        case .control, .alternate, .command, .shift:
-            return nil
-        default:
-            return action.output
-        }
+        let emission = inputCoordinator.resolveCommittedText(committedText)
+        refreshAccessoryButtonStyles()
+        dispatch(emission)
     }
 
     private func isAccessoryActionArmed(_ action: TerminalInputAccessoryAction) -> Bool {
         switch action {
-        case .control: return controlAccessoryArmed
-        case .alternate: return alternateAccessoryArmed
-        case .command: return commandAccessoryArmed
-        case .shift: return shiftAccessoryArmed
+        case .control: return inputCoordinator.isArmed(.control)
+        case .alternate: return inputCoordinator.isArmed(.alternate)
+        case .command: return inputCoordinator.isArmed(.command)
+        case .shift: return inputCoordinator.isArmed(.shift)
         default: return false
         }
     }
 
     private func isAccessoryActionSticky(_ action: TerminalInputAccessoryAction) -> Bool {
         switch action {
-        case .control: return controlAccessorySticky
-        case .alternate: return alternateAccessorySticky
-        case .command: return commandAccessorySticky
-        case .shift: return shiftAccessorySticky
+        case .control: return inputCoordinator.isStickyOn(.control)
+        case .alternate: return inputCoordinator.isStickyOn(.alternate)
+        case .command: return inputCoordinator.isStickyOn(.command)
+        case .shift: return inputCoordinator.isStickyOn(.shift)
         default: return false
         }
-    }
-
-    /// Consumes a one-shot modifier after it applied to a key. Only `false`
-    /// (disarm) is ever requested; a sticky lock is preserved by the reducer.
-    private func consumeModifier(_ modifier: TerminalInputModifier) {
-        modifierState.consumeIfNotSticky(modifier)
-        refreshAccessoryButtonStyles()
-    }
-
-    private func setCommandAccessoryArmed(_ armed: Bool) {
-        if !armed { consumeModifier(.command) }
-    }
-
-    private func setControlAccessoryArmed(_ armed: Bool) {
-        if !armed { consumeModifier(.control) }
-    }
-
-    private func setAlternateAccessoryArmed(_ armed: Bool) {
-        if !armed { consumeModifier(.alternate) }
-    }
-
-    private func setShiftAccessoryArmed(_ armed: Bool) {
-        if !armed { consumeModifier(.shift) }
     }
 }
 
