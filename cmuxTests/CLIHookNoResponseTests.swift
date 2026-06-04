@@ -187,6 +187,7 @@ struct CLIHookNoResponseTests {
                 ]),
                 "CMUX_AGENT_LAUNCH_CWD": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_SOCKET_PASSWORD": "test-password",
             ],
             standardInput: #"{"session_id":"kiro-lifecycle-no-response","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
             timeout: 0.5
@@ -200,6 +201,49 @@ struct CLIHookNoResponseTests {
             state.snapshot().contains { $0.contains(#""method":"feed.push""#) },
             "Expected lifecycle hook to still emit Feed telemetry"
         )
+    }
+
+    @Test func nonActionableFeedHookDoesNotBlockWhenAcceptedSocketStopsReading() throws {
+        let cliPath = try Self.bundledCLIPath()
+        let socketPath = Self.makeSocketPath("feed-no-read")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 1)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-no-read-\(UUID().uuidString)", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let server = Self.startAcceptedSocketThatDoesNotRead(listenerFD: listenerFD, holdFor: 1.0)
+        let largeToolInput = String(repeating: "x", count: 8 * 1024 * 1024)
+        let input = """
+        {"hook_event_name":"PreToolUse","session_id":"codex-session-no-read","cwd":"\(root.path)","tool_name":"apply_patch","tool_input":{"payload":"\(largeToolInput)"}}
+        """
+
+        let result = Self.runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "codex", "--event", "PreToolUse"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
+                "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
+                "CMUX_CODEX_PID": "626262",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: input,
+            timeout: 0.5
+        )
+
+        #expect(server.wait(timeout: 5), "socket server did not accept feed.push connection")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
     }
 
     private static func bundledCLIPath() throws -> String {
@@ -373,6 +417,27 @@ struct CLIHookNoResponseTests {
         return MockSocketServer(handled: handled)
     }
 
+    private static func startAcceptedSocketThatDoesNotRead(listenerFD: Int32, holdFor: TimeInterval) -> MockSocketServer {
+        let handled = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            var clientAddr = sockaddr_un()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else {
+                handled.signal()
+                return
+            }
+            handled.signal()
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + holdFor)
+            Darwin.close(clientFD)
+        }
+        return MockSocketServer(handled: handled)
+    }
+
     private static func readLines(from fd: Int32, handle: (String) -> Void) {
         var pending = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
@@ -456,15 +521,30 @@ struct CLIHookNoResponseTests {
         process.standardOutput = stdout
         process.standardError = stderr
 
-        let stdinPipe: Pipe?
+        let stdinHandle: FileHandle?
+        let stdinURL: URL?
         if let standardInput {
-            let pipe = Pipe()
-            process.standardInput = pipe
-            stdinPipe = pipe
-            pipe.fileHandleForWriting.write(Data(standardInput.utf8))
-            pipe.fileHandleForWriting.closeFile()
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-test-stdin-\(UUID().uuidString).json")
+            do {
+                try Data(standardInput.utf8).write(to: url)
+                let handle = try FileHandle(forReadingFrom: url)
+                process.standardInput = handle
+                stdinHandle = handle
+                stdinURL = url
+            } catch {
+                try? FileManager.default.removeItem(at: url)
+                return ProcessRunResult(status: -1, stdout: "", stderr: "\(error)", timedOut: false)
+            }
         } else {
-            stdinPipe = nil
+            stdinHandle = nil
+            stdinURL = nil
+        }
+        defer {
+            try? stdinHandle?.close()
+            if let stdinURL {
+                try? FileManager.default.removeItem(at: stdinURL)
+            }
         }
 
         let finished = DispatchSemaphore(value: 0)
@@ -476,7 +556,6 @@ struct CLIHookNoResponseTests {
             return ProcessRunResult(status: -1, stdout: "", stderr: "\(error)", timedOut: false)
         }
 
-        _ = stdinPipe
         let timedOut = finished.wait(timeout: .now() + timeout) != .success
         if timedOut {
             process.terminate()
