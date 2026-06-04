@@ -34937,6 +34937,26 @@ function paletteEntries() {
     search: normalizeSettingsQuery("terminal command snippet paste import clipboard json saved custom shell"),
     run: pasteCommandSnippet
   });
+  for (const pack of commandSnippetPackDefinitions) {
+    const snippets = commandSnippetPackSnippets(pack);
+    if (!snippets.length) continue;
+    const missing = commandSnippetPackMissingSnippets(pack);
+    const saved = missing.length === 0;
+    const overLimit = missing.length > (customCommandSnippetsLimit - state.customCommandSnippets.length);
+    const snippetSearch = snippets.map((snippet) => `${snippet.label} ${snippet.command}`).join(" ");
+    entries.push({
+      id: `commandSnippetPack.save.${pack.id}`,
+      label: `Save snippet pack: ${pack.label}`,
+      meta: saved ? "Already saved" : `${missing.length}/${snippets.length} new snippets`,
+      shortcut: saved ? "Saved" : "Save",
+      active: saved,
+      disabled: saved || overLimit,
+      icon: "terminal",
+      title: commandSnippetPackSaveTitle(pack, missing),
+      search: normalizeSettingsQuery(`terminal command snippet pack save built in reusable ${saved ? "saved active current " : ""}${overLimit ? "limit full " : ""}${pack.label} ${pack.body} ${snippetSearch}`),
+      run: () => saveCommandSnippetPack(pack.id)
+    });
+  }
   for (const snippet of allTerminalCommandSnippets()) {
     const snippetCommand = normalizeTerminalCommand(snippet.command);
     const snippetReady = Boolean(paletteTerminal && snippetCommand);
