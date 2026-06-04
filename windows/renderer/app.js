@@ -18166,8 +18166,10 @@ function paneLookSaveModel(panel = focusedPanel() || activePanel()) {
   const backgroundSaved = Boolean(backgroundImage && savedBackgroundImageExists(backgroundImage));
   const colorNeedsSave = Boolean(color && !colorSaved);
   const backgroundNeedsSave = Boolean(backgroundImage && !backgroundSaved);
-  const canSaveColor = Boolean(colorNeedsSave && !customColorPaletteFull());
-  const canSaveBackground = Boolean(backgroundNeedsSave && !savedBackgroundImagesFull());
+  const colorLibraryFull = customColorPaletteFull();
+  const backgroundLibraryFull = savedBackgroundImagesFull();
+  const canSaveColor = Boolean(colorNeedsSave && !colorLibraryFull);
+  const canSaveBackground = Boolean(backgroundNeedsSave && !backgroundLibraryFull);
   const hasAssets = Boolean(color || backgroundImage);
   const disabled = !canSaveColor && !canSaveBackground;
   let title = "";
@@ -18177,14 +18179,20 @@ function paneLookSaveModel(panel = focusedPanel() || activePanel()) {
       : "Set a pane marker color before saving this look.";
   } else if (!colorNeedsSave && !backgroundNeedsSave) {
     title = "Pane look is already saved.";
-  } else if (colorNeedsSave && customColorPaletteFull() && (!backgroundNeedsSave || savedBackgroundImagesFull())) {
+  } else if (colorNeedsSave && colorLibraryFull && (!backgroundNeedsSave || backgroundLibraryFull)) {
     title = customColorPaletteLimitTitle();
-  } else if (backgroundNeedsSave && savedBackgroundImagesFull() && (!colorNeedsSave || customColorPaletteFull())) {
+  } else if (backgroundNeedsSave && backgroundLibraryFull && (!colorNeedsSave || colorLibraryFull)) {
     title = savedBackgroundImageLimitTitle();
-  } else {
-    title = target.type === "terminal"
-      ? "Save this pane color and background to the reusable libraries."
+  } else if (canSaveColor && canSaveBackground) {
+    title = "Save this pane color and background to the reusable libraries.";
+  } else if (canSaveColor) {
+    title = backgroundNeedsSave && backgroundLibraryFull
+      ? "Background library is full. Save this pane color to the reusable palette."
       : "Save this pane color to the reusable palette.";
+  } else if (canSaveBackground) {
+    title = colorNeedsSave && colorLibraryFull
+      ? "Color palette is full. Save this pane background to the reusable library."
+      : "Save this pane background to the reusable library.";
   }
   return {
     target,
