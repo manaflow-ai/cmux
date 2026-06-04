@@ -14950,15 +14950,18 @@ function renderSettingsInspector(options = {}) {
     const usePaneColor = settingsActionButton("Use pane color", () => setWorkspaceColorFromActivePane(workspace), "", workspacePaneColorSyncActionSearchText("usePane", workspace));
     usePaneColor.disabled = !workspace || !paneColorSuggestion || paneColorSuggestion === workspace.color;
     usePaneColor.title = workspacePaneColorSyncActionTitle("usePane", workspace);
+    const useWorkspaceColor = settingsActionButton("Use workspace color", () => setWorkspacePaneColorsFromWorkspace(workspace), "", workspacePaneColorSyncActionSearchText("useWorkspace", workspace));
+    useWorkspaceColor.disabled = !workspace || !workspace.panels.length || workspacePaneColorsMatchWorkspace(workspace);
+    useWorkspaceColor.title = workspacePaneColorSyncActionTitle("useWorkspace", workspace);
     const resetPaneColors = settingsActionButton("Reset pane colors", () => clearWorkspacePaneColors(workspace), "", workspacePaneColorSyncActionSearchText("resetPanes", workspace));
     resetPaneColors.disabled = !workspace || !workspaceHasPaneColors;
     resetPaneColors.title = workspacePaneColorSyncActionTitle("resetPanes", workspace);
-    workspaceColorSyncActions.append(usePaneColor, resetPaneColors);
+    workspaceColorSyncActions.append(usePaneColor, useWorkspaceColor, resetPaneColors);
     workspaceSection.append(settingRow(
       "Color sync",
       workspaceColorSyncActions,
       true,
-      workspacePaneColorSyncActionSearchText("actions", workspace, "settings row controls")
+      workspacePaneColorSyncActionSearchText("actions", workspace, "settings row controls use workspace color")
     ));
     workspaceSection.append(settingRow(
       "Terminal backgrounds",
@@ -27698,7 +27701,7 @@ async function setWorkspacePaneColors(color, workspace = activeWorkspace()) {
     panelId: panel.id,
     updates: { color: targetColor }
   })));
-  if (state.inspectorMode === "settings" && state.settingsCategory === "appearance") renderSettingsInspector();
+  if (state.inspectorMode === "settings") renderSettingsInspector();
   toast(`${panels.length} pane${panels.length === 1 ? "" : "s"} updated.`);
   return true;
 }
@@ -34723,6 +34726,18 @@ function workspacePaneColorsDirty(workspace = activeWorkspace()) {
   return Boolean(workspace?.panels?.some((panel) => panel.color));
 }
 
+function workspaceColorForPaneSync(workspace = activeWorkspace()) {
+  return String(workspace?.color || state.settings.accent || "").trim();
+}
+
+function workspacePaneColorsMatchWorkspace(workspace = activeWorkspace()) {
+  const color = colorKey(workspaceColorForPaneSync(workspace));
+  return Boolean(workspace?.panels?.length) && workspace.panels.every((panel) => {
+    const visibleColor = colorKey(panel.color || workspaceColorForPaneSync(workspace));
+    return visibleColor === color;
+  });
+}
+
 function workspacePaneColorSyncActionTitle(actionId, workspace = activeWorkspace()) {
   if (actionId === "usePane") {
     const color = workspacePaneColorSuggestion(workspace);
@@ -34730,6 +34745,12 @@ function workspacePaneColorSyncActionTitle(actionId, workspace = activeWorkspace
     if (!color) return "Give the active pane a custom color before using it for the workspace.";
     if (color === workspace.color) return "Workspace already uses the active pane color.";
     return "Set the workspace color from the active pane.";
+  }
+  if (actionId === "useWorkspace") {
+    if (!workspace) return "Open a workspace before syncing colors.";
+    if (!workspace.panels.length) return "Open a pane before applying workspace color.";
+    if (workspacePaneColorsMatchWorkspace(workspace)) return "Pane colors already use the workspace color.";
+    return "Apply the workspace color to every pane.";
   }
   if (actionId === "resetPanes") {
     if (!workspace) return "Open a workspace before resetting pane colors.";
@@ -34746,12 +34767,15 @@ function workspacePaneColorSyncActionSearchText(actionId, workspace = activeWork
   const dirty = workspacePaneColorsDirty(workspace);
   const actionTerms = {
     usePane: "use active pane color tab marker match workspace",
+    useWorkspace: "use workspace color apply to all panes tab markers match",
     resetPanes: "reset clear all pane colors inherit workspace default"
   }[actionId] || actionId;
   return normalizeSettingsQuery([
-    "workspace color sync active pane tab marker use pane color match reset clear all panes inherit",
+    "workspace color sync active pane tab marker use pane color workspace color match reset clear all panes inherit",
     workspace ? workspaceDisplayTitle(workspace) : "no workspace",
     sourceColor ? `active pane color ${sourceColor}` : "no custom pane color",
+    workspace ? `workspace color ${workspaceColorForPaneSync(workspace)}` : "",
+    workspacePaneColorsMatchWorkspace(workspace) ? "pane colors match workspace" : "",
     dirty ? "pane colors customized" : "pane colors inherit",
     actionTerms,
     extra
@@ -34778,6 +34802,25 @@ async function setWorkspaceColorFromActivePane(workspace = activeWorkspace()) {
   await setWorkspaceColor(color, target.id);
   toast("Workspace color set from active pane.");
   return true;
+}
+
+async function setWorkspacePaneColorsFromWorkspace(workspace = activeWorkspace()) {
+  const target = workspace?.id
+    ? state.data?.workspaces.find((candidate) => candidate.id === workspace.id)
+    : null;
+  if (!target) {
+    toast("Open a workspace before syncing colors.");
+    return false;
+  }
+  if (!target.panels.length) {
+    toast("Open a pane before applying workspace color.");
+    return false;
+  }
+  if (workspacePaneColorsMatchWorkspace(target)) {
+    toast("Pane colors already use the workspace color.");
+    return false;
+  }
+  return setWorkspacePaneColors(workspaceColorForPaneSync(target), target);
 }
 
 async function clearWorkspaceColor(workspace = activeWorkspace()) {
