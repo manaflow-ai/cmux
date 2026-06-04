@@ -31,6 +31,7 @@ export const defaultSettings = {
   addTabStyle: "compact",
   cornerStyle: "soft",
   paneDividerSize: "balanced",
+  paneSpacing: "tight",
   activePaneEmphasis: "line",
   inactivePaneDimming: "normal",
   titleDetailMode: "smart",
@@ -415,6 +416,12 @@ export const paneDividerSizeOptions = [
   ["wide", label("paneDividerSize.wide", "Wide"), label("paneDividerSize.wide.body", "Easier split resizing")]
 ];
 
+export const paneSpacingOptions = [
+  ["none", label("paneSpacing.none", "None"), label("paneSpacing.none.body", "Maximize pane area")],
+  ["tight", label("paneSpacing.tight", "Tight"), label("paneSpacing.tight.body", "Small visual gutter")],
+  ["roomy", label("paneSpacing.roomy", "Roomy"), label("paneSpacing.roomy.body", "More breathing room between panes")]
+];
+
 export const activePaneEmphasisOptions = [
   ["quiet", label("activePaneEmphasis.quiet", "Quiet"), label("activePaneEmphasis.quiet.body", "Subtle current pane")],
   ["line", label("activePaneEmphasis.line", "Line"), label("activePaneEmphasis.line.body", "Accent edge")],
@@ -567,6 +574,7 @@ export const settingsPresets = [
       addTabStyle: "compact",
       cornerStyle: "soft",
       paneDividerSize: "balanced",
+      paneSpacing: "tight",
       activePaneEmphasis: "line",
       inactivePaneDimming: "normal",
       titleDetailMode: "smart",
@@ -627,6 +635,7 @@ export const settingsPresets = [
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
+      paneSpacing: "none",
       activePaneEmphasis: "quiet",
       inactivePaneDimming: "soft",
       titleDetailMode: "compact",
@@ -687,6 +696,7 @@ export const settingsPresets = [
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
+      paneSpacing: "none",
       activePaneEmphasis: "quiet",
       inactivePaneDimming: "normal",
       titleDetailMode: "compact",
@@ -748,6 +758,7 @@ export const settingsPresets = [
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
+      paneSpacing: "none",
       activePaneEmphasis: "quiet",
       inactivePaneDimming: "muted",
       titleDetailMode: "compact",
@@ -808,6 +819,7 @@ export const settingsPresets = [
       addTabStyle: "hidden",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
+      paneSpacing: "none",
       activePaneEmphasis: "quiet",
       inactivePaneDimming: "normal",
       titleDetailMode: "compact",
@@ -868,6 +880,7 @@ export const settingsPresets = [
       addTabStyle: "compact",
       cornerStyle: "soft",
       paneDividerSize: "wide",
+      paneSpacing: "tight",
       activePaneEmphasis: "strong",
       inactivePaneDimming: "normal",
       titleDetailMode: "compact",
@@ -928,6 +941,7 @@ export const settingsPresets = [
       addTabStyle: "labeled",
       cornerStyle: "round",
       paneDividerSize: "balanced",
+      paneSpacing: "roomy",
       activePaneEmphasis: "strong",
       inactivePaneDimming: "soft",
       titleDetailMode: "detailed",
