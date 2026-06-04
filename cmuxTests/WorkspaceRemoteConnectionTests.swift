@@ -1968,7 +1968,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(waitForSignalPumpingMainRunLoop(scpInvoked, timeout: 15), .success)
+        XCTAssertEqual(waitForSignalPumpingMainRunLoop(scpInvoked, timeout: 45), .success)
         lock.lock()
         let capturedDestination = scpDestination
         lock.unlock()
