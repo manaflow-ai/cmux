@@ -53,11 +53,11 @@ export function workerHighlighterOptions(
 export function codeViewUnsafeCSS(): string {
   return `
     :host {
-      --diffs-light-bg: transparent;
-      --diffs-dark-bg: transparent;
-      --diffs-bg-buffer-override: transparent;
-      --diffs-bg-context-override: transparent;
-      --diffs-bg-context-gutter-override: transparent;
+      --diffs-light-bg: var(--cmux-diff-bg);
+      --diffs-dark-bg: var(--cmux-diff-bg);
+      --diffs-bg-buffer-override: var(--cmux-diff-bg);
+      --diffs-bg-context-override: var(--cmux-diff-bg);
+      --diffs-bg-context-gutter-override: var(--cmux-diff-bg);
       --cmux-diff-surface-bg: light-dark(
         color-mix(in srgb, var(--cmux-diff-bg) 96%, #f5f5f0),
         color-mix(in srgb, var(--cmux-diff-bg) 94%, #3e3d32)
@@ -75,7 +75,7 @@ export function codeViewUnsafeCSS(): string {
     :host,
     pre,
     code {
-      background-color: transparent;
+      background-color: var(--cmux-diff-bg);
     }
     [data-diffs-header] {
       container-type: scroll-state;

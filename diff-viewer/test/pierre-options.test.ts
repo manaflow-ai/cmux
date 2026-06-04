@@ -1,12 +1,14 @@
 import { expect, test } from "bun:test";
 import { codeViewUnsafeCSS, fileTreeUnsafeCSS } from "../src/pierre-options";
 
-test("code view CSS leaves Pierre diff body surfaces transparent", () => {
+test("code view CSS gives Pierre diff body surfaces the editor background", () => {
   const css = codeViewUnsafeCSS();
 
-  expect(css).toContain("--diffs-light-bg: transparent");
-  expect(css).toContain("--diffs-dark-bg: transparent");
-  expect(css).toContain("--diffs-bg-context-override: transparent");
+  expect(css).toContain("--diffs-light-bg: var(--cmux-diff-bg)");
+  expect(css).toContain("--diffs-dark-bg: var(--cmux-diff-bg)");
+  expect(css).toContain("--diffs-bg-context-override: var(--cmux-diff-bg)");
+  expect(css).toContain("--diffs-bg-context-gutter-override: var(--cmux-diff-bg)");
+  expect(css).toContain("background-color: var(--cmux-diff-bg)");
   expect(css).toContain("--cmux-diff-surface-bg: light-dark(");
   expect(css).toContain("color-mix(in srgb, var(--cmux-diff-bg) 94%, #3e3d32)");
   expect(css).not.toContain("[data-diffs-header][data-sticky]");
