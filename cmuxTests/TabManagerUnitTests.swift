@@ -1287,6 +1287,24 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
 @MainActor
 final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
+    func testHistoryRedoForceClosesWorkspaceWithoutPrompting() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        XCTAssertTrue(manager.closeWorkspaceForHistoryRedo(workspace, operationId: UUID(), force: true))
+        XCTAssertEqual(promptCount, 0)
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
+    }
+
     func testCloseWorkspacesWithConfirmationPromptsOnceAndClosesAcceptedWorkspaces() {
         let manager = TabManager()
         let second = manager.addWorkspace()

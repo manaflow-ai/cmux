@@ -11652,7 +11652,10 @@ class TerminalController {
         if let error = resolved.error { return error }
         var didRedo = false
         v2MainSync {
-            didRedo = AppDelegate.shared?.redoLastDestructiveAction(preferredTabManager: resolved.tabManager) ?? false
+            didRedo = AppDelegate.shared?.redoLastDestructiveAction(
+                preferredTabManager: resolved.tabManager,
+                force: true
+            ) ?? false
         }
         guard didRedo else {
             return .err(code: "not_found", message: "Nothing to redo", data: nil)
@@ -11661,6 +11664,13 @@ class TerminalController {
     }
 
     private func v2HistoryClear(params: [String: Any]) -> V2CallResult {
+        guard !v2HasNonNullParam(params, "window_id") else {
+            return .err(
+                code: "invalid_params",
+                message: "history.clear does not support window_id because closed-item history is global",
+                data: nil
+            )
+        }
         let resolved = v2HistoryPreferredTabManager(params: params)
         if let error = resolved.error { return error }
         var count = 0

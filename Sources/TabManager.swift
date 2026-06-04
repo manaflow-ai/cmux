@@ -7087,13 +7087,26 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func closeWorkspaceForHistoryRedo(_ workspace: Workspace, operationId: UUID) -> Bool {
+    func closeWorkspaceForHistoryRedo(_ workspace: Workspace, operationId: UUID, force: Bool = false) -> Bool {
         guard tabs.contains(where: { $0.id == workspace.id }) else { return false }
         if workspace.isPinned {
+            if force {
+                return closeWorkspaceIfRunningProcess(
+                    workspace,
+                    requiresConfirmation: false,
+                    operationId: operationId,
+                    skipAnchorConfirmation: true
+                )
+            }
             guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
             return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false, operationId: operationId)
         } else {
-            return closeWorkspaceIfRunningProcess(workspace, operationId: operationId)
+            return closeWorkspaceIfRunningProcess(
+                workspace,
+                requiresConfirmation: !force,
+                operationId: operationId,
+                skipAnchorConfirmation: force
+            )
         }
     }
 
@@ -7395,7 +7408,8 @@ class TabManager: ObservableObject {
         _ workspace: Workspace,
         requiresConfirmation: Bool = true,
         source: CloseConfirmationSource = .workspace,
-        operationId: UUID? = nil
+        operationId: UUID? = nil,
+        skipAnchorConfirmation: Bool = false
     ) -> Bool {
         // Anchor-close ALWAYS prompts (subject to its own
         // WorkspaceGroupAnchorCloseSettings.suppressed flag), regardless of
@@ -7404,7 +7418,8 @@ class TabManager: ObservableObject {
         // mention group dissolution — silently ungrouping members during a
         // multi-close would be surprising. The "Don't ask again" toggle on
         // the anchor dialog is the user's opt-out.
-        if let groupId = workspace.groupId,
+        if !skipAnchorConfirmation,
+           let groupId = workspace.groupId,
            let group = workspaceGroups.first(where: { $0.id == groupId }),
            group.anchorWorkspaceId == workspace.id {
             let otherMemberCount = tabs.reduce(0) { partial, tab in

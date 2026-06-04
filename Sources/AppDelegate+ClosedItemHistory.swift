@@ -255,9 +255,9 @@ extension AppDelegate {
     /// operation, re-grouped under one new operation so a subsequent undo brings
     /// them back together. Best-effort; falls back to single-item redo.
     @discardableResult
-    func redoLastDestructiveAction(preferredTabManager: TabManager? = nil) -> Bool {
+    func redoLastDestructiveAction(preferredTabManager: TabManager? = nil, force: Bool = false) -> Bool {
         guard let opId = ClosedItemHistoryStore.shared.lastRestoredOperationId else {
-            return redoLastReopen(preferredTabManager: preferredTabManager)
+            return redoLastReopen(preferredTabManager: preferredTabManager, force: force)
         }
         let liveRecords = ClosedItemHistoryStore.shared.recordsForOperation(opId).compactMap { record -> (ClosedItemHistoryRecord, ReopenedItemRef)? in
             guard let ref = ClosedItemHistoryStore.shared.restoredRef(for: record.id),
@@ -266,11 +266,11 @@ extension AppDelegate {
         }
         guard !liveRecords.isEmpty else {
             ClosedItemHistoryStore.shared.setLastRestoredOperation(nil)
-            return redoLastReopen(preferredTabManager: preferredTabManager)
+            return redoLastReopen(preferredTabManager: preferredTabManager, force: force)
         }
         let redoOperationId = UUID()
         var closedCount = 0
-        for (_, ref) in liveRecords where closeReopenedRef(ref, operationId: redoOperationId) {
+        for (_, ref) in liveRecords where closeReopenedRef(ref, operationId: redoOperationId, force: force) {
             closedCount += 1
         }
         let closedAll = closedCount == liveRecords.count
@@ -279,16 +279,16 @@ extension AppDelegate {
     }
 
     @discardableResult
-    private func closeReopenedRef(_ ref: ReopenedItemRef, operationId: UUID) -> Bool {
+    private func closeReopenedRef(_ ref: ReopenedItemRef, operationId: UUID, force: Bool = false) -> Bool {
         switch ref {
         case .panel(let workspaceId, let panelId):
             guard let manager = tabManagerFor(tabId: workspaceId),
                   let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
-            return workspace.closePanel(panelId, operationId: operationId)
+            return workspace.closePanel(panelId, force: force, operationId: operationId)
         case .workspace(let workspaceId):
             guard let manager = tabManagerFor(tabId: workspaceId),
                   let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
-            return manager.closeWorkspaceForHistoryRedo(workspace, operationId: operationId)
+            return manager.closeWorkspaceForHistoryRedo(workspace, operationId: operationId, force: force)
         case .window(let windowId):
             return closeMainWindow(windowId: windowId, operationId: operationId)
         }
@@ -299,7 +299,7 @@ extension AppDelegate {
     /// history and can be reopened once more. Best-effort: if the reopened item
     /// is already gone, the redo target is cleared and this returns false.
     @discardableResult
-    func redoLastReopen(preferredTabManager: TabManager? = nil) -> Bool {
+    func redoLastReopen(preferredTabManager: TabManager? = nil, force: Bool = false) -> Bool {
         guard let target = ClosedItemHistoryStore.shared.redoTarget else { return false }
         switch target {
         case .panel(let workspaceId, let panelId):
@@ -309,14 +309,14 @@ extension AppDelegate {
                 ClosedItemHistoryStore.shared.clearRedoTarget()
                 return false
             }
-            return workspace.closePanel(panelId, operationId: UUID())
+            return workspace.closePanel(panelId, force: force, operationId: UUID())
         case .workspace(let workspaceId):
             guard let manager = tabManagerFor(tabId: workspaceId) ?? preferredTabManager ?? tabManager,
                   let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else {
                 ClosedItemHistoryStore.shared.clearRedoTarget()
                 return false
             }
-            return manager.closeWorkspaceForHistoryRedo(workspace, operationId: UUID())
+            return manager.closeWorkspaceForHistoryRedo(workspace, operationId: UUID(), force: force)
         case .window(let windowId):
             guard closeMainWindow(windowId: windowId) else {
                 ClosedItemHistoryStore.shared.clearRedoTarget()
