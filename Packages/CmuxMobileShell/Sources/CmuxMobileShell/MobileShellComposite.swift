@@ -47,20 +47,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return Self.attachTicketIsUnexpired(activeTicket, now: runtime?.now() ?? Date())
     }
     public var pairingCode: String
-    public var workspaces: [MobileWorkspacePreview]
     public var terminalInputText: String
-    public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
-        didSet {
-            syncSelectedTerminalForWorkspace()
-        }
+    public var workspaces: [MobileWorkspacePreview] {
+        get { workspaceModel.workspaces }
+        set { workspaceModel.workspaces = newValue }
     }
-    public var selectedTerminalID: MobileTerminalPreview.ID?
+    public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
+        get { workspaceModel.selectedWorkspaceID }
+        set { workspaceModel.selectedWorkspaceID = newValue }
+    }
+    public var selectedTerminalID: MobileTerminalPreview.ID? {
+        get { workspaceModel.selectedTerminalID }
+        set { workspaceModel.selectedTerminalID = newValue }
+    }
 
     private let runtime: (any MobileSyncRuntime)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
     private let identityProvider: (any MobileIdentityProviding)?
     private let reachability: any ReachabilityProviding
     private let clientID: String
+    /// The carved-out workspace/terminal list + selection state. Internal so
+    /// the package test target can drive it directly.
+    let workspaceModel: MobileWorkspaceModel
     /// The carved-out terminal output pipeline (event listener, watchdog,
     /// sequence tracking, replay, per-surface output sinks). Internal so the
     /// package test target can drive it directly.
@@ -96,21 +104,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public var selectedWorkspace: MobileWorkspacePreview? {
-        guard let selectedWorkspaceID else {
-            return workspaces.first
-        }
-        return workspaces.first { $0.id == selectedWorkspaceID } ?? workspaces.first
-    }
-
-    private var selectedTerminal: MobileTerminalPreview? {
-        guard let selectedWorkspace else {
-            return nil
-        }
-        if let selectedTerminalID,
-           let terminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }) {
-            return terminal
-        }
-        return selectedWorkspace.preferredTerminal
+        workspaceModel.selectedWorkspace
     }
 
     public init(
@@ -131,19 +125,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.reachability = reachability
         let clientID = clientIDRepository.clientID
         self.clientID = clientID
+        self.workspaceModel = MobileWorkspaceModel(workspaces: workspaces)
         self.terminalOutput = MobileTerminalOutputService(runtime: runtime, clientID: clientID)
         self.isSignedIn = isSignedIn
         self.connectionState = connectionState
         self.macConnectionStatus = connectionState == .connected ? .connected : .unavailable
         self.connectedHostName = connectedHostName
         self.pairingCode = pairingCode
-        self.workspaces = workspaces
         self.terminalInputText = ""
         self.connectionError = nil
         self.activeTicket = nil
         self.activeRoute = nil
-        self.selectedWorkspaceID = workspaces.first?.id
-        self.selectedTerminalID = workspaces.first?.terminals.first?.id
         self.remoteClient = nil
         self.createWorkspaceTask = nil
         self.createTerminalTask = nil
@@ -696,20 +688,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
-        let nextIndex = workspaces.count + 1
-        let workspace = MobileWorkspacePreview(
-            id: .init(rawValue: "workspace-\(nextIndex)"),
-            name: L10n.workspaceName(index: nextIndex),
-            terminals: [
-                MobileTerminalPreview(
-                    id: .init(rawValue: "workspace-\(nextIndex)-terminal-1"),
-                    name: L10n.terminalName(index: 1)
-                ),
-            ]
-        )
-        workspaces.append(workspace)
-        selectedWorkspaceID = workspace.id
-        selectedTerminalID = workspace.terminals.first?.id
+        workspaceModel.appendLocalWorkspace()
     }
 
     public func createTerminal() {
@@ -724,16 +703,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
-        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == selectedWorkspace?.id }) else {
-            return
-        }
-        let terminalIndex = workspaces[workspaceIndex].terminals.count + 1
-        let terminal = MobileTerminalPreview(
-            id: .init(rawValue: "\(workspaces[workspaceIndex].id.rawValue)-terminal-\(terminalIndex)"),
-            name: L10n.terminalName(index: terminalIndex)
-        )
-        workspaces[workspaceIndex].terminals.append(terminal)
-        selectedTerminalID = terminal.id
+        workspaceModel.appendLocalTerminal()
     }
 
     public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
@@ -1209,16 +1179,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func syncSelectedTerminalForWorkspace() {
-        guard let selectedWorkspace else {
-            selectedTerminalID = nil
-            return
-        }
-        if let selectedTerminalID,
-           let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),
-           selectedTerminal.isReady || !selectedWorkspace.hasReadyTerminal {
-            return
-        }
-        selectedTerminalID = selectedWorkspace.preferredTerminal?.id
+        workspaceModel.syncSelectedTerminalForWorkspace()
     }
 
     private func createRemoteWorkspace() async {
@@ -1364,12 +1325,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     // Internal (not `private`): witnesses ``MobileTerminalOutputContext``.
     func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
-        for workspace in workspaces {
-            if workspace.terminals.contains(where: { $0.id.rawValue == terminalID }) {
-                return workspace.id
-            }
-        }
-        return nil
+        workspaceModel.workspaceID(forTerminalID: terminalID)
     }
 
     // Internal (not `private`): witnesses ``MobileTerminalOutputContext``.
@@ -1393,7 +1349,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func setSelectedWorkspaceID(_ id: MobileWorkspacePreview.ID?) {
-        selectedWorkspaceID = id
+        workspaceModel.setSelectedWorkspaceID(id)
     }
 
     private func applyRemoteWorkspaceList(
@@ -1401,72 +1357,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         preferActiveTicketTarget: Bool = false,
         mergeExistingWorkspaces: Bool = false
     ) {
-        let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
-        if mergeExistingWorkspaces {
-            var mergedWorkspaces = workspaces
-            for remoteWorkspace in remoteWorkspaces {
-                if let existingIndex = mergedWorkspaces.firstIndex(where: { $0.id == remoteWorkspace.id }) {
-                    mergedWorkspaces[existingIndex] = remoteWorkspace
-                } else {
-                    mergedWorkspaces.append(remoteWorkspace)
-                }
-            }
-            workspaces = mergedWorkspaces
-        } else {
-            workspaces = remoteWorkspaces
-        }
-        if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
-            return
-        }
-        if let selectedWorkspaceID,
-           workspaces.contains(where: { $0.id == selectedWorkspaceID }) {
-            syncSelectedTerminalForWorkspace()
-            return
-        }
-        setSelectedWorkspaceID(
-            response.workspaces.first(where: \.isSelected)
-                .map { MobileWorkspacePreview.ID(rawValue: $0.id) }
-                ?? workspaces.first?.id
+        workspaceModel.applyRemoteWorkspaceList(
+            response,
+            preferActiveTicketTarget: preferActiveTicketTarget,
+            mergeExistingWorkspaces: mergeExistingWorkspaces,
+            activeTicketWorkspaceID: activeTicket?.workspaceID,
+            activeTicketTerminalID: activeTicket?.terminalID
         )
-        syncSelectedTerminalForWorkspace()
-    }
-
-    private func remoteWorkspacesPreservingSnapshots(
-        from response: MobileSyncWorkspaceListResponse
-    ) -> [MobileWorkspacePreview] {
-        response.workspaces.map { remoteWorkspace in
-            var workspace = MobileWorkspacePreview(remote: remoteWorkspace)
-            guard let existingWorkspace = workspaces.first(where: { $0.id == workspace.id }) else {
-                return workspace
-            }
-            workspace.terminals = workspace.terminals.map { remoteTerminal in
-                guard let existingTerminal = existingWorkspace.terminals.first(where: { $0.id == remoteTerminal.id }) else {
-                    return remoteTerminal
-                }
-                var terminal = remoteTerminal
-                terminal.viewportFit = existingTerminal.viewportFit
-                return terminal
-            }
-            return workspace
-        }
-    }
-
-    private func selectActiveTicketTargetIfAvailable() -> Bool {
-        guard let activeTicket else {
-            return false
-        }
-        let ticketWorkspaceID = MobileWorkspacePreview.ID(rawValue: activeTicket.workspaceID)
-        guard let workspace = workspaces.first(where: { $0.id == ticketWorkspaceID }) else {
-            return false
-        }
-        setSelectedWorkspaceID(ticketWorkspaceID)
-        if let ticketTerminalID = activeTicket.terminalID.map(MobileTerminalPreview.ID.init(rawValue:)),
-           workspace.terminals.contains(where: { $0.id == ticketTerminalID }) {
-            selectedTerminalID = ticketTerminalID
-        } else {
-            syncSelectedTerminalForWorkspace()
-        }
-        return true
     }
 
     // Internal (not `private`): witnesses ``MobileTerminalOutputContext``.
@@ -1633,21 +1530,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func applyPreviewTicket(_ ticket: CmxAttachTicket, route: CmxAttachRoute) {
-        let terminalID = ticket.terminalID ?? "attached-terminal"
-        workspaces = [
-            MobileWorkspacePreview(
-                id: .init(rawValue: ticket.workspaceID),
-                name: L10n.string("mobile.preview.attachedWorkspaceName", defaultValue: "Attached Workspace"),
-                terminals: [
-                    MobileTerminalPreview(
-                        id: .init(rawValue: terminalID),
-                        name: L10n.string("mobile.preview.attachedTerminalName", defaultValue: "Attached Terminal")
-                    ),
-                ]
-            ),
-        ]
-        selectedWorkspaceID = workspaces.first?.id
-        selectedTerminalID = workspaces.first?.terminals.first?.id
+        workspaceModel.applyPreviewTicket(workspaceID: ticket.workspaceID, terminalID: ticket.terminalID)
     }
 }
 
@@ -1677,17 +1560,4 @@ private extension CmxAttachTicket {
         )
     }
 
-}
-
-private extension MobileWorkspacePreview {
-    var preferredTerminal: MobileTerminalPreview? {
-        terminals.first { $0.isReady && $0.isFocused }
-            ?? terminals.first { $0.isReady }
-            ?? terminals.first { $0.isFocused }
-            ?? terminals.first
-    }
-
-    var hasReadyTerminal: Bool {
-        terminals.contains(where: \.isReady)
-    }
 }
