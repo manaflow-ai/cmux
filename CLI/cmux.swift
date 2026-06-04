@@ -47,6 +47,29 @@ private enum CLISocketEnvironment {
     }
 }
 
+private protocol CLISocketErrnoProviding {
+    var socketErrnoValue: Int32 { get }
+}
+
+private struct CLISocketTransportError: Error, CustomStringConvertible, CLISocketErrnoProviding {
+    let message: String
+    let socketErrnoValue: Int32
+
+    init(message: String, errnoValue: Int32) {
+        self.message = message
+        self.socketErrnoValue = errnoValue
+    }
+
+    init(connectPath path: String, errnoValue: Int32) {
+        self.init(
+            message: "Failed to connect to socket at \(path) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))",
+            errnoValue: errnoValue
+        )
+    }
+
+    var description: String { message }
+}
+
 private final class CLISocketSentryTelemetry {
     private struct PendingBreadcrumb {
         let message: String
@@ -143,7 +166,9 @@ private final class CLISocketSentryTelemetry {
     func captureError(stage: String, error: Error, data: [String: Any] = [:]) {
         guard shouldEmit else { return }
         guard !shouldSuppressCapture(stage: stage, error: error, data: data) else { return }
+#if DEBUG
         recordCaptureProbe(stage: stage, error: error)
+#endif
 #if canImport(Sentry)
         Self.ensureStarted()
         flushPendingBreadcrumbs()
@@ -178,10 +203,21 @@ private final class CLISocketSentryTelemetry {
             return false
         }
 
+        if let errnoProvider = error as? CLISocketErrnoProviding {
+            switch errnoProvider.socketErrnoValue {
+            case ENOENT, ECONNREFUSED, EPIPE:
+                return true
+            default:
+                return false
+            }
+        }
+
         let description = String(describing: error).lowercased()
-        return description.contains("socket not found at") ||
+        return description.contains("no such file or directory") ||
+            description.contains("socket not found at") ||
             description.contains("connection refused") ||
             description.contains("broken pipe") ||
+            description.contains("errno 2") ||
             description.contains("errno 32") ||
             description.contains("errno 61")
     }
@@ -191,15 +227,6 @@ private final class CLISocketSentryTelemetry {
             stage.hasPrefix("socket_command") ||
             data["socket_phase"] != nil ||
             data["socket_operation"] != nil
-    }
-
-    private func recordCaptureProbe(stage: String, error: Error) {
-        guard let path = processEnv["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !path.isEmpty else {
-            return
-        }
-        let payload = "stage=\(stage)\nerror=\(String(describing: error))\n"
-        try? payload.write(toFile: NSString(string: path).expandingTildeInPath, atomically: true, encoding: .utf8)
     }
 
 #if canImport(Sentry)
@@ -219,6 +246,17 @@ private final class CLISocketSentryTelemetry {
         crumb.message = message
         crumb.data = payload
         SentrySDK.addBreadcrumb(crumb)
+    }
+#endif
+
+#if DEBUG
+    private func recordCaptureProbe(stage: String, error: Error) {
+        guard let path = processEnv["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return
+        }
+        let payload = "stage=\(stage)\nerror=\(String(describing: error))\n"
+        try? payload.write(toFile: NSString(string: path).expandingTildeInPath, atomically: true, encoding: .utf8)
     }
 #endif
 
@@ -1568,15 +1606,6 @@ final class SocketClient {
         let port: UInt16
     }
 
-    private struct SocketConnectError: Error, CustomStringConvertible {
-        let path: String
-        let errnoValue: Int32
-
-        var description: String {
-            "Failed to connect to socket at \(path) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))"
-        }
-    }
-
     private struct RelayCredentials {
         let relayID: String
         let relayToken: Data
@@ -1830,7 +1859,7 @@ final class SocketClient {
         // Verify socket is owned by the current user to prevent fake-socket attacks.
         var st = stat()
         guard stat(path, &st) == 0 else {
-            throw CLIError(message: "Socket not found at \(path)")
+            throw CLISocketTransportError(connectPath: path, errnoValue: errno)
         }
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
             throw CLIError(message: "Path exists at \(path) but is not a Unix socket")
@@ -1873,14 +1902,14 @@ final class SocketClient {
         let connectErrno = errno
         Darwin.close(socketFD)
         socketFD = -1
-        throw SocketConnectError(path: path, errnoValue: connectErrno)
+        throw CLISocketTransportError(connectPath: path, errnoValue: connectErrno)
     }
 
     private static func shouldRetryConnect(_ error: Error) -> Bool {
-        guard let error = error as? SocketConnectError else {
+        guard let error = error as? CLISocketErrnoProviding else {
             return false
         }
-        switch error.errnoValue {
+        switch error.socketErrnoValue {
         case ECONNREFUSED, EAGAIN, EWOULDBLOCK:
             return true
         default:
@@ -2058,8 +2087,9 @@ final class SocketClient {
                         throw CLIError(message: timeoutMessage)
                     }
                     let reason = String(cString: strerror(errorCode))
-                    throw CLIError(
-                        message: "\(failureMessage) (\(reason), errno \(errorCode))"
+                    throw CLISocketTransportError(
+                        message: "\(failureMessage) (\(reason), errno \(errorCode))",
+                        errnoValue: errorCode
                     )
                 }
                 if written == 0 {

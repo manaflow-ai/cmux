@@ -593,6 +593,76 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
+    func testMissingSocketDoesNotCaptureSentryTelemetry() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-sentry-missing-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let socketPath = root.appendingPathComponent("missing.sock", isDirectory: false).path
+        let probePath = root.appendingPathComponent("sentry-probe.txt", isDirectory: false).path
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.lowercased().contains("no such file or directory"), result.stdout)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: probePath),
+            (try? String(contentsOfFile: probePath, encoding: .utf8)) ?? result.stdout
+        )
+    }
+
+    func testBrokenPipeSocketWriteDoesNotCaptureSentryTelemetry() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-sentry-pipe-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let socketPath = root.appendingPathComponent("cmux.sock", isDirectory: false).path
+        let responder = try ImmediateCloseUnixSocketResponder(path: socketPath)
+        defer { responder.stop() }
+
+        let probePath = root.appendingPathComponent("sentry-probe.txt", isDirectory: false).path
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
+
+        let payload = String(repeating: "x", count: 128 * 1024)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["display-message", payload],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.lowercased().contains("broken pipe"), result.stdout)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: probePath),
+            (try? String(contentsOfFile: probePath, encoding: .utf8)) ?? result.stdout
+        )
+    }
+
     func testThemesSetReloadsRunningAppAfterEveryThemeWrite() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
@@ -1734,6 +1804,112 @@ private final class UnixSocketResponder {
         let payload = response + "\n"
         payload.withCString { pointer in
             _ = write(clientFD, pointer, strlen(pointer))
+        }
+    }
+
+    private static func posixError(_ operation: String) -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(errno),
+            userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(errno)))"]
+        )
+    }
+}
+
+private final class ImmediateCloseUnixSocketResponder {
+    let path: String
+    private let queue = DispatchQueue(label: "com.cmux.tests.immediate-close-unix-socket-responder")
+    private let lock = NSLock()
+    private var stopped = false
+    private var listenerFD: Int32 = -1
+
+    init(path: String) throws {
+        self.path = path
+
+        unlink(path)
+        listenerFD = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard listenerFD >= 0 else {
+            throw Self.posixError("socket")
+        }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
+        guard path.utf8.count < maxLength else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(ENAMETOOLONG),
+                userInfo: [NSLocalizedDescriptionKey: "Unix socket path is too long: \(path)"]
+            )
+        }
+        path.withCString { pointer in
+            withUnsafeMutablePointer(to: &address.sun_path) { tuplePointer in
+                let buffer = UnsafeMutableRawPointer(tuplePointer).assumingMemoryBound(to: CChar.self)
+                strncpy(buffer, pointer, maxLength - 1)
+            }
+        }
+
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                Darwin.bind(listenerFD, socketPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            let error = Self.posixError("bind")
+            close(listenerFD)
+            listenerFD = -1
+            throw error
+        }
+        guard listen(listenerFD, 8) == 0 else {
+            let error = Self.posixError("listen")
+            close(listenerFD)
+            listenerFD = -1
+            throw error
+        }
+
+        let fd = listenerFD
+        queue.async { [weak self] in
+            self?.acceptLoop(listenerFD: fd)
+        }
+    }
+
+    deinit {
+        stop()
+    }
+
+    func stop() {
+        lock.lock()
+        guard !stopped else {
+            lock.unlock()
+            return
+        }
+        stopped = true
+        let fd = listenerFD
+        listenerFD = -1
+        lock.unlock()
+
+        if fd >= 0 {
+            close(fd)
+        }
+        unlink(path)
+    }
+
+    private var isStopped: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopped
+    }
+
+    private func acceptLoop(listenerFD: Int32) {
+        while !isStopped {
+            let clientFD = accept(listenerFD, nil, nil)
+            if clientFD < 0 {
+                if isStopped {
+                    return
+                }
+                continue
+            }
+            close(clientFD)
         }
     }
 
