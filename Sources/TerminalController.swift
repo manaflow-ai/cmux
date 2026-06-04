@@ -5584,12 +5584,13 @@ class TerminalController {
         }
         let report = v2CustomSidebarValidationReport(name: name)
         let validNames = report.validNames
-        if !validNames.isEmpty {
+        let reloadNames = report.names
+        if !reloadNames.isEmpty {
             v2MainSync {
                 NotificationCenter.default.post(
                     name: .customSidebarReloadRequested,
                     object: nil,
-                    userInfo: ["names": validNames]
+                    userInfo: ["names": reloadNames]
                 )
             }
         }

@@ -20,6 +20,11 @@ public struct CustomSidebarValidationReport: Equatable, Sendable {
         entries.count - validCount
     }
 
+    /// Names of every sidebar included in the report.
+    public var names: [String] {
+        entries.map(\.name)
+    }
+
     /// Names of sidebars that passed validation.
     public var validNames: [String] {
         entries.filter(\.isValid).map(\.name)

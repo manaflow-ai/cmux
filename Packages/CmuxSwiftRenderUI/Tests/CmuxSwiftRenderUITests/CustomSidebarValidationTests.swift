@@ -57,6 +57,7 @@ struct CustomSidebarValidationTests {
 
         #expect(report.validCount == 0)
         #expect(report.errorCount == 1)
+        #expect(report.names == ["missing"])
         #expect(report.entries.first?.name == "missing")
         #expect(report.entries.first?.errorMessage == "Sidebar file is missing.")
     }
