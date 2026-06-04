@@ -7467,7 +7467,9 @@ const corePaletteCommandIds = new Set([
   "terminal.fontUp",
   "terminal.fontDown",
   "terminal.fontReset",
+  "browser.new",
   "browser.newPane",
+  "browser.homeExternal",
   "browser.copySetup",
   "browser.pasteSetup",
   "browser.resetSetup",
@@ -7694,6 +7696,25 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       icon: "terminalPlus",
       title: !hasWorkspace ? noWorkspaceTitle : creationTitle("Start a terminal pane in the active workspace.", "Uses the selected terminal profile."),
       search: `terminal new pane shell add workspace ${workspaceTitle} ${paneCreationQueueStatusLabel()}`
+    };
+  }
+  if (commandId === "browser.new" || commandId === "browser.homeExternal") {
+    const home = state.settings.browserHomeUrl;
+    const homeHost = hostnameOf(home) || home || "Browser home";
+    const externalOnly = commandId === "browser.homeExternal";
+    const launchExternal = externalOnly || state.settings.browserLaunchMode === "external";
+    const externalProfile = browserProfileLabel(state.settings.externalBrowserProfileId);
+    return {
+      meta: launchExternal ? `${homeHost} / ${externalProfile}` : `${homeHost} / ${workspaceTitle}`,
+      shortcut: launchExternal ? "External" : "Browser",
+      disabled: !launchExternal && (!hasWorkspace || queueFull),
+      icon: launchExternal ? "browser" : "browserPlus",
+      title: launchExternal
+        ? `Open ${homeHost} in ${externalProfile}.`
+        : !hasWorkspace
+          ? noWorkspaceTitle
+          : creationTitle("Open the browser home page in a new pane.", homeHost),
+      search: normalizeSettingsQuery(`browser home open ${launchExternal ? "external system" : "pane workspace"} launch mode ${state.settings.browserLaunchMode} ${homeHost} ${home} ${externalProfile} ${workspaceTitle} ${paneCreationQueueStatusLabel()}`)
     };
   }
   if (commandId === "browser.newPane") {
