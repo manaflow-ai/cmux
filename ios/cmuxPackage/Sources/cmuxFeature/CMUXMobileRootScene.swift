@@ -18,7 +18,9 @@ private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mo
 /// Renders the live cmux mobile UI: a ``CMUXMobileAppView`` backed by a fresh
 /// ``CMUXMobileShellStore`` and the injected ``AuthCoordinator``. In DEBUG
 /// builds, setting the environment variable `CMUX_ZOOM_STRESS=1` instead mounts
-/// the terminal zoom-stress repro harness (`MobileZoomStressView`).
+/// the terminal zoom-stress repro harness (`MobileZoomStressView`), and
+/// `CMUX_LATENCY_PROBE=1` mounts the typing-latency / render-cadence
+/// measurement harness (`MobileTerminalLatencyProbeView`).
 ///
 /// The composition root (`cmuxApp`) builds the ``CMUXMobileRuntime`` and the
 /// ``MobileAuthComposition`` and hands them here. The scene injects the
@@ -92,6 +94,8 @@ public struct CMUXMobileRootScene: View {
         #if canImport(UIKit) && DEBUG
         if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
+        } else if ProcessInfo.processInfo.environment["CMUX_LATENCY_PROBE"] == "1" {
+            MobileTerminalLatencyProbeView()
         } else {
             CMUXMobileAppView(store: makeStore())
         }

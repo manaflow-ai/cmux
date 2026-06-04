@@ -609,6 +609,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastInputTimestamp: CFTimeInterval = 0
     private var latencySamples: [Double] = []
     var onOutputProcessedForTesting: (() -> Void)?
+    /// DEBUG seam for the latency probe: fires on the main actor each time a
+    /// `ghostty_surface_render_now` round-trip completes (the moment the
+    /// rendered frame's main-thread completion hop lands). Paired with
+    /// `onOutputProcessedForTesting`, this bounds keystroke→pixels latency
+    /// without touching the render path itself.
+    var onRenderCompletedForTesting: (() -> Void)?
     /// DEBUG/UI-test accessibility carrier for the rendered terminal text.
     ///
     /// The surface itself must NOT be an accessibility leaf: a leaf hides its
@@ -1818,6 +1824,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.renderInFlight = false
+                #if DEBUG
+                self.onRenderCompletedForTesting?()
+                #endif
                 if self.needsAnotherRender {
                     self.needsAnotherRender = false
                     self.requestRender()
