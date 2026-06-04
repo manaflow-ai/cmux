@@ -351,7 +351,10 @@ const performanceHealthSettingKeys = new Set([
   ...performanceSetupSettings,
   "backgroundImage",
   "paneColorMarkers",
-  "paneMarkerStyle"
+  "paneMarkerStyle",
+  "statusDetailMode",
+  "statusbarStyle",
+  "showStatusbar"
 ]);
 const appearancePreviewKeys = new Set([
   "theme",
@@ -22297,6 +22300,26 @@ const performanceHealthCheckDefinitions = [
     search: "workspace chrome compact density toolbar top bar style buttons ghost tab bar quiet sidebar style rail tools primary settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact result limit focused balanced extended results placement position top center wide quick actions hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls terminal padding lighter ui"
   },
   {
+    id: "statusbar",
+    label: "Status bar",
+    body: "Keeps the footer quiet and stops live performance status refreshes while tuning lag.",
+    actionLabel: "Quiet",
+    readyLabel: "Quiet",
+    issue: () => Boolean(state.settings.showStatusbar && (
+      state.settings.statusDetailMode === "full"
+      || state.settings.statusDetailMode === "performance"
+      || state.settings.statusbarStyle === "solid"
+    )),
+    meta: () => state.settings.showStatusbar
+      ? `${optionLabel(statusDetailOptions, state.settings.statusDetailMode, state.settings.statusDetailMode)} / ${optionLabel(statusbarStyleOptions, state.settings.statusbarStyle, state.settings.statusbarStyle)}`
+      : "Hidden",
+    updates: () => ({
+      statusDetailMode: "compact",
+      statusbarStyle: "quiet"
+    }),
+    search: "status bar footer compact quiet full performance live refresh render output diagnostics lag"
+  },
+  {
     id: "browserChrome",
     label: "Browser chrome",
     body: "Uses compact browser pane controls so previews have less chrome to repaint.",
@@ -25685,6 +25708,7 @@ function performanceHealthChecklist() {
   panel.className = "performance-health-panel";
   panel.dataset.performanceHealth = "true";
   panel.dataset.settingsSearch = normalizeSettingsQuery("performance health checklist fixes speed lag smooth workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface padding background soften blur motion terminal browser adaptive guard");
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`${panel.dataset.settingsSearch} status bar footer performance`);
   panel.innerHTML = `
     <div class="performance-health-head">
       <span class="performance-health-copy">
