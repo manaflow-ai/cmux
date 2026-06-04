@@ -21460,6 +21460,7 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
   const targetLabel = targetOption.label.toLowerCase();
   const targetHasMultipleColors = targetOption.id === "all" && /\d+\s+colors/.test(targetOption.status);
   const copyTargetDisabled = targetOption.disabled || targetHasMultipleColors || !canCopyColorValue(targetOption.color, defaultSettings.accent);
+  const targetDefault = colorTargetDefault(state.colorApplyTarget, workspace);
   const copyTargetTitle = targetOption.disabled
     ? `${targetOption.label}: ${targetOption.meta}.`
     : targetHasMultipleColors
@@ -21491,6 +21492,15 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
       title: targetOption.disabled ? `${targetOption.label}: ${targetOption.meta}.` : `Paste copied color to ${targetLabel}.`,
       search: `quick setup color paste copied target ${targetOption.label} ${targetOption.meta}`
     }),
+    quickOverviewControlButton("Reset target", () => resetColorTarget(state.colorApplyTarget), {
+      disabled: targetOption.disabled || targetDefault,
+      title: targetOption.disabled
+        ? `${targetOption.label}: ${targetOption.meta}.`
+        : targetDefault
+          ? `${targetOption.label} already uses the default color.`
+          : `Reset ${targetLabel} color to default.`,
+      search: `quick setup color reset target default accent workspace pane all ${targetDefault ? "active current " : ""}${targetOption.label} ${targetOption.status} ${targetOption.meta}`
+    }),
     quickOverviewControlButton("Copy palette", copySavedColorPalette, {
       disabled: !hasSavedColors,
       title: hasSavedColors ? "Copy the saved color palette as JSON." : "Saved color palette is empty.",
@@ -21509,7 +21519,7 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
     className: "quick-overview-colors",
     title: "Color controls",
     meta: `${targetOption.label}: ${targetOption.status} / ${state.customColorPalette.length}/${customColorPaletteLimit} saved`,
-    search: `quick setup color controls accent workspace pane all saved palette copy paste target ${targetOption.label} ${targetOption.status} ${targetOption.meta}`,
+    search: `quick setup color controls accent workspace pane all saved palette copy paste reset target ${targetOption.label} ${targetOption.status} ${targetOption.meta}`,
     actions
   });
 }
@@ -30636,6 +30646,7 @@ function paletteEntries() {
     ["all", colorAllTargetOption]
   ]) {
     const label = option.label.toLowerCase();
+    const targetDefault = colorTargetDefault(id, paletteWorkspace);
     entries.push({
       id: `currentColor.paste.${id}`,
       label: `Paste color to ${label}`,
@@ -30645,6 +30656,20 @@ function paletteEntries() {
       title: option.disabled ? `${option.label}: ${option.meta}.` : `Paste a copied color to ${label}.`,
       search: normalizeSettingsQuery(`paste copied clipboard ${label} color apply current target ${option.status} ${option.meta} hex oklch`),
       run: () => pasteColorToTarget(id)
+    });
+    entries.push({
+      id: `currentColor.reset.${id}`,
+      label: `Reset ${label} color`,
+      meta: `${option.status} / ${option.meta}`,
+      shortcut: "Reset",
+      disabled: option.disabled || targetDefault,
+      title: option.disabled
+        ? `${option.label}: ${option.meta}.`
+        : targetDefault
+          ? `${option.label} already uses the default color.`
+          : `Reset ${label} color to default.`,
+      search: normalizeSettingsQuery(`reset default clear ${label} color current target accent workspace pane all ${targetDefault ? "active current " : ""}${option.status} ${option.meta}`),
+      run: () => resetColorTarget(id)
     });
   }
   entries.push({
