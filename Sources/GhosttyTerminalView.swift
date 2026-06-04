@@ -8222,6 +8222,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeCursor = cursor
     }
 
+    private func adjustKeyboardCopyModeSelection(
+        _ direction: TerminalKeyboardCopyModeSelectionMove,
+        count: Int,
+        surface: ghostty_surface_t
+    ) {
+        let action = "adjust_selection:\(direction.rawValue)"
+        let clampedCount = terminalKeyboardCopyModeClampCount(count)
+        for _ in 0 ..< clampedCount {
+            _ = performBindingAction(action)
+            updateKeyboardCopyModeCursorModel(direction, count: 1, surface: surface)
+        }
+    }
+
     private func selectKeyboardCopyModeCursorCell(surface: ghostty_surface_t) -> Bool {
         guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return false }
 
@@ -8393,8 +8406,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         case let .adjustSelection(direction):
             if keyboardCopyModeVisualActive {
-                performBindingAction("adjust_selection:\(direction.rawValue)", repeatCount: count)
-                updateKeyboardCopyModeCursorModel(direction, count: count, surface: surface)
+                adjustKeyboardCopyModeSelection(direction, count: count, surface: surface)
             } else {
                 moveKeyboardCopyModeCursor(direction, count: count, surface: surface)
             }
