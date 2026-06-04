@@ -14907,10 +14907,21 @@ struct CMUXCLI {
             let kind = (sidebar["kind"] as? String) ?? ""
             let ok = boolValue(sidebar["ok"])
             if ok {
-                print("OK \(name) [\(kind)] \(path)")
+                print(String(
+                    format: String(localized: "cli.sidebar.report.ok", defaultValue: "OK %@ [%@] %@"),
+                    name,
+                    kind,
+                    path
+                ))
             } else {
                 let error = (sidebar["error"] as? String) ?? String(localized: "cli.sidebar.unknownError", defaultValue: "Unknown error")
-                print("ERROR \(name) [\(kind)] \(path): \(error)")
+                print(String(
+                    format: String(localized: "cli.sidebar.report.error", defaultValue: "ERROR %@ [%@] %@: %@"),
+                    name,
+                    kind,
+                    path,
+                    error
+                ))
             }
         }
 
@@ -14918,11 +14929,23 @@ struct CMUXCLI {
         let errorCount = intValue(payload["error_count"])
         if action == "reload" {
             let reloadedCount = intValue(payload["reloaded_count"])
-            print("Reloaded \(reloadedCount) valid sidebar\(reloadedCount == 1 ? "" : "s"). \(validCount) valid, \(errorCount) invalid.")
+            print(String(
+                format: String(localized: "cli.sidebar.report.reloadSummary", defaultValue: "Reloaded %d valid sidebars. %d valid, %d invalid."),
+                reloadedCount,
+                validCount,
+                errorCount
+            ))
         } else if action == "select", let selectedName = payload["selected_name"] as? String {
-            print("Selected \(selectedName).")
+            print(String(
+                format: String(localized: "cli.sidebar.report.selected", defaultValue: "Selected %@."),
+                selectedName
+            ))
         } else {
-            print("\(validCount) valid, \(errorCount) invalid.")
+            print(String(
+                format: String(localized: "cli.sidebar.report.summary", defaultValue: "%d valid, %d invalid."),
+                validCount,
+                errorCount
+            ))
         }
     }
 
