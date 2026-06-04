@@ -7214,6 +7214,9 @@ const commands = [
   { id: "settings.clearSavedLibrary", label: "Clear Customization Library", shortcut: "", run: () => clearSavedLibrary() },
   { id: "settings.pane", label: "Open Active Pane Settings", shortcut: "", run: () => openPaneSettings() },
   { id: "settings.renamePane", label: "Rename Active Pane", shortcut: "", run: () => renameActivePanel() },
+  { id: "settings.useSuggestedPaneName", label: "Use Suggested Pane Name", shortcut: "", run: () => usePaneSuggestedName() },
+  { id: "settings.usePanePageTitle", label: "Use Browser Page Title as Pane Name", shortcut: "", run: () => usePanePageTitleName() },
+  { id: "settings.resetPaneName", label: "Use Default Pane Name", shortcut: "", run: () => resetPaneNameToDefault() },
   { id: "settings.copyPaneSetup", label: "Copy Active Pane Setup", shortcut: "", run: () => copyActivePaneSetup() },
   { id: "settings.pastePaneSetup", label: "Paste Active Pane Setup", shortcut: "", run: () => pasteActivePaneSetup() },
   { id: "settings.copyPaneLook", label: "Copy Active Pane Look", shortcut: "", run: () => copyActivePaneLook() },
@@ -8219,6 +8222,9 @@ const corePaletteCommandIds = new Set([
   "browser.saveActiveProfile",
   "settings.pane",
   "settings.renamePane",
+  "settings.useSuggestedPaneName",
+  "settings.usePanePageTitle",
+  "settings.resetPaneName",
   "settings.copyPaneSetup",
   "settings.pastePaneSetup",
   "settings.copyPaneLook",
@@ -8251,6 +8257,9 @@ function coreCommandPaletteSignature() {
   appendSignatureValue(parts, panel?.type || "");
   appendSignatureValue(parts, panel ? panelDisplayTitle(panel, true) : "");
   appendSignatureValue(parts, isPendingPanel(panel));
+  appendSignatureValue(parts, panel ? paneCurrentTitle(panel) : "");
+  appendSignatureValue(parts, panel ? paneTitleSuggestion(panel, workspace) : "");
+  appendSignatureValue(parts, panel?.type === "browser" ? browserPanePageTitleSuggestion(panel) : "");
   appendSignatureValue(parts, paneSetupResetIsDefault(panel));
   appendSignatureValue(parts, panel?.color || "");
   appendSignatureValue(parts, panel?.type === "terminal" ? normalizeBackgroundValue(panel.backgroundImage) : "");
@@ -8666,11 +8675,17 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       search: `active pane duplicate clone ${panelTitle} ${panelKind}`
     };
   }
-  if (["settings.pane", "settings.renamePane", "settings.copyPaneSetup", "settings.pastePaneSetup", "settings.copyPaneLook", "settings.pastePaneLook", "settings.savePaneLook", "settings.resetPaneSetup", "settings.syncPaneLook"].includes(commandId)) {
+  if (["settings.pane", "settings.renamePane", "settings.useSuggestedPaneName", "settings.usePanePageTitle", "settings.resetPaneName", "settings.copyPaneSetup", "settings.pastePaneSetup", "settings.copyPaneLook", "settings.pastePaneLook", "settings.savePaneLook", "settings.resetPaneSetup", "settings.syncPaneLook"].includes(commandId)) {
     const paneSetupDefault = paneSetupResetIsDefault(panel);
     const syncTargetCount = paneLookSyncTargetPanels(panel, workspace).length;
     const saveLook = paneLookSaveModel(panel);
+    const currentTitle = paneCurrentTitle(panel);
+    const suggestedTitle = paneTitleSuggestion(panel, workspace);
+    const pageTitle = browserPanePageTitleSuggestion(panel);
     const disabled = !readyPanel
+      || (commandId === "settings.useSuggestedPaneName" && (!suggestedTitle || suggestedTitle === currentTitle))
+      || (commandId === "settings.usePanePageTitle" && (panel?.type !== "browser" || !pageTitle || pageTitle === currentTitle))
+      || (commandId === "settings.resetPaneName" && !panel?.titleLocked)
       || (commandId === "settings.savePaneLook" && saveLook.disabled)
       || (commandId === "settings.resetPaneSetup" && paneSetupDefault)
       || (commandId === "settings.syncPaneLook" && syncTargetCount === 0);
@@ -8681,6 +8696,9 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
         (commandId === "settings.savePaneLook" && saveLook.active)
         || (commandId === "settings.resetPaneSetup" && paneSetupDefault)
         || (commandId === "settings.syncPaneLook" && paneLookSyncPeerPanels(panel, workspace).length > 0 && syncTargetCount === 0)
+        || (commandId === "settings.useSuggestedPaneName" && Boolean(suggestedTitle && suggestedTitle === currentTitle))
+        || (commandId === "settings.usePanePageTitle" && Boolean(pageTitle && pageTitle === currentTitle))
+        || (commandId === "settings.resetPaneName" && !panel?.titleLocked)
       ),
       disabled,
       icon: "paneSettings",
@@ -11502,6 +11520,8 @@ function terminalPanelSmartSurfaceTitle(panel) {
 function panelDisplayTitle(panel, surface = false) {
   if (isPendingPanel(panel)) return panel.title || (panel.type === "browser" ? "Opening browser" : "Starting terminal");
   if (panel.type === "browser") {
+    const title = String(panel.title || "").trim();
+    if (panel.titleLocked && title) return title;
     if (state.settings.titleDetailMode === "detailed" && !surface) return panel.url || "Browser";
     return hostnameOf(panel.url);
   }
@@ -19733,14 +19753,7 @@ function workspaceNamingPanel(workspace) {
   renamePaneAction.disabled = !panel || panelIsPending;
   renamePaneAction.title = paneRenameActionTitle(panel);
   const useDefaultPaneAction = settingsActionButton("Use default", async () => {
-    if (!panel) return false;
-    if (!panel.titleLocked) {
-      toast("Pane already uses the default name.");
-      return false;
-    }
-    await updatePanel(panel.id, { title: "" });
-    toast("Pane name reset.");
-    return true;
+    return resetPaneNameToDefault(panel);
   }, "", paneNamingActionSearchText("default", panel, workspace));
   useDefaultPaneAction.disabled = !panel || panelIsPending || !panel.titleLocked;
   useDefaultPaneAction.title = paneUseDefaultNameTitle(panel);
@@ -20719,6 +20732,101 @@ function paneNamePageTitleTitle(panel, suggestion, currentTitle) {
   return `Save "${suggestion}" as the pane name.`;
 }
 
+function paneCurrentTitle(panel = focusedPanel() || activePanel()) {
+  const target = paneNamingTarget(panel);
+  if (!target) return "";
+  if (target.titleLocked) return String(target.title || "").trim();
+  return editablePaneTitle({ ...target, title: "", titleLocked: false });
+}
+
+async function applyPaneName(panel = focusedPanel() || activePanel(), title = "", options = {}) {
+  const target = paneNamingTarget(panel);
+  if (!target) {
+    if (options.toast !== false) toast("Open a pane before saving its name.");
+    return false;
+  }
+  if (isPendingPanel(target)) {
+    if (options.toast !== false) toast("Wait for this pane to finish opening.");
+    return false;
+  }
+  const nextTitle = String(title || "").trim();
+  if (!nextTitle) return resetPaneNameToDefault(target, options);
+  if (nextTitle === paneCurrentTitle(target)) {
+    if (options.toast !== false) toast(options.alreadyText || "Pane name already current.");
+    return false;
+  }
+  await updatePanel(target.id, { title: nextTitle });
+  if (options.toast !== false) toast(options.toastText || "Pane name saved.");
+  return true;
+}
+
+async function usePaneSuggestedName(panel = focusedPanel() || activePanel(), workspace = activeWorkspace(), options = {}) {
+  const target = paneNamingTarget(panel);
+  const suggestion = paneTitleSuggestion(target, workspace);
+  if (!target) {
+    if (options.toast !== false) toast("Open a pane before using a suggested name.");
+    return false;
+  }
+  if (isPendingPanel(target)) {
+    if (options.toast !== false) toast("Wait for this pane to finish opening.");
+    return false;
+  }
+  if (!suggestion) {
+    if (options.toast !== false) toast("No pane name suggestion is available.");
+    return false;
+  }
+  return applyPaneName(target, suggestion, {
+    ...options,
+    alreadyText: "Suggested pane name is already current.",
+    toastText: "Pane name set from suggestion."
+  });
+}
+
+async function usePanePageTitleName(panel = focusedPanel() || activePanel(), workspace = activeWorkspace(), options = {}) {
+  const target = paneNamingTarget(panel);
+  if (!target) {
+    if (options.toast !== false) toast("Open a browser pane before using its page title.");
+    return false;
+  }
+  if (isPendingPanel(target)) {
+    if (options.toast !== false) toast("Wait for this pane to finish opening.");
+    return false;
+  }
+  if (target.type !== "browser") {
+    if (options.toast !== false) toast("Page title naming is available for browser panes.");
+    return false;
+  }
+  const suggestion = browserPanePageTitleSuggestion(target);
+  if (!suggestion) {
+    if (options.toast !== false) toast("The active browser page does not have a distinct title yet.");
+    return false;
+  }
+  return applyPaneName(target, suggestion, {
+    ...options,
+    alreadyText: "Pane already uses this page title.",
+    toastText: "Pane name set from page title."
+  });
+}
+
+async function resetPaneNameToDefault(panel = focusedPanel() || activePanel(), options = {}) {
+  const target = paneNamingTarget(panel);
+  if (!target) {
+    if (options.toast !== false) toast("Open a pane before resetting its name.");
+    return false;
+  }
+  if (isPendingPanel(target)) {
+    if (options.toast !== false) toast("Wait for this pane to finish opening.");
+    return false;
+  }
+  if (!target.titleLocked) {
+    if (options.toast !== false) toast("Pane already uses the default name.");
+    return false;
+  }
+  await updatePanel(target.id, { title: "" });
+  if (options.toast !== false) toast("Pane name reset.");
+  return true;
+}
+
 function paneNamingActionSearchText(actionId, panel = focusedPanel() || activePanel(), workspace = activeWorkspace(), extra = "") {
   const actionTerms = {
     rename: "rename edit title name",
@@ -20949,6 +21057,9 @@ function activePaneSettingsActionShortcut(commandId) {
   return {
     "settings.pane": "Settings",
     "settings.renamePane": "Edit",
+    "settings.useSuggestedPaneName": "Name",
+    "settings.usePanePageTitle": "Title",
+    "settings.resetPaneName": "Default",
     "settings.copyPaneSetup": "Copy",
     "settings.pastePaneSetup": "Paste",
     "settings.copyPaneLook": "Copy look",
@@ -20978,6 +21089,9 @@ function activePaneSettingsActionTitle(commandId, panel = activePaneActionTarget
   if (!target && commandId !== "settings.savePaneLook") return activePaneActionUnavailableTitle(target);
   if (commandId === "settings.pane") return "Open active pane settings.";
   if (commandId === "settings.renamePane") return paneRenameActionTitle(target, "Rename the active pane.");
+  if (commandId === "settings.useSuggestedPaneName") return paneNameSuggestTitle(target, workspace, paneTitleSuggestion(target, workspace), paneCurrentTitle(target));
+  if (commandId === "settings.usePanePageTitle") return paneNamePageTitleTitle(target, browserPanePageTitleSuggestion(target), paneCurrentTitle(target));
+  if (commandId === "settings.resetPaneName") return paneUseDefaultNameTitle(target);
   if (commandId === "settings.copyPaneSetup") return "Copy active pane setup as JSON.";
   if (commandId === "settings.pastePaneSetup") return "Paste copied pane setup into the active pane.";
   if (commandId === "settings.copyPaneLook") return activePaneLookCopyTitle(target);
@@ -20996,6 +21110,9 @@ function activePaneSettingsActionSearchText(commandId, panel = activePaneActionT
   const actionTerms = {
     "settings.pane": "settings open full controls customize",
     "settings.renamePane": "rename edit title tab name",
+    "settings.useSuggestedPaneName": "use suggested folder host cwd directory generated name",
+    "settings.usePanePageTitle": "use browser page title document tab title name",
+    "settings.resetPaneName": "default automatic generated reset clear title name",
     "settings.copyPaneSetup": "copy setup export clipboard json title color background text url",
     "settings.pastePaneSetup": "paste setup import clipboard json title color background text url",
     "settings.copyPaneLook": "copy look export clipboard json color background text",
@@ -21004,8 +21121,14 @@ function activePaneSettingsActionSearchText(commandId, panel = activePaneActionT
     "settings.resetPaneSetup": "reset default setup title color background text size",
     "settings.syncPaneLook": "sync look matching panes color background text"
   }[commandId] || "";
-  if (commandId === "settings.renamePane") {
-    return paneNamingActionSearchText("rename", target, workspace, actionTerms);
+  const paneNamingActionIds = {
+    "settings.renamePane": "rename",
+    "settings.useSuggestedPaneName": "suggest",
+    "settings.usePanePageTitle": "pageTitle",
+    "settings.resetPaneName": "default"
+  };
+  if (paneNamingActionIds[commandId]) {
+    return paneNamingActionSearchText(paneNamingActionIds[commandId], target, workspace, actionTerms);
   }
   return normalizeSettingsQuery([
     activePaneBaseSearchText(target),
@@ -21161,26 +21284,13 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
   titleInput.value = editablePaneTitle(panel);
   titleInput.placeholder = "Pane name";
   const defaultPaneTitle = () => editablePaneTitle({ ...panel, title: "", titleLocked: false });
-  const currentPaneTitle = () => panel.titleLocked ? panel.title : defaultPaneTitle();
+  const currentPaneTitle = () => paneCurrentTitle(panel) || defaultPaneTitle();
   const savePaneTitleInput = async (options = {}) => {
     const nextTitle = titleInput.value.trim();
-    if (!nextTitle) {
-      const changed = Boolean(panel.titleLocked);
-      if (changed) await updatePanel(panel.id, { title: "" });
-      titleInput.value = defaultPaneTitle();
-      if (options.toast) toast(changed ? "Pane name reset." : "Pane already uses the default name.");
-      updatePaneTitleActions();
-      return changed;
-    }
-    if (nextTitle === currentPaneTitle()) {
-      if (options.toast) toast("Pane name already current.");
-      updatePaneTitleActions();
-      return false;
-    }
-    await updatePanel(panel.id, { title: nextTitle });
-    if (options.toast) toast("Pane name saved.");
+    const changed = await applyPaneName(panel, nextTitle, { toast: Boolean(options.toast) });
+    titleInput.value = currentPaneTitle();
     updatePaneTitleActions();
-    return true;
+    return changed;
   };
   let titleSave = null;
   let titleSuggest = null;
@@ -21233,36 +21343,25 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
   }, "primary", paneNamingActionSearchText("save", panel, workspace));
   const titleSuggestLabel = panel.type === "browser" ? "Use host" : "Use folder";
   titleSuggest = settingsActionButton(titleSuggestLabel, async () => {
-    const suggestion = paneTitleSuggestion(panel, workspace);
-    if (!suggestion) {
-      toast("No pane name suggestion is available.");
-      return false;
-    }
-    titleInput.value = suggestion;
-    const changed = await savePaneTitleInput({ toast: true });
+    const changed = await usePaneSuggestedName(panel, workspace);
+    titleInput.value = currentPaneTitle();
     refreshPaneTitleActionsAfterButton();
     return changed;
   }, "", paneNamingActionSearchText("suggest", panel, workspace, titleSuggestLabel));
   if (panel.type === "browser") {
     titleUsePageTitle = settingsActionButton("Use title", async () => {
-      const suggestion = browserPanePageTitleSuggestion(panel);
-      if (!suggestion) {
-        toast("The active browser page does not have a distinct title yet.");
-        return false;
-      }
-      titleInput.value = suggestion;
-      const changed = await savePaneTitleInput({ toast: true });
+      const changed = await usePanePageTitleName(panel, workspace);
+      titleInput.value = currentPaneTitle();
       refreshPaneTitleActionsAfterButton();
       return changed;
     }, "", paneNamingActionSearchText("pageTitle", panel, workspace, "Use title browser page document title"));
   }
   titleReset = settingsActionButton("Default", async () => {
-    const changed = Boolean(panel.titleLocked);
-    titleInput.value = defaultPaneTitle();
-    if (changed) await updatePanel(panel.id, { title: "" });
-    else toast("Pane already uses the default name.");
+    const changed = await resetPaneNameToDefault(panel);
+    titleInput.value = currentPaneTitle();
     updatePaneTitleActions();
     refreshPaneTitleActionsAfterButton();
+    return changed;
   }, "", paneNamingActionSearchText("default", panel, workspace));
   const titleControl = document.createElement("span");
   titleControl.className = `active-pane-title-control${titleUsePageTitle ? " has-page-title" : ""}`;
@@ -31868,7 +31967,7 @@ function showPanelContextMenu(event, panel) {
     ),
     paneAction(
       "Use default name",
-      () => updatePanel(panel.id, { title: "" }),
+      () => resetPaneNameToDefault(panel),
       !panel.titleLocked,
       paneUseDefaultNameTitle(panel),
       paneUseDefaultNameTitle(panel),
