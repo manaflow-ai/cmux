@@ -6,7 +6,7 @@ import Foundation
 /// booleans, and ranges (the result of `0..<n`). The interpreter resolves
 /// identifiers, string interpolations, loop sequences, and `if` conditions
 /// to these.
-public enum SwiftValue: Sendable, Equatable {
+public enum SwiftValue: Codable, Sendable, Equatable {
     case int(Int)
     case double(Double)
     case string(String)
