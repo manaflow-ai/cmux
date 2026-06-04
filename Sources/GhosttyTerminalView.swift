@@ -1458,7 +1458,12 @@ func resolveTerminalOpenURLTarget(
         return nil
     }
 
-    if cmuxContainsTerminalPathLineSuffix(trimmed),
+    let parsedURL = URL(string: trimmed)
+    let parsedScheme = parsedURL?.scheme?.lowercased()
+    let hasBrowserScheme = parsedScheme == "http" || parsedScheme == "https"
+
+    if !hasBrowserScheme,
+       cmuxContainsTerminalPathLineSuffix(trimmed),
        let fileURL = cmuxResolveTerminalLocalFileURL(trimmed, cwd: cwd, fileExists: fileExists) {
         #if DEBUG
         cmuxDebugLog("link.resolve result=external(localPathLineReference) url=\(fileURL)")
@@ -1466,8 +1471,8 @@ func resolveTerminalOpenURLTarget(
         return .external(fileURL)
     }
 
-    if let parsed = URL(string: trimmed),
-       let scheme = parsed.scheme?.lowercased() {
+    if let parsed = parsedURL,
+       let scheme = parsedScheme {
         if scheme == "file", cmuxIsLocalFileURL(parsed) {
             if let fileURL = cmuxResolveTerminalLocalFileURL(parsed.path, cwd: cwd, fileExists: fileExists) {
                 let resolvedURL = cmuxFileURL(fileURL, preservingFragmentFrom: parsed)

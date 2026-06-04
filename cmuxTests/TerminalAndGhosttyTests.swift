@@ -5172,6 +5172,21 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 
+    func testKeepsHTTPURLWithPortAsBrowserURLBeforePathLineResolution() throws {
+        let target = try XCTUnwrap(
+            resolveTerminalOpenURLTarget(
+                "http://localhost:3000",
+                fileExists: { _ in true }
+            )
+        )
+        switch target {
+        case let .embeddedBrowser(url):
+            XCTAssertEqual(url.absoluteString, "http://localhost:3000")
+        case let .external(url):
+            XCTFail("Expected HTTP URL with port to stay browser-routable, not resolve as a file: \(url)")
+        }
+    }
+
     func testResolvesAbsoluteFileLineColumnReferenceWithoutKeepingSuffixInPath() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
