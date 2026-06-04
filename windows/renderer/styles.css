@@ -15175,7 +15175,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .saved-background-card-actions {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 58px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, .72fr) 58px;
   gap: var(--space-1);
 }
 

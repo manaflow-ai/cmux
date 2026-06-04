@@ -29426,9 +29426,11 @@ function savedBackgroundImagesPanel() {
     const everywhere = settingsActionButton("Everywhere", () => applyBackgroundValueEverywhere(background.url, { label: background.label, workspace }), "", `apply saved background everywhere whole app all terminals ${activeEverywhere.search} ${background.label}`);
     everywhere.disabled = activeEverywhere.disabled;
     everywhere.title = activeEverywhere.title;
+    const copy = settingsActionButton("Copy", () => copySavedBackgroundImage(background.id), "", `saved background copy clipboard json reusable library ${background.label} ${background.url}`);
+    copy.title = "Copy this saved background as JSON.";
     const more = settingsActionButton("More", (event) => showSavedBackgroundImageMenu(event, background), "", `saved background more actions open rename delete copy apply app pane all terminals everywhere ${background.label}`);
     more.title = `More actions for ${background.label}.`;
-    cardActions.append(apply, everywhere, more);
+    cardActions.append(apply, everywhere, copy, more);
     card.append(preview, text, scope, cardActions);
     list.append(card);
   }
