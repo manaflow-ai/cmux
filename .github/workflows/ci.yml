@@ -372,7 +372,7 @@ jobs:
             exit "$EXIT_CODE"
           fi
 
-          if ! grep -Eq 'All [1-9][0-9]* cmuxTests XCTestCase classes passed in isolated app-host runs' <<<"$OUTPUT"; then
+          if ! grep -Eq 'All [1-9][0-9]* selected cmuxTests XCTestCase classes passed in shard-' <<<"$OUTPUT"; then
             echo "Unit test workflow completed without executing any tests" >&2
             exit 1
           fi

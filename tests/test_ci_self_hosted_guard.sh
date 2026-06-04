@@ -201,7 +201,7 @@ check_test_depot_fails_closed() {
     /^[[:space:]]*- name: Run unit tests$/ { in_unit=1; next }
     in_unit && /^[[:space:]]*- name:/ { in_unit=0 }
     in_unit && /scripts\/ci\/run-cmux-unit-tests-isolated\.sh/ { saw_unit_runner=1 }
-    in_unit && /All \[1-9\]\[0-9\]\* cmuxTests XCTestCase classes passed in isolated app-host runs/ { saw_unit_guard=1 }
+    in_unit && /All \[1-9\]\[0-9\]\* selected cmuxTests XCTestCase classes passed in shard-/ { saw_unit_guard=1 }
     in_unit && /Unit test workflow completed without executing any tests/ { saw_unit_message=1 }
     /^[[:space:]]*- name: Run UI tests$/ { in_ui=1; next }
     in_ui && /^[[:space:]]*- name:/ { in_ui=0 }
@@ -542,32 +542,32 @@ check_swift_package_tests_require_nonzero_execution() {
 
 check_xcodebuild_unit_step_requires_nonzero_execution() {
   local file="$1" step="$2" message="$3"
-  local require_class_isolation="${4:-0}"
-  if ! awk -v step="$step" -v message="$message" -v require_class_isolation="$require_class_isolation" '
+  local require_class_sharding="${4:-0}"
+  if ! awk -v step="$step" -v message="$message" -v require_class_sharding="$require_class_sharding" '
     index($0, "- name: " step) { in_step=1; saw_step=1; next }
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
     in_step && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_wrapper=1 }
-    in_step && /scripts\/ci\/run-cmux-unit-tests-isolated\.sh/ { saw_class_runner=1 }
+    in_step && /scripts\/ci\/run-cmux-unit-tests-isolated\.sh/ { saw_sharded_runner=1 }
     in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
-    in_step && /All \[1-9\]\[0-9\]\* cmuxTests XCTestCase classes passed in isolated app-host runs/ { saw_class_nonzero_guard=1 }
+    in_step && /All \[1-9\]\[0-9\]\* selected cmuxTests XCTestCase classes passed in shard-/ { saw_shard_nonzero_guard=1 }
     in_step && index($0, message) { saw_message=1 }
     END {
-      if (require_class_isolation) {
-        exit(saw_step && saw_class_runner && saw_class_nonzero_guard && saw_message ? 0 : 1)
+      if (require_class_sharding) {
+        exit(saw_step && saw_sharded_runner && saw_shard_nonzero_guard && saw_message ? 0 : 1)
       }
       exit(saw_step && saw_wrapper && saw_nonzero_guard && saw_message ? 0 : 1)
     }
   ' "$file"; then
-    if [ "$require_class_isolation" = "1" ]; then
-      echo "FAIL: $step in $(basename "$file") must use the class-isolated app-host runner and reject zero-test success"
+    if [ "$require_class_sharding" = "1" ]; then
+      echo "FAIL: $step in $(basename "$file") must use the class-sharded app-host runner and reject zero-test success"
     else
       echo "FAIL: $step in $(basename "$file") must run xcodebuild noninteractively and reject zero-test success"
     fi
     exit 1
   fi
 
-  if [ "$require_class_isolation" = "1" ]; then
-    echo "PASS: $step in $(basename "$file") uses class-isolated app-host unit tests and rejects zero-test runs"
+  if [ "$require_class_sharding" = "1" ]; then
+    echo "PASS: $step in $(basename "$file") uses class-sharded app-host unit tests and rejects zero-test runs"
   else
     echo "PASS: $step in $(basename "$file") rejects zero-test xcodebuild runs"
   fi
@@ -578,19 +578,20 @@ check_cmux_unit_isolated_runner() {
     "build-for-testing" \
     "test-without-building" \
     '-derivedDataPath "$DERIVED_DATA_PATH"' \
-    '-only-testing:"cmuxTests/$class"' \
+    '-only-testing:cmuxTests/$class' \
+    '"${ONLY_TESTING_ARGS[@]}"' \
     'env -u SSH_AUTH_SOCK' \
-    'HOME="$test_home"' \
-    'CFFIXED_USER_HOME="$test_home"' \
+    'HOME="$SHARD_HOME"' \
+    'CFFIXED_USER_HOME="$SHARD_HOME"' \
     'RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo"' \
     'SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"' \
     'SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"' \
-    'CLASS_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_CLASS_TIMEOUT_SECONDS:-300}"' \
-    'Timed out after ${timeout_seconds}s running $class; terminating xcodebuild' \
-    'FAIL $class timed out after ${timeout_seconds}s' \
-    'tail -n 220 "$log_file"' \
+    'SHARD_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_SHARD_TIMEOUT_SECONDS:-2400}"' \
+    'Timed out after ${SHARD_TIMEOUT_SECONDS}s running $SHARD_LABEL; terminating xcodebuild' \
+    'FAIL $SHARD_LABEL timed out after ${SHARD_TIMEOUT_SECONDS}s' \
+    'tail -n 260 "$SHARD_LOG"' \
     'exit 124' \
-    "All \${#SELECTED_TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"
+    "All \${#SELECTED_TEST_CLASSES[@]} selected cmuxTests XCTestCase classes passed in \$SHARD_LABEL"
   do
     if ! grep -Fq -- "$pattern" "$CMUX_UNIT_ISOLATED_RUNNER"; then
       echo "FAIL: run-cmux-unit-tests-isolated.sh missing required isolation pattern: $pattern"
@@ -603,7 +604,7 @@ check_cmux_unit_isolated_runner() {
     exit 1
   fi
 
-  echo "PASS: class-isolated cmux unit-test runner builds once and runs each XCTestCase under an isolated app-host home"
+  echo "PASS: class-sharded cmux unit-test runner builds once and runs selected XCTestCase classes under an isolated app-host home"
 }
 
 check_xcodebuild_unit_step_rejects_expected_failures() {
@@ -674,11 +675,11 @@ check_tests_deriveddata_cache() {
     in_job && /scripts\/ci\/run-cmux-unit-tests-isolated\.sh/ { saw_unit_runner=1 }
     END { exit(saw_strategy && saw_shards && saw_cache_path && saw_key && saw_derived_data_env && saw_shard_index && saw_shard_count && saw_unit_runner ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: unit-tests job must shard class-isolated app-host tests across cached DerivedData lanes"
+    echo "FAIL: unit-tests job must shard class-selected app-host tests across cached DerivedData lanes"
     exit 1
   fi
 
-  echo "PASS: tests-core caches explicit DerivedData and unit-tests shards class-isolated app-host runs"
+  echo "PASS: tests-core caches explicit DerivedData and unit-tests shards class-selected app-host runs"
 }
 
 check_ui_regression_budget() {

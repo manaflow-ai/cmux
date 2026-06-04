@@ -3403,11 +3403,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private let commandSemaphore = DispatchSemaphore(value: 0)
-        private(set) var commands: [String] = []
+        private var recordedCommands: [String] = []
+        var commands: [String] {
+            snapshotAfterSocketIdle()
+        }
 
         func append(_ command: String) {
             lock.lock()
-            commands.append(command)
+            recordedCommands.append(command)
             lock.unlock()
             commandSemaphore.signal()
         }
@@ -3415,14 +3418,37 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         func snapshot() -> [String] {
             lock.lock()
             defer { lock.unlock() }
-            return commands
+            return recordedCommands
+        }
+
+        private func snapshotAfterSocketIdle(timeout: TimeInterval = 1, idleInterval: TimeInterval = 0.05) -> [String] {
+            let deadline = Date().addingTimeInterval(timeout)
+            var lastCount = -1
+            while Date() < deadline {
+                lock.lock()
+                let currentCount = recordedCommands.count
+                let currentCommands = recordedCommands
+                lock.unlock()
+
+                if currentCount == lastCount {
+                    return currentCommands
+                }
+                lastCount = currentCount
+
+                let remaining = min(idleInterval, max(0, deadline.timeIntervalSinceNow))
+                if remaining <= 0 {
+                    return currentCommands
+                }
+                _ = commandSemaphore.wait(timeout: .now() + remaining)
+            }
+            return snapshot()
         }
 
         func waitForCommand(timeout: TimeInterval, matching predicate: (String) -> Bool) -> Bool {
             let deadline = Date().addingTimeInterval(timeout)
             while true {
                 lock.lock()
-                let matched = commands.contains(where: predicate)
+                let matched = recordedCommands.contains(where: predicate)
                 lock.unlock()
                 if matched {
                     return true
@@ -3476,6 +3502,16 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         matching predicate: (String) -> Bool
     ) -> Bool {
         state.waitForCommand(timeout: timeout, matching: predicate)
+    }
+
+    private func waitForSocketCommand(
+        state: MockSocketServerState,
+        timeout: TimeInterval = 5,
+        containing needles: String...
+    ) -> Bool {
+        waitForSocketCommand(state: state, timeout: timeout) { command in
+            needles.allSatisfy { command.contains($0) }
+        }
     }
 
     private func bundledCLIPath() throws -> String {

@@ -18,7 +18,7 @@ REQUIRED_PATTERNS=(
   'CMUX_UNIT_TEST_SHARD_COUNT="${{ matrix.shard_count }}"'
   "scripts/ci/run-cmux-unit-tests-isolated.sh"
   "run_unit_tests | tee /tmp/test-output.txt"
-  "cmuxTests XCTestCase classes passed in isolated app-host runs"
+  "selected cmuxTests XCTestCase classes passed in shard-"
   "Unit tests failed"
   'exit "$EXIT_CODE"'
 )
@@ -42,7 +42,7 @@ fi
 
 for file in "$COMPAT_WORKFLOW_FILE" "$DEPOT_WORKFLOW_FILE"; do
   if ! grep -Fq -- 'scripts/ci/run-cmux-unit-tests-isolated.sh' "$file"; then
-    echo "FAIL: $(basename "$file") must run the class-isolated app-host unit-test runner"
+    echo "FAIL: $(basename "$file") must run the class-sharded app-host unit-test runner"
     exit 1
   fi
 done
@@ -50,25 +50,24 @@ done
 ISOLATED_RUNNER_PATTERNS=(
   "build-for-testing"
   "test-without-building"
-  '-only-testing:"cmuxTests/$class"'
+  '-only-testing:cmuxTests/$class'
+  '"${ONLY_TESTING_ARGS[@]}"'
   'env -u SSH_AUTH_SOCK'
-  'HOME="$test_home"'
-  'CFFIXED_USER_HOME="$test_home"'
+  'HOME="$SHARD_HOME"'
+  'CFFIXED_USER_HOME="$SHARD_HOME"'
   'RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo"'
   'SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"'
   'SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"'
-  'CLASS_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_CLASS_TIMEOUT_SECONDS:-300}"'
-  'Timed out after ${timeout_seconds}s running $class; terminating xcodebuild'
-  'FAIL $class timed out after ${timeout_seconds}s'
-  'tail -n 220 "$log_file"'
+  'SHARD_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_SHARD_TIMEOUT_SECONDS:-2400}"'
+  'Timed out after ${SHARD_TIMEOUT_SECONDS}s running $SHARD_LABEL; terminating xcodebuild'
+  'FAIL $SHARD_LABEL timed out after ${SHARD_TIMEOUT_SECONDS}s'
+  'tail -n 260 "$SHARD_LOG"'
   'exit 124'
   'SWIFT_COMPILER_SUPPORTS_6_2="$('
   'xcrun swift -e'
   "compiler\\(>=\\s*6\\.2\\)"
-  "Test Suite '\$class' passed"
-  "Test Suite '\$class' failed"
-  "selected class passed; xcodebuild exited"
-  "All \${#SELECTED_TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"
+  "Test Suite 'Selected tests' passed"
+  "All \${#SELECTED_TEST_CLASSES[@]} selected cmuxTests XCTestCase classes passed in \$SHARD_LABEL"
 )
 
 for pattern in "${ISOLATED_RUNNER_PATTERNS[@]}"; do

@@ -8,7 +8,7 @@ LOG_ROOT="${RUNNER_TEMP:-/tmp}/cmux-unit-isolated-logs"
 STATUS_ROOT="${RUNNER_TEMP:-/tmp}/cmux-unit-isolated-status"
 SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"
 SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"
-CLASS_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_CLASS_TIMEOUT_SECONDS:-300}"
+SHARD_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_SHARD_TIMEOUT_SECONDS:-2400}"
 ORIGINAL_HOME="$HOME"
 SWIFT_COMPILER_SUPPORTS_6_2="$(
   xcrun swift -e '#if compiler(>=6.2)
@@ -103,122 +103,70 @@ scripts/ci/xcodebuild_noninteractive.py \
   CMUX_SKIP_ZIG_BUILD=1 \
   build-for-testing
 
-run_one_class() {
-  local class="$1"
-  local log_file="$LOG_ROOT/$class.log"
-  local status_file="$STATUS_ROOT/$class.status"
-  local result_path="$RESULT_ROOT/$class.xcresult"
-  local test_home="${RUNNER_TEMP:-/tmp}/cmux-unit-home-$class"
-  local timeout_seconds="$CLASS_TIMEOUT_SECONDS"
-  rm -rf "$test_home" "$result_path"
-  mkdir -p "$test_home"
-
-  set +e
-  env -u SSH_AUTH_SOCK \
-      HOME="$test_home" RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo" CFFIXED_USER_HOME="$test_home" \
-      scripts/ci/xcodebuild_noninteractive.py \
-        xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-        -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-        -derivedDataPath "$DERIVED_DATA_PATH" \
-        -disableAutomaticPackageResolution \
-        -destination "platform=macOS" \
-        -resultBundlePath "$result_path" \
-        -only-testing:"cmuxTests/$class" \
-        test-without-building >"$log_file" 2>&1 &
-  local test_pid=$!
-  local deadline=$((SECONDS + timeout_seconds))
-  local timed_out=0
-  while kill -0 "$test_pid" 2>/dev/null; do
-    if [ "$SECONDS" -ge "$deadline" ]; then
-      timed_out=1
-      echo "Timed out after ${timeout_seconds}s running $class; terminating xcodebuild" >>"$log_file"
-      kill -TERM "$test_pid" 2>/dev/null || true
-      sleep 5
-      if kill -0 "$test_pid" 2>/dev/null; then
-        echo "xcodebuild still running for $class after SIGTERM; sending SIGKILL" >>"$log_file"
-        kill -KILL "$test_pid" 2>/dev/null || true
-      fi
-      break
-    fi
-    sleep 1
-  done
-  wait "$test_pid"
-  local exit_code=$?
-  set -e
-
-  if [ "$timed_out" -ne 0 ]; then
-    echo "failed" >"$status_file"
-    echo "FAIL $class timed out after ${timeout_seconds}s" >&2
-    echo "===== $class log =====" >&2
-    tail -n 220 "$log_file" >&2
-    exit 124
-  fi
-
-  if grep -Fq "Test Suite '$class' failed" "$log_file"; then
-    echo "failed" >"$status_file"
-    echo "FAIL $class"
-    return 0
-  fi
-
-  if grep -Fq "Test Suite '$class' passed" "$log_file"; then
-    echo "passed" >"$status_file"
-    if [ "$exit_code" -ne 0 ]; then
-      echo "PASS $class (selected class passed; xcodebuild exited $exit_code during app-host cleanup)"
-    else
-      echo "PASS $class"
-    fi
-    return 0
-  fi
-
-  if [ "$exit_code" -ne 0 ]; then
-    echo "failed" >"$status_file"
-    echo "FAIL $class (xcodebuild exited $exit_code before reporting a class result)"
-    return 0
-  fi
-
-  echo "no-tests" >"$status_file"
-  echo "FAIL $class did not report an XCTest class result"
-  return 0
-}
-
-export SOURCE_PACKAGES_DIR DERIVED_DATA_PATH RESULT_ROOT LOG_ROOT STATUS_ROOT ORIGINAL_HOME CLASS_TIMEOUT_SECONDS
-export -f run_one_class
-
-printf '%s\n' "${SELECTED_TEST_CLASSES[@]}" | while IFS= read -r class; do
-  run_one_class "$class"
-done
-
-failed=()
-no_tests=()
+ONLY_TESTING_ARGS=()
 for class in "${SELECTED_TEST_CLASSES[@]}"; do
-  status="$(cat "$STATUS_ROOT/$class.status" 2>/dev/null || echo missing)"
-  case "$status" in
-    passed) ;;
-    failed) failed+=("$class") ;;
-    no-tests | missing) no_tests+=("$class") ;;
-  esac
+  ONLY_TESTING_ARGS+=("-only-testing:cmuxTests/$class")
 done
 
-if [ "${#no_tests[@]}" -ne 0 ]; then
-  echo "Unit test classes completed without reporting an XCTest class result:" >&2
-  printf '  %s\n' "${no_tests[@]}" >&2
-  for class in "${no_tests[@]}"; do
-    echo "===== $class log =====" >&2
-    tail -n 220 "$LOG_ROOT/$class.log" >&2
-  done
+SHARD_LABEL="shard-${SHARD_INDEX}-of-${SHARD_COUNT}"
+SHARD_LOG="$LOG_ROOT/$SHARD_LABEL.log"
+SHARD_RESULT="$RESULT_ROOT/$SHARD_LABEL.xcresult"
+SHARD_HOME="${RUNNER_TEMP:-/tmp}/cmux-unit-home-$SHARD_LABEL"
+rm -rf "$SHARD_HOME" "$SHARD_RESULT"
+mkdir -p "$SHARD_HOME"
+
+set +e
+env -u SSH_AUTH_SOCK \
+    HOME="$SHARD_HOME" RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo" CFFIXED_USER_HOME="$SHARD_HOME" \
+    scripts/ci/xcodebuild_noninteractive.py \
+      xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+      -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+      -derivedDataPath "$DERIVED_DATA_PATH" \
+      -disableAutomaticPackageResolution \
+      -destination "platform=macOS" \
+      -resultBundlePath "$SHARD_RESULT" \
+      "${ONLY_TESTING_ARGS[@]}" \
+      test-without-building >"$SHARD_LOG" 2>&1 &
+test_pid=$!
+deadline=$((SECONDS + SHARD_TIMEOUT_SECONDS))
+timed_out=0
+while kill -0 "$test_pid" 2>/dev/null; do
+  if [ "$SECONDS" -ge "$deadline" ]; then
+    timed_out=1
+    echo "Timed out after ${SHARD_TIMEOUT_SECONDS}s running $SHARD_LABEL; terminating xcodebuild" >>"$SHARD_LOG"
+    kill -TERM "$test_pid" 2>/dev/null || true
+    sleep 5
+    if kill -0 "$test_pid" 2>/dev/null; then
+      echo "xcodebuild still running for $SHARD_LABEL after SIGTERM; sending SIGKILL" >>"$SHARD_LOG"
+      kill -KILL "$test_pid" 2>/dev/null || true
+    fi
+    break
+  fi
+  sleep 1
+done
+wait "$test_pid"
+exit_code=$?
+set -e
+
+if [ "$timed_out" -ne 0 ]; then
+  echo "FAIL $SHARD_LABEL timed out after ${SHARD_TIMEOUT_SECONDS}s" >&2
+  echo "===== $SHARD_LABEL log =====" >&2
+  tail -n 260 "$SHARD_LOG" >&2
+  exit 124
 fi
 
-if [ "${#failed[@]}" -ne 0 ]; then
-  echo "Failing unit test classes:" >&2
-  printf '  %s\n' "${failed[@]}" >&2
-  for class in "${failed[@]}"; do
-    echo "===== $class log =====" >&2
-    tail -n 220 "$LOG_ROOT/$class.log" >&2
-  done
+if [ "$exit_code" -ne 0 ]; then
+  echo "FAIL $SHARD_LABEL exited $exit_code" >&2
+  echo "===== $SHARD_LABEL log =====" >&2
+  tail -n 260 "$SHARD_LOG" >&2
+  exit "$exit_code"
 fi
 
-if [ "${#failed[@]}" -ne 0 ] || [ "${#no_tests[@]}" -ne 0 ]; then
+if ! grep -Fq "Test Suite 'Selected tests' passed" "$SHARD_LOG"; then
+  echo "FAIL $SHARD_LABEL did not report a selected XCTest suite pass" >&2
+  echo "===== $SHARD_LABEL log =====" >&2
+  tail -n 260 "$SHARD_LOG" >&2
   exit 1
 fi
 
-echo "All ${#SELECTED_TEST_CLASSES[@]} cmuxTests XCTestCase classes passed in isolated app-host runs"
+echo "All ${#SELECTED_TEST_CLASSES[@]} selected cmuxTests XCTestCase classes passed in $SHARD_LABEL"

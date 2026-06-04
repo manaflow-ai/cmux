@@ -5876,7 +5876,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentWorkspaceLaunchInRemoteWorkspacePreservesRemoteContext() throws {
         let workspace = Workspace()
-        let agentSocketPath = "/tmp/cmux-fork-agent.sock"
+        let agentSocketURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fork-agent-\(UUID().uuidString).sock", isDirectory: false)
+        FileManager.default.createFile(atPath: agentSocketURL.path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: agentSocketURL) }
+        let agentSocketPath = agentSocketURL.path
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",

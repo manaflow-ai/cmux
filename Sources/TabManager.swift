@@ -4882,8 +4882,11 @@ class TabManager: ObservableObject {
         _ pullRequest: GitHubPullRequestProbeItem,
         now: Date
     ) -> Bool {
+        let url = URL(string: pullRequest.url)
         guard pullRequestStatus(from: pullRequest.state) != nil,
-              URL(string: pullRequest.url) != nil else {
+              url?.scheme?.lowercased() == "https",
+              url?.host?.lowercased() == "github.com",
+              url?.path.contains("/pull/") == true else {
             return false
         }
         return !isStaleMergedPullRequest(pullRequest, now: now)
@@ -6871,8 +6874,13 @@ class TabManager: ObservableObject {
             for: WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
         )
         let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
-        workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
-        stopWorkspaceGitMetadataWatcher(for: probeKey)
+        if let directory = gitProbeDirectory(for: tab, panelId: surfaceId) {
+            workspaceGitTrackedDirectoryByKey[probeKey] = directory
+            updateWorkspaceGitMetadataWatcher(for: probeKey, directory: directory)
+        } else {
+            workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
+            stopWorkspaceGitMetadataWatcher(for: probeKey)
+        }
         updateWorkspaceGitMetadataFallbackTimer()
         tab.clearPanelGitBranch(panelId: surfaceId)
         tab.clearPanelPullRequest(panelId: surfaceId)
