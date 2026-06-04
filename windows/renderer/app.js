@@ -15934,6 +15934,17 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
     true,
     "surface tab add terminal browser plus button labeled compact hidden simple chrome"
   ));
+  const tabStripDefault = tabStripSettingsAreDefault();
+  const tabActions = document.createElement("div");
+  tabActions.className = "settings-actions";
+  tabActions.dataset.settingsSearch = normalizeSettingsQuery("surface tabs reset default tab bar style width close active add buttons visibility show hide quiet subtle banded compact balanced roomy hover always minimal");
+  const resetTabsAction = settingsActionButton("Reset tabs", resetTabStripSettings, "", `surface tabs reset default tab bar width close active add visibility ${tabStripDefault ? "active current " : ""}`);
+  resetTabsAction.disabled = tabStripDefault;
+  resetTabsAction.title = tabStripDefault
+    ? "Tab strip settings already use defaults."
+    : "Reset tab visibility, tab bar style, width, close buttons, active style, and add-tab buttons.";
+  tabActions.append(resetTabsAction);
+  panel.append(tabActions);
   panel.append(settingRow(
     "Corner style",
     settingSegmentedControl("cornerStyle", cornerStyleOptions, "corner radius shape rounded soft crisp sharp panels controls tabs chrome", { compact: true }),
@@ -32214,6 +32225,15 @@ const commandPaletteSettings = [
   "palettePlacement"
 ];
 
+const tabStripSettings = [
+  "showTabs",
+  "tabBarStyle",
+  "tabSize",
+  "tabCloseMode",
+  "tabActiveStyle",
+  "addTabStyle"
+];
+
 const workspaceChromeBooleanSettings = new Set([
   "paneColorMarkers",
   "focusMode",
@@ -32977,6 +32997,10 @@ function commandPaletteSettingsAreDefault() {
   return settingsKeysMatchDefaults(commandPaletteSettings);
 }
 
+function tabStripSettingsAreDefault() {
+  return settingsKeysMatchDefaults(tabStripSettings);
+}
+
 function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
   const enabled = Boolean(nextValue);
   const changed = updateSettings({ focusMode: enabled }, { immediate: true });
@@ -33024,6 +33048,19 @@ function resetCommandPaletteSettings() {
   }
   refreshLayoutSettings();
   toast("Command palette reset.");
+  return true;
+}
+
+function resetTabStripSettings() {
+  const updates = {};
+  for (const key of tabStripSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Tab strip already uses defaults.");
+    return false;
+  }
+  refreshLayoutSettings();
+  toast("Tab strip reset.");
   return true;
 }
 
