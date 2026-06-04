@@ -97,17 +97,14 @@ enum CommandClickFileOpenRouter {
         filePath: String,
         fallback: (@MainActor @Sendable () -> Void)? = nil
     ) {
-        Task { @MainActor [preferredWorkspaceId, surfaceId, filePath, fallback] in
+        Task { @MainActor [workspace, preferredWorkspaceId, surfaceId, filePath, fallback] in
             let routeKind = await Task.detached(priority: .userInitiated) {
                 Self.routeKind(path: filePath)
             }.value
-            guard let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
+            let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
                 panelId: surfaceId,
                 preferredWorkspaceId: preferredWorkspaceId
-            )?.workspace else {
-                fallback?()
-                return
-            }
+            )?.workspace ?? workspace
             guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
                 fallback?()
                 return

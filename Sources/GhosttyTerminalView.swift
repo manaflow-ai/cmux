@@ -4885,7 +4885,7 @@ class GhosttyApp {
                     )
                     : nil,
                 canResolveLocalFiles: canResolveLocalFiles,
-                sourceWorkspaceId: callbackTabId ?? surfaceView.tabId,
+                sourceWorkspaceId: callbackTabId ?? surfaceView.tabId ?? workspace.id,
                 sourcePanelId: callbackSurfaceId ?? termSurface.id
             )
         }()
@@ -4928,10 +4928,10 @@ class GhosttyApp {
         if cmuxIsLocalFileURL(target.url) {
             let fileURL = target.url
             if let sourcePanelId = context.sourcePanelId,
-               let workspace = AppDelegate.shared?.workspaceContainingPanel(
-                    panelId: sourcePanelId,
-                    preferredWorkspaceId: context.sourceWorkspaceId
-               )?.workspace,
+               let workspace = Self.sourceWorkspaceForOpenURLAction(
+                    sourceWorkspaceId: context.sourceWorkspaceId,
+                    sourcePanelId: sourcePanelId
+               ),
                !workspace.isRemoteTerminalSurface(sourcePanelId) {
                 CommandClickFileOpenRouter.deferredOpenFileInCmux(
                     workspace: workspace,
@@ -5034,6 +5034,26 @@ class GhosttyApp {
             }
             return true
         }
+    }
+
+    @MainActor
+    private static func sourceWorkspaceForOpenURLAction(
+        sourceWorkspaceId: UUID?,
+        sourcePanelId: UUID
+    ) -> Workspace? {
+        if let workspace = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: sourcePanelId,
+            preferredWorkspaceId: sourceWorkspaceId
+        )?.workspace {
+            return workspace
+        }
+
+        guard let sourceWorkspaceId,
+              let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.tabManagerFor(tabId: sourceWorkspaceId) ?? appDelegate.tabManager else {
+            return nil
+        }
+        return manager.tabs.first(where: { $0.id == sourceWorkspaceId })
     }
 
     private func applyBackgroundToKeyWindow() {
