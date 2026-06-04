@@ -35828,6 +35828,24 @@ function paletteEntries() {
       search: normalizeSettingsQuery(`settings profile preset saved copy clipboard json ${profile.label} ${summary}`),
       run: () => copySavedSettingsProfile(profile.id)
     });
+    entries.push({
+      id: `settingsProfile.rename.${profile.id}`,
+      label: `Rename profile: ${profile.label}`,
+      meta: summary,
+      shortcut: "Rename",
+      title: `Rename ${profile.label}.`,
+      search: normalizeSettingsQuery(`settings profile preset saved rename label name ${profile.label} ${summary}`),
+      run: () => renameSavedSettingsProfile(profile.id)
+    });
+    entries.push({
+      id: `settingsProfile.delete.${profile.id}`,
+      label: `Delete profile: ${profile.label}`,
+      meta: summary,
+      shortcut: "Delete",
+      title: `Delete ${profile.label}.`,
+      search: normalizeSettingsQuery(`settings profile preset saved delete remove ${profile.label} ${summary}`),
+      run: () => deleteSavedSettingsProfile(profile.id)
+    });
   }
   const paletteBlueprintsFull = workspaceBlueprintsFull();
   const paletteBlueprintPaneCount = paletteWorkspace?.panels?.length || 0;
@@ -35873,6 +35891,24 @@ function paletteEntries() {
       title: workspaceBlueprintCopyTitle(blueprint),
       search: workspaceBlueprintCopySearchText(blueprint, paletteWorkspace, paletteBlueprintPaneCount),
       run: () => copySavedWorkspaceBlueprint(blueprint.id)
+    });
+    entries.push({
+      id: `workspaceBlueprint.rename.${blueprint.id}`,
+      label: `Rename blueprint: ${blueprint.label}`,
+      meta: summary,
+      shortcut: "Rename",
+      title: workspaceBlueprintRenameTitle(blueprint),
+      search: workspaceBlueprintRenameSearchText(blueprint, paletteWorkspace, paletteBlueprintPaneCount),
+      run: () => renameWorkspaceBlueprint(blueprint.id)
+    });
+    entries.push({
+      id: `workspaceBlueprint.delete.${blueprint.id}`,
+      label: `Delete blueprint: ${blueprint.label}`,
+      meta: summary,
+      shortcut: "Delete",
+      title: workspaceBlueprintDeleteTitle(blueprint),
+      search: workspaceBlueprintDeleteSearchText(blueprint, paletteWorkspace, paletteBlueprintPaneCount),
+      run: () => deleteWorkspaceBlueprint(blueprint.id)
     });
   }
   for (const starter of workspaceStarters) {
