@@ -64,7 +64,7 @@ nonisolated struct EphemeralWorktreeRecord: Codable, Sendable, Equatable {
         if root == "/" {
             return candidate.hasPrefix("/")
         }
-        candidate == root || candidate.hasPrefix(root + "/")
+        return candidate == root || candidate.hasPrefix(root + "/")
     }
 }
 

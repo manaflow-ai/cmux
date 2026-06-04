@@ -7196,14 +7196,6 @@ class TabManager: ObservableObject {
             }
             if let window {
                 window.performClose(nil)
-                if window.isVisible {
-                    for workspace in plan.workspaces {
-                        let panelIds = Set(blockPolicyPanelIdsByWorkspace[workspace.id] ?? [])
-                        if !panelIds.isEmpty {
-                            workspace.cancelEphemeralWorktreeCleanupForWindowClose(panelIds: panelIds)
-                        }
-                    }
-                }
                 return
             }
             if AppDelegate.shared != nil {
@@ -7241,9 +7233,6 @@ class TabManager: ObservableObject {
                     }
                     if let window {
                         window.performClose(nil)
-                        if window.isVisible, !authorizedPanelIds.isEmpty {
-                            workspace.cancelEphemeralWorktreeCleanupForWindowClose(panelIds: authorizedPanelIds)
-                        }
                     } else {
                         AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
                     }
@@ -7501,9 +7490,6 @@ class TabManager: ObservableObject {
             }
             if let window {
                 window.performClose(nil)
-                if window.isVisible, !authorizedPanelIds.isEmpty {
-                    workspace.cancelEphemeralWorktreeCleanupForWindowClose(panelIds: authorizedPanelIds)
-                }
             } else {
                 AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
             }
@@ -7523,6 +7509,15 @@ class TabManager: ObservableObject {
         return workspace.ephemeralWorktreesByPanelId.compactMap { panelId, record -> UUID? in
             if let candidatePanelIdSet, !candidatePanelIdSet.contains(panelId) { return nil }
             return record.cleanupPolicy == .block ? panelId : nil
+        }
+    }
+
+    func cancelEphemeralWorktreeCleanupForAbortedWindowClose() {
+        for workspace in tabs {
+            let panelIds = Set(workspace.ephemeralWorktreesByPanelId.keys)
+            if !panelIds.isEmpty {
+                workspace.cancelEphemeralWorktreeCleanupForWindowClose(panelIds: panelIds)
+            }
         }
     }
 

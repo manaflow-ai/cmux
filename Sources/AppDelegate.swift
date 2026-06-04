@@ -8097,6 +8097,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
             if !shouldClose {
                 self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
+                tabManager.cancelEphemeralWorktreeCleanupForAbortedWindowClose()
             }
             return shouldClose
         }
