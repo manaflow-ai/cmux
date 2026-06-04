@@ -16118,6 +16118,17 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
     true,
     "status bar footer style visual weight quiet subtle solid contrast badges runtime"
   ));
+  const statusBarDefault = statusBarSettingsAreDefault();
+  const statusActions = document.createElement("div");
+  statusActions.className = "settings-actions";
+  statusActions.dataset.settingsSearch = normalizeSettingsQuery("status bar reset default footer visibility detail compact runtime full performance style quiet subtle solid badges");
+  const resetStatusAction = settingsActionButton("Reset status", resetStatusBarSettings, "", `status bar reset default visibility detail style ${statusBarDefault ? "active current " : ""}`);
+  resetStatusAction.disabled = statusBarDefault;
+  resetStatusAction.title = statusBarDefault
+    ? "Status bar settings already use defaults."
+    : "Reset status bar visibility, detail, and style.";
+  statusActions.append(resetStatusAction);
+  panel.append(statusActions);
   panel.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
   return panel;
 }
@@ -32234,6 +32245,12 @@ const tabStripSettings = [
   "addTabStyle"
 ];
 
+const statusBarSettings = [
+  "showStatusbar",
+  "statusDetailMode",
+  "statusbarStyle"
+];
+
 const workspaceChromeBooleanSettings = new Set([
   "paneColorMarkers",
   "focusMode",
@@ -33001,6 +33018,10 @@ function tabStripSettingsAreDefault() {
   return settingsKeysMatchDefaults(tabStripSettings);
 }
 
+function statusBarSettingsAreDefault() {
+  return settingsKeysMatchDefaults(statusBarSettings);
+}
+
 function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
   const enabled = Boolean(nextValue);
   const changed = updateSettings({ focusMode: enabled }, { immediate: true });
@@ -33061,6 +33082,19 @@ function resetTabStripSettings() {
   }
   refreshLayoutSettings();
   toast("Tab strip reset.");
+  return true;
+}
+
+function resetStatusBarSettings() {
+  const updates = {};
+  for (const key of statusBarSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Status bar already uses defaults.");
+    return false;
+  }
+  refreshLayoutSettings();
+  toast("Status bar reset.");
   return true;
 }
 
