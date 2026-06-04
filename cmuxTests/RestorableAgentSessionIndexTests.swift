@@ -501,6 +501,64 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             .replacingOccurrences(of: ".", with: "-")
     }
 
+    // A custom Vault agent defaults to cwd: .preserve and can expand {{cwd}} in its resume template,
+    // so a restored custom session must keep the runtime cwd it drifted into, not the launch dir.
+    // (The kind-based namespace classifier would otherwise treat an unknown id as by-directory.)
+    func testCustomVaultAgentPreservesRuntimeCwdOnRestore() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-custom-cwd-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let launchCwd = root.appendingPathComponent("repo.main", isDirectory: true)
+        let runtimeCwd = root.appendingPathComponent("worktree", isDirectory: true)
+        try fm.createDirectory(at: launchCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: runtimeCwd, withIntermediateDirectories: true)
+
+        let agentId = "my-agent"
+        let registry = CmuxVaultAgentRegistry(registrations: [
+            CmuxVaultAgentRegistration(
+                id: agentId,
+                name: "My Agent",
+                detect: CmuxVaultAgentDetectRule(processNames: [agentId]),
+                sessionIdSource: .argvOption("--resume"),
+                resumeCommand: "{{executable}} --resume {{sessionId}}",
+                cwd: .preserve
+            ),
+        ])
+
+        let ws = UUID()
+        let panel = UUID()
+        let sid = "77777777-7777-7777-7777-777777777777"
+        try writeHookStore(
+            root: root,
+            storeFilename: "\(agentId)-hook-sessions.json",
+            sessions: [
+                sid: driftedAgentHookRecord(
+                    launcher: agentId, sessionId: sid, workspaceId: ws, panelId: panel,
+                    recordedCwd: runtimeCwd.path, launchCwd: launchCwd.path, updatedAt: 10
+                ),
+            ]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(
+                homeDirectory: root.path,
+                fileManager: fm,
+                registry: registry,
+                detectedSnapshots: [:],
+                processArgumentsProvider: { _ in nil }
+            ).snapshot(workspaceId: ws, panelId: panel),
+            "custom agent snapshot"
+        )
+        XCTAssertEqual(
+            snapshot.workingDirectory, runtimeCwd.path,
+            "a custom .preserve agent must keep the runtime cwd it drifted into, not the launch dir"
+        )
+        let resume = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(resume.contains(runtimeCwd.path), "resume must cd into the runtime cwd; got: \(resume)")
+        XCTAssertFalse(resume.contains(launchCwd.path), "resume must not fall back to the launch dir; got: \(resume)")
+    }
+
     // Forking branches a NEW session off an existing one. The fork command must use the correct
     // per-agent fork verb and cd into the session's directory, so the forked session launches in the
     // right place and is itself resumable. (Claude fork is covered above; this covers the cwd-in-file

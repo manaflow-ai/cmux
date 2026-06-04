@@ -1023,6 +1023,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     workingDirectory: restorableWorkingDirectory(
                         for: effectiveRecord,
                         kind: kind,
+                        registration: registration,
                         fileManager: fileManager,
                         lookup: claudeTranscriptLookup
                     ),
@@ -1289,11 +1290,20 @@ struct RestorableAgentSessionIndex: Sendable {
     private static func restorableWorkingDirectory(
         for record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
+        registration: CmuxVaultAgentRegistration?,
         fileManager: FileManager,
         lookup: ClaudeTranscriptLookupCache
     ) -> String? {
         let recordedCwd = normalizedWorkingDirectory(record.cwd)
         let launchCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
+
+        // Custom Vault agents resume via their own template (which can expand {{cwd}}) and default to
+        // a `.preserve` cwd policy, so keep the runtime cwd the agent was working in rather than the
+        // launch dir. (`.ignore` keeps it too; the command builder drops the cd for that policy.) The
+        // by-directory namespace below is only for built-in directory-namespaced agents.
+        if registration != nil {
+            return recordedCwd ?? launchCwd
+        }
 
         switch kind.cwdNamespacing {
         case .cwdInFile:
