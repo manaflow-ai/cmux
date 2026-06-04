@@ -32,3 +32,11 @@ Example:
   }
 }
 ```
+
+## `app.forkConversationDefaultDestination`
+
+Controls what the tab right-click `Fork Conversation` item does. The submenu still exposes every destination.
+
+Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
+
+Default: `right`.
