@@ -1209,6 +1209,54 @@ func shouldHandleTextBoxPlainArrowLocally(
     }
 }
 
+func shouldSynchronizeExternalTextToTextBox(
+    inlineAttachmentCount: Int,
+    plainText: String,
+    externalText: String,
+    hasMarkedText: Bool
+) -> Bool {
+    inlineAttachmentCount == 0 && !hasMarkedText && plainText != externalText
+}
+
+func shouldShowTextBoxPlaceholder(
+    text: String,
+    attachmentCount: Int,
+    hasMarkedText: Bool
+) -> Bool {
+    text.isEmpty && attachmentCount == 0 && !hasMarkedText
+}
+
+func shouldEnableTextBoxSubmit(
+    text: String,
+    attachmentCount: Int,
+    hasPendingAttachmentUpload: Bool,
+    hasMarkedText: Bool
+) -> Bool {
+    !hasPendingAttachmentUpload
+        && !hasMarkedText
+        && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || attachmentCount > 0)
+}
+
+func shouldSubmitTextBox(
+    hasPendingAttachmentUpload: Bool,
+    hasMarkedText: Bool
+) -> Bool {
+    !hasPendingAttachmentUpload && !hasMarkedText
+}
+
+func textBoxCommandShortcutKey(
+    for event: NSEvent,
+    translateKey: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:),
+    normalizedCharacters: (NSEvent) -> String = KeyboardLayout.normalizedCharacters(for:)
+) -> String {
+    if let translated = translateKey(event.keyCode, event.modifierFlags)?.lowercased(),
+       translated.count == 1,
+       translated.allSatisfy(\.isASCII) {
+        return translated
+    }
+    return normalizedCharacters(event).lowercased()
+}
+
 private enum TextBoxAgentDetection: CaseIterable {
     case claudeCode
     case codex
@@ -2625,6 +2673,7 @@ struct TextBoxInputContainer: View {
 
     @State private var textViewHeight: CGFloat = 0
     @State private var hasPendingAttachmentUpload = false
+    @State private var hasMarkedText = false
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
 
@@ -2661,8 +2710,12 @@ struct TextBoxInputContainer: View {
         let clampedHeight = max(minHeight, min(maxHeight, textViewHeight))
         let foreground = Color(nsColor: terminalForegroundColor)
         let background = Color(nsColor: terminalBackgroundColor)
-        let canSend = !hasPendingAttachmentUpload
-            && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
+        let canSend = shouldEnableTextBoxSubmit(
+            text: text,
+            attachmentCount: attachments.count,
+            hasPendingAttachmentUpload: hasPendingAttachmentUpload,
+            hasMarkedText: hasMarkedText
+        )
 
         HStack(alignment: .bottom, spacing: 6) {
             addFilesButton(foreground: foreground)
@@ -2691,12 +2744,17 @@ struct TextBoxInputContainer: View {
                     onInsertFileURLs: insertSelectedFileURLs(_:into:),
                     onChooseFiles: chooseFiles,
                     onContentChanged: markContentChanged,
+                    onMarkedTextStateChanged: updateMarkedTextState(_:),
                     onTextViewCreated: registerTextView(_:),
                     onTextViewMovedToWindow: onTextViewMovedToWindow,
                     onTextViewDismantled: onTextViewDismantled
                 )
 
-                if text.isEmpty && attachments.isEmpty {
+                if shouldShowTextBoxPlaceholder(
+                    text: text,
+                    attachmentCount: attachments.count,
+                    hasMarkedText: hasMarkedText
+                ) {
                     Text(String(localized: "textbox.placeholder", defaultValue: "Prompt or command"))
                         .font(.system(size: textFont.pointSize))
                         .foregroundStyle(Color(nsColor: terminalForegroundColor).opacity(0.36))
@@ -2779,18 +2837,22 @@ struct TextBoxInputContainer: View {
     }
 
     private func submit() {
-        guard textViewReference.textView?.hasPendingAttachmentUploadPlaceholder() != true else {
+        let textView = textViewReference.textView
+        guard shouldSubmitTextBox(
+            hasPendingAttachmentUpload: textView?.hasPendingAttachmentUploadPlaceholder() ?? hasPendingAttachmentUpload,
+            hasMarkedText: textView?.hasMarkedText() ?? hasMarkedText
+        ) else {
             NSSound.beep()
             return
         }
 
-        let submittedParts = textViewReference.textView?.submissionParts()
+        let submittedParts = textView?.submissionParts()
             ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
         guard TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts) else {
             NSSound.beep()
             return
         }
-        let submittedTextView = textViewReference.textView
+        let submittedTextView = textView
         let preservedContent = submittedTextView?.attributedContentForPreservation()
         submittedTextView?.prepareForSubmit()
         submittedTextView?.clearContent(cleanupAttachmentFiles: false)
@@ -2844,6 +2906,11 @@ struct TextBoxInputContainer: View {
 
     private func markContentChanged() {
         _ = advanceContentRevision()
+    }
+
+    private func updateMarkedTextState(_ nextValue: Bool) {
+        guard hasMarkedText != nextValue else { return }
+        hasMarkedText = nextValue
     }
 
     @discardableResult
@@ -3120,9 +3187,62 @@ struct TextBoxInputView: NSViewRepresentable {
     let onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool
     let onChooseFiles: () -> Void
     let onContentChanged: () -> Void
+    let onMarkedTextStateChanged: (Bool) -> Void
     let onTextViewCreated: (TextBoxInputTextView) -> Void
     let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
     let onTextViewDismantled: (TextBoxInputTextView) -> Void
+
+    init(
+        text: Binding<String>,
+        attachments: Binding<[TextBoxAttachment]>,
+        textViewHeight: Binding<CGFloat>,
+        hasPendingAttachmentUpload: Binding<Bool>,
+        font: NSFont,
+        backgroundColor: NSColor,
+        foregroundColor: NSColor,
+        terminalTitle: String,
+        completionRootDirectory: String?,
+        onSubmit: @escaping () -> Void,
+        onEscape: @escaping () -> Void,
+        onFocusTextBox: @escaping () -> Void,
+        onToggleFocus: @escaping () -> Void,
+        onForwardText: @escaping (String, Bool) -> Void,
+        onForwardKey: @escaping (TextBoxTerminalKey) -> Void,
+        onForwardControl: @escaping (String) -> Void,
+        onPaste: @escaping (NSPasteboard, TextBoxInputTextView) -> Bool,
+        onInsertFileURLs: @escaping ([URL], TextBoxInputTextView) -> Bool,
+        onChooseFiles: @escaping () -> Void,
+        onContentChanged: @escaping () -> Void,
+        onMarkedTextStateChanged: @escaping (Bool) -> Void = { _ in },
+        onTextViewCreated: @escaping (TextBoxInputTextView) -> Void,
+        onTextViewMovedToWindow: @escaping (TextBoxInputTextView) -> Void,
+        onTextViewDismantled: @escaping (TextBoxInputTextView) -> Void
+    ) {
+        self._text = text
+        self._attachments = attachments
+        self._textViewHeight = textViewHeight
+        self._hasPendingAttachmentUpload = hasPendingAttachmentUpload
+        self.font = font
+        self.backgroundColor = backgroundColor
+        self.foregroundColor = foregroundColor
+        self.terminalTitle = terminalTitle
+        self.completionRootDirectory = completionRootDirectory
+        self.onSubmit = onSubmit
+        self.onEscape = onEscape
+        self.onFocusTextBox = onFocusTextBox
+        self.onToggleFocus = onToggleFocus
+        self.onForwardText = onForwardText
+        self.onForwardKey = onForwardKey
+        self.onForwardControl = onForwardControl
+        self.onPaste = onPaste
+        self.onInsertFileURLs = onInsertFileURLs
+        self.onChooseFiles = onChooseFiles
+        self.onContentChanged = onContentChanged
+        self.onMarkedTextStateChanged = onMarkedTextStateChanged
+        self.onTextViewCreated = onTextViewCreated
+        self.onTextViewMovedToWindow = onTextViewMovedToWindow
+        self.onTextViewDismantled = onTextViewDismantled
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -3168,6 +3288,7 @@ struct TextBoxInputView: NSViewRepresentable {
         updateTextView(textView, context: context)
         onTextViewCreated(textView)
         context.coordinator.queuePendingAttachmentUploadStateSync(from: textView)
+        context.coordinator.queuePendingMarkedTextStateSync(from: textView)
         return scrollView
     }
 
@@ -3192,7 +3313,12 @@ struct TextBoxInputView: NSViewRepresentable {
                 height: CGFloat.greatestFiniteMagnitude
             )
         }
-        if textView.inlineAttachments().isEmpty && textView.plainText() != text {
+        if shouldSynchronizeExternalTextToTextBox(
+            inlineAttachmentCount: textView.inlineAttachments().count,
+            plainText: textView.plainText(),
+            externalText: text,
+            hasMarkedText: textView.hasMarkedText()
+        ) {
             textView.string = text
         }
         updateTextView(textView, context: context)
@@ -3216,6 +3342,9 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.onPaste = onPaste
         textView.onInsertFileURLs = onInsertFileURLs
         textView.onChooseFiles = onChooseFiles
+        textView.onMarkedTextStateChanged = { [weak coordinator, weak textView] hasMarkedText in
+            coordinator?.noteMarkedTextStateChanged(hasMarkedText, from: textView)
+        }
         textView.refreshInlineAttachmentCells(font: font, foregroundColor: foregroundColor)
         textView.recenterSingleLineTextContainer()
         textView.wantsLayer = true
@@ -3230,6 +3359,8 @@ struct TextBoxInputView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: TextBoxInputView
         private var pendingAttachmentUploadStateForNextLayout: Bool?
+        private var pendingMarkedTextStateForNextLayout: Bool?
+        private var deliveredMarkedTextState: Bool?
 
         init(parent: TextBoxInputView) {
             self.parent = parent
@@ -3240,13 +3371,15 @@ struct TextBoxInputView: NSViewRepresentable {
             pendingAttachmentUploadStateForNextLayout = textView.hasPendingAttachmentUploadPlaceholder()
         }
 
+        func queuePendingMarkedTextStateSync(from textView: TextBoxInputTextView) {
+            pendingMarkedTextStateForNextLayout = textView.hasMarkedText()
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? TextBoxInputTextView else { return }
             textView.normalizeTextBaselineOffsets()
-            parent.text = textView.plainText()
-            parent.attachments = textView.inlineAttachments()
-            parent.hasPendingAttachmentUpload = textView.hasPendingAttachmentUploadPlaceholder()
-            parent.onContentChanged()
+            publishTextViewContent(textView)
+            noteMarkedTextStateChanged(textView.hasMarkedText(), from: textView)
             if parent.text.isEmpty,
                parent.attachments.isEmpty,
                !textView.hasPendingAttachmentUploadPlaceholder() {
@@ -3258,6 +3391,7 @@ struct TextBoxInputView: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? TextBoxInputTextView else { return }
+            noteMarkedTextStateChanged(textView.hasMarkedText(), from: textView)
             let color = textView.textColor ?? .labelColor
             textView.layer?.borderColor = color.withAlphaComponent(
                 textView.window?.firstResponder === textView ? 0.45 : 0.24
@@ -3266,12 +3400,44 @@ struct TextBoxInputView: NSViewRepresentable {
             textView.refreshMentionCompletions()
         }
 
+        func noteMarkedTextStateChanged(_ hasMarkedText: Bool, from textView: TextBoxInputTextView? = nil) {
+            let pendingMarkedTextState = pendingMarkedTextStateForNextLayout
+            if textView != nil {
+                pendingMarkedTextStateForNextLayout = nil
+            }
+            if !hasMarkedText,
+               let textView,
+               deliveredMarkedTextState == true || pendingMarkedTextState == true {
+                publishTextViewContent(textView)
+            }
+            if deliveredMarkedTextState != hasMarkedText {
+                parent.onMarkedTextStateChanged(hasMarkedText)
+            }
+            deliveredMarkedTextState = hasMarkedText
+        }
+
+        private func publishTextViewContent(_ textView: TextBoxInputTextView) {
+            let nextText = textView.plainText()
+            let nextAttachments = textView.inlineAttachments()
+            let nextHasPendingAttachmentUpload = textView.hasPendingAttachmentUploadPlaceholder()
+            let contentChanged = parent.text != nextText
+                || parent.attachments.map(\.id) != nextAttachments.map(\.id)
+                || parent.hasPendingAttachmentUpload != nextHasPendingAttachmentUpload
+            parent.text = nextText
+            parent.attachments = nextAttachments
+            parent.hasPendingAttachmentUpload = nextHasPendingAttachmentUpload
+            if contentChanged {
+                parent.onContentChanged()
+            }
+        }
+
         func recalculateHeight(_ textView: NSTextView) {
             guard let layoutManager = textView.layoutManager,
                   let textContainer = textView.textContainer else { return }
             if let textBoxView = textView as? TextBoxInputTextView {
                 textBoxView.recenterSingleLineTextContainer()
                 applyPendingAttachmentUploadStateSyncIfNeeded()
+                applyPendingMarkedTextStateSyncIfNeeded()
             }
             layoutManager.ensureLayout(for: textContainer)
             let lineFragmentCount = (textView as? TextBoxInputTextView)?.visualLineFragmentCount()
@@ -3321,6 +3487,13 @@ struct TextBoxInputView: NSViewRepresentable {
             guard parent.hasPendingAttachmentUpload != hasPendingUpload else { return }
             parent.hasPendingAttachmentUpload = hasPendingUpload
         }
+
+        /// Applies the one-shot marked-text state captured during representable construction.
+        private func applyPendingMarkedTextStateSyncIfNeeded() {
+            guard let hasMarkedText = pendingMarkedTextStateForNextLayout else { return }
+            pendingMarkedTextStateForNextLayout = nil
+            noteMarkedTextStateChanged(hasMarkedText)
+        }
     }
 }
 
@@ -3346,6 +3519,7 @@ final class TextBoxInputTextView: NSTextView {
     var onChooseFiles: () -> Void = {}
     var onMoveToWindow: (TextBoxInputTextView) -> Void = { _ in }
     var onLayoutCompleted: (TextBoxInputTextView) -> Void = { _ in }
+    var onMarkedTextStateChanged: (Bool) -> Void = { _ in }
     private var isReportingLayoutCompletion = false
 
     private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
@@ -3465,6 +3639,17 @@ final class TextBoxInputTextView: NSTextView {
         queueAutomaticAttachmentFileCleanup(in: replacementRange)
         super.insertText(insertString, replacementRange: replacementRange)
         flushAutomaticAttachmentFileCleanup()
+        onMarkedTextStateChanged(hasMarkedText())
+    }
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        onMarkedTextStateChanged(hasMarkedText())
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        onMarkedTextStateChanged(hasMarkedText())
     }
 
     override func didChangeText() {
@@ -4035,7 +4220,7 @@ final class TextBoxInputTextView: NSTextView {
         guard flags.contains(.command),
               !flags.contains(.option),
               !flags.contains(.control),
-              event.keyCode == UInt16(kVK_ANSI_Z) else {
+              textBoxCommandShortcutKey(for: event) == "z" else {
             return super.performKeyEquivalent(with: event)
         }
 
@@ -4834,14 +5019,14 @@ final class TextBoxInputTextView: NSTextView {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags == .command else { return false }
 
-        switch Int(event.keyCode) {
-        case kVK_ANSI_C:
+        switch textBoxCommandShortcutKey(for: event) {
+        case "c":
             copy(nil)
             return true
-        case kVK_ANSI_X:
+        case "x":
             cut(nil)
             return true
-        case kVK_ANSI_V:
+        case "v":
             paste(nil)
             return true
         default:

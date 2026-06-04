@@ -39,7 +39,8 @@
     "contact": "ติดต่อ",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "ภาษา"
+    "language": "ภาษา",
+    "assets": "แอสเซ็ต"
   },
   "home": {
     "taglinePrefix": "เทอร์มินัลที่สร้างมาเพื่อ",
@@ -1269,5 +1270,22 @@
   },
   "testimonialSubtitles": {
     "steipete": "ผู้สร้าง OpenClaw ผู้ก่อตั้ง PSPDFKit"
+  },
+  "brandAssets": {
+    "metaTitle": "แอสเซ็ตแบรนด์",
+    "metaDescription": "ดาวน์โหลดไอคอนแอป cmux แบบสว่างและมืดที่ใช้ในแอป macOS",
+    "title": "แอสเซ็ตแบรนด์",
+    "description": "ดาวน์โหลดไอคอนแอป cmux แบบสว่างและมืดที่ใช้ในแอป macOS",
+    "iconSection": "ไอคอนแอป macOS",
+    "download": "ดาวน์โหลด",
+    "assetAlt": "ตัวอย่าง {name}",
+    "lightPreview": "ไอคอนแอปสำหรับโหมดสว่าง",
+    "darkPreview": "ไอคอนแอปสำหรับโหมดมืด"
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "ดาวน์โหลดไอคอนโหมดสว่าง",
+    "downloadDark": "ดาวน์โหลดไอคอนโหมดมืด",
+    "brandPage": "แอสเซ็ตแบรนด์"
   }
 }

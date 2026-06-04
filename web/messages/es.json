@@ -39,7 +39,8 @@
     "contact": "Contacto",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Idioma"
+    "language": "Idioma",
+    "assets": "Recursos"
   },
   "home": {
     "taglinePrefix": "La terminal diseñada para ",
@@ -1269,5 +1270,22 @@
   },
   "testimonialSubtitles": {
     "steipete": "Creador de OpenClaw. Fundador de PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Recursos de marca",
+    "metaDescription": "Descarga los iconos claro y oscuro de cmux que usa la app de macOS.",
+    "title": "Recursos de marca",
+    "description": "Descarga los iconos claro y oscuro de cmux que usa la app de macOS.",
+    "iconSection": "Iconos de la app macOS",
+    "download": "Descargar",
+    "assetAlt": "Vista previa de {name}",
+    "lightPreview": "Icono de app para modo claro.",
+    "darkPreview": "Icono de app para modo oscuro."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Descargar icono claro",
+    "downloadDark": "Descargar icono oscuro",
+    "brandPage": "Recursos de marca"
   }
 }

@@ -39,7 +39,8 @@
     "contact": "Kontakt",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Jezik"
+    "language": "Jezik",
+    "assets": "Materijali"
   },
   "home": {
     "taglinePrefix": "Terminal napravljen za ",
@@ -1269,5 +1270,22 @@
   },
   "testimonialSubtitles": {
     "steipete": "Kreator OpenClawa. Osnivač PSPDFKita."
+  },
+  "brandAssets": {
+    "metaTitle": "Brend materijali",
+    "metaDescription": "Preuzmite svijetlu i tamnu cmux ikonu koju koristi macOS aplikacija.",
+    "title": "Brend materijali",
+    "description": "Preuzmite svijetlu i tamnu cmux ikonu koju koristi macOS aplikacija.",
+    "iconSection": "Ikone macOS aplikacije",
+    "download": "Preuzmi",
+    "assetAlt": "Pregled za {name}",
+    "lightPreview": "Ikona aplikacije za svijetli način.",
+    "darkPreview": "Ikona aplikacije za tamni način."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Preuzmi svijetlu ikonu",
+    "downloadDark": "Preuzmi tamnu ikonu",
+    "brandPage": "Materijali brenda"
   }
 }
