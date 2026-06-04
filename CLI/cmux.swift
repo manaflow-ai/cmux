@@ -24621,15 +24621,16 @@ struct CMUXCLI {
             ?? normalizedHookValue(env["PWD"])
         let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
 
-        guard let arguments, !arguments.isEmpty else {
-            // No launch argv: plain `codex` (not a cmux launcher, so no CMUX_AGENT_LAUNCH_ARGV_B64)
-            // whose PID could not be resolved at hook time. The argv is gone, but the agent's launch
-            // env may still carry a non-default home that resume/fork MUST reproduce or the session
-            // won't be found — most importantly CODEX_HOME when codex runs under the subrouter account
-            // manager (~/.codex-accounts/<account>), also CLAUDE_CONFIG_DIR for Claude. Preserve just
-            // that selected env so AgentResumeCommandBuilder prefixes it ahead of the kind's fallback
-            // verb (`CODEX_HOME=<home> codex resume <id>`). When the env is empty (default home,
-            // nothing to carry) keep the historical nil so behavior is unchanged.
+        // Fallback when a full sanitized launch command can't be captured (no argv because this is
+        // plain `codex` with no cmux launcher and an unresolved/exited PID, or the argv resolved but
+        // didn't sanitize): still preserve the agent's selected launch env alone. That env may carry a
+        // non-default home that resume/fork MUST reproduce or the session won't be found — above all
+        // CODEX_HOME when codex runs under the subrouter account manager (~/.codex-accounts/<account>),
+        // also CLAUDE_CONFIG_DIR for Claude. AgentResumeCommandBuilder then prefixes it ahead of the
+        // kind's fallback verb (`CODEX_HOME=<home> codex resume <id>`), while launcher/kind resolution
+        // still gates whether a resume command is produced at all (omx/omc and unknown kinds stay
+        // non-resumable). Empty selected env keeps the historical nil so behavior is unchanged.
+        func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else { return nil }
             return AgentHookLaunchCommandRecord(
                 launcher: launcher,
@@ -24642,13 +24643,17 @@ struct CMUXCLI {
             )
         }
 
+        guard let arguments, !arguments.isEmpty else {
+            return environmentOnlyRecord()
+        }
+
         let executablePath = normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) ?? arguments.first
         guard let sanitizedArguments = sanitizedAgentLaunchArguments(
             arguments,
             launcher: launcher,
             fallbackKind: fallbackKind
         ) else {
-            return nil
+            return environmentOnlyRecord()
         }
         let source = envArguments == nil ? "process" : "environment"
 
@@ -27244,7 +27249,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let inferredPID = inferredAgentPID()
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
-        let directSurfaceArg = optionValue(hookArgs, name: "--surface")
+        let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
+        let directSurfaceArg = explicitSurfaceFlag
             ?? (hookWsFlag == nil ? normalizedHookValue(env["CMUX_SURFACE_ID"]) : nil)
         func resolveAccessibleWorkspaceId(_ raw: String?) -> String? {
             guard let raw = nonEmptyClaudeHookIdentifier(raw) else {
@@ -27277,9 +27283,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         func processBinding() -> CallerTerminalBinding? {
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
-                guard directWorkspaceArg == nil || directSurfaceArg == nil else {
-                    return nil
-                }
+                // Always resolve the agent process's own terminal binding (TTY first, then PID), even
+                // when env supplies both ids. Historically this was suppressed whenever both env ids
+                // were present, which made a leaked/stale CMUX_SURFACE_ID impossible to correct — the
+                // codex jumble class, where a session routes to the wrong surface and the no-pid-gate
+                // resume binding persists it across reload. resolveAgentHookTarget now uses this
+                // binding to OVERRIDE a disagreeing ambient-env surface; the binding stays nil (env
+                // trusted) under remote/SSH where no local TTY maps to a surface.
                 processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
                     ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
             }
@@ -27482,8 +27492,37 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return (workspaceId, surfaceId)
             }
 
+            // G3 (codex jumble defense-in-depth): the surface id can arrive from the ambient env
+            // (CMUX_SURFACE_ID), which a launcher or an inherited subprocess can leak as the operator's
+            // FOCUSED pane rather than the agent's own pane. When the agent process's controlling TTY
+            // (or PID) is bound to a DIFFERENT, accessible surface inside this same workspace, that
+            // binding is ground truth — prefer it. Returns the env surface unchanged when there is no
+            // env surface to correct, when it came from an explicit --surface flag (operator intent),
+            // or when the TTY/PID binding is unavailable (remote/SSH) or already agrees. Stays within
+            // the env workspace so a flaky binding can never cross-route to a different workspace.
+            func correctedDirectSurfaceId(workspaceId: String) -> String? {
+                guard let envSurface = resolvedDirectSurfaceArg else { return nil }
+                guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return envSurface }
+                guard let binding = processBinding(),
+                      let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
+                      let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
+                      resolveAccessibleWorkspaceId(boundWorkspaceRaw) == workspaceId,
+                      let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: workspaceId),
+                      boundSurface != envSurface else {
+                    return envSurface
+                }
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.surface.correct agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) env=\(agentHookDebugShort(envSurface)) tty=\(agentHookDebugShort(boundSurface))",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return boundSurface
+            }
+
             if let workspaceId = resolvedDirectWorkspaceArg {
-                let preferredSurfaceId = resolvedDirectSurfaceArg
+                let preferredSurfaceId = correctedDirectSurfaceId(workspaceId: workspaceId)
                     ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
                 let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped)
 #if DEBUG
