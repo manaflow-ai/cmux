@@ -84,12 +84,6 @@ export function codeViewUnsafeCSS(): string {
     [data-line-type='change-deletion'] {
       color: var(--diffs-deletion-base);
     }
-    [data-line-type='change-addition'] span {
-      color: var(--diffs-addition-base) !important;
-    }
-    [data-line-type='change-deletion'] span {
-      color: var(--diffs-deletion-base) !important;
-    }
     [data-separator='line-info'] {
       background-color: var(--diffs-bg-separator);
     }
