@@ -19018,7 +19018,8 @@ extension Workspace: BonsplitDelegate {
 
     /// Hide browser portals for tabs that are no longer selected in the given pane.
     private func hideBrowserPortalsForDeselectedTabs(inPane pane: PaneID, selectedTabId: TabID) {
-        for tab in bonsplitController.tabs(inPane: pane) {
+        guard let controller = bonsplitController(containingPaneId: pane) else { return }
+        for tab in controller.tabs(inPane: pane) {
             guard tab.id != selectedTabId else { continue }
             guard let panelId = panelIdFromSurfaceId(tab.id),
                   let browserPanel = panels[panelId] as? BrowserPanel else { continue }
@@ -20052,11 +20053,16 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
-    private func selectedTerminalPanel(inPane pane: PaneID) -> TerminalPanel? {
-        guard let selectedTab = bonsplitController.selectedTab(inPane: pane),
-              let panelId = panelIdFromSurfaceId(selectedTab.id) else {
+    func selectedPanelId(inPane pane: PaneID) -> UUID? {
+        guard let controller = bonsplitController(containingPaneId: pane),
+              let selectedTab = controller.selectedTab(inPane: pane) else {
             return nil
         }
+        return panelIdFromSurfaceId(selectedTab.id)
+    }
+
+    private func selectedTerminalPanel(inPane pane: PaneID) -> TerminalPanel? {
+        guard let panelId = selectedPanelId(inPane: pane) else { return nil }
         return terminalPanel(for: panelId)
     }
 
@@ -20089,8 +20095,9 @@ extension Workspace: BonsplitDelegate {
         }
 
         if let workspaceCommand = executable.workspaceCommand {
-            bonsplitController.focusPane(pane)
-            if let selectedTab = bonsplitController.selectedTab(inPane: pane) {
+            guard let controller = bonsplitController(containingPaneId: pane) else { return }
+            controller.focusPane(pane)
+            if let selectedTab = controller.selectedTab(inPane: pane) {
                 applyTabSelection(tabId: selectedTab.id, inPane: pane)
             }
 
@@ -20137,7 +20144,8 @@ extension Workspace: BonsplitDelegate {
             presentingWindow: presentingWindow
         ) { [weak self] shellInput in
             guard let self else { return }
-            self.bonsplitController.focusPane(pane)
+            guard let controller = self.bonsplitController(containingPaneId: pane) else { return }
+            controller.focusPane(pane)
             switch target {
             case .currentTerminal:
                 self.selectedTerminalPanel(inPane: pane)?.sendInput(shellInput)

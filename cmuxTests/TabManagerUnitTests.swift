@@ -2656,6 +2656,25 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         )
     }
 
+    func testSelectedPanelIdInHiddenTopLevelTabUsesOwningController() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+
+        manager.newSurface()
+        let hiddenController = workspace.bonsplitController
+        let hiddenPaneId = try XCTUnwrap(hiddenController.focusedPaneId ?? hiddenController.allPaneIds.first)
+        let selectedHiddenPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: hiddenPaneId, focus: true))
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+
+        XCTAssertEqual(
+            workspace.selectedPanelId(inPane: hiddenPaneId),
+            selectedHiddenPanel.id,
+            "Expected pane-scoped selection lookup to use the hidden top tab's owning controller"
+        )
+    }
+
     func testSurfaceCreationIntoHiddenTopLevelTabUsesOwningControllerWithoutSelectingIt() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
