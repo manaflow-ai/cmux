@@ -8,7 +8,7 @@ Usage: scripts/open-diff-viewer-stress-samples.sh [sample|all] [--cli PATH] [--r
 Clone large public repositories, check out sample refs, then open the diff
 through the normal local git codepath:
 
-  cmux diff --base <base-ref>
+  cmux diff --branch --base <base-ref>
 
 Samples:
   bun-rust      Bun Zig-to-Rust rewrite, oven-sh/bun pull 30412
@@ -83,9 +83,9 @@ sample_dir() {
 
 sample_fetch_args() {
   case "$1" in
-    bun-rust) echo "main pull/30412/head:refs/remotes/cmux-stress/bun-rust" ;;
-    node-v8) echo "main pull/62526/head:refs/remotes/cmux-stress/node-v8" ;;
-    node-v8-14-1) echo "main pull/59805/head:refs/remotes/cmux-stress/node-v8-14-1" ;;
+    bun-rust) echo "0d9b296af33f2b851fcbf4df3e9ec89751734ba4 pull/30412/head:refs/remotes/cmux-stress/bun-rust" ;;
+    node-v8) echo "4d8834fbef690bf71dc9eb6bdd9edfb0783b3c5d pull/62526/head:refs/remotes/cmux-stress/node-v8" ;;
+    node-v8-14-1) echo "0817b40c1b2938cff3c30f026d0ad4b255beb11d pull/59805/head:refs/remotes/cmux-stress/node-v8-14-1" ;;
     linux-v6) echo "refs/tags/v6.0:refs/tags/v6.0 refs/tags/v6.7:refs/tags/v6.7" ;;
     *) return 1 ;;
   esac
@@ -103,7 +103,9 @@ sample_head_ref() {
 
 sample_base_ref() {
   case "$1" in
-    bun-rust|node-v8|node-v8-14-1) echo "origin/main" ;;
+    bun-rust) echo "0d9b296af33f2b851fcbf4df3e9ec89751734ba4" ;;
+    node-v8) echo "4d8834fbef690bf71dc9eb6bdd9edfb0783b3c5d" ;;
+    node-v8-14-1) echo "0817b40c1b2938cff3c30f026d0ad4b255beb11d" ;;
     linux-v6) echo "refs/tags/v6.0" ;;
     *) return 1 ;;
   esac
@@ -156,7 +158,7 @@ open_sample() {
   git -C "$repo_dir" fetch --filter=blob:none origin $fetch_args
   git -C "$repo_dir" checkout -B "$branch" "$head_ref"
 
-  local args=(diff --base "$base_ref" --title "$title" --layout split --no-focus)
+  local args=(diff --branch --base "$base_ref" --title "$title" --layout split --no-focus)
   if [ -n "${CMUX_WORKSPACE_ID:-}" ]; then
     args+=(--workspace "$CMUX_WORKSPACE_ID")
   fi
