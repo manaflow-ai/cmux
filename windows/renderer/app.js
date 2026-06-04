@@ -34479,7 +34479,7 @@ function settingsCategoryPaletteState(id, label) {
     profiles: {
       meta: `${savedSettingsProfileCountLabel()} profiles / ${activeSettingsSetupLabel()}`,
       icon: "profiles",
-      search: "settings profiles saved reusable setup current profile save apply copy paste import export"
+      search: "settings profiles saved reusable setup current profile save apply update copy paste rename delete import export"
     },
     blueprints: {
       meta: `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} blueprints`,
@@ -36103,6 +36103,19 @@ function paletteEntries() {
       title: `Copy ${profile.label} as a Settings profile JSON.`,
       search: normalizeSettingsQuery(`settings profile preset saved copy clipboard json ${profile.label} ${summary}`),
       run: () => copySavedSettingsProfile(profile.id)
+    });
+    entries.push({
+      id: `settingsProfile.update.${profile.id}`,
+      label: `Update profile: ${profile.label}`,
+      meta: active ? `Current / ${summary}` : summary,
+      shortcut: active ? "Current" : "Update",
+      active,
+      disabled: active,
+      title: active
+        ? `${profile.label} already matches the current settings.`
+        : `Replace ${profile.label} with the current settings.`,
+      search: normalizeSettingsQuery(`settings profile preset saved update overwrite replace current settings ${active ? "active current unavailable " : "ready "}${profile.label} ${summary}`),
+      run: () => updateSavedSettingsProfile(profile.id)
     });
     entries.push({
       id: `settingsProfile.rename.${profile.id}`,
