@@ -19,6 +19,10 @@ struct SettingCatalogTests {
                 "automation.claudeBinaryPath",
                 "integrations.claudeCode.customClaudePath",
             ],
+            "ampHooksEnabled": [
+                "automation.ampIntegration",
+                "integrations.amp.hooksEnabled",
+            ],
             "cursorHooksEnabled": [
                 "automation.cursorIntegration",
                 "integrations.cursor.hooksEnabled",
