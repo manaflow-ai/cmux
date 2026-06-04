@@ -28,10 +28,24 @@ struct AuthDebugLog: Sendable {
         let fd = open(debugLogPath, O_WRONLY | O_APPEND | O_CREAT, 0o600)
         guard fd >= 0 else { return }
         defer { close(fd) }
+        // Re-assert 0600 on pre-existing files (O_CREAT mode only applies at
+        // creation) so an old permissive log can't stay world-readable.
+        _ = fchmod(fd, 0o600)
         let bytes = Array(line.utf8)
         bytes.withUnsafeBufferPointer { buffer in
-            guard let baseAddress = buffer.baseAddress else { return }
-            _ = write(fd, baseAddress, buffer.count)
+            guard var baseAddress = buffer.baseAddress else { return }
+            var remaining = buffer.count
+            // Retry short writes/EINTR so a line is never half-appended.
+            while remaining > 0 {
+                let written = write(fd, baseAddress, remaining)
+                if written > 0 {
+                    baseAddress += written
+                    remaining -= written
+                    continue
+                }
+                if written < 0 && errno == EINTR { continue }
+                break
+            }
         }
     }
     #endif

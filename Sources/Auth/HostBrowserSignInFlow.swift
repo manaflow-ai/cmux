@@ -78,8 +78,11 @@ final class HostBrowserSignInFlow {
     /// deadline only caps how long the socket caller can hang on the network
     /// revoke round trip.
     func signOut(timeout: TimeInterval) async {
-        let attempt = Task { @MainActor [weak self] in
-            await self?.signOut()
+        // Strong capture on purpose: the user asked to sign out, so the task
+        // must keep the flow alive until the sign-out completes even if the
+        // socket caller stops waiting at the deadline.
+        let attempt = Task { @MainActor in
+            await self.signOut()
             return true
         }
         _ = await awaitWithDeadline(attempt, timeout: timeout)
