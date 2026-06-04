@@ -21313,6 +21313,14 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
       title: saveProfileTitle,
       search: "quick setup browser save active page profile reusable settings"
     }),
+    quickOverviewControlButton("Copy setup", copyBrowserSetup, {
+      title: "Copy browser home, launch mode, external profile, suspend setting, pane chrome, and pane zoom as JSON.",
+      search: "quick setup browser copy setup home launch external profile suspend pane chrome tabs address controls full compact content zoom scale clipboard json"
+    }),
+    quickOverviewControlButton("Paste setup", pasteBrowserSetup, {
+      title: "Apply copied browser setup.",
+      search: "quick setup browser paste setup home launch external profile suspend pane chrome tabs address controls full compact content zoom scale clipboard json"
+    }),
     quickOverviewControlButton("Copy tabs", () => copyActiveBrowserTabSession(activeBrowser), {
       disabled: !activeBrowser,
       title: activeBrowser ? "Copy the active browser tab session as JSON." : browserRequiredTitle,
