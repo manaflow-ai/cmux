@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import os
 
@@ -89,6 +90,9 @@ nonisolated enum EphemeralWorktreeLifecycleError: LocalizedError {
 }
 
 nonisolated struct EphemeralWorktreeGitClient {
+    private static let gitCommandTimeoutSeconds = 120
+    private static let gitCommandTerminationGraceSeconds = 5
+
     struct CommandResult: Sendable {
         let exitCode: Int32
         let standardOutput: String
@@ -220,19 +224,36 @@ nonisolated struct EphemeralWorktreeGitClient {
         process.standardOutput = stdoutHandle
         process.standardError = stderrHandle
 
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            finished.signal()
+        }
+
         try process.run()
-        process.waitUntilExit()
+        let timedOut = finished.wait(timeout: .now() + .seconds(Self.gitCommandTimeoutSeconds)) == .timedOut
+        if timedOut {
+            process.terminate()
+            if finished.wait(timeout: .now() + .seconds(Self.gitCommandTerminationGraceSeconds)) == .timedOut,
+               process.isRunning {
+                _ = kill(process.processIdentifier, SIGKILL)
+                _ = finished.wait(timeout: .now() + .seconds(1))
+            }
+        }
         stdoutHandle.synchronizeFile()
         stderrHandle.synchronizeFile()
 
         let stdoutData = try Data(contentsOf: stdoutURL)
         let stderrData = try Data(contentsOf: stderrURL)
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        let timedOutDetail = timedOut
+            ? "\nGit command timed out after \(Self.gitCommandTimeoutSeconds) seconds."
+            : ""
         let result = CommandResult(
-            exitCode: process.terminationStatus,
+            exitCode: timedOut ? Int32(-SIGTERM) : process.terminationStatus,
             standardOutput: String(data: stdoutData, encoding: .utf8) ?? "",
-            standardError: String(data: stderrData, encoding: .utf8) ?? ""
+            standardError: stderr + timedOutDetail
         )
-        if !allowFailure && !result.succeeded {
+        if timedOut || (!allowFailure && !result.succeeded) {
             throw EphemeralWorktreeLifecycleError.commandFailed(
                 command: (["git"] + arguments).joined(separator: " "),
                 exitCode: result.exitCode,
@@ -299,12 +320,11 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
         let sourceRepositoryPath = try git.repositoryRoot(containing: sourceDirectory)
         let sessionId = UUID().uuidString.lowercased()
         let branchName = "cmux/session-\(sessionId)"
-        let repositoryURL = URL(fileURLWithPath: sourceRepositoryPath, isDirectory: true)
-        let worktreePath = repositoryURL
-            .deletingLastPathComponent()
-            .appendingPathComponent("worktrees", isDirectory: true)
-            .appendingPathComponent("cmux-\(sessionId)", isDirectory: true)
-            .path
+        let worktreePath = Self.worktreePath(
+            sourceRepositoryPath: sourceRepositoryPath,
+            sessionId: sessionId,
+            storeURL: storeURL
+        )
         let record = EphemeralWorktreeRecord(
             sessionId: sessionId,
             sourceRepositoryPath: sourceRepositoryPath,
@@ -321,6 +341,42 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
             throw error
         }
         return record
+    }
+
+    private static func worktreePath(
+        sourceRepositoryPath: String,
+        sessionId: String,
+        storeURL: URL
+    ) -> String {
+        let namespace = "\(repositorySlug(sourceRepositoryPath))-\(stablePathHash(sourceRepositoryPath))"
+        return storeURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("worktrees", isDirectory: true)
+            .appendingPathComponent(namespace, isDirectory: true)
+            .appendingPathComponent("cmux-\(sessionId)", isDirectory: true)
+            .path
+    }
+
+    private static func repositorySlug(_ sourceRepositoryPath: String) -> String {
+        let lastPathComponent = URL(fileURLWithPath: sourceRepositoryPath, isDirectory: true)
+            .lastPathComponent
+        let source = lastPathComponent.isEmpty ? "repository" : lastPathComponent
+        let allowedScalars = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+        let sanitized = source.unicodeScalars.map { scalar -> Character in
+            allowedScalars.contains(scalar) ? Character(scalar) : "-"
+        }
+        let slug = String(sanitized)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-."))
+        return slug.isEmpty ? "repository" : String(slug.prefix(64))
+    }
+
+    private static func stablePathHash(_ path: String) -> String {
+        var hash: UInt64 = 1_469_598_103_934_665_603
+        for byte in path.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
     }
 
     func createAsync(
@@ -426,9 +482,9 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
     }
 
     private func cleanupOrphan(_ record: EphemeralWorktreeRecord) throws -> EphemeralWorktreeCleanupResult {
-        // Startup reconciliation has no user-confirmation surface. Respect `.block`
-        // for dirty orphans so the registry keeps pointing at the preserved worktree.
-        try cleanup(record, userConfirmed: false)
+        // Startup reconciliation has no confirmation surface; snapshot dirty
+        // `.block` orphans so stale sessions do not accumulate permanently.
+        try cleanup(record, userConfirmed: true)
     }
 
     private func updateRecords(_ mutation: (inout [EphemeralWorktreeRecord]) -> Void) throws {
