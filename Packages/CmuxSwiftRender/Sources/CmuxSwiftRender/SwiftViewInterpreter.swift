@@ -264,7 +264,9 @@ public struct SwiftViewInterpreter: Sendable {
             return RenderNode(
                 kind: .gauge,
                 text: labeledStringArgument("label", call.arguments, env) ?? stringArgument(call.arguments, env),
-                value: doubleArgument(named: "value", call.arguments, env)
+                // Same total-relative normalization as ProgressView: the
+                // rendered Gauge(value:) is 0...1.
+                value: progressValue(call, env)
             )
         case "Menu":
             return RenderNode(

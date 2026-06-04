@@ -71,7 +71,9 @@ struct ExpressionEvaluator {
             case "Int":
                 switch inner {
                 case let .int(i): return .int(i)
-                case let .double(d): return .int(Int(d))
+                // Int(_: Double) traps on NaN/infinity/overflow; authored
+                // source can produce all three (e.g. `Int(1.0 / 0.0)`).
+                case let .double(d): return Int(exactly: d.rounded(.towardZero)).map { .int($0) }
                 case let .string(s): return Int(s).map { .int($0) }
                 default: return nil
                 }
