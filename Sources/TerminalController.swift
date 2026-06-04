@@ -9238,6 +9238,9 @@ class TerminalController {
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
+        if panelType == .history {
+            return .err(code: "invalid_params", message: "surface.split does not support type=history", data: ["type": panelType.rawValue])
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create split", data: nil)
         v2MainSync {
@@ -9360,6 +9363,11 @@ class TerminalController {
                     url: url,
                     focus: focus,
                     creationPolicy: .automationPreload
+                )?.id
+            } else if panelType == .history {
+                newPanelId = ws.newHistorySurface(
+                    inPane: paneId,
+                    focus: focus
                 )?.id
             } else {
                 newPanelId = ws.newTerminalSurface(
@@ -10728,6 +10736,9 @@ class TerminalController {
         let startupEnvironment = v2TrimmedStringMap(params, keys: ["startup_environment", "initial_env"])
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
+        if panelType == .history {
+            return .err(code: "invalid_params", message: "pane.create does not support type=history", data: ["type": panelType.rawValue])
         }
 
         let orientation = direction.orientation
