@@ -6651,6 +6651,9 @@ const customizationPaletteCommandIds = new Set([
   "settings.pasteSavedLibrary",
   "settings.clearSavedLibrary",
   "settings.clearRecentActivity",
+  "settings.resetAppearance",
+  "settings.copyLook",
+  "settings.pasteLook",
   "settings.copySavedColors",
   "settings.pasteSavedColors",
   "settings.saveAccentColor",
@@ -6668,6 +6671,7 @@ function customizationCommandPaletteSignature() {
   appendSignatureValue(parts, totalDataStorageBytes());
   appendSignatureValue(parts, savedDataItemCount());
   appendSignatureValue(parts, recentDataItemCount());
+  appendSignatureValue(parts, settingsKeysSignature(appearanceResetSettings));
   appendSignatureValue(parts, settingsKeysSignature(performanceSetupSettings));
   appendSignatureValue(parts, state.customColorPalette.length);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
@@ -6795,6 +6799,40 @@ function customizationCommandPaletteState(commandId) {
       icon: "data",
       title: recentCount ? "Clear recent folders, commands, browser pages, and saved browser tabs." : "Recent activity is already clear.",
       search: "recent activity clear privacy folders commands browser pages tabs history"
+    };
+  }
+  if (commandId === "settings.copyLook" || commandId === "settings.pasteLook" || commandId === "settings.resetAppearance") {
+    const summary = lookSettingsPayload().summary;
+    const meta = `${summary.theme} / ${summary.background} / ${summary.depth}`;
+    if (commandId === "settings.copyLook") {
+      return {
+        meta,
+        shortcut: "Copy",
+        icon: "appearance",
+        title: "Copy theme, accent intensity, surface tint, interface contrast, surface depth, app background, background chrome, and terminal colors as JSON.",
+        search: normalizeSettingsQuery(`appearance look copy setup theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors clipboard json ${summary.theme} ${summary.accent} ${summary.background} ${summary.effects} ${summary.contrast} ${summary.depth}`)
+      };
+    }
+    if (commandId === "settings.pasteLook") {
+      return {
+        meta: "Look setup import",
+        shortcut: "Paste",
+        icon: "appearance",
+        title: "Apply copied cmux look JSON.",
+        search: normalizeSettingsQuery("appearance look paste setup import theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors clipboard json")
+      };
+    }
+    const lookDefault = appearanceSettingsAreDefault();
+    return {
+      meta: lookDefault ? "Defaults active" : meta,
+      shortcut: lookDefault ? "Default" : "Reset",
+      active: lookDefault,
+      disabled: lookDefault,
+      icon: "appearance",
+      title: lookDefault
+        ? "Look settings already match the default setup."
+        : "Reset theme, accent intensity, surface tint, interface contrast, surface depth, app background, background chrome, and terminal colors.",
+      search: normalizeSettingsQuery(`appearance look reset defaults theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors ${lookDefault ? "active current " : ""}${summary.theme} ${summary.accent} ${summary.background} ${summary.effects} ${summary.contrast} ${summary.depth}`)
     };
   }
   if (commandId === "settings.resetPerformanceSetup") {
