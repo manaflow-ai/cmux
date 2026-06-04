@@ -17344,8 +17344,20 @@ struct CMUXCLI {
             setenv(envVar.key, envVar.value, 1)
         }
         if let focusedContext {
-            setenv("CMUX_WORKSPACE_ID", focusedContext.workspaceId, 1)
-            if let surfaceId = focusedContext.surfaceId, !surfaceId.isEmpty {
+            // The launcher's OWN surface (its inherited env, passed in as processEnvironment) is the
+            // agent's canonical identity; the focused pane is only a fallback. Stamping the focused
+            // pane here would desync CMUX_SURFACE_ID from the inherited CMUX_PANEL_ID and make agents
+            // (codex omx/teams) record + restore into the wrong surface after reload (#4920).
+            let identity = AgentSpawnIdentity().resolve(
+                ownWorkspaceId: processEnvironment["CMUX_WORKSPACE_ID"],
+                ownSurfaceId: processEnvironment["CMUX_SURFACE_ID"],
+                focusedWorkspaceId: focusedContext.workspaceId,
+                focusedSurfaceId: focusedContext.surfaceId
+            )
+            if let workspaceId = identity.workspaceId {
+                setenv("CMUX_WORKSPACE_ID", workspaceId, 1)
+            }
+            if let surfaceId = identity.surfaceId {
                 setenv("CMUX_SURFACE_ID", surfaceId, 1)
             }
         }
@@ -18219,11 +18231,21 @@ struct CMUXCLI {
         guard let focusedContext = try tmuxCompatFocusedContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
-        ),
-              let rootSurfaceId = focusedContext.surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rootSurfaceId.isEmpty else {
+        ) else {
             throw CLIError(message: "cmux codex-teams must be started from a cmux terminal surface")
         }
+        // The codex-teams root identity is the LAUNCH surface (this process's own env), not the
+        // operator's focused pane, so the watcher records the surface codex actually runs in (#4920).
+        let rootIdentity = AgentSpawnIdentity().resolve(
+            ownWorkspaceId: launcherEnvironment["CMUX_WORKSPACE_ID"],
+            ownSurfaceId: launcherEnvironment["CMUX_SURFACE_ID"],
+            focusedWorkspaceId: focusedContext.workspaceId,
+            focusedSurfaceId: focusedContext.surfaceId
+        )
+        guard let rootSurfaceId = rootIdentity.surfaceId, !rootSurfaceId.isEmpty else {
+            throw CLIError(message: "cmux codex-teams must be started from a cmux terminal surface")
+        }
+        let rootWorkspaceId = rootIdentity.workspaceId ?? focusedContext.workspaceId
 
         let codexExecutablePath = resolveCodexExecutable(searchPath: launcherEnvironment["PATH"])
         let codexExecutableForShell = codexExecutablePath ?? "codex"
@@ -18319,7 +18341,7 @@ struct CMUXCLI {
             socketPath,
             "__codex-teams-watch",
             "--workspace-id",
-            focusedContext.workspaceId,
+            rootWorkspaceId,
             "--surface-id",
             rootSurfaceId,
             "--app-server-url",
