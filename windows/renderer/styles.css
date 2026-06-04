@@ -1881,6 +1881,38 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   color: var(--color-text);
 }
 
+.shell.pane-color-markers.pane-marker-edge .surface-tab:not(.surface-new-tab)::before {
+  content: "";
+  position: absolute;
+  inset: 4px auto 4px 0;
+  width: 2px;
+  border-radius: 0 999px 999px 0;
+  background: var(--tab-color, var(--color-accent));
+  opacity: .82;
+}
+
+.shell.pane-color-markers.pane-marker-edge .surface-tab:not(.has-attention):not(.is-zoomed):not(.is-pending):not(.is-minimized) .surface-dot {
+  border-color: color-mix(in oklch, var(--tab-color, var(--color-accent)) 32%, var(--color-line) 68%);
+  background: color-mix(in oklch, var(--tab-color, var(--color-accent)) 7%, var(--color-pane-surface) 93%);
+  color: var(--color-muted);
+}
+
+.shell.pane-color-markers.pane-marker-tint .surface-tab:not(.surface-new-tab) {
+  border-color: color-mix(in oklch, var(--tab-color, var(--color-accent)) 26%, transparent);
+  background: color-mix(in oklch, var(--tab-color, var(--color-accent)) 7%, var(--color-pane-surface) 93%);
+}
+
+.shell.pane-color-markers.pane-marker-tint .surface-tab:not(.surface-new-tab):hover {
+  border-color: color-mix(in oklch, var(--tab-color, var(--color-accent)) 44%, var(--color-line) 56%);
+  background: color-mix(in oklch, var(--tab-color, var(--color-accent)) 10%, var(--color-pane-surface) 90%);
+}
+
+.shell.pane-color-markers.pane-marker-tint .surface-tab.is-active:not(.surface-new-tab) {
+  border-color: color-mix(in oklch, var(--tab-color, var(--color-accent)) 54%, var(--color-line) 46%);
+  border-bottom-color: var(--color-pane-surface);
+  background: color-mix(in oklch, var(--tab-color, var(--color-accent)) 14%, var(--color-pane-surface) 86%);
+}
+
 .surface-label {
   min-width: 0;
   max-width: 100%;
@@ -2732,6 +2764,22 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .shell:not(.pane-color-markers) .pane.has-attention .pane-header::before {
   background: var(--color-warning);
+}
+
+.shell.pane-color-markers.pane-marker-edge .pane-header::before {
+  width: 3px;
+}
+
+.shell.pane-color-markers.pane-marker-tint .pane-header {
+  background: color-mix(in oklch, var(--panel-color, var(--color-accent)) 6%, var(--color-pane-warm-surface) 94%);
+}
+
+.shell.pane-color-markers.pane-marker-tint .pane-header::before {
+  width: 4px;
+}
+
+.shell.pane-color-markers.pane-marker-tint .pane.is-active:not(.has-attention) .pane-header::before {
+  opacity: 1;
 }
 
 .pane-header:active {
@@ -7574,6 +7622,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .layout-preview-tabs span {
+  position: relative;
   height: 18px;
   border: 1px solid var(--color-line);
   border-bottom: 0;
@@ -7587,6 +7636,20 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .layout-preview-tabs span.plus {
   background: color-mix(in oklch, var(--color-text) 9%, transparent);
+}
+
+.layout-settings-preview.pane-markers-on.pane-marker-edge .layout-preview-tabs span:not(.plus)::before {
+  content: "";
+  position: absolute;
+  inset: 3px auto 3px 0;
+  width: 2px;
+  border-radius: 0 999px 999px 0;
+  background: var(--color-accent);
+}
+
+.layout-settings-preview.pane-markers-on.pane-marker-tint .layout-preview-tabs span:not(.plus) {
+  border-color: color-mix(in oklch, var(--color-accent) 42%, var(--color-line) 58%);
+  background: color-mix(in oklch, var(--color-accent) 12%, var(--color-pane) 88%);
 }
 
 .layout-preview-pane {
@@ -7646,6 +7709,15 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .layout-settings-preview.active-pane-strong .layout-preview-pane-header::before {
   background: color-mix(in oklch, var(--color-accent) 48%, var(--color-pane) 52%);
+}
+
+.layout-settings-preview.pane-markers-on.pane-marker-edge .layout-preview-pane-header::before {
+  box-shadow: inset 3px 0 0 color-mix(in oklch, var(--color-accent) 72%, transparent);
+}
+
+.layout-settings-preview.pane-markers-on.pane-marker-tint .layout-preview-pane-header::before {
+  background: color-mix(in oklch, var(--color-accent) 34%, var(--color-pane) 66%);
+  box-shadow: inset 4px 0 0 color-mix(in oklch, var(--color-accent) 78%, transparent);
 }
 
 .layout-settings-preview.pane-actions-full .layout-preview-pane-header {

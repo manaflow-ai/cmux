@@ -33,6 +33,7 @@ export const defaultSettings = {
   activePaneEmphasis: "line",
   titleDetailMode: "smart",
   paneColorMarkers: false,
+  paneMarkerStyle: "dot",
   focusMode: false,
   showTabs: true,
   showStatusbar: true,
@@ -412,6 +413,12 @@ export const activePaneEmphasisOptions = [
   ["strong", label("activePaneEmphasis.strong", "Strong"), label("activePaneEmphasis.strong.body", "High-contrast focus")]
 ];
 
+export const paneMarkerStyleOptions = [
+  ["dot", label("paneMarkerStyle.dot", "Dot"), label("paneMarkerStyle.dot.body", "Color the tab icon chip")],
+  ["edge", label("paneMarkerStyle.edge", "Edge"), label("paneMarkerStyle.edge.body", "Use a slim colored edge")],
+  ["tint", label("paneMarkerStyle.tint", "Tint"), label("paneMarkerStyle.tint.body", "Tint tabs and pane headers")]
+];
+
 export const statusDetailOptions = [
   ["compact", label("statusDetail.compact", "Compact")],
   ["full", label("statusDetail.full", "Full")]
@@ -547,6 +554,7 @@ export const settingsPresets = [
       activePaneEmphasis: "line",
       titleDetailMode: "smart",
       paneColorMarkers: false,
+      paneMarkerStyle: "dot",
       focusMode: false,
       showTabs: true,
       showStatusbar: true,
@@ -604,6 +612,7 @@ export const settingsPresets = [
       activePaneEmphasis: "quiet",
       titleDetailMode: "compact",
       paneColorMarkers: false,
+      paneMarkerStyle: "dot",
       focusMode: false,
       showTabs: true,
       showStatusbar: false,
@@ -661,6 +670,7 @@ export const settingsPresets = [
       activePaneEmphasis: "quiet",
       titleDetailMode: "compact",
       paneColorMarkers: false,
+      paneMarkerStyle: "dot",
       focusMode: false,
       showTabs: true,
       showStatusbar: false,
@@ -719,6 +729,7 @@ export const settingsPresets = [
       activePaneEmphasis: "quiet",
       titleDetailMode: "compact",
       paneColorMarkers: false,
+      paneMarkerStyle: "edge",
       focusMode: true,
       showTabs: true,
       showStatusbar: false,
@@ -776,6 +787,7 @@ export const settingsPresets = [
       activePaneEmphasis: "quiet",
       titleDetailMode: "compact",
       paneColorMarkers: false,
+      paneMarkerStyle: "dot",
       focusMode: false,
       showTabs: true,
       showStatusbar: false,
@@ -833,6 +845,7 @@ export const settingsPresets = [
       activePaneEmphasis: "strong",
       titleDetailMode: "compact",
       paneColorMarkers: true,
+      paneMarkerStyle: "edge",
       focusMode: false,
       showTabs: true,
       showStatusbar: true,
@@ -890,6 +903,7 @@ export const settingsPresets = [
       activePaneEmphasis: "strong",
       titleDetailMode: "detailed",
       paneColorMarkers: true,
+      paneMarkerStyle: "tint",
       focusMode: false,
       showTabs: true,
       showStatusbar: true,

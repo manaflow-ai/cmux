@@ -16,6 +16,7 @@ import {
   paneActionOptions,
   paneDividerSizeOptions,
   paneHeaderOptions,
+  paneMarkerStyleOptions,
   settingsCategories,
   settingsPresets,
   sidebarBranchOptions,
@@ -342,6 +343,7 @@ const layoutSettingsPreviewKeys = new Set([
   "activePaneEmphasis",
   "titleDetailMode",
   "paneColorMarkers",
+  "paneMarkerStyle",
   "focusMode",
   "showTabs",
   "showStatusbar",
@@ -355,6 +357,7 @@ const surfaceTabLayoutKeys = new Set([
   "tabCloseMode",
   "addTabStyle",
   "paneColorMarkers",
+  "paneMarkerStyle",
   "focusMode",
   "showTabs"
 ]);
@@ -404,6 +407,7 @@ const settingsInspectorSettingKeys = {
     "activePaneEmphasis",
     "titleDetailMode",
     "paneColorMarkers",
+    "paneMarkerStyle",
     "focusMode",
     "showTabs",
     "showStatusbar",
@@ -1098,6 +1102,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!activePaneEmphasisOptions.some(([id]) => id === next.activePaneEmphasis)) next.activePaneEmphasis = defaultSettings.activePaneEmphasis;
   if (!titleDetailOptions.some(([id]) => id === next.titleDetailMode)) next.titleDetailMode = defaultSettings.titleDetailMode;
   if (!statusDetailOptions.some(([id]) => id === next.statusDetailMode)) next.statusDetailMode = defaultSettings.statusDetailMode;
+  if (!paneMarkerStyleOptions.some(([id]) => id === next.paneMarkerStyle)) next.paneMarkerStyle = defaultSettings.paneMarkerStyle;
   if (!terminalCursorStyles.some(([id]) => id === next.terminalCursorStyle)) next.terminalCursorStyle = defaultSettings.terminalCursorStyle;
   if (!terminalFontOptions.some(([id]) => id === next.terminalFontFamily)) next.terminalFontFamily = defaultSettings.terminalFontFamily;
   if (!terminalProfiles.some(([id]) => id === next.terminalProfile)) next.terminalProfile = defaultSettings.terminalProfile;
@@ -3093,6 +3098,9 @@ function settingsProfileSummary(settings) {
   const dividers = optionLabel(paneDividerSizeOptions, normalized.paneDividerSize, normalized.paneDividerSize);
   const activePane = optionLabel(activePaneEmphasisOptions, normalized.activePaneEmphasis, normalized.activePaneEmphasis);
   const actions = paneActionOptions.find(([id]) => id === normalized.paneActionMode)?.[1] || normalized.paneActionMode;
+  const paneMarkers = normalized.paneColorMarkers
+    ? `${optionLabel(paneMarkerStyleOptions, normalized.paneMarkerStyle, normalized.paneMarkerStyle).toLowerCase()} markers`
+    : "quiet pane markers";
   const accentIntensity = optionLabel(accentIntensityOptions, normalized.accentIntensity, normalized.accentIntensity);
   const surfaceTint = optionLabel(surfaceTintOptions, normalized.surfaceTint, normalized.surfaceTint);
   const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, "Flat");
@@ -3111,7 +3119,7 @@ function settingsProfileSummary(settings) {
     `${dividers.toLowerCase()} dividers`,
     `${activePane.toLowerCase()} active pane`,
     `${actions} pane controls`,
-    normalized.paneColorMarkers ? "colored pane markers" : "quiet pane markers",
+    paneMarkers,
     `${chromeMotion.toLowerCase()} motion`,
     `${browserHomeHost} home`,
     `${accentIntensity.toLowerCase()} accent`,
@@ -5196,6 +5204,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.activePaneEmphasis,
     settings.titleDetailMode,
     settings.paneColorMarkers,
+    settings.paneMarkerStyle,
     settings.focusMode,
     settings.showTabs,
     settings.showStatusbar,
@@ -5279,6 +5288,9 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "active-pane-emphasis-line", state.settings.activePaneEmphasis === "line");
   toggleClassIfChanged(elements.shell, "active-pane-emphasis-strong", state.settings.activePaneEmphasis === "strong");
   toggleClassIfChanged(elements.shell, "pane-color-markers", state.settings.paneColorMarkers);
+  toggleClassIfChanged(elements.shell, "pane-marker-dot", state.settings.paneMarkerStyle === "dot");
+  toggleClassIfChanged(elements.shell, "pane-marker-edge", state.settings.paneMarkerStyle === "edge");
+  toggleClassIfChanged(elements.shell, "pane-marker-tint", state.settings.paneMarkerStyle === "tint");
   toggleClassIfChanged(elements.shell, "focus-mode", state.settings.focusMode);
   toggleClassIfChanged(elements.shell, "hide-tabs", !state.settings.showTabs);
   toggleClassIfChanged(elements.shell, "hide-status", !state.settings.showStatusbar);
@@ -13083,6 +13095,12 @@ function renderSettingsInspector(options = {}) {
       false,
       "pane tab color markers colored dots border accent strip quiet simple terminal chrome"
     ));
+    layoutSection.append(settingRow(
+      "Marker style",
+      settingSegmentedControl("paneMarkerStyle", paneMarkerStyleOptions, "pane tab color marker style dot edge tint stripe fill identity busy workspace", { compact: true }),
+      true,
+      "pane tab color marker style dot edge tint stripe fill identity busy workspace"
+    ));
     const sidebarWidthRange = document.createElement("input");
     sidebarWidthRange.className = "setting-control";
     sidebarWidthRange.type = "range";
@@ -13114,7 +13132,7 @@ function renderSettingsInspector(options = {}) {
     layoutSection.append(paneShapePanel(workspace));
     const layoutActions = document.createElement("div");
     layoutActions.className = "settings-actions";
-    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar sidebar footer inspector tabs status header title corner divider active pane highlight focus mode simple clean copy paste clipboard json");
+    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar sidebar footer inspector tabs status header title corner divider active pane highlight marker color focus mode simple clean copy paste clipboard json");
     const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", "save current split pane layout workspace blueprint reusable");
     applyWorkspaceBlueprintSaveLimit(saveLayoutAction, workspace, "Save the current workspace pane layout as a reusable blueprint.");
     const copyLayoutAction = settingsActionButton("Copy layout", copyCurrentWorkspaceBlueprint, "", "copy current split pane layout workspace blueprint clipboard json");
@@ -13124,17 +13142,17 @@ function renderSettingsInspector(options = {}) {
     pasteLayoutAction.disabled = workspaceBlueprintsFull();
     pasteLayoutAction.title = pasteLayoutAction.disabled ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint into the reusable layout library.";
     const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
-    const copySetupAction = settingsActionButton("Copy setup", copyLayoutSetup, "", "layout setup copy workspace chrome blueprint pane split toolbar sidebar footer inspector tabs status header title corner divider active pane highlight focus clipboard json");
+    const copySetupAction = settingsActionButton("Copy setup", copyLayoutSetup, "", "layout setup copy workspace chrome blueprint pane split toolbar sidebar footer inspector tabs status header title corner divider active pane highlight marker color focus clipboard json");
     copySetupAction.title = workspace?.panels?.length
       ? "Copy the current pane layout and workspace chrome as JSON."
       : "Copy workspace chrome as JSON. Open panes to include a pane layout.";
-    const pasteSetupAction = settingsActionButton("Paste setup", pasteLayoutSetup, "", "layout setup paste workspace chrome blueprint pane split toolbar sidebar footer inspector tabs status header title corner divider active pane highlight focus clipboard json");
+    const pasteSetupAction = settingsActionButton("Paste setup", pasteLayoutSetup, "", "layout setup paste workspace chrome blueprint pane split toolbar sidebar footer inspector tabs status header title corner divider active pane highlight marker color focus clipboard json");
     pasteSetupAction.title = "Apply copied layout setup and save any included pane blueprint.";
-    const copyChromeAction = settingsActionButton("Copy chrome", copyWorkspaceChromeSettings, "", "workspace chrome layout copy toolbar sidebar footer inspector tabs status header title corner divider active pane highlight focus mode clipboard json");
-    copyChromeAction.title = "Copy toolbar, sidebar, tabs, status bar, corner style, pane dividers, active pane highlight, and panel widths as JSON.";
-    const pasteChromeAction = settingsActionButton("Paste chrome", pasteWorkspaceChromeSettings, "", "workspace chrome layout paste toolbar sidebar footer inspector tabs status header title corner divider active pane highlight focus mode clipboard json");
+    const copyChromeAction = settingsActionButton("Copy chrome", copyWorkspaceChromeSettings, "", "workspace chrome layout copy toolbar sidebar footer inspector tabs status header title corner divider active pane highlight marker color focus mode clipboard json");
+    copyChromeAction.title = "Copy toolbar, sidebar, tabs, status bar, corner style, pane dividers, active pane highlight, marker style, and panel widths as JSON.";
+    const pasteChromeAction = settingsActionButton("Paste chrome", pasteWorkspaceChromeSettings, "", "workspace chrome layout paste toolbar sidebar footer inspector tabs status header title corner divider active pane highlight marker color focus mode clipboard json");
     pasteChromeAction.title = "Apply copied cmux workspace chrome JSON.";
-    const resetChromeAction = settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", `workspace chrome toolbar sidebar footer inspector tabs status header title corner divider active pane highlight reset ${workspaceChromeDefault ? "active current " : ""}`);
+    const resetChromeAction = settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", `workspace chrome toolbar sidebar footer inspector tabs status header title corner divider active pane highlight marker color reset ${workspaceChromeDefault ? "active current " : ""}`);
     resetChromeAction.disabled = workspaceChromeDefault;
     resetChromeAction.title = workspaceChromeDefault
       ? "Workspace chrome already matches the default setup."
@@ -15084,7 +15102,7 @@ function workspaceChromePresetGrid() {
     const meta = button.querySelectorAll(".workspace-chrome-preset-meta span");
     meta[0].textContent = summary.toolbar;
     meta[1].textContent = summary.tabs === "Hidden" ? "Hidden tabs" : `${summary.tabs} / ${summary.tabClose}`;
-    meta[2].textContent = summary.dividers;
+    meta[2].textContent = summary.markers === "Off" ? summary.dividers : `${summary.dividers} / ${summary.markers}`;
     button.onclick = () => {
       if (!isActiveWorkspaceChromePreset(preset)) applyWorkspaceChromePreset(preset.id);
     };
@@ -15114,13 +15132,15 @@ function layoutSettingsPreviewPanel() {
     `corner-style-${settings.cornerStyle}`,
     `pane-divider-${settings.paneDividerSize}`,
     `active-pane-${settings.activePaneEmphasis}`,
+    settings.paneColorMarkers ? "pane-markers-on" : "pane-markers-off",
+    `pane-marker-${settings.paneMarkerStyle}`,
     `status-detail-${settings.statusDetailMode}`,
     settings.focusMode ? "focus-mode" : "",
     settings.showTabs ? "show-tabs" : "hide-tabs",
     settings.showStatusbar ? "show-statusbar" : "hide-statusbar",
     settings.performanceMode ? "performance-preview" : ""
   ].filter(Boolean).join(" ");
-  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs close status pane header density settings panel active pane percent resize focus highlight edge mode simple clean panes split shape corner radius rounded divider grip preset current");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs close status pane header density settings panel active pane percent resize focus highlight edge mode simple clean panes split shape corner radius rounded divider grip marker color dot tint preset current");
   panel.style.setProperty("--layout-preview-sidebar", `${Math.max(24, Math.round((settings.sidebarWidth / 304) * 72))}px`);
   panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / 480) * 76))}px`);
   panel.innerHTML = `
@@ -15157,6 +15177,7 @@ function layoutSettingsPreviewPanel() {
       <span><b>Corners</b><em data-layout-preview-corners></em></span>
       <span><b>Dividers</b><em data-layout-preview-dividers></em></span>
       <span><b>Focus edge</b><em data-layout-preview-active-emphasis></em></span>
+      <span><b>Markers</b><em data-layout-preview-markers></em></span>
       <span><b>Header</b><em data-layout-preview-header></em></span>
       <span><b>Controls</b><em data-layout-preview-actions></em></span>
       <span><b>Sidebar</b><em data-layout-preview-sidebar></em></span>
@@ -15177,6 +15198,9 @@ function layoutSettingsPreviewPanel() {
   panel.querySelector("[data-layout-preview-corners]").textContent = optionLabel(cornerStyleOptions, settings.cornerStyle, settings.cornerStyle);
   panel.querySelector("[data-layout-preview-dividers]").textContent = optionLabel(paneDividerSizeOptions, settings.paneDividerSize, settings.paneDividerSize);
   panel.querySelector("[data-layout-preview-active-emphasis]").textContent = optionLabel(activePaneEmphasisOptions, settings.activePaneEmphasis, settings.activePaneEmphasis);
+  panel.querySelector("[data-layout-preview-markers]").textContent = settings.paneColorMarkers
+    ? optionLabel(paneMarkerStyleOptions, settings.paneMarkerStyle, settings.paneMarkerStyle)
+    : "Off";
   panel.querySelector("[data-layout-preview-header]").textContent = settings.focusMode ? "Hidden" : optionLabel(paneHeaderOptions, settings.paneHeaderMode, settings.paneHeaderMode);
   panel.querySelector("[data-layout-preview-actions]").textContent = optionLabel(paneActionOptions, settings.paneActionMode, settings.paneActionMode);
   panel.querySelector("[data-layout-preview-sidebar]").textContent = settings.focusMode ? "Hidden" : `${settings.sidebarWidth}px`;
@@ -17708,6 +17732,8 @@ function performanceDiagnosticsPayload() {
       tabSize: state.settings.tabSize,
       tabCloseMode: state.settings.tabCloseMode,
       titleDetailMode: state.settings.titleDetailMode,
+      paneColorMarkers: state.settings.paneColorMarkers,
+      paneMarkerStyle: state.settings.paneMarkerStyle,
       showTabs: state.settings.showTabs,
       showStatusbar: state.settings.showStatusbar,
       statusDetailMode: state.settings.statusDetailMode,
@@ -21917,6 +21943,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     toolbarMode: "minimal",
     paneActionMode: "essential",
     paneColorMarkers: false,
+    paneMarkerStyle: "dot",
     showStatusbar: false,
     terminalPadding: Math.min(state.settings.terminalPadding, 4),
     terminalScrollback: Math.min(state.settings.terminalScrollback, 6000),
@@ -24886,6 +24913,9 @@ function settingsPresetTags(settings) {
     optionLabel(toolbarModeOptions, settings.toolbarMode, "Toolbar"),
     settings.performanceMode ? "Speed" : settings.focusMode ? "Focus" : settings.density,
     `${optionLabel(tabCloseModeOptions, settings.tabCloseMode, settings.tabCloseMode)} close`,
+    settings.paneColorMarkers
+      ? `${optionLabel(paneMarkerStyleOptions, settings.paneMarkerStyle, settings.paneMarkerStyle)} markers`
+      : "Quiet markers",
     statusbarSummaryLabel(settings),
     `${settings.terminalScrollback.toLocaleString()} history`
   ];
@@ -30446,6 +30476,7 @@ const workspaceChromeSettings = [
   "activePaneEmphasis",
   "titleDetailMode",
   "paneColorMarkers",
+  "paneMarkerStyle",
   "focusMode",
   "showTabs",
   "showStatusbar",
@@ -30487,6 +30518,7 @@ const workspaceChromePresets = [
       activePaneEmphasis: defaultSettings.activePaneEmphasis,
       titleDetailMode: defaultSettings.titleDetailMode,
       paneColorMarkers: defaultSettings.paneColorMarkers,
+      paneMarkerStyle: defaultSettings.paneMarkerStyle,
       focusMode: defaultSettings.focusMode,
       showTabs: defaultSettings.showTabs,
       showStatusbar: defaultSettings.showStatusbar,
@@ -30515,6 +30547,7 @@ const workspaceChromePresets = [
       activePaneEmphasis: "quiet",
       titleDetailMode: "compact",
       paneColorMarkers: false,
+      paneMarkerStyle: "dot",
       focusMode: false,
       showTabs: true,
       showStatusbar: false,
@@ -30543,6 +30576,7 @@ const workspaceChromePresets = [
       activePaneEmphasis: "quiet",
       titleDetailMode: "compact",
       paneColorMarkers: false,
+      paneMarkerStyle: "dot",
       focusMode: false,
       showTabs: false,
       showStatusbar: false,
@@ -30571,6 +30605,7 @@ const workspaceChromePresets = [
       activePaneEmphasis: "strong",
       titleDetailMode: "detailed",
       paneColorMarkers: true,
+      paneMarkerStyle: "tint",
       focusMode: false,
       showTabs: true,
       showStatusbar: true,
@@ -30599,6 +30634,7 @@ const workspaceChromePresets = [
       activePaneEmphasis: "quiet",
       titleDetailMode: "compact",
       paneColorMarkers: false,
+      paneMarkerStyle: "edge",
       focusMode: true,
       showTabs: true,
       showStatusbar: false,
@@ -30696,6 +30732,9 @@ function workspaceChromeSummaryForSettings(settings) {
     corners: optionLabel(cornerStyleOptions, normalized.cornerStyle, normalized.cornerStyle),
     dividers: optionLabel(paneDividerSizeOptions, normalized.paneDividerSize, normalized.paneDividerSize),
     activePane: optionLabel(activePaneEmphasisOptions, normalized.activePaneEmphasis, normalized.activePaneEmphasis),
+    markers: normalized.paneColorMarkers
+      ? optionLabel(paneMarkerStyleOptions, normalized.paneMarkerStyle, normalized.paneMarkerStyle)
+      : "Off",
     statusbar: statusbarSummaryLabel(normalized),
     focusMode: normalized.focusMode ? "On" : "Off",
     widths: `${normalized.sidebarWidth}px sidebar / ${normalized.inspectorWidth}px settings`
@@ -30757,6 +30796,7 @@ function workspaceChromeSettingUpdateFromValue(key, raw) {
   if (key === "paneDividerSize") return optionIdAllowed(paneDividerSizeOptions, raw) ? raw : null;
   if (key === "activePaneEmphasis") return optionIdAllowed(activePaneEmphasisOptions, raw) ? raw : null;
   if (key === "titleDetailMode") return optionIdAllowed(titleDetailOptions, raw) ? raw : null;
+  if (key === "paneMarkerStyle") return optionIdAllowed(paneMarkerStyleOptions, raw) ? raw : null;
   if (key === "statusDetailMode") return optionIdAllowed(statusDetailOptions, raw) ? raw : null;
   if (workspaceChromeBooleanSettings.has(key)) return typeof raw === "boolean" ? raw : null;
   const range = workspaceChromeWidthSettings[key];
@@ -30836,6 +30876,7 @@ function workspaceChromePresetSearchText(preset, settings = workspaceChromePrese
     summary.corners,
     summary.dividers,
     summary.activePane,
+    summary.markers,
     summary.statusbar,
     summary.focusMode,
     summary.widths
