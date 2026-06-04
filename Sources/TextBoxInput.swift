@@ -3644,9 +3644,10 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        let markedTextLength = Self.textInputStringLength(string)
         super.setMarkedText(
             string,
-            selectedRange: Self.sanitizedRange(selectedRange, upperBound: Self.textInputStringLength(string)),
+            selectedRange: Self.sanitizedMarkedTextSelectionRange(selectedRange, markedTextLength: markedTextLength),
             replacementRange: sanitizedTextStorageReplacementRange(replacementRange)
         )
         onMarkedTextStateChanged(hasMarkedText())
@@ -3673,6 +3674,14 @@ final class TextBoxInputTextView: NSTextView {
         let location = min(max(0, range.location), upperBound)
         let length = min(max(0, range.length), upperBound - location)
         return NSRange(location: location, length: length)
+    }
+
+    private static func sanitizedMarkedTextSelectionRange(_ range: NSRange, markedTextLength: Int) -> NSRange {
+        let markedTextLength = max(0, markedTextLength)
+        guard range.location != NSNotFound else {
+            return NSRange(location: markedTextLength, length: 0)
+        }
+        return sanitizedRange(range, upperBound: markedTextLength)
     }
 
     private static func textInputStringLength(_ string: Any) -> Int {
