@@ -1280,18 +1280,26 @@ nonisolated enum TerminalStartupReturnShellScript {
         #"fi"#,
     ]
 
-    static func commandThenReturnLines(command: String) -> [String] {
+    static func commandThenReturnLines(command: String, workingDirectory: String? = nil) -> [String] {
         let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
-        return [
+        var lines = [
             shellLine,
             #"case "${_cmux_resume_shell:t}" in"#,
             #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
             #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
             #"  *) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
             #"esac"#,
-        ] + zshIntegrationReentryLines + [
-            #"exec -l "$_cmux_resume_shell""#
-        ]
+        ] + zshIntegrationReentryLines
+        // The resume command's `cd` runs inside the child shell above, so after the resumed agent
+        // exits the outer login shell would otherwise land in this script's launch cwd (the surface
+        // default), not the session's directory. Return the outer shell to the session's working
+        // directory so killing a resumed agent leaves you where the session lived.
+        if let workingDirectory, !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
+            lines.append(#"{ cd -- \#(quotedDirectory) 2>/dev/null || true; }"#)
+        }
+        lines.append(#"exec -l "$_cmux_resume_shell""#)
+        return lines
     }
 }
 
@@ -1322,7 +1330,10 @@ private enum SurfaceResumeBindingScriptStore {
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
             if returnToLoginShell {
-                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(command: inlineInput))
+                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
+                    command: inlineInput,
+                    workingDirectory: binding.cwd
+                ))
             } else {
                 lines.append(inlineInput)
             }
