@@ -3342,8 +3342,8 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.onPaste = onPaste
         textView.onInsertFileURLs = onInsertFileURLs
         textView.onChooseFiles = onChooseFiles
-        textView.onMarkedTextStateChanged = { [weak coordinator] hasMarkedText in
-            coordinator?.noteMarkedTextStateChanged(hasMarkedText)
+        textView.onMarkedTextStateChanged = { [weak coordinator, weak textView] hasMarkedText in
+            coordinator?.noteMarkedTextStateChanged(hasMarkedText, from: textView)
         }
         textView.refreshInlineAttachmentCells(font: font, foregroundColor: foregroundColor)
         textView.recenterSingleLineTextContainer()
@@ -3377,11 +3377,8 @@ struct TextBoxInputView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? TextBoxInputTextView else { return }
             textView.normalizeTextBaselineOffsets()
-            parent.text = textView.plainText()
-            parent.attachments = textView.inlineAttachments()
-            parent.hasPendingAttachmentUpload = textView.hasPendingAttachmentUploadPlaceholder()
-            noteMarkedTextStateChanged(textView.hasMarkedText())
-            parent.onContentChanged()
+            publishTextViewContent(textView)
+            noteMarkedTextStateChanged(textView.hasMarkedText(), from: textView)
             if parent.text.isEmpty,
                parent.attachments.isEmpty,
                !textView.hasPendingAttachmentUploadPlaceholder() {
@@ -3393,7 +3390,7 @@ struct TextBoxInputView: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? TextBoxInputTextView else { return }
-            noteMarkedTextStateChanged(textView.hasMarkedText())
+            noteMarkedTextStateChanged(textView.hasMarkedText(), from: textView)
             let color = textView.textColor ?? .labelColor
             textView.layer?.borderColor = color.withAlphaComponent(
                 textView.window?.firstResponder === textView ? 0.45 : 0.24
@@ -3402,8 +3399,26 @@ struct TextBoxInputView: NSViewRepresentable {
             textView.refreshMentionCompletions()
         }
 
-        func noteMarkedTextStateChanged(_ hasMarkedText: Bool) {
+        func noteMarkedTextStateChanged(_ hasMarkedText: Bool, from textView: TextBoxInputTextView? = nil) {
+            if !hasMarkedText, let textView {
+                publishTextViewContent(textView)
+            }
             parent.onMarkedTextStateChanged(hasMarkedText)
+        }
+
+        private func publishTextViewContent(_ textView: TextBoxInputTextView) {
+            let nextText = textView.plainText()
+            let nextAttachments = textView.inlineAttachments()
+            let nextHasPendingAttachmentUpload = textView.hasPendingAttachmentUploadPlaceholder()
+            let contentChanged = parent.text != nextText
+                || parent.attachments.map(\.id) != nextAttachments.map(\.id)
+                || parent.hasPendingAttachmentUpload != nextHasPendingAttachmentUpload
+            parent.text = nextText
+            parent.attachments = nextAttachments
+            parent.hasPendingAttachmentUpload = nextHasPendingAttachmentUpload
+            if contentChanged {
+                parent.onContentChanged()
+            }
         }
 
         func recalculateHeight(_ textView: NSTextView) {

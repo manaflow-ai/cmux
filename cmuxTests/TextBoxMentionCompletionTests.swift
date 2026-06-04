@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import Foundation
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -162,6 +163,57 @@ struct TextBoxMentionCompletionTests {
             hasPendingAttachmentUpload: false,
             hasMarkedText: false
         ))
+    }
+
+    @Test
+    func testTextBoxPublishesCommittedIMETextBeforeClearingMarkedState() {
+        var text = ""
+        var attachments: [TextBoxAttachment] = []
+        var textViewHeight: CGFloat = 24
+        var hasPendingAttachmentUpload = false
+        var markedTextEvents: [(hasMarkedText: Bool, text: String)] = []
+
+        let inputView = TextBoxInputView(
+            text: Binding(get: { text }, set: { text = $0 }),
+            attachments: Binding(get: { attachments }, set: { attachments = $0 }),
+            textViewHeight: Binding(get: { textViewHeight }, set: { textViewHeight = $0 }),
+            hasPendingAttachmentUpload: Binding(
+                get: { hasPendingAttachmentUpload },
+                set: { hasPendingAttachmentUpload = $0 }
+            ),
+            font: NSFont.systemFont(ofSize: 14),
+            backgroundColor: .textBackgroundColor,
+            foregroundColor: .labelColor,
+            terminalTitle: "codex",
+            completionRootDirectory: nil,
+            onSubmit: {},
+            onEscape: {},
+            onFocusTextBox: {},
+            onToggleFocus: {},
+            onForwardText: { _, _ in },
+            onForwardKey: { _ in },
+            onForwardControl: { _ in },
+            onPaste: { _, _ in false },
+            onInsertFileURLs: { _, _ in false },
+            onChooseFiles: {},
+            onContentChanged: {},
+            onMarkedTextStateChanged: { hasMarkedText in
+                markedTextEvents.append((hasMarkedText, text))
+            },
+            onTextViewCreated: { _ in },
+            onTextViewMovedToWindow: { _ in },
+            onTextViewDismantled: { _ in }
+        )
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "日本語"
+        let coordinator = TextBoxInputView.Coordinator(parent: inputView)
+
+        coordinator.noteMarkedTextStateChanged(false, from: textView)
+
+        #expect(text == "日本語")
+        #expect(markedTextEvents.count == 1)
+        #expect(markedTextEvents.first?.hasMarkedText == false)
+        #expect(markedTextEvents.first?.text == "日本語")
     }
 
     @Test
