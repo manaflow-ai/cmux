@@ -41,6 +41,9 @@
 static NSArray<NSDictionary<NSString *, NSNumber *> *> *defaultModeSpecs(void) {
     return @[
         @{@"width": @1920, @"height": @1080},
+        @{@"width": @1728, @"height": @1117},
+        @{@"width": @1600, @"height": @900},
+        @{@"width": @1440, @"height": @810},
     ];
 }
 
