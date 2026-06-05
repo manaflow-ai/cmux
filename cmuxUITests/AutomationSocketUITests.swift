@@ -11,6 +11,7 @@ final class AutomationSocketUITests: XCTestCase {
     private var launchTag = ""
     private var temporaryRoots: [URL] = []
     private var lastTextBoxFixtureResponse = ""
+    private var lastMainWindowContextResponse = ""
 
     override func setUp() {
         super.setUp()
@@ -20,6 +21,7 @@ final class AutomationSocketUITests: XCTestCase {
         launchTag = "ui-tests-automation-\(UUID().uuidString.prefix(8))"
         temporaryRoots = []
         lastTextBoxFixtureResponse = ""
+        lastMainWindowContextResponse = ""
         resetSocketDefaults()
         removeSocketFile()
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
@@ -117,7 +119,7 @@ final class AutomationSocketUITests: XCTestCase {
 
         let windowContext = try XCTUnwrap(
             waitForMainWindowContext(timeout: 12.0),
-            "Expected system.identify to resolve a main window. diagnostics=\(loadDiagnostics())"
+            "Expected main window context. last=\(lastMainWindowContextResponse) diagnostics=\(loadDiagnostics())"
         )
         let workspace = try XCTUnwrap(
             socketResult(
@@ -352,33 +354,62 @@ final class AutomationSocketUITests: XCTestCase {
 
     private func waitForMainWindowContext(timeout: TimeInterval) -> (windowID: String, surfaceID: String?)? {
         waitForJSON(timeout: timeout) {
-            if let result = self.socketResult(method: "system.identify", params: [:]),
-               let focused = result["focused"] as? [String: Any],
-               let windowID = focused["window_id"] as? String,
-               !windowID.isEmpty {
-                var payload: [String: Any] = ["window_id": windowID]
-                if let surfaceID = focused["surface_id"] as? String, !surfaceID.isEmpty {
-                    payload["surface_id"] = surfaceID
+            if let envelope = self.socketJSON(method: "system.identify", params: [:]) {
+                self.lastMainWindowContextResponse = "system.identify \(Self.debugDescription(envelope))"
+                if envelope["ok"] as? Bool == true,
+                   let result = envelope["result"] as? [String: Any],
+                   let focused = result["focused"] as? [String: Any],
+                   let windowID = focused["window_id"] as? String,
+                   !windowID.isEmpty {
+                    var payload: [String: Any] = ["window_id": windowID]
+                    if let surfaceID = focused["surface_id"] as? String, !surfaceID.isEmpty {
+                        payload["surface_id"] = surfaceID
+                    }
+                    return payload
                 }
-                return payload
+            } else {
+                self.lastMainWindowContextResponse = "system.identify nil envelope"
             }
 
-            guard let result = self.socketResult(method: "window.list", params: [:]),
-                  let windows = result["windows"] as? [[String: Any]] else {
-                return nil
+            if let envelope = self.socketJSON(method: "window.list", params: [:]) {
+                self.lastMainWindowContextResponse += " window.list \(Self.debugDescription(envelope))"
+                if envelope["ok"] as? Bool == true,
+                   let result = envelope["result"] as? [String: Any],
+                   let windows = result["windows"] as? [[String: Any]] {
+                    let window = windows.first { item in
+                        item["visible"] as? Bool == true
+                    } ?? windows.first
+                    if let windowID = window?["id"] as? String, !windowID.isEmpty {
+                        return ["window_id": windowID]
+                    }
+                }
+            } else {
+                self.lastMainWindowContextResponse += " window.list nil envelope"
             }
-            let window = windows.first { item in
-                item["visible"] as? Bool == true
-            } ?? windows.first
-            guard let windowID = window?["id"] as? String, !windowID.isEmpty else {
-                return nil
+
+            if let windowID = self.diagnosticMainWindowID() {
+                self.lastMainWindowContextResponse += " diagnostics_window_id \(windowID)"
+                return ["window_id": windowID]
             }
-            return ["window_id": windowID]
+            return nil
         }
         .flatMap { payload in
             guard let windowID = payload["window_id"] as? String else { return nil }
             return (windowID, payload["surface_id"] as? String)
         }
+    }
+
+    private func diagnosticMainWindowID() -> String? {
+        guard let identifiers = loadDiagnostics()["windowIdentifiers"] else { return nil }
+        for rawIdentifier in identifiers.split(separator: ",") {
+            let identifier = String(rawIdentifier).trimmingCharacters(in: .whitespacesAndNewlines)
+            let prefix = "cmux.main."
+            guard identifier.hasPrefix(prefix) else { continue }
+            let windowID = String(identifier.dropFirst(prefix.count))
+            guard UUID(uuidString: windowID) != nil else { continue }
+            return windowID
+        }
+        return nil
     }
 
     private func waitForTextBoxFixture(
