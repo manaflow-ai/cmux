@@ -77,16 +77,41 @@ extension BrowserPanel {
           mediaObserver = null;
         };
 
+        const removedMedia = (node) => {
+          try {
+            if (!node || node.nodeType !== 1) return false;
+            if (node.matches && node.matches("video, audio")) return true;
+            return !!(node.querySelector && node.querySelector("video, audio"));
+          } catch (_) {
+            return false;
+          }
+        };
+
         // Removing a playing element from the DOM fires no media event, so while
         // anything is playing watch for DOM mutations and recheck. This is the
         // only signal that survives while the page is hidden (timers are
         // throttled, MutationObserver is not), so a player that tears down its
         // <video> still clears the blocker and lets the pane be discarded.
+        //
+        // Only recheck when a mutation actually removes a media element; added
+        // media already fires a `play` event. This avoids a full-document
+        // querySelectorAll on every DOM change of a mutation-heavy SPA (live
+        // chat, infinite scroll) while a video plays.
         function syncObserver(playing) {
           if (playing) {
             if (mediaObserver) return;
             try {
-              mediaObserver = new MutationObserver(() => { report(); });
+              mediaObserver = new MutationObserver((records) => {
+                for (let i = 0; i < records.length; i++) {
+                  const removed = records[i].removedNodes;
+                  for (let j = 0; j < removed.length; j++) {
+                    if (removedMedia(removed[j])) {
+                      report();
+                      return;
+                    }
+                  }
+                }
+              });
               mediaObserver.observe(document.documentElement || document, {
                 childList: true,
                 subtree: true
