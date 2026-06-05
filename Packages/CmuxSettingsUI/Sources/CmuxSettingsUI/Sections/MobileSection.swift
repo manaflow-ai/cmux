@@ -92,17 +92,32 @@ public struct MobileSection: View {
         }
     }
 
-    /// Live indicator of the actual bound port, with a warning when it differs
-    /// from the configured port. Only shown while pairing is enabled.
+    /// Live indicator of the actual bound port, with a warning when the typed
+    /// value is out of range or when the listener fell back from the configured
+    /// port. The out-of-range warning shows even while pairing is off so an
+    /// invalid value is never silently accepted.
     @ViewBuilder
     private var boundPortStatusRow: some View {
-        if iOSPairingHost.current, let snapshot = status.current {
-            boundPortStatusText(snapshot)
-                .font(.caption)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 8)
+        if !(1...65535).contains(port.current) {
+            statusCaption {
+                Label(
+                    String(localized: "settings.mobile.port.status.invalid", defaultValue: "Port must be between 1 and 65535."),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(.orange)
+            }
+        } else if iOSPairingHost.current, let snapshot = status.current {
+            statusCaption { boundPortStatusText(snapshot) }
         }
+    }
+
+    @ViewBuilder
+    private func statusCaption(@ViewBuilder _ content: () -> some View) -> some View {
+        content()
+            .font(.caption)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 8)
     }
 
     @ViewBuilder
@@ -130,6 +145,10 @@ public struct MobileSection: View {
 
     @ViewBuilder
     private var displayNameRow: some View {
+        // When the override is empty the resolved name is this Mac's system
+        // name; use it as the placeholder so the user sees the actual default.
+        let resolvedName = (status.current?.displayName).flatMap { $0.isEmpty ? nil : $0 }
+        let placeholder = resolvedName ?? String(localized: "settings.mobile.displayName.placeholder", defaultValue: "This Mac's name")
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingDisplayName",
@@ -138,7 +157,7 @@ public struct MobileSection: View {
             controlWidth: Self.columnWidth
         ) {
             TextField(
-                String(localized: "settings.mobile.displayName.placeholder", defaultValue: "This Mac's name"),
+                placeholder,
                 text: Binding(get: { displayName.current }, set: { displayName.set($0) })
             )
             .textFieldStyle(.roundedBorder)
