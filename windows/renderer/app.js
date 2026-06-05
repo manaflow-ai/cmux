@@ -18511,7 +18511,9 @@ function refreshAppearanceProfileSaveControls() {
 function refreshAppearanceProfileSaveSettings(options = {}) {
   if (options.render === false || state.inspectorMode !== "settings") return;
   if (state.settingsCategory === "appearance") {
-    refreshAppearanceProfileSaveControls();
+    requestAnimationFrame(() => {
+      if (state.inspectorMode === "settings" && state.settingsCategory === "appearance") refreshAppearanceProfileSaveControls();
+    });
     return;
   }
   scheduleSettingsInspectorRender({ ifChanged: true });
@@ -34856,13 +34858,16 @@ async function saveCurrentSettingsProfile(options = {}) {
   return saved;
 }
 
-function saveCurrentLookProfile(options = {}) {
-  return saveCurrentSettingsProfile({
+async function saveCurrentLookProfile(options = {}) {
+  const saved = await saveCurrentSettingsProfile({
     title: "Save appearance profile",
     message: "Save this look together with the current layout, terminal, and performance settings.",
     baseName: "Look profile",
-    ...options
+    ...options,
+    render: false
   });
+  if (saved) refreshAppearanceProfileSaveSettings(options);
+  return saved;
 }
 
 async function saveCurrentLayoutProfile(options = {}) {
@@ -34877,22 +34882,28 @@ async function saveCurrentLayoutProfile(options = {}) {
   return saved;
 }
 
-function saveCurrentBackgroundProfile(options = {}) {
-  return saveCurrentSettingsProfile({
+async function saveCurrentBackgroundProfile(options = {}) {
+  const saved = await saveCurrentSettingsProfile({
     title: "Save background profile",
     message: "Save the current app background image and tuning together with the current look, layout, terminal, browser, and performance settings.",
     baseName: "Background profile",
-    ...options
+    ...options,
+    render: false
   });
+  if (saved) refreshAppearanceProfileSaveSettings(options);
+  return saved;
 }
 
-function saveCurrentColorProfile(options = {}) {
-  return saveCurrentSettingsProfile({
+async function saveCurrentColorProfile(options = {}) {
+  const saved = await saveCurrentSettingsProfile({
     title: "Save color profile",
     message: "Save the current accent, workspace, pane, and terminal colors together with the current layout, browser, and performance settings.",
     baseName: "Color profile",
-    ...options
+    ...options,
+    render: false
   });
+  if (saved) refreshAppearanceProfileSaveSettings(options);
+  return saved;
 }
 
 function saveThemeChoiceProfile(themeId, options = {}) {
