@@ -44,6 +44,7 @@ import {
   sidebarToolOptions,
   sidebarStyleOptions,
   switcherStyleOptions,
+  toastFeedbackOptions,
   toastPlacementOptions,
   workspaceRowSizeOptions,
   workspaceActiveStyleOptions,
@@ -307,8 +308,14 @@ const performanceGuardSlowTerminalConnectMs = 1500;
 const performanceHealthBackgroundOpacityLimit = 16;
 const performanceHealthScrollbackLimit = 10000;
 const settingsDisclosureSearchMountBatchSize = 4;
-const toastVisibleLimit = 4;
-const toastDurationMs = 3200;
+const toastFeedbackModeTokens = new Map([
+  ["quiet", { limit: 2, duration: 2200 }],
+  ["balanced", { limit: 4, duration: 3200 }],
+  ["detailed", { limit: 5, duration: 4800 }]
+]);
+function toastFeedbackSettings(value = state.settings.toastFeedbackMode) {
+  return toastFeedbackModeTokens.get(value) || toastFeedbackModeTokens.get(defaultSettings.toastFeedbackMode);
+}
 const performanceSetupSettings = [
   "performanceMode",
   "adaptivePerformance",
@@ -339,6 +346,7 @@ const performanceSetupSettings = [
   "overlayStyle",
   "switcherStyle",
   "toastPlacement",
+  "toastFeedbackMode",
   "paletteDensity",
   "paletteQuickActionsMode",
   "paletteDetailMode",
@@ -432,6 +440,7 @@ const layoutSettingsPreviewKeys = new Set([
   "overlayStyle",
   "switcherStyle",
   "toastPlacement",
+  "toastFeedbackMode",
   "paletteDensity",
   "paletteQuickActionsMode",
   "paletteDetailMode",
@@ -531,6 +540,7 @@ const settingsInspectorSettingKeys = {
     "overlayStyle",
     "switcherStyle",
     "toastPlacement",
+    "toastFeedbackMode",
     "paletteDensity",
     "paletteQuickActionsMode",
     "paletteDetailMode",
@@ -591,6 +601,8 @@ const settingsInspectorSettingKeys = {
     "inspectorStyle",
     "overlayStyle",
     "switcherStyle",
+    "toastPlacement",
+    "toastFeedbackMode",
     "paletteDensity",
     "paletteQuickActionsMode",
     "paletteDetailMode",
@@ -1416,6 +1428,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!overlayStyleOptions.some(([id]) => id === next.overlayStyle)) next.overlayStyle = defaultSettings.overlayStyle;
   if (!switcherStyleOptions.some(([id]) => id === next.switcherStyle)) next.switcherStyle = defaultSettings.switcherStyle;
   if (!toastPlacementOptions.some(([id]) => id === next.toastPlacement)) next.toastPlacement = defaultSettings.toastPlacement;
+  if (!toastFeedbackOptions.some(([id]) => id === next.toastFeedbackMode)) next.toastFeedbackMode = defaultSettings.toastFeedbackMode;
   if (!paletteDensityOptions.some(([id]) => id === next.paletteDensity)) next.paletteDensity = defaultSettings.paletteDensity;
   if (!paletteQuickActionsModeOptions.some(([id]) => id === next.paletteQuickActionsMode)) next.paletteQuickActionsMode = defaultSettings.paletteQuickActionsMode;
   if (!paletteDetailModeOptions.some(([id]) => id === next.paletteDetailMode)) next.paletteDetailMode = defaultSettings.paletteDetailMode;
@@ -3724,6 +3737,7 @@ function settingsProfileSummary(settings) {
   const overlayStyle = optionLabel(overlayStyleOptions, normalized.overlayStyle, normalized.overlayStyle);
   const switcherStyle = optionLabel(switcherStyleOptions, normalized.switcherStyle, normalized.switcherStyle);
   const toastPlacement = optionLabel(toastPlacementOptions, normalized.toastPlacement, normalized.toastPlacement);
+  const toastFeedback = optionLabel(toastFeedbackOptions, normalized.toastFeedbackMode, normalized.toastFeedbackMode);
   const paletteDensity = optionLabel(paletteDensityOptions, normalized.paletteDensity, normalized.paletteDensity);
   const paletteQuickActions = optionLabel(paletteQuickActionsModeOptions, normalized.paletteQuickActionsMode, normalized.paletteQuickActionsMode);
   const paletteDetail = optionLabel(paletteDetailModeOptions, normalized.paletteDetailMode, normalized.paletteDetailMode);
@@ -3774,7 +3788,7 @@ function settingsProfileSummary(settings) {
     `${inspectorStyle.toLowerCase()} settings panel`,
     `${overlayStyle.toLowerCase()} overlays`,
     `${switcherStyle.toLowerCase()} switcher`,
-    `${toastPlacement.toLowerCase()} toasts`,
+    `${toastPlacement.toLowerCase()} / ${toastFeedback.toLowerCase()} toasts`,
     `${paletteDensity.toLowerCase()} palette`,
     `${paletteQuickActions.toLowerCase()} palette actions`,
     `${paletteDetail.toLowerCase()} palette details`,
@@ -6823,6 +6837,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.overlayStyle,
     settings.switcherStyle,
     settings.toastPlacement,
+    settings.toastFeedbackMode,
     settings.paletteDensity,
     settings.paletteQuickActionsMode,
     settings.paletteDetailMode,
@@ -8357,7 +8372,7 @@ function customizationCommandPaletteState(commandId) {
         disabled: profilesFull,
         icon: "profiles",
         title: profilesFull ? settingsProfileLimitTitle() : "Save this layout and workspace chrome as a reusable Settings profile.",
-        search: normalizeSettingsQuery(`settings profile layout save current reusable workspace chrome toolbar labels top bar tabs sidebar inspector overlay command palette switcher toast pane headers controls dividers spacing active pane status bar focus mode panel widths ${profilesFull ? "limit full " : ""}${layoutSummary.density} ${layoutSummary.toolbar} ${layoutSummary.toolbarLabels} ${layoutSummary.topbarStyle} ${layoutSummary.toolbarButtons} ${layoutSummary.tabBar} ${layoutSummary.sidebarStyle} ${layoutSummary.sidebarTools} ${layoutSummary.inspectorStyle} ${layoutSummary.overlayStyle} ${layoutSummary.switcherStyle} ${layoutSummary.toastPlacement} ${layoutSummary.paletteDensity} ${layoutSummary.paletteResults} ${layoutSummary.palettePlacement} ${layoutSummary.paneHeaders} ${layoutSummary.paneControls} ${layoutSummary.newPanePlacement} ${layoutSummary.paneSurface} ${layoutSummary.workspaceRows} ${layoutSummary.workspaceRowSize} ${layoutSummary.activeWorkspace} ${layoutSummary.workspaceColors} ${layoutSummary.tabs} ${layoutSummary.activeTab} ${layoutSummary.corners} ${layoutSummary.dividers} ${layoutSummary.dividerStyle} ${layoutSummary.paneSpacing} ${layoutSummary.activePane} ${layoutSummary.statusbar} ${layoutSummary.statusbarStyle} ${layoutSummary.focusMode} ${layoutSummary.widths} ${countLabel}`)
+        search: normalizeSettingsQuery(`settings profile layout save current reusable workspace chrome toolbar labels top bar tabs sidebar inspector overlay command palette switcher toast feedback pane headers controls dividers spacing active pane status bar focus mode panel widths ${profilesFull ? "limit full " : ""}${layoutSummary.density} ${layoutSummary.toolbar} ${layoutSummary.toolbarLabels} ${layoutSummary.topbarStyle} ${layoutSummary.toolbarButtons} ${layoutSummary.tabBar} ${layoutSummary.sidebarStyle} ${layoutSummary.sidebarTools} ${layoutSummary.inspectorStyle} ${layoutSummary.overlayStyle} ${layoutSummary.switcherStyle} ${layoutSummary.toastPlacement} ${layoutSummary.toastFeedback} ${layoutSummary.paletteDensity} ${layoutSummary.paletteResults} ${layoutSummary.palettePlacement} ${layoutSummary.paneHeaders} ${layoutSummary.paneControls} ${layoutSummary.newPanePlacement} ${layoutSummary.paneSurface} ${layoutSummary.workspaceRows} ${layoutSummary.workspaceRowSize} ${layoutSummary.activeWorkspace} ${layoutSummary.workspaceColors} ${layoutSummary.tabs} ${layoutSummary.activeTab} ${layoutSummary.corners} ${layoutSummary.dividers} ${layoutSummary.dividerStyle} ${layoutSummary.paneSpacing} ${layoutSummary.activePane} ${layoutSummary.statusbar} ${layoutSummary.statusbarStyle} ${layoutSummary.focusMode} ${layoutSummary.widths} ${countLabel}`)
       };
     }
     if (commandId === "settings.saveTerminalProfile") {
@@ -8757,7 +8772,8 @@ function customizationCommandPaletteState(commandId) {
     const overlay = optionLabel(overlayStyleOptions, state.settings.overlayStyle, state.settings.overlayStyle);
     const switcher = optionLabel(switcherStyleOptions, state.settings.switcherStyle, state.settings.switcherStyle);
     const toastPlacement = optionLabel(toastPlacementOptions, state.settings.toastPlacement, state.settings.toastPlacement);
-    const meta = `${inspector} settings / ${switcher} switcher / ${toastPlacement}`;
+    const toastFeedback = optionLabel(toastFeedbackOptions, state.settings.toastFeedbackMode, state.settings.toastFeedbackMode);
+    const meta = `${inspector} settings / ${switcher} switcher / ${toastFeedback}`;
     return {
       meta: overlayDefault ? "Defaults active" : meta,
       shortcut: overlayDefault ? "Default" : "Reset",
@@ -8766,8 +8782,8 @@ function customizationCommandPaletteState(commandId) {
       icon: "settings",
       title: overlayDefault
         ? "Overlay settings already use defaults."
-        : "Reset settings panel, overlay, switcher, and toast placement.",
-      search: normalizeSettingsQuery(`overlay settings panel command palette menus dialogs switcher toast reset defaults visual weight quiet subtle solid placement bottom right left top feedback chrome ${overlayDefault ? "active current " : ""}${inspector} ${overlay} ${switcher} ${toastPlacement}`)
+        : "Reset settings panel, overlay, switcher, toast placement, and toast feedback.",
+      search: normalizeSettingsQuery(`overlay settings panel command palette menus dialogs switcher toast reset defaults visual weight quiet subtle solid placement bottom right left top feedback quiet balanced detailed chrome ${overlayDefault ? "active current " : ""}${inspector} ${overlay} ${switcher} ${toastPlacement} ${toastFeedback}`)
     };
   }
   if (commandId === "settings.resetPanelWidths") {
@@ -9679,7 +9695,7 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
           : isPaste
             ? "Apply copied cmux workspace chrome JSON."
             : "Copy workspace chrome settings as JSON.",
-      search: normalizeSettingsQuery(`layout workspace chrome setup ${isSetup ? "pane split blueprint " : ""}${isPaste ? "paste import" : isReset ? "reset default" : "copy export"} toolbar top bar sidebar tabs palette command results quick actions toast switcher overlay settings panel density row active marker status pane spacing divider focus clipboard json ${chromeDefault ? "active current " : ""}${summary.density} ${summary.toolbar} ${summary.toolbarLabels} ${summary.topbarStyle} ${summary.toolbarButtons} ${summary.tabBar} ${summary.sidebarStyle} ${summary.sidebarTools} ${summary.emptyWorkspace} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.paneSpacing} ${summary.widths} ${workspaceTitle}`)
+      search: normalizeSettingsQuery(`layout workspace chrome setup ${isSetup ? "pane split blueprint " : ""}${isPaste ? "paste import" : isReset ? "reset default" : "copy export"} toolbar top bar sidebar tabs palette command results quick actions toast feedback switcher overlay settings panel density row active marker status pane spacing divider focus clipboard json ${chromeDefault ? "active current " : ""}${summary.density} ${summary.toolbar} ${summary.toolbarLabels} ${summary.topbarStyle} ${summary.toolbarButtons} ${summary.tabBar} ${summary.sidebarStyle} ${summary.sidebarTools} ${summary.emptyWorkspace} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.toastFeedback} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.paneSpacing} ${summary.widths} ${workspaceTitle}`)
     };
   }
   return null;
@@ -18665,7 +18681,7 @@ function workspaceChromePresetGrid() {
     button.querySelector(".workspace-chrome-preset-status").textContent = active ? "Active" : "";
     button.querySelector(".workspace-chrome-preset-body").textContent = preset.body;
     const meta = button.querySelectorAll(".workspace-chrome-preset-meta span");
-    meta[0].textContent = `${summary.palettePlacement} palette / ${summary.paletteResults} results / ${summary.toastPlacement} toasts`;
+    meta[0].textContent = `${summary.palettePlacement} palette / ${summary.paletteResults} results / ${summary.toastFeedback} toasts`;
     meta[1].textContent = summary.tabs === "Hidden" ? "Hidden tabs" : `${summary.tabs} / ${summary.tabBar}`;
     meta[2].textContent = summary.markers === "Off"
       ? `${summary.paneSurface} / ${summary.newPanePlacement} panes / ${summary.emptyWorkspace} home`
@@ -18675,7 +18691,7 @@ function workspaceChromePresetGrid() {
     };
     const actions = document.createElement("div");
     actions.className = "workspace-chrome-preset-actions";
-    const copy = settingsActionButton("Copy", () => copyWorkspaceChromePreset(preset.id), "", `workspace chrome preset copy clipboard json toolbar label mode icons labels top bar style quiet subtle solid button style ghost subtle filled tab bar quiet banded sidebar style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud workspace row size density compact roomy active row selected active tab selected underline status style quiet subtle solid corner radius divider grip line minimal new pane placement split direction right below down pane surface spacing gap gutter active inactive pane dimming highlight ${preset.label} ${preset.body} ${summary.toolbarLabels} ${summary.toastPlacement} ${summary.newPanePlacement} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.dividerStyle}`);
+    const copy = settingsActionButton("Copy", () => copyWorkspaceChromePreset(preset.id), "", `workspace chrome preset copy clipboard json toolbar label mode icons labels top bar style quiet subtle solid button style ghost subtle filled tab bar quiet banded sidebar style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top quiet balanced detailed palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud workspace row size density compact roomy active row selected active tab selected underline status style quiet subtle solid corner radius divider grip line minimal new pane placement split direction right below down pane surface spacing gap gutter active inactive pane dimming highlight ${preset.label} ${preset.body} ${summary.toolbarLabels} ${summary.toastPlacement} ${summary.toastFeedback} ${summary.newPanePlacement} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.dividerStyle}`);
     copy.title = "Copy this chrome preset as workspace chrome JSON.";
     actions.append(copy);
     card.append(button, actions);
@@ -18774,15 +18790,21 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
     true,
     "toast notification feedback placement position bottom right left top terminal output status overlay"
   ));
+  panel.append(settingRow(
+    "Toast feedback",
+    settingSegmentedControl("toastFeedbackMode", toastFeedbackOptions, "toast notification feedback quiet balanced detailed duration volume clutter lag overlay", { compact: true }),
+    true,
+    "toast notification feedback quiet balanced detailed duration volume clutter lag overlay"
+  ));
   const overlayChromeDefault = overlayChromeSettingsAreDefault();
   const overlayActions = document.createElement("div");
   overlayActions.className = "settings-actions";
-  overlayActions.dataset.settingsSearch = normalizeSettingsQuery("overlay settings panel switcher toast reset default visual weight quiet subtle solid placement bottom right left top feedback chrome");
+  overlayActions.dataset.settingsSearch = normalizeSettingsQuery("overlay settings panel switcher toast reset default visual weight quiet subtle solid placement bottom right left top feedback quiet balanced detailed chrome");
   const resetOverlaysAction = settingsActionButton("Reset overlays", resetOverlayChromeSettings, "", `overlay settings panel switcher toast reset default style placement ${overlayChromeDefault ? "active current " : ""}`);
   resetOverlaysAction.disabled = overlayChromeDefault;
   resetOverlaysAction.title = overlayChromeDefault
     ? "Overlay settings already use defaults."
-    : "Reset settings panel, overlay, switcher, and toast placement.";
+    : "Reset settings panel, overlay, switcher, toast placement, and toast feedback.";
   overlayActions.append(resetOverlaysAction);
   panel.append(overlayActions);
   panel.append(settingRow(
@@ -19163,6 +19185,7 @@ function layoutSettingsPreviewPanel() {
     `overlay-style-${settings.overlayStyle}`,
     `switcher-style-${settings.switcherStyle}`,
     `toast-placement-${settings.toastPlacement}`,
+    `toast-feedback-${settings.toastFeedbackMode}`,
     `palette-density-${settings.paletteDensity}`,
     `palette-actions-${settings.paletteQuickActionsMode}`,
     `palette-detail-${settings.paletteDetailMode}`,
@@ -19312,7 +19335,7 @@ function layoutSettingsPreviewPanel() {
   panel.querySelector("[data-layout-preview-inspector-style]").textContent = optionLabel(inspectorStyleOptions, settings.inspectorStyle, settings.inspectorStyle);
   panel.querySelector("[data-layout-preview-overlay-style]").textContent = optionLabel(overlayStyleOptions, settings.overlayStyle, settings.overlayStyle);
   panel.querySelector("[data-layout-preview-switcher-style]").textContent = optionLabel(switcherStyleOptions, settings.switcherStyle, settings.switcherStyle);
-  panel.querySelector("[data-layout-preview-toast-placement]").textContent = optionLabel(toastPlacementOptions, settings.toastPlacement, settings.toastPlacement);
+  panel.querySelector("[data-layout-preview-toast-placement]").textContent = `${optionLabel(toastPlacementOptions, settings.toastPlacement, settings.toastPlacement)} / ${optionLabel(toastFeedbackOptions, settings.toastFeedbackMode, settings.toastFeedbackMode)}`;
   panel.querySelector("[data-layout-preview-palette-density]").textContent = optionLabel(paletteDensityOptions, settings.paletteDensity, settings.paletteDensity);
   panel.querySelector("[data-layout-preview-palette-actions]").textContent = optionLabel(paletteQuickActionsModeOptions, settings.paletteQuickActionsMode, settings.paletteQuickActionsMode);
   panel.querySelector("[data-layout-preview-palette-detail]").textContent = optionLabel(paletteDetailModeOptions, settings.paletteDetailMode, settings.paletteDetailMode);
@@ -24144,6 +24167,7 @@ function performanceDiagnosticsPayload() {
       overlayStyle: state.settings.overlayStyle,
       switcherStyle: state.settings.switcherStyle,
       toastPlacement: state.settings.toastPlacement,
+      toastFeedbackMode: state.settings.toastFeedbackMode,
       paletteDensity: state.settings.paletteDensity,
       paletteQuickActionsMode: state.settings.paletteQuickActionsMode,
       paletteDetailMode: state.settings.paletteDetailMode,
@@ -24249,6 +24273,7 @@ const performanceTuningPresets = [
       overlayStyle: "subtle",
       switcherStyle: "subtle",
       toastPlacement: "bottom-right",
+      toastFeedbackMode: "balanced",
       paletteDensity: "balanced",
       paletteQuickActionsMode: "auto",
       paletteDetailMode: "full",
@@ -24297,6 +24322,7 @@ const performanceTuningPresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       toastPlacement: "top-right",
+      toastFeedbackMode: "quiet",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -24345,6 +24371,7 @@ const performanceTuningPresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       toastPlacement: "top-right",
+      toastFeedbackMode: "quiet",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -24393,6 +24420,7 @@ const performanceTuningPresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       toastPlacement: "top-right",
+      toastFeedbackMode: "quiet",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -24441,6 +24469,7 @@ const performanceTuningPresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       toastPlacement: "top-right",
+      toastFeedbackMode: "quiet",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -24489,6 +24518,7 @@ const performanceTuningPresets = [
       overlayStyle: "subtle",
       switcherStyle: "subtle",
       toastPlacement: "bottom-right",
+      toastFeedbackMode: "detailed",
       paletteDensity: "balanced",
       paletteQuickActionsMode: "auto",
       paletteDetailMode: "full",
@@ -24834,6 +24864,7 @@ const performanceHealthCheckDefinitions = [
       || state.settings.overlayStyle !== "quiet"
       || state.settings.switcherStyle !== "quiet"
       || state.settings.toastPlacement !== "top-right"
+      || state.settings.toastFeedbackMode !== "quiet"
       || state.settings.paletteDensity !== "compact"
       || state.settings.paletteQuickActionsMode !== "hidden"
       || state.settings.paletteDetailMode !== "compact"
@@ -24856,6 +24887,7 @@ const performanceHealthCheckDefinitions = [
       const overlay = optionLabel(overlayStyleOptions, state.settings.overlayStyle, state.settings.overlayStyle);
       const switcher = optionLabel(switcherStyleOptions, state.settings.switcherStyle, state.settings.switcherStyle);
       const toastPlacement = optionLabel(toastPlacementOptions, state.settings.toastPlacement, state.settings.toastPlacement);
+      const toastFeedback = optionLabel(toastFeedbackOptions, state.settings.toastFeedbackMode, state.settings.toastFeedbackMode);
       const palette = optionLabel(paletteDensityOptions, state.settings.paletteDensity, state.settings.paletteDensity);
       const paletteActions = optionLabel(paletteQuickActionsModeOptions, state.settings.paletteQuickActionsMode, state.settings.paletteQuickActionsMode);
       const paletteDetail = optionLabel(paletteDetailModeOptions, state.settings.paletteDetailMode, state.settings.paletteDetailMode);
@@ -24865,7 +24897,7 @@ const performanceHealthCheckDefinitions = [
       const surface = optionLabel(paneSurfaceStyleOptions, state.settings.paneSurfaceStyle, state.settings.paneSurfaceStyle);
       const spacing = optionLabel(paneSpacingOptions, state.settings.paneSpacing, state.settings.paneSpacing);
       const padding = state.settings.terminalPadding > 6 ? `${state.settings.terminalPadding}px pad` : "Tight pad";
-      return `${density} / ${toolbar} / ${toolbarLabels} labels / ${topbar} top bar / ${buttons} / ${tabBar} tab bar / ${sidebar} sidebar / ${sidebarTools} rail / ${inspector} settings / ${overlay} overlays / ${switcher} switcher / ${toastPlacement} toasts / ${palette} palette / ${paletteActions} actions / ${paletteDetail} details / ${paletteResults} results / ${palettePlacement} placement / ${surface} panes / ${controls} / ${spacing} spacing / ${padding}`;
+      return `${density} / ${toolbar} / ${toolbarLabels} labels / ${topbar} top bar / ${buttons} / ${tabBar} tab bar / ${sidebar} sidebar / ${sidebarTools} rail / ${inspector} settings / ${overlay} overlays / ${switcher} switcher / ${toastPlacement} / ${toastFeedback} toasts / ${palette} palette / ${paletteActions} actions / ${paletteDetail} details / ${paletteResults} results / ${palettePlacement} placement / ${surface} panes / ${controls} / ${spacing} spacing / ${padding}`;
     },
     updates: () => ({
       density: "compact",
@@ -24880,6 +24912,7 @@ const performanceHealthCheckDefinitions = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       toastPlacement: "top-right",
+      toastFeedbackMode: "quiet",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -24890,7 +24923,7 @@ const performanceHealthCheckDefinitions = [
       paneSpacing: "none",
       terminalPadding: Math.min(state.settings.terminalPadding, 6)
     }),
-    search: "workspace chrome compact density toolbar top bar style buttons ghost tab bar quiet sidebar style rail tools primary settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact result limit focused balanced extended results placement position top center wide quick actions hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls pane spacing gap gutter terminal padding lighter ui"
+    search: "workspace chrome compact density toolbar top bar style buttons ghost tab bar quiet sidebar style rail tools primary settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top quiet balanced detailed palette density compact result limit focused balanced extended results placement position top center wide quick actions hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls pane spacing gap gutter terminal padding lighter ui"
   },
   {
     id: "splitDividers",
@@ -25195,6 +25228,7 @@ function performanceSetupSummaryForSettings(settings) {
   const overlay = optionLabel(overlayStyleOptions, normalized.overlayStyle, normalized.overlayStyle);
   const switcher = optionLabel(switcherStyleOptions, normalized.switcherStyle, normalized.switcherStyle);
   const toastPlacement = optionLabel(toastPlacementOptions, normalized.toastPlacement, normalized.toastPlacement);
+  const toastFeedback = optionLabel(toastFeedbackOptions, normalized.toastFeedbackMode, normalized.toastFeedbackMode);
   const palette = optionLabel(paletteDensityOptions, normalized.paletteDensity, normalized.paletteDensity);
   const paletteActions = optionLabel(paletteQuickActionsModeOptions, normalized.paletteQuickActionsMode, normalized.paletteQuickActionsMode);
   const paletteDetail = optionLabel(paletteDetailModeOptions, normalized.paletteDetailMode, normalized.paletteDetailMode);
@@ -25213,13 +25247,14 @@ function performanceSetupSummaryForSettings(settings) {
     mode: normalized.performanceMode ? "Tuned" : "Balanced",
     adaptiveGuard: normalized.adaptivePerformance ? "On" : "Off",
     motion: normalized.performanceMode || normalized.reduceMotion ? `Reduced / ${motionSpeed}` : motionSpeed,
-    chrome: `${normalized.density === "compact" ? "Compact" : "Comfortable"} / ${toolbar} / ${toolbarLabels} labels / ${topbar} top bar / ${toolbarButtons} / ${tabBar} tab bar / ${sidebar} sidebar / ${sidebarTools} rail / ${inspector} settings / ${overlay} overlays / ${switcher} switcher / ${toastPlacement} toasts / ${palette} palette / ${paletteActions} actions / ${paletteDetail} details / ${paletteResults} results / ${palettePlacement} placement / ${paneSurface} panes`,
+    chrome: `${normalized.density === "compact" ? "Compact" : "Comfortable"} / ${toolbar} / ${toolbarLabels} labels / ${topbar} top bar / ${toolbarButtons} / ${tabBar} tab bar / ${sidebar} sidebar / ${sidebarTools} rail / ${inspector} settings / ${overlay} overlays / ${switcher} switcher / ${toastPlacement} / ${toastFeedback} toasts / ${palette} palette / ${paletteActions} actions / ${paletteDetail} details / ${paletteResults} results / ${palettePlacement} placement / ${paneSurface} panes`,
     topbar,
     toolbarLabels,
     inspectorStyle: inspector,
     overlayStyle: overlay,
     switcherStyle: switcher,
     toastPlacement,
+    toastFeedback,
     paletteDensity: palette,
     paletteQuickActions: paletteActions,
     paletteDetail,
@@ -25395,6 +25430,7 @@ function performanceSetupSettingUpdateFromValue(key, raw) {
   if (key === "overlayStyle") return optionIdAllowed(overlayStyleOptions, raw) ? raw : null;
   if (key === "switcherStyle") return optionIdAllowed(switcherStyleOptions, raw) ? raw : null;
   if (key === "toastPlacement") return optionIdAllowed(toastPlacementOptions, raw) ? raw : null;
+  if (key === "toastFeedbackMode") return optionIdAllowed(toastFeedbackOptions, raw) ? raw : null;
   if (key === "paletteDensity") return optionIdAllowed(paletteDensityOptions, raw) ? raw : null;
   if (key === "paletteQuickActionsMode") return optionIdAllowed(paletteQuickActionsModeOptions, raw) ? raw : null;
   if (key === "paletteDetailMode") return optionIdAllowed(paletteDetailModeOptions, raw) ? raw : null;
@@ -25522,14 +25558,14 @@ function performanceTuningPresetProfileSaveTitle(preset, savedProfile = savedSet
 
 function performanceTuningPresetProfileSaveSearchText(preset, settings = performanceTuningPresetSettings(preset), savedProfile = null) {
   const summary = performanceSetupSummaryForSettings(settings || {});
-  return normalizeSettingsQuery(`performance tuning preset save profile reusable settings speed lag smooth ${savedProfile ? "saved unavailable " : savedSettingsProfilesFull() ? "limit full unavailable " : "ready "}${settingsProfileSaveStateSearch(savedProfile)} ${preset?.label || ""} ${preset?.body || ""} ${summary.mode} ${summary.motion} ${summary.background} ${summary.backgroundChrome} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.history}`);
+  return normalizeSettingsQuery(`performance tuning preset save profile reusable settings speed lag smooth ${savedProfile ? "saved unavailable " : savedSettingsProfilesFull() ? "limit full unavailable " : "ready "}${settingsProfileSaveStateSearch(savedProfile)} ${preset?.label || ""} ${preset?.body || ""} ${summary.mode} ${summary.motion} ${summary.toastFeedback} ${summary.background} ${summary.backgroundChrome} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.history}`);
 }
 
 function performanceTuningPresetSearchText(preset, settings = performanceTuningPresetSettings(preset), savedProfile = null) {
   const summary = performanceSetupSummaryForSettings(settings || {});
   const active = isActivePerformanceTuningPreset(preset);
   return normalizeSettingsQuery([
-    `performance tuning preset setup apply copy speed lag smooth low motion ${active ? "active current unavailable " : "ready "}speed snappy balanced calm live panes workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy result limit focused balanced extended results placement position top center wide quick actions auto hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls split dividers resize grip line minimal active pane emphasis spacing gap gutter padding surface depth shadow background opacity effects glass flat chrome readable soft immersive terminal output browser preview pane chrome compact content full controls tabs address suspend history scrollback`,
+    `performance tuning preset setup apply copy speed lag smooth low motion ${active ? "active current unavailable " : "ready "}speed snappy balanced calm live panes workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top quiet balanced detailed palette density compact balanced roomy result limit focused balanced extended results placement position top center wide quick actions auto hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls split dividers resize grip line minimal active pane emphasis spacing gap gutter padding surface depth shadow background opacity effects glass flat chrome readable soft immersive terminal output browser preview pane chrome compact content full controls tabs address suspend history scrollback`,
     performanceTuningPresetProfileSaveSearchText(preset, settings, savedProfile),
     preset?.label,
     preset?.body,
@@ -25542,6 +25578,7 @@ function performanceTuningPresetSearchText(preset, settings = performanceTuningP
     summary.overlayStyle,
     summary.switcherStyle,
     summary.toastPlacement,
+    summary.toastFeedback,
     summary.paletteDensity,
     summary.paletteQuickActions,
     summary.paletteDetail,
@@ -25581,7 +25618,7 @@ function performanceTuningPresetTitle(preset, active) {
 
 function performanceTuningPresetCopySearchText(preset, settings = performanceTuningPresetSettings(preset)) {
   const summary = performanceSetupSummaryForSettings(settings || {});
-  return normalizeSettingsQuery(`performance tuning preset copy setup clipboard json speed lag smooth motion speed snappy balanced calm workspace chrome top bar style tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface split dividers resize grip line minimal active pane emphasis spacing gap gutter background opacity effects chrome readable soft immersive browser pane compact content full controls tabs address ${preset?.label || ""} ${preset?.body || ""} ${summary.mode} ${summary.motion} ${summary.chrome} ${summary.topbar} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.dividers} ${summary.dividerStyle} ${summary.paneSpacing} ${summary.activePane} ${summary.background} ${summary.backgroundChrome} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.history}`);
+  return normalizeSettingsQuery(`performance tuning preset copy setup clipboard json speed lag smooth motion speed snappy balanced calm workspace chrome top bar style tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top quiet balanced detailed palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface split dividers resize grip line minimal active pane emphasis spacing gap gutter background opacity effects chrome readable soft immersive browser pane compact content full controls tabs address ${preset?.label || ""} ${preset?.body || ""} ${summary.mode} ${summary.motion} ${summary.chrome} ${summary.topbar} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.toastFeedback} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.dividers} ${summary.dividerStyle} ${summary.paneSpacing} ${summary.activePane} ${summary.background} ${summary.backgroundChrome} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.history}`);
 }
 
 function performanceTuningPresetCopyTitle(preset) {
@@ -26244,7 +26281,7 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
     className: "quick-overview-layout",
     title: "Layout controls",
     meta: `${activePreset} / ${summary.toolbar} / ${summary.toolbarLabels} labels / ${summary.emptyWorkspace} home`,
-    search: `quick setup layout controls workspace chrome display simple compact focus save profile reusable density toolbar label mode icons labels top bar style quiet subtle solid button style ghost filled tab bar quiet banded sidebar rail tools primary hidden home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size compact roomy active row selected color marker dot edge tint tabs active selected underline status style quiet subtle solid sidebar corner radius rounded crisp soft divider grip line minimal slim balanced wide new pane placement split direction right below down pane surface spacing gap gutter active pane highlight edge quiet line strong ${activePreset} ${summary.density} ${summary.toolbar} ${summary.toolbarLabels} ${summary.topbarStyle} ${summary.toolbarButtons} ${summary.tabBar} ${summary.sidebarStyle} ${summary.sidebarTools} ${summary.emptyWorkspace} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneHeaders} ${summary.paneControls} ${summary.newPanePlacement} ${summary.paneSurface} ${summary.workspaceRows} ${summary.workspaceRowSize} ${summary.activeWorkspace} ${summary.workspaceColors} ${summary.tabs} ${summary.tabClose} ${summary.activeTab} ${summary.corners} ${summary.dividers} ${summary.dividerStyle} ${summary.paneSpacing} ${summary.activePane} ${summary.statusbar} ${summary.statusbarStyle} ${summary.focusMode} ${summary.widths}`,
+    search: `quick setup layout controls workspace chrome display simple compact focus save profile reusable density toolbar label mode icons labels top bar style quiet subtle solid button style ghost filled tab bar quiet banded sidebar rail tools primary hidden home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top quiet balanced detailed palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size compact roomy active row selected color marker dot edge tint tabs active selected underline status style quiet subtle solid sidebar corner radius rounded crisp soft divider grip line minimal slim balanced wide new pane placement split direction right below down pane surface spacing gap gutter active pane highlight edge quiet line strong ${activePreset} ${summary.density} ${summary.toolbar} ${summary.toolbarLabels} ${summary.topbarStyle} ${summary.toolbarButtons} ${summary.tabBar} ${summary.sidebarStyle} ${summary.sidebarTools} ${summary.emptyWorkspace} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.toastFeedback} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneHeaders} ${summary.paneControls} ${summary.newPanePlacement} ${summary.paneSurface} ${summary.workspaceRows} ${summary.workspaceRowSize} ${summary.activeWorkspace} ${summary.workspaceColors} ${summary.tabs} ${summary.tabClose} ${summary.activeTab} ${summary.corners} ${summary.dividers} ${summary.dividerStyle} ${summary.paneSpacing} ${summary.activePane} ${summary.statusbar} ${summary.statusbarStyle} ${summary.focusMode} ${summary.widths}`,
     actions
   });
 }
@@ -30461,6 +30498,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     overlayStyle: "quiet",
     switcherStyle: "quiet",
     toastPlacement: "top-right",
+    toastFeedbackMode: "quiet",
     paletteDensity: "compact",
     paletteQuickActionsMode: "hidden",
     paletteDetailMode: "compact",
@@ -35678,7 +35716,7 @@ function settingsPresetTags(settings) {
     `${optionLabel(inspectorStyleOptions, settings.inspectorStyle, settings.inspectorStyle)} settings`,
     `${optionLabel(overlayStyleOptions, settings.overlayStyle, settings.overlayStyle)} overlays`,
     `${optionLabel(switcherStyleOptions, settings.switcherStyle, settings.switcherStyle)} switcher`,
-    `${optionLabel(toastPlacementOptions, settings.toastPlacement, settings.toastPlacement)} toasts`,
+    `${optionLabel(toastPlacementOptions, settings.toastPlacement, settings.toastPlacement)} / ${optionLabel(toastFeedbackOptions, settings.toastFeedbackMode, settings.toastFeedbackMode)} toasts`,
     `${optionLabel(paletteDensityOptions, settings.paletteDensity, settings.paletteDensity)} palette`,
     `${optionLabel(paletteQuickActionsModeOptions, settings.paletteQuickActionsMode, settings.paletteQuickActionsMode)} palette actions`,
     `${optionLabel(paletteDetailModeOptions, settings.paletteDetailMode, settings.paletteDetailMode)} palette details`,
@@ -38730,7 +38768,7 @@ function paletteEntries() {
     entries.push({
       id: `workspaceChromePreset.${preset.id}`,
       label: `Chrome preset: ${preset.label}`,
-      meta: active ? `Active / ${summary.toolbar} / ${summary.toastPlacement} toasts` : `${summary.toastPlacement} toasts / ${summary.paletteResults} results`,
+      meta: active ? `Active / ${summary.toolbar} / ${summary.toastFeedback} toasts` : `${summary.toastFeedback} toasts / ${summary.paletteResults} results`,
       shortcut: active ? "Active" : "Layout",
       active,
       disabled: active,
@@ -38741,10 +38779,10 @@ function paletteEntries() {
     entries.push({
       id: `workspaceChromePreset.copy.${preset.id}`,
       label: `Copy chrome preset: ${preset.label}`,
-      meta: `${summary.density} / ${summary.toastPlacement} toasts / ${summary.paletteResults} results`,
+      meta: `${summary.density} / ${summary.toastFeedback} toasts / ${summary.paletteResults} results`,
       shortcut: "Copy",
       title: "Copy this chrome preset as workspace chrome JSON.",
-      search: normalizeSettingsQuery(`workspace chrome layout display preset copy clipboard json toolbar label mode icons labels top bar style quiet subtle solid button style ghost subtle filled tab bar quiet banded sidebar rail tools primary hidden home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud tabs active selected underline status style quiet subtle solid corner radius rounded crisp soft divider grip line minimal slim balanced wide new pane placement split direction right below down pane surface spacing gap gutter active pane highlight edge quiet line strong ${preset.label} ${preset.body} ${summary.density} ${summary.toolbar} ${summary.toolbarLabels} ${summary.topbarStyle} ${summary.toolbarButtons} ${summary.tabBar} ${summary.sidebarStyle} ${summary.sidebarTools} ${summary.emptyWorkspace} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.newPanePlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.tabs} ${summary.tabClose} ${summary.activeTab} ${summary.corners} ${summary.dividers} ${summary.dividerStyle} ${summary.paneSpacing} ${summary.activePane} ${summary.statusbar} ${summary.statusbarStyle} ${summary.widths}`),
+      search: normalizeSettingsQuery(`workspace chrome layout display preset copy clipboard json toolbar label mode icons labels top bar style quiet subtle solid button style ghost subtle filled tab bar quiet banded sidebar rail tools primary hidden home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay command palette menus dialogs toast feedback placement bottom right left top quiet balanced detailed palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud tabs active selected underline status style quiet subtle solid corner radius rounded crisp soft divider grip line minimal slim balanced wide new pane placement split direction right below down pane surface spacing gap gutter active pane highlight edge quiet line strong ${preset.label} ${preset.body} ${summary.density} ${summary.toolbar} ${summary.toolbarLabels} ${summary.topbarStyle} ${summary.toolbarButtons} ${summary.tabBar} ${summary.sidebarStyle} ${summary.sidebarTools} ${summary.emptyWorkspace} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.toastFeedback} ${summary.newPanePlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.tabs} ${summary.tabClose} ${summary.activeTab} ${summary.corners} ${summary.dividers} ${summary.dividerStyle} ${summary.paneSpacing} ${summary.activePane} ${summary.statusbar} ${summary.statusbarStyle} ${summary.widths}`),
       run: () => copyWorkspaceChromePreset(preset.id)
     });
   }
@@ -42487,6 +42525,7 @@ const workspaceChromeSettings = [
   "overlayStyle",
   "switcherStyle",
   "toastPlacement",
+  "toastFeedbackMode",
   "paletteDensity",
   "paletteQuickActionsMode",
   "paletteDetailMode",
@@ -42595,7 +42634,8 @@ const overlayChromeSettings = [
   "inspectorStyle",
   "overlayStyle",
   "switcherStyle",
-  "toastPlacement"
+  "toastPlacement",
+  "toastFeedbackMode"
 ];
 
 const workspaceChromeBooleanSettings = new Set([
@@ -42631,6 +42671,7 @@ const workspaceChromePresets = [
       overlayStyle: defaultSettings.overlayStyle,
       switcherStyle: defaultSettings.switcherStyle,
       toastPlacement: defaultSettings.toastPlacement,
+      toastFeedbackMode: defaultSettings.toastFeedbackMode,
       paletteDensity: defaultSettings.paletteDensity,
       paletteQuickActionsMode: defaultSettings.paletteQuickActionsMode,
       paletteDetailMode: defaultSettings.paletteDetailMode,
@@ -42686,6 +42727,7 @@ const workspaceChromePresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       toastPlacement: "top-right",
+      toastFeedbackMode: "quiet",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -42741,6 +42783,7 @@ const workspaceChromePresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       toastPlacement: "top-right",
+      toastFeedbackMode: "quiet",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -42796,6 +42839,7 @@ const workspaceChromePresets = [
       overlayStyle: "solid",
       switcherStyle: "solid",
       toastPlacement: "bottom-right",
+      toastFeedbackMode: "detailed",
       paletteDensity: "roomy",
       paletteQuickActionsMode: "auto",
       paletteDetailMode: "full",
@@ -42851,6 +42895,7 @@ const workspaceChromePresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       toastPlacement: "top-right",
+      toastFeedbackMode: "quiet",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -42985,6 +43030,7 @@ function workspaceChromeSummaryForSettings(settings) {
     overlayStyle: optionLabel(overlayStyleOptions, normalized.overlayStyle, normalized.overlayStyle),
     switcherStyle: optionLabel(switcherStyleOptions, normalized.switcherStyle, normalized.switcherStyle),
     toastPlacement: optionLabel(toastPlacementOptions, normalized.toastPlacement, normalized.toastPlacement),
+    toastFeedback: optionLabel(toastFeedbackOptions, normalized.toastFeedbackMode, normalized.toastFeedbackMode),
     paletteDensity: optionLabel(paletteDensityOptions, normalized.paletteDensity, normalized.paletteDensity),
     paletteQuickActions: optionLabel(paletteQuickActionsModeOptions, normalized.paletteQuickActionsMode, normalized.paletteQuickActionsMode),
     paletteDetail: optionLabel(paletteDetailModeOptions, normalized.paletteDetailMode, normalized.paletteDetailMode),
@@ -43076,6 +43122,7 @@ function workspaceChromeSettingUpdateFromValue(key, raw) {
   if (key === "overlayStyle") return optionIdAllowed(overlayStyleOptions, raw) ? raw : null;
   if (key === "switcherStyle") return optionIdAllowed(switcherStyleOptions, raw) ? raw : null;
   if (key === "toastPlacement") return optionIdAllowed(toastPlacementOptions, raw) ? raw : null;
+  if (key === "toastFeedbackMode") return optionIdAllowed(toastFeedbackOptions, raw) ? raw : null;
   if (key === "paletteDensity") return optionIdAllowed(paletteDensityOptions, raw) ? raw : null;
   if (key === "paletteQuickActionsMode") return optionIdAllowed(paletteQuickActionsModeOptions, raw) ? raw : null;
   if (key === "paletteDetailMode") return optionIdAllowed(paletteDetailModeOptions, raw) ? raw : null;
@@ -43242,7 +43289,7 @@ function workspaceChromePresetCycleModel() {
     title: entry
       ? `Cycle workspace chrome to ${entry.preset.label}.`
       : "No workspace chrome presets are available.",
-    search: normalizeSettingsQuery(`workspace chrome cycle next preset layout display simple clean compact focus control room toolbar tabs sidebar palette command results quick actions toast switcher overlay settings panel panes spacing status widths ${entry?.preset?.label || ""} ${entry?.preset?.body || ""} ${summary.density} ${summary.toolbar} ${summary.toolbarLabels} ${summary.topbarStyle} ${summary.toolbarButtons} ${summary.tabBar} ${summary.sidebarStyle} ${summary.sidebarTools} ${summary.emptyWorkspace} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.paneSpacing} ${summary.activePane} ${summary.statusbar} ${summary.statusbarStyle} ${summary.widths}`)
+    search: normalizeSettingsQuery(`workspace chrome cycle next preset layout display simple clean compact focus control room toolbar tabs sidebar palette command results quick actions toast feedback switcher overlay settings panel panes spacing status widths ${entry?.preset?.label || ""} ${entry?.preset?.body || ""} ${summary.density} ${summary.toolbar} ${summary.toolbarLabels} ${summary.topbarStyle} ${summary.toolbarButtons} ${summary.tabBar} ${summary.sidebarStyle} ${summary.sidebarTools} ${summary.emptyWorkspace} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.toastFeedback} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.paneSpacing} ${summary.activePane} ${summary.statusbar} ${summary.statusbarStyle} ${summary.widths}`)
   };
 }
 
@@ -44259,10 +44306,11 @@ async function closeActivePanel() {
 function toast(message) {
   const text = String(message || "").trim();
   if (!text || !elements.toastRegion) return;
+  const feedback = toastFeedbackSettings();
   for (const candidate of elements.toastRegion.querySelectorAll(".toast")) {
     if (candidate.textContent === text) candidate.remove();
   }
-  while (elements.toastRegion.children.length >= toastVisibleLimit) {
+  while (elements.toastRegion.children.length >= feedback.limit) {
     elements.toastRegion.firstElementChild?.remove();
   }
   const node = document.createElement("div");
@@ -44270,7 +44318,7 @@ function toast(message) {
   node.setAttribute("role", "status");
   node.textContent = text;
   elements.toastRegion.appendChild(node);
-  setTimeout(() => node.remove(), toastDurationMs);
+  setTimeout(() => node.remove(), feedback.duration);
 }
 
 function isFormEditableTarget(target) {

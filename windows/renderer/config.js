@@ -39,6 +39,7 @@ export const defaultSettings = {
   overlayStyle: "subtle",
   switcherStyle: "subtle",
   toastPlacement: "bottom-right",
+  toastFeedbackMode: "balanced",
   paletteDensity: "balanced",
   paletteQuickActionsMode: "auto",
   paletteDetailMode: "full",
@@ -511,6 +512,12 @@ export const toastPlacementOptions = [
   ["top-right", label("toastPlacement.topRight", "Top right"), label("toastPlacement.topRight.body", "Keep feedback above terminal output")]
 ];
 
+export const toastFeedbackOptions = [
+  ["quiet", label("toastFeedback.quiet", "Quiet"), label("toastFeedback.quiet.body", "Show fewer messages for a shorter time")],
+  ["balanced", label("toastFeedback.balanced", "Balanced"), label("toastFeedback.balanced.body", "Default feedback volume")],
+  ["detailed", label("toastFeedback.detailed", "Detailed"), label("toastFeedback.detailed.body", "Keep more messages visible for longer")]
+];
+
 export const paletteDensityOptions = [
   ["compact", label("paletteDensity.compact", "Compact"), label("paletteDensity.compact.body", "More commands visible")],
   ["balanced", label("paletteDensity.balanced", "Balanced"), label("paletteDensity.balanced.body", "Default command palette spacing")],
@@ -800,6 +807,7 @@ export const settingsPresets = [
       overlayStyle: "subtle",
       switcherStyle: "subtle",
       toastPlacement: "bottom-right",
+      toastFeedbackMode: "balanced",
       paletteDensity: "balanced",
       paletteQuickActionsMode: "auto",
       paletteDetailMode: "full",
@@ -889,6 +897,7 @@ export const settingsPresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       toastPlacement: "top-right",
+      toastFeedbackMode: "quiet",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -978,6 +987,7 @@ export const settingsPresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       toastPlacement: "top-right",
+      toastFeedbackMode: "quiet",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -1068,6 +1078,7 @@ export const settingsPresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       toastPlacement: "top-right",
+      toastFeedbackMode: "quiet",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -1157,6 +1168,7 @@ export const settingsPresets = [
       overlayStyle: "quiet",
       switcherStyle: "quiet",
       toastPlacement: "top-right",
+      toastFeedbackMode: "quiet",
       paletteDensity: "compact",
       paletteQuickActionsMode: "hidden",
       paletteDetailMode: "compact",
@@ -1246,6 +1258,7 @@ export const settingsPresets = [
       overlayStyle: "solid",
       switcherStyle: "solid",
       toastPlacement: "bottom-right",
+      toastFeedbackMode: "balanced",
       paletteDensity: "roomy",
       paletteQuickActionsMode: "auto",
       paletteDetailMode: "full",
@@ -1335,6 +1348,7 @@ export const settingsPresets = [
       overlayStyle: "solid",
       switcherStyle: "solid",
       toastPlacement: "bottom-right",
+      toastFeedbackMode: "detailed",
       paletteDensity: "roomy",
       paletteQuickActionsMode: "auto",
       paletteDetailMode: "full",

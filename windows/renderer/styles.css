@@ -9340,6 +9340,17 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   bottom: auto;
 }
 
+.layout-settings-preview.toast-feedback-quiet .layout-preview-toast {
+  width: clamp(34px, 13%, 46px);
+  padding-block: 4px;
+  opacity: .78;
+}
+
+.layout-settings-preview.toast-feedback-detailed .layout-preview-toast {
+  width: clamp(54px, 22%, 76px);
+  padding-block: 6px;
+}
+
 .layout-settings-preview.overlay-style-quiet .layout-preview-toast {
   border-color: color-mix(in oklch, var(--color-line) 54%, transparent);
   background: color-mix(in oklch, var(--color-rail) 72%, transparent);
