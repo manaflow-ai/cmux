@@ -20212,14 +20212,23 @@ struct CMUXCLI {
                 valueFlags: ["-c", "-t"],
                 boolFlags: ["-k"]
             )
+            guard parsed.hasFlag("-k") else {
+                throw CLIError(message: String(
+                    localized: "cli.tmuxCompat.respawnPane.requiresForce",
+                    defaultValue: "respawn-pane requires -k in cmux tmux compatibility mode"
+                ))
+            }
             let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
-            let commandText = tmuxStartCommand(commandTokens: parsed.positional)
-                ?? (try? tmuxStoredStartCommand(
+            let commandText: String
+            if let explicitCommand = tmuxStartCommand(commandTokens: parsed.positional) {
+                commandText = explicitCommand
+            } else {
+                commandText = try tmuxStoredStartCommand(
                     workspaceId: target.workspaceId,
                     surfaceId: target.surfaceId,
                     client: client
-                ))
-                ?? "exec ${SHELL:-/bin/sh} -l"
+                ) ?? "exec ${SHELL:-/bin/sh} -l"
+            }
             var params: [String: Any] = [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId,

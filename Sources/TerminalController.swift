@@ -8677,8 +8677,15 @@ class TerminalController {
     }
 
     private func v2SurfaceRespawn(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        guard let fallbackTabManager = v2ResolveTabManager(params: params) else {
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "rpc.v2.surface.respawn.tabManagerUnavailable",
+                    defaultValue: "TabManager not available"
+                ),
+                data: nil
+            )
         }
 
         let command = v2OptionalTrimmedRawString(params, "command")
@@ -8689,36 +8696,95 @@ class TerminalController {
         let focus: Bool?
         if v2HasNonNullParam(params, "focus") {
             guard let parsedFocus = v2Bool(params, "focus") else {
-                return .err(code: "invalid_params", message: "Missing or invalid focus", data: nil)
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "rpc.v2.surface.respawn.invalidFocus",
+                        defaultValue: "Missing or invalid focus"
+                    ),
+                    data: nil
+                )
             }
             focus = v2FocusAllowed(requested: parsedFocus)
         } else {
             focus = nil
         }
 
-        var result: V2CallResult = .err(code: "internal_error", message: "Failed to respawn surface", data: nil)
+        var result: V2CallResult = .err(
+            code: "internal_error",
+            message: String(
+                localized: "rpc.v2.surface.respawn.failed",
+                defaultValue: "Failed to respawn surface"
+            ),
+            data: nil
+        )
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                return
-            }
-
-            let surfaceId: UUID?
-            if params["surface_id"] != nil {
-                surfaceId = v2UUID(params, "surface_id")
-                guard surfaceId != nil else {
-                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+            let ws: Workspace
+            let tabManager: TabManager
+            let surfaceId: UUID
+            if v2HasNonNullParam(params, "surface_id") {
+                guard let requestedSurfaceId = v2UUID(params, "surface_id") else {
+                    result = .err(
+                        code: "not_found",
+                        message: String(
+                            localized: "rpc.v2.surface.respawn.surfaceNotFoundForId",
+                            defaultValue: "Surface not found for the given surface_id"
+                        ),
+                        data: nil
+                    )
                     return
                 }
+                guard let located = AppDelegate.shared?.locateSurface(surfaceId: requestedSurfaceId),
+                      let locatedWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
+                    result = .err(
+                        code: "not_found",
+                        message: String(
+                            localized: "rpc.v2.surface.respawn.surfaceNotFoundForId",
+                            defaultValue: "Surface not found for the given surface_id"
+                        ),
+                        data: ["surface_id": requestedSurfaceId.uuidString]
+                    )
+                    return
+                }
+                ws = locatedWorkspace
+                tabManager = located.tabManager
+                surfaceId = requestedSurfaceId
             } else {
-                surfaceId = ws.focusedPanelId
-            }
-            guard let surfaceId else {
-                result = .err(code: "not_found", message: "No focused surface", data: nil)
-                return
+                guard let resolvedWorkspace = v2ResolveWorkspace(params: params, tabManager: fallbackTabManager) else {
+                    result = .err(
+                        code: "not_found",
+                        message: String(
+                            localized: "rpc.v2.surface.respawn.workspaceNotFound",
+                            defaultValue: "Workspace not found"
+                        ),
+                        data: nil
+                    )
+                    return
+                }
+                guard let focusedSurfaceId = resolvedWorkspace.focusedPanelId else {
+                    result = .err(
+                        code: "not_found",
+                        message: String(
+                            localized: "rpc.v2.surface.respawn.noFocusedSurface",
+                            defaultValue: "No focused surface"
+                        ),
+                        data: nil
+                    )
+                    return
+                }
+                ws = resolvedWorkspace
+                tabManager = fallbackTabManager
+                surfaceId = focusedSurfaceId
             }
             guard ws.terminalPanel(for: surfaceId) != nil else {
-                result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
+                result = .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "rpc.v2.surface.respawn.surfaceNotTerminal",
+                        defaultValue: "Surface is not a terminal"
+                    ),
+                    data: ["surface_id": surfaceId.uuidString]
+                )
                 return
             }
 
@@ -8732,7 +8798,14 @@ class TerminalController {
                 tmuxStartCommand: tmuxStartCommand,
                 focus: focus
             ) else {
-                result = .err(code: "internal_error", message: "Failed to respawn surface", data: ["surface_id": surfaceId.uuidString])
+                result = .err(
+                    code: "internal_error",
+                    message: String(
+                        localized: "rpc.v2.surface.respawn.failed",
+                        defaultValue: "Failed to respawn surface"
+                    ),
+                    data: ["surface_id": surfaceId.uuidString]
+                )
                 return
             }
 

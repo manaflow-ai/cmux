@@ -242,6 +242,18 @@ def assert_success(proc: subprocess.CompletedProcess[str], label: str) -> None:
         )
 
 
+def assert_failure(proc: subprocess.CompletedProcess[str], label: str, expected: str) -> None:
+    if proc.returncode == 0:
+        raise AssertionError(f"{label} unexpectedly succeeded\nstdout={proc.stdout.strip()}")
+    combined = f"{proc.stdout}\n{proc.stderr}"
+    if expected not in combined:
+        raise AssertionError(
+            f"{label} did not include {expected!r}\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+
+
 def assert_omo_split_is_listed_and_respawned(
     cli_path: str,
     socket_path: Path,
@@ -284,6 +296,22 @@ def assert_omo_split_is_listed_and_respawned(
         raise AssertionError(f"expected leader and subagent panes, got {lines!r}")
     if f"{subagent_pane_token},1,1" not in lines:
         raise AssertionError(f"expected active subagent pane in list-panes, got {lines!r}")
+
+    non_forced_respawn = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "respawn-pane",
+            "-t",
+            subagent_pane_token,
+            ATTACH_COMMAND,
+        ],
+    )
+    assert_failure(non_forced_respawn, "OMO non-forced respawn-pane", "requires -k")
+    if state.respawn_params:
+        raise AssertionError(f"non-forced respawn must not call surface.respawn: {state.respawn_params!r}")
 
     empty_respawn = run_cli(
         cli_path,

@@ -5569,6 +5569,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         configTemplate?.waitAfterCommand ?? false
     }
 
+    var launchContext: ghostty_surface_context_e {
+        surfaceContext
+    }
+
     func updateWorkspaceId(_ newTabId: UUID) {
         tabId = newTabId
         attachedView?.tabId = newTabId

@@ -14675,9 +14675,7 @@ final class Workspace: Identifiable, ObservableObject {
         let startCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
         let focusPlacement = oldPanel.surface.focusPlacement
-        var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-        template.waitAfterCommand = true
-        inheritedConfig = template
+        let launchContext = oldPanel.surface.launchContext
 
         oldPanel.unfocus()
         oldPanel.hostedView.setVisibleInUI(false)
@@ -14694,7 +14692,7 @@ final class Workspace: Identifiable, ObservableObject {
             publishSurfaceClosedEvent: false,
             clearSurfaceNotifications: true,
             requestTransferredRemoteCleanup: true,
-            cleanupControllerSurfaceState: true
+            cleanupControllerSurfaceState: false
         )
         TerminalSurfaceRegistry.shared.unregister(oldPanel.surface)
         oldPanel.surface.teardownSurface()
@@ -14702,7 +14700,7 @@ final class Workspace: Identifiable, ObservableObject {
         let replacementPanel = TerminalPanel(
             id: panelId,
             workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            context: launchContext,
             configTemplate: inheritedConfig,
             workingDirectory: requestedWorkingDirectory,
             portOrdinal: portOrdinal,
