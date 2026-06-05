@@ -363,12 +363,11 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     }
 
     var inlineStartupInput: String? {
-        let trimmedStartupCommand = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedStartupCommand.isEmpty else { return nil }
-        let trimmed = TerminalStartupWorkingDirectoryPrefix.replacingChangeDirectoryPrefix(
-            in: trimmedStartupCommand,
-            workingDirectory: cwd
-        )
+        // PROOF-OF-REGRESSION REVERT (DO NOT MERGE): restore pre-#5271 behavior (no
+        // cwd guard) so the behavioral regression test goes red, demonstrating it
+        // catches the missing-cd bug. The fix re-adds replacingChangeDirectoryPrefix.
+        let trimmed = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
         guard let environment, !environment.isEmpty else {
             return trimmed + "\n"
         }
