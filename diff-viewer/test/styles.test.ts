@@ -5,6 +5,7 @@ test("toolbar and files pane use theme surfaces", () => {
   expect(styles).toContain("--cmux-diff-toolbar-bg: var(--cmux-diff-bg)");
   expect(styles).toContain("--cmux-diff-sidebar-bg: var(--cmux-diff-bg)");
   expect(styles).toMatch(/#toolbar\s*\{[^}]*border-bottom: 1px solid var\(--cmux-diff-border\)[^}]*background: var\(--cmux-diff-toolbar-bg\)/s);
+  expect(styles).toMatch(/#toolbar\s*\{[^}]*padding: 3px 4px 3px 8px;/s);
   expect(styles).toMatch(/#files-sidebar\s*\{[^}]*background: var\(--cmux-diff-sidebar-bg\)/s);
   expect(styles).toMatch(/#files-header\s*\{[^}]*border-bottom: 1px solid var\(--cmux-diff-border\)[^}]*background: var\(--cmux-diff-sidebar-bg\)/s);
   expect(styles).toMatch(/#file-list\s*\{[^}]*background: var\(--cmux-diff-sidebar-bg\)/s);

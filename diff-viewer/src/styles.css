@@ -96,7 +96,7 @@ body {
   align-items: center;
   gap: 7px;
   min-height: 32px;
-  padding: 3px 8px;
+  padding: 3px 4px 3px 8px;
   border-bottom: 1px solid var(--cmux-diff-border);
   background: var(--cmux-diff-toolbar-bg);
   color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
