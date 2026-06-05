@@ -100,6 +100,65 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 0)
     }
 
+    func testTerminalInteractionDismissalHasCheapFalsePathWithoutActivity() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        XCTAssertFalse(manager.hasDismissibleNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: panelId))
+        XCTAssertFalse(manager.dismissNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: panelId))
+    }
+
+    func testTerminalInteractionDismissalRecognizesFocusedReadIndicator() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
+
+        XCTAssertTrue(manager.hasDismissibleNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: panelId))
+        XCTAssertTrue(manager.dismissNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: panelId))
+        XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
+    }
+
     func testRestoredWorkspaceUnreadClearsOnDirectTerminalInteraction() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -132,6 +191,38 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertTrue(manager.dismissNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: panelId))
         XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: workspace.id))
         XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 0)
+    }
+
+    func testTerminalInteractionDismissalRecognizesRestoredVisualOnlyPanelIndicator() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.restorePanelUnreadIndicator(panelId, contributesToWorkspaceUnread: false)
+
+        XCTAssertFalse(store.hasPanelDerivedUnread(forTabId: workspace.id))
+        XCTAssertTrue(manager.hasDismissibleNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: panelId))
+        XCTAssertTrue(manager.dismissNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: panelId))
+        XCTAssertFalse(workspace.hasRestoredUnreadIndicator(panelId: panelId))
     }
 
     func testRestoredPanelUnreadIndicatorMarksWorkspaceUnreadForSidebar() throws {
@@ -397,6 +488,8 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertTrue(store.hasManualUnread(forTabId: workspace.id))
         XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: workspace.id))
 
+        XCTAssertTrue(manager.hasDismissibleNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: panelId))
+
         XCTAssertTrue(manager.dismissNotificationOnDirectInteraction(tabId: workspace.id, surfaceId: panelId))
 
         XCTAssertTrue(workspace.manualUnreadPanelIds.contains(panelId))
@@ -448,6 +541,8 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertTrue(workspace.hasRestoredUnreadIndicator(panelId: panelId))
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: liveSurfaceId))
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+
+        XCTAssertTrue(manager.hasDismissibleNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: liveSurfaceId))
 
         XCTAssertTrue(manager.dismissNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: liveSurfaceId))
 

@@ -6339,6 +6339,30 @@ class TabManager: ObservableObject {
         dismissNotification(tabId: tabId, surfaceId: surfaceId, context: .terminalInteraction)
     }
 
+    func hasDismissibleNotificationOnTerminalInteraction(tabId: UUID, surfaceId: UUID?) -> Bool {
+        guard selectedTabId == tabId else { return false }
+        guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
+        let workspace = selectedWorkspace
+        let targetPanelId = surfaceId.flatMap { surfaceOrPanelId in
+            workspace.flatMap { panelId(forSurfaceOrPanelId: surfaceOrPanelId, in: $0) }
+        }
+        var notificationSurfaceIds: [UUID] = []
+        if let surfaceId {
+            notificationSurfaceIds.append(surfaceId)
+        }
+        if let targetPanelId, !notificationSurfaceIds.contains(targetPanelId) {
+            notificationSurfaceIds.append(targetPanelId)
+        }
+        if notificationStore.hasDismissibleActivity(forTabId: tabId, surfaceIds: notificationSurfaceIds) {
+            return true
+        }
+        if let targetPanelId,
+           workspace?.hasDismissibleUnreadIndicator(panelId: targetPanelId) == true {
+            return true
+        }
+        return false
+    }
+
     @discardableResult
     private func dismissNotification(
         tabId: UUID,

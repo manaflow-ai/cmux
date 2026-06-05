@@ -89,6 +89,76 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
     }
 }
 
+/// Coalesces terminal title notifications at the producer so tmux/title bursts
+/// don't fan out through every NotificationCenter observer per escape sequence.
+final class GhosttyTitleNotificationDispatcher {
+    static let shared = GhosttyTitleNotificationDispatcher()
+
+    private struct SurfaceKey: Hashable {
+        let tabId: UUID
+        let surfaceId: UUID
+    }
+
+    private struct PendingTitle {
+        let object: Any?
+        let title: String
+    }
+
+    private let coalescer: NotificationBurstCoalescer
+    private let postNotification: (Any?, [AnyHashable: Any]) -> Void
+    private var pendingTitles: [SurfaceKey: PendingTitle] = [:]
+    private var lastPostedTitleBySurface: [SurfaceKey: String] = [:]
+
+    init(
+        delay: TimeInterval = 1.0 / 60.0,
+        postNotification: @escaping (Any?, [AnyHashable: Any]) -> Void = { object, userInfo in
+            NotificationCenter.default.post(
+                name: .ghosttyDidSetTitle,
+                object: object,
+                userInfo: userInfo
+            )
+        }
+    ) {
+        coalescer = NotificationBurstCoalescer(delay: delay)
+        self.postNotification = postNotification
+    }
+
+    func signal(object: Any?, tabId: UUID, surfaceId: UUID, title: String) {
+        let signalOnMain = { [self] in
+            let key = SurfaceKey(tabId: tabId, surfaceId: surfaceId)
+            pendingTitles[key] = PendingTitle(object: object, title: title)
+            coalescer.signal { [self] in
+                flushPendingTitles()
+            }
+        }
+
+        if Thread.isMainThread {
+            signalOnMain()
+        } else {
+            DispatchQueue.main.async(execute: signalOnMain)
+        }
+    }
+
+    private func flushPendingTitles() {
+        guard !pendingTitles.isEmpty else { return }
+        let titles = pendingTitles
+        pendingTitles.removeAll(keepingCapacity: true)
+
+        for (key, pendingTitle) in titles {
+            guard lastPostedTitleBySurface[key] != pendingTitle.title else { continue }
+            lastPostedTitleBySurface[key] = pendingTitle.title
+            postNotification(
+                pendingTitle.object,
+                [
+                    GhosttyNotificationKey.tabId: key.tabId,
+                    GhosttyNotificationKey.surfaceId: key.surfaceId,
+                    GhosttyNotificationKey.title: pendingTitle.title,
+                ]
+            )
+        }
+    }
+}
+
 enum GhosttyNotificationKey {
     static let scrollbar = "ghostty.scrollbar"
     static let cellSize = "ghostty.cellSize"

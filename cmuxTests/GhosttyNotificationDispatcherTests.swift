@@ -113,3 +113,91 @@ final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
         return -1
     }
 }
+
+final class GhosttyTitleNotificationDispatcherTests: XCTestCase {
+    func testSignalCoalescesBurstToLatestTitle() {
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let expectation = expectation(description: "coalesced title notification")
+        expectation.expectedFulfillmentCount = 1
+        var postedTitles: [String] = []
+        let dispatcher = GhosttyTitleNotificationDispatcher(
+            delay: 0.01,
+            postNotification: { _, userInfo in
+                postedTitles.append(userInfo[GhosttyNotificationKey.title] as? String ?? "")
+                expectation.fulfill()
+            }
+        )
+
+        DispatchQueue.main.async {
+            dispatcher.signal(object: nil, tabId: tabId, surfaceId: surfaceId, title: "vim")
+            dispatcher.signal(object: nil, tabId: tabId, surfaceId: surfaceId, title: "shell")
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(postedTitles, ["shell"])
+    }
+
+    func testSignalPostsLatestTitleForEachSurfaceInBurst() {
+        let tabId = UUID()
+        let firstSurfaceId = UUID()
+        let secondSurfaceId = UUID()
+        let expectation = expectation(description: "coalesced title notifications")
+        expectation.expectedFulfillmentCount = 2
+        var postedTitlesBySurface: [UUID: String] = [:]
+        let dispatcher = GhosttyTitleNotificationDispatcher(
+            delay: 0.01,
+            postNotification: { _, userInfo in
+                guard let surfaceId = userInfo[GhosttyNotificationKey.surfaceId] as? UUID else {
+                    XCTFail("Expected surface id")
+                    return
+                }
+                postedTitlesBySurface[surfaceId] = userInfo[GhosttyNotificationKey.title] as? String ?? ""
+                expectation.fulfill()
+            }
+        )
+
+        DispatchQueue.main.async {
+            dispatcher.signal(object: nil, tabId: tabId, surfaceId: firstSurfaceId, title: "old-1")
+            dispatcher.signal(object: nil, tabId: tabId, surfaceId: secondSurfaceId, title: "old-2")
+            dispatcher.signal(object: nil, tabId: tabId, surfaceId: firstSurfaceId, title: "new-1")
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(postedTitlesBySurface[firstSurfaceId], "new-1")
+        XCTAssertEqual(postedTitlesBySurface[secondSurfaceId], "old-2")
+    }
+
+    func testSignalDropsRepeatedTitleAfterFlush() {
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let firstExpectation = expectation(description: "single repeated title notification")
+        var postedTitles: [String] = []
+        var repeatedExpectation: XCTestExpectation?
+        let dispatcher = GhosttyTitleNotificationDispatcher(
+            delay: 0.01,
+            postNotification: { _, userInfo in
+                postedTitles.append(userInfo[GhosttyNotificationKey.title] as? String ?? "")
+                if postedTitles.count == 1 {
+                    firstExpectation.fulfill()
+                } else {
+                    repeatedExpectation?.fulfill()
+                }
+            }
+        )
+
+        DispatchQueue.main.async {
+            dispatcher.signal(object: nil, tabId: tabId, surfaceId: surfaceId, title: "tmux")
+        }
+        wait(for: [firstExpectation], timeout: 1.0)
+
+        let invertedExpectation = expectation(description: "repeated title not posted")
+        invertedExpectation.isInverted = true
+        repeatedExpectation = invertedExpectation
+        DispatchQueue.main.async {
+            dispatcher.signal(object: nil, tabId: tabId, surfaceId: surfaceId, title: "tmux")
+        }
+        wait(for: [invertedExpectation], timeout: 0.05)
+        XCTAssertEqual(postedTitles, ["tmux"])
+    }
+}

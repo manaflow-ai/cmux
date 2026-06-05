@@ -1136,6 +1136,18 @@ final class TerminalNotificationStore: ObservableObject {
             (focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false)
     }
 
+    func hasDismissibleActivity(forTabId tabId: UUID, surfaceIds: [UUID]) -> Bool {
+        if manualUnreadWorkspaceIds.contains(tabId) || restoredUnreadWorkspaceIds.contains(tabId) {
+            return true
+        }
+        if surfaceIds.isEmpty {
+            return hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: nil)
+        }
+        return surfaceIds.contains { surfaceId in
+            hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId)
+        }
+    }
+
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
         indexes.latestByTabId[tabId]
     }

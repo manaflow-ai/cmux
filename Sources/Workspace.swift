@@ -11971,6 +11971,10 @@ final class Workspace: Identifiable, ObservableObject {
         syncUnreadBadgeStateForPanel(panelId)
     }
 
+    func hasDismissibleUnreadIndicator(panelId: UUID) -> Bool {
+        manualUnreadPanelIds.contains(panelId) || restoredUnreadPanelIds.contains(panelId)
+    }
+
     @discardableResult
     func clearAllPanelUnreadIndicatorsForWorkspaceRead() -> Bool {
         let hadLocalUnreadIndicators = !manualUnreadPanelIds.isEmpty || !restoredUnreadPanelIds.isEmpty

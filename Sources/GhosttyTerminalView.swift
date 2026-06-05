@@ -4546,17 +4546,12 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             if let tabId = surfaceView.tabId,
                let surfaceId = surfaceView.terminalSurface?.id {
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyDidSetTitle,
-                        object: surfaceView,
-                        userInfo: [
-                            GhosttyNotificationKey.tabId: tabId,
-                            GhosttyNotificationKey.surfaceId: surfaceId,
-                            GhosttyNotificationKey.title: title,
-                        ]
-                    )
-                }
+                GhosttyTitleNotificationDispatcher.shared.signal(
+                    object: surfaceView,
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    title: title
+                )
             }
             return true
         case GHOSTTY_ACTION_PWD:
@@ -9299,18 +9294,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
-        if let mode = RightSidebarMode.modeShortcut(for: event), let window, AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: window) == true {
-            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: window)
+        let appDelegate = AppDelegate.shared
+        if let window,
+           appDelegate?.shouldRouteRightSidebarModeShortcut(in: window) == true,
+           let mode = RightSidebarMode.modeShortcut(for: event) {
+            _ = appDelegate?.focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: window)
             return
         }
         if let terminalSurface {
 #if DEBUG
             let dismissNotificationStart = ProcessInfo.processInfo.systemUptime
 #endif
-            AppDelegate.shared?.tabManager?.dismissNotificationOnTerminalInteraction(
+            if appDelegate?.tabManager?.hasDismissibleNotificationOnTerminalInteraction(
                 tabId: terminalSurface.tabId,
                 surfaceId: terminalSurface.id
-            )
+            ) == true {
+                appDelegate?.tabManager?.dismissNotificationOnTerminalInteraction(
+                    tabId: terminalSurface.tabId,
+                    surfaceId: terminalSurface.id
+                )
+            }
 #if DEBUG
             dismissNotificationMs = (ProcessInfo.processInfo.systemUptime - dismissNotificationStart) * 1000.0
 #endif
