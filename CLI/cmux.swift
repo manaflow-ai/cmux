@@ -27834,14 +27834,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             if hookWsFlag == nil,
                explicitSurfaceFlag == nil,
-               ambientSurfaceArg != nil,
-               resolvedDirectSurfaceArg == nil,
+               let ambientSurface = ambientSurfaceArg,
+               let ambientWorkspace = resolvedDirectWorkspaceArg,
+               !surfaceIsAccessible(ambientSurface, workspaceId: ambientWorkspace),
                case .promptSubmit = action,
                def.name == "codex",
                let binding = processBinding(),
                let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
                let boundWorkspace = resolveAccessibleWorkspaceId(boundWorkspaceRaw),
-               resolvedDirectWorkspaceArg.map({ $0 == boundWorkspace }) ?? true,
+               boundWorkspace == ambientWorkspace,
                let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
                let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: boundWorkspace) {
 #if DEBUG
