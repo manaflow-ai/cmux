@@ -28955,8 +28955,12 @@ function showSavedColorMenu(event, color) {
   applyActions.append(everywhere);
   const copy = contextMenuButton("Copy hex", () => copyCustomColorValue(normalized, "Saved color copied."), false, "", { icon: "clipboard" });
   copy.title = customColorCopyTitle(normalized, "Copy this saved color hex value.");
+  const variantModel = colorVariantSaveModel(normalized);
+  const saveVariants = contextMenuButton("Save variants", () => saveColorVariantsToPalette(normalized), variantModel.disabled, "", { icon: "plus" });
+  saveVariants.title = variantModel.title;
   const manageActions = contextMenuActionGroup(
     copy,
+    saveVariants,
     contextMenuButton("Delete", () => deleteCustomColorPalette(normalized), false, "danger")
   );
   menu.replaceChildren(
@@ -35889,6 +35893,17 @@ function paletteEntries() {
       title: customColorCopyTitle(color, "Copy this saved color hex value."),
       search: normalizeSettingsQuery(`saved color palette custom copy hex clipboard ${color}`),
       run: () => copyCustomColorValue(color, "Saved color copied.")
+    });
+    const variantModel = colorVariantSaveModel(color);
+    entries.push({
+      id: `savedColor.variants.${color.slice(1)}`,
+      label: `Save color variants: ${color}`,
+      meta: variantModel.disabled ? variantModel.title : "Generated color variants",
+      shortcut: "Save",
+      disabled: variantModel.disabled,
+      title: variantModel.title,
+      search: normalizeSettingsQuery(`saved color palette custom variants generated save ${color} ${variantModel.search}`),
+      run: () => saveColorVariantsToPalette(color)
     });
     entries.push({
       id: `savedColor.accent.${color.slice(1)}`,
