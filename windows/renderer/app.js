@@ -20858,7 +20858,9 @@ function refreshBrowserProfileSaveControls() {
 function refreshBrowserProfileSaveSettings(options = {}) {
   if (options.render === false || state.inspectorMode !== "settings") return;
   if (state.settingsCategory === "browser") {
-    refreshBrowserProfileSaveControls();
+    requestAnimationFrame(() => {
+      if (state.inspectorMode === "settings" && state.settingsCategory === "browser") refreshBrowserProfileSaveControls();
+    });
     return;
   }
   scheduleSettingsInspectorRender({ ifChanged: true });
@@ -25129,7 +25131,9 @@ function refreshPerformanceProfileSaveControls() {
 function refreshPerformanceProfileSaveSettings(options = {}) {
   if (options.render === false || state.inspectorMode !== "settings") return;
   if (state.settingsCategory === "performance") {
-    refreshPerformanceProfileSaveControls();
+    requestAnimationFrame(() => {
+      if (state.inspectorMode === "settings" && state.settingsCategory === "performance") refreshPerformanceProfileSaveControls();
+    });
     return;
   }
   scheduleSettingsInspectorRender({ ifChanged: true });
@@ -30463,7 +30467,9 @@ function refreshTerminalProfileSaveControls() {
 function refreshTerminalProfileSaveSettings(options = {}) {
   if (options.render === false || state.inspectorMode !== "settings") return;
   if (state.settingsCategory === "terminal") {
-    refreshTerminalProfileSaveControls();
+    requestAnimationFrame(() => {
+      if (state.inspectorMode === "settings" && state.settingsCategory === "terminal") refreshTerminalProfileSaveControls();
+    });
     return;
   }
   scheduleSettingsInspectorRender({ ifChanged: true });
