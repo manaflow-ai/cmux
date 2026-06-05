@@ -27792,6 +27792,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             try? store.markNotificationEmitted(sessionId: sessionId, fingerprint: fingerprint)
         }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
+            if hookWsFlag != nil,
+               explicitSurfaceFlag != nil,
+               case .promptSubmit = action,
+               def.name == "codex",
+               mapped != nil,
+               let workspaceId = try? resolveWorkspaceId(hookWsFlag, client: client),
+               let surfaceId = try? resolveSurfaceId(explicitSurfaceFlag, workspaceId: workspaceId, client: client) {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=explicit-rebind workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) mapped=1",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return (workspaceId, surfaceId)
+            }
+
             guard !hasUnusableDirectBinding else {
 #if DEBUG
                 agentHookDebugLog(
@@ -28381,7 +28398,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let nestedPromptStop: Bool
             if !sessionId.isEmpty, !staleIdleStopHasNewerRunningSession {
-                nestedPromptStop = (try? store.recordPromptStop(
+                let mappedPromptDepthBeforeStop = max(
+                    mapped?.activePromptDepth ?? 0,
+                    mapped?.activePromptTurnIds?.compactMap({ normalizedHookValue($0) }).count ?? 0,
+                    normalizedHookValue(mapped?.activePromptTurnId) == nil ? 0 : 1
+                )
+                let legacyStopWithoutTurnIdIsNested = def.name == "codex"
+                    && normalizedHookValue(input.turnId) == nil
+                    && mappedPromptDepthBeforeStop > 1
+                let recordedNestedPromptStop = (try? store.recordPromptStop(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -28398,6 +28423,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     lastSubtitle: nil,
                     lastBody: nil
                 )) ?? false
+                nestedPromptStop = legacyStopWithoutTurnIdIsNested || recordedNestedPromptStop
             } else {
                 nestedPromptStop = false
             }
