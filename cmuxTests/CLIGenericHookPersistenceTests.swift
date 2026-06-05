@@ -3495,6 +3495,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_AGENT_HOOK_PID_OVERRIDE"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
@@ -3590,6 +3593,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_AGENT_HOOK_PID_OVERRIDE"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
