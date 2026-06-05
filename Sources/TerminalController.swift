@@ -13192,13 +13192,20 @@ class TerminalController {
 
     private func v2BrowserScreenshot(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            var captureTask: Task<Void, Never>?
             let snapshotResult: Data?? = v2AwaitCallback(timeout: 15.0) { finish in
-                browserPanel.takeSnapshot { image in
-                    finish(image.flatMap { self.v2PNGData(from: $0) })
+                captureTask = Task { @MainActor in
+                    do {
+                        let image = try await browserPanel.captureAutomationVisibleViewportSnapshot()
+                        finish(self.v2PNGData(from: image))
+                    } catch {
+                        finish(nil)
+                    }
                 }
             }
 
             guard let snapshotResult else {
+                captureTask?.cancel()
                 return .err(code: "timeout", message: "Timed out waiting for snapshot", data: nil)
             }
             guard let imageData = snapshotResult else {

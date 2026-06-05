@@ -3393,6 +3393,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     private var shouldPreloadInitialNavigationInBackground: Bool
     private var backgroundPreloadWindow: NSWindow?
+    private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
     private var activeVisualAutomationCaptureCount: Int = 0
     private struct PendingInteractiveBrowserPrompt {
         let present: (NSWindow, @escaping () -> Void) -> Void
@@ -7363,12 +7364,17 @@ extension BrowserPanel {
     }
 
     func captureAutomationVisibleViewportSnapshot() async throws -> NSImage {
-        try await withVisualAutomationRenderLease(reason: "browser.screenshot") { webView, afterScreenUpdates in
-            try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
-                from: webView,
-                afterScreenUpdates: afterScreenUpdates
-            )
+        guard let image = try await visualAutomationCaptureGate.run({
+            try await withVisualAutomationRenderLease(reason: "browser.screenshot") { webView, afterScreenUpdates in
+                try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
+                    from: webView,
+                    afterScreenUpdates: afterScreenUpdates
+                )
+            }
+        }) else {
+            throw BrowserScreenshotError.emptySnapshot
         }
+        return image
     }
 
     private func withVisualAutomationRenderLease<T>(
