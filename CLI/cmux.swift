@@ -27815,6 +27815,26 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return (workspaceId, surfaceId)
             }
 
+            if hookWsFlag == nil,
+               explicitSurfaceFlag == nil,
+               hasInvalidAmbientSurfaceArg,
+               case .promptSubmit = action,
+               def.name == "codex",
+               let workspaceId = resolvedDirectWorkspaceArg,
+               let binding = processBinding(),
+               nonEmptyClaudeHookIdentifier(binding.workspaceId) == workspaceId,
+               let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
+               let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: workspaceId) {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process-invalid-ambient-surface workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(boundSurface)) mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return (workspaceId, boundSurface)
+            }
+
             // G3 (codex jumble defense-in-depth): the surface id can arrive from the ambient env
             // (CMUX_SURFACE_ID), which a launcher or an inherited subprocess can leak as the operator's
             // FOCUSED pane rather than the agent's own pane. When the agent process's controlling TTY
