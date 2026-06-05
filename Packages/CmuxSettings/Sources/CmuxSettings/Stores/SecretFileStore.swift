@@ -111,7 +111,7 @@ public actor SecretFileStore {
     /// observer token and ends the stream.
     public nonisolated func values(for key: SecretFileKey) -> AsyncStream<String> {
         AsyncStream<String>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let state = SecretFileObservationState()
+            let state = SettingObservationState<String>()
             let initialTask = Task { [weak self] in
                 guard let self else {
                     continuation.finish()
@@ -168,34 +168,5 @@ public actor SecretFileStore {
     private static func normalized(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .newlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-}
-
-private actor SecretFileObservationState {
-    private var lastYielded: String?
-    private var isRefreshing = false
-    private var needsRefresh = false
-
-    func refresh(
-        read: @escaping @Sendable () async -> String,
-        to continuation: AsyncStream<String>.Continuation
-    ) async {
-        if isRefreshing {
-            needsRefresh = true
-            return
-        }
-        isRefreshing = true
-        while true {
-            needsRefresh = false
-            let value = await read()
-            if needsRefresh { continue }
-            if lastYielded != value {
-                lastYielded = value
-                continuation.yield(value)
-            }
-            if needsRefresh { continue }
-            isRefreshing = false
-            return
-        }
     }
 }
