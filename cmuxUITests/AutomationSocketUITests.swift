@@ -233,6 +233,18 @@ final class AutomationSocketUITests: XCTestCase {
         if let resolvedPath {
             socketPath = resolvedPath
         }
+        if completed {
+            return true
+        }
+        let diagnostics = loadDiagnostics()
+        if diagnostics["socketReady"] == "1",
+           diagnostics["socketPingResponse"] == "PONG",
+           let expectedPath = diagnostics["socketExpectedPath"],
+           !expectedPath.isEmpty,
+           FileManager.default.fileExists(atPath: expectedPath) {
+            socketPath = expectedPath
+            return true
+        }
         return completed
     }
 
