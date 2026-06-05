@@ -1327,7 +1327,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
         XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
 
-        let currentPromptStart = context.state.commands.count
+        let currentPromptStart = context.state.snapshot().count
         let currentPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
@@ -2063,7 +2063,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
         XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
 
-        let currentStopStart = context.state.commands.count
+        let sawCurrentPromptResumeBinding = waitForMockSocketCommand(in: context.state, after: currentPromptStart) {
+            jsonObject($0)?["method"] as? String == "surface.resume.set"
+        }
+        XCTAssertTrue(
+            sawCurrentPromptResumeBinding,
+            "The current prompt should publish a resume binding before Stop, saw \(context.state.snapshot())"
+        )
+
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"old-turn"}}"#,
+            #"{"type":"turn_context","payload":{"turn_id":"current-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"current-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let currentStopStart = context.state.snapshot().count
         let currentStop = runCodexHook(
             context: context,
             subcommand: "stop",
@@ -2081,7 +2096,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "The current turn should notify before a late stale Stop arrives, saw \(currentStopCommands)"
         )
 
-        let lateStopStart = context.state.commands.count
+        let lateStopStart = context.state.snapshot().count
         let lateStop = runCodexHook(
             context: context,
             subcommand: "stop",
