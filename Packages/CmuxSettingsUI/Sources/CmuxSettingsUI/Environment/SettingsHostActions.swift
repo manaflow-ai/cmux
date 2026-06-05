@@ -98,10 +98,33 @@ public protocol SettingsHostActions: AnyObject {
     /// Formats a point size for display next to a font-size slider
     /// (e.g. `12`, `13.5`), trimming trailing zeros.
     func formattedFontSize(_ points: Double) -> String
+
+    /// The current status of the Mac-side iOS pairing host (the actual bound
+    /// port, whether it fell back from the configured port, the active iOS
+    /// connection count, the effective display name, and the routes the phone
+    /// can reach this Mac on), or `nil` when the host has not started the
+    /// mobile service yet (or in previews/tests). The Mobile section renders
+    /// the bound-port indicator and diagnostics from this.
+    ///
+    /// Backed by host-app runtime state, so it lives here rather than in the
+    /// catalog. See ``mobilePairingStatusUpdates()`` for live refresh.
+    func mobilePairingStatus() -> MobilePairingStatusSnapshot?
+
+    /// A stream that yields a fresh ``MobilePairingStatusSnapshot`` whenever the
+    /// pairing host's status changes (listener bound/stopped, bound port
+    /// changed, connection count changed). The Mobile section subscribes so the
+    /// bound-port indicator and connection count stay live without polling.
+    func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot>
 }
 
 public extension SettingsHostActions {
     func browserHistoryEntryCount() -> Int? { nil }
+
+    func mobilePairingStatus() -> MobilePairingStatusSnapshot? { nil }
+
+    func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot> {
+        AsyncStream { $0.finish() }
+    }
 
     func sidebarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 12.5, minimum: 10, maximum: 20, defaultValue: 12.5)

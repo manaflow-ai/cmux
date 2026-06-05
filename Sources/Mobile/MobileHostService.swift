@@ -12,6 +12,15 @@ extension Notification.Name {
     static let mobileHostEventSubscriptionsDidChange = Notification.Name(
         "cmux.mobileHostEventSubscriptionsDidChange"
     )
+
+    /// Posted whenever the mobile pairing host's observable status changes:
+    /// the listener binds or stops, the bound port changes, or the active
+    /// connection count changes. The Settings host adapter bridges this to an
+    /// `AsyncStream` so the Mobile settings section can show the live bound
+    /// port and connection count without polling.
+    static let mobileHostStatusDidChange = Notification.Name(
+        "cmux.mobileHostStatusDidChange"
+    )
 }
 
 private enum MobileHostEventSubscriptionTracker {
@@ -135,6 +144,7 @@ private enum MobileHostPublicStatusCache {
         lock.lock()
         routes = nextRoutes
         lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
     static func result() -> MobileHostRPCResult {
@@ -188,12 +198,14 @@ enum MobileHostRequestActivity {
         lock.lock()
         activeConnectionCount += 1
         lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
     static func endConnection() {
         lock.lock()
         activeConnectionCount = max(0, activeConnectionCount - 1)
         lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
     static func beginRequest() {
@@ -224,6 +236,11 @@ enum MobileHostRequestActivity {
 struct MobileHostServiceStatus {
     let isRunning: Bool
     let port: Int?
+    /// The preferred port from settings the listener tried to bind.
+    let configuredPort: Int
+    /// True when the listener is running on an OS-assigned ephemeral port
+    /// because the configured port could not be bound.
+    let usesEphemeralFallback: Bool
     let routes: [CmxAttachRoute]
     let activeConnectionCount: Int
     let lastErrorDescription: String?
@@ -232,6 +249,8 @@ struct MobileHostServiceStatus {
         [
             "is_running": isRunning,
             "port": port ?? NSNull(),
+            "configured_port": configuredPort,
+            "uses_ephemeral_fallback": usesEphemeralFallback,
             "routes": routes.map(\.mobileHostJSONObject),
             "active_connection_count": activeConnectionCount,
             "last_error": lastErrorDescription ?? NSNull()
@@ -239,10 +258,19 @@ struct MobileHostServiceStatus {
     }
 }
 
+/// What ``MobileHostService/syncToSettings(defaults:)`` should do to reconcile
+/// the live listener with the current settings. A pure value so the
+/// restart-on-port-change logic is unit-testable without a real `NWListener`.
+enum MobileHostSyncDecision: Equatable {
+    case noop
+    case start
+    case stop
+    case restart
+}
+
 @MainActor
 final class MobileHostService {
     static let shared = MobileHostService()
-    static let preferredPort = CmxMobileDefaults.defaultHostPort
     nonisolated private static let maximumActiveConnectionCount = 10
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
@@ -252,6 +280,10 @@ final class MobileHostService {
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
     private var listenerPort: Int?
+    /// The preferred port the active start-sequence targeted (regardless of an
+    /// ephemeral fallback). Used to decide whether a settings change needs a
+    /// restart. `nil` while stopped.
+    private var appliedPreferredPort: Int?
     private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
@@ -331,6 +363,47 @@ final class MobileHostService {
         return SettingCatalog().mobile.iOSPairingHost.defaultValue
     }
 
+    /// User-default key for the preferred iOS pairing listener port.
+    nonisolated static let portDefaultsKey = SettingCatalog().mobile.iOSPairingPort.userDefaultsKey
+
+    /// The preferred TCP port the listener should try to bind, read from
+    /// settings.
+    ///
+    /// Falls back to the catalog default (which mirrors
+    /// `CmxMobileDefaults.defaultHostPort`) when unset or outside the valid
+    /// `1...65535` range. The listener still falls back to an OS-assigned
+    /// ephemeral port if this port is unavailable at bind time.
+    nonisolated static func configuredPort(defaults: UserDefaults = .standard) -> Int {
+        let fallback = SettingCatalog().mobile.iOSPairingPort.defaultValue
+        guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {
+            return fallback
+        }
+        return (1...65535).contains(raw) ? raw : fallback
+    }
+
+    /// Pure reconciliation between the desired settings and the live listener
+    /// state. Factored out so the restart-on-port-change decision is unit
+    /// testable without binding a real `NWListener`.
+    ///
+    /// - Parameters:
+    ///   - enabled: Whether the iOS pairing host is enabled in settings.
+    ///   - listenerRunning: Whether a listener is currently bound.
+    ///   - desiredPort: The preferred port from settings (``configuredPort(defaults:)``).
+    ///   - appliedPort: The preferred port the running listener targeted, or
+    ///     `nil` when stopped.
+    /// - Returns: The action ``syncToSettings(defaults:)`` should take.
+    nonisolated static func syncDecision(
+        enabled: Bool,
+        listenerRunning: Bool,
+        desiredPort: Int,
+        appliedPort: Int?
+    ) -> MobileHostSyncDecision {
+        guard enabled else { return listenerRunning ? .stop : .noop }
+        guard listenerRunning else { return .start }
+        if appliedPort != desiredPort { return .restart }
+        return .noop
+    }
+
     func start() {
         guard Self.isListeningEnabled else {
             #if DEBUG
@@ -359,21 +432,29 @@ final class MobileHostService {
 
     private func publishRoutesWithoutListenerForXCTest() {
         guard listener == nil else { return }
+        let port = Self.configuredPort()
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
-        listenerPort = Self.preferredPort
+        listenerPort = port
+        appliedPreferredPort = port
         lastErrorDescription = nil
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: Self.preferredPort).routes)
+        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
         mobileHostLog.info("mobile host listener disabled; publishing XCTest routes without binding")
     }
     #endif
 
     private func startListener(usePreferredPort: Bool) {
+        let desiredPort = Self.configuredPort()
+        appliedPreferredPort = desiredPort
         do {
             let tcpOptions = NWProtocolTCP.Options()
             tcpOptions.noDelay = true
             let parameters = NWParameters(tls: nil, tcp: tcpOptions)
-            let nextListener = try makeListener(parameters: parameters, usePreferredPort: usePreferredPort)
+            let nextListener = try makeListener(
+                parameters: parameters,
+                usePreferredPort: usePreferredPort,
+                port: desiredPort
+            )
             let generation = UUID()
             listenerGeneration = generation
             nextListener.stateUpdateHandler = { state in
@@ -400,9 +481,15 @@ final class MobileHostService {
         }
     }
 
-    private func makeListener(parameters: NWParameters, usePreferredPort: Bool) throws -> NWListener {
-        if usePreferredPort, let preferredPort = NWEndpoint.Port(rawValue: UInt16(Self.preferredPort)) {
-            return try NWListener(using: parameters, on: preferredPort)
+    private func makeListener(
+        parameters: NWParameters,
+        usePreferredPort: Bool,
+        port: Int
+    ) throws -> NWListener {
+        if usePreferredPort,
+           let rawPort = UInt16(exactly: port),
+           let endpointPort = NWEndpoint.Port(rawValue: rawPort) {
+            return try NWListener(using: parameters, on: endpointPort)
         }
         return try NWListener(using: parameters, on: .any)
     }
@@ -415,6 +502,7 @@ final class MobileHostService {
         listener?.cancel()
         listener = nil
         listenerPort = nil
+        appliedPreferredPort = nil
         for connection in activeConnections.values {
             Task { await connection.close(reason: "service stopped") }
         }
@@ -430,13 +518,7 @@ final class MobileHostService {
 
     func statusSnapshot() -> MobileHostServiceStatus {
         let routes = listenerPort.map { routeResolver.routes(port: $0).routes } ?? []
-        return MobileHostServiceStatus(
-            isRunning: listener != nil && listenerPort != nil,
-            port: listenerPort,
-            routes: routes,
-            activeConnectionCount: MobileHostConnectionRegistry.shared.count,
-            lastErrorDescription: lastErrorDescription
-        )
+        return makeStatus(routes: routes)
     }
 
     private func publicStatusSnapshot() async -> MobileHostServiceStatus {
@@ -446,13 +528,48 @@ final class MobileHostService {
         } else {
             routes = []
         }
+        return makeStatus(routes: routes)
+    }
+
+    private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
+        let configured = Self.configuredPort()
+        let isRunning = listener != nil && listenerPort != nil
         return MobileHostServiceStatus(
-            isRunning: listener != nil && listenerPort != nil,
+            isRunning: isRunning,
             port: listenerPort,
+            configuredPort: configured,
+            usesEphemeralFallback: isRunning && listenerPort != configured,
             routes: routes,
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: lastErrorDescription
         )
+    }
+
+    /// Reconcile the live listener with current settings (enable/disable and
+    /// preferred-port changes). Safe to call on any settings change: it no-ops
+    /// unless the enabled state or the configured port actually changed, so an
+    /// unrelated `UserDefaults` write does not drop active iOS connections.
+    func syncToSettings(defaults: UserDefaults = .standard) {
+        switch Self.syncDecision(
+            enabled: Self.isListeningEnabled(defaults: defaults),
+            listenerRunning: listener != nil,
+            desiredPort: Self.configuredPort(defaults: defaults),
+            appliedPort: appliedPreferredPort
+        ) {
+        case .noop:
+            break
+        case .start:
+            start()
+        case .stop:
+            stop()
+        case .restart:
+            restart()
+        }
+    }
+
+    private func restart() {
+        stop()
+        start()
     }
 
     private func publicHostStatusResult() async -> MobileHostRPCResult {

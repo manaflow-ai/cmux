@@ -1,4 +1,5 @@
 import AppKit
+import CMUXMobileCore
 import CmuxSettingsUI
 import Foundation
 import OSLog
@@ -196,6 +197,61 @@ final class HostSettingsActions: SettingsHostActions {
 
     func formattedFontSize(_ points: Double) -> String {
         CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
+    }
+
+    func mobilePairingStatus() -> MobilePairingStatusSnapshot? {
+        Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot())
+    }
+
+    func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot> {
+        AsyncStream { continuation in
+            let task = Task { @MainActor in
+                // Seed with the current status, then forward every change.
+                continuation.yield(Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot()))
+                for await _ in NotificationCenter.default.notifications(named: .mobileHostStatusDidChange) {
+                    continuation.yield(Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot()))
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
+    /// Foundation-only ``MobilePairingStatusSnapshot``. Static so the status
+    /// stream's forwarding task does not retain this host bridge.
+    private static func mobilePairingSnapshot(from status: MobileHostServiceStatus) -> MobilePairingStatusSnapshot {
+        let routes = status.routes.compactMap { route -> MobilePairingRoute? in
+            guard case let .hostPort(host, port) = route.endpoint else { return nil }
+            return MobilePairingRoute(
+                id: route.id,
+                kindLabel: routeKindLabel(route.kind),
+                host: host,
+                port: port
+            )
+        }
+        return MobilePairingStatusSnapshot(
+            isRunning: status.isRunning,
+            configuredPort: status.configuredPort,
+            boundPort: status.port,
+            usesEphemeralFallback: status.usesEphemeralFallback,
+            activeConnectionCount: status.activeConnectionCount,
+            displayName: MobileHostIdentity.displayName() ?? "",
+            routes: routes
+        )
+    }
+
+    /// Localized transport label for a pairing route shown in diagnostics.
+    private static func routeKindLabel(_ kind: CmxAttachTransportKind) -> String {
+        switch kind {
+        case .tailscale:
+            return String(localized: "settings.mobile.route.tailscale", defaultValue: "Tailscale")
+        case .debugLoopback:
+            return String(localized: "settings.mobile.route.loopback", defaultValue: "Loopback")
+        case .iroh:
+            return String(localized: "settings.mobile.route.iroh", defaultValue: "Iroh")
+        case .websocket:
+            return String(localized: "settings.mobile.route.websocket", defaultValue: "WebSocket")
+        }
     }
 
     /// Writes a clamped font-size value to cmux's editable Ghostty config and

@@ -98,6 +98,8 @@ extension Array where Element == CuratedSettingEntry {
 
             // Mobile
             .init(section: .mobile, id: "iOSPairingHost", title: "iOS Pairing", synonyms: "ios iphone ipad mobile pairing local network permission sync"),
+            .init(section: .mobile, id: "iOSPairingPort", title: "Pairing Port", synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
+            .init(section: .mobile, id: "iOSPairingDisplayName", title: "Display Name", synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),
 
             // Beta
             .init(section: .betaFeatures, id: "feed", title: "Feed", synonyms: "feed right sidebar agent decisions permissions questions approval beta unstable"),
