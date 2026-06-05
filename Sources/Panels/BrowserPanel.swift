@@ -4727,7 +4727,12 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
+        let previousFaviconCachePartition = faviconCachePartition
         workspaceId = newWorkspaceId
+        invalidateFaviconIfCachePartitionChanged(
+            from: previousFaviconCachePartition,
+            refreshCurrentPage: true
+        )
     }
 
     func reattachToWorkspace(
@@ -4737,6 +4742,7 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint?,
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
+        let previousFaviconCachePartition = faviconCachePartition
         workspaceId = newWorkspaceId
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
         let targetStore = isRemoteWorkspace
@@ -4746,6 +4752,11 @@ final class BrowserPanel: Panel, ObservableObject {
         websiteDataStore = targetStore
         remoteProxyEndpoint = bypassesRemoteWorkspaceProxy ? nil : proxyEndpoint
         remoteWorkspaceStatus = remoteStatus
+        let didChangeFaviconCachePartition = faviconCachePartition != previousFaviconCachePartition
+        if didChangeFaviconCachePartition {
+            cancelFaviconRefresh()
+            clearFaviconState()
+        }
         if needsStoreSwap {
             replaceWebViewPreservingState(
                 from: webView,
@@ -4755,6 +4766,9 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         applyRemoteProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
+        if didChangeFaviconCachePartition && !needsStoreSwap {
+            refreshFavicon(from: webView)
+        }
     }
 
     @discardableResult
@@ -5639,6 +5653,18 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconPNGData = nil
     }
 
+    private func invalidateFaviconIfCachePartitionChanged(
+        from previousCachePartition: String,
+        refreshCurrentPage: Bool
+    ) {
+        guard faviconCachePartition != previousCachePartition else { return }
+        cancelFaviconRefresh()
+        clearFaviconState()
+        if refreshCurrentPage {
+            refreshFavicon(from: webView)
+        }
+    }
+
     private func applyCachedFaviconIfAvailable(for pageURL: URL?) {
         guard let pageURL else { return }
         faviconTask?.cancel()
@@ -5920,10 +5946,12 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         } catch {
 #if DEBUG
+            let nsError = error as NSError
             cmuxDebugLog(
                 "browser.favicon.fetchError " +
                 "panel=\(context.panelLogID) " +
-                "error=\(String(describing: error))"
+                "domain=\(nsError.domain) " +
+                "code=\(nsError.code)"
             )
 #endif
             return nil
