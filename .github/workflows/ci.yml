@@ -1344,12 +1344,12 @@ jobs:
           run_xctest_managed_display_regression() {
             cleanup 2>/dev/null || true
             echo "Running display resolution UI regression with XCTest-managed display harness"
+            CMUX_UI_TEST_DISPLAY_HELPER_BINARY_PATH="$HELPER_PATH" \
             xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -derivedDataPath "$DERIVED_DATA_PATH" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
-              CMUX_UI_TEST_DISPLAY_HELPER_BINARY_PATH="$HELPER_PATH" \
               -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
               test-without-building
           }
