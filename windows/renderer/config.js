@@ -33,7 +33,7 @@ export const defaultSettings = {
   sidebarBranchMode: "hidden",
   sidebarFooterMode: "workspace",
   sidebarToolMode: "primary",
-  emptyWorkspaceMode: "compact",
+  emptyWorkspaceMode: "quiet",
   sidebarStyle: "quiet",
   inspectorStyle: "quiet",
   overlayStyle: "quiet",
@@ -68,7 +68,7 @@ export const defaultSettings = {
   paneMarkerStyle: "dot",
   focusMode: false,
   showTabs: true,
-  showStatusbar: true,
+  showStatusbar: false,
   statusDetailMode: "compact",
   statusbarStyle: "quiet",
   showAdvanced: false,
@@ -76,8 +76,8 @@ export const defaultSettings = {
   adaptivePerformance: true,
   reduceMotion: false,
   chromeMotionMode: "balanced",
-  sidebarWidth: 232,
-  inspectorWidth: 360,
+  sidebarWidth: 216,
+  inspectorWidth: 340,
   terminalFontFamily: "cascadia",
   terminalFontSize: 13,
   terminalLineHeight: 1.2,
@@ -464,7 +464,7 @@ export const terminalFontOptions = [
 ];
 
 export const toolbarModeOptions = [
-  ["minimal", label("toolbar.minimal", "Minimal"), label("toolbar.minimal.body", "Only terminal, browser, tools, and settings stay on the top bar.")],
+  ["minimal", label("toolbar.minimal", "Minimal"), label("toolbar.minimal.body", "Keep pane launchers in the tab strip and leave only workspace tools on the top bar.")],
   ["compact", label("toolbar.compact", "Compact"), label("toolbar.compact.body", "Icon-only main actions for a small top bar.")],
   ["standard", label("toolbar.standard", "Standard"), label("toolbar.standard.body", "Named main actions with advanced tools tucked away.")],
   ["expanded", label("toolbar.expanded", "Expanded"), label("toolbar.expanded.body", "Show every toolbar shortcut on the top bar.")]

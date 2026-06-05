@@ -161,7 +161,11 @@ function validBrowserUrl(value) {
 }
 
 function sanitizeBrowserUrl(value, fallback = defaultBrowserHomeUrl) {
-  return validBrowserUrl(value) || validBrowserUrl(fallback) || defaultBrowserHomeUrl;
+  const url = validBrowserUrl(value);
+  if (url) return url;
+  const fallbackText = String(fallback || "").trim();
+  if (fallbackText === defaultBrowserHomeUrl) return defaultBrowserHomeUrl;
+  return validBrowserUrl(fallbackText) || defaultBrowserHomeUrl;
 }
 
 function sanitizeBackgroundImageValue(value) {

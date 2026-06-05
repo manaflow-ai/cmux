@@ -1096,7 +1096,7 @@ body.reduce-motion *::after {
   width: 100%;
   min-height: 68px;
   display: grid;
-  grid-template-columns: 4px 12px minmax(0, 1fr);
+  grid-template-columns: 4px 12px minmax(0, 1fr) 28px;
   column-gap: var(--space-2);
   align-items: stretch;
   margin-bottom: var(--space-1);
@@ -1106,6 +1106,11 @@ body.reduce-motion *::after {
   padding: 0;
   text-align: left;
   cursor: grab;
+}
+
+.workspace-row,
+.workspace-close {
+  -webkit-app-region: no-drag;
 }
 
 .workspace-row:hover,
@@ -1132,6 +1137,7 @@ body.reduce-motion *::after {
 }
 
 .workspace-row:focus-visible,
+.workspace-close:focus-visible,
 .icon-button:focus-visible,
 .tool-button:focus-visible,
 .pane-tool:focus-visible,
@@ -1187,6 +1193,7 @@ body.reduce-motion *::after {
 }
 
 .workspace-row:active,
+.workspace-close:active,
 .icon-button:active,
 .tool-button:active,
 .pane-tool:active,
@@ -1345,7 +1352,7 @@ body.reduce-motion *::after {
   display: grid;
   align-content: center;
   gap: 3px;
-  padding: var(--space-2) var(--space-3) var(--space-2) 0;
+  padding: var(--space-2) 0;
 }
 
 .shell.workspace-row-size-compact .workspace-card {
@@ -1355,6 +1362,50 @@ body.reduce-motion *::after {
 
 .shell.workspace-row-size-roomy .workspace-card {
   padding-block: var(--space-3);
+}
+
+.workspace-close {
+  align-self: center;
+  justify-self: center;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-faint);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.workspace-close svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workspace-row:hover .workspace-close,
+.workspace-row:focus-within .workspace-close,
+.workspace-row.is-active .workspace-close {
+  opacity: .9;
+  pointer-events: auto;
+}
+
+.workspace-close:hover {
+  border-color: color-mix(in oklch, var(--color-danger) 62%, var(--color-line) 38%);
+  background: color-mix(in oklch, var(--color-danger) 18%, var(--color-pane-active) 82%);
+  color: var(--color-text);
 }
 
 .workspace-name-line {
@@ -1858,6 +1909,11 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
 
 .command-strip .advanced-tool {
   display: none;
+}
+
+.topbar .command-strip #newTerminalButton,
+.topbar .command-strip #newBrowserButton {
+  display: none !important;
 }
 
 .shell.show-advanced .command-strip .advanced-tool {
@@ -4095,6 +4151,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .pane.has-pane-background .terminal-host .xterm {
   position: relative;
   z-index: 1;
+  background-color: transparent !important;
 }
 
 .pane.has-pane-background .terminal-host .xterm::before {
@@ -4121,7 +4178,12 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .pane.has-pane-background .terminal-host .xterm-screen,
+.pane.has-pane-background .terminal-host .xterm-helpers,
 .pane.has-pane-background .terminal-host .xterm-viewport {
+  background-color: transparent !important;
+}
+
+.pane.has-pane-background .terminal-host .xterm-screen canvas {
   background-color: transparent !important;
 }
 

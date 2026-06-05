@@ -6805,17 +6805,60 @@ async function applySavedBackgroundImageToWorkspaceTerminals(backgroundId, works
   });
 }
 
+async function chooseLocalBackgroundImageUrl() {
+  if (window.cmuxNative?.pickBackgroundImage) return await window.cmuxNative.pickBackgroundImage();
+  if (typeof document === "undefined") return "";
+  return await new Promise((resolve) => {
+    const input = document.createElement("input");
+    let settled = false;
+    const finish = (value = "") => {
+      if (settled) return;
+      settled = true;
+      input.remove();
+      resolve(value);
+    };
+    input.type = "file";
+    input.accept = "image/avif,image/bmp,image/gif,image/jpeg,image/png,image/svg+xml,image/webp";
+    input.style.position = "fixed";
+    input.style.left = "-9999px";
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file) {
+        finish("");
+        return;
+      }
+      const filePath = window.cmuxNative?.filePath?.(file) || file.path || "";
+      const fileUrl = localPathToFileUrl(filePath);
+      if (fileUrl) {
+        finish(fileUrl);
+        return;
+      }
+      const embedded = await readDroppedBackgroundFileAsDataUrl(file);
+      if (!embedded.ok) {
+        toast(embedded.error === "too_large" ? "Image is too large to embed." : "Image could not be read.");
+        finish("");
+        return;
+      }
+      finish(embedded.url);
+    }, { once: true });
+    input.addEventListener("cancel", () => finish(""), { once: true });
+    document.body.append(input);
+    input.click();
+    window.addEventListener("focus", () => {
+      window.setTimeout(() => {
+        if (!settled && !input.files?.length) finish("");
+      }, 250);
+    }, { once: true });
+  });
+}
+
 async function choosePanelBackgroundImage(panel = focusedPanel(), options = {}) {
   const terminalPanel = resolveTerminalPanel(panel);
   if (!terminalPanel) {
     toast("Select a terminal pane first.");
     return false;
   }
-  if (!window.cmuxNative?.pickBackgroundImage) {
-    toast("Local image picker is unavailable.");
-    return false;
-  }
-  const url = await window.cmuxNative.pickBackgroundImage();
+  const url = await chooseLocalBackgroundImageUrl();
   if (!url) return false;
   return applyPanelBackgroundImage(url, terminalPanel, options);
 }
@@ -7692,7 +7735,7 @@ function persistPaneLayoutFromGrid(direction) {
 function terminalTheme(panel = null) {
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--color-accent").trim() || "#72a4ff";
   const hasPaneBackground = Boolean(panel?.type === "terminal" && normalizeBackgroundValue(panel.backgroundImage));
-  const background = hasPaneBackground ? "transparent" : state.settings.terminalBackground || terminalColorDefaults.background;
+  const background = hasPaneBackground ? "rgba(0, 0, 0, 0)" : state.settings.terminalBackground || terminalColorDefaults.background;
   const paletteBackground = state.settings.terminalBackground || terminalColorDefaults.background;
   const foreground = state.settings.terminalForeground || terminalColorDefaults.foreground;
   const cursor = state.settings.terminalCursorColor || accent;
@@ -11030,8 +11073,10 @@ function updateWorkspaceRowById(workspaceId, activeId) {
 }
 
 function createWorkspaceRow() {
-  const button = document.createElement("button");
+  const button = document.createElement("div");
   button.className = "workspace-row";
+  button.tabIndex = 0;
+  button.setAttribute("role", "button");
   button.draggable = true;
   button.innerHTML = `
     <span class="workspace-attention"></span>
@@ -11050,10 +11095,20 @@ function createWorkspaceRow() {
         <span class="workspace-counts"></span>
       </span>
     </span>
+    <button class="workspace-close" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17"></path></svg>
+    </button>
   `;
   button._workspaceParts = workspaceRowParts(button);
   button.addEventListener("click", () => focusWorkspace(button.dataset.workspaceId));
+  button.addEventListener("keydown", (event) => {
+    if (event.target?.closest?.(".workspace-close")) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    focusWorkspace(button.dataset.workspaceId);
+  });
   button.addEventListener("dblclick", (event) => {
+    if (event.target?.closest?.(".workspace-close")) return;
     event.preventDefault();
     event.stopPropagation();
     const workspace = state.data?.workspaces.find((candidate) => candidate.id === button.dataset.workspaceId);
@@ -11103,6 +11158,23 @@ function createWorkspaceRow() {
     else if (state.dragWorkspaceId && state.dragWorkspaceId !== targetWorkspaceId) {
       moveWorkspaceRelative(state.dragWorkspaceId, targetWorkspaceId, workspacePlacement);
     }
+  });
+  const close = button._workspaceParts.close;
+  close.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeWorkspaceById(button.dataset.workspaceId);
+  });
+  close.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  close.addEventListener("mousedown", (event) => {
+    event.stopPropagation();
+  });
+  close.addEventListener("dragstart", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
   });
   return button;
 }
@@ -11178,7 +11250,8 @@ function workspaceRowParts(button) {
     badge: button.querySelector(".workspace-badge"),
     path: button.querySelector(".workspace-path"),
     branch: button.querySelector(".workspace-branch"),
-    counts: button.querySelector(".workspace-counts")
+    counts: button.querySelector(".workspace-counts"),
+    close: button.querySelector(".workspace-close")
   };
   return button._workspaceParts;
 }
@@ -11215,6 +11288,9 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
   setTitleIfChanged(parts.branch, branch ? `Git branch: ${branch}` : "");
   setTextIfChanged(parts.counts, compactPaneSummary);
   setTitleIfChanged(parts.counts, paneSummary);
+  const closeLabel = `Close ${title}`;
+  setTitleIfChanged(parts.close, closeLabel);
+  setAttributeIfChanged(parts.close, "aria-label", closeLabel);
 }
 
 function sidebarBranchVisible(workspace, activeId = state.data?.activeWorkspaceId || "") {
@@ -36299,11 +36375,7 @@ async function runSettingsAction(button, label, promise) {
 }
 
 async function chooseBackgroundImage(options = {}) {
-  if (!window.cmuxNative?.pickBackgroundImage) {
-    toast("Local image picker is unavailable.");
-    return false;
-  }
-  const url = await window.cmuxNative.pickBackgroundImage();
+  const url = await chooseLocalBackgroundImageUrl();
   if (!url) return false;
   if (options.save) {
     const saved = await applyAndSaveCustomBackgroundImage({ url }, { render: false });
@@ -36318,10 +36390,6 @@ async function chooseBackgroundImage(options = {}) {
 }
 
 async function chooseBackgroundImageForTarget(options = {}) {
-  if (!window.cmuxNative?.pickBackgroundImage) {
-    toast("Local image picker is unavailable.");
-    return false;
-  }
   const target = normalizeBackgroundApplyTarget(options.target || state.backgroundApplyTarget);
   const targetStatus = activeBackgroundTargetStatus(target);
   if (!targetStatus.canTarget) {
@@ -36336,7 +36404,7 @@ async function chooseBackgroundImageForTarget(options = {}) {
       refreshBackgroundLibraryPanels();
     }
   }
-  const url = await window.cmuxNative.pickBackgroundImage();
+  const url = await chooseLocalBackgroundImageUrl();
   if (!url) return false;
   if (options.save) {
     return applyAndSaveBackgroundImageToTarget({ url }, target, { render: options.render });
@@ -36405,11 +36473,7 @@ async function pasteBackgroundImageFromClipboard(options = {}) {
 
 async function chooseWorkspaceTerminalBackground(workspace = activeWorkspace(), options = {}) {
   if (!workspace) return null;
-  if (!window.cmuxNative?.pickBackgroundImage) {
-    toast("Local image picker is unavailable.");
-    return null;
-  }
-  const url = await window.cmuxNative.pickBackgroundImage();
+  const url = await chooseLocalBackgroundImageUrl();
   if (!url) return null;
   const changed = await applyWorkspaceBackgroundImageToTerminals(url, workspace, { render: false, toast: true });
   if (changed !== null) refreshBackgroundApplicationSettings(options);
@@ -38210,6 +38274,13 @@ function showToolbarMenu(event) {
       toolbarAction("Set active pane size", promptActivePaneLayoutPercent, !multiPane, "Set the focused pane split size.", multiPaneRequiredTitle),
       toolbarAction("Close other panes", () => closeOtherPanes(), !multiPane, "Close every pane except the focused pane.", multiPaneRequiredTitle, "danger"),
       toolbarAction("Close all panes", () => closeAllPanes(workspace), !workspaceHasPanes, "Close every pane in this workspace.", workspace ? "This workspace has no panes to close." : workspaceRequiredTitle, "danger")
+    ),
+    contextMenuSectionTitle("Background"),
+    contextMenuActionGroup(
+      toolbarAction("Choose app background", () => chooseBackgroundImageForTarget({ target: "app" }), false, "Choose a local image for the whole app background."),
+      toolbarAction("Paste app background", () => pasteBackgroundImageFromClipboard({ target: "app" }), false, "Paste an image URL, path, or copied image as the whole app background."),
+      toolbarAction("Clear app background", () => applyBackgroundValueToTarget("", "app", { toast: true }), !appBackground, "Clear the whole app background.", "App background is already clear.", "danger"),
+      contextMenuButton("Background settings", () => openSettingsCategory("appearance", { query: "background", focusSearch: true }))
     ),
     contextMenuSectionTitle("Terminal"),
     contextMenuActionGroup(
