@@ -16195,6 +16195,7 @@ function renderSettingsInspector(options = {}) {
     homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open cycle preset pane view reset default url page web launch mode system external profile chrome edge brave suspend inactive pane chrome tabs address controls full compact content zoom scale save browser profile reusable copy paste setup clipboard json");
     const browserHomeDefault = browserHomeKey(state.settings.browserHomeUrl) === browserHomeKey(defaultSettings.browserHomeUrl);
     const resetBrowserHomeAction = settingsActionButton("Reset", resetBrowserHome, "", `browser home reset default url page web ${browserHomeDefault ? "active current " : ""}`);
+    resetBrowserHomeAction.dataset.browserAction = "reset-home";
     resetBrowserHomeAction.disabled = browserHomeDefault;
     resetBrowserHomeAction.title = browserHomeDefault
       ? "Browser home already uses the default page."
@@ -16203,6 +16204,7 @@ function renderSettingsInspector(options = {}) {
       && state.settings.externalBrowserProfileId === defaultSettings.externalBrowserProfileId
       && state.settings.browserSuspendInactive === defaultSettings.browserSuspendInactive;
     const resetBrowserLaunchAction = settingsActionButton("Reset launch", resetBrowserLaunchSettings, "", `browser launch mode external profile system chrome edge brave suspend inactive reset default ${browserLaunchDefault ? "active current " : ""}`);
+    resetBrowserLaunchAction.dataset.browserAction = "reset-launch";
     resetBrowserLaunchAction.disabled = browserLaunchDefault;
     resetBrowserLaunchAction.title = browserLaunchDefault
       ? "Browser launch settings already use defaults."
@@ -16210,6 +16212,7 @@ function renderSettingsInspector(options = {}) {
     const browserPaneViewDefault = state.settings.browserChromeMode === defaultSettings.browserChromeMode
       && state.settings.browserZoom === defaultSettings.browserZoom;
     const resetBrowserPaneViewAction = settingsActionButton("Reset pane view", resetBrowserPaneView, "", `browser pane chrome zoom reset default full 100 ${browserPaneViewDefault ? "active current " : ""}`);
+    resetBrowserPaneViewAction.dataset.browserAction = "reset-pane-view";
     resetBrowserPaneViewAction.disabled = browserPaneViewDefault;
     resetBrowserPaneViewAction.title = browserPaneViewDefault
       ? "Browser pane chrome and zoom already use defaults."
@@ -16220,18 +16223,22 @@ function renderSettingsInspector(options = {}) {
     pasteBrowser.title = "Apply copied cmux browser setup.";
     const homeCycle = browserHomePresetCycleModel();
     const cycleBrowserHome = settingsActionButton("Cycle home", cycleBrowserHomePreset, "", `browser home preset cycle next homepage google github localhost vite angular flask python asp net api backend web url ${homeCycle.search}`);
+    cycleBrowserHome.dataset.browserAction = "cycle-home";
     cycleBrowserHome.disabled = homeCycle.disabled;
     cycleBrowserHome.title = homeCycle.title;
     const paneViewCycle = browserPaneViewPresetCycleModel();
     const cycleBrowserPaneView = settingsActionButton("Cycle pane view", cycleBrowserPaneViewPreset, "", `browser pane view chrome zoom cycle next preset full compact content dense readable tabs address controls preview local app dashboard scale ${paneViewCycle.search}`);
+    cycleBrowserPaneView.dataset.browserAction = "cycle-pane-view";
     cycleBrowserPaneView.disabled = paneViewCycle.disabled;
     cycleBrowserPaneView.title = paneViewCycle.title;
     const workflowCycle = browserWorkflowPresetCycleModel();
     const cycleBrowserWorkflow = settingsActionButton("Cycle workflow", cycleBrowserWorkflowPreset, "", `browser workflow setup cycle next preset home launch external profile suspend pane chrome tabs address controls full compact content zoom scale localhost local dev app api backend ${workflowCycle.search}`);
+    cycleBrowserWorkflow.dataset.browserAction = "cycle-workflow";
     cycleBrowserWorkflow.disabled = workflowCycle.disabled;
     cycleBrowserWorkflow.title = workflowCycle.title;
     const browserSetupDefault = browserSetupSettingsAreDefault();
     const resetBrowserSetupAction = settingsActionButton("Reset setup", resetBrowserSetupSettings, "", `browser setup reset default home launch external profile suspend pane chrome zoom ${browserSetupDefault ? "active current " : ""}`);
+    resetBrowserSetupAction.dataset.browserAction = "reset-setup";
     resetBrowserSetupAction.disabled = browserSetupDefault;
     resetBrowserSetupAction.title = browserSetupDefault
       ? "Browser setup already uses defaults."
@@ -20127,7 +20134,7 @@ function applyBrowserHomePreset(preset, options = {}) {
     if (options.toast !== false) toast(`${preset.label} is already the browser home.`);
     return false;
   }
-  if (options.render !== false && state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
+  refreshBrowserSetupSettings({ ...options, browserPageOnly: true });
   if (options.toast !== false) toast(`${preset.label} browser home applied.`);
   return true;
 }
@@ -20241,7 +20248,7 @@ function resetBrowserHome(options = {}) {
     if (options.toast !== false) toast("Browser home already uses the default.");
     return false;
   }
-  if (options.render !== false && state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
+  refreshBrowserSetupSettings({ ...options, browserPageOnly: true });
   if (options.toast !== false) toast("Browser home reset.");
   return true;
 }
@@ -20255,7 +20262,7 @@ function resetBrowserPaneView(options = {}) {
     if (options.toast !== false) toast("Browser pane view already uses defaults.");
     return false;
   }
-  if (options.render !== false && state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
+  refreshBrowserSetupSettings({ ...options, browserPageOnly: true });
   if (options.toast !== false) toast("Browser pane view reset.");
   return true;
 }
@@ -20270,7 +20277,7 @@ function resetBrowserLaunchSettings(options = {}) {
     if (options.toast !== false) toast("Browser launch settings already use defaults.");
     return false;
   }
-  if (options.render !== false && state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
+  refreshBrowserSetupSettings({ ...options, browserPageOnly: true });
   if (options.toast !== false) toast("Browser launch settings reset.");
   return true;
 }
@@ -20291,7 +20298,7 @@ function resetBrowserSetupSettings(options = {}) {
     if (options.toast !== false) toast("Browser setup already uses defaults.");
     return false;
   }
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshBrowserSetupSettings(options);
   if (options.toast !== false) toast("Browser setup reset.");
   return true;
 }
@@ -20398,7 +20405,7 @@ function applyBrowserSetupUpdates(updates, options = {}) {
     toast(options.alreadyText || "Browser setup already matches.");
     return false;
   }
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshBrowserSetupSettings(options);
   toast(options.toastText || "Browser setup applied.");
   return true;
 }
@@ -20839,18 +20846,107 @@ function refreshBrowserSettingsPreview() {
   }
   refreshSettingSegmentedControl("browserChromeMode");
   refreshSettingSegmentedControl("browserZoom");
+  refreshBrowserSetupActions();
   refreshBrowserHomePresetGrid();
   refreshBrowserWorkflowPresetGrid();
   refreshRecentBrowserHomeActions();
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
 
-function refreshBrowserProfileSaveControls() {
+function updateBrowserSetupAction(button, disabled, title, search) {
+  if (!button) return;
+  setDisabledIfChanged(button, disabled);
+  setTitleIfChanged(button, title);
+  setSettingsSearchIfChanged(button, search);
+}
+
+function refreshBrowserSetupActions() {
   const saveProfile = elements.inspectorBody.querySelector('[data-browser-action="save-profile"]');
   if (saveProfile) {
     applySettingsProfileSaveLimit(saveProfile, "Save this browser setup as a reusable Settings profile.");
     setSettingsSearchIfChanged(saveProfile, `browser save profile home page launch external chrome edge brave pane chrome tabs address controls full compact content zoom scale reusable ${savedSettingsProfileCountLabel()} ${savedSettingsProfilesFull() ? "limit full unavailable " : "ready "}`);
   }
+
+  const homeCycle = browserHomePresetCycleModel();
+  updateBrowserSetupAction(
+    elements.inspectorBody.querySelector('[data-browser-action="cycle-home"]'),
+    homeCycle.disabled,
+    homeCycle.title,
+    `browser home preset cycle next homepage google github localhost vite angular flask python asp net api backend web url ${homeCycle.search}`
+  );
+
+  const paneViewCycle = browserPaneViewPresetCycleModel();
+  updateBrowserSetupAction(
+    elements.inspectorBody.querySelector('[data-browser-action="cycle-pane-view"]'),
+    paneViewCycle.disabled,
+    paneViewCycle.title,
+    `browser pane view chrome zoom cycle next preset full compact content dense readable tabs address controls preview local app dashboard scale ${paneViewCycle.search}`
+  );
+
+  const workflowCycle = browserWorkflowPresetCycleModel();
+  updateBrowserSetupAction(
+    elements.inspectorBody.querySelector('[data-browser-action="cycle-workflow"]'),
+    workflowCycle.disabled,
+    workflowCycle.title,
+    `browser workflow setup cycle next preset home launch external profile suspend pane chrome tabs address controls full compact content zoom scale localhost local dev app api backend ${workflowCycle.search}`
+  );
+
+  const browserHomeDefault = browserHomeKey(state.settings.browserHomeUrl) === browserHomeKey(defaultSettings.browserHomeUrl);
+  updateBrowserSetupAction(
+    elements.inspectorBody.querySelector('[data-browser-action="reset-home"]'),
+    browserHomeDefault,
+    browserHomeDefault ? "Browser home already uses the default page." : "Reset the browser home page to the default.",
+    `browser home reset default url page web ${browserHomeDefault ? "active current " : ""}`
+  );
+
+  const browserLaunchDefault = state.settings.browserLaunchMode === defaultSettings.browserLaunchMode
+    && state.settings.externalBrowserProfileId === defaultSettings.externalBrowserProfileId
+    && state.settings.browserSuspendInactive === defaultSettings.browserSuspendInactive;
+  updateBrowserSetupAction(
+    elements.inspectorBody.querySelector('[data-browser-action="reset-launch"]'),
+    browserLaunchDefault,
+    browserLaunchDefault ? "Browser launch settings already use defaults." : "Reset launch mode, external profile, and inactive-pane suspension to defaults.",
+    `browser launch mode external profile system chrome edge brave suspend inactive reset default ${browserLaunchDefault ? "active current " : ""}`
+  );
+
+  const browserPaneViewDefault = state.settings.browserChromeMode === defaultSettings.browserChromeMode
+    && state.settings.browserZoom === defaultSettings.browserZoom;
+  updateBrowserSetupAction(
+    elements.inspectorBody.querySelector('[data-browser-action="reset-pane-view"]'),
+    browserPaneViewDefault,
+    browserPaneViewDefault ? "Browser pane chrome and zoom already use defaults." : "Reset browser pane chrome and zoom to defaults.",
+    `browser pane chrome zoom reset default full 100 ${browserPaneViewDefault ? "active current " : ""}`
+  );
+
+  const browserSetupDefault = browserSetupSettingsAreDefault();
+  updateBrowserSetupAction(
+    elements.inspectorBody.querySelector('[data-browser-action="reset-setup"]'),
+    browserSetupDefault,
+    browserSetupDefault ? "Browser setup already uses defaults." : "Reset browser home, launch mode, external profile, inactive-pane suspension, pane chrome, and zoom to defaults.",
+    `browser setup reset default home launch external profile suspend pane chrome zoom ${browserSetupDefault ? "active current " : ""}`
+  );
+}
+
+function refreshBrowserSetupSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  const browserPageOnly = options.browserPageOnly === true;
+  const browserCategory = state.settingsCategory === "browser";
+  const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  if (browserCategory && !searching) {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode === "settings" && state.settingsCategory === "browser" && !normalizeSettingsQuery(state.settingsQuery)) {
+        refreshBrowserSettingsPreview();
+      }
+    });
+    return;
+  }
+  if (!browserPageOnly || (browserCategory && searching)) {
+    scheduleSettingsInspectorRender({ ifChanged: true });
+  }
+}
+
+function refreshBrowserProfileSaveControls() {
+  refreshBrowserSetupActions();
   refreshBrowserHomePresetGrid();
   refreshBrowserWorkflowPresetGrid();
   refreshRecentBrowserHomeActions();
