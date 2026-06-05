@@ -1502,7 +1502,8 @@ final class SessionIndexStore: ObservableObject {
         offset: Int = 0,
         limit: Int = 100
     ) async -> [SessionEntry] {
-        // Test fixtures pass Claude's standard <configDir>/projects layout.
+        // Test fixtures pass Claude's standard <configDir>/projects layout; strip
+        // the trailing "projects" component to recover the config directory.
         let configDir = (projectsRoot as NSString).deletingLastPathComponent
         let root = ClaudeSessionRoot(configDir: configDir, resumeConfigDirectory: nil)
         return await loadClaudeEntries(
