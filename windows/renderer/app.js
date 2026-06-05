@@ -4350,8 +4350,10 @@ function applyLayoutSetupPayload(payload, options = {}) {
   const chromeChanged = chromeUpdates ? updateSettings(chromeUpdates, { immediate: true }) : false;
   const savedBlueprint = blueprint ? upsertWorkspaceBlueprint(blueprint) : null;
   if (options.render !== false) {
-    if (state.inspectorMode === "settings" && (chromeChanged || savedBlueprint)) {
+    if (state.inspectorMode === "settings" && chromeChanged) {
       renderSettingsInspector();
+    } else if (savedBlueprint) {
+      refreshWorkspaceBlueprintSettings(options);
     } else if (chromeChanged) {
       refreshLayoutSettings();
     }
