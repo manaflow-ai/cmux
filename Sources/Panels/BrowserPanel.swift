@@ -7347,16 +7347,11 @@ extension BrowserPanel {
 
     /// Take a snapshot of the web view
     func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
-        Task { @MainActor [weak self] in
-            guard let self else {
-                completion(nil)
-                return
-            }
-
-            do {
-                let image = try await captureAutomationVisibleViewportSnapshot()
+        captureAutomationVisibleViewportSnapshot { result in
+            switch result {
+            case .success(let image):
                 completion(image)
-            } catch {
+            case .failure(let error):
                 NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
                 completion(nil)
             }
