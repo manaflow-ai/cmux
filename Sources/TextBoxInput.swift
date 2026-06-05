@@ -1535,6 +1535,7 @@ private struct TextBoxMentionCompletionPopoverView: View {
                             .buttonStyle(.plain)
                             .id(index)
                             .accessibilityIdentifier("TextBoxMentionCompletionPopover.Row.\(index)")
+                            .accessibilityLabel(suggestion.title)
                             .accessibilityValue(
                                 index == selectionIndex
                                     ? "selected \(suggestion.title)"
@@ -4486,20 +4487,19 @@ final class TextBoxInputTextView: NSTextView {
         )
     }
 
-    private func syncMentionCompletionQueryWithTextViewState() -> Bool {
-        guard mentionCompletionController.isActive else { return false }
+    private func syncMentionCompletionQueryWithTextViewState() {
+        guard mentionCompletionController.isActive else { return }
         let query = currentMentionCompletionQuery()
         guard !mentionCompletionController.matchesCurrentInput(
             query: query,
             rootDirectory: completionRootDirectory
         ) else {
-            return false
+            return
         }
         mentionCompletionController.refresh(
             for: query,
             rootDirectory: completionRootDirectory
         )
-        return true
     }
 
     private func warmMentionCompletionIndexesIfNeeded() {
@@ -4712,9 +4712,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func syncMentionCompletionPopover() {
-        if syncMentionCompletionQueryWithTextViewState() {
-            return
-        }
+        syncMentionCompletionQueryWithTextViewState()
         guard mentionCompletionController.shouldShowPopover else {
             dismissMentionCompletionPopoverOnly()
             return

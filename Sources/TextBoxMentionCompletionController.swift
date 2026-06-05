@@ -159,8 +159,13 @@ final class TextBoxMentionCompletionController {
                 Self.title(suggestion.title, matchesNormalizedQuery: normalizedQuery)
             }
         }
-        suggestionsQuery = nil
-        suggestionsRootDirectory = nil
+        if suggestions.isEmpty {
+            suggestionsQuery = nil
+            suggestionsRootDirectory = nil
+        } else {
+            suggestionsQuery = activeQuery
+            suggestionsRootDirectory = activeRootDirectory
+        }
         selectionIndex = suggestions.isEmpty ? 0 : min(selectionIndex, suggestions.count - 1)
     }
 

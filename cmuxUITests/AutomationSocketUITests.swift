@@ -163,6 +163,12 @@ final class AutomationSocketUITests: XCTestCase {
             "Expected bare $ suggestions to include $agent-browser"
         )
         XCTAssertEqual(bareState["plain_text"] as? String, "$")
+        _ = try XCTUnwrap(
+            waitForMentionRows(in: app, timeout: 8.0) { rows in
+                rows.contains { $0.contains("$agent-browser") }
+            },
+            "Expected bare $ popover rows to include $agent-browser. rows=\(mentionPopoverRowTitles(in: app))"
+        )
 
         _ = try XCTUnwrap(
             socketResult(
@@ -187,16 +193,14 @@ final class AutomationSocketUITests: XCTestCase {
 
         let typedTitles = typedState["mention_titles"] as? [String] ?? []
         XCTAssertEqual(typedTitles.first, "$autoreview")
-        XCTAssertTrue(
-            waitForMentionPopoverRow(
-                app: app,
-                index: 0,
-                expectedTitle: "$autoreview",
-                forbiddenTitle: "$agent-browser",
-                timeout: 8.0
-            ),
-            "Expected rendered autocomplete row 0 to show $autoreview and not stale $agent-browser"
+        let typedRows = try XCTUnwrap(
+            waitForMentionRows(in: app, timeout: 8.0) { rows in
+                rows.first?.contains("$autoreview") == true &&
+                    !rows.contains { $0.contains("$agent-browser") }
+            },
+            "Expected visible popover rows for $autore to hide stale $agent-browser. rows=\(mentionPopoverRowTitles(in: app)) state=\(typedState)"
         )
+        XCTAssertTrue(typedRows.first?.contains("$autoreview") == true)
     }
 
     private func configuredApp(mode: String) -> XCUIApplication {
@@ -409,35 +413,6 @@ final class AutomationSocketUITests: XCTestCase {
         return text
     }
 
-    private func waitForMentionPopoverRow(
-        app: XCUIApplication,
-        index: Int,
-        expectedTitle: String,
-        forbiddenTitle: String,
-        timeout: TimeInterval
-    ) -> Bool {
-        let row = app.descendants(matching: .any)
-            .matching(identifier: "TextBoxMentionCompletionPopover.Row.\(index)")
-            .firstMatch
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if row.exists {
-                let renderedValue = row.value.map { String(describing: $0) } ?? ""
-                let renderedText = [
-                    row.label,
-                    renderedValue,
-                ]
-                .joined(separator: " ")
-                if renderedText.contains(expectedTitle),
-                   !renderedText.contains(forbiddenTitle) {
-                    return true
-                }
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return false
-    }
-
     private func waitForMentionState(
         surfaceID: String,
         timeout: TimeInterval,
@@ -453,6 +428,39 @@ final class AutomationSocketUITests: XCTestCase {
             }
             return predicate(state) ? state : nil
         }
+    }
+
+    private func mentionPopoverRowTitles(in app: XCUIApplication) -> [String] {
+        (0..<12).compactMap { index in
+            let row = app.descendants(matching: .any)
+                .matching(identifier: "TextBoxMentionCompletionPopover.Row.\(index)")
+                .firstMatch
+            guard row.exists else { return nil }
+            if !row.label.isEmpty {
+                return row.label
+            }
+            if let value = row.value as? String, !value.isEmpty {
+                return value
+            }
+            return nil
+        }
+    }
+
+    private func waitForMentionRows(
+        in app: XCUIApplication,
+        timeout: TimeInterval,
+        predicate: @escaping ([String]) -> Bool
+    ) -> [String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let rows = mentionPopoverRowTitles(in: app)
+            if predicate(rows) {
+                return rows
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        let rows = mentionPopoverRowTitles(in: app)
+        return predicate(rows) ? rows : nil
     }
 
     private func waitForJSON(
