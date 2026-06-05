@@ -28004,6 +28004,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             if let workspaceId = resolvedDirectWorkspaceArg {
                 if hasInvalidAmbientSurfaceArg {
+                    if case .promptSubmit = action,
+                       def.name == "codex",
+                       hookWsFlag == nil,
+                       explicitSurfaceFlag == nil,
+                       let binding = processBinding(),
+                       let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
+                       let boundWorkspace = resolveAccessibleWorkspaceId(boundWorkspaceRaw),
+                       boundWorkspace == workspaceId,
+                       let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
+                       let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: boundWorkspace) {
+#if DEBUG
+                        agentHookDebugLog(
+                            "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=direct-process-recovery workspace=\(agentHookDebugShort(boundWorkspace)) surface=\(agentHookDebugShort(boundSurface)) mapped=\(mapped == nil ? 0 : 1)",
+                            socketPath: client.socketPath,
+                            env: env
+                        )
+#endif
+                        return (boundWorkspace, boundSurface)
+                    }
 #if DEBUG
                     agentHookDebugLog(
                         "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=invalidAmbientSurface mapped=\(mapped == nil ? 0 : 1)",
