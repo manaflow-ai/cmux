@@ -9311,8 +9311,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .layout-settings-preview {
   min-width: 0;
   display: grid;
-  gap: var(--space-2);
-  padding: var(--space-2);
+  gap: 8px;
+  padding: 8px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-2);
   background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
@@ -9321,7 +9321,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .layout-preview-frame {
   position: relative;
   min-width: 0;
-  min-height: 150px;
+  height: clamp(122px, 19vh, 142px);
+  min-height: 0;
   display: grid;
   grid-template-columns: var(--layout-preview-sidebar) minmax(0, 1fr) var(--layout-preview-inspector);
   overflow: hidden;
@@ -10217,15 +10218,17 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .layout-preview-meta {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(96px, 100%), 1fr));
   gap: var(--space-1);
 }
 
 .layout-preview-meta span {
   min-width: 0;
-  display: grid;
-  gap: 2px;
-  padding: 6px 8px;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
   background: var(--color-pane);
@@ -10241,13 +10244,20 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .layout-preview-meta b {
+  flex: 0 1 auto;
+  max-width: 56%;
   color: var(--color-muted);
-  font-size: 10px;
+  font-size: 9px;
+}
+
+.layout-preview-meta b::after {
+  content: ":";
 }
 
 .layout-preview-meta em {
+  flex: 1 1 auto;
   color: var(--color-text);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .workspace-chrome-preset-grid {

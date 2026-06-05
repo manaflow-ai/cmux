@@ -12,6 +12,44 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  ci-scope:
+    runs-on: ubuntu-latest
+    outputs:
+      requires_macos: ${{ steps.scope.outputs.requires_macos }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Classify PR scope
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "requires_macos=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed_files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          requires_macos=false
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            case "$path" in
+              windows/*|README.md|.gitignore|.gitattributes|.github/workflows/windows-app.yml|.github/workflows/windows-release.yml|.github/workflows/ci.yml|tests/test_ci_self_hosted_guard.sh)
+                ;;
+              *)
+                requires_macos=true
+                break
+                ;;
+            esac
+          done <<< "$changed_files"
+          echo "requires_macos=$requires_macos" >> "$GITHUB_OUTPUT"
+
   workflow-guard-tests:
     runs-on: ubuntu-latest
     steps:
@@ -164,6 +202,8 @@ jobs:
           bun test tests/vm-db-read-model.test.ts
 
   tests:
+    needs: ci-scope
+    if: needs.ci-scope.outputs.requires_macos == 'true'
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 75
     env:
@@ -391,6 +431,8 @@ jobs:
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
+    needs: ci-scope
+    if: needs.ci-scope.outputs.requires_macos == 'true'
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 20
     steps:
@@ -584,6 +626,8 @@ jobs:
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
+    needs: ci-scope
+    if: needs.ci-scope.outputs.requires_macos == 'true'
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
     timeout-minutes: 20
     steps:
@@ -688,6 +732,8 @@ jobs:
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
 
   ui-regressions:
+    needs: ci-scope
+    if: needs.ci-scope.outputs.requires_macos == 'true'
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 25
     steps:

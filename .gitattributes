@@ -1,1 +1,3 @@
+*.sh text eol=lf
+.github/workflows/*.yml text eol=lf
 Resources/markdown-viewer/diff-viewer/**/*.mjs -whitespace
