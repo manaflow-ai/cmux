@@ -2504,7 +2504,8 @@ struct ContentView: View {
             }
             return
         }
-        let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = tabManager.resolvedWorkspaceDisplayTitle(for: tab)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if titlebarText != title {
             titlebarText = title
         }
@@ -2928,6 +2929,12 @@ struct ContentView: View {
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
+            scheduleTitlebarTextRefresh()
+        })
+
+        // A grouped anchor's title-bar name is derived from its group's name, so
+        // a group rename must refresh the cached titlebar text (#5404).
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceGroupNameDidChange)) { _ in
             scheduleTitlebarTextRefresh()
         })
 

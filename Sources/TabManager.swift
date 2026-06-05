@@ -6141,6 +6141,14 @@ class TabManager: ObservableObject {
         guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
         guard workspaceGroups[index].name != trimmed else { return }
         workspaceGroups[index].name = trimmed
+        // The group's name is the single source of truth for its anchor's
+        // displayed title (see `resolvedWorkspaceDisplayTitle(for:)`). The
+        // sidebar re-reads `group.name` via the @Published array, but the
+        // imperatively-cached window-chrome surfaces (custom title bar,
+        // toolbar command label) need an explicit nudge, and NSWindow.title
+        // is refreshed inline here.
+        updateWindowTitleForSelectedTab()
+        NotificationCenter.default.post(name: .workspaceGroupNameDidChange, object: self)
     }
 
     /// UI-only collapse toggle: also moves focus to the anchor if the
@@ -8282,14 +8290,16 @@ class TabManager: ObservableObject {
     /// `title` is merely seeded equal to the group name at creation and would
     /// otherwise drift when the group is renamed.
     func resolvedWorkspaceDisplayTitle(for tab: Workspace) -> String {
-        // NOTE: stubbed at current (buggy) behavior; the rename fix in the
-        // following commit makes this derive an anchor's title from its group.
+        if let group = workspaceGroups.first(where: { $0.anchorWorkspaceId == tab.id }) {
+            return group.name
+        }
         return tab.title
     }
 
     private func windowTitle(for tab: Workspace?) -> String {
         guard let tab else { return "cmux" }
-        let trimmedTitle = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTitle = resolvedWorkspaceDisplayTitle(for: tab)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTitle.isEmpty {
             return trimmedTitle
         }
@@ -11512,6 +11522,11 @@ extension Notification.Name {
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
     static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
+    /// Posted when an existing workspace group's `name` changes (rename). The
+    /// imperatively-cached window-chrome surfaces (custom title bar in
+    /// `ContentView`, toolbar command label in `WindowToolbarController`) read
+    /// a grouped anchor's displayed name from `group.name` and refresh on this.
+    static let workspaceGroupNameDidChange = Notification.Name("cmux.workspaceGroupNameDidChange")
     static let workspaceCurrentDirectoryDidChange = Notification.Name("cmux.workspaceCurrentDirectoryDidChange")
     static let tabManagerFocusHistoryRevisionDidChange = Notification.Name("cmux.tabManagerFocusHistoryRevisionDidChange")
 }
