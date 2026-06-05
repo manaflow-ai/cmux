@@ -465,6 +465,11 @@ struct BrowserPanelView: View {
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
     @State private var browserChromeStyle: BrowserChromeStyle
+    // The browser top chrome scales with the tab bar font size so tabs and the
+    // browser toolbar share one consistent scale. Seeded from the cached config
+    // and refreshed live on `.ghosttyConfigDidReload` (same path the tab strip
+    // and terminal panels use). See `BrowserChromeMetrics`.
+    @State private var tabBarFontSize: CGFloat = GhosttyConfig.load().surfaceTabBarFontSize
     // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
     // re-fire on every CoreAnimation commit (issue #5303). This guards the first-
     // appearance view-state seed (the empty-state import list) so a spurious appear
@@ -473,10 +478,15 @@ struct BrowserPanelView: View {
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
     private let omnibarPillCornerRadius: CGFloat = 10
-    private let addressBarButtonSize: CGFloat = 22
-    private let addressBarButtonHitSize: CGFloat = 26
     private let addressBarVerticalPadding: CGFloat = 4
-    private let devToolsButtonIconSize: CGFloat = 11
+    // Toolbar/omnibar sizes derived from the tab bar font size. Names and call
+    // sites are unchanged; the values now scale via `chromeMetrics`.
+    private var chromeMetrics: BrowserChromeMetrics {
+        BrowserChromeMetrics(tabBarFontSize: tabBarFontSize)
+    }
+    private var addressBarButtonSize: CGFloat { chromeMetrics.buttonIconSize }
+    private var addressBarButtonHitSize: CGFloat { chromeMetrics.buttonHitSize }
+    private var devToolsButtonIconSize: CGFloat { chromeMetrics.accessoryIconFontSize }
 
     init(
         panel: BrowserPanel,
@@ -1138,6 +1148,9 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
             handleBrowserWebViewClickIntent(notification)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            tabBarFontSize = GhosttyConfig.load().surfaceTabBarFontSize
+        }
         .onAppear {
             handleBrowserPanelAppear()
         }
@@ -1252,7 +1265,7 @@ struct BrowserPanelView: View {
                 panel.goBack()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: chromeMetrics.navigationIconFontSize, weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1268,7 +1281,7 @@ struct BrowserPanelView: View {
                 panel.goForward()
             }) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: chromeMetrics.navigationIconFontSize, weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1279,7 +1292,7 @@ struct BrowserPanelView: View {
 
             Button(action: handleReloadOrStopButtonAction) {
                 Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: chromeMetrics.navigationIconFontSize, weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1622,12 +1635,13 @@ struct BrowserPanelView: View {
         return HStack(spacing: 4) {
             if showSecureBadge {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: 10))
+                    .font(.system(size: chromeMetrics.secureBadgeFontSize))
                     .foregroundColor(.secondary)
             }
 
             OmnibarTextFieldRepresentable(
                 panelId: panel.id,
+                fontSize: chromeMetrics.omnibarFontSize,
                 text: Binding(
                     get: { omnibarState.buffer },
                     set: { newValue in
@@ -1689,7 +1703,7 @@ struct BrowserPanelView: View {
                     panel.shouldSuppressWebViewFocus()
                 }
             )
-                .frame(height: 18)
+                .frame(height: chromeMetrics.omnibarFieldHeight)
                 .accessibilityIdentifier("BrowserOmnibarTextField")
         }
         .padding(.horizontal, 8)
@@ -4140,6 +4154,7 @@ final class OmnibarNativeTextField: NSTextField {
 
 struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let panelId: UUID
+    let fontSize: CGFloat
     @Binding var text: String
     @Binding var isFocused: Bool
     let selectAllRequestId: UInt64
@@ -4699,7 +4714,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         field.panelId = panelId
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
         field.identifier = browserOmnibarTextFieldIdentifier
-        field.font = .systemFont(ofSize: 12)
+        field.font = .systemFont(ofSize: fontSize)
         field.placeholderString = placeholder
         field.delegate = context.coordinator
         field.target = nil
@@ -4728,6 +4743,9 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         nsView.panelId = panelId
         BrowserOmnibarNativeFieldRegistry.shared.register(nsView, panelId: panelId)
         nsView.placeholderString = placeholder
+        if nsView.font?.pointSize != fontSize {
+            nsView.font = .systemFont(ofSize: fontSize)
+        }
         context.coordinator.queueSelectAllRequest(selectAllRequestId)
 
         let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
