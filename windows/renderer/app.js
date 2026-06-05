@@ -28738,6 +28738,24 @@ function quickSetupActionDefinitions() {
       run: () => refreshQuickSettingsAfterAction(choosePanelBackgroundImage(activeTerminalPanelForSettings(), { render: false }))
     },
     {
+      id: "background-everywhere",
+      icon: "background",
+      label: "Image everywhere",
+      body: "Apply the current image to the app and terminal panes.",
+      meta: () => currentBackgroundEverywhereModel().meta,
+      cta: "Apply",
+      active: () => currentBackgroundEverywhereModel().active,
+      activeCta: "Applied",
+      search: () => `apply current background image everywhere app whole window all terminal panes wallpaper ${currentBackgroundEverywhereModel().search}`,
+      disabled: () => currentBackgroundEverywhereModel().disabled,
+      title: () => currentBackgroundEverywhereModel().title,
+      run: () => {
+        const workspace = activeWorkspace();
+        const status = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
+        return refreshQuickSettingsAfterAction(applyCurrentBackgroundEverywhere(status.scope, workspace, { render: false }));
+      }
+    },
+    {
       id: "save-terminal-image",
       icon: "paneBackground",
       label: "Save terminal image",
@@ -28841,6 +28859,8 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   const profilesFull = savedSettingsProfilesFull();
   const colorSetSave = currentColorSetSaveModel(workspace);
   const backgroundSetSave = currentBackgroundSetSaveModel(workspace);
+  const backgroundTargetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
+  const backgroundEverywhere = currentBackgroundEverywhereModel(backgroundTargetStatus.scope, workspace);
   const ids = [];
 
   if (!workspace) ids.push("new-workspace");
@@ -28851,7 +28871,8 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   if (!isSettingsPresetIdActive("simpleFast")) {
     ids.push(state.savedSettingsProfiles.length === 0 ? "save-clean-fast-profile" : "clean-fast");
   }
-  if (!state.settings.backgroundImage) ids.push("background");
+  if (!backgroundEverywhere.disabled) ids.push("background-everywhere");
+  else if (!state.settings.backgroundImage) ids.push("background");
   else if (activeTerminal && !normalizeBackgroundValue(activeTerminal.backgroundImage)) ids.push("pane-background");
   if (!backgroundSetSave.disabled && backgroundSetSave.newBackgrounds.length > 1 && ids.length < 4) ids.push("save-background-set");
   if (state.savedSettingsProfiles.length === 0 && !ids.includes("save-clean-fast-profile") && !ids.includes("save-profile") && ids.length < 4) ids.push("save-profile");
