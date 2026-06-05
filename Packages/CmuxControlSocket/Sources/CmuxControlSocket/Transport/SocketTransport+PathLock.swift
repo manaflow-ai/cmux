@@ -28,7 +28,7 @@ extension SocketTransport {
         var fd: Int32 = -1
         var lastErrno: Int32 = EIO
         for _ in 0..<3 {
-            fd = open(lockPath, O_CREAT | O_EXCL | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+            fd = open(lockPath, O_CREAT | O_EXCL | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
             if fd >= 0 {
                 break
             }
@@ -38,7 +38,7 @@ extension SocketTransport {
                 return .failed(SocketStageFailure(stage: "open_lock", errnoCode: createErrno))
             }
 
-            fd = open(lockPath, O_RDWR | O_NOFOLLOW)
+            fd = open(lockPath, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
             if fd >= 0 {
                 break
             }
@@ -176,7 +176,7 @@ extension SocketTransport {
         treatMissingLockAsAvailable: Bool
     ) -> Bool {
         let lockPath = pathLockPath(for: path)
-        let fd = open(lockPath, O_RDWR | O_NOFOLLOW)
+        let fd = open(lockPath, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else {
             return treatMissingLockAsAvailable && errno == ENOENT
         }

@@ -95,6 +95,9 @@ extension SocketTransport {
             let count = read(fd, &buffer, buffer.count)
             if count < 0 {
                 let readErrno = errno
+                if readErrno == EINTR {
+                    continue
+                }
                 if readErrno == EAGAIN || readErrno == EWOULDBLOCK {
                     break
                 }
