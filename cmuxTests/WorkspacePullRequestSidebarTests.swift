@@ -1488,12 +1488,16 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             surfaceId: panelId,
             directory: repoURL.path
         )
+        await manager.applyWorkspaceGitMetadataForTesting(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            directory: repoURL.path
+        )
 
-        XCTAssertTrue(
-            waitForCondition(timeout: 12.0) {
-                workspace.panelGitBranches[panelId]?.branch == "main"
-                    && workspace.panelGitBranches[panelId]?.isDirty == false
-            },
+        XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "main")
+        XCTAssertEqual(
+            workspace.panelGitBranches[panelId]?.isDirty,
+            false,
             "Skip-worktree index entries should be ignored by dirty detection when sparse files are absent."
         )
     }

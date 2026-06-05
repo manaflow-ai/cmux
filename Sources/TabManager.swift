@@ -2092,6 +2092,20 @@ class TabManager: ObservableObject {
         refreshTrackedWorkspaceGitMetadata(reason: "test")
     }
 
+    func applyWorkspaceGitMetadataForTesting(workspaceId: UUID, panelId: UUID, directory: String) async {
+        let normalizedDirectory = normalizeDirectory(directory)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        cancelWorkspaceGitProbeTask(for: key)
+        workspaceGitProbeStateByKey[key] = .inFlight(rerunPending: false)
+        let snapshot = await initialWorkspaceGitMetadataSnapshot(for: normalizedDirectory)
+        applyWorkspaceGitMetadataSnapshot(
+            snapshot,
+            probeKey: key,
+            expectedDirectory: normalizedDirectory,
+            isLastAttempt: true
+        )
+    }
+
     func sidebarGitMetadataWatchSettingsDidChangeForTesting() {
         sidebarMetadataSettingsDidChange()
     }

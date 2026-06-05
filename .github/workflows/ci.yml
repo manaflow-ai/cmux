@@ -426,6 +426,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/unit-tests"
           CLI_BIN="$DERIVED_DATA_PATH/Build/Products/Debug/cmux"
           if [ -z "${CLI_BIN:-}" ] || [ ! -x "$CLI_BIN" ]; then
             echo "cmux CLI binary not found in DerivedData" >&2
