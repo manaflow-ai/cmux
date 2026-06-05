@@ -1,6 +1,22 @@
 name: iOS TestFlight (beta)
 
 on:
+  # Publish to the beta lane on every iOS-affecting merge to main, so testers get
+  # changes immediately instead of waiting for the nightly. Path-filtered to the
+  # inputs that actually change the iOS app (the iOS target, the linked Swift
+  # packages, and GhosttyKit); macOS-only Sources/ changes don't rebuild the iOS
+  # app, so they don't trigger an upload. Push runs always build (the SHA gate is
+  # schedule-only); each merge is a new commit, so there's no duplicate upload.
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - "Packages/**"
+      - "ghostty"
+      - "scripts/ensure-ghosttykit.sh"
+      - "scripts/install-zig-ci.sh"
+      - "scripts/ghosttykit-checksums.txt"
+      - ".github/workflows/ios-testflight.yml"
   workflow_dispatch:
     inputs:
       build_number:
