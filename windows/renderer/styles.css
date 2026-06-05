@@ -15415,8 +15415,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .saved-background-preview {
+  position: relative;
   width: 70px;
   height: 48px;
+  overflow: hidden;
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-1);
   background-color: var(--color-canvas);
@@ -15424,6 +15426,28 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background-size: cover;
   background-repeat: var(--saved-background-repeat, no-repeat);
   background-position: center;
+}
+
+.saved-background-preview::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: var(--pane-background-readability-opacity, .16);
+  pointer-events: none;
+  background:
+    linear-gradient(135deg, color-mix(in oklch, var(--color-accent) 7%, transparent), transparent 44%),
+    color-mix(in oklch, var(--color-pane-surface) 74%, transparent);
+}
+
+.shell.background-effects-tinted .saved-background-preview::after {
+  opacity: var(--pane-background-tinted-opacity, .64);
+}
+
+.shell.background-effects-vignette .saved-background-preview::after {
+  opacity: var(--pane-background-vignette-opacity, .78);
+  background:
+    radial-gradient(ellipse at center, transparent 0 42%, color-mix(in oklch, var(--color-pane-surface) 56%, transparent) 78%, color-mix(in oklch, var(--color-pane-surface) 84%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in oklch, var(--color-pane-surface) 28%, transparent), transparent 38%, color-mix(in oklch, var(--color-pane-surface) 36%, transparent));
 }
 
 .saved-background-preview:hover:not(:disabled) {
