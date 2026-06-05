@@ -171,7 +171,7 @@ extension SocketControlServer {
         let newServerSocket = socket(AF_UNIX, SOCK_STREAM, 0)
         guard newServerSocket >= 0 else {
             let errnoCode = errno
-            print("TerminalController: Failed to create socket")
+            print("SocketControlServer: Failed to create socket")
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
                 stage: "create_socket",
@@ -253,7 +253,7 @@ extension SocketControlServer {
             )
             return false
         case .failure(let failedPath, let bindFailure):
-            print("TerminalController: Failed to bind socket")
+            print("SocketControlServer: Failed to bind socket")
             close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
@@ -267,7 +267,7 @@ extension SocketControlServer {
         applySocketPermissions()
 
         if let errnoCode = transport.configureNonBlocking(newServerSocket) {
-            print("TerminalController: Failed to configure socket")
+            print("SocketControlServer: Failed to configure socket")
             close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
@@ -280,7 +280,7 @@ extension SocketControlServer {
         // Listen
         guard listen(newServerSocket, transport.listenBacklog) >= 0 else {
             let errnoCode = errno
-            print("TerminalController: Failed to listen on socket")
+            print("SocketControlServer: Failed to listen on socket")
             close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
@@ -316,7 +316,7 @@ extension SocketControlServer {
         activeSocketPathLockFD = -1
         listenerActivated = true
         let listenerSocket = newServerSocket
-        print("TerminalController: Listening on \(activeSocketPath)")
+        print("SocketControlServer: Listening on \(activeSocketPath)")
         events.breadcrumb(
             "socket.listener.listening",
             [

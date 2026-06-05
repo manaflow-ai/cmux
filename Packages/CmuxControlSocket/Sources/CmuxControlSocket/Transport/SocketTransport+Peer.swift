@@ -3,6 +3,16 @@ internal import Foundation
 
 public extension SocketTransport {
     /// The peer PID of a connected Unix domain socket via `LOCAL_PEERPID`.
+    ///
+    /// Used with ``isProcessDescendant(_:of:)`` to enforce the `cmuxOnly`
+    /// access mode's ancestry check on accepted clients:
+    ///
+    /// ```swift
+    /// if let pid = transport.peerProcessID(of: clientSocket),
+    ///    !transport.isProcessDescendant(pid, of: getpid()) {
+    ///     // refuse: client was not started inside cmux
+    /// }
+    /// ```
     /// - Parameter socket: A connected Unix domain socket descriptor.
     /// - Returns: The peer's PID, or `nil` when the lookup failed (commonly
     ///   because the peer already disconnected).
@@ -19,6 +29,10 @@ public extension SocketTransport {
     /// Whether the socket's peer ran as the same UID as this process, via
     /// `LOCAL_PEERCRED`. Works even after the peer has disconnected (unlike
     /// `LOCAL_PEERPID`).
+    ///
+    /// The fallback check when ``peerProcessID(of:)`` returns `nil` because a
+    /// short-lived client already disconnected; same security boundary as the
+    /// socket file's 0600 permissions.
     /// - Parameter socket: A connected Unix domain socket descriptor.
     /// - Returns: `true` when the peer's effective UID matches `getuid()`.
     func peerHasSameUID(_ socket: Int32) -> Bool {
@@ -31,6 +45,9 @@ public extension SocketTransport {
 
     /// Whether `pid` is `ancestorPid` or one of its descendants, walking the
     /// process tree via `sysctl`.
+    ///
+    /// Pairs with ``peerProcessID(of:)`` for the `cmuxOnly` ancestry check;
+    /// see that symbol for a usage example.
     /// - Parameters:
     ///   - pid: The process to test.
     ///   - ancestorPid: The candidate ancestor (the cmux process).

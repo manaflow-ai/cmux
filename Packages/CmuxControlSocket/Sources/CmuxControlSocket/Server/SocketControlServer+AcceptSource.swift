@@ -215,6 +215,12 @@ extension SocketControlServer {
             )
         )
 
+        // asyncAfter justification (faithful lift of the legacy resume path):
+        // a genuine bounded backoff deadline in a non-async type with no task
+        // to host a Clock.sleep; a stale fire is a no-op via the generation/
+        // identity/suspended guards below, and stop() resumes-before-cancel
+        // independently, so no cancellation hook is needed for correctness.
+        // The stage-3 actor conversion replaces this with an injected Clock.
         let deadline = DispatchTime.now() + .milliseconds(delayMs)
         socketListenerQueue.asyncAfter(deadline: deadline) { [weak self, sourceToPause] in
             guard let self else { return }

@@ -6,7 +6,16 @@ internal import os
 /// the main-actor publish.
 ///
 /// States are compared as raw `String` tokens so the cache stays decoupled
-/// from the app's shell-activity enum.
+/// from the app's shell-activity enum:
+///
+/// ```swift
+/// let fastPath = SocketFastPathState()
+/// if fastPath.shouldPublishShellActivity(
+///     workspaceId: workspaceId, panelId: panelId, state: state.rawValue
+/// ) {
+///     // forward the state change to the main-actor model
+/// }
+/// ```
 public final class SocketFastPathState: Sendable {
     private struct SocketSurfaceKey: Hashable {
         let workspaceId: UUID
@@ -28,7 +37,8 @@ public final class SocketFastPathState: Sendable {
     }
 
     /// Whether a shell-activity report for the surface changed since the last
-    /// publish and should be forwarded.
+    /// publish and should be forwarded; see ``SocketFastPathState`` for an
+    /// example.
     /// - Parameters:
     ///   - workspaceId: The reporting workspace.
     ///   - panelId: The reporting surface/panel.
