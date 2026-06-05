@@ -5174,7 +5174,8 @@ class TabManager: ObservableObject {
             guard confirmClose(
                 title: plan.title,
                 message: plan.message,
-                acceptCmdD: plan.acceptCmdD
+                acceptCmdD: plan.acceptCmdD,
+                scrollableMessage: plan.scrollableMessage
             ) else { return }
         }
 
@@ -5190,6 +5191,7 @@ class TabManager: ObservableObject {
             }
         }
 
+        var confirmedWorkspaces: [Workspace] = []
         for workspace in plan.workspaces {
             guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
             // Anchor-close confirms inside closeWorkspaceIfRunningProcess.
@@ -5206,21 +5208,10 @@ class TabManager: ObservableObject {
                 if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) {
                     return
                 }
-                // Anchor confirmed (or suppressed); skip the inner re-prompt
-                // by closing without going through closeWorkspaceIfRunningProcess.
-                if tabs.count <= 1 {
-                    if let window {
-                        window.performClose(nil)
-                    } else {
-                        AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
-                    }
-                } else {
-                    closeWorkspace(workspace)
-                }
-                continue
             }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            confirmedWorkspaces.append(workspace)
         }
+        closeWorkspacesInBatch(confirmedWorkspaces)
     }
 
     func selectWorkspace(_ workspace: Workspace) {
@@ -5247,7 +5238,7 @@ class TabManager: ObservableObject {
         }
     }
 
-    func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
+    func confirmClose(title: String, message: String, acceptCmdD: Bool, scrollableMessage: String? = nil) -> Bool {
         guard beginCloseConfirmationSession() else { return false }
         defer { endCloseConfirmationSession() }
 
@@ -5260,6 +5251,9 @@ class TabManager: ObservableObject {
         alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .warning
+        if let scrollableMessage {
+            alert.accessoryView = makeCloseConfirmationScrollableMessageView(scrollableMessage)
+        }
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
 
@@ -5276,11 +5270,40 @@ class TabManager: ObservableObject {
         #if DEBUG
         UITestRecorder.record([
             "closeConfirmationTitle": title,
-            "closeConfirmationMessage": message,
+            "closeConfirmationMessage": [message, scrollableMessage].compactMap(\.self).joined(separator: "\n"),
         ])
         #endif
 
         return runCloseConfirmationAlert(alert) == .alertFirstButtonReturn
+    }
+
+    private func makeCloseConfirmationScrollableMessageView(_ message: String) -> NSView {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 360, height: 180))
+        scrollView.borderType = .bezelBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = false
+        scrollView.setAccessibilityLabel(String(
+            localized: "dialog.closeWorkspaces.list.accessibilityLabel",
+            defaultValue: "Workspaces that will close"
+        ))
+
+        let textView = NSTextView(frame: scrollView.bounds)
+        textView.string = message
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 0, height: 0)
+        textView.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textView.textColor = .labelColor
+        textView.textContainer?.widthTracksTextView = true
+        textView.minSize = NSSize(width: 0, height: 180)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+
+        scrollView.documentView = textView
+        return scrollView
     }
 
     private func runCloseConfirmationAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
@@ -5328,6 +5351,7 @@ class TabManager: ObservableObject {
         let workspaces: [Workspace]
         let title: String
         let message: String
+        let scrollableMessage: String?
         let acceptCmdD: Bool
     }
 
@@ -5391,22 +5415,120 @@ class TabManager: ObservableObject {
         let titleLines = workspaces
             .map { "• \(closeWorkspaceDisplayTitle($0.title))" }
             .joined(separator: "\n")
-        let format = willCloseWindow
-            ? String(
-                localized: "dialog.closeWorkspacesWindow.message",
-                defaultValue: "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
-            )
-            : String(
-                localized: "dialog.closeWorkspaces.message",
-                defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
-            )
-        let message = String(format: format, locale: .current, Int64(workspaces.count), titleLines)
+        let usesScrollableList = workspaces.count > 12
+        let format: String
+        if willCloseWindow {
+            format = usesScrollableList
+                ? String(
+                    localized: "dialog.closeWorkspacesWindow.summary",
+                    defaultValue: "This will close the current window, its %1$lld workspaces, and all of their panels:"
+                )
+                : String(
+                    localized: "dialog.closeWorkspacesWindow.message",
+                    defaultValue: "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
+                )
+        } else {
+            format = usesScrollableList
+                ? String(
+                    localized: "dialog.closeWorkspaces.summary",
+                    defaultValue: "This will close %1$lld workspaces and all of their panels:"
+                )
+                : String(
+                    localized: "dialog.closeWorkspaces.message",
+                    defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
+                )
+        }
+        let message = usesScrollableList
+            ? String(format: format, locale: .current, Int64(workspaces.count))
+            : String(format: format, locale: .current, Int64(workspaces.count), titleLines)
         return CloseWorkspacesPlan(
             workspaces: workspaces,
             title: title,
             message: message,
+            scrollableMessage: usesScrollableList ? titleLines : nil,
             acceptCmdD: willCloseWindow
         )
+    }
+
+    private func closeWorkspacesInBatch(_ workspaces: [Workspace]) {
+        guard tabs.count > 1 else { return }
+        let requestedIds = Set(workspaces.map(\.id))
+        let indexedTargets = tabs.enumerated().filter { requestedIds.contains($0.element.id) }
+        guard !indexedTargets.isEmpty else { return }
+
+        let closingIds = Set(indexedTargets.map(\.element.id))
+        if tabs.count == closingIds.count {
+            if let firstWorkspace = indexedTargets.first?.element {
+                if let window {
+                    window.performClose(nil)
+                } else {
+                    AppDelegate.shared?.closeMainWindowContainingTabId(firstWorkspace.id)
+                }
+            }
+            return
+        }
+
+        for (index, workspace) in indexedTargets {
+            sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - closingIds.count])
+            if workspace.isRestorableInSessionSnapshot {
+                let snapshot = workspace.sessionSnapshot(
+                    includeScrollback: true,
+                    restorableAgentIndex: RestorableAgentSessionIndex.load()
+                )
+                ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: workspace.id,
+                    windowId: AppDelegate.shared?.windowId(for: self),
+                    workspaceIndex: index,
+                    snapshot: snapshot
+                )))
+            }
+            clearWorkspaceGitProbes(workspaceId: workspace.id)
+            clearWorkspacePullRequestTracking(workspaceId: workspace.id)
+            sidebarSelectedWorkspaceIds.remove(workspace.id)
+            invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+            unwireClosedBrowserTracking(for: workspace)
+            recentlyClosedBrowsers.removeSnapshots(forWorkspaceId: workspace.id)
+            workspace.owningTabManager = nil
+        }
+
+        let firstClosedIndex = indexedTargets.map(\.offset).min() ?? 0
+        let oldSelectedTabId = selectedTabId
+        tabs = tabs.filter { !closingIds.contains($0.id) }
+
+        let dissolvedGroupIds = Set(workspaceGroups.compactMap { group in
+            closingIds.contains(group.anchorWorkspaceId) ? group.id : nil
+        })
+        if !dissolvedGroupIds.isEmpty {
+            for tab in tabs where tab.groupId.map(dissolvedGroupIds.contains) == true {
+                tab.groupId = nil
+            }
+            workspaceGroups.removeAll { dissolvedGroupIds.contains($0.id) }
+            normalizeWorkspaceGroupContiguity()
+        }
+
+        if let oldSelectedTabId, closingIds.contains(oldSelectedTabId) {
+            let newIndex = min(firstClosedIndex, max(0, tabs.count - 1))
+            selectedTabId = tabs[newIndex].id
+        }
+
+        let detachedWorkspaces = indexedTargets.map(\.element)
+        for workspace in detachedWorkspaces {
+            publishCmuxWorkspaceClosed(workspace)
+        }
+        teardownDetachedWorkspacesCooperatively(detachedWorkspaces)
+    }
+
+    private func teardownDetachedWorkspacesCooperatively(_ workspaces: [Workspace]) {
+        Task { @MainActor in
+            for workspace in workspaces {
+                await workspace.withClosedPanelHistorySuppressed {
+                    await workspace.teardownAllPanelsCooperatively()
+                    workspace.teardownRemoteConnection()
+                }
+                await Task.yield()
+            }
+        }
     }
 
     private func closeWorkspaceDisplayTitle(_ title: String?) -> String {

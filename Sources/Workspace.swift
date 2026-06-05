@@ -11388,6 +11388,13 @@ final class Workspace: Identifiable, ObservableObject {
         body()
     }
 
+    func withClosedPanelHistorySuppressed(_ body: () async -> Void) async {
+        let previous = suppressClosedPanelHistory
+        suppressClosedPanelHistory = true
+        defer { suppressClosedPanelHistory = previous }
+        await body()
+    }
+
     func markTabCloseButtonClose(surfaceId: TabID) {
         explicitUserCloseTabIds.insert(surfaceId)
         tabCloseButtonCloseTabIds.insert(surfaceId)
@@ -15347,6 +15354,50 @@ final class Workspace: Identifiable, ObservableObject {
                 requestTransferredRemoteCleanup: true,
                 cleanupControllerSurfaceState: true
             )
+        }
+        pruneSurfaceMetadata(validSurfaceIds: [])
+        syncRemotePortScanTTYs()
+        recomputeListeningPorts()
+        clearRemoteConfigurationIfWorkspaceBecameLocal()
+        restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+#if DEBUG
+        debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
+        debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
+#endif
+        pendingTerminalInputObserversByPanelId.removeAll(keepingCapacity: false)
+        terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
+        lastTerminalConfigInheritancePanelId = nil
+        lastTerminalConfigInheritanceFontPoints = nil
+    }
+
+    /// Tear down panels from a workspace that has already been detached from
+    /// visible UI state. Yield between small chunks so closing many workspaces
+    /// cannot monopolize the main actor.
+    func teardownAllPanelsCooperatively(yieldEvery panelCount: Int = 1) async {
+        portalRenderingEnabled = false
+        clearLayoutFollowUp()
+        hideAllTerminalPortalViews()
+        hideAllBrowserPortalViews()
+        let panelEntries = Array(panels)
+        let yieldInterval = max(1, panelCount)
+        for (index, entry) in panelEntries.enumerated() {
+            let panelId = entry.key
+            let panel = entry.value
+            discardClosedPanelLifecycleState(
+                panelId: panelId,
+                tabId: surfaceIdFromPanelId(panelId),
+                paneId: paneId(forPanelId: panelId),
+                panel: panel,
+                origin: "workspace_teardown",
+                closePanel: true,
+                publishSurfaceClosedEvent: true,
+                clearSurfaceNotifications: true,
+                requestTransferredRemoteCleanup: true,
+                cleanupControllerSurfaceState: true
+            )
+            if (index + 1) % yieldInterval == 0 {
+                await Task.yield()
+            }
         }
         pruneSurfaceMetadata(validSurfaceIds: [])
         syncRemotePortScanTTYs()
