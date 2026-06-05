@@ -27856,6 +27856,26 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             try? store.markNotificationEmitted(sessionId: sessionId, fingerprint: fingerprint)
         }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
+            if hookWsFlag == nil,
+               explicitSurfaceFlag == nil,
+               case .promptSubmit = action,
+               def.name == "codex",
+               let ambientWorkspaceId = ambientWorkspaceArg,
+               ambientSurfaceArg != nil,
+               let binding = processBinding(),
+               let boundWorkspace = nonEmptyClaudeHookIdentifier(binding.workspaceId),
+               boundWorkspace == ambientWorkspaceId,
+               let boundSurface = nonEmptyClaudeHookIdentifier(binding.surfaceId) {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=early-process-bound-codex workspace=\(agentHookDebugShort(boundWorkspace)) surface=\(agentHookDebugShort(boundSurface)) mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return (boundWorkspace, boundSurface)
+            }
+
             if hookWsFlag != nil,
                explicitSurfaceFlag != nil,
                case .promptSubmit = action,
