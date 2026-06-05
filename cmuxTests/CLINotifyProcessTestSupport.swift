@@ -80,10 +80,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             lock.unlock()
         }
 
+        func activity() {
+            lock.lock()
+            lastActivity = Date()
+            lock.unlock()
+        }
+
         func shouldFinish(idleFor interval: TimeInterval) -> Bool {
             lock.lock()
             let shouldFinish = acceptedConnections > 0
-                && activeConnections == 0
                 && Date().timeIntervalSince(lastActivity) >= interval
             lock.unlock()
             return shouldFinish
@@ -159,7 +164,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
         XCTAssertEqual(bindResult, 0)
-        XCTAssertEqual(Darwin.listen(fd, 1), 0)
+        XCTAssertEqual(Darwin.listen(fd, 16), 0)
         return fd
     }
 
@@ -450,6 +455,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
                         pending.removeSubrange(0...newlineRange.lowerBound)
                         guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                        tracker.activity()
                         state.append(line)
                         if fulfillWhen?(line) == true {
                             fulfillOnce()
@@ -459,6 +465,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         _ = response.withCString { ptr in
                             Darwin.write(clientFD, ptr, strlen(ptr))
                         }
+                        tracker.activity()
                     }
                 }
             }
