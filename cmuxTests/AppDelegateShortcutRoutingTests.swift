@@ -7334,11 +7334,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             suggestions: [staleSuggestion]
         )
         XCTAssertEqual(textView.debugMentionSuggestionCount(), 1)
+        XCTAssertEqual(textView.debugStoredMentionSuggestionCount(), 1)
 
         textView.string = "@z"
         textView.setSelectedRange(NSRange(location: 2, length: 0))
         textView.refreshMentionCompletions()
-        XCTAssertEqual(textView.debugMentionSuggestionCount(), 1)
+        XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
+        XCTAssertEqual(textView.debugStoredMentionSuggestionCount(), 1)
         XCTAssertFalse(textView.debugMentionSuggestionsAreCurrent())
         XCTAssertFalse(textView.debugAcceptMentionCompletion())
         XCTAssertFalse(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
@@ -7353,6 +7355,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textView.setSelectedRange(NSRange(location: 2, length: 0))
         textView.refreshMentionCompletions()
         XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
+        XCTAssertEqual(textView.debugStoredMentionSuggestionCount(), 0)
     }
 
     func testTextBoxSubmitUsesPastePayloadAndSeparateReturn() throws {
