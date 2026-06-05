@@ -792,7 +792,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         while await reader.observedCallCount < 1, Date() < firstReadDeadline {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertGreaterThanOrEqual(await reader.observedCallCount, 1)
+        let observedCallCountAfterFirstReadWait = await reader.observedCallCount
+        XCTAssertGreaterThanOrEqual(observedCallCountAfterFirstReadWait, 1)
 
         try await Task.sleep(nanoseconds: 200_000_000)
 
