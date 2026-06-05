@@ -112,6 +112,10 @@ final class AutomationSocketUITests: XCTestCase {
             waitForSocketPong(timeout: 12.0),
             "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
         )
+        _ = try XCTUnwrap(
+            waitForSocketResult(method: "workspace.list", params: [:], timeout: 8.0),
+            "Expected workspace API to be ready before creating textbox fixture workspace"
+        )
 
         let workspace = try XCTUnwrap(
             socketResult(
@@ -313,6 +317,16 @@ final class AutomationSocketUITests: XCTestCase {
             return nil
         }
         return envelope["result"] as? [String: Any]
+    }
+
+    private func waitForSocketResult(
+        method: String,
+        params: [String: Any],
+        timeout: TimeInterval
+    ) -> [String: Any]? {
+        waitForJSON(timeout: timeout) {
+            self.socketResult(method: method, params: params)
+        }
     }
 
     private func waitForTextBoxFixture(
