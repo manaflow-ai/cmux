@@ -373,6 +373,7 @@
 		9916B44C7A9914E172D112D4 /* MobileRouteResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */; };
 		AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */; };
 		C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */; };
+		F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */; };
 		00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */; };
 		B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */; };
 		734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
@@ -1039,6 +1040,7 @@
 		7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileRouteResolver.swift; sourceTree = "<group>"; };
 		4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalByteTee.swift; sourceTree = "<group>"; };
 		F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderObserver.swift; sourceTree = "<group>"; };
+		86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListFidelityTests.swift; sourceTree = "<group>"; };
 		C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListObserver.swift; sourceTree = "<group>"; };
 		B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsUITests.swift; sourceTree = "<group>"; };
 		D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
@@ -1991,6 +1993,7 @@
 				C0DEF4120000000000000002 /* CommandPaletteSettingsToggleTests.swift */,
 				B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */,
 				BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */,
+				86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */,
 				B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */,
 				D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
@@ -2947,6 +2950,7 @@
 				D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */,
 				6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */,
 				C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */,
+				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
 				4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */,
 				A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */,
