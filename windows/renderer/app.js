@@ -25845,6 +25845,38 @@ function quickCommandActionControlsPanel() {
   });
 }
 
+function quickSavedCommandControlsPanel() {
+  if (state.customCommandSnippets.length === 0) return null;
+  const terminalTarget = activeTerminalRunTarget();
+  const terminalReady = Boolean(terminalTarget.panel);
+  const previewLimit = 6;
+  const visibleSnippets = state.customCommandSnippets.slice(0, previewLimit);
+  const hiddenSnippetCount = Math.max(0, state.customCommandSnippets.length - visibleSnippets.length);
+  const actions = visibleSnippets.map((snippet) => {
+    const command = normalizeTerminalCommand(snippet.command);
+    return quickOverviewControlButton(snippet.label, () => runTerminalCommandSnippet(snippet.id, terminalTarget.panel), {
+      disabled: !terminalReady || !command,
+      title: terminalReady
+        ? `Run ${snippet.label} in ${terminalTarget.title}.`
+        : "Focus or create a terminal pane before running saved command snippets.",
+      search: normalizeSettingsQuery(`quick setup saved command snippet run terminal shell reusable ${terminalReady ? "ready " : "needs terminal "}${snippet.label} ${command} ${terminalTarget.title} ${terminalTarget.location}`)
+    });
+  });
+  if (hiddenSnippetCount > 0) {
+    actions.push(quickOverviewControlButton("More", () => openSettingsCategory("commands", { query: "saved snippets", focusSearch: false }), {
+      title: `Open all ${state.customCommandSnippets.length} saved command snippets.`,
+      search: normalizeSettingsQuery(`quick setup saved command snippets more full commands settings manage run terminal shell ${state.customCommandSnippets.map((snippet) => snippet.label).join(" ")}`)
+    }));
+  }
+  return quickOverviewControlsPanel({
+    className: "quick-overview-commands",
+    title: "Saved commands",
+    meta: `${terminalTarget.title}: ${state.customCommandSnippets.length}/${customCommandSnippetsLimit} saved${hiddenSnippetCount ? ` / ${hiddenSnippetCount} more` : ""}`,
+    search: `quick setup saved command snippets reusable run terminal shell ${terminalReady ? "ready" : "needs terminal"} ${terminalTarget.title} ${terminalTarget.location} ${visibleSnippets.map((snippet) => `${snippet.label} ${snippet.command}`).join(" ")}`,
+    actions
+  });
+}
+
 function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   const workspace = activeWorkspace();
   const panels = workspace?.panels || [];
@@ -25911,6 +25943,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-pane-preset-controls></div>
     <div data-quick-terminal-controls></div>
     <div data-quick-command-controls></div>
+    <div data-quick-saved-command-controls></div>
     <div data-quick-browser-controls></div>
     <div data-quick-look-controls></div>
     <div data-quick-look-pack-controls></div>
@@ -26015,6 +26048,10 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   else panePresetSlot.remove();
   panel.querySelector("[data-quick-terminal-controls]").replaceWith(quickTerminalControlsPanel(workspace, terminalCount));
   panel.querySelector("[data-quick-command-controls]").replaceWith(quickCommandActionControlsPanel());
+  const savedCommandControls = quickSavedCommandControlsPanel();
+  const savedCommandSlot = panel.querySelector("[data-quick-saved-command-controls]");
+  if (savedCommandControls) savedCommandSlot.replaceWith(savedCommandControls);
+  else savedCommandSlot.remove();
   panel.querySelector("[data-quick-browser-controls]").replaceWith(quickBrowserControlsPanel(workspace, browserCount));
   panel.querySelector("[data-quick-look-controls]").replaceWith(quickLookControlsPanel());
   panel.querySelector("[data-quick-look-pack-controls]").replaceWith(quickLookPackControlsPanel());
