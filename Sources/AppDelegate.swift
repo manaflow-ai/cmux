@@ -8061,6 +8061,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             backing: .buffered,
             defer: false
         )
+        let minimumWindowSize = NSSize(
+            width: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
+            height: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+        )
+        window.minSize = minimumWindowSize
+        window.contentMinSize = minimumWindowSize
         window.animationBehavior = .none
         // When creating a new window from an existing native fullscreen window,
         // temporarily opt out of fullscreen tiling so AppKit doesn't place the

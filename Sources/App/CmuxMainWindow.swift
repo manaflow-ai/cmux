@@ -3,11 +3,19 @@ import SwiftUI
 
 final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
+    private static var mainWindowMinimumSize: NSSize {
+        NSSize(
+            width: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
+            height: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+        )
+    }
 
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
     override var safeAreaRect: NSRect { bounds }
     override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
     override var mouseDownCanMoveWindow: Bool { false }
+    override var fittingSize: NSSize { Self.mainWindowMinimumSize }
+    override var intrinsicContentSize: NSSize { Self.mainWindowMinimumSize }
 
     /// Lets a click on an interactive titlebar control (the sidebar toggle, the
     /// right-sidebar mode bar, the session-index header controls, etc.) both
