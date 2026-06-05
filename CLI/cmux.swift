@@ -782,6 +782,13 @@ private final class ClaudeHookSessionStore {
                     state.sessions[normalized] = record
                     return false
                 }
+                if terminalPromptTurnIds.count + 1 >= totalDepthBeforeStop {
+                    record.activePromptDepth = nil
+                    record.activePromptTurnId = nil
+                    record.activePromptTurnIds = nil
+                    state.sessions[normalized] = record
+                    return false
+                }
                 let depthAfterTurnStop = max(0, totalDepthBeforeStop - 1)
                 if depthAfterTurnStop == 0 {
                     record.activePromptDepth = nil
@@ -23091,6 +23098,52 @@ struct CMUXCLI {
         return terminalTurnIds
     }
 
+    private func codexTranscriptRecentTerminalTurnIds(path: String) -> [String] {
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
+            return []
+        }
+
+        var terminalTurnIds: [String] = []
+        var seen = Set<String>()
+        var currentTurnId: String?
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let objectType = object["type"] as? String else {
+                continue
+            }
+
+            if objectType == "turn_context",
+               let payload = object["payload"] as? [String: Any] {
+                currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                continue
+            }
+
+            guard objectType == "event_msg",
+                  let payload = object["payload"] as? [String: Any],
+                  let eventType = payload["type"] as? String else {
+                continue
+            }
+
+            if eventType == "task_started" {
+                currentTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                continue
+            }
+
+            guard eventType == "task_complete" || eventType == "turn_complete" || eventType == "turn_aborted",
+                  let turnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId,
+                  !seen.contains(turnId) else {
+                continue
+            }
+            seen.insert(turnId)
+            terminalTurnIds.append(turnId)
+        }
+
+        return terminalTurnIds
+    }
+
     private func readCodexTranscriptUserInput(
         path: String,
         turnId: String?,
@@ -28386,6 +28439,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         path: transcriptPath,
                         turnIds: Set(activeTurnIdsToCheck)
                     )
+                } else if activePromptTurnStack.isEmpty,
+                          (mapped?.activePromptDepth ?? 0) > 1,
+                          let transcriptPath = normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath)
+                              ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
+                    let terminalTurnIds = codexTranscriptRecentTerminalTurnIds(path: transcriptPath)
+                    if terminalTurnIds.last == incomingTurnId {
+                        terminalActivePromptTurnIdsForStop = Set(terminalTurnIds.dropLast().suffix(max(0, (mapped?.activePromptDepth ?? 0) - 1)))
+                    } else {
+                        terminalActivePromptTurnIdsForStop = []
+                    }
                 } else {
                     terminalActivePromptTurnIdsForStop = []
                 }
