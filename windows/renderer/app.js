@@ -7637,6 +7637,7 @@ const commands = [
   { id: "browser.homeExternal", label: "Open Browser Home Externally", shortcut: "", run: () => openExternalBrowser(state.settings.browserHomeUrl) },
   { id: "browser.copySetup", label: "Copy Browser Setup", shortcut: "", run: () => copyBrowserSetup() },
   { id: "browser.pasteSetup", label: "Paste Browser Setup", shortcut: "", run: () => pasteBrowserSetup() },
+  { id: "browser.cycleHomePreset", label: "Cycle Browser Home Preset", shortcut: "", run: () => cycleBrowserHomePreset() },
   { id: "browser.cycleWorkflowPreset", label: "Cycle Browser Workflow Preset", shortcut: "", run: () => cycleBrowserWorkflowPreset() },
   { id: "browser.resetSetup", label: "Reset Browser Setup", shortcut: "", run: () => resetBrowserSetupSettings() },
   { id: "browser.copyRecentPages", label: "Copy Recent Browser Pages", shortcut: "", run: () => copyRecentBrowserPages() },
@@ -7818,6 +7819,7 @@ const customizationPaletteCommandIds = new Set([
   "terminal.pasteRecentCommands",
   "browser.copyRecentPages",
   "browser.pasteRecentPages",
+  "browser.cycleHomePreset",
   "browser.cycleWorkflowPreset",
   "settings.copySavedLibrary",
   "settings.pasteSavedLibrary",
@@ -8826,6 +8828,8 @@ const corePaletteCommandIds = new Set([
   "browser.homeExternal",
   "browser.copySetup",
   "browser.pasteSetup",
+  "browser.cycleHomePreset",
+  "browser.cycleWorkflowPreset",
   "browser.resetSetup",
   "browser.copyTabs",
   "browser.copyAllTabs",
@@ -9116,6 +9120,17 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       icon: "browserPlus",
       title: !hasWorkspace ? noWorkspaceTitle : creationTitle("Open the browser home page in a new pane."),
       search: `browser new pane web home add workspace ${workspaceTitle} ${state.settings.browserHomeUrl}`
+    };
+  }
+  if (commandId === "browser.cycleHomePreset") {
+    const model = browserHomePresetCycleModel();
+    return {
+      meta: model.meta,
+      shortcut: "Cycle",
+      disabled: model.disabled,
+      icon: "browserPlus",
+      title: model.title,
+      search: normalizeSettingsQuery(`browser home preset cycle next homepage google github localhost vite angular flask python asp net api backend web url ${model.search}`)
     };
   }
   if (commandId === "browser.cycleWorkflowPreset") {
@@ -16121,7 +16136,7 @@ function renderSettingsInspector(options = {}) {
     ));
     const homeActions = document.createElement("div");
     homeActions.className = "settings-actions";
-    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web launch mode system external profile chrome edge brave suspend inactive pane chrome tabs address controls full compact content zoom scale save browser profile reusable copy paste setup clipboard json");
+    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open cycle preset reset default url page web launch mode system external profile chrome edge brave suspend inactive pane chrome tabs address controls full compact content zoom scale save browser profile reusable copy paste setup clipboard json");
     const browserHomeDefault = browserHomeKey(state.settings.browserHomeUrl) === browserHomeKey(defaultSettings.browserHomeUrl);
     const resetBrowserHomeAction = settingsActionButton("Reset", resetBrowserHome, "", `browser home reset default url page web ${browserHomeDefault ? "active current " : ""}`);
     resetBrowserHomeAction.disabled = browserHomeDefault;
@@ -16147,6 +16162,10 @@ function renderSettingsInspector(options = {}) {
     copyBrowser.title = "Copy browser home, launch mode, external profile, suspend setting, pane chrome, and pane zoom as JSON.";
     const pasteBrowser = settingsActionButton("Paste setup", pasteBrowserSetup, "", "browser setup paste home launch external profile suspend pane chrome tabs address controls full compact content zoom scale clipboard json");
     pasteBrowser.title = "Apply copied cmux browser setup.";
+    const homeCycle = browserHomePresetCycleModel();
+    const cycleBrowserHome = settingsActionButton("Cycle home", cycleBrowserHomePreset, "", `browser home preset cycle next homepage google github localhost vite angular flask python asp net api backend web url ${homeCycle.search}`);
+    cycleBrowserHome.disabled = homeCycle.disabled;
+    cycleBrowserHome.title = homeCycle.title;
     const workflowCycle = browserWorkflowPresetCycleModel();
     const cycleBrowserWorkflow = settingsActionButton("Cycle workflow", cycleBrowserWorkflowPreset, "", `browser workflow setup cycle next preset home launch external profile suspend pane chrome tabs address controls full compact content zoom scale localhost local dev app api backend ${workflowCycle.search}`);
     cycleBrowserWorkflow.disabled = workflowCycle.disabled;
@@ -16162,6 +16181,7 @@ function renderSettingsInspector(options = {}) {
         settingsActionButton("Save browser profile", saveCurrentBrowserProfile, "primary", "browser save profile home page launch external chrome edge brave pane chrome tabs address controls full compact content zoom scale reusable"),
         "Save this browser setup as a reusable Settings profile."
       ),
+      cycleBrowserHome,
       cycleBrowserWorkflow,
       copyBrowser,
       pasteBrowser,
@@ -19862,14 +19882,50 @@ function refreshBrowserHomePresetGrid() {
   return changed;
 }
 
+function browserHomePresetCycleModel() {
+  const presets = browserHomePresets.filter((preset) => preset?.id && preset?.url);
+  const activeIndex = presets.findIndex((preset) => isActiveBrowserHomePreset(preset));
+  const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % presets.length : 0;
+  const preset = presets[nextIndex] || null;
+  const home = hostnameOf(preset?.url) || preset?.url || "Browser home";
+  return {
+    preset,
+    disabled: !preset || (presets.length === 1 && activeIndex === 0),
+    meta: preset ? `${preset.label} / ${home}` : "No browser homes",
+    title: preset
+      ? `Cycle browser home to ${preset.label}.`
+      : "No browser home presets are available.",
+    search: normalizeSettingsQuery([
+      "browser home preset cycle next homepage google github localhost vite angular flask python asp net api backend web url",
+      browserHomePresetBaseSearchText(preset),
+      home,
+      state.settings.browserHomeUrl
+    ].join(" "))
+  };
+}
+
 function applyBrowserHomePreset(preset, options = {}) {
+  if (!preset) {
+    toast("Browser home preset not found.");
+    return false;
+  }
   const changed = updateSettings({ browserHomeUrl: preset.url });
   if (!changed) {
     if (options.toast !== false) toast(`${preset.label} is already the browser home.`);
-    return;
+    return false;
   }
-  if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
+  if (options.render !== false && state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
   if (options.toast !== false) toast(`${preset.label} browser home applied.`);
+  return true;
+}
+
+function cycleBrowserHomePreset(options = {}) {
+  const model = browserHomePresetCycleModel();
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applyBrowserHomePreset(model.preset, options);
 }
 
 function resetBrowserHome() {
@@ -25582,6 +25638,7 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
   const hasWorkspace = Boolean(workspace);
   const profilesFull = savedSettingsProfilesFull();
   const setupDefault = browserSetupSettingsAreDefault();
+  const homeCycle = browserHomePresetCycleModel();
   const workflowCycle = browserWorkflowPresetCycleModel();
   const activeBrowserTitle = activeBrowser
     ? panelDisplayTitle(activeBrowser, true)
@@ -25601,6 +25658,11 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
       disabled: !hasWorkspace,
       title: hasWorkspace ? "Open the browser home page in this workspace." : workspaceRequiredTitle,
       search: "quick setup browser open home page pane web chrome"
+    }),
+    quickOverviewControlButton("Cycle home", () => refreshQuickSettingsAfterAction(cycleBrowserHomePreset({ render: false })), {
+      disabled: homeCycle.disabled,
+      title: homeCycle.title,
+      search: `quick setup browser home preset cycle next homepage google github localhost vite angular flask python asp net api backend web url ${homeCycle.search}`
     }),
     quickOverviewControlButton("New tab", () => newBrowserTabFromPanel(activeBrowser), {
       disabled: !activeBrowser,
