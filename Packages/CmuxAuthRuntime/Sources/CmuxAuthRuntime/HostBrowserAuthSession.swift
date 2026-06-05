@@ -1,9 +1,8 @@
-import AuthenticationServices
-import Foundation
+public import Foundation
 
 /// One launched hosted-browser auth attempt that can be cancelled.
 @MainActor
-protocol HostBrowserAuthSession: AnyObject {
+public protocol HostBrowserAuthSession: AnyObject {
     /// Start the browser session. Returns `false` when the OS refused to
     /// present it (no completion will be delivered in that case).
     func start() -> Bool
@@ -13,10 +12,10 @@ protocol HostBrowserAuthSession: AnyObject {
 }
 
 /// Creates ``HostBrowserAuthSession`` attempts. Production wraps
-/// `ASWebAuthenticationSession`; tests inject a fake to drive the callback
-/// deterministically.
+/// `ASWebAuthenticationSession` (``ASWebBrowserAuthSessionFactory``); tests
+/// inject a fake to drive the callback deterministically.
 @MainActor
-protocol HostBrowserAuthSessionFactory {
+public protocol HostBrowserAuthSessionFactory {
     /// Make (but do not start) one browser auth attempt.
     /// - Parameters:
     ///   - signInURL: The hosted sign-in page URL.

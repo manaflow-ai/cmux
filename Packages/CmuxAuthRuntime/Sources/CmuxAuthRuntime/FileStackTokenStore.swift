@@ -1,42 +1,46 @@
-import Foundation
+public import Foundation
 
-/// File-backed token store: writes to a JSON document with 0600 mode in
-/// Application Support, namespaced by bundle id. Chosen over both the login
-/// keychain (prompts on every ad-hoc Debug rebuild) and the data-protection
-/// keychain (fails with errSecMissingEntitlement without a keychain-access-
-/// groups entitlement we don't have on Debug). Atomic writes so a
-/// pkill-during-reload can't drop the refresh token.
-actor FileStackTokenStore: StackAuthTokenStoreProtocol {
+/// File-backed token store: writes to a JSON document with 0600 mode inside an
+/// injected directory.
+///
+/// On macOS this is chosen over both the login keychain (prompts on every
+/// ad-hoc Debug rebuild) and the data-protection keychain (fails with
+/// errSecMissingEntitlement without a keychain-access-groups entitlement Debug
+/// builds don't have). Atomic writes so a kill-during-reload can't drop the
+/// refresh token.
+///
+/// ```swift
+/// let store = FileStackTokenStore(directory: appSupport
+///     .appendingPathComponent("cmux", isDirectory: true)
+///     .appendingPathComponent(bundleID, isDirectory: true))
+/// ```
+public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
     private struct Snapshot: Codable {
         var accessToken: String?
         var refreshToken: String?
     }
 
     private let log = AuthDebugLog()
-
-    private let fileURL: URL = {
-        let support = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        let bundleID = Bundle.main.bundleIdentifier ?? "cmux"
-        return support
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent(bundleID, isDirectory: true)
-            .appendingPathComponent("credentials.json", isDirectory: false)
-    }()
-
+    private let fileURL: URL
     private var cache: Snapshot?
 
-    func getStoredAccessToken() async -> String? {
+    /// Creates a file store persisting to `credentials.json` inside `directory`.
+    /// - Parameter directory: The directory to create (0700) and write into;
+    ///   injected so the type never reaches for the user's filesystem layout
+    ///   itself and tests can use a temp directory.
+    public init(directory: URL) {
+        self.fileURL = directory.appendingPathComponent("credentials.json", isDirectory: false)
+    }
+
+    public func getStoredAccessToken() async -> String? {
         loadIfNeeded().accessToken
     }
 
-    func getStoredRefreshToken() async -> String? {
+    public func getStoredRefreshToken() async -> String? {
         loadIfNeeded().refreshToken
     }
 
-    func setTokens(accessToken: String?, refreshToken: String?) async {
+    public func setTokens(accessToken: String?, refreshToken: String?) async {
         log.log("file.setTokens: hasAccess=\(accessToken?.isEmpty == false) hasRefresh=\(refreshToken?.isEmpty == false)")
         var snapshot = loadIfNeeded()
         snapshot.accessToken = (accessToken?.isEmpty == false) ? accessToken : nil
@@ -44,13 +48,13 @@ actor FileStackTokenStore: StackAuthTokenStoreProtocol {
         write(snapshot)
     }
 
-    func clearTokens() async {
+    public func clearTokens() async {
         log.log("clearTokens called")
         write(Snapshot(accessToken: nil, refreshToken: nil))
     }
 
     @discardableResult
-    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
+    public func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
         let stored = loadIfNeeded()
         let snapshot = AuthTokenSnapshot(
             accessToken: stored.accessToken,
@@ -65,7 +69,7 @@ actor FileStackTokenStore: StackAuthTokenStoreProtocol {
         return true
     }
 
-    func compareAndSet(
+    public func compareAndSet(
         compareRefreshToken: String,
         newRefreshToken: String?,
         newAccessToken: String?

@@ -1,14 +1,8 @@
 import AuthenticationServices
 import CMUXAuthCore
-import CmuxAuthRuntime
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxAuthRuntime
 
 /// Behavior tests for the hosted-browser sign-in flow: callback completion,
 /// the sign-out-vs-callback race guards, deadlines, and attempt cancellation.
@@ -23,25 +17,16 @@ import Testing
     }
 
     private func makeHarness(user: CMUXAuthUser? = nil) -> Harness {
-        let store = FlowTestKeyValueStore()
+        let store = FakeKeyValueStore()
         let client = FlowFakeAuthClient(user: user)
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
             userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
-            anchor: AuthPresentationContextProvider(),
-            config: AuthConfig(
-                stack: CMUXAuthConfig(projectId: "test", publishableClientKey: "test"),
-                magicLinkCallbackURL: "http://localhost/auth/callback",
-                apiBaseURL: "http://localhost"
-            ),
-            launch: AuthLaunchOptions(
-                clearAuthRequested: false,
-                mockDataEnabled: false,
-                environment: [:],
-                includesDevAuth: false
-            )
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
         )
         let tokenStore = FlowInMemoryTokenStore()
         let factory = FakeBrowserAuthSessionFactory()
@@ -49,6 +34,7 @@ import Testing
             coordinator: coordinator,
             tokenStore: tokenStore,
             sessionFactory: factory,
+            callbackRouter: AuthCallbackRouter(),
             makeSignInURL: { URL(string: "https://example.test/handler/sign-in")! },
             callbackScheme: { "cmux-dev" }
         )
@@ -173,17 +159,6 @@ import Testing
 }
 
 // MARK: - Fakes
-
-/// In-memory key-value store for the coordinator caches.
-private final class FlowTestKeyValueStore: CMUXAuthKeyValueStore {
-    private var storage: [String: Any] = [:]
-
-    func bool(forKey defaultName: String) -> Bool { storage[defaultName] as? Bool ?? false }
-    func data(forKey defaultName: String) -> Data? { storage[defaultName] as? Data }
-    func string(forKey defaultName: String) -> String? { storage[defaultName] as? String }
-    func set(_ value: Any?, forKey defaultName: String) { storage[defaultName] = value }
-    func removeObject(forKey defaultName: String) { storage.removeValue(forKey: defaultName) }
-}
 
 /// Scriptable ``AuthClient`` with a gate on `currentUser` so tests can hold the
 /// callback-completion round trip open while a sign-out races it.

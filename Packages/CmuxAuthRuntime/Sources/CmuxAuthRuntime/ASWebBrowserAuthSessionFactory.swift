@@ -1,18 +1,21 @@
-import AuthenticationServices
-import Foundation
+public import AuthenticationServices
+public import Foundation
 
 /// The production ``HostBrowserAuthSessionFactory``, backed by
 /// `ASWebAuthenticationSession` presenting from the injected anchor provider.
 @MainActor
-final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory {
-    private let anchor: ASWebAuthenticationPresentationContextProviding
+public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory {
+    private let anchor: any ASWebAuthenticationPresentationContextProviding
     private let log = AuthDebugLog()
 
-    init(anchor: ASWebAuthenticationPresentationContextProviding) {
+    /// Creates the factory.
+    /// - Parameter anchor: The presentation anchor provider (production:
+    ///   ``AuthPresentationContextProvider``).
+    public init(anchor: any ASWebAuthenticationPresentationContextProviding) {
         self.anchor = anchor
     }
 
-    func makeSession(
+    public func makeSession(
         signInURL: URL,
         callbackScheme: String,
         completion: @escaping @MainActor (URL?) -> Void

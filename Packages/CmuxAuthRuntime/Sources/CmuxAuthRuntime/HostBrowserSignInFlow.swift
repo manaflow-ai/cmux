@@ -1,25 +1,25 @@
-import CmuxAuthRuntime
-import Foundation
-import Observation
+public import Foundation
+public import Observation
 
 /// The macOS hosted-browser sign-in flow.
 ///
 /// Drives one `ASWebAuthenticationSession` attempt at a time against the cmux
 /// web app's hosted sign-in page, then seeds the callback tokens into the
 /// injected token store and publishes the session through the shared
-/// ``CmuxAuthRuntime/AuthCoordinator`` (`completeExternalSignIn()`). Also
-/// handles auth callback URLs that arrive through the app's URL scheme outside
-/// a popup. Owns the attempt/sign-out race guards so a late browser callback
-/// can never resurrect a session the user just signed out of.
+/// ``AuthCoordinator`` (`completeExternalSignIn()`). Also handles auth
+/// callback URLs that arrive through the app's URL scheme outside a popup.
+/// Owns the attempt/sign-out race guards so a late browser callback can never
+/// resurrect a session the user just signed out of.
 @MainActor
 @Observable
-final class HostBrowserSignInFlow {
+public final class HostBrowserSignInFlow {
     /// Whether a browser sign-in attempt (popup + completion) is in flight.
-    private(set) var isSigningIn = false
+    public private(set) var isSigningIn = false
 
     private let coordinator: AuthCoordinator
     private let tokenStore: any StackAuthTokenStoreProtocol
     private let sessionFactory: any HostBrowserAuthSessionFactory
+    private let callbackRouter: AuthCallbackRouter
     private let makeSignInURL: @MainActor () -> URL
     private let callbackScheme: @MainActor () -> String
     private let clock: any Clock<Duration>
@@ -37,22 +37,24 @@ final class HostBrowserSignInFlow {
     ///     callback tokens are seeded here.
     ///   - sessionFactory: Browser-session seam (production:
     ///     ``ASWebBrowserAuthSessionFactory``).
-    ///   - makeSignInURL: Builds the hosted sign-in URL per attempt (defaults
-    ///     to `AuthEnvironment.signInURL()`).
-    ///   - callbackScheme: The custom callback scheme (defaults to
-    ///     `AuthEnvironment.callbackScheme`).
+    ///   - callbackRouter: Recognizes/parses auth callback URLs.
+    ///   - makeSignInURL: Builds the hosted sign-in URL per attempt (the
+    ///     composition root derives it from its environment table).
+    ///   - callbackScheme: The custom callback scheme for the popup.
     ///   - clock: Drives the sign-in deadline; tests inject a virtual clock.
-    init(
+    public init(
         coordinator: AuthCoordinator,
         tokenStore: any StackAuthTokenStoreProtocol,
         sessionFactory: any HostBrowserAuthSessionFactory,
-        makeSignInURL: @escaping @MainActor () -> URL = { AuthEnvironment.signInURL() },
-        callbackScheme: @escaping @MainActor () -> String = { AuthEnvironment.callbackScheme },
+        callbackRouter: AuthCallbackRouter,
+        makeSignInURL: @escaping @MainActor () -> URL,
+        callbackScheme: @escaping @MainActor () -> String,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.coordinator = coordinator
         self.tokenStore = tokenStore
         self.sessionFactory = sessionFactory
+        self.callbackRouter = callbackRouter
         self.makeSignInURL = makeSignInURL
         self.callbackScheme = callbackScheme
         self.clock = clock
@@ -60,7 +62,7 @@ final class HostBrowserSignInFlow {
 
     /// Start a browser sign-in without awaiting the result (Settings button).
     /// Cancels any previous attempt's popup first.
-    func beginSignIn() {
+    public func beginSignIn() {
         _ = startAttempt()
     }
 
@@ -68,16 +70,32 @@ final class HostBrowserSignInFlow {
     /// `auth.begin_sign_in` command. Returns whether the app ended signed in
     /// before the deadline; the popup itself stays up past the deadline so the
     /// user can still finish.
-    func signIn(timeout: TimeInterval) async -> Bool {
+    public func signIn(timeout: TimeInterval) async -> Bool {
         if coordinator.isAuthenticated { return true }
         return await awaitWithDeadline(startAttempt(), timeout: timeout)
+    }
+
+    /// Handle an auth callback URL delivered through the app's URL scheme
+    /// (e.g. the hosted page redirected in the user's real browser instead of
+    /// the popup). Returns whether the app ended signed in.
+    @discardableResult
+    public func handleCallbackURL(_ url: URL) async -> Bool {
+        await completeCallback(url: url, attemptID: nil)
+    }
+
+    /// Sign out, cancelling any in-flight browser attempt so a late callback
+    /// can't resurrect the session.
+    public func signOut() async {
+        signOutGeneration &+= 1
+        cancelActiveAttempt()
+        await coordinator.signOut()
     }
 
     /// Sign out with a deadline, for the socket `auth.sign_out` command. The
     /// sign-out itself always runs to completion in the background; the
     /// deadline only caps how long the socket caller can hang on the network
     /// revoke round trip.
-    func signOut(timeout: TimeInterval) async {
+    public func signOut(timeout: TimeInterval) async {
         // Strong capture on purpose: the user asked to sign out, so the task
         // must keep the flow alive until the sign-out completes even if the
         // socket caller stops waiting at the deadline.
@@ -114,22 +132,6 @@ final class HostBrowserSignInFlow {
                 continuation.resume(returning: false)
             }
         }
-    }
-
-    /// Handle an auth callback URL delivered through the app's URL scheme
-    /// (e.g. the hosted page redirected in the user's real browser instead of
-    /// the popup). Returns whether the app ended signed in.
-    @discardableResult
-    func handleCallbackURL(_ url: URL) async -> Bool {
-        await completeCallback(url: url, attemptID: nil)
-    }
-
-    /// Sign out, cancelling any in-flight browser attempt so a late callback
-    /// can't resurrect the session.
-    func signOut() async {
-        signOutGeneration &+= 1
-        cancelActiveAttempt()
-        await coordinator.signOut()
     }
 
     // MARK: - Attempt lifecycle
@@ -194,7 +196,7 @@ final class HostBrowserSignInFlow {
     /// Seed the callback tokens and publish the session through the shared
     /// coordinator, guarding against a sign-out racing the round trip.
     private func completeCallback(url: URL, attemptID: UInt64?) async -> Bool {
-        guard let payload = AuthCallbackRouter.callbackPayload(from: url) else {
+        guard let payload = callbackRouter.callbackPayload(from: url) else {
             log.log("auth.callback rejected: invalid payload")
             return false
         }

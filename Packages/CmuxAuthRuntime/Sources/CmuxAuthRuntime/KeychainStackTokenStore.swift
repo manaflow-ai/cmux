@@ -3,51 +3,62 @@ import Foundation
 import Security
 #endif
 
-/// Resolves the keychain service name auth tokens are stored under, namespaced
-/// by bundle id so tagged dev builds don't clobber the stable app's session.
-enum AuthKeychainServiceName {
-    static let stableFallback = "com.cmuxterm.app.auth"
-
-    static func make(bundleIdentifier: String? = Bundle.main.bundleIdentifier) -> String {
-        guard let bundleIdentifier, !bundleIdentifier.isEmpty else {
-            return stableFallback
-        }
-        return "\(bundleIdentifier).auth"
-    }
-}
-
-/// Data-protection-keychain token store, the primary store on Release builds
-/// (which carry a keychain-access-groups entitlement via
-/// `Resources/cmux.entitlements`). Ad-hoc Debug builds fail keychain writes
-/// with `errSecMissingEntitlement`; ``FallbackTokenStore`` detects that and
-/// routes to ``FileStackTokenStore`` instead.
-actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
+/// Data-protection-keychain token store.
+///
+/// On macOS this is the primary store on Release builds (which carry a
+/// keychain-access-groups entitlement). Ad-hoc Debug builds fail keychain
+/// writes with `errSecMissingEntitlement`; ``FallbackTokenStore`` detects that
+/// and routes to ``FileStackTokenStore`` instead.
+///
+/// ```swift
+/// let store = KeychainStackTokenStore(
+///     service: KeychainStackTokenStore.serviceName(bundleIdentifier: Bundle.main.bundleIdentifier)
+/// )
+/// ```
+public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private static let accessTokenAccount = "cmux-auth-access-token"
     private static let refreshTokenAccount = "cmux-auth-refresh-token"
-    private let service = AuthKeychainServiceName.make()
+    private let service: String
     private let log = AuthDebugLog()
 
     private var cachedAccessToken: String?
     private var cachedRefreshToken: String?
 
-    func getStoredAccessToken() async -> String? {
+    /// Creates a keychain store writing under `service`.
+    /// - Parameter service: The keychain service name; see ``serviceName(bundleIdentifier:)``.
+    public init(service: String) {
+        self.service = service
+    }
+
+    /// The keychain service name auth tokens are stored under, namespaced by
+    /// bundle id so tagged dev builds don't clobber the stable app's session.
+    /// - Parameter bundleIdentifier: The app's bundle identifier (the caller
+    ///   reads `Bundle.main`; this type never does).
+    public static func serviceName(bundleIdentifier: String?) -> String {
+        guard let bundleIdentifier, !bundleIdentifier.isEmpty else {
+            return "com.cmuxterm.app.auth"
+        }
+        return "\(bundleIdentifier).auth"
+    }
+
+    public func getStoredAccessToken() async -> String? {
         if let cachedAccessToken { return cachedAccessToken }
         return keychainRead(account: Self.accessTokenAccount)
     }
 
-    func getStoredRefreshToken() async -> String? {
+    public func getStoredRefreshToken() async -> String? {
         if let cachedRefreshToken { return cachedRefreshToken }
         return keychainRead(account: Self.refreshTokenAccount)
     }
 
-    func setTokens(accessToken: String?, refreshToken: String?) async {
+    public func setTokens(accessToken: String?, refreshToken: String?) async {
         _ = await trySetTokens(accessToken: accessToken, refreshToken: refreshToken)
     }
 
-    /// Same as setTokens but returns whether every keychain operation
-    /// actually succeeded. Used by FallbackTokenStore to decide when to
+    /// Same as `setTokens` but returns whether every keychain operation
+    /// actually succeeded. Used by ``FallbackTokenStore`` to decide when to
     /// give up on Keychain and route to the file store.
-    func trySetTokens(accessToken: String?, refreshToken: String?) async -> Bool {
+    public func trySetTokens(accessToken: String?, refreshToken: String?) async -> Bool {
         log.log("keychain.setTokens: hasAccess=\(accessToken?.isEmpty == false) hasRefresh=\(refreshToken?.isEmpty == false)")
         cachedAccessToken = (accessToken?.isEmpty == false) ? accessToken : nil
         cachedRefreshToken = (refreshToken?.isEmpty == false) ? refreshToken : nil
@@ -66,7 +77,7 @@ actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         return allOK
     }
 
-    func clearTokens() async {
+    public func clearTokens() async {
         log.log("clearTokens called")
         cachedAccessToken = nil
         cachedRefreshToken = nil
@@ -75,7 +86,7 @@ actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     @discardableResult
-    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
+    public func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
         let snapshot = AuthTokenSnapshot(
             accessToken: keychainRead(account: Self.accessTokenAccount),
             refreshToken: keychainRead(account: Self.refreshTokenAccount)
@@ -89,7 +100,7 @@ actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         return true
     }
 
-    func compareAndSet(
+    public func compareAndSet(
         compareRefreshToken: String,
         newRefreshToken: String?,
         newAccessToken: String?

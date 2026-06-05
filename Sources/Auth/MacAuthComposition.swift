@@ -17,6 +17,8 @@ struct MacAuthComposition {
     let coordinator: AuthCoordinator
     /// The hosted-browser sign-in flow (popup + callback URLs + sign-out).
     let browserSignIn: HostBrowserSignInFlow
+    /// Recognizes/parses auth callback URLs (AppDelegate URL routing).
+    let callbackRouter: AuthCallbackRouter
     /// The token store the Stack client persists through.
     let tokenStore: any StackAuthTokenStoreProtocol
 
@@ -29,9 +31,12 @@ struct MacAuthComposition {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard
     ) {
+        let bundleIdentifier = Bundle.main.bundleIdentifier
         let tokenStore = FallbackTokenStore(
-            primary: KeychainStackTokenStore(),
-            fallback: FileStackTokenStore()
+            primary: KeychainStackTokenStore(
+                service: KeychainStackTokenStore.serviceName(bundleIdentifier: bundleIdentifier)
+            ),
+            fallback: FileStackTokenStore(directory: Self.credentialsDirectory(bundleIdentifier: bundleIdentifier))
         )
         self.tokenStore = tokenStore
 
@@ -92,10 +97,17 @@ struct MacAuthComposition {
             launch: launch
         )
         self.coordinator = coordinator
+        let callbackRouter = AuthCallbackRouter(
+            extraAllowedScheme: AuthEnvironment.callbackScheme
+        )
+        self.callbackRouter = callbackRouter
         self.browserSignIn = HostBrowserSignInFlow(
             coordinator: coordinator,
             tokenStore: tokenStore,
-            sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor)
+            sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
+            callbackRouter: callbackRouter,
+            makeSignInURL: { AuthEnvironment.signInURL() },
+            callbackScheme: { AuthEnvironment.callbackScheme }
         )
     }
 
@@ -103,6 +115,18 @@ struct MacAuthComposition {
     /// the composition root.
     func start() {
         coordinator.start()
+    }
+
+    /// Where the file-fallback token store persists, namespaced by bundle id
+    /// (matching the pre-package layout so existing sessions survive).
+    private static func credentialsDirectory(bundleIdentifier: String?) -> URL {
+        let support = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        return support
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent(bundleIdentifier ?? "cmux", isDirectory: true)
     }
 
     private static var includesDevAuth: Bool {

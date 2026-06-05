@@ -2,21 +2,26 @@ import Foundation
 
 /// Composite store that routes to Keychain first and transparently falls
 /// back to the file store if Keychain signals a real failure (empirically:
-/// errSecMissingEntitlement -34018 on ad-hoc Debug builds without a matching
-/// keychain-access-groups entry in the signed entitlements). Keeps writes
-/// split-brain-free by clearing the file store whenever Keychain succeeds.
-actor FallbackTokenStore: StackAuthTokenStoreProtocol {
+/// errSecMissingEntitlement -34018 on ad-hoc macOS Debug builds without a
+/// matching keychain-access-groups entry in the signed entitlements). Keeps
+/// writes split-brain-free by clearing the file store whenever Keychain
+/// succeeds.
+public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
     private let keychain: KeychainStackTokenStore
     private let file: FileStackTokenStore
     private let log = AuthDebugLog()
     private var keychainWorks: Bool = true
 
-    init(primary keychain: KeychainStackTokenStore, fallback file: FileStackTokenStore) {
+    /// Creates the composite store.
+    /// - Parameters:
+    ///   - keychain: The primary keychain-backed store.
+    ///   - file: The fallback file-backed store.
+    public init(primary keychain: KeychainStackTokenStore, fallback file: FileStackTokenStore) {
         self.keychain = keychain
         self.file = file
     }
 
-    func getStoredAccessToken() async -> String? {
+    public func getStoredAccessToken() async -> String? {
         if keychainWorks, let value = await keychain.getStoredAccessToken() {
             return value
         }
@@ -28,7 +33,7 @@ actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         return fallbackValue
     }
 
-    func getStoredRefreshToken() async -> String? {
+    public func getStoredRefreshToken() async -> String? {
         if keychainWorks, let value = await keychain.getStoredRefreshToken() {
             return value
         }
@@ -40,7 +45,7 @@ actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         return fallbackValue
     }
 
-    func setTokens(accessToken: String?, refreshToken: String?) async {
+    public func setTokens(accessToken: String?, refreshToken: String?) async {
         if keychainWorks {
             let ok = await keychain.trySetTokens(
                 accessToken: accessToken,
@@ -56,13 +61,13 @@ actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         await file.setTokens(accessToken: accessToken, refreshToken: refreshToken)
     }
 
-    func clearTokens() async {
+    public func clearTokens() async {
         await keychain.clearTokens()
         await file.clearTokens()
     }
 
     @discardableResult
-    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
+    public func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
         if keychainWorks {
             let keychainCleared = await keychain.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
             let fileCleared = await file.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
@@ -71,7 +76,7 @@ actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         return await file.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
     }
 
-    func compareAndSet(
+    public func compareAndSet(
         compareRefreshToken: String,
         newRefreshToken: String?,
         newAccessToken: String?
