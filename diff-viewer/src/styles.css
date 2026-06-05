@@ -237,8 +237,15 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-#layout-toggle svg [data-accent] {
-  stroke: light-dark(#0a84ff, #7ab7ff);
+#layout-toggle svg [data-diff-deletion],
+#layout-toggle svg [data-diff-addition] {
+  stroke: none;
+}
+#layout-toggle svg [data-diff-deletion] {
+  fill: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+}
+#layout-toggle svg [data-diff-addition] {
+  fill: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
 }
 #options-menu {
   position: absolute;

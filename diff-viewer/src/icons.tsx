@@ -63,9 +63,9 @@ function IconPaths({ name }: { name: IconName }) {
   case "sidebarCollapse":
     return <><rect x="3.5" y="4" width="13" height="12" rx="2" /><path d="M8 4v12" /><path d="m12 8 2 2-2 2" /></>;
   case "split":
-    return <><rect x="3" y="4" width="14" height="12" rx="2" /><path d="M10 4v12" data-accent="true" /><path d="M6 8h2" /><path d="M6 12h2" /><path d="M12 8h2" /><path d="M12 12h2" /></>;
+    return <><rect x="4" y="4" width="12" height="12" rx="2" /><rect x="6.2" y="5.5" width="2.8" height="9" rx=".7" data-diff-deletion="true" /><rect x="11" y="5.5" width="2.8" height="9" rx=".7" data-diff-addition="true" /></>;
   case "unified":
-    return <><rect x="4" y="3.5" width="12" height="13" rx="2" /><path d="M7 7h6" /><path d="M7 10h6" data-accent="true" /><path d="M7 13h6" /></>;
+    return <><rect x="4" y="4" width="12" height="12" rx="2" /><rect x="6" y="6.2" width="8" height="2.8" rx=".7" data-diff-deletion="true" /><rect x="6" y="11" width="8" height="2.8" rx=".7" data-diff-addition="true" /></>;
   case "word":
     return <><path d="M3 6h14" /><path d="M3 10h8" /><path d="M3 14h11" /><path d="M14 10h3" /></>;
   case "wrap":
