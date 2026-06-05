@@ -58,6 +58,46 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    final class MockSocketConnectionTracker: @unchecked Sendable {
+        private let lock = NSLock()
+        private var acceptedConnections = 0
+        private var activeConnections = 0
+        private var lastActivity = Date()
+        private var didFulfill = false
+
+        func accepted() {
+            lock.lock()
+            acceptedConnections += 1
+            activeConnections += 1
+            lastActivity = Date()
+            lock.unlock()
+        }
+
+        func closed() {
+            lock.lock()
+            activeConnections = max(0, activeConnections - 1)
+            lastActivity = Date()
+            lock.unlock()
+        }
+
+        func shouldFinish(idleFor interval: TimeInterval) -> Bool {
+            lock.lock()
+            let shouldFinish = acceptedConnections > 0
+                && activeConnections == 0
+                && Date().timeIntervalSince(lastActivity) >= interval
+            lock.unlock()
+            return shouldFinish
+        }
+
+        func markFulfilled() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if didFulfill { return false }
+            didFulfill = true
+            return true
+        }
+    }
+
     struct LoopbackTCPListener {
         let fd: Int32
         let port: Int
@@ -382,54 +422,80 @@ extension CLINotifyProcessIntegrationRegressionTests {
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli mock socket handled")
         DispatchQueue.global(qos: .userInitiated).async {
-            var didFulfill = false
+            let tracker = MockSocketConnectionTracker()
             func fulfillOnce() {
-                if !didFulfill {
-                    didFulfill = true
+                if tracker.markFulfilled() {
                     handled.fulfill()
                 }
             }
 
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+            func handleClient(_ clientFD: Int32) {
+                defer {
+                    Darwin.close(clientFD)
+                    tracker.closed()
+                }
+
+                var pending = Data()
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                while true {
+                    let count = Darwin.read(clientFD, &buffer, buffer.count)
+                    if count < 0 {
+                        if errno == EINTR { continue }
+                        return
+                    }
+                    if count == 0 { return }
+                    pending.append(buffer, count: count)
+
+                    while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                        let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                        pending.removeSubrange(0...newlineRange.lowerBound)
+                        guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                        state.append(line)
+                        if fulfillWhen?(line) == true {
+                            fulfillOnce()
+                        }
+                        guard let responsePayload = handler(line) else { continue }
+                        let response = responsePayload + "\n"
+                        _ = response.withCString { ptr in
+                            Darwin.write(clientFD, ptr, strlen(ptr))
+                        }
+                    }
                 }
             }
-            guard clientFD >= 0 else {
-                fulfillOnce()
-                return
-            }
-            defer {
-                Darwin.close(clientFD)
-                fulfillOnce()
-            }
 
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
+            let idleGrace: TimeInterval = 0.15
             while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
+                var descriptor = pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0)
+                let ready = Darwin.poll(&descriptor, 1, 25)
+                if ready < 0 {
                     if errno == EINTR { continue }
+                    fulfillOnce()
                     return
                 }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
 
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                    state.append(line)
-                    if fulfillWhen?(line) == true {
+                if ready > 0, descriptor.revents & Int16(POLLIN) != 0 {
+                    var clientAddr = sockaddr_un()
+                    var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                    let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                        ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                            Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                        }
+                    }
+                    guard clientFD >= 0 else {
+                        if errno == EINTR { continue }
                         fulfillOnce()
+                        return
                     }
-                    guard let responsePayload = handler(line) else { continue }
-                    let response = responsePayload + "\n"
-                    _ = response.withCString { ptr in
-                        Darwin.write(clientFD, ptr, strlen(ptr))
+
+                    tracker.accepted()
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        handleClient(clientFD)
                     }
+                }
+
+                if tracker.shouldFinish(idleFor: idleGrace) {
+                    fulfillOnce()
+                    return
                 }
             }
         }
