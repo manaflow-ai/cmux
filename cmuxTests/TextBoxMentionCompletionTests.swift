@@ -1169,7 +1169,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionRefreshKeepsRowsWhenSameTriggerQueryStaysNonEmpty() {
+    func testTextBoxMentionRefreshClearsRowsWhenSameTriggerQueryStaysNonEmpty() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
@@ -1195,13 +1195,14 @@ struct TextBoxMentionCompletionTests {
         textView.string = "$iterate-pr"
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionCount() == 1)
+        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!textView.debugMentionSuggestionsAreCurrent())
         #expect(!textView.debugAcceptMentionCompletion())
     }
 
     @Test
-    func testTextBoxMentionRefreshFiltersStaleRowsWhenSameTriggerQueryNarrows() {
+    func testTextBoxMentionRefreshClearsStaleRowsWhenSameTriggerQueryNarrows() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
@@ -1234,13 +1235,14 @@ struct TextBoxMentionCompletionTests {
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
 
-        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+        #expect(textView.debugMentionSuggestionTitles() == [])
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!textView.debugMentionSuggestionsAreCurrent())
         #expect(!textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
     }
 
     @Test
-    func testTextBoxMentionFilteredRowsStayNonCurrentWhenQueryReturnsToPreviousValue() {
+    func testTextBoxMentionRowsStayClearedWhenQueryReturnsToPreviousValue() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
@@ -1272,13 +1274,14 @@ struct TextBoxMentionCompletionTests {
         textView.string = "$iterate-pr"
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+        #expect(textView.debugMentionSuggestionTitles() == [])
         #expect(!textView.debugMentionSuggestionsAreCurrent())
 
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+        #expect(textView.debugMentionSuggestionTitles() == [])
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!textView.debugMentionSuggestionsAreCurrent())
         #expect(!textView.debugAcceptMentionCompletion())
     }
@@ -1316,7 +1319,7 @@ struct TextBoxMentionCompletionTests {
         textView.string = "$iterate-pr"
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+        #expect(textView.debugMentionSuggestionTitles() == [])
 
         textView.string = "$"
         textView.setSelectedRange(NSRange(location: 1, length: 0))

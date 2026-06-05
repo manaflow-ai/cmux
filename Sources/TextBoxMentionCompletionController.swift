@@ -56,29 +56,13 @@ final class TextBoxMentionCompletionController {
         guard let query else { return }
 
         guard activeQuery != query || activeRootDirectory != rootDirectory else { return }
-        let previousActiveQuery = activeQuery
-        let previousRootDirectory = activeRootDirectory
         activeQuery = query
         activeRootDirectory = rootDirectory
         selectionIndex = 0
         isLoadingSuggestions = true
-        // Moving between a bare trigger and typed query changes the expected
-        // result shape. Show the loading row until that exact query finishes.
-        let previousQueryWasEmpty = previousActiveQuery?.query
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty ?? true
-        let queryIsEmpty = query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let queryChangedToNonEmpty = previousQueryWasEmpty &&
-            !queryIsEmpty
-        let queryChangedToEmpty = !previousQueryWasEmpty && queryIsEmpty
-        if previousActiveQuery?.trigger != query.trigger ||
-            previousRootDirectory != rootDirectory ||
-            queryChangedToNonEmpty ||
-            queryChangedToEmpty {
-            suggestions = []
-            suggestionsQuery = nil
-            suggestionsRootDirectory = nil
-        }
+        suggestions = []
+        suggestionsQuery = nil
+        suggestionsRootDirectory = nil
         lookupTask?.cancel()
         lookupGeneration &+= 1
         let generation = lookupGeneration
