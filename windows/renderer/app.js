@@ -5347,6 +5347,9 @@ function backgroundCommandPaletteSignature() {
   appendSignatureValue(parts, terminalCount);
   appendSignatureValue(parts, terminalBackgroundsMatch(workspace, ""));
   appendSignatureValue(parts, Boolean(appBackground && terminalBackgroundsMatch(workspace, appBackground)));
+  const cycleTemplate = backgroundTemplateCycleModel(state.backgroundApplyTarget, workspace);
+  appendSignatureValue(parts, cycleTemplate.preset?.value || "");
+  appendSignatureValue(parts, Boolean(cycleTemplate.disabled));
   for (const target of ["app", "pane", "all"]) {
     const model = activeBackgroundPanelViewModel(target, workspace);
     appendSignatureValue(parts, target);
@@ -5403,6 +5406,17 @@ function backgroundCommandPaletteState(commandId, workspace = activeWorkspace())
       disabled: !appBackground,
       title: appBackground ? "Clear the app background." : "App background is already clear.",
       search: `${base.search} clear remove whole app`
+    };
+  }
+  if (commandId === "background.cycleSelectedTemplate") {
+    const model = backgroundTemplateCycleModel(state.backgroundApplyTarget, workspace);
+    return {
+      ...base,
+      meta: model.meta,
+      shortcut: "Cycle",
+      disabled: model.disabled,
+      title: model.title,
+      search: normalizeSettingsQuery(`${base.search} selected target cycle built in template ${model.search}`)
     };
   }
   if (commandId === "background.chooseActiveTerminal") {
@@ -6313,6 +6327,52 @@ async function applyBackgroundPresetToTarget(preset, target = state.backgroundAp
   const scope = normalizeBackgroundApplyTarget(target);
   if (scope === "app") return applyBackgroundPreset(preset, { toast: true });
   return applyBackgroundValueToTarget(preset.value, scope, { toast: true });
+}
+
+function backgroundTemplateCycleModel(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  const option = backgroundApplyTargetOption(scope, workspace);
+  const status = activeBackgroundTargetStatus(scope, workspace);
+  const presets = backgroundPresets.filter((preset) => typeof preset?.value === "string");
+  if (!status.canTarget) {
+    return {
+      scope,
+      option,
+      preset: null,
+      disabled: true,
+      meta: `${option.label}: ${option.meta}`,
+      title: `${option.label} cannot use a background right now.`,
+      search: `${option.label} ${option.meta} unavailable`
+    };
+  }
+  const currentModel = activeBackgroundPanelViewModel(scope, workspace);
+  const current = currentModel.mixed ? "" : normalizeBackgroundValue(currentModel.background);
+  const currentIndex = presets.findIndex((preset) => normalizeBackgroundValue(preset.value) === current);
+  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % presets.length : 0;
+  const preset = presets[nextIndex] || null;
+  const active = Boolean(preset && backgroundPresetActiveForTarget(preset.value, scope, workspace));
+  return {
+    scope,
+    option,
+    preset,
+    disabled: !preset || active,
+    meta: preset ? `${option.label}: ${preset.label}` : `${option.label}: no templates`,
+    title: !preset
+      ? "No background templates are available."
+      : active
+        ? `${option.label} already uses ${preset.label}.`
+        : `Cycle ${option.label.toLowerCase()} to ${preset.label}.`,
+    search: normalizeSettingsQuery(`cycle next background template target wallpaper ${option.label} ${option.meta} ${currentModel.label} ${preset?.label || ""} ${preset?.value || ""}`)
+  };
+}
+
+function cycleBackgroundTemplate(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
+  const model = backgroundTemplateCycleModel(target, workspace);
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applyBackgroundPresetToTarget(model.preset, model.scope);
 }
 
 async function applySavedBackgroundImageToTarget(backgroundId, target = state.backgroundApplyTarget) {
@@ -7666,6 +7726,7 @@ const commands = [
   { id: "background.chooseApp", label: "Choose App Background", shortcut: "", run: () => chooseBackgroundImageForTarget({ target: "app" }) },
   { id: "background.pasteApp", label: "Paste App Background", shortcut: "", run: () => pasteBackgroundImageFromClipboard({ target: "app" }) },
   { id: "background.clearApp", label: "Clear App Background", shortcut: "", run: () => applyBackgroundValueToTarget("", "app", { toast: true }) },
+  { id: "background.cycleSelectedTemplate", label: "Cycle Selected Background Template", shortcut: "", run: () => cycleBackgroundTemplate() },
   { id: "background.chooseActiveTerminal", label: "Choose Active Terminal Background", shortcut: "", run: () => chooseBackgroundImageForTarget({ target: "pane" }) },
   { id: "background.pasteActiveTerminal", label: "Paste Active Terminal Background", shortcut: "", run: () => pasteBackgroundImageFromClipboard({ target: "pane" }) },
   { id: "background.clearActiveTerminal", label: "Clear Active Terminal Background", shortcut: "", run: () => applyBackgroundValueToTarget("", "pane", { toast: true }) },
@@ -7701,6 +7762,7 @@ const backgroundPaletteCommandIds = new Set([
   "background.chooseApp",
   "background.pasteApp",
   "background.clearApp",
+  "background.cycleSelectedTemplate",
   "background.chooseActiveTerminal",
   "background.pasteActiveTerminal",
   "background.clearActiveTerminal",
@@ -25729,6 +25791,7 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
   const targetLabel = targetOption.label.toLowerCase();
   const setupDefault = backgroundSetupTargetDefault(targetStatus.scope, workspace);
   const everywhereModel = currentBackgroundEverywhereModel(targetStatus.scope, workspace);
+  const cycleTemplateModel = backgroundTemplateCycleModel(targetStatus.scope, workspace);
   const hasSavedBackgrounds = state.savedBackgroundImages.length > 0;
   const appLabel = appSave.background ? appearanceBackgroundLabel(appSave.background) : "No app image";
   const paneTitle = paneOption.disabled
@@ -25766,6 +25829,11 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
       disabled: everywhereModel.disabled,
       title: everywhereModel.title,
       search: `quick setup background apply current target everywhere app whole window all terminal panes ${everywhereModel.search}`
+    }),
+    quickOverviewControlButton("Cycle template", () => cycleBackgroundTemplate(targetStatus.scope, workspace), {
+      disabled: cycleTemplateModel.disabled,
+      title: cycleTemplateModel.title,
+      search: `quick setup background cycle selected target template wallpaper app pane all terminals ${cycleTemplateModel.search}`
     }),
     quickOverviewControlButton("Save terminal", () => saveCustomBackgroundImage({ url: terminalSave.background }), {
       disabled: terminalSave.disabled,
@@ -30592,6 +30660,11 @@ function savedBackgroundImagesPanel() {
   const applyEverywhere = settingsActionButton("Apply everywhere", () => applyCurrentBackgroundEverywhere(state.backgroundApplyTarget, workspace), "", `saved background current target apply everywhere app whole window terminal panes all ${currentEverywhere.search}`);
   applyEverywhere.disabled = currentEverywhere.disabled;
   applyEverywhere.title = currentEverywhere.title;
+  const cycleTemplate = settingsActionButton("Cycle template", () => cycleBackgroundTemplate(state.backgroundApplyTarget, workspace), "", "saved background cycle selected target built in template wallpaper app pane all terminals");
+  const cycleTemplateModel = backgroundTemplateCycleModel(targetStatus.scope, workspace);
+  cycleTemplate.disabled = cycleTemplateModel.disabled;
+  cycleTemplate.title = cycleTemplateModel.title;
+  cycleTemplate.dataset.settingsSearch = normalizeSettingsQuery(`saved background cycle selected target built in template wallpaper app pane all terminals ${cycleTemplateModel.search}`);
   const clearTarget = settingsActionButton("Clear target", clearBackgroundApplyTarget, "danger", `saved background clear current target app pane all terminals reset ${targetStatus.hasValue ? "ready " : "empty default "}${targetLabel}`);
   clearTarget.disabled = !targetStatus.canTarget || !targetStatus.hasValue;
   clearTarget.title = !targetStatus.canTarget
@@ -30617,6 +30690,7 @@ function savedBackgroundImagesPanel() {
     saveBackgroundSet,
     saveBackgroundProfile,
     applyEverywhere,
+    cycleTemplate,
     clearTarget,
     pasteSave,
     chooseSave,
