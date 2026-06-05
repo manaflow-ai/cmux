@@ -465,6 +465,11 @@ struct BrowserPanelView: View {
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
     @State private var browserChromeStyle: BrowserChromeStyle
+    // The browser top chrome scales with the tab bar font size so tabs and the
+    // browser toolbar share one consistent scale. Seeded from the cached config
+    // and refreshed live on `.ghosttyConfigDidReload` (same path the tab strip
+    // and terminal panels use). See `BrowserChromeMetrics`.
+    @State private var tabBarFontSize: CGFloat = GhosttyConfig.load().surfaceTabBarFontSize
     // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
     // re-fire on every CoreAnimation commit (issue #5303). This guards the first-
     // appearance view-state seed (the empty-state import list) so a spurious appear
@@ -473,10 +478,15 @@ struct BrowserPanelView: View {
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
     private let omnibarPillCornerRadius: CGFloat = 10
-    private let addressBarButtonSize: CGFloat = 22
-    private let addressBarButtonHitSize: CGFloat = 26
     private let addressBarVerticalPadding: CGFloat = 4
-    private let devToolsButtonIconSize: CGFloat = 11
+    // Toolbar/omnibar sizes derived from the tab bar font size. Names and call
+    // sites are unchanged; the values now scale via `chromeMetrics`.
+    private var chromeMetrics: BrowserChromeMetrics {
+        BrowserChromeMetrics(tabBarFontSize: tabBarFontSize)
+    }
+    private var addressBarButtonSize: CGFloat { chromeMetrics.buttonIconSize }
+    private var addressBarButtonHitSize: CGFloat { chromeMetrics.buttonHitSize }
+    private var devToolsButtonIconSize: CGFloat { chromeMetrics.accessoryIconFontSize }
 
     init(
         panel: BrowserPanel,
@@ -1138,6 +1148,9 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
             handleBrowserWebViewClickIntent(notification)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            tabBarFontSize = GhosttyConfig.load().surfaceTabBarFontSize
+        }
         .onAppear {
             handleBrowserPanelAppear()
         }
@@ -1252,7 +1265,7 @@ struct BrowserPanelView: View {
                 panel.goBack()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: chromeMetrics.navigationIconFontSize, weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1268,7 +1281,7 @@ struct BrowserPanelView: View {
                 panel.goForward()
             }) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: chromeMetrics.navigationIconFontSize, weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1279,7 +1292,7 @@ struct BrowserPanelView: View {
 
             Button(action: handleReloadOrStopButtonAction) {
                 Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: chromeMetrics.navigationIconFontSize, weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1622,12 +1635,13 @@ struct BrowserPanelView: View {
         return HStack(spacing: 4) {
             if showSecureBadge {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: 10))
+                    .font(.system(size: chromeMetrics.secureBadgeFontSize))
                     .foregroundColor(.secondary)
             }
 
             OmnibarTextFieldRepresentable(
                 panelId: panel.id,
+                fontSize: chromeMetrics.omnibarFontSize,
                 text: Binding(
                     get: { omnibarState.buffer },
                     set: { newValue in
@@ -1689,7 +1703,7 @@ struct BrowserPanelView: View {
                     panel.shouldSuppressWebViewFocus()
                 }
             )
-                .frame(height: 18)
+                .frame(height: chromeMetrics.omnibarFieldHeight)
                 .accessibilityIdentifier("BrowserOmnibarTextField")
         }
         .padding(.horizontal, 8)
@@ -3899,6 +3913,33 @@ func browserOmnibarShouldSelectAllOnFocusReassertion(
     selectionIntent.shouldSelectAll
 }
 
+/// Whether a completed single click that just moved first responder into the
+/// omnibar should select the field's entire contents (Chrome/Safari/Arc parity),
+/// instead of leaving the caret the field editor placed at the click point.
+///
+/// The first click on an unfocused omnibar showing a URL selects everything so
+/// the user can immediately type a replacement. A subsequent click (the field is
+/// already first responder, so `gainedFocusOnThisClick` is `false`) keeps the
+/// caret placement from https://github.com/manaflow-ai/cmux/issues/5268. A drag
+/// or a Shift-click expresses an explicit range, so select-all defers to it; a
+/// double-click never reaches this path (the field routes multi-clicks straight
+/// to the field editor for word/line selection, and its second click lands after
+/// this click's `mouseUp`, so word selection wins).
+///
+/// - Parameters:
+///   - gainedFocusOnThisClick: `true` when the field had no field editor at
+///     `mouseDown`, i.e. this click is the one that moved focus into the omnibar.
+///   - isShiftClick: `true` when Shift was held, extending an explicit selection.
+///   - didDrag: `true` when the pointer moved far enough to build a drag selection.
+/// - Returns: `true` only for an undragged, unmodified focus-gaining click.
+func browserOmnibarFocusGainingClickShouldSelectAll(
+    gainedFocusOnThisClick: Bool,
+    isShiftClick: Bool,
+    didDrag: Bool
+) -> Bool {
+    gainedFocusOnThisClick && !isShiftClick && !didDrag
+}
+
 final class OmnibarNativeTextField: NSTextField {
     var panelId: UUID?
     var onPointerDown: (() -> Void)?
@@ -3913,6 +3954,12 @@ final class OmnibarNativeTextField: NSTextField {
         let anchor: Int
         let initialWindowLocation: NSPoint
         var didDrag: Bool
+        /// `true` when this click moved first responder into the omnibar, gating
+        /// the Chrome-style select-all-on-focus behavior applied at `mouseUp`.
+        let gainedFocus: Bool
+        /// `true` when Shift was held, so an explicit selection extension overrides
+        /// the focus-gaining select-all.
+        let isShift: Bool
     }
 
     override init(frame frameRect: NSRect) {
@@ -3947,6 +3994,8 @@ final class OmnibarNativeTextField: NSTextField {
             return
         }
 
+        let isShiftClick = event.modifierFlags.contains(.shift)
+
         // Keep multi-click word and line selection in the field editor, while avoiding
         // NSTextField's mouse tracking loop for ordinary clicks.
         if event.clickCount > 1 {
@@ -3958,7 +4007,7 @@ final class OmnibarNativeTextField: NSTextField {
 
         let clickIndex = insertionIndex(for: event, in: editor)
         let anchor: Int
-        if event.modifierFlags.contains(.shift) {
+        if isShiftClick {
             let selected = editor.selectedRange()
             anchor = shiftClickAnchor ?? selected.location
             shiftClickAnchor = anchor
@@ -3972,7 +4021,9 @@ final class OmnibarNativeTextField: NSTextField {
         mouseSelectionState = MouseSelectionState(
             anchor: anchor,
             initialWindowLocation: event.locationInWindow,
-            didDrag: false
+            didDrag: false,
+            gainedFocus: !hadEditor,
+            isShift: isShiftClick
         )
     }
 
@@ -3994,16 +4045,28 @@ final class OmnibarNativeTextField: NSTextField {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard mouseSelectionState != nil else {
+        guard let state = mouseSelectionState else {
             super.mouseUp(with: event)
             return
         }
-
-        // A single click leaves the caret placed in `mouseDown`; a drag leaves the
-        // range built up in `mouseDragged`. Focus-via-click never selects all — that
-        // is reserved for the keyboard path (Cmd+L), which selects the whole URL via
-        // the `selectAllRequestId` flow, independent of mouse handling.
         mouseSelectionState = nil
+
+        // Chrome/Safari/Arc parity: the click that moves first responder into the
+        // omnibar selects the whole URL so the next keystroke replaces it. A click
+        // while already focused keeps the caret placed in `mouseDown` (issue #5268),
+        // and a drag or Shift-click keeps the explicit range built up during the
+        // gesture. Double-clicks never reach here — `mouseDown` routes multi-clicks
+        // to the field editor for word/line selection and leaves `mouseSelectionState`
+        // nil, and the second click lands after this `mouseUp`, so word selection wins.
+        // The keyboard path (Cmd+L) still selects all via the `selectAllRequestId` flow.
+        guard browserOmnibarFocusGainingClickShouldSelectAll(
+            gainedFocusOnThisClick: state.gainedFocus,
+            isShiftClick: state.isShift,
+            didDrag: state.didDrag
+        ), let editor = currentEditor() as? NSTextView else {
+            return
+        }
+        editor.setSelectedRange(NSRange(location: 0, length: editor.string.utf16.count))
     }
 
     private func insertionIndex(for event: NSEvent, in editor: NSTextView) -> Int {
@@ -4091,6 +4154,7 @@ final class OmnibarNativeTextField: NSTextField {
 
 struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let panelId: UUID
+    let fontSize: CGFloat
     @Binding var text: String
     @Binding var isFocused: Bool
     let selectAllRequestId: UInt64
@@ -4650,7 +4714,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         field.panelId = panelId
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
         field.identifier = browserOmnibarTextFieldIdentifier
-        field.font = .systemFont(ofSize: 12)
+        field.font = .systemFont(ofSize: fontSize)
         field.placeholderString = placeholder
         field.delegate = context.coordinator
         field.target = nil
@@ -4679,6 +4743,9 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         nsView.panelId = panelId
         BrowserOmnibarNativeFieldRegistry.shared.register(nsView, panelId: panelId)
         nsView.placeholderString = placeholder
+        if nsView.font?.pointSize != fontSize {
+            nsView.font = .systemFont(ofSize: fontSize)
+        }
         context.coordinator.queueSelectAllRequest(selectAllRequestId)
 
         let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
