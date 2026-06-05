@@ -25078,6 +25078,27 @@ function quickLookControlsPanel() {
   });
 }
 
+function quickLookPackControlsPanel() {
+  const activePack = lookPackDefinitions.find((pack) => isActiveLookPack(pack)) || null;
+  const packSearch = lookPackDefinitions.map((pack) => `${pack.label} ${pack.body} ${lookPackSummary(pack)}`).join(" ");
+  const actions = lookPackDefinitions.map((pack) => {
+    const active = pack === activePack || isActiveLookPack(pack);
+    const summary = lookPackSummary(pack);
+    return quickOverviewControlButton(active ? "Active" : pack.label, () => applyLookPack(pack.id), {
+      disabled: active,
+      title: active ? `${pack.label} look already active.` : `Apply ${pack.label} look.`,
+      search: normalizeSettingsQuery(`quick setup look packs appearance theme accent intensity surface tint background chrome terminal apply ${active ? "active current " : ""}${pack.label} ${pack.body} ${summary}`)
+    });
+  });
+  return quickOverviewControlsPanel({
+    className: "quick-overview-look",
+    title: "Look packs",
+    meta: `${activePack?.label || "Custom"} / ${lookPackDefinitions.length} presets`,
+    search: `quick setup look packs appearance theme accent intensity surface tint background chrome readable soft immersive terminal color apply presets active custom ${activePack?.label || "Custom"} ${packSearch}`,
+    actions
+  });
+}
+
 function quickColorTargetControlsPanel(workspace = activeWorkspace()) {
   const options = colorApplyTargetOptions(workspace);
   const selected = colorApplyTargetOption(state.colorApplyTarget, workspace);
@@ -25684,6 +25705,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-command-controls></div>
     <div data-quick-browser-controls></div>
     <div data-quick-look-controls></div>
+    <div data-quick-look-pack-controls></div>
     <div data-quick-color-target-controls></div>
     <div data-quick-color-controls></div>
     <button class="quick-overview-speed" type="button" data-performance-status>
@@ -25775,6 +25797,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   panel.querySelector("[data-quick-command-controls]").replaceWith(quickCommandActionControlsPanel());
   panel.querySelector("[data-quick-browser-controls]").replaceWith(quickBrowserControlsPanel(workspace, browserCount));
   panel.querySelector("[data-quick-look-controls]").replaceWith(quickLookControlsPanel());
+  panel.querySelector("[data-quick-look-pack-controls]").replaceWith(quickLookPackControlsPanel());
   panel.querySelector("[data-quick-color-target-controls]").replaceWith(quickColorTargetControlsPanel(workspace));
   panel.querySelector("[data-quick-color-controls]").replaceWith(quickColorControlsPanel(workspace));
   const speed = panel.querySelector(".quick-overview-speed");
