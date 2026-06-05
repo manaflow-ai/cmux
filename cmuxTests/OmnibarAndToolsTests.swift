@@ -896,6 +896,7 @@ private final class OmnibarInlineDeletionHarness {
         OmnibarTextFieldRepresentable.Coordinator(
             parent: OmnibarTextFieldRepresentable(
                 panelId: UUID(),
+                fontSize: 12,
                 text: Binding(
                     get: { self.state.buffer },
                     set: { self.state.buffer = $0 }
