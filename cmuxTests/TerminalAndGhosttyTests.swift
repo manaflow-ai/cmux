@@ -1192,6 +1192,28 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testColdSocketInputPreservesOSCBackgroundSequenceAsCommittedText() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        let osc11 = "\u{1B}]11;#341c1c\u{1B}\\"
+        XCTAssertTrue(panel.surface.sendInput(osc11))
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertEqual(
+            pending.inputTextItems,
+            1,
+            "Programmatic OSC sequences must stay as one committed-text chunk so Ghostty can parse them."
+        )
+        XCTAssertEqual(
+            pending.keyEvents,
+            0,
+            "Programmatic OSC sequences must not split ESC into synthetic Escape key events."
+        )
+        XCTAssertEqual(pending.pasteTextItems, 0)
+        XCTAssertEqual(pending.bytes, osc11.utf8.count)
+    }
+
     func testColdSocketInputChunksLongCommittedTextInput() {
         let panel = TerminalPanel(workspaceId: UUID())
 
