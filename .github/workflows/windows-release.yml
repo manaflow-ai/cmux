@@ -1,0 +1,115 @@
+name: Windows Release
+
+on:
+  push:
+    tags:
+      - "windows-v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to create/update. Leave empty to only upload a workflow artifact."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-installer:
+    name: Build Installer
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: windows
+    env:
+      CMUX_WINDOWS_DISABLE_PTY: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer
+        run: npm run build:renderer
+
+      - name: Run smoke test
+        run: npm run smoke
+
+      - name: Build unsigned installer
+        run: npm run dist:win
+
+      - name: Verify installer artifacts
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path release -Filter "cmux-*-setup.exe" |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $installer) {
+            throw "No Windows installer was produced under windows/release."
+          }
+          $blockMapPath = "$($installer.FullName).blockmap"
+          if (-not (Test-Path -LiteralPath $blockMapPath)) {
+            throw "Missing installer blockmap: $blockMapPath"
+          }
+          Write-Host "Installer: $($installer.Name) ($($installer.Length) bytes)"
+          Write-Host "Blockmap: $(Split-Path -Leaf $blockMapPath)"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-windows-installer
+          path: |
+            windows/release/cmux-*-setup.exe
+            windows/release/cmux-*-setup.exe.blockmap
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Resolve release tag
+        id: release_tag
+        shell: pwsh
+        run: |
+          $tag = ""
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $tag = "${{ github.ref_name }}"
+          } else {
+            $tag = "${{ github.event.inputs.release_tag || '' }}"
+          }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Attach installer to GitHub release
+        if: steps.release_tag.outputs.tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ steps.release_tag.outputs.tag }}"
+          $notes = @"
+          Unsigned Windows installer build for cmux.
+
+          Windows may show a SmartScreen warning until a signing certificate is configured.
+          "@
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag `
+              --repo $env:GITHUB_REPOSITORY `
+              --title "cmux Windows $tag" `
+              --notes $notes
+          }
+          gh release upload $tag `
+            release/cmux-*-setup.exe `
+            release/cmux-*-setup.exe.blockmap `
+            --repo $env:GITHUB_REPOSITORY `
+            --clobber
