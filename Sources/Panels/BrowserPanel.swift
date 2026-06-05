@@ -3536,9 +3536,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private var loadingEndWorkItem: DispatchWorkItem?
     private var loadingGeneration: Int = 0
 
+    private let faviconStore: BrowserFaviconStore
     private var faviconTask: Task<Void, Never>?
     private var faviconRefreshGeneration: Int = 0
-    private var lastFaviconURLString: String?
+    private var faviconState: BrowserFaviconPanelState = .empty
     private let minPageZoom: CGFloat = 0.25
     private let maxPageZoom: CGFloat = 5.0
     private let pageZoomStep: CGFloat = 0.1
@@ -3783,9 +3784,7 @@ final class BrowserPanel: Panel, ObservableObject {
         searchState = nil
         loadingEndWorkItem?.cancel()
         loadingEndWorkItem = nil
-        faviconTask?.cancel()
-        faviconTask = nil
-        faviconRefreshGeneration &+= 1
+        cancelFaviconRefresh()
         loadingGeneration &+= 1
         cancelPendingInteractiveBrowserPrompts(reason: "discardHiddenWebView")
 
@@ -4171,6 +4170,8 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = true
+                self.cancelFaviconRefresh()
+                self.clearFaviconState()
                 self.applyMuteState(to: webView, reason: "navigationStart")
             }
         }
@@ -4179,6 +4180,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
                 self.publishCommittedURL(from: webView)
+                self.applyCachedFaviconIfAvailable(for: webView.url)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
             }
         }
@@ -4205,8 +4207,8 @@ final class BrowserPanel: Panel, ObservableObject {
                 // Clear stale title/favicon from the previous page so the tab
                 // shows the failed URL instead of the old page's branding.
                 self.pageTitle = failedURL.isEmpty ? "" : failedURL
-                self.faviconPNGData = nil
-                self.lastFaviconURLString = nil
+                self.cancelFaviconRefresh()
+                self.clearFaviconState()
                 self.applyMuteState(to: failedWebView, reason: "navigationFail")
                 // Keep find-in-page open and clear stale counters on failed loads.
                 self.restoreFindStateAfterNavigation(replaySearch: false)
@@ -4244,7 +4246,8 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        faviconStore: BrowserFaviconStore = BrowserFaviconStore()
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
@@ -4258,6 +4261,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
+        self.faviconStore = faviconStore
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.isOmnibarVisible = omnibarVisible
@@ -4694,9 +4698,8 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewCancellables.removeAll()
         clearWebContentTerminationRecovery()
         clearBrowserFocusMode(reason: "profileSwitch")
-        faviconTask?.cancel()
-        faviconTask = nil
-        faviconRefreshGeneration &+= 1
+        cancelFaviconRefresh()
+        clearFaviconState()
         cancelPendingInteractiveBrowserPrompts(reason: "profileSwitch")
         closeBackgroundPreloadHost(reason: "profileSwitch")
         BrowserWindowPortalRegistry.detach(webView: previousWebView)
@@ -5218,9 +5221,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         clearBrowserFocusMode(reason: reason)
-        faviconTask?.cancel()
-        faviconTask = nil
-        faviconRefreshGeneration &+= 1
+        cancelFaviconRefresh()
         loadingGeneration &+= 1
         loadingEndWorkItem?.cancel()
         loadingEndWorkItem = nil
@@ -5427,8 +5428,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewDidRequestClose = nil
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
-        faviconTask?.cancel()
-        faviconTask = nil
+        cancelFaviconRefresh()
     }
 
     // MARK: - Popup window management
@@ -5453,6 +5453,48 @@ final class BrowserPanel: Panel, ObservableObject {
         reevaluateHiddenWebViewDiscardScheduling(reason: "popup_closed")
     }
 
+    private var faviconCachePartition: String {
+        if usesRemoteWorkspaceProxy {
+            let endpoint = remoteProxyEndpoint.map { "\($0.host):\($0.port)" } ?? "pending"
+            return "remote:\(workspaceId.uuidString):\(endpoint)"
+        }
+        return "profile:\(profileID.uuidString)"
+    }
+
+    private func cancelFaviconRefresh() {
+        faviconTask?.cancel()
+        faviconTask = nil
+        faviconRefreshGeneration &+= 1
+    }
+
+    private func clearFaviconState() {
+        faviconState = .empty
+        faviconPNGData = nil
+    }
+
+    private func applyCachedFaviconIfAvailable(for pageURL: URL?) {
+        guard let pageURL else { return }
+        let cachePartition = faviconCachePartition
+        let expectedWebViewInstanceID = webViewInstanceID
+        let expectedGeneration = faviconRefreshGeneration
+
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let cached = await self.faviconStore.cachedIcon(
+                    forPageURL: pageURL,
+                    cachePartition: cachePartition
+                  ) else {
+                return
+            }
+            guard self.webViewInstanceID == expectedWebViewInstanceID else { return }
+            guard self.faviconRefreshGeneration == expectedGeneration else { return }
+            self.faviconState = .resolved(cached.request, pngData: cached.pngData)
+            if self.faviconPNGData != cached.pngData {
+                self.faviconPNGData = cached.pngData
+            }
+        }
+    }
+
     private func refreshFavicon(from webView: WKWebView) {
         faviconTask?.cancel()
         faviconTask = nil
@@ -5462,6 +5504,8 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconRefreshGeneration &+= 1
         let refreshGeneration = faviconRefreshGeneration
         let refreshWebViewInstanceID = webViewInstanceID
+        let cachePartition = faviconCachePartition
+        applyCachedFaviconIfAvailable(for: pageURL)
 
         faviconTask = Task { @MainActor [weak self, weak webView] in
             guard let self, let webView else { return }
@@ -5549,97 +5593,65 @@ final class BrowserPanel: Panel, ObservableObject {
 #endif
 
             // Avoid repeated fetches.
-            let iconURLString = iconURL.absoluteString
-            if iconURLString == lastFaviconURLString, faviconPNGData != nil {
+            guard let request = BrowserFaviconRequest(
+                pageURL: pageURL,
+                iconURL: iconURL,
+                cachePartition: cachePartition
+            ) else {
+                return
+            }
+            if !faviconState.shouldStartResolution(for: request) {
 #if DEBUG
                 cmuxDebugLog(
                     "browser.favicon.skipCached " +
                     "panel=\(id.uuidString.prefix(5)) " +
-                    "icon=\(iconURLString)"
+                    "icon=\(request.iconURLString)"
                 )
 #endif
                 return
             }
-            lastFaviconURLString = iconURLString
 
-            var req = URLRequest(url: iconURL)
-            req.timeoutInterval = 2.0
-            req.cachePolicy = .returnCacheDataElseLoad
-            req.setValue(BrowserUserAgentSettings.safariUserAgent, forHTTPHeaderField: "User-Agent")
-            let effectiveRequest = remoteProxyPreparedRequest(from: req, logScope: "faviconRewrite")
-
-            let data: Data
-            let response: URLResponse
-            do {
-                let remoteSession = remoteProxyURLSession()
-                defer { remoteSession?.finishTasksAndInvalidate() }
-                if let remoteSession {
-#if DEBUG
-                    cmuxDebugLog(
-                        "browser.favicon.fetch " +
-                        "panel=\(id.uuidString.prefix(5)) " +
-                        "via=proxy " +
-                        "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
-                    )
-#endif
-                    (data, response) = try await remoteSession.data(for: effectiveRequest)
-                } else {
-#if DEBUG
-                    cmuxDebugLog(
-                        "browser.favicon.fetch " +
-                        "panel=\(id.uuidString.prefix(5)) " +
-                        "via=direct " +
-                        "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
-                    )
-#endif
-                    (data, response) = try await URLSession.shared.data(for: effectiveRequest)
+            if let cachedPNG = await faviconStore.cachedIcon(for: request) {
+                guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
+                guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
+                faviconState = .resolved(request, pngData: cachedPNG)
+                if faviconPNGData != cachedPNG {
+                    faviconPNGData = cachedPNG
                 }
-            } catch {
 #if DEBUG
                 cmuxDebugLog(
-                    "browser.favicon.fetchError " +
+                    "browser.favicon.readyCached " +
                     "panel=\(id.uuidString.prefix(5)) " +
-                    "error=\(String(describing: error))"
+                    "icon=\(request.iconURLString) " +
+                    "pngBytes=\(cachedPNG.count)"
                 )
 #endif
                 return
+            }
+
+            faviconState = .resolving(request)
+            let png = await faviconStore.resolve(request) { [weak self] in
+                guard let self else { return nil }
+                return await self.fetchFaviconPNGData(from: iconURL)
             }
             guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
             guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode) else {
+            guard let png else {
+                if case .resolving(let currentRequest) = faviconState, currentRequest == request {
+                    faviconState = .failed(request)
+                }
 #if DEBUG
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 cmuxDebugLog(
-                    "browser.favicon.badResponse " +
+                    "browser.favicon.unresolved " +
                     "panel=\(id.uuidString.prefix(5)) " +
-                    "status=\(status)"
+                    "icon=\(request.iconURLString)"
                 )
 #endif
                 return
             }
-#if DEBUG
-            cmuxDebugLog(
-                "browser.favicon.response " +
-                "panel=\(id.uuidString.prefix(5)) " +
-                "status=\(http.statusCode) " +
-                "bytes=\(data.count)"
-            )
-#endif
 
-            // Use >= 2x the rendered point size so we don't upscale (blurry) on Retina.
-            guard let png = Self.makeFaviconPNGData(from: data, targetPx: 32) else {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.favicon.decodeFailed " +
-                    "panel=\(id.uuidString.prefix(5)) " +
-                    "bytes=\(data.count)"
-                )
-#endif
-                return
-            }
-            // Only update if we got a real icon; keep the old one otherwise to avoid flashes.
+            faviconState = .resolved(request, pngData: png)
             faviconPNGData = png
 #if DEBUG
             cmuxDebugLog(
@@ -5649,6 +5661,85 @@ final class BrowserPanel: Panel, ObservableObject {
             )
 #endif
         }
+    }
+
+    private func fetchFaviconPNGData(from iconURL: URL) async -> Data? {
+        var req = URLRequest(url: iconURL)
+        req.timeoutInterval = 2.0
+        req.cachePolicy = .returnCacheDataElseLoad
+        req.setValue(BrowserUserAgentSettings.safariUserAgent, forHTTPHeaderField: "User-Agent")
+        let effectiveRequest = remoteProxyPreparedRequest(from: req, logScope: "faviconRewrite")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            let remoteSession = remoteProxyURLSession()
+            defer { remoteSession?.finishTasksAndInvalidate() }
+            if let remoteSession {
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.favicon.fetch " +
+                    "panel=\(id.uuidString.prefix(5)) " +
+                    "via=proxy " +
+                    "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
+                )
+#endif
+                (data, response) = try await remoteSession.data(for: effectiveRequest)
+            } else {
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.favicon.fetch " +
+                    "panel=\(id.uuidString.prefix(5)) " +
+                    "via=direct " +
+                    "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
+                )
+#endif
+                (data, response) = try await URLSession.shared.data(for: effectiveRequest)
+            }
+        } catch {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.favicon.fetchError " +
+                "panel=\(id.uuidString.prefix(5)) " +
+                "error=\(String(describing: error))"
+            )
+#endif
+            return nil
+        }
+
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+#if DEBUG
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            cmuxDebugLog(
+                "browser.favicon.badResponse " +
+                "panel=\(id.uuidString.prefix(5)) " +
+                "status=\(status)"
+            )
+#endif
+            return nil
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "browser.favicon.response " +
+            "panel=\(id.uuidString.prefix(5)) " +
+            "status=\(http.statusCode) " +
+            "bytes=\(data.count)"
+        )
+#endif
+
+        // Use >= 2x the rendered point size so we don't upscale (blurry) on Retina.
+        guard let png = Self.makeFaviconPNGData(from: data, targetPx: 32) else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.favicon.decodeFailed " +
+                "panel=\(id.uuidString.prefix(5)) " +
+                "bytes=\(data.count)"
+            )
+#endif
+            return nil
+        }
+        return png
     }
 
     private func isCurrentFaviconRefresh(generation: Int) -> Bool {
@@ -5744,14 +5835,6 @@ final class BrowserPanel: Panel, ObservableObject {
     private func handleWebViewLoadingChanged(_ newValue: Bool) {
         if newValue {
             cancelHiddenWebViewDiscard()
-            // Any new load invalidates older favicon fetches, even for same-URL reloads.
-            faviconRefreshGeneration &+= 1
-            faviconTask?.cancel()
-            faviconTask = nil
-            lastFaviconURLString = nil
-            // Clear the previous page's favicon so it never persists across navigations.
-            // The loading spinner covers this gap; didFinish will fetch the new favicon.
-            faviconPNGData = nil
             loadingGeneration &+= 1
             loadingEndWorkItem?.cancel()
             loadingEndWorkItem = nil
@@ -6190,9 +6273,7 @@ extension BrowserPanel {
 
         loadingEndWorkItem?.cancel()
         loadingEndWorkItem = nil
-        faviconTask?.cancel()
-        faviconTask = nil
-        faviconRefreshGeneration &+= 1
+        cancelFaviconRefresh()
         loadingGeneration &+= 1
         activeDownloadCount = 0
         isDownloading = false
@@ -6215,8 +6296,7 @@ extension BrowserPanel {
         pageTitle = ""
         currentURL = nil
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
-        faviconPNGData = nil
-        lastFaviconURLString = nil
+        clearFaviconState()
         resetWebViewLifecycleMetadata()
         activePortalHostLease = nil
         pendingDistinctPortalHostReplacementPaneId = nil
