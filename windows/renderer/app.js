@@ -35513,6 +35513,11 @@ function refreshSettingsPresetApplicationSettings(options = {}) {
   scheduleSettingsInspectorRender({ ifChanged: true });
 }
 
+function refreshSettingsAfterGlobalStateChange(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 function applySettingsPreset(preset, options = {}) {
   const changed = updateSettings(preset.settings);
   if (!changed) {
@@ -40707,7 +40712,7 @@ async function closeEmptyWorkspaces(options = {}) {
   savePaneTreeLayouts(state.paneTrees);
   await Promise.all(targetIds.map((workspaceId) => api(`/api/workspaces/${workspaceId}`, { method: "DELETE" })));
   await loadState();
-  if (options.render !== false) renderSettingsInspector();
+  refreshSettingsAfterGlobalStateChange(options);
   toast(`Closed ${label}.`);
   return true;
 }
@@ -43983,7 +43988,7 @@ async function importSettings(options = {}) {
     applySettings();
     scheduleTerminalAppearanceRefresh();
     render();
-    if (options.render !== false) renderSettingsInspector();
+    refreshSettingsAfterGlobalStateChange(options);
     toast(options.toastText || "Settings imported.");
     return true;
   } catch {
@@ -44004,7 +44009,7 @@ async function resetSettings() {
   saveSettings();
   applySettings();
   scheduleTerminalAppearanceRefresh();
-  renderSettingsInspector();
+  refreshSettingsAfterGlobalStateChange();
   toast("Settings reset.");
 }
 
