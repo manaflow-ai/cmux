@@ -26,7 +26,7 @@ struct CMUXMobileRootView: View {
     #endif
 
     private var shouldShowTerminalLayoutPreview: Bool {
-        #if os(iOS)
+        #if os(iOS) && DEBUG
         return UITestConfig.terminalLayoutPreviewEnabled
         #else
         return false
@@ -34,7 +34,7 @@ struct CMUXMobileRootView: View {
     }
 
     @ViewBuilder private var terminalLayoutPreview: some View {
-        #if os(iOS)
+        #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
         #else
         EmptyView()

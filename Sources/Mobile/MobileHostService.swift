@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSettings
 import CryptoKit
 import Foundation
 @preconcurrency import Network
@@ -292,27 +293,52 @@ final class MobileHostService {
         MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
     }
 
-    /// User-default key overriding ``isListeningEnabled``. When set, its boolean
-    /// value wins over the build-configuration default.
-    static let listeningEnabledDefaultsKey = "cmuxMobilePairingHostEnabled"
+    /// User-default key for the opt-in Mac-side iOS pairing listener.
+    nonisolated static let listeningEnabledDefaultsKey = SettingCatalog().mobile.iOSPairingHost.userDefaultsKey
+    nonisolated private static let legacyListeningEnabledDefaultsKey = "cmuxMobilePairingHostEnabled"
+    nonisolated private static let legacyBetaListeningEnabledDefaultsKey = "ios.beta.pairingHost.enabled"
 
     /// Whether the mobile pairing host should bind a network listener at all.
     ///
-    /// Defaults **on** for dev and nightly builds so the iOS app pairs in dogfood
-    /// and in the nightly channel without setup, and **off** for stable: a stable
-    /// Mac that never pairs a phone must not expose a network listener for a
-    /// feature it can't use yet. The `cmuxMobilePairingHostEnabled` user default
-    /// overrides the default in any build (including stable), so the feature can
-    /// be flipped on without a new build once the iOS app ships broadly.
-    static var isListeningEnabled: Bool {
-        if let override = UserDefaults.standard.object(forKey: listeningEnabledDefaultsKey) as? Bool {
+    /// Defaults off in every build so macOS does not ask for Local Network
+    /// permission until the user enables iOS pairing in Settings.
+    nonisolated static var isListeningEnabled: Bool {
+        isListeningEnabled(defaults: .standard)
+    }
+
+    #if DEBUG
+    nonisolated private static var isRunningUnderXCTest: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
+            || environment["XCTestSessionIdentifier"] != nil
+            || environment["XCInjectBundle"] != nil
+            || environment["XCInjectBundleInto"] != nil
+            || environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true
+    }
+    #endif
+
+    nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
+        if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
             return override
         }
-        return BuildFlavor.current != .stable
+        if let legacyOverride = defaults.object(forKey: legacyListeningEnabledDefaultsKey) as? Bool {
+            return legacyOverride
+        }
+        if let legacyBetaOverride = defaults.object(forKey: legacyBetaListeningEnabledDefaultsKey) as? Bool {
+            return legacyBetaOverride
+        }
+        return SettingCatalog().mobile.iOSPairingHost.defaultValue
     }
 
     func start() {
         guard Self.isListeningEnabled else {
+            #if DEBUG
+            if Self.canPublishRoutesWithoutListenerForXCTest(defaults: .standard) {
+                publishRoutesWithoutListenerForXCTest()
+                return
+            }
+            #endif
             mobileHostLog.info("mobile host listener disabled; not binding")
             return
         }
@@ -322,6 +348,25 @@ final class MobileHostService {
 
         startListener(usePreferredPort: true)
     }
+
+    #if DEBUG
+    nonisolated private static func canPublishRoutesWithoutListenerForXCTest(defaults: UserDefaults) -> Bool {
+        guard isRunningUnderXCTest else { return false }
+        return defaults.object(forKey: listeningEnabledDefaultsKey) == nil
+            && defaults.object(forKey: legacyListeningEnabledDefaultsKey) == nil
+            && defaults.object(forKey: legacyBetaListeningEnabledDefaultsKey) == nil
+    }
+
+    private func publishRoutesWithoutListenerForXCTest() {
+        guard listener == nil else { return }
+        listenerGeneration = UUID()
+        listenerUsesEphemeralFallback = false
+        listenerPort = Self.preferredPort
+        lastErrorDescription = nil
+        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: Self.preferredPort).routes)
+        mobileHostLog.info("mobile host listener disabled; publishing XCTest routes without binding")
+    }
+    #endif
 
     private func startListener(usePreferredPort: Bool) {
         do {
