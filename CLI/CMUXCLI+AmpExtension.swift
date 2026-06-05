@@ -48,6 +48,8 @@ function resolveExecutable(name: string): string {
 // (CMUX_BUNDLED_CLI_PATH) over whatever `cmux` is on PATH, so the plugin always
 // talks to the matching app/CLI version — PATH may point at a different build
 // (e.g. an installed release while running a dev/tagged app).
+// CMUX_AMP_CMUX_BIN takes highest precedence but is test-only plumbing (the
+// install test injects a fake cmux binary through it); it isn't set in production.
 function cmuxBin(): string {
   return (
     process.env.CMUX_AMP_CMUX_BIN ||
