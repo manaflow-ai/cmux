@@ -3313,15 +3313,19 @@ struct TextBoxInputView: NSViewRepresentable {
                 height: CGFloat.greatestFiniteMagnitude
             )
         }
-        if shouldSynchronizeExternalTextToTextBox(
+        let didSynchronizeExternalText = shouldSynchronizeExternalTextToTextBox(
             inlineAttachmentCount: textView.inlineAttachments().count,
             plainText: textView.plainText(),
             externalText: text,
             hasMarkedText: textView.hasMarkedText()
-        ) {
+        )
+        if didSynchronizeExternalText {
             textView.string = text
         }
         updateTextView(textView, context: context)
+        if didSynchronizeExternalText {
+            textView.refreshMentionCompletions()
+        }
     }
 
     private func updateTextView(_ textView: TextBoxInputTextView, context: Context) {
@@ -4488,7 +4492,7 @@ final class TextBoxInputTextView: NSTextView {
                 // Only claim the navigation keys once there are rows to move through;
                 // otherwise (active query still loading or zero hits) let them fall
                 // through to normal text editing instead of being silently swallowed.
-                guard mentionCompletionController.hasCurrentSuggestions else { return false }
+                guard mentionCompletionController.hasVisibleSuggestions else { return false }
                 mentionCompletionController.moveSelection(delta: -1)
                 return true
             case "n", "j":
@@ -4496,7 +4500,7 @@ final class TextBoxInputTextView: NSTextView {
                     dismissMentionCompletions()
                     return false
                 }
-                guard mentionCompletionController.hasCurrentSuggestions else { return false }
+                guard mentionCompletionController.hasVisibleSuggestions else { return false }
                 mentionCompletionController.moveSelection(delta: 1)
                 return true
             default:
@@ -4510,7 +4514,7 @@ final class TextBoxInputTextView: NSTextView {
                 dismissMentionCompletions()
                 return false
             }
-            guard mentionCompletionController.hasCurrentSuggestions else { return false }
+            guard mentionCompletionController.hasVisibleSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: -1)
             return true
         case kVK_DownArrow:
@@ -4518,7 +4522,7 @@ final class TextBoxInputTextView: NSTextView {
                 dismissMentionCompletions()
                 return false
             }
-            guard mentionCompletionController.hasCurrentSuggestions else { return false }
+            guard mentionCompletionController.hasVisibleSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: 1)
             return true
         case kVK_Return, kVK_ANSI_KeypadEnter:
@@ -4560,7 +4564,7 @@ final class TextBoxInputTextView: NSTextView {
                 dismissMentionCompletions()
                 return false
             }
-            guard mentionCompletionController.hasCurrentSuggestions else { return false }
+            guard mentionCompletionController.hasVisibleSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: -1)
             return true
         case #selector(NSResponder.moveDown(_:)):
@@ -4568,7 +4572,7 @@ final class TextBoxInputTextView: NSTextView {
                 dismissMentionCompletions()
                 return false
             }
-            guard mentionCompletionController.hasCurrentSuggestions else { return false }
+            guard mentionCompletionController.hasVisibleSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: 1)
             return true
         case #selector(NSResponder.insertNewline(_:)):
@@ -4622,11 +4626,11 @@ final class TextBoxInputTextView: NSTextView {
 
     @discardableResult
     private func acceptMentionCompletion(_ explicitSuggestion: TextBoxMentionSuggestion? = nil) -> Bool {
-        guard mentionCompletionController.hasCurrentSuggestions,
+        guard mentionCompletionController.hasVisibleSuggestions,
               let query = mentionCompletionController.activeQuery,
               let suggestion = explicitSuggestion ?? mentionCompletionController.selectedSuggestion,
               explicitSuggestion == nil ||
-                  mentionCompletionController.suggestions.contains(where: { $0.id == suggestion.id }),
+                  mentionCompletionController.visibleSuggestions.contains(where: { $0.id == suggestion.id }),
               isValidSelectedRange(query.range),
               shouldChangeText(in: query.range, replacementString: suggestion.insertionText) else {
             return false
@@ -4682,9 +4686,10 @@ final class TextBoxInputTextView: NSTextView {
         }
         updateMentionCompletionWindowObservers(for: parentWindow)
 
-        let showsLoadingRow = mentionCompletionController.suggestions.isEmpty &&
+        let visibleSuggestions = mentionCompletionController.visibleSuggestions
+        let showsLoadingRow = visibleSuggestions.isEmpty &&
             mentionCompletionController.isLoadingSuggestions
-        let rowCount = showsLoadingRow ? 1 : mentionCompletionController.suggestions.count
+        let rowCount = showsLoadingRow ? 1 : visibleSuggestions.count
         let maxVisibleRows = 12
         let visibleRows = min(rowCount, maxVisibleRows)
         let rowHeight: CGFloat = 25
@@ -4873,7 +4878,7 @@ final class TextBoxInputTextView: NSTextView {
 
     private func mentionCompletionPopoverView() -> TextBoxMentionCompletionPopoverView {
         TextBoxMentionCompletionPopoverView(
-            suggestions: mentionCompletionController.suggestions,
+            suggestions: mentionCompletionController.visibleSuggestions,
             selectionIndex: mentionCompletionController.selectionIndex,
             searchTerm: mentionCompletionController.activeQuery?.query ?? "",
             isLoading: mentionCompletionController.isLoadingSuggestions,

@@ -29,12 +29,20 @@ final class TextBoxMentionCompletionController {
         !suggestions.isEmpty
     }
 
+    var visibleSuggestions: [TextBoxMentionSuggestion] {
+        hasCurrentSuggestions ? suggestions : []
+    }
+
+    var hasVisibleSuggestions: Bool {
+        !visibleSuggestions.isEmpty
+    }
+
     var isActive: Bool {
         activeQuery != nil
     }
 
     var shouldShowPopover: Bool {
-        isActive && (hasSuggestions || isLoadingSuggestions)
+        isActive && (hasVisibleSuggestions || isLoadingSuggestions)
     }
 
     var hasCurrentSuggestions: Bool {
@@ -44,9 +52,8 @@ final class TextBoxMentionCompletionController {
     }
 
     var selectedSuggestion: TextBoxMentionSuggestion? {
-        guard hasCurrentSuggestions else { return nil }
-        guard suggestions.indices.contains(selectionIndex) else { return nil }
-        return suggestions[selectionIndex]
+        guard visibleSuggestions.indices.contains(selectionIndex) else { return nil }
+        return visibleSuggestions[selectionIndex]
     }
 
     func refresh(for query: TextBoxMentionQuery?, rootDirectory: String?) {
@@ -113,8 +120,8 @@ final class TextBoxMentionCompletionController {
     }
 
     func moveSelection(delta: Int) {
-        guard hasCurrentSuggestions else { return }
-        let count = suggestions.count
+        guard hasVisibleSuggestions else { return }
+        let count = visibleSuggestions.count
         selectionIndex = (selectionIndex + delta + count) % count
         onStateChanged?()
     }
@@ -198,7 +205,7 @@ final class TextBoxMentionCompletionController {
     }
 
     var debugSuggestionCount: Int {
-        suggestions.count
+        visibleSuggestions.count
     }
 
     var debugHasCurrentSuggestions: Bool {
@@ -210,7 +217,7 @@ final class TextBoxMentionCompletionController {
     }
 
     var debugSuggestionTitles: [String] {
-        suggestions.map(\.title)
+        visibleSuggestions.map(\.title)
     }
 #endif
 }

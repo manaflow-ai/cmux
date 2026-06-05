@@ -1016,6 +1016,49 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionSkillSuggestionsFilterAutoreQuery() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-skill-autore-filter-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let skillsDirectory = root.appendingPathComponent("skills", isDirectory: true)
+        let skillNames = [
+            "agent-browser",
+            "agent-cli-integration",
+            "auto-issue",
+            "auto-merge",
+            "autoreview",
+            "cleanup-dev-builds",
+            "iterate-pr"
+        ] + (0..<40).map { String(format: "zzz-autore-distractor-%02d", $0) }
+        for skillName in skillNames {
+            let skillDirectory = skillsDirectory.appendingPathComponent(skillName, isDirectory: true)
+            try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+            try "name: \(skillName)\n".write(
+                to: skillDirectory.appendingPathComponent("SKILL.md"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 6),
+                query: "autore",
+                trigger: "$"
+            ),
+            rootDirectory: root.path
+        )
+
+        #expect(suggestions.first?.title == "$autoreview")
+        #expect(!suggestions.contains { $0.title == "$agent-browser" })
+    }
+
+    @Test
     func testTextBoxMentionCandidateIndexDoesNotReturnUnvalidatedNucleoRows() {
         let skillNames = [
             "agent-browser",
@@ -1169,7 +1212,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionRefreshKeepsRowsWhenSameTriggerQueryStaysNonEmpty() {
+    func testTextBoxMentionRefreshHidesRowsWhenSameTriggerQueryStaysNonEmpty() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
@@ -1195,8 +1238,9 @@ struct TextBoxMentionCompletionTests {
         textView.string = "$iterate-pr"
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionCount() == 1)
+        #expect(textView.debugMentionSuggestionCount() == 0)
         #expect(!textView.debugMentionSuggestionsAreCurrent())
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!textView.debugAcceptMentionCompletion())
     }
 
@@ -1267,8 +1311,9 @@ struct TextBoxMentionCompletionTests {
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
 
-        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+        #expect(textView.debugMentionSuggestionTitles().isEmpty)
         #expect(!textView.debugMentionSuggestionsAreCurrent())
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
     }
 
@@ -1305,13 +1350,13 @@ struct TextBoxMentionCompletionTests {
         textView.string = "$iterate-pr"
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+        #expect(textView.debugMentionSuggestionTitles().isEmpty)
         #expect(!textView.debugMentionSuggestionsAreCurrent())
 
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+        #expect(textView.debugMentionSuggestionTitles().isEmpty)
         #expect(!textView.debugMentionSuggestionsAreCurrent())
         #expect(!textView.debugAcceptMentionCompletion())
     }
@@ -1349,7 +1394,8 @@ struct TextBoxMentionCompletionTests {
         textView.string = "$iterate-pr"
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+        #expect(textView.debugMentionSuggestionTitles().isEmpty)
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
 
         textView.string = "$"
         textView.setSelectedRange(NSRange(location: 1, length: 0))
