@@ -112,17 +112,11 @@ final class AutomationSocketUITests: XCTestCase {
             waitForSocketPong(timeout: 12.0),
             "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
         )
-        let window = try XCTUnwrap(
-            waitForSocketResult(method: "window.create", params: [:], timeout: 8.0),
-            "Expected window.create to succeed before creating textbox fixture workspace"
-        )
-        let windowID = try XCTUnwrap(window["window_id"] as? String, "Expected created window id")
 
         let workspace = try XCTUnwrap(
             socketResult(
                 method: "workspace.create",
                 params: [
-                    "window_id": windowID,
                     "title": "Textbox mention XCUITest",
                     "working_directory": skillRoot.path,
                     "focus": true,
@@ -155,7 +149,13 @@ final class AutomationSocketUITests: XCTestCase {
         )
         XCTAssertEqual(bareState["plain_text"] as? String, "$")
 
-        app.typeText("autore")
+        _ = try XCTUnwrap(
+            socketResult(
+                method: "debug.textbox.interact",
+                params: ["surface_id": surfaceID, "action": "insert_text:autore"]
+            ),
+            "Expected textbox debug insert to succeed"
+        )
 
         let typedState = try XCTUnwrap(
             waitForMentionState(surfaceID: surfaceID, timeout: 8.0) { state in
@@ -319,16 +319,6 @@ final class AutomationSocketUITests: XCTestCase {
             return nil
         }
         return envelope["result"] as? [String: Any]
-    }
-
-    private func waitForSocketResult(
-        method: String,
-        params: [String: Any],
-        timeout: TimeInterval
-    ) -> [String: Any]? {
-        waitForJSON(timeout: timeout) {
-            self.socketResult(method: method, params: params)
-        }
     }
 
     private func waitForTextBoxFixture(

@@ -1212,6 +1212,37 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionInsertTextRefreshesRowsAfterBareDollarTrigger() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$"
+        textView.setSelectedRange(NSRange(location: 1, length: 0))
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/agent-browser/SKILL.md",
+            title: "$agent-browser",
+            subtitle: "/tmp/agent-browser/SKILL.md",
+            insertionText: "$agent-browser",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "$"
+            ),
+            suggestions: [staleSuggestion]
+        )
+
+        textView.insertText("autore", replacementRange: textView.selectedRange())
+
+        #expect(textView.plainText() == "$autore")
+        #expect(textView.debugVisibleMentionSuggestionCount() == 0)
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(!textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
+    }
+
+    @Test
     func testTextBoxMentionRefreshHidesRowsWhenSameTriggerQueryStaysNonEmpty() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"

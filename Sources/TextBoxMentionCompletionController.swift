@@ -56,6 +56,13 @@ final class TextBoxMentionCompletionController {
         return visibleSuggestions[selectionIndex]
     }
 
+    func matchesCurrentInput(query: TextBoxMentionQuery?, rootDirectory: String?) -> Bool {
+        guard let query else {
+            return activeQuery == nil
+        }
+        return activeQuery == query && activeRootDirectory == rootDirectory
+    }
+
     func refresh(for query: TextBoxMentionQuery?, rootDirectory: String?) {
         if query == nil {
             guard activeQuery != nil || activeRootDirectory != nil || !suggestions.isEmpty else { return }

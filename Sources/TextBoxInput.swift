@@ -3662,6 +3662,7 @@ final class TextBoxInputTextView: NSTextView {
         }
         if didChangeTextWasHandled {
             flushAutomaticAttachmentFileCleanup()
+            refreshMentionCompletions()
         } else {
             didChangeText()
         }
@@ -4147,6 +4148,9 @@ final class TextBoxInputTextView: NSTextView {
                 clearAttachmentFocus(dismissPreview: true)
                 refreshInlineAttachmentFocus()
             }
+        case let insertAction where insertAction.hasPrefix("insert_text:"):
+            let insertedText = String(insertAction.dropFirst("insert_text:".count))
+            insertText(insertedText, replacementRange: selectedRange())
         default:
             break
         }
@@ -4452,14 +4456,33 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func refreshMentionCompletions() {
-        let query = TextBoxMentionCompletionDetector.query(
+        mentionCompletionController.refresh(
+            for: currentMentionCompletionQuery(),
+            rootDirectory: completionRootDirectory
+        )
+    }
+
+    private func currentMentionCompletionQuery() -> TextBoxMentionQuery? {
+        TextBoxMentionCompletionDetector.query(
             in: attributedString().string,
             selectedRange: selectedRange()
         )
+    }
+
+    private func syncMentionCompletionQueryWithTextViewState() -> Bool {
+        guard mentionCompletionController.isActive else { return false }
+        let query = currentMentionCompletionQuery()
+        guard !mentionCompletionController.matchesCurrentInput(
+            query: query,
+            rootDirectory: completionRootDirectory
+        ) else {
+            return false
+        }
         mentionCompletionController.refresh(
             for: query,
             rootDirectory: completionRootDirectory
         )
+        return true
     }
 
     private func warmMentionCompletionIndexesIfNeeded() {
@@ -4672,6 +4695,9 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func syncMentionCompletionPopover() {
+        if syncMentionCompletionQueryWithTextViewState() {
+            return
+        }
         guard mentionCompletionController.shouldShowPopover else {
             dismissMentionCompletionPopoverOnly()
             return
@@ -4708,6 +4734,10 @@ final class TextBoxInputTextView: NSTextView {
             mentionCompletionPanelHost = host
         }
         host.frame = NSRect(origin: .zero, size: contentSize)
+        host.needsLayout = true
+        host.needsDisplay = true
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
 
         let panel = mentionCompletionPanel ?? makeMentionCompletionPanel(host: host)
         if panel.contentView !== host {
@@ -4729,6 +4759,8 @@ final class TextBoxInputTextView: NSTextView {
         if !panel.isVisible {
             panel.orderFront(nil)
         }
+        panel.contentView?.needsDisplay = true
+        panel.contentView?.displayIfNeeded()
     }
 
     private func makeMentionCompletionPanel(
