@@ -4227,26 +4227,26 @@ async function copyWorkspaceStarterBlueprint(starterId) {
   return copyWorkspaceBlueprintPayload(blueprint, `${starter.label} starter blueprint copied.`);
 }
 
-function saveWorkspaceStarterBlueprint(starterId) {
+function saveWorkspaceStarterBlueprint(starterId, options = {}) {
   const starter = workspaceStarterById(starterId);
   if (!starter) {
     toast("Workspace starter not found.");
-    return null;
+    return false;
   }
   const existing = workspaceStarterSavedBlueprint(starter);
   if (existing) {
     toast(`${existing.label} blueprint already saved.`);
-    return existing;
+    return false;
   }
   if (workspaceBlueprintsFull()) {
     toast(workspaceBlueprintLimitTitle());
-    return null;
+    return false;
   }
   const saved = upsertWorkspaceBlueprint(workspaceStarterBlueprint(starter, {
     label: defaultWorkspaceBlueprintNameFromLabel(`${starter.label} starter`)
   }));
   if (!saved) return null;
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast(`${saved.label} blueprint saved.`);
   return saved;
 }
@@ -4403,27 +4403,27 @@ function workspaceBlueprintFromPayload(payload) {
   });
 }
 
-async function pasteWorkspaceBlueprint() {
+async function pasteWorkspaceBlueprint(options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
-    return null;
+    return false;
   }
   try {
     const parsed = JSON.parse(clipboard);
     const blueprint = workspaceBlueprintFromPayload(parsed);
     if (!blueprint) {
       toast("Clipboard does not contain a workspace blueprint.");
-      return null;
+      return false;
     }
     const saved = upsertWorkspaceBlueprint(blueprint);
     if (!saved) return null;
-    renderSettingsInspector();
+    if (options.render !== false) renderSettingsInspector();
     toast(`${saved.label} blueprint saved.`);
     return saved;
   } catch {
     toast("Clipboard does not contain a workspace blueprint.");
-    return null;
+    return false;
   }
 }
 
@@ -25434,7 +25434,7 @@ function quickBlueprintControlsPanel(workspace = activeWorkspace()) {
   const saveStarterDisabled = !starter || Boolean(savedStarterBlueprint) || blueprintsFull;
   const creationDisabled = paneCreationButtonsDisabled();
   const actions = [
-    quickOverviewControlButton("Save layout", saveCurrentWorkspaceBlueprint, {
+    quickOverviewControlButton("Save layout", () => refreshQuickSettingsAfterAction(saveCurrentWorkspaceBlueprint({ render: false })), {
       disabled: !canSaveCurrentWorkspaceBlueprint(workspace, paneCount),
       title: currentWorkspaceBlueprintSaveTitle(workspace, "Save the current workspace pane layout as a reusable blueprint.", paneCount),
       search: normalizeSettingsQuery(`quick setup ${currentWorkspaceBlueprintSaveSearchText(workspace, blueprintsFull, paneCount)}`)
@@ -25444,7 +25444,7 @@ function quickBlueprintControlsPanel(workspace = activeWorkspace()) {
       title: currentWorkspaceBlueprintCopyTitle(workspace, "Copy the current workspace pane layout as JSON.", paneCount),
       search: normalizeSettingsQuery(`quick setup ${currentWorkspaceBlueprintCopySearchText(workspace, paneCount)}`)
     }),
-    quickOverviewControlButton("Paste", pasteWorkspaceBlueprint, {
+    quickOverviewControlButton("Paste", () => refreshQuickSettingsAfterAction(pasteWorkspaceBlueprint({ render: false })), {
       disabled: blueprintsFull,
       title: workspaceBlueprintPasteTitle(blueprintsFull),
       search: normalizeSettingsQuery(`quick setup ${workspaceBlueprintPasteSearchText(blueprintsFull)}`)
@@ -25459,7 +25459,7 @@ function quickBlueprintControlsPanel(workspace = activeWorkspace()) {
       search: `quick setup workspace starter new layout create ${starterSearch}`
     }),
     quickOverviewControlButton("Save starter", () => {
-      if (starter) saveWorkspaceStarterBlueprint(starter.id);
+      return starter ? refreshQuickSettingsAfterAction(saveWorkspaceStarterBlueprint(starter.id, { render: false })) : false;
     }, {
       disabled: saveStarterDisabled,
       title: savedStarterBlueprint
@@ -27681,7 +27681,7 @@ function quickSetupActionDefinitions() {
       search: "save layout workspace blueprint panes shape split",
       disabled: () => !canSaveCurrentWorkspaceBlueprint(),
       title: () => currentWorkspaceBlueprintSaveTitle(),
-      run: () => saveCurrentWorkspaceBlueprint()
+      run: () => refreshQuickSettingsAfterAction(saveCurrentWorkspaceBlueprint({ render: false }))
     }
   ];
 }
@@ -34298,15 +34298,15 @@ function workspaceBlueprintMatchesSnapshot(blueprint, snapshot) {
   return true;
 }
 
-async function saveCurrentWorkspaceBlueprint() {
+async function saveCurrentWorkspaceBlueprint(options = {}) {
   const workspace = activeWorkspace();
   if (!workspace || workspace.panels.length === 0) {
     toast("Open panes before saving a blueprint.");
-    return;
+    return false;
   }
   if (workspaceBlueprintsFull()) {
     toast(workspaceBlueprintLimitTitle());
-    return;
+    return false;
   }
   const label = await showTextDialog({
     title: "Save workspace blueprint",
@@ -34315,11 +34315,12 @@ async function saveCurrentWorkspaceBlueprint() {
     placeholder: "Dev workspace",
     confirmLabel: "Save"
   });
-  if (!label) return;
+  if (!label) return false;
   const saved = upsertWorkspaceBlueprint(currentWorkspaceBlueprintSnapshot(label));
-  if (!saved) return;
-  renderSettingsInspector();
+  if (!saved) return null;
+  if (options.render !== false) renderSettingsInspector();
   toast("Workspace blueprint saved.");
+  return saved;
 }
 
 async function updateWorkspaceBlueprint(blueprintId) {
