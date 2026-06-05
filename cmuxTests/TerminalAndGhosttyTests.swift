@@ -1470,9 +1470,11 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             TerminalController.shared.setActiveTabManager(previousManager)
         }
 
+        let restoreMobileHostSetting = enableMobileHostListenerForTesting()
         MobileHostService.shared.start()
         defer {
             MobileHostService.shared.stop()
+            restoreMobileHostSetting()
         }
         guard await waitForMobileHostRoutesForTesting() else {
             XCTFail("Expected mobile host to publish routes before creating attach ticket")
@@ -1506,9 +1508,11 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             TerminalController.shared.setActiveTabManager(previousManager)
         }
 
+        let restoreMobileHostSetting = enableMobileHostListenerForTesting()
         MobileHostService.shared.start()
         defer {
             MobileHostService.shared.stop()
+            restoreMobileHostSetting()
         }
         guard await waitForMobileHostRoutesForTesting() else {
             XCTFail("Expected mobile host to publish routes before creating attach ticket")
@@ -1552,9 +1556,11 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             TerminalController.shared.setActiveTabManager(previousManager)
         }
 
+        let restoreMobileHostSetting = enableMobileHostListenerForTesting()
         MobileHostService.shared.start()
         defer {
             MobileHostService.shared.stop()
+            restoreMobileHostSetting()
         }
         guard await waitForMobileHostRoutesForTesting() else {
             XCTFail("Expected mobile host to publish routes before creating attach ticket")
@@ -1734,6 +1740,20 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         return false
+    }
+
+    private func enableMobileHostListenerForTesting() -> () -> Void {
+        let defaults = UserDefaults.standard
+        let key = MobileHostService.listeningEnabledDefaultsKey
+        let previousValue = defaults.object(forKey: key)
+        defaults.set(true, forKey: key)
+        return {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
     }
 }
 
