@@ -7492,6 +7492,12 @@ const commands = [
   { id: "notifications.open", label: "Show Notifications", shortcut: "Ctrl+I", run: () => openInspector("notifications") },
   { id: "session.tools", label: "Show Session Tools", shortcut: "", run: () => openInspector("session") },
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
+  { id: "settings.quick", label: "Open Quick Settings", shortcut: "", run: () => openSettingsCategory("quick") },
+  { id: "settings.workspace", label: "Open Workspace Settings", shortcut: "", run: () => openSettingsCategory("workspace") },
+  { id: "settings.appearance", label: "Open Look Settings", shortcut: "", run: () => openSettingsCategory("appearance") },
+  { id: "settings.browser", label: "Open Browser Settings", shortcut: "", run: () => openSettingsCategory("browser") },
+  { id: "settings.layout", label: "Open Layout Settings", shortcut: "", run: () => openSettingsCategory("layout") },
+  { id: "settings.data", label: "Open Data Settings", shortcut: "", run: () => openSettingsCategory("data") },
   { id: "settings.copyAppSetup", label: "Copy App Setup", shortcut: "", run: () => copyAppSetup() },
   { id: "settings.pasteAppSetup", label: "Paste App Setup", shortcut: "", run: () => pasteAppSetup() },
   { id: "settings.copyRecentActivity", label: "Copy Recent Activity", shortcut: "", run: () => copyRecentActivity() },
@@ -7622,6 +7628,12 @@ const backgroundPaletteCommandIds = new Set([
 
 const customizationPaletteCommandIds = new Set([
   "settings.open",
+  "settings.quick",
+  "settings.workspace",
+  "settings.appearance",
+  "settings.browser",
+  "settings.layout",
+  "settings.data",
   "settings.copyAppSetup",
   "settings.pasteAppSetup",
   "settings.copyRecentActivity",
@@ -7686,12 +7698,18 @@ const customizationPaletteCommandIds = new Set([
 ]);
 
 const settingsCategoryCommandTargets = new Map([
+  ["settings.quick", { category: "quick", label: "Quick" }],
+  ["settings.workspace", { category: "workspace", label: "Workspace" }],
+  ["settings.appearance", { category: "appearance", label: "Look" }],
+  ["settings.browser", { category: "browser", label: "Browser" }],
+  ["settings.layout", { category: "layout", label: "Layout" }],
   ["settings.performance", { category: "performance", label: "Performance" }],
   ["settings.actions", { category: "actions", label: "Actions" }],
   ["settings.commands", { category: "commands", label: "Commands" }],
   ["settings.profiles", { category: "profiles", label: "Profiles" }],
   ["settings.blueprints", { category: "blueprints", label: "Blueprints" }],
-  ["settings.terminal", { category: "terminal", label: "Terminal" }]
+  ["settings.terminal", { category: "terminal", label: "Terminal" }],
+  ["settings.data", { category: "data", label: "Data" }]
 ]);
 
 function customizationCommandPaletteSignature() {
