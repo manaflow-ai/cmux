@@ -253,31 +253,36 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
-    // The "_" -> "-" normalization was also moved out of the Shift gate, so a
-    // bare "_" (no Shift) from a layout where "_" is a dedicated key must match
-    // the "-" zoom-out chord. Without this, a future refactor could re-gate "_"
-    // behind Shift with no failing test to catch it.
-    func testZoomOutMatchesBareUnderscoreOnNonUSLayout() {
-        let markdownZoomOut = KeyboardShortcutSettings.Action.markdownZoomOut.defaultShortcut
+    // Unlike "+", the "_" -> "-" normalization stays Shift-gated, because "_" CAN
+    // be a configured shortcut key (config parsing keeps a literal "_" token,
+    // whereas "+" can never be stored). So a bare "_" (no Shift) must be treated as
+    // the literal key "_" and must NOT be hijacked into the "-" zoom-out chord.
+    func testConfiguredUnderscoreShortcutIsNotHijackedByZoom() {
+        // A user-configured cmd+_ binding still matches the "_" key.
+        let underscoreShortcut = StoredShortcut(
+            key: "_", command: true, shift: false, option: false, control: false
+        )
         XCTAssertTrue(
-            markdownZoomOut.matches(
+            underscoreShortcut.matches(
                 keyCode: 27,
                 modifierFlags: [.command],
                 eventCharacter: "_",
                 layoutCharacterProvider: { _, _ in "_" }
             ),
-            "Cmd and a dedicated _ key should zoom markdown out (\"_\" normalizes to \"-\")"
+            "A configured cmd+_ shortcut must still match the _ key"
         )
 
-        let browserZoomOut = KeyboardShortcutSettings.Action.browserZoomOut.defaultShortcut
-        XCTAssertTrue(
-            browserZoomOut.matches(
-                keyCode: 27,
+        // The "-" zoom-out chord must NOT match a bare "_" (no Shift), or it would
+        // steal events from a configured cmd+_ binding.
+        let zoomOut = KeyboardShortcutSettings.Action.markdownZoomOut.defaultShortcut
+        XCTAssertFalse(
+            zoomOut.matches(
+                keyCode: 60,
                 modifierFlags: [.command],
                 eventCharacter: "_",
                 layoutCharacterProvider: { _, _ in "_" }
             ),
-            "Cmd and a dedicated _ key should zoom the browser out (\"_\" normalizes to \"-\")"
+            "Zoom out (-) must not be triggered by a bare _ key"
         )
     }
 

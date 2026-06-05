@@ -1819,18 +1819,17 @@ struct ShortcutStroke: Equatable, Hashable {
     ) -> String {
         let lowered = eventCharacter.lowercased()
 
-        // "+" -> "=" and "_" -> "-" are normalized regardless of Shift. On US
-        // layouts these symbols only exist as Shift variants, so the Shift gate
-        // below historically sufficed. On European layouts (German QWERTZ, French
-        // AZERTY, Nordic) "+" and "-" are dedicated keys typed WITHOUT Shift, so a
-        // bare "+"/"_" can only originate from such a key. Mapping them to their
-        // base zoom key ("=", "-") unconditionally is therefore safe (no shortcut
-        // key is ever stored as "+"/"_") and is what makes Cmd zoom work there.
-        switch lowered {
-        case "+": return "="
-        case "_": return "-"
-        default: break
-        }
+        // "+" -> "=" is normalized regardless of Shift. On US layouts "+" only
+        // exists as the Shift variant of "=", so the Shift gate below historically
+        // sufficed. On European layouts (German QWERTZ, French AZERTY, Nordic) "+"
+        // is a dedicated key typed WITHOUT Shift, so a bare "+" can only originate
+        // from such a key. Mapping it to "=" unconditionally is safe because "+"
+        // can never be a stored shortcut key (config parsing splits on "+", and the
+        // "plus" token resolves to "="), and it is what makes Cmd zoom in work
+        // there. "_" is intentionally NOT normalized here: "_" CAN be a configured
+        // shortcut key (e.g. cmd+_), so it stays Shift-gated below to avoid hijacking
+        // such bindings. Zoom out already works on those layouts via a bare "-".
+        if lowered == "+" { return "=" }
 
         guard applyShiftSymbolNormalization else { return lowered }
 
@@ -1844,6 +1843,7 @@ struct ShortcutStroke: Equatable, Hashable {
         case "\"": return "'"
         case "|": return "\\"
         case "~": return "`"
+        case "_": return "-"
         case "!": return eventKeyCode == 18 ? "1" : lowered // kVK_ANSI_1
         case "@": return eventKeyCode == 19 ? "2" : lowered // kVK_ANSI_2
         case "#": return eventKeyCode == 20 ? "3" : lowered // kVK_ANSI_3
