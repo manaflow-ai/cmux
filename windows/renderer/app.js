@@ -6566,19 +6566,19 @@ async function applySavedBackgroundImageToWorkspaceTerminals(backgroundId, works
   });
 }
 
-async function choosePanelBackgroundImage(panel = focusedPanel()) {
+async function choosePanelBackgroundImage(panel = focusedPanel(), options = {}) {
   const terminalPanel = resolveTerminalPanel(panel);
   if (!terminalPanel) {
     toast("Select a terminal pane first.");
-    return null;
+    return false;
   }
   if (!window.cmuxNative?.pickBackgroundImage) {
     toast("Local image picker is unavailable.");
-    return null;
+    return false;
   }
   const url = await window.cmuxNative.pickBackgroundImage();
-  if (!url) return null;
-  return applyPanelBackgroundImage(url, terminalPanel);
+  if (!url) return false;
+  return applyPanelBackgroundImage(url, terminalPanel, options);
 }
 
 async function pastePanelBackgroundImageFromClipboard(panel = focusedPanel(), input = null) {
@@ -26244,8 +26244,7 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
         openSettingsCategory("performance");
         return;
       }
-      tunePerformanceNow();
-      scheduleQuickSettingsRefresh();
+      return refreshQuickSettingsAfterAction(tunePerformanceNow());
     }, {
       title: tuneTitle,
       search: "quick setup performance tune speed lag smooth reduce effects hidden output"
@@ -27071,8 +27070,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
       openSettingsCategory("performance");
       return;
     }
-    tunePerformanceNow();
-    scheduleQuickSettingsRefresh();
+    refreshQuickSettingsAfterAction(tunePerformanceNow());
   };
   panel.querySelector("[data-quick-performance-controls]").replaceWith(quickPerformanceControlsPanel(performance));
   const performanceHealthControls = quickPerformanceHealthFixControlsPanel();
@@ -27496,7 +27494,7 @@ function quickSetupActionDefinitions() {
       search: "clean fast simple speed compact ui chrome terminal startup lag preset",
       active: () => isSettingsPresetIdActive("simpleFast"),
       activeTitle: () => "Clean + Fast is already active.",
-      run: () => applySettingsPresetById("simpleFast")
+      run: () => refreshQuickSettingsAfterAction(applySettingsPresetById("simpleFast", { render: false }))
     },
     {
       id: "save-clean-fast-profile",
@@ -27520,7 +27518,7 @@ function quickSetupActionDefinitions() {
       search: "simple clean minimal compact ui chrome pane controls preset",
       active: () => isSettingsPresetIdActive("simple"),
       activeTitle: () => "Clean UI is already active.",
-      run: () => applySettingsPresetById("simple")
+      run: () => refreshQuickSettingsAfterAction(applySettingsPresetById("simple", { render: false }))
     },
     {
       id: "save-profile",
@@ -27546,7 +27544,7 @@ function quickSetupActionDefinitions() {
       search: "save current accent custom color palette reusable library appearance",
       disabled: () => quickAccentColorSaveModel().disabled,
       title: () => quickAccentColorSaveModel().title,
-      run: () => saveCurrentColorToPalette("accent")
+      run: () => refreshQuickSettingsAfterAction(saveCurrentColorToPalette("accent", { render: false }))
     },
     {
       id: "tune-speed",
@@ -27564,8 +27562,7 @@ function quickSetupActionDefinitions() {
           openSettingsCategory("performance");
           return;
         }
-        tunePerformanceNow();
-        scheduleQuickSettingsRefresh();
+        return refreshQuickSettingsAfterAction(tunePerformanceNow());
       }
     },
     {
@@ -27576,9 +27573,7 @@ function quickSetupActionDefinitions() {
       meta: () => state.settings.focusMode ? "On" : "Off",
       cta: "Toggle",
       search: "focus mode hide chrome simple clean workspace",
-      run: () => {
-        refreshQuickSettingsAfterAction(toggleFocusMode());
-      }
+      run: () => refreshQuickSettingsAfterAction(toggleFocusMode())
     },
     {
       id: "background",
@@ -27588,7 +27583,7 @@ function quickSetupActionDefinitions() {
       meta: () => appearanceBackgroundLabel(state.settings.backgroundImage),
       cta: "Choose",
       search: "background image wallpaper choose local file appearance",
-      run: () => chooseBackgroundImage()
+      run: () => refreshQuickSettingsAfterAction(chooseBackgroundImage({ render: false }))
     },
     {
       id: "save-background-image",
@@ -27602,7 +27597,7 @@ function quickSetupActionDefinitions() {
       search: "save current app background image wallpaper saved background library reusable",
       disabled: () => quickAppBackgroundSaveModel().disabled,
       title: () => quickAppBackgroundSaveModel().title,
-      run: () => saveCustomBackgroundImage({ url: state.settings.backgroundImage })
+      run: () => refreshQuickSettingsAfterAction(saveCustomBackgroundImage({ url: state.settings.backgroundImage }, { render: false }))
     },
     {
       id: "pane-background",
@@ -27614,7 +27609,7 @@ function quickSetupActionDefinitions() {
       search: () => paneBackgroundActionSearchText("choose"),
       disabled: () => !activeTerminalPanelForSettings(),
       disabledTitle: () => paneBackgroundActionTitle("choose"),
-      run: () => choosePanelBackgroundImage(activeTerminalPanelForSettings())
+      run: () => refreshQuickSettingsAfterAction(choosePanelBackgroundImage(activeTerminalPanelForSettings(), { render: false }))
     },
     {
       id: "save-terminal-image",
@@ -27628,7 +27623,7 @@ function quickSetupActionDefinitions() {
       search: () => paneBackgroundActionSearchText("save"),
       disabled: () => quickTerminalBackgroundSaveModel().disabled,
       title: () => quickTerminalBackgroundSaveModel().title,
-      run: () => saveCustomBackgroundImage({ url: quickTerminalBackgroundSaveModel().background })
+      run: () => refreshQuickSettingsAfterAction(saveCustomBackgroundImage({ url: quickTerminalBackgroundSaveModel().background }, { render: false }))
     },
     {
       id: "pane-settings",
@@ -27656,7 +27651,7 @@ function quickSetupActionDefinitions() {
       search: "all terminal pane background image choose local file wallpaper workspace",
       disabled: () => workspaceTerminalPanels().length === 0,
       disabledTitle: () => "Open a terminal pane before setting terminal images.",
-      run: () => chooseBackgroundImageForTarget({ target: "all" })
+      run: () => refreshQuickSettingsAfterAction(chooseBackgroundImageForTarget({ target: "all", render: false }))
     },
     {
       id: "pane-shape",
@@ -29626,12 +29621,13 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
   });
   if (!changed) {
     toast(automatic ? "Performance guard already tuned." : "Performance tune already active.");
-    return;
+    return false;
   }
   if (state.inspectorMode === "settings" && state.settingsCategory === "performance") {
     scheduleSettingsInspectorRender({ ifChanged: true });
   }
   toast(automatic ? `Performance guard enabled: ${reason}.` : "Performance tune applied.");
+  return true;
 }
 
 function commandGroupLabel(command) {
@@ -33303,32 +33299,33 @@ async function runSettingsAction(button, label, promise) {
 async function chooseBackgroundImage(options = {}) {
   if (!window.cmuxNative?.pickBackgroundImage) {
     toast("Local image picker is unavailable.");
-    return;
+    return false;
   }
   const url = await window.cmuxNative.pickBackgroundImage();
-  if (!url) return;
+  if (!url) return false;
   if (options.save) {
     const saved = await applyAndSaveCustomBackgroundImage({ url }, { render: false });
-    if (!saved) return;
+    if (!saved) return false;
     if (options.render !== false) renderSettingsInspector();
-    return;
+    return saved;
   }
   const changed = await applyCustomBackgroundImage(url, { render: false, toast: true });
-  if (changed === null) return;
+  if (changed === null) return false;
   if (options.render !== false) renderSettingsInspector();
+  return changed;
 }
 
 async function chooseBackgroundImageForTarget(options = {}) {
   if (!window.cmuxNative?.pickBackgroundImage) {
     toast("Local image picker is unavailable.");
-    return null;
+    return false;
   }
   const target = normalizeBackgroundApplyTarget(options.target || state.backgroundApplyTarget);
   const targetStatus = activeBackgroundTargetStatus(target);
   if (!targetStatus.canTarget) {
     const option = backgroundApplyTargetOption(target);
     toast(formatMessage("quickGuide.backgroundTargetUnavailable", { label: option.label }));
-    return null;
+    return false;
   }
   if (state.backgroundApplyTarget !== target) {
     state.backgroundApplyTarget = target;
@@ -33338,7 +33335,7 @@ async function chooseBackgroundImageForTarget(options = {}) {
     }
   }
   const url = await window.cmuxNative.pickBackgroundImage();
-  if (!url) return null;
+  if (!url) return false;
   if (options.save) {
     return applyAndSaveBackgroundImageToTarget({ url }, target, { render: options.render });
   }
@@ -33581,20 +33578,21 @@ function isActiveSettingsProfile(profile) {
   return profileSettingsSettingKeys.every((key) => state.settings[key] === normalized[key]);
 }
 
-function applySettingsPreset(preset) {
+function applySettingsPreset(preset, options = {}) {
   const changed = updateSettings(preset.settings);
   if (!changed) {
     toast(`${preset.label} settings already active.`);
-    return;
+    return false;
   }
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast(`${preset.label} settings applied.`);
+  return true;
 }
 
-function applySettingsPresetById(presetId) {
+function applySettingsPresetById(presetId, options = {}) {
   const preset = settingsPresetById(presetId);
-  if (!preset) return;
-  applySettingsPreset(preset);
+  if (!preset) return false;
+  return applySettingsPreset(preset, options);
 }
 
 function settingsProfilesPanel() {
