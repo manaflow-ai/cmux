@@ -301,6 +301,16 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Cache Cargo packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Native/CommandPaletteNucleoFFI/target
+          key: cargo-nucleo-${{ runner.os }}-${{ hashFiles('Native/CommandPaletteNucleoFFI/Cargo.lock') }}
+          restore-keys: cargo-nucleo-${{ runner.os }}-
+
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -522,6 +532,16 @@ jobs:
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
+
+      - name: Cache Cargo packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Native/CommandPaletteNucleoFFI/target
+          key: cargo-nucleo-${{ runner.os }}-${{ hashFiles('Native/CommandPaletteNucleoFFI/Cargo.lock') }}
+          restore-keys: cargo-nucleo-${{ runner.os }}-
 
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -809,6 +829,16 @@ jobs:
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
+
+      - name: Cache Cargo packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Native/CommandPaletteNucleoFFI/target
+          key: cargo-nucleo-${{ runner.os }}-${{ hashFiles('Native/CommandPaletteNucleoFFI/Cargo.lock') }}
+          restore-keys: cargo-nucleo-${{ runner.os }}-
 
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -1110,6 +1140,16 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Cache Cargo packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Native/CommandPaletteNucleoFFI/target
+          key: cargo-nucleo-${{ runner.os }}-${{ hashFiles('Native/CommandPaletteNucleoFFI/Cargo.lock') }}
+          restore-keys: cargo-nucleo-${{ runner.os }}-
+
       - name: Cache DerivedData
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1240,6 +1280,16 @@ jobs:
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
+
+      - name: Cache Cargo packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Native/CommandPaletteNucleoFFI/target
+          key: cargo-nucleo-${{ runner.os }}-${{ hashFiles('Native/CommandPaletteNucleoFFI/Cargo.lock') }}
+          restore-keys: cargo-nucleo-${{ runner.os }}-
 
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
