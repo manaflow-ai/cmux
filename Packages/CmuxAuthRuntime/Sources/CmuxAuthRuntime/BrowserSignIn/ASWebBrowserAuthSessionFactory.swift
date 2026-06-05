@@ -20,24 +20,37 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
         callbackScheme: String,
         completion: @escaping @MainActor (URL?) -> Void
     ) -> any HostBrowserAuthSession {
-        let debugLog = log
         let session = ASWebAuthenticationSession(
             url: signInURL,
-            callbackURLScheme: callbackScheme
-        ) { callbackURL, error in
-            // ASWebAuthenticationSession invokes this on the thread that
-            // started it (always main here); hop explicitly so the contract
-            // holds even if AppKit changes that.
+            callbackURLScheme: callbackScheme,
+            completionHandler: Self.sessionCompletionBridge(log: log, completion: completion)
+        )
+        session.presentationContextProvider = anchor
+        session.prefersEphemeralWebBrowserSession = false
+        return ASWebBrowserAuthSession(session: session)
+    }
+
+    /// The completion handed to `ASWebAuthenticationSession`.
+    ///
+    /// Deliberately `nonisolated` + `@Sendable`: the session does NOT reliably
+    /// call back on the main thread (observed on macOS 26: the cancel path
+    /// delivers on the `SafariLaunchAgent` NSXPCConnection queue). A closure
+    /// formed inside this `@MainActor` class would inherit main-actor
+    /// isolation and Swift 6 would trap (`dispatch_assert_queue`) at the ObjC
+    /// boundary when that off-main delivery happens. This bridge carries no
+    /// isolation assumption and hops to the main actor itself.
+    nonisolated static func sessionCompletionBridge(
+        log: AuthDebugLog,
+        completion: @escaping @MainActor (URL?) -> Void
+    ) -> @Sendable (URL?, (any Error)?) -> Void {
+        { callbackURL, error in
             Task { @MainActor in
                 if let error {
-                    debugLog.log("auth.webauth failed: \(error)")
+                    log.log("auth.webauth failed: \(error)")
                 }
                 completion(callbackURL)
             }
         }
-        session.presentationContextProvider = anchor
-        session.prefersEphemeralWebBrowserSession = false
-        return ASWebBrowserAuthSession(session: session)
     }
 }
 
