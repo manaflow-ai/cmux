@@ -45399,6 +45399,11 @@ window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   if (state.activeDialog) return;
   const editingText = isFormEditableTarget(event.target);
+  if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && (event.key === "," || event.code === "Comma")) {
+    consumeGlobalShortcut(event);
+    openInspector("settings");
+    return;
+  }
   const textSizeShortcutKind = paneTextSizeShortcutKind(event);
   const directBrowserPanel = textSizeShortcutKind ? resolveBrowserPanel(panelFromEvent(event)) : null;
   if (
@@ -45484,9 +45489,6 @@ window.addEventListener("keydown", (event) => {
   } else if (event.ctrlKey && key === "b") {
     consumeGlobalShortcut(event);
     toggleSidebar();
-  } else if (event.ctrlKey && event.key === ",") {
-    consumeGlobalShortcut(event);
-    openInspector("settings");
   } else if (event.ctrlKey && key === "k") {
     runTerminalKeyShortcut(event, clearTerminalPanel);
   } else if (event.ctrlKey && event.shiftKey && key === "r") {
