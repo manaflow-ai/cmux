@@ -24570,6 +24570,25 @@ function terminalOutputBacklogNeedsStabilizing() {
   return currentTerminalOutputBacklogBytes() >= terminalOutputBacklogThreshold;
 }
 
+function renderLoadNeedsStabilizing() {
+  if (state.settings.performanceMode) return false;
+  const lastRenderMs = state.renderStats.lastMs || 0;
+  const avgRenderMs = state.renderStats.avgMs || 0;
+  return lastRenderMs >= renderVerySlowFrameMs
+    || avgRenderMs >= renderSlowFrameMs
+    || state.performanceGuardSlowRenderCount >= renderSlowFrameTriggerCount;
+}
+
+function renderLoadHealthMeta() {
+  if (!state.renderStats.count) return "No samples";
+  const parts = [
+    `${formatMs(state.renderStats.lastMs)} last`,
+    `${formatMs(state.renderStats.avgMs)} avg`
+  ];
+  if (state.renderStats.slowCount) parts.push(`${state.renderStats.slowCount} slow`);
+  return parts.join(" / ");
+}
+
 const performanceHealthCheckDefinitions = [
   {
     id: "adaptiveGuard",
@@ -24614,6 +24633,24 @@ const performanceHealthCheckDefinitions = [
       terminalScrollback: Math.min(state.settings.terminalScrollback, performanceHealthScrollbackLimit)
     }),
     search: "terminal output backlog queued bytes storm stabilize performance mode pause hidden output reduce motion scrollback lag"
+  },
+  {
+    id: "renderLoad",
+    label: "Render load",
+    body: "Applies lighter chrome when recent render frames are slow or repeatedly over budget.",
+    actionLabel: "Stabilize",
+    readyLabel: "Stable",
+    issue: () => renderLoadNeedsStabilizing(),
+    meta: () => renderLoadHealthMeta(),
+    updates: () => ({
+      performanceMode: true,
+      reduceMotion: true,
+      chromeMotionMode: "snappy",
+      interfaceDepth: "flat",
+      backgroundEffects: "flat",
+      backgroundBlur: 0
+    }),
+    search: "render load slow frame frames over budget stabilize performance mode lighter chrome reduce motion flat depth background effects lag jank"
   },
   {
     id: "cursorBlink",
