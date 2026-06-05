@@ -27433,11 +27433,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
         let hasInvalidDirectWorkspaceArg = directWorkspaceArg != nil && resolvedDirectWorkspaceArg == nil
+        let resolvedDirectSurfaceArg: String? = {
+            guard let directSurfaceArg else { return nil }
+            guard let workspaceId = resolvedDirectWorkspaceArg else { return nil }
+            return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
+        }()
+        let hasInvalidDirectSurfaceArg = directSurfaceArg != nil && resolvedDirectSurfaceArg == nil
+        let hasUnusableDirectBinding = hasInvalidDirectWorkspaceArg || hasInvalidDirectSurfaceArg
         var processBindingCache: CallerTerminalBinding?
         var didResolveProcessBinding = false
         func processBinding() -> CallerTerminalBinding? {
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
+                guard !hasUnusableDirectBinding else {
+                    return nil
+                }
                 guard directWorkspaceArg == nil || directSurfaceArg == nil else {
                     return nil
                 }
@@ -27452,15 +27462,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return processBindingCache == nil ? "nil" : "resolved"
         }
 #endif
-        let resolvedDirectSurfaceArg: String? = {
-            guard let directSurfaceArg else { return nil }
-            guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
-            return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
-        }()
-        let hasInvalidDirectSurfaceArg = directSurfaceArg != nil && resolvedDirectSurfaceArg == nil
-        let hasUnusableDirectBinding = hasInvalidDirectWorkspaceArg || hasInvalidDirectSurfaceArg
         func workspaceArg() -> String? {
-            resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
+            guard !hasUnusableDirectBinding else { return nil }
+            return resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
         }
 
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -27646,7 +27650,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             if let workspaceId = resolvedDirectWorkspaceArg {
                 let preferredSurfaceId = resolvedDirectSurfaceArg
-                    ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
+                    ?? (directSurfaceArg == nil && hookWsFlag == nil ? processBinding()?.surfaceId : nil)
                 let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped)
 #if DEBUG
                 agentHookDebugLog(

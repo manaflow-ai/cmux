@@ -57,6 +57,10 @@ static void writeString(NSString *value, NSString *path) {
 }
 
 static BOOL displayIsOnline(CGDirectDisplayID displayID) {
+    if (CGDisplayIsOnline(displayID)) {
+        return YES;
+    }
+
     uint32_t count = 0;
     if (CGGetOnlineDisplayList(0, NULL, &count) != kCGErrorSuccess || count == 0) {
         return NO;

@@ -86,9 +86,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             lock.unlock()
         }
 
-        func shouldFinish(idleFor interval: TimeInterval) -> Bool {
+        func shouldFinish(idleFor interval: TimeInterval, allowOpenConnections: Bool) -> Bool {
             lock.lock()
             let shouldFinish = acceptedConnections > 0
+                && (allowOpenConnections || activeConnections == 0)
                 && Date().timeIntervalSince(lastActivity) >= interval
             lock.unlock()
             return shouldFinish
@@ -134,7 +135,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
-        return URL(fileURLWithPath: NSTemporaryDirectory())
+        return URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
             .path
     }
@@ -413,7 +414,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         startMockServerAllowingNoResponse(
             listenerFD: listenerFD,
             state: state,
-            fulfillWhen: fulfillWhen
+            fulfillWhen: fulfillWhen,
+            allowOpenConnectionsAfterIdle: false
         ) { line in
             handler(line)
         }
@@ -423,6 +425,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         listenerFD: Int32,
         state: MockSocketServerState,
         fulfillWhen: (@Sendable (String) -> Bool)? = nil,
+        allowOpenConnectionsAfterIdle: Bool = true,
         handler: @escaping @Sendable (String) -> String?
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli mock socket handled")
@@ -500,7 +503,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     }
                 }
 
-                if tracker.shouldFinish(idleFor: idleGrace) {
+                if tracker.shouldFinish(idleFor: idleGrace, allowOpenConnections: allowOpenConnectionsAfterIdle) {
                     fulfillOnce()
                     return
                 }
