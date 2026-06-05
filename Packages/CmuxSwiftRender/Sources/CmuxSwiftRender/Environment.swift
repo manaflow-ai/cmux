@@ -13,11 +13,15 @@ final class Environment {
     private var values: [String: SwiftValue]
     private var functions: [String: FunctionDeclSyntax]
     private let parent: Environment?
+    /// Shared across the whole scope chain; bounds interpreter recursion so
+    /// pathological authored source can't overflow the stack.
+    let budget: RecursionBudget
 
     init(values: [String: SwiftValue] = [:], parent: Environment? = nil) {
         self.values = values
         self.functions = [:]
         self.parent = parent
+        self.budget = parent?.budget ?? RecursionBudget()
     }
 
     /// Looks up `name`, walking up the scope chain.

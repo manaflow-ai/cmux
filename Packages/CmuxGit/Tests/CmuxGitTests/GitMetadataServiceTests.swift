@@ -180,6 +180,25 @@ import Testing
         #expect(snapshot.entries.map(\.path) == [longPrefix + "first.txt", longPrefix + "second.txt"])
     }
 
+    @Test func indexHexFieldsDecodeWithoutChangingObjectAndSignatureText() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let objectID = "000102030405060708090a0b0c0d0e0f10111213"
+        let trailer = Array(UInt8(0x14)...UInt8(0x27))
+        try fixture.writeIndex(GitIndexFixture(
+            version: 2,
+            entries: [
+                GitIndexFixture.Entry(path: "tracked.txt", objectID: objectID),
+            ],
+            trailer: trailer
+        ))
+
+        let indexURL = fixture.gitDirectory.appendingPathComponent("index")
+        let snapshot = try #require(GitMetadataService.gitIndexSnapshot(indexURL: indexURL))
+        #expect(snapshot.entries.map(\.objectID) == [objectID])
+        #expect(snapshot.signature == "1415161718191a1b1c1d1e1f2021222324252627")
+    }
+
     // MARK: Content signature stability
 
     @Test func contentSignatureIgnoresStatOnlyChanges() {
