@@ -53,7 +53,7 @@ function IconPaths({ name }: { name: IconName }) {
   case "eye":
     return <><path d="M2.5 10s2.75-5 7.5-5 7.5 5 7.5 5-2.75 5-7.5 5-7.5-5-7.5-5z" /><circle cx="10" cy="10" r="2.4" /></>;
   case "files":
-    return <><rect x="3.5" y="4" width="13" height="12" rx="2" /><path d="M7.5 4v12" /><path d="M5.2 7h1.1" /><path d="M5.2 10h1.1" /><path d="M5.2 13h1.1" /><path d="M10 7h3.8" /><path d="M10 10h4.5" /><path d="M10 13h3.2" /></>;
+    return <><path d="M6.5 4.5v11" /><path d="M4.2 6.5h1.1" /><path d="M4.2 10h1.1" /><path d="M4.2 13.5h1.1" /><path d="M9 6.5h6.2" /><path d="M9 10h5.2" /><path d="M9 13.5h6.2" /></>;
   case "numbers":
     return <><path d="M5 5h2v10" /><path d="M4 15h4" /><path d="M11 6.5a2 2 0 1 1 3.2 1.6L11 12h4" /><path d="M11 15h4" /></>;
   case "refresh":
