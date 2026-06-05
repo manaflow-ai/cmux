@@ -13,9 +13,9 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `d1dbbec9b`, based on `176bd550f`, adding the
+Current cmux pinned fork head: `76ead3eae`, based on `176bd550f`, adding the
 cmd-click link refresh under mouse reporting (manaflow-ai/ghostty#71) plus the
-half-click suppression follow-up (manaflow-ai/ghostty#74) for
+click/drag mouse-report suppression follow-ups (manaflow-ai/ghostty#74, #75) for
 https://github.com/manaflow-ai/cmux/issues/5128 on top of the previous head's
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
 the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
@@ -27,7 +27,7 @@ and lets Cmd-click open links even while a mouse-reporting alt-screen TUI
 (Claude Code, Codex) has grabbed the mouse.
 It also supports Ctrl-N and Ctrl-P in the cmux theme picker.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-d1dbbec9b885baf0e6603250b4dc9b7289c20d55-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-76ead3eaef32f85c3020d587b76ce21a1f3fb839-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -225,6 +225,8 @@ tend to conflict together during rebases.
 - Follow-up commits (manaflow-ai/ghostty#74):
   - `354e3626b` (fix: suppress mouse reporting for the full cmd-clicked link click)
   - `d1dbbec9b` (fix: key cmd-click link suppression on the modifier, not over_link)
+- Follow-up commit (manaflow-ai/ghostty#75):
+  - `76ead3eae` (fix: also suppress motion reports during a cmd-clicked link drag)
 - Files:
   - `src/Surface.zig`
 - Summary:
@@ -243,10 +245,15 @@ tend to conflict together during rebases.
   - Follow-up (#74): `mouseButtonCallback` ran the link-open path only on
     release, while the mouse-report path ran for both press and release and only
     broke out for the shift-release case — so a Cmd-click over a link still
-    reported the *press* to the program and leaked a half-click (press with no
-    matching release) to mouse-grabbing TUIs. The follow-up breaks out of the
-    report path when over a link with the ctrl/super chord held, suppressing the
-    whole click (press + release), mirroring the shift-release suppression.
+    reported the *press* to the program and leaked a half-click to mouse-grabbing
+    TUIs. The follow-up breaks out of the report path whenever the ctrl/super
+    link chord is held (keyed on the modifier, like the shift-release path, so
+    cursor jitter can't leak a press or a release), suppressing the whole click.
+  - Follow-up (#75): `cursorPosCallback` still emitted `.motion` reports while a
+    button was held during the chord, so a drag during link activation leaked
+    button-motion. Mirrors the shift "grab override" for the ctrl/super chord in
+    the motion path (only while a button is pressed). Net: the link chord now
+    suppresses the whole click+drag — press, release, and motion — consistently.
   - Known limitation (noted by review): the bypass matches the default
     `ctrlOrSuper` chord, which is exactly what both link kinds already require to
     activate (OSC 8 `linkAtPos` and the default url `hover_mods = ctrlOrSuper`); a
@@ -255,11 +262,10 @@ tend to conflict together during rebases.
 
 The current cmux pin is the head listed above. It is reachable from
 `manaflow-ai/ghostty` through the
-`xcframework-d1dbbec9b885baf0e6603250b4dc9b7289c20d55-crashsubdir-cmux-crash-v1`
-release tag and is an ancestor of `manaflow-ai/ghostty` `main` (PR #71 and the
-#74 follow-up are merged into fork `main` with merge commits, keeping
-`d1dbbec9b` an ancestor).
-Published `xcframework-d1dbbec9b885baf0e6603250b4dc9b7289c20d55-crashsubdir-cmux-crash-v1` and pinned its
+`xcframework-76ead3eaef32f85c3020d587b76ce21a1f3fb839-crashsubdir-cmux-crash-v1`
+release tag and is an ancestor of `manaflow-ai/ghostty` `main` (PR #71, #74, and
+#75 are merged into fork `main`, keeping `76ead3eae` an ancestor).
+Published `xcframework-76ead3eaef32f85c3020d587b76ce21a1f3fb839-crashsubdir-cmux-crash-v1` and pinned its
 archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
 pin must be regenerated whenever this commit changes, even for comment-only
 amends, because the release tag is keyed by the Ghostty commit SHA.
