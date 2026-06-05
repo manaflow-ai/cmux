@@ -83,6 +83,18 @@ public struct WindowOpenSizeSettings: Equatable, Sendable {
         )
     }
 
+    /// Whether app startup should reapply the persisted last-window geometry to
+    /// the primary window when there is no per-window session frame to restore.
+    ///
+    /// Returns `false` when the fixed-size option is on: in that case the window
+    /// was already sized to the configured dimensions when it was created, and
+    /// reapplying the persisted last-used frame on launch would clobber it. When
+    /// the option is off this is `true`, preserving the restore-last-size
+    /// behavior. Pure so the startup gate can be unit-tested without AppKit.
+    public func shouldRestorePersistedStartupGeometry() -> Bool {
+        fixedContentSize() == nil
+    }
+
     /// Reads the live `window.*` policy from a `UserDefaults` suite.
     ///
     /// Missing keys fall back to the `default*` values, so this is safe to call

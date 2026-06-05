@@ -117,4 +117,52 @@ struct WindowOpenSizeSettingsTests {
         )
         #expect(source == .fallbackDefault)
     }
+
+    // MARK: startup-restore gate (regression: fixed size must survive launch)
+
+    /// With the fixed-size option off, app startup still reapplies the persisted
+    /// last-window geometry onto the primary window — restore-last behavior.
+    @Test func startupReappliesPersistedGeometryWhenFixedSizeDisabled() {
+        let policy = WindowOpenSizeSettings(openAtFixedSize: false, width: 1_280, height: 800)
+        #expect(policy.shouldRestorePersistedStartupGeometry())
+    }
+
+    /// Regression for the startup-overwrite bug: with the fixed-size option on,
+    /// app startup must NOT reapply the persisted last-window geometry, otherwise
+    /// it clobbers the configured size createMainWindow set and launch shows the
+    /// old window size instead of the fixed dimensions.
+    @Test func startupKeepsFixedSizeInsteadOfReapplyingPersistedGeometry() {
+        let policy = WindowOpenSizeSettings(openAtFixedSize: true, width: 1_280, height: 800)
+        #expect(!policy.shouldRestorePersistedStartupGeometry())
+    }
+
+    /// End-to-end policy check across both window-sizing entrypoints, read from a
+    /// `UserDefaults` suite the way `AppDelegate` reads `.standard` at launch.
+    /// With the fixed-size option on and only persisted geometry available, the
+    /// create path resolves to the configured size AND the startup path declines
+    /// to reapply persisted geometry — so a fresh launch opens at the fixed size.
+    @Test func bothEntrypointsHonorFixedSizeOverPersistedGeometry() throws {
+        let defaults = try #require(UserDefaults(suiteName: "WindowOpenSizeSettingsTests.entrypoints"))
+        defaults.removePersistentDomain(forName: "WindowOpenSizeSettingsTests.entrypoints")
+        defaults.set(true, forKey: WindowOpenSizeSettings.openAtFixedSizeStorageKey)
+        defaults.set(1_280, forKey: WindowOpenSizeSettings.widthStorageKey)
+        defaults.set(800, forKey: WindowOpenSizeSettings.heightStorageKey)
+
+        let policy = WindowOpenSizeSettings.read(from: defaults)
+        let fixed = try #require(policy.fixedContentSize())
+
+        // createMainWindow path: fixed size wins over persisted geometry.
+        let createSource = WindowOpenSizeSettings.resolveInitialFrameSource(
+            fixedContentSize: fixed,
+            restoredFrame: nil,
+            sourceWindowFrame: nil,
+            persistedGeometryFrame: Self.persisted
+        )
+        #expect(createSource == .fixedSize(CGSize(width: 1_280, height: 800)))
+
+        // startup-restore path: must not reapply the persisted geometry.
+        #expect(!policy.shouldRestorePersistedStartupGeometry())
+
+        defaults.removePersistentDomain(forName: "WindowOpenSizeSettingsTests.entrypoints")
+    }
 }

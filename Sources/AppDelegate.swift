@@ -3076,7 +3076,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 to: primaryContext,
                 window: primaryWindow
             )
-        } else if WindowOpenSizeSettings.read(from: .standard).fixedContentSize() == nil {
+        } else if WindowOpenSizeSettings.read(from: .standard).shouldRestorePersistedStartupGeometry() {
             // Restore the persisted last-window geometry onto the primary window
             // only when the fixed-size option is off. With it on, createMainWindow
             // already sized this window to the configured dimensions, and
