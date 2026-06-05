@@ -16105,11 +16105,13 @@ function renderSettingsInspector(options = {}) {
     copyLook.title = "Copy theme, accent intensity, surface tint, interface contrast, surface depth, app background, background chrome, and terminal colors as JSON.";
     const pasteLook = settingsActionButton("Paste look", pasteLookSettings, "", "appearance look paste theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors clipboard json");
     pasteLook.title = "Apply copied cmux look JSON.";
+    const saveLookProfile = applySettingsProfileSaveLimit(
+      settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal layout performance"),
+      "Save this look as a reusable Settings profile."
+    );
+    saveLookProfile.dataset.appearanceAction = "save-profile";
     appearanceActions.append(
-      applySettingsProfileSaveLimit(
-        settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal layout performance"),
-        "Save this look as a reusable Settings profile."
-      ),
+      saveLookProfile,
       cycleLook,
       cycleTheme,
       copyLook,
@@ -18354,7 +18356,7 @@ function applyLookPack(packId, options = {}) {
   return true;
 }
 
-function saveLookPackProfile(packId) {
+function saveLookPackProfile(packId, options = {}) {
   const pack = lookPackById(packId);
   const settings = lookPackSettings(pack);
   if (!pack || !settings) {
@@ -18377,7 +18379,7 @@ function saveLookPackProfile(packId) {
     createdAt: Date.now()
   });
   if (!saved) return null;
-  renderSettingsInspector();
+  refreshAppearanceProfileSaveSettings(options);
   toast(`${saved.label} profile saved.`);
   return saved;
 }
@@ -18483,7 +18485,36 @@ function refreshAppearanceLookSettings(options = {}) {
   scheduleSettingsInspectorRender({ ifChanged: true });
 }
 
+function refreshAppearanceProfileSaveControls() {
+  for (const card of elements.inspectorBody.querySelectorAll("[data-theme-choice-card]")) {
+    const theme = themeChoiceById(card.dataset.themeChoiceCard);
+    updateThemeChoiceCard(card, theme);
+  }
+  for (const card of elements.inspectorBody.querySelectorAll("[data-look-pack]")) {
+    const pack = lookPackById(card.dataset.lookPack);
+    updateLookPackCard(card, pack);
+  }
+  refreshAppearanceActions();
+  refreshSavedColorPalettePanels();
+  refreshBackgroundLibraryPanels();
+  if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function refreshAppearanceProfileSaveSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "appearance") {
+    refreshAppearanceProfileSaveControls();
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 function refreshAppearanceActions() {
+  const saveProfile = elements.inspectorBody.querySelector('[data-appearance-action="save-profile"]');
+  if (saveProfile) {
+    applySettingsProfileSaveLimit(saveProfile, "Save this look as a reusable Settings profile.");
+    setSettingsSearchIfChanged(saveProfile, `appearance look save current settings profile theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal layout performance ${savedSettingsProfileCountLabel()} ${savedSettingsProfilesFull() ? "limit full unavailable " : "ready "}`);
+  }
   const cycleLook = elements.inspectorBody.querySelector('[data-appearance-action="cycle-look"]');
   if (cycleLook) {
     const model = lookPackCycleModel();
@@ -34759,7 +34790,7 @@ function saveCurrentColorProfile(options = {}) {
   });
 }
 
-function saveThemeChoiceProfile(themeId) {
+function saveThemeChoiceProfile(themeId, options = {}) {
   const theme = themeChoiceById(themeId);
   if (!theme) {
     toast("Theme not found.");
@@ -34782,7 +34813,7 @@ function saveThemeChoiceProfile(themeId) {
     createdAt: Date.now()
   });
   if (!saved) return null;
-  renderSettingsInspector();
+  refreshAppearanceProfileSaveSettings(options);
   toast(`${saved.label} profile saved.`);
   return saved;
 }
