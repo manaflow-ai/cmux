@@ -3560,10 +3560,10 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     var reactGrabMessageHandler: ReactGrabMessageHandler?
-    /// Whether the live page currently has any audible/active `<video>` or
-    /// `<audio>` element playing, reported by the injected media-playback hook.
-    /// Keeps an actively-playing pane alive in the background instead of being
-    /// discarded after the hidden delay
+    /// Whether the live page currently has any actively-playing `<video>` or
+    /// `<audio>` element, in the main frame or any iframe, reported by the
+    /// injected media-playback hook. Keeps an actively-playing pane alive in the
+    /// background instead of being discarded after the hidden delay
     /// (https://github.com/manaflow-ai/cmux/issues/5409).
     private(set) var isPlayingMedia: Bool = false {
         didSet {
@@ -3571,12 +3571,27 @@ final class BrowserPanel: Panel, ObservableObject {
             reevaluateHiddenWebViewDiscardScheduling(reason: "media_playback_changed")
         }
     }
+    /// Document ids of the frames currently reporting playing media. The pane is
+    /// kept alive while this is non-empty.
+    private var playingMediaFrameIDs: Set<String> = []
     var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
 
-    /// Updates ``isPlayingMedia`` from the media-playback bridge. Lives here so the
-    /// `private(set)` setter stays confined to this file.
-    func setIsPlayingMedia(_ playing: Bool) {
-        isPlayingMedia = playing
+    /// Folds a per-frame playback report into ``isPlayingMedia``. Lives here so
+    /// the `private(set)` setter stays confined to this file.
+    func applyMediaPlaybackReport(frameID: String, isPlaying: Bool) {
+        if isPlaying {
+            playingMediaFrameIDs.insert(frameID)
+        } else {
+            playingMediaFrameIDs.remove(frameID)
+        }
+        isPlayingMedia = !playingMediaFrameIDs.isEmpty
+    }
+
+    /// Clears all tracked playing frames (new webview bind or main-frame
+    /// navigation, where the prior frame hooks are gone).
+    func resetMediaPlaybackTracking() {
+        playingMediaFrameIDs.removeAll()
+        isPlayingMedia = false
     }
     var pendingReactGrabReturnTargetPanelId: UUID?
     var pendingReactGrabRoundTripToken: String?
@@ -4152,15 +4167,18 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: true
             )
         )
-        // Report main-frame <video>/<audio> playback so a hidden pane with
-        // actively-playing media is exempted from memory discard
-        // (https://github.com/manaflow-ai/cmux/issues/5409). Main frame only —
-        // same CAPTCHA-tampering concern as the telemetry hooks above.
+        // Report <video>/<audio> playback so a hidden pane with actively-playing
+        // media is exempted from memory discard
+        // (https://github.com/manaflow-ai/cmux/issues/5409). Injected into every
+        // frame so embedded players in cross-origin iframes keep the pane alive
+        // too. Unlike the telemetry hooks above, this script is purely passive
+        // (no console/global tampering), so it does not trip CAPTCHA fingerprint
+        // checks in those iframes.
         configuration.userContentController.addUserScript(
             WKUserScript(
                 source: Self.mediaPlaybackTrackingBootstrapScriptSource,
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
+                forMainFrameOnly: false
             )
         )
     }
@@ -4200,10 +4218,11 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = true
-                // The document is being replaced; the old media-playback hook is
-                // gone. Reset so a stale "playing" never pins a discarded-eligible
-                // pane. The new page's hook re-reports if it plays.
-                self.isPlayingMedia = false
+                // The document (and its subframes) is being replaced; the old
+                // media-playback hooks are gone. Reset so a stale "playing" frame
+                // never pins a discard-eligible pane. The new page's hooks
+                // re-report if they play.
+                self.resetMediaPlaybackTracking()
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
             }
