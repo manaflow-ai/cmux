@@ -4965,6 +4965,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_WORKSPACE_ID"] = currentWorkspaceId
         environment["CMUX_SURFACE_ID"] = currentSurfaceId
         environment["CMUX_CLI_TTY_NAME"] = ttyName
+        environment["TTY"] = "/dev/\(ttyName)"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
@@ -4972,7 +4973,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
-                "--socket", socketPath,
                 "hooks", "codex", "prompt-submit",
                 "--workspace", currentWorkspaceId,
                 "--surface", currentSurfaceId,

@@ -3583,6 +3583,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_WORKSPACE_ID"] = workspaceId
         environment["CMUX_SURFACE_ID"] = staleSurfaceId
         environment["CMUX_CLI_TTY_NAME"] = ttyName
+        environment["TTY"] = "/dev/\(ttyName)"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"

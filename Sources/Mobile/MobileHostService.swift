@@ -682,17 +682,9 @@ final class MobileHostService {
     private func removeConnection(id: UUID) {
         MobileHostConnectionRegistry.shared.remove(id: id)
         activeConnections.removeValue(forKey: id)
-        // Drop this connection's sticky viewport reports so a disconnected
-        // device stops pinning the shared grid (and its macOS viewport border
-        // clears) even though it never sent an explicit clear.
-        let clientIDs = clientIDsByConnectionID[id] ?? []
+        // Mobile RPC connections are short lived; viewport reports persist
+        // until an explicit clear or TTL expiry instead of being tied to the socket.
         clientIDsByConnectionID.removeValue(forKey: id)
-        if !clientIDs.isEmpty {
-            TerminalController.shared.clearMobileViewportReports(
-                clientIDs: clientIDs,
-                reason: "mobile.connection.closed"
-            )
-        }
         MobileHostRequestActivity.endConnection()
     }
 
