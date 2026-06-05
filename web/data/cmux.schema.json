@@ -946,6 +946,13 @@
           "default": true,
           "description": "Show omnibar search suggestions."
         },
+        "omnibarFontSize": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 24,
+          "default": 12,
+          "description": "Font size, in points, for the browser omnibar (address bar): the URL field, navigation buttons, and toolbar icons. The tab strip is unaffected."
+        },
         "theme": {
           "type": "string",
           "enum": ["system", "light", "dark"],

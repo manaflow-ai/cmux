@@ -179,6 +179,7 @@ extension CmuxSettingsFileStore {
                     "customSearchEngineName": BrowserSearchSettings.defaultCustomSearchEngineName,
                     "customSearchEngineURLTemplate": BrowserSearchSettings.defaultCustomSearchEngineURLTemplate,
                     "showSearchSuggestions": BrowserSearchSettings.defaultSearchSuggestionsEnabled,
+                    "omnibarFontSize": Int(BrowserOmnibarFontSizeSettings.defaultPointSize),
                     "theme": BrowserThemeSettings.defaultMode.rawValue,
                     "discardHiddenWebViews": BrowserHiddenWebViewDiscardPolicy.defaultEnabled,
                     "hiddenWebViewDiscardDelaySeconds": BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay,

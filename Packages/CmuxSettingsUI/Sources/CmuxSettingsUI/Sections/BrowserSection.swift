@@ -21,6 +21,7 @@ public struct BrowserSection: View {
     @State private var customName: DefaultsValueModel<String>
     @State private var customURL: DefaultsValueModel<String>
     @State private var suggestions: DefaultsValueModel<Bool>
+    @State private var omnibarFontSize: DefaultsValueModel<Int>
     @State private var theme: DefaultsValueModel<BrowserThemeMode>
     @State private var discardEnabled: DefaultsValueModel<Bool>
     @State private var discardDelay: DefaultsValueModel<Double>
@@ -51,6 +52,7 @@ public struct BrowserSection: View {
         _customName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName))
         _customURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate))
         _suggestions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showSearchSuggestions))
+        _omnibarFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.omnibarFontSize))
         _theme = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme))
         _discardEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews))
         _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
@@ -153,6 +155,29 @@ public struct BrowserSection: View {
                 Toggle("", isOn: Binding(get: { suggestions.current }, set: { suggestions.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Omnibar Font Size
+            SettingsCardRow(
+                configurationReview: .json("browser.omnibarFontSize"),
+                String(localized: "settings.browser.omnibarFontSize", defaultValue: "Omnibar Font Size"),
+                subtitle: String(localized: "settings.browser.omnibarFontSize.subtitle", defaultValue: "Font size, in points, for the browser address bar: the URL field, navigation buttons, and toolbar icons. The tab strip is unaffected."),
+                controlWidth: Self.columnWidth
+            ) {
+                Stepper(
+                    value: Binding(get: { omnibarFontSize.current }, set: { omnibarFontSize.set($0) }),
+                    in: 10...24
+                ) {
+                    Text(verbatim: "\(omnibarFontSize.current)")
+                        .monospacedDigit()
+                        .frame(width: 28, alignment: .trailing)
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBrowserOmnibarFontSizeStepper")
+                .accessibilityLabel(
+                    String(localized: "settings.browser.omnibarFontSize", defaultValue: "Omnibar Font Size")
+                )
             }
             SettingsCardDivider()
 

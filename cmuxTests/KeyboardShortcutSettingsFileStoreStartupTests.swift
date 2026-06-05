@@ -1300,6 +1300,82 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreAppliesBrowserOmnibarFontSize() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            BrowserOmnibarFontSizeSettings.key,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: BrowserOmnibarFontSizeSettings.key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "browser": {
+                    "omnibarFontSize": 18
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.integer(forKey: BrowserOmnibarFontSizeSettings.key), 18)
+        }
+    }
+
+    func testSettingsFileStoreRejectsOutOfRangeBrowserOmnibarFontSize() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            BrowserOmnibarFontSizeSettings.key,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: BrowserOmnibarFontSizeSettings.key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "browser": {
+                    "omnibarFontSize": 999
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            // 999 is above the supported maximum (24), so it must be rejected and
+            // leave the omnibar font size unset (the runtime falls back to default).
+            XCTAssertNil(defaults.object(forKey: BrowserOmnibarFontSizeSettings.key))
+        }
+    }
+
     func testSettingsFileStoreRejectsInvalidTerminalTextBoxMaxLinesSetting() throws {
         let defaults = UserDefaults.standard
         try preservingDefaults(keys: [

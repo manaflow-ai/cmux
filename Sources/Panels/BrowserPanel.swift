@@ -416,6 +416,50 @@ enum BrowserThemeSettings {
     }
 }
 
+/// Persistent font size, in points, for the cmux browser omnibar: the address
+/// bar row (URL field, back/forward/reload, and toolbar icons). The tab strip
+/// above it is not affected.
+///
+/// `BrowserPanelView` reads this value and derives a proportional ``scale(forPointSize:)``
+/// relative to ``defaultPointSize`` so the URL font, the address-bar buttons,
+/// and the bar height all grow together. The default matches the historical
+/// hardcoded 12pt URL font, so layouts are unchanged until the user raises it.
+enum BrowserOmnibarFontSizeSettings {
+    /// UserDefaults / cmux.json key (`browser.omnibarFontSize`).
+    static let key = "browser.omnibarFontSize"
+    static let defaultPointSize: Double = 12
+    static let minimumPointSize: Double = 10
+    static let maximumPointSize: Double = 24
+    static let stepPointSize: Double = 1
+
+    /// Clamps a requested point size into the supported range.
+    static func clamp(_ value: Double) -> Double {
+        min(max(value, minimumPointSize), maximumPointSize)
+    }
+
+    /// The persistent omnibar point size, honoring `browser.omnibarFontSize`
+    /// from UserDefaults / cmux.json and falling back to ``defaultPointSize``.
+    static func resolvedDefault(defaults: UserDefaults = .standard) -> Double {
+        guard let raw = defaults.object(forKey: key) as? NSNumber else {
+            return defaultPointSize
+        }
+        return clamp(raw.doubleValue)
+    }
+
+    /// Persists `points` (clamped, rounded to integer points) as the omnibar
+    /// font size. The Settings UI stepper and the runtime read the same key.
+    static func setDefault(_ points: Double, defaults: UserDefaults = .standard) {
+        defaults.set(Int(clamp(points).rounded()), forKey: key)
+    }
+
+    /// Proportional scale relative to ``defaultPointSize`` for sizing the
+    /// address-bar buttons, hit targets, icons, and bar height so they grow with
+    /// the URL font. Returns `1.0` at the default size.
+    static func scale(forPointSize pointSize: Double) -> CGFloat {
+        CGFloat(clamp(pointSize) / defaultPointSize)
+    }
+}
+
 enum BrowserImportHintVariant: String, CaseIterable, Identifiable {
     case inlineStrip
     case floatingCard

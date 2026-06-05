@@ -945,6 +945,18 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["showSearchSuggestions"]) {
             snapshot.managedUserDefaults[BrowserSearchSettings.searchSuggestionsEnabledKey] = .bool(value)
         }
+        // Accept numeric doubles (e.g. 12 or 12.0) and round to integer points,
+        // matching the integer `browser.omnibarFontSize` catalog/UI representation.
+        if let value = jsonDouble(section["omnibarFontSize"]) {
+            if value >= BrowserOmnibarFontSizeSettings.minimumPointSize,
+               value <= BrowserOmnibarFontSizeSettings.maximumPointSize {
+                snapshot.managedUserDefaults[BrowserOmnibarFontSizeSettings.key] = .int(Int(value.rounded()))
+            } else {
+                logInvalid("browser.omnibarFontSize", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("omnibarFontSize") {
+            logInvalid("browser.omnibarFontSize", sourcePath: sourcePath)
+        }
         if let raw = jsonString(section["theme"]) {
             guard let mode = BrowserThemeMode(rawValue: raw) else {
                 logInvalid("browser.theme", sourcePath: sourcePath)

@@ -26,6 +26,15 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserSearchSuggestionsEnabled"
     )
 
+    /// Font size, in points, for the omnibar (address bar) URL field,
+    /// navigation buttons, and toolbar icons. The tab strip is unaffected.
+    /// Mirrors the app-target `BrowserOmnibarFontSizeSettings` (default 12).
+    public let omnibarFontSize = DefaultsKey<Int>(
+        id: "browser.omnibarFontSize",
+        defaultValue: 12,
+        userDefaultsKey: "browser.omnibarFontSize"
+    )
+
     public let theme = DefaultsKey<BrowserThemeMode>(
         id: "browser.theme",
         defaultValue: .system,

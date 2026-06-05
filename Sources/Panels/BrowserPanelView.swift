@@ -436,6 +436,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
+    @AppStorage(BrowserOmnibarFontSizeSettings.key) private var omnibarFontSizePointsStorage = Int(BrowserOmnibarFontSizeSettings.defaultPointSize)
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
@@ -473,10 +474,31 @@ struct BrowserPanelView: View {
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
     private let omnibarPillCornerRadius: CGFloat = 10
-    private let addressBarButtonSize: CGFloat = 22
-    private let addressBarButtonHitSize: CGFloat = 26
-    private let addressBarVerticalPadding: CGFloat = 4
-    private let devToolsButtonIconSize: CGFloat = 11
+    // Base address-bar metrics at the default omnibar font size. They scale
+    // proportionally with `browser.omnibarFontSize` so the URL field, the
+    // navigation/toolbar buttons, and the bar height grow together. The tab
+    // strip above the address bar is unaffected.
+    private var addressBarButtonSize: CGFloat { (22 * omnibarScale).rounded() }
+    private var addressBarButtonHitSize: CGFloat { (26 * omnibarScale).rounded() }
+    private var addressBarVerticalPadding: CGFloat { 4 * omnibarScale }
+    private var devToolsButtonIconSize: CGFloat { 11 * omnibarScale }
+
+    /// Persistent omnibar font size in points (clamped). Reads the `@AppStorage`
+    /// directly so SwiftUI re-renders the address bar when the setting changes.
+    private var omnibarFontSize: CGFloat {
+        CGFloat(BrowserOmnibarFontSizeSettings.clamp(Double(omnibarFontSizePointsStorage)))
+    }
+
+    /// Proportional scale for address-bar metrics; `1.0` at the default size.
+    private var omnibarScale: CGFloat {
+        BrowserOmnibarFontSizeSettings.scale(forPointSize: Double(omnibarFontSizePointsStorage))
+    }
+
+    /// Height of the URL text field, scaled from the default 18pt.
+    private var omnibarFieldHeight: CGFloat { (18 * omnibarScale).rounded() }
+
+    /// Font size for the back/forward/reload chevrons, scaled from 12pt.
+    private var omnibarNavIconSize: CGFloat { 12 * omnibarScale }
 
     init(
         panel: BrowserPanel,
@@ -1252,7 +1274,7 @@ struct BrowserPanelView: View {
                 panel.goBack()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: omnibarNavIconSize, weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1268,7 +1290,7 @@ struct BrowserPanelView: View {
                 panel.goForward()
             }) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: omnibarNavIconSize, weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1279,7 +1301,7 @@ struct BrowserPanelView: View {
 
             Button(action: handleReloadOrStopButtonAction) {
                 Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: omnibarNavIconSize, weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1622,12 +1644,13 @@ struct BrowserPanelView: View {
         return HStack(spacing: 4) {
             if showSecureBadge {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: 10))
+                    .font(.system(size: 10 * omnibarScale))
                     .foregroundColor(.secondary)
             }
 
             OmnibarTextFieldRepresentable(
                 panelId: panel.id,
+                fontSize: omnibarFontSize,
                 text: Binding(
                     get: { omnibarState.buffer },
                     set: { newValue in
@@ -1689,7 +1712,7 @@ struct BrowserPanelView: View {
                     panel.shouldSuppressWebViewFocus()
                 }
             )
-                .frame(height: 18)
+                .frame(height: omnibarFieldHeight)
                 .accessibilityIdentifier("BrowserOmnibarTextField")
         }
         .padding(.horizontal, 8)
@@ -4065,6 +4088,8 @@ final class OmnibarNativeTextField: NSTextField {
 
 struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let panelId: UUID
+    /// Point size for the URL field, driven by `browser.omnibarFontSize`.
+    let fontSize: CGFloat
     @Binding var text: String
     @Binding var isFocused: Bool
     let selectAllRequestId: UInt64
@@ -4624,7 +4649,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         field.panelId = panelId
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
         field.identifier = browserOmnibarTextFieldIdentifier
-        field.font = .systemFont(ofSize: 12)
+        field.font = .systemFont(ofSize: fontSize)
         field.placeholderString = placeholder
         field.delegate = context.coordinator
         field.target = nil
@@ -4647,6 +4672,15 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: OmnibarNativeTextField, context: Context) {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
+        if nsView.font?.pointSize != fontSize {
+            let font = NSFont.systemFont(ofSize: fontSize)
+            nsView.font = font
+            // Keep the active field editor in sync so a live size change applies
+            // while the omnibar is focused, not just on the next focus.
+            if let editor = nsView.currentEditor() as? NSTextView {
+                editor.font = font
+            }
+        }
         if let previousPanelId = nsView.panelId, previousPanelId != panelId {
             BrowserOmnibarNativeFieldRegistry.shared.unregister(nsView, panelId: previousPanelId)
         }
