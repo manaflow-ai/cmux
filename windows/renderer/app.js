@@ -7679,6 +7679,7 @@ const commands = [
   { id: "settings.suspendInactiveBrowsers", label: "Suspend Inactive Browsers", shortcut: "", run: () => runPerformanceQuickAction("browserSuspendInactive.on") },
   { id: "settings.keepInactiveBrowsersLive", label: "Keep Inactive Browsers Live", shortcut: "", run: () => runPerformanceQuickAction("browserSuspendInactive.off") },
   { id: "settings.cleanFast", label: "Apply Clean + Fast Setup", shortcut: "", run: () => applySettingsPresetById("simpleFast") },
+  { id: "settings.cyclePerformanceTuning", label: "Cycle Performance Tuning Preset", shortcut: "", run: () => cyclePerformanceTuningPreset() },
   { id: "settings.saveCleanFastProfile", label: "Save Clean + Fast Profile", shortcut: "", run: () => applyAndSaveCleanFastProfile() },
   { id: "settings.savePerformanceProfile", label: "Save Performance Profile", shortcut: "", run: () => saveCurrentPerformanceProfile() },
   { id: "settings.copyPerformanceSetup", label: "Copy Performance Setup", shortcut: "", run: () => copyPerformanceSetup() },
@@ -7803,6 +7804,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.saveBrowserProfile",
   "settings.tunePerformance",
   "settings.cleanFast",
+  "settings.cyclePerformanceTuning",
   "settings.saveCleanFastProfile",
   "settings.savePerformanceProfile",
   "settings.copyPerformanceSetup",
@@ -8294,6 +8296,17 @@ function customizationCommandPaletteState(commandId) {
         ? "Performance setup already uses defaults."
         : "Reset performance tuning, motion, output, browser, lightweight chrome, and history settings to defaults.",
       search: normalizeSettingsQuery(`performance setup reset defaults speed lag smooth tune motion output terminal browser chrome history workspace palette toast background split dividers resize grip active pane emphasis ${setupDefault ? "active current " : ""}${summary.mode} ${summary.adaptiveGuard} ${summary.motion} ${summary.chrome} ${summary.dividers} ${summary.dividerStyle} ${summary.paneSpacing} ${summary.activePane} ${summary.background} ${summary.terminalStartup} ${summary.inactiveOutput} ${summary.resume} ${summary.cursor} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.padding} ${summary.history}`)
+    };
+  }
+  if (commandId === "settings.cyclePerformanceTuning") {
+    const model = performanceTuningCycleModel();
+    return {
+      meta: model.meta,
+      shortcut: "Cycle",
+      disabled: model.disabled,
+      icon: "speed",
+      title: model.title,
+      search: normalizeSettingsQuery(`performance speed lag tuning preset cycle next balanced lag fix terminal heavy browser heavy ${model.search}`)
     };
   }
   if (commandId === "settings.tunePerformance" || commandId === "settings.cleanFast" || commandId === "settings.saveCleanFastProfile" || commandId === "settings.savePerformanceProfile" || commandId === "settings.copyPerformanceSetup" || commandId === "settings.pastePerformanceSetup" || commandId === "settings.copyDiagnostics") {
@@ -16191,6 +16204,10 @@ function renderSettingsInspector(options = {}) {
     resetPerformanceSetupAction.title = performanceSetupDefault
       ? "Performance setup already uses defaults."
       : "Reset performance tuning, motion, output, browser, lightweight chrome, and history settings to defaults.";
+    const tuningCycle = performanceTuningCycleModel();
+    const cycleTuningAction = settingsActionButton("Cycle speed", cyclePerformanceTuningPreset, "", `performance speed lag tuning preset cycle next balanced lag fix terminal heavy browser heavy ${tuningCycle.search}`);
+    cycleTuningAction.disabled = tuningCycle.disabled;
+    cycleTuningAction.title = tuningCycle.title;
     performanceActions.append(
       applySettingsProfileSaveLimit(
         settingsActionButton("Save clean + fast", applyAndSaveCleanFastProfile, "primary", "performance clean fast simple speed preset save settings profile reusable"),
@@ -16200,6 +16217,7 @@ function renderSettingsInspector(options = {}) {
         settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
         "Save current performance settings as a reusable profile."
       ),
+      cycleTuningAction,
       settingsActionButton("Copy setup", copyPerformanceSetup, "", "performance setup copy speed lag motion speed snappy balanced calm workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface split dividers resize grip line minimal active pane emphasis spacing gap gutter padding background opacity effects chrome readable soft immersive terminal startup inactive browser suspend pane chrome compact content full controls tabs address clipboard json"),
       settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion speed snappy balanced calm workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface split dividers resize grip line minimal active pane emphasis spacing gap gutter padding background opacity effects chrome readable soft immersive terminal startup inactive browser suspend pane chrome compact content full controls tabs address clipboard json"),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
@@ -24437,6 +24455,35 @@ function applyPerformanceTuningPreset(presetId) {
   });
 }
 
+function performanceTuningCycleModel() {
+  const presets = performanceTuningPresets
+    .map((preset) => ({ preset, settings: performanceTuningPresetSettings(preset) }))
+    .filter((entry) => entry.settings);
+  const activeIndex = presets.findIndex(({ preset }) => isActivePerformanceTuningPreset(preset));
+  const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % presets.length : 0;
+  const entry = presets[nextIndex] || null;
+  const summary = performanceSetupSummaryForSettings(entry?.settings || state.settings);
+  return {
+    preset: entry?.preset || null,
+    settings: entry?.settings || null,
+    disabled: !entry || (presets.length === 1 && activeIndex === 0),
+    meta: entry ? `${entry.preset.label} / ${summary.mode} / ${summary.history}` : "No speed presets",
+    title: entry
+      ? `Cycle performance tuning to ${entry.preset.label}.`
+      : "No performance tuning presets are available.",
+    search: normalizeSettingsQuery(`performance tuning cycle next preset speed lag smooth low motion terminal output browser panes workspace chrome background history current next ${entry?.preset?.label || ""} ${entry?.preset?.body || ""} ${summary.mode} ${summary.adaptiveGuard} ${summary.motion} ${summary.chrome} ${summary.background} ${summary.terminalStartup} ${summary.inactiveOutput} ${summary.resume} ${summary.cursor} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.padding} ${summary.history}`)
+  };
+}
+
+function cyclePerformanceTuningPreset() {
+  const model = performanceTuningCycleModel();
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applyPerformanceTuningPreset(model.preset.id);
+}
+
 function savePerformanceTuningPresetProfile(presetId) {
   const preset = performanceTuningPresetById(presetId);
   if (!preset) {
@@ -25712,6 +25759,7 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
   const healthIssueCount = performanceHealthIssueCount();
   const profilesFull = savedSettingsProfilesFull();
   const setupDefault = performanceSetupSettingsAreDefault();
+  const tuningCycle = performanceTuningCycleModel();
   const actions = [
     quickOverviewControlButton(tuneLabel, () => {
       if (performance.status === "tuned") {
@@ -25735,6 +25783,11 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save the current performance setup as a reusable profile.",
       search: "quick setup performance save speed profile reusable settings"
+    }),
+    quickOverviewControlButton("Cycle speed", () => refreshQuickSettingsAfterAction(cyclePerformanceTuningPreset()), {
+      disabled: tuningCycle.disabled,
+      title: tuningCycle.title,
+      search: `quick setup performance cycle speed tuning preset lag smooth ${tuningCycle.search}`
     }),
     quickOverviewControlButton("Diagnostics", copyPerformanceDiagnostics, {
       title: "Copy current performance diagnostics as JSON.",
