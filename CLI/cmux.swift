@@ -47,46 +47,6 @@ private enum CLISocketEnvironment {
     }
 }
 
-private protocol CLISocketErrnoProviding {
-    var socketErrnoValue: Int32 { get }
-}
-
-private protocol CLISocketExpectedAvailabilityError {}
-
-private struct CLISocketTransportError: Error, CustomStringConvertible, CLISocketErrnoProviding {
-    let message: String
-    let socketErrnoValue: Int32
-
-    init(message: String, errnoValue: Int32) {
-        self.message = message
-        self.socketErrnoValue = errnoValue
-    }
-
-    init(connectPath path: String, errnoValue: Int32) {
-        let format = String(
-            localized: "cli.socket.error.connectFailed",
-            defaultValue: "Failed to connect to socket at %@ (%@, errno %lld)"
-        )
-        self.init(
-            message: String.localizedStringWithFormat(
-                format,
-                path,
-                String(cString: strerror(errnoValue)),
-                Int64(errnoValue)
-            ),
-            errnoValue: errnoValue
-        )
-    }
-
-    var description: String { message }
-}
-
-private struct CLISocketReadEOFError: Error, CustomStringConvertible, CLISocketExpectedAvailabilityError {
-    let message: String
-
-    var description: String { message }
-}
-
 private final class CLISocketSentryTelemetry {
     private struct PendingBreadcrumb {
         let message: String
@@ -104,6 +64,8 @@ private final class CLISocketSentryTelemetry {
     private var pendingBreadcrumbs: [PendingBreadcrumb] = []
 
 #if canImport(Sentry)
+    // Sentry initialization is a process-wide one-time side effect; this lock
+    // serializes only the startup flag and does not guard hot socket I/O.
     private static let startupLock = NSLock()
     private static var started = false
     private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
