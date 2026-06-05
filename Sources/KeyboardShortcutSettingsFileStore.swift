@@ -1,5 +1,6 @@
 import Combine
 import CmuxFileWatch
+import CmuxSettings
 import CmuxSocketControl
 import Foundation
 import os
@@ -366,6 +367,9 @@ final class CmuxSettingsFileStore {
         if let markdownSection = root["markdown"] as? [String: Any] {
             parseMarkdownSection(markdownSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let windowSection = root["window"] as? [String: Any] {
+            parseWindowSection(windowSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let fileEditorSection = root["fileEditor"] as? [String: Any] {
             parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -629,6 +633,58 @@ final class CmuxSettingsFileStore {
             }
         } else if section.keys.contains("maxWidth") {
             logInvalid("markdown.maxWidth", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseWindowSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section["openAtFixedSize"]) {
+            snapshot.managedUserDefaults[WindowOpenSizeSettings.openAtFixedSizeStorageKey] = .bool(value)
+        } else if section.keys.contains("openAtFixedSize") {
+            logInvalid("window.openAtFixedSize", sourcePath: sourcePath)
+        }
+
+        parseWindowDimension(
+            section,
+            jsonKey: "width",
+            settingsPath: "window.width",
+            storageKey: WindowOpenSizeSettings.widthStorageKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseWindowDimension(
+            section,
+            jsonKey: "height",
+            settingsPath: "window.height",
+            storageKey: WindowOpenSizeSettings.heightStorageKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+    }
+
+    private func parseWindowDimension(
+        _ section: [String: Any],
+        jsonKey: String,
+        settingsPath: String,
+        storageKey: String,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        // Accept numeric doubles (e.g. 1000 or 1000.0) and round to integer
+        // points, matching the integer `window.width`/`window.height` catalog/UI
+        // representation.
+        if let value = jsonDouble(section[jsonKey]) {
+            if value >= WindowOpenSizeSettings.minimumDimension,
+               value <= WindowOpenSizeSettings.maximumDimension {
+                snapshot.managedUserDefaults[storageKey] = .int(Int(value.rounded()))
+            } else {
+                logInvalid(settingsPath, sourcePath: sourcePath)
+            }
+        } else if section.keys.contains(jsonKey) {
+            logInvalid(settingsPath, sourcePath: sourcePath)
         }
     }
 

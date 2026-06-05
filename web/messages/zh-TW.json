@@ -739,12 +739,20 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "window": {
+          "openAtFixedSize": "Open new windows at the fixed width and height below instead of restoring the last-used window size. Windows restored from a saved session keep their own size.",
+          "width": "Fixed window width, in points, applied when openAtFixedSize is true.",
+          "height": "Fixed window height, in points, applied when openAtFixedSize is true."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleWindowOpenAtFixedSize": "Open new windows at the fixed size below instead of restoring the last-used window size.",
+      "exampleWindowWidth": "Fixed window width, in points.",
+      "exampleWindowHeight": "Fixed window height, in points."
     },
     "customCommands": {
       "title": "自訂指令",

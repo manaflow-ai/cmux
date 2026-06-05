@@ -126,8 +126,9 @@ public struct WindowOpenSizeSettings: Equatable, Sendable {
         if let restoredFrame {
             return .restored(restoredFrame)
         }
-        // NOTE: the fixed-size branch is added in the fix commit so the
-        // accompanying regression test goes red → green.
+        if let fixedContentSize {
+            return .fixedSize(fixedContentSize)
+        }
         if let sourceWindowFrame {
             return .sourceWindow(sourceWindowFrame)
         }

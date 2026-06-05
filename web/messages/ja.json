@@ -800,6 +800,11 @@
           "fontFamily": "新しく開く Markdown ビューアの本文フォントファミリーの既定値です。空のままにするとシステムの Markdown フォントスタックを使います。",
           "maxWidth": "新しく開く Markdown ビューアの読み取りカラム最大幅の既定値（CSS ピクセル単位）です。"
         },
+        "window": {
+          "openAtFixedSize": "前回のウィンドウサイズを復元する代わりに、下で指定した幅と高さで新しいウィンドウを開きます。保存したセッションから復元されたウィンドウは、それぞれのサイズを保持します。",
+          "width": "openAtFixedSize が true のときに適用される、固定ウィンドウ幅（ポイント単位）です。",
+          "height": "openAtFixedSize が true のときに適用される、固定ウィンドウ高さ（ポイント単位）です。"
+        },
         "fileEditor": {
           "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
         }
@@ -808,6 +813,9 @@
       "exampleMarkdownFontSizeZoom": "Cmd-+ / Cmd-- / Cmd-0 でその場で拡大・縮小できます。",
       "exampleMarkdownFontFamily": "本文フォントファミリーの既定値です。空のままにするとシステムの Markdown フォントスタックを使います。",
       "exampleMarkdownMaxWidth": "読み取りカラム最大幅の既定値（CSS ピクセル単位）です。",
+      "exampleWindowOpenAtFixedSize": "前回のウィンドウサイズを復元する代わりに、下で指定した固定サイズで新しいウィンドウを開きます。",
+      "exampleWindowWidth": "固定ウィンドウ幅（ポイント単位）です。",
+      "exampleWindowHeight": "固定ウィンドウ高さ（ポイント単位）です。",
       "exampleFileEditorWordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
     },
     "customCommands": {
