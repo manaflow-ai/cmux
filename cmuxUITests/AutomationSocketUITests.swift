@@ -93,6 +93,9 @@ final class AutomationSocketUITests: XCTestCase {
             skillNames: [
                 "agent-browser",
                 "agent-cli-integration",
+                "auto-issue",
+                "auto-merge",
+                "autoreview",
                 "iterate-pr",
             ]
         )
@@ -146,23 +149,23 @@ final class AutomationSocketUITests: XCTestCase {
         )
         XCTAssertEqual(bareState["plain_text"] as? String, "$")
 
-        app.typeText("iterate")
+        app.typeText("autore")
 
         let typedState = try XCTUnwrap(
             waitForMentionState(surfaceID: surfaceID, timeout: 8.0) { state in
                 let titles = state["mention_titles"] as? [String] ?? []
-                return state["plain_text"] as? String == "$iterate" &&
+                return state["plain_text"] as? String == "$autore" &&
                     state["mention_trigger"] as? String == "$" &&
-                    state["mention_query"] as? String == "iterate" &&
+                    state["mention_query"] as? String == "autore" &&
                     state["mention_current"] as? Bool == true &&
-                    titles.contains("$iterate-pr") &&
+                    titles.contains("$autoreview") &&
                     !titles.contains("$agent-browser")
             },
-            "Expected typing iterate after bare $ to filter stale $agent-browser and show $iterate-pr"
+            "Expected typing autore after bare $ to filter stale $agent-browser and show $autoreview"
         )
 
         let typedTitles = typedState["mention_titles"] as? [String] ?? []
-        XCTAssertEqual(typedTitles.first, "$iterate-pr")
+        XCTAssertEqual(typedTitles.first, "$autoreview")
     }
 
     private func configuredApp(mode: String) -> XCUIApplication {
