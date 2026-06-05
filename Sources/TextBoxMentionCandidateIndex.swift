@@ -48,12 +48,20 @@ struct TextBoxMentionCandidateIndex: Sendable {
             return Array(emptyQueryCandidates.prefix(limit))
         }
 
-        if let nucleoIndex,
-           let nucleoResults = nucleoIndex.search(
-               query: query,
-               resultLimit: Self.nucleoProbeLimit(corpusCount: corpus.count, requestedLimit: limit),
-               shouldCancel: shouldCancel
-           ) {
+        if let nucleoIndex {
+            let probeLimit = Self.nucleoProbeLimit(corpusCount: corpus.count, requestedLimit: limit)
+            guard let nucleoResults = nucleoIndex.search(
+                query: query,
+                resultLimit: probeLimit,
+                shouldCancel: shouldCancel
+            ) else {
+                return Self.swiftRankedCandidates(
+                    entries: corpus,
+                    query: query,
+                    limit: limit,
+                    shouldCancel: shouldCancel
+                )
+            }
             if shouldCancel() { return [] }
             let probedCorpus = nucleoResults.compactMap { result in
                 corpusByTargetPath[result.payload.targetPath]
@@ -64,7 +72,10 @@ struct TextBoxMentionCandidateIndex: Sendable {
                 limit: limit,
                 shouldCancel: shouldCancel
             )
-            if swiftMatches.count >= min(limit, corpus.count) {
+            let mayHaveUnprobedNucleoResults = probeLimit < corpus.count &&
+                nucleoResults.count >= probeLimit
+            guard swiftMatches.count < limit,
+                  mayHaveUnprobedNucleoResults else {
                 return swiftMatches
             }
             if shouldCancel() { return [] }
