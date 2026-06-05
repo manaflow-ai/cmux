@@ -4968,6 +4968,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["TTY"] = "/dev/\(ttyName)"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "0"
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "0"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        environment["CMUX_AGENT_HOOK_PID_OVERRIDE"] = "1"
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
 
         let result = runProcess(

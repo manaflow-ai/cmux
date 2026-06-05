@@ -27819,6 +27819,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                explicitSurfaceFlag == nil,
                ambientWorkspaceArg != nil,
                ambientSurfaceArg != nil,
+               mapped == nil,
                case .promptSubmit = action,
                def.name == "codex",
                let ambientWorkspaceId = try? resolveWorkspaceId(ambientWorkspaceArg, client: client),
