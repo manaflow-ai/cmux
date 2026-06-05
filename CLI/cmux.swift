@@ -27953,11 +27953,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                explicitSurfaceFlag != nil,
                case .promptSubmit = action,
                def.name == "codex",
-               let workspaceId = try? resolveWorkspaceId(hookWsFlag, client: client),
-               let surfaceId = try? resolveSurfaceId(explicitSurfaceFlag, workspaceId: workspaceId, client: client) {
+               let workspaceId = resolvedDirectWorkspaceArg,
+               let surfaceId = resolvedDirectSurfaceArg {
 #if DEBUG
                 agentHookDebugLog(
-                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=explicit-rebind workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) mapped=1",
+                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=explicit-rebind workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
                     socketPath: client.socketPath,
                     env: env
                 )

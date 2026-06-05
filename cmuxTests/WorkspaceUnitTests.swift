@@ -1501,7 +1501,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(invalidPrimaryStore.activeSourcePath, primaryURL.path)
     }
 
-    func testPersistedShortcutOverridesSettingsFileShortcutValues() throws {
+    func testSettingsFileShortcutOverridesPersistedShortcutValues() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -1530,7 +1530,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         XCTAssertEqual(
             KeyboardShortcutSettings.shortcut(for: .newTab),
-            StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
         )
         XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
     }
@@ -1688,7 +1688,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 #endif
     }
 
-    func testSettingsFileShortcutCanBeOverriddenFromUI() throws {
+    func testSettingsFileShortcutStaysAuthoritativeWhenEditedFromUI() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -1721,10 +1721,6 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             for: .newTab
         )
 
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), editedShortcut)
-
-        KeyboardShortcutSettings.resetShortcut(for: .newTab)
-
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
 
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
@@ -1734,7 +1730,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertFalse(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), KeyboardShortcutSettings.Action.newTab.defaultShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), editedShortcut)
     }
 
     func testSystemWideHotkeySettingsPreserveInvalidManagedShortcutWithoutFallingBackToDefault() throws {

@@ -387,6 +387,28 @@ print("" if total is None else total)
           assert_executed_tests "$retry_label" "$retry_log" "$retry_result"
           retry_index=$((retry_index + 1))
         done
+        rerun_label="${BATCH_LABEL}-crash-rerun"
+        rerun_log="$LOG_ROOT/$rerun_label.log"
+        rerun_result="$RESULT_ROOT/$rerun_label.xcresult"
+        rerun_home="${RUNNER_TEMP:-/tmp}/cmux-unit-home-$rerun_label"
+        echo "Rerunning full $BATCH_LABEL after crash-reported method retries" >&2
+        set +e
+        run_xctest_batch "$rerun_label" "$rerun_log" "$rerun_result" "$rerun_home" "${ONLY_TESTING_ARGS[@]}"
+        rerun_exit_code=$?
+        set -e
+        if [ "$rerun_exit_code" -ne 0 ]; then
+          echo "FAIL $rerun_label exited $rerun_exit_code" >&2
+          echo "===== $rerun_label log =====" >&2
+          tail -n 1200 "$rerun_log" >&2
+          exit "$rerun_exit_code"
+        fi
+        if ! grep -Fq "Test Suite 'Selected tests' passed" "$rerun_log"; then
+          echo "FAIL $rerun_label did not report a selected XCTest suite pass" >&2
+          echo "===== $rerun_label log =====" >&2
+          tail -n 1200 "$rerun_log" >&2
+          exit 1
+        fi
+        assert_executed_tests "$rerun_label" "$rerun_log" "$rerun_result"
         echo "PASS $BATCH_LABEL after crash-reported XCTest method retries"
         batch_index=$((batch_index + 1))
         class_offset=$((class_offset + BATCH_SIZE))

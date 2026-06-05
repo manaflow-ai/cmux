@@ -6,13 +6,13 @@ extension KeyboardShortcutSettings {
         shortcutLookupObserver?(action)
         #endif
 
+        if let managedShortcut = settingsFileStore.override(for: action) {
+            return managedShortcut.isUnbound ? nil : managedShortcut
+        }
+
         if let data = UserDefaults.standard.data(forKey: action.defaultsKey),
            let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) {
             return shortcut.isUnbound ? nil : shortcut
-        }
-
-        if let managedShortcut = settingsFileStore.override(for: action) {
-            return managedShortcut.isUnbound ? nil : managedShortcut
         }
 
         let defaultShortcut = action.defaultShortcut
