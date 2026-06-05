@@ -43147,7 +43147,7 @@ const workspaceChromePresets = [
   {
     id: "default",
     label: "Default",
-    body: "Balanced sidebar, adaptive pane headers, visible tabs and status.",
+    body: "Clean sidebar, adaptive pane headers, visible tabs, and quiet status.",
     settings: {
       density: defaultSettings.density,
       paneHeaderMode: defaultSettings.paneHeaderMode,
