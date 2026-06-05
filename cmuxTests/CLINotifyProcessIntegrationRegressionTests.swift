@@ -2054,6 +2054,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
         XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
 
+        let currentPromptStart = context.state.snapshot().count
         let currentPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
