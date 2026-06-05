@@ -3350,14 +3350,28 @@ struct TextBoxInputView: NSViewRepresentable {
                 height: CGFloat.greatestFiniteMagnitude
             )
         }
+        let plainText = textView.plainText()
+        let selectedRangeBeforeExternalSync = textView.selectedRange()
         let didSynchronizeExternalText = shouldSynchronizeExternalTextToTextBox(
             inlineAttachmentCount: textView.inlineAttachments().count,
-            plainText: textView.plainText(),
+            plainText: plainText,
             externalText: text,
             hasMarkedText: textView.hasMarkedText()
         )
         if didSynchronizeExternalText {
             textView.string = text
+            let previousLength = (plainText as NSString).length
+            let newLength = (text as NSString).length
+            let selectionWasAtPreviousEnd = selectedRangeBeforeExternalSync.length == 0 &&
+                selectedRangeBeforeExternalSync.location >= previousLength
+            let location: Int
+            if selectionWasAtPreviousEnd {
+                location = newLength
+            } else {
+                location = min(selectedRangeBeforeExternalSync.location, newLength)
+            }
+            let length = min(selectedRangeBeforeExternalSync.length, newLength - location)
+            textView.setSelectedRange(NSRange(location: location, length: length))
         }
         updateTextView(textView, context: context)
         if didSynchronizeExternalText {

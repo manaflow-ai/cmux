@@ -6,7 +6,7 @@ import Observation
 final class TextBoxMentionCompletionController {
     private static let maxVisibleStaleSuggestionsToFilter = 500
 
-    private(set) var suggestions: [TextBoxMentionSuggestion] = []
+    private var suggestions: [TextBoxMentionSuggestion] = []
     private(set) var selectionIndex: Int = 0
     private(set) var isLoadingSuggestions = false
     private(set) var renderState = TextBoxMentionCompletionRenderState.hidden
@@ -28,7 +28,7 @@ final class TextBoxMentionCompletionController {
     @ObservationIgnored
     var onStateChanged: (() -> Void)?
 
-    var hasSuggestions: Bool {
+    private var hasSuggestions: Bool {
         !suggestions.isEmpty
     }
 
