@@ -128,7 +128,7 @@ final class AutomationSocketUITests: XCTestCase {
         textBox.click()
         app.typeKey("a", modifierFlags: [.command])
         app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
-        textBox.typeText("$")
+        app.typeText("$")
 
         _ = try XCTUnwrap(
             waitForMentionRows(
@@ -144,7 +144,7 @@ final class AutomationSocketUITests: XCTestCase {
             """
         )
 
-        textBox.typeText("autore")
+        app.typeText("autore")
 
         let typedRows = try XCTUnwrap(
             waitForMentionRows(
@@ -164,7 +164,7 @@ final class AutomationSocketUITests: XCTestCase {
 
         app.typeKey("a", modifierFlags: [.command])
         app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
-        textBox.typeText("$iterate")
+        app.typeText("$iterate")
 
         let iterateRows = try XCTUnwrap(
             waitForMentionRows(
@@ -618,6 +618,10 @@ final class AutomationSocketUITests: XCTestCase {
             .matching(identifier: "TextBoxMentionCompletionPopover")
             .firstMatch
             .exists
+        let popoverValue = app.descendants(matching: .any)
+            .matching(identifier: "TextBoxMentionCompletionPopover")
+            .firstMatch
+            .value as? String ?? ""
         let loadingExists = app.descendants(matching: .any)
             .matching(identifier: "TextBoxMentionCompletionPopover.Loading")
             .firstMatch
@@ -634,6 +638,7 @@ final class AutomationSocketUITests: XCTestCase {
         fixtureRoots=
         \(fixtureRootStates)
         popoverExists=\(popoverExists)
+        popoverValue=\(popoverValue)
         loadingExists=\(loadingExists)
         indexedRows=\(indexedRows)
         visibleMentionTexts=\(rows)

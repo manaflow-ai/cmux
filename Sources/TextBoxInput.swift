@@ -1564,6 +1564,16 @@ private struct TextBoxMentionCompletionPopoverView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("TextBoxMentionCompletionPopover")
+        .accessibilityValue(Text(verbatim: debugAccessibilityValue))
+    }
+
+    private var debugAccessibilityValue: String {
+#if DEBUG
+        let rowTitles = suggestions.map(\.title).joined(separator: ",")
+        return "query=\(searchTerm);loading=\(isLoading);rows=\(rowTitles)"
+#else
+        return ""
+#endif
     }
 
     private static func highlightedTitle(_ title: String, query: String) -> AttributedString {
