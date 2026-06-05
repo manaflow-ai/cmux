@@ -3977,6 +3977,7 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
         return OmnibarTextFieldRepresentable.Coordinator(
             parent: OmnibarTextFieldRepresentable(
                 panelId: panelId,
+                fontSize: 12,
                 text: Binding(
                     get: { text },
                     set: { text = $0 }
