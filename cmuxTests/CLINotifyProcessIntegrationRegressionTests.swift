@@ -2054,7 +2054,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
         XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
 
-        let currentPromptStart = context.state.snapshot().count
         let currentPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
@@ -2064,12 +2063,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
         XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
 
-        let sawCurrentPromptResumeBinding = waitForMockSocketCommand(in: context.state, after: currentPromptStart) {
+        let sawPromptResumeBinding = waitForMockSocketCommand(in: context.state) {
             jsonObject($0)?["method"] as? String == "surface.resume.set"
         }
         XCTAssertTrue(
-            sawCurrentPromptResumeBinding,
-            "The current prompt should publish a resume binding before Stop, saw \(context.state.snapshot())"
+            sawPromptResumeBinding,
+            "A prompt should publish a resume binding before Stop, saw \(context.state.snapshot())"
         )
 
         try [

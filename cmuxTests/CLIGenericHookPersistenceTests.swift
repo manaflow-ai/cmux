@@ -3416,6 +3416,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
 
+        let waitForResumeRequest = {
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline {
+                if state.snapshot().contains(where: {
+                    self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+                }) {
+                    return true
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            }
+            return state.snapshot().contains(where: {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            })
+        }
+        XCTAssertTrue(
+            waitForResumeRequest(),
+            "expected a surface.resume.set; saw \(state.snapshot())"
+        )
         let resumeRequests = state.snapshot().compactMap { command -> [String: Any]? in
             guard let payload = self.jsonObject(command),
                   payload["method"] as? String == "surface.resume.set" else { return nil }
