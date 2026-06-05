@@ -1417,6 +1417,7 @@ jobs:
           run_xctest_managed_display_regression() {
             cleanup 2>/dev/null || true
             echo "Running display resolution UI regression with XCTest-managed display harness"
+            printf '%s\n' "{\"helperBinaryPath\":\"$HELPER_PATH\"}" >/tmp/cmux-ui-test-display-harness.json
             CMUX_UI_TEST_DISPLAY_HELPER_BINARY_PATH="$HELPER_PATH" \
             xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \

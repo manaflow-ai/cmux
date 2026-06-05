@@ -658,7 +658,7 @@ private final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         turnId: String? = nil,
         terminalActivePromptTurnIds: Set<String> = [],
-        terminalPromptTurnIdsFromTranscript: ((String, Set<String>) -> Set<String>)? = nil,
+        terminalPromptTurnIdsFromTranscript: ((String, Set<String>?) -> Set<String>)? = nil,
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
@@ -768,6 +768,19 @@ private final class ClaudeHookSessionStore {
                 if totalDepthBeforeStop == 0, terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                     state.sessions[normalized] = record
                     return true
+                }
+                if turnStack.isEmpty,
+                   totalDepthBeforeStop > 1,
+                   normalizeOptional(record.lastPromptTurnId) == normalizedTurnId,
+                   let transcriptPath = normalizeOptional(transcriptPath ?? record.transcriptPath),
+                   let terminalPromptTurnIdsFromTranscript {
+                    let priorTerminalTurnIds = terminalPromptTurnIdsFromTranscript(transcriptPath, nil)
+                        .subtracting([normalizedTurnId])
+                    if !priorTerminalTurnIds.isEmpty {
+                        let prunedDepth = min(priorTerminalTurnIds.count, max(0, totalDepthBeforeStop - 1))
+                        totalDepthBeforeStop = max(0, totalDepthBeforeStop - prunedDepth)
+                        markPromptTurnsTerminal(Array(priorTerminalTurnIds), on: &record)
+                    }
                 }
                 markPromptTurnTerminal(normalizedTurnId, on: &record)
                 if totalDepthBeforeStop == 0 {
@@ -23031,10 +23044,12 @@ struct CMUXCLI {
         return .healthy
     }
 
-    private func codexTranscriptTerminalTurnIds(path: String, turnIds: Set<String>) -> Set<String> {
-        let expectedTurnIds = Set(turnIds.compactMap { normalizedHookValue($0) })
-        guard !expectedTurnIds.isEmpty,
-              let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
+    private func codexTranscriptTerminalTurnIds(path: String, turnIds: Set<String>?) -> Set<String> {
+        let expectedTurnIds = turnIds.map { Set($0.compactMap { normalizedHookValue($0) }) }
+        if let expectedTurnIds, expectedTurnIds.isEmpty {
+            return []
+        }
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
             return []
         }
 
@@ -23069,7 +23084,8 @@ struct CMUXCLI {
             switch eventType {
             case "task_complete", "turn_complete", "turn_aborted":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId
-                if let payloadTurnId, expectedTurnIds.contains(payloadTurnId) {
+                if let payloadTurnId,
+                   expectedTurnIds.map({ $0.contains(payloadTurnId) }) ?? true {
                     terminalTurnIds.insert(payloadTurnId)
                 }
             default:
