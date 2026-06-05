@@ -24977,11 +24977,18 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
   const copyTargetDisabled = targetOption.disabled || targetHasMultipleColors || !canCopyColorValue(targetOption.color, defaultSettings.accent);
   const targetDefault = colorTargetDefault(state.colorApplyTarget, workspace);
   const everywhereModel = currentColorEverywhereModel(state.colorApplyTarget, workspace);
+  const targetVariantColor = targetHasMultipleColors ? "" : normalizeCustomPaletteColor(targetOption.color);
+  const targetVariantModel = colorVariantSaveModel(targetVariantColor);
   const copyTargetTitle = targetOption.disabled
     ? `${targetOption.label}: ${targetOption.meta}.`
     : targetHasMultipleColors
       ? "All panes use multiple colors. Choose a single pane, workspace, or accent target first."
       : colorCopyTitle(targetOption.color, defaultSettings.accent, `Copy ${targetLabel} color value.`);
+  const variantTargetTitle = targetOption.disabled
+    ? `${targetOption.label}: ${targetOption.meta}.`
+    : targetHasMultipleColors
+      ? "All panes use multiple colors. Choose a single pane, workspace, or accent target first."
+      : targetVariantModel.title;
   const actions = [
     quickOverviewControlButton("Save accent", () => saveCurrentColorToPalette("accent"), {
       disabled: accentSave.disabled,
@@ -25002,6 +25009,11 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
       disabled: colorSetSave.disabled,
       title: colorSetSave.title,
       search: `quick setup color save current set accent workspace pane terminal reusable palette ${colorSetSave.search}`
+    }),
+    quickOverviewControlButton("Save variants", () => saveColorVariantsToPalette(targetVariantColor), {
+      disabled: targetOption.disabled || targetHasMultipleColors || targetVariantModel.disabled,
+      title: variantTargetTitle,
+      search: `quick setup color save variants generated current target ${targetOption.label} ${targetOption.status} ${targetOption.meta} ${targetVariantModel.search}`
     }),
     quickOverviewControlButton("Copy target", () => copyColorValue(targetOption.color, defaultSettings.accent, `${targetOption.label} color copied.`), {
       disabled: copyTargetDisabled,
