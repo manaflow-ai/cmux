@@ -665,48 +665,13 @@ final class CmuxMainThreadTurnProfiler {
 }
 #endif
 
-// Sendable because every access to `generation` is serialized by `lock`.
-final class SessionPersistenceWriteGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var generation: UInt64 = 0
-
-    func currentGeneration() -> UInt64 {
-        lock.lock()
-        defer { lock.unlock() }
-        return generation
-    }
-
-    @discardableResult
-    func invalidateQueuedWrites() -> UInt64 {
-        lock.lock()
-        defer { lock.unlock() }
-        generation &+= 1
-        return generation
-    }
-
-    func isCurrent(_ candidate: UInt64) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return candidate == generation
-    }
-}
-
+// Safety: `nonisolated(unsafe)` inside AppDelegate is limited to the legacy
+// process-wide delegate pointer assigned on the main actor during launch.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate {
+    /// Assigned during app launch and read by legacy static routes that cannot
+    /// yet receive the delegate through dependency injection.
     nonisolated(unsafe) static var shared: AppDelegate?
-
-    enum TerminationSessionPersistenceReason: Sendable {
-        case applicationWillTerminate
-        case workspaceWillPowerOff
-        case sessionDidResignWhileTerminating
-        case updateRelaunch
-    }
-
-    struct TerminationSessionPersistencePlan: Equatable, Sendable {
-        let saveSnapshot: Bool
-        let includeScrollback: Bool
-        let flushClosedItemHistory: Bool
-    }
 
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()

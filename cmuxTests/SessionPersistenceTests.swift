@@ -733,7 +733,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testTerminationSessionPersistencePolicyKeepsNormalQuitLightweight() {
         for reason in [
-            AppDelegate.TerminationSessionPersistenceReason.applicationWillTerminate,
+            TerminationSessionPersistenceReason.applicationWillTerminate,
             .workspaceWillPowerOff,
             .sessionDidResignWhileTerminating,
         ] {
@@ -757,7 +757,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(updatePlan.includeScrollback)
 
         for reason in [
-            AppDelegate.TerminationSessionPersistenceReason.applicationWillTerminate,
+            TerminationSessionPersistenceReason.applicationWillTerminate,
             .workspaceWillPowerOff,
             .sessionDidResignWhileTerminating,
         ] {
