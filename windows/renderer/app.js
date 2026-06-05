@@ -4264,7 +4264,7 @@ function saveWorkspaceStarterBlueprint(starterId, options = {}) {
     label: defaultWorkspaceBlueprintNameFromLabel(`${starter.label} starter`)
   }));
   if (!saved) return null;
-  if (options.render !== false) renderSettingsInspector();
+  refreshWorkspaceBlueprintSettings(options);
   toast(`${saved.label} blueprint saved.`);
   return saved;
 }
@@ -4436,7 +4436,7 @@ async function pasteWorkspaceBlueprint(options = {}) {
     }
     const saved = upsertWorkspaceBlueprint(blueprint);
     if (!saved) return null;
-    if (options.render !== false) renderSettingsInspector();
+    refreshWorkspaceBlueprintSettings(options);
     toast(`${saved.label} blueprint saved.`);
     return saved;
   } catch {
@@ -19137,11 +19137,13 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
   );
   saveLayoutProfileAction.dataset.layoutAction = "save-profile";
   const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", currentWorkspaceBlueprintSaveSearchText(workspace, layoutBlueprintsFull, layoutPaneCount));
+  saveLayoutAction.dataset.layoutAction = "save-blueprint";
   applyWorkspaceBlueprintSaveLimit(saveLayoutAction, workspace, "Save the current workspace pane layout as a reusable blueprint.", layoutPaneCount);
   const copyLayoutAction = settingsActionButton("Copy layout", copyCurrentWorkspaceBlueprint, "", currentWorkspaceBlueprintCopySearchText(workspace, layoutPaneCount));
   copyLayoutAction.disabled = !layoutPaneCount;
   copyLayoutAction.title = currentWorkspaceBlueprintCopyTitle(workspace, "Copy the current workspace pane layout as JSON.", layoutPaneCount);
   const pasteLayoutAction = settingsActionButton("Paste blueprint", pasteWorkspaceBlueprint, "", workspaceBlueprintPasteSearchText(layoutBlueprintsFull));
+  pasteLayoutAction.dataset.layoutAction = "paste-blueprint";
   pasteLayoutAction.disabled = layoutBlueprintsFull;
   pasteLayoutAction.title = workspaceBlueprintPasteTitle(layoutBlueprintsFull, "Paste a copied workspace blueprint into the reusable layout library.");
   const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
@@ -29572,7 +29574,7 @@ function paneLayoutPresetBlueprintCopyTitle(preset, unavailable = false) {
   return "Copy this layout preset as workspace blueprint JSON.";
 }
 
-function savePaneLayoutPresetBlueprint(presetId) {
+function savePaneLayoutPresetBlueprint(presetId, options = {}) {
   const preset = paneLayoutPresetById(presetId);
   const blueprint = paneLayoutPresetBlueprint(preset, {
     label: preset ? defaultWorkspaceBlueprintNameFromLabel(`${preset.label} layout`) : ""
@@ -29592,7 +29594,7 @@ function savePaneLayoutPresetBlueprint(presetId) {
   }
   const saved = upsertWorkspaceBlueprint(blueprint);
   if (!saved) return null;
-  renderSettingsInspector();
+  refreshWorkspaceBlueprintSettings(options);
   toast(`${saved.label} blueprint saved.`);
   return saved;
 }
@@ -35297,6 +35299,76 @@ function workspaceBlueprintCard(blueprint, currentBlueprint = null, options = {}
   return card;
 }
 
+function refreshWorkspaceBlueprintDisclosureSummaries() {
+  for (const disclosure of elements.inspectorBody.querySelectorAll(".workspace-blueprints-disclosure")) {
+    const meta = disclosure.querySelector(".settings-disclosure-meta");
+    if (meta) {
+      setTextIfChanged(meta, formatMessage("blueprints.savedBlueprintCount", {
+        count: state.workspaceBlueprints.length,
+        limit: workspaceBlueprintsLimit
+      }));
+    }
+  }
+}
+
+function refreshWorkspaceBlueprintPanels() {
+  let changed = false;
+  for (const panel of [...elements.inspectorBody.querySelectorAll(".workspace-starter-list")]
+    .filter((candidate) => !candidate.closest(".workspace-blueprint-list"))) {
+    panel.replaceWith(workspaceStarterGrid());
+    changed = true;
+  }
+  for (const panel of elements.inspectorBody.querySelectorAll(".workspace-blueprint-list")) {
+    panel.replaceWith(workspaceBlueprintsPanel());
+    changed = true;
+  }
+  refreshWorkspaceBlueprintDisclosureSummaries();
+  return changed;
+}
+
+function refreshLayoutBlueprintControls() {
+  const workspace = activeWorkspace();
+  const paneCount = workspaceBlueprintPaneCount(workspace);
+  const blueprintsFull = workspaceBlueprintsFull();
+  const saveLayout = elements.inspectorBody.querySelector('[data-layout-action="save-blueprint"]');
+  if (saveLayout) {
+    applyWorkspaceBlueprintSaveLimit(saveLayout, workspace, "Save the current workspace pane layout as a reusable blueprint.", paneCount);
+    setSettingsSearchIfChanged(saveLayout, currentWorkspaceBlueprintSaveSearchText(workspace, blueprintsFull, paneCount));
+  }
+  const pasteLayout = elements.inspectorBody.querySelector('[data-layout-action="paste-blueprint"]');
+  if (pasteLayout) {
+    setDisabledIfChanged(pasteLayout, blueprintsFull);
+    setTitleIfChanged(pasteLayout, workspaceBlueprintPasteTitle(blueprintsFull, "Paste a copied workspace blueprint into the reusable layout library."));
+    setSettingsSearchIfChanged(pasteLayout, workspaceBlueprintPasteSearchText(blueprintsFull));
+  }
+  refreshPaneLayoutPresetGrid();
+}
+
+function refreshWorkspaceBlueprintSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  const targeted = searching
+    || state.settingsCategory === "layout"
+    || state.settingsCategory === "blueprints"
+    || state.settingsCategory === "workspace";
+  if (!targeted) {
+    scheduleSettingsInspectorRender({ ifChanged: true });
+    return;
+  }
+  requestAnimationFrame(() => {
+    if (state.inspectorMode !== "settings") return;
+    const nextSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+    if (nextSearching || state.settingsCategory === "layout") refreshLayoutBlueprintControls();
+    const replacedPanels = (nextSearching || state.settingsCategory === "blueprints" || state.settingsCategory === "workspace")
+      ? refreshWorkspaceBlueprintPanels()
+      : false;
+    if (nextSearching) {
+      if (replacedPanels) rebuildSettingsSearchIndex();
+      scheduleSettingsFilter();
+    }
+  });
+}
+
 function paneTreeTemplateFromPaneTree(node, panels) {
   const panelIndexById = new Map((panels || []).map((panel, index) => [panel.id, index]));
   return normalizeBlueprintPaneTreeTemplate(paneTreeTemplateFromPaneTreeNode(node, panelIndexById), panelIndexById.size);
@@ -35435,7 +35507,7 @@ async function saveCurrentWorkspaceBlueprint(options = {}) {
   if (!label) return false;
   const saved = upsertWorkspaceBlueprint(currentWorkspaceBlueprintSnapshot(label));
   if (!saved) return null;
-  if (options.render !== false) renderSettingsInspector();
+  refreshWorkspaceBlueprintSettings(options);
   toast("Workspace blueprint saved.");
   return saved;
 }
