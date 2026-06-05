@@ -23072,7 +23072,7 @@ struct CMUXCLI {
             case "task_complete", "turn_complete", "turn_aborted":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"]) ?? currentTurnId
                 if let payloadTurnId,
-                   expectedTurnIds.map({ $0.contains(payloadTurnId) }) ?? true {
+                   expectedTurnIds.contains(payloadTurnId) {
                     terminalTurnIds.insert(payloadTurnId)
                 }
             default:
