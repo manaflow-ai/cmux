@@ -31530,7 +31530,7 @@ function settingsActionIconMarkup(label, tone = "") {
   if (text.startsWith("update")) return controlIconMarkup("reload");
   if (text.startsWith("add") || text.startsWith("new")) return controlIconMarkup("plus");
   if (text === "everywhere" || text.includes(" everywhere")) return quickActionIconMarkup("workspace");
-  if (text.startsWith("apply") || text === "use" || text.startsWith("use ") || text.endsWith(" active")) return controlIconMarkup("arrowRight");
+  if (text.startsWith("apply") || text === "use" || text.startsWith("use ") || text === "active" || text.endsWith(" active")) return controlIconMarkup("arrowRight");
   if (text.startsWith("paste")) return controlIconMarkup("clipboard");
   if (text.startsWith("choose")) return quickActionIconMarkup("background");
   if (text.startsWith("open external") || text === "external") return controlIconMarkup("external");

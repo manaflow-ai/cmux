@@ -10576,7 +10576,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .quick-overview-actions {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(94px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(94px, 100%), 1fr));
   gap: var(--space-1);
 }
 
@@ -11879,7 +11879,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
   .quick-overview-actions {
     width: 100%;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(94px, 100%), 1fr));
   }
 
   .quick-overview-save {
