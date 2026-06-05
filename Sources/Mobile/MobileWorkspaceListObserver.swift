@@ -139,6 +139,15 @@ final class MobileWorkspaceListObserver {
                 hasher.combine(workspace.panelDirectories[id])
             }
             hasher.combine(workspace.currentDirectory)
+            // Hash every panelDirectories entry (including ids not yet in
+            // `panels`) so a directory update is detected even before its panel
+            // registers. The ordered loop above already covers in-panel
+            // directories; this preserves the pre-existing behavior the mobile
+            // hash test relies on.
+            for id in workspace.panelDirectories.keys.sorted() {
+                hasher.combine(id)
+                hasher.combine(workspace.panelDirectories[id])
+            }
         }
         return hasher.finalize()
     }
