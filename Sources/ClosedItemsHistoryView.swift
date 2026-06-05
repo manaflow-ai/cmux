@@ -207,8 +207,6 @@ private struct ClosedOperationGroup: View, Equatable {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
-        .contentShape(Rectangle())
-        .onTapGesture { onToggleCollapse() }
     }
 
     private var restorableItemIds: [UUID] {
