@@ -65,7 +65,6 @@ public final class AuthCoordinator {
     private let launch: AuthLaunchOptions
     private let isOnline: @Sendable () async -> Bool
     private let onSignedIn: @Sendable () async -> Void
-    private let errorMapper = AuthErrorMapper()
 
     private var pendingNonce: String?
     private var debugCredentials: CMUXAuthAutoLoginCredentials?
@@ -267,7 +266,8 @@ public final class AuthCoordinator {
             await clearPersistedStackSession()
             clearAuthState()
         } catch {
-            let action = errorMapper.cachedSessionValidationFailureAction(for: error)
+            let action = AuthError(displaySafe: error)?.cachedSessionValidationFailureAction
+                ?? .preserveCachedSession
             authLog.error(
                 "Session validation failed action=\(action.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
             )
@@ -304,7 +304,7 @@ public final class AuthCoordinator {
             )
             pendingNonce = nonce
         } catch {
-            throw errorMapper.displaySafe(error)
+            throw AuthError(displaySafe: error) ?? error
         }
     }
 
@@ -322,7 +322,7 @@ public final class AuthCoordinator {
             try await client.signInWithMagicLink(code: fullCode)
             try await completeSignIn()
         } catch {
-            throw errorMapper.displaySafe(error)
+            throw AuthError(displaySafe: error) ?? error
         }
         pendingNonce = nil
     }
@@ -337,7 +337,7 @@ public final class AuthCoordinator {
             try await client.signInWithCredential(email: email, password: password)
             try await completeSignIn()
         } catch {
-            throw errorMapper.displaySafe(error)
+            throw AuthError(displaySafe: error) ?? error
         }
     }
 
@@ -359,7 +359,7 @@ public final class AuthCoordinator {
             try await client.signInWithOAuth(provider: provider, anchor: anchor)
             try await completeSignIn()
         } catch {
-            throw errorMapper.displaySafe(error)
+            throw AuthError(displaySafe: error) ?? error
         }
     }
 
@@ -384,7 +384,7 @@ public final class AuthCoordinator {
         do {
             try await completeSignIn()
         } catch {
-            throw errorMapper.displaySafe(error)
+            throw AuthError(displaySafe: error) ?? error
         }
     }
 
