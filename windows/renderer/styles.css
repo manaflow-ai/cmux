@@ -6681,6 +6681,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   line-height: 1.15;
 }
 
+#inspectorBody[aria-busy="true"] .settings-search-feedback {
+  color: var(--color-text);
+}
+
 .settings-search-clear:hover:not(:disabled) {
   border-color: var(--color-line-strong);
   background: var(--color-pane-active);

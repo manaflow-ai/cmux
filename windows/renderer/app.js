@@ -307,7 +307,8 @@ const performanceGuardSlowPaneCreateMs = 2000;
 const performanceGuardSlowTerminalConnectMs = 1500;
 const performanceHealthBackgroundOpacityLimit = 16;
 const performanceHealthScrollbackLimit = 10000;
-const settingsDisclosureSearchMountBatchSize = 4;
+const settingsDisclosureSearchMountBatchSize = 3;
+const settingsDisclosureSearchMountSlowBatchSize = 1;
 const settingsSearchInteractiveFilterDelayMs = 90;
 const toastFeedbackModeTokens = new Map([
   ["quiet", { limit: 2, duration: 2200 }],
@@ -23855,9 +23856,10 @@ function syncSettingsDisclosuresForSearch(query) {
   let mountedContent = false;
   let mountedThisPass = 0;
   let remaining = 0;
+  const mountBatchLimit = settingsDisclosureSearchMountBatchLimit();
   for (const disclosure of elements.inspectorBody.querySelectorAll(".settings-disclosure")) {
     if (disclosure.dataset.disclosureMounted === "true") continue;
-    if (mountedThisPass >= settingsDisclosureSearchMountBatchSize) {
+    if (mountedThisPass >= mountBatchLimit) {
       remaining += 1;
       continue;
     }
@@ -23873,6 +23875,13 @@ function syncSettingsDisclosuresForSearch(query) {
     mountedContent,
     complete: remaining === 0
   };
+}
+
+function settingsDisclosureSearchMountBatchLimit() {
+  if (state.settings.performanceMode || state.renderStats.avgMs >= renderSlowFrameMs) {
+    return settingsDisclosureSearchMountSlowBatchSize;
+  }
+  return settingsDisclosureSearchMountBatchSize;
 }
 
 function restoreSettingsFilterVisibility(sections) {
@@ -23902,6 +23911,12 @@ function applySettingsFilter() {
   const searchStillMounting = Boolean(query && !disclosureSync.complete);
   setSettingsSearchBusy(searchStillMounting);
   const mountedDisclosureContent = disclosureSync.mountedContent;
+  if (searchStillMounting) {
+    setSettingsSearchLayoutNeeded(true);
+    syncSettingsSearchFilterControls(query, 1);
+    setSettingsSearchResultText(t("settings.searching"));
+    return;
+  }
   const sections = state.settingsSearchIndex.length && !mountedDisclosureContent
     ? state.settingsSearchIndex
     : rebuildSettingsSearchIndex();
