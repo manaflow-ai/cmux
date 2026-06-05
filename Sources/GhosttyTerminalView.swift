@@ -7280,6 +7280,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 previousWasCR = false
                 index += 1
             case 0x1B:
+                if let osc = oscEscapeSequence(scalars, from: index) {
+                    flushBufferedText()
+                    events.append(.rawBytes(osc.data))
+                    index += osc.length
+                    previousWasCR = false
+                    continue
+                }
                 // A bare ESC is the Escape key. But a full CSI/SS3 navigation
                 // sequence arriving as raw input (the iOS on-screen arrows send
                 // ESC[B, etc.) must stay one key press, or the terminal receives
@@ -7309,6 +7316,42 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
         flushBufferedText()
         return events
+    }
+
+    private static func oscEscapeSequence(
+        _ scalars: [Unicode.Scalar],
+        from start: Int
+    ) -> (data: Data, length: Int)? {
+        guard start + 1 < scalars.count,
+              scalars[start].value == 0x1B,
+              scalars[start + 1].value == 0x5D else {
+            return nil
+        }
+
+        var index = start + 2
+        while index < scalars.count {
+            switch scalars[index].value {
+            case 0x07:
+                return rawScalarData(scalars[start...index], length: index - start + 1)
+            case 0x1B:
+                if index + 1 < scalars.count, scalars[index + 1].value == 0x5C {
+                    return rawScalarData(scalars[start...(index + 1)], length: index - start + 2)
+                }
+                index += 1
+            default:
+                index += 1
+            }
+        }
+        return nil
+    }
+
+    private static func rawScalarData(
+        _ scalars: ArraySlice<Unicode.Scalar>,
+        length: Int
+    ) -> (data: Data, length: Int) {
+        var sequence = String()
+        sequence.unicodeScalars.append(contentsOf: scalars)
+        return (Data(sequence.utf8), length)
     }
 
     /// Match a CSI (`ESC [ …`) or SS3 (`ESC O …`) cursor/navigation escape
