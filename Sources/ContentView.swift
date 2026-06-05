@@ -17871,43 +17871,53 @@ struct SidebarTabDropDelegate: DropDelegate {
 #endif
         // A cross-window selection can span pinned and unpinned workspaces, and
         // `attachWorkspace` normalizes each insert into the leading-pinned /
-        // unpinned region individually. Planning every move from one
-        // `draggedIsPinned` bit would scatter a mixed selection, so plan each
-        // workspace by its *own* pin state against the *live* destination: the
-        // hover indicator still anchors the slot, the per-iteration recompute
-        // keeps each pin tier a contiguous block in source order, and a skipped
-        // move simply doesn't grow the destination (no index gap, no stale
-        // selection). Pin state can't change mid-drag, so snapshot it once.
+        // unpinned region individually. Plan one base slot *per pin tier* (so a
+        // mixed selection doesn't scatter), then insert that tier's workspaces
+        // at base + running-offset so they stay a contiguous block in source
+        // order — recomputing the slot per workspace against the same indicator
+        // would re-anchor to the hovered row and reverse the batch. Pin state
+        // can't change mid-drag, so snapshot it once. A skipped move simply
+        // doesn't advance the offset (no index gap, no stale selection).
         let pinStateById: [UUID: Bool] = Dictionary(
             uniqueKeysWithValues: movingIds.map { id in
                 (id, sourceManager.tabs.first { $0.id == id }?.isPinned ?? false)
             }
         )
         var movedIds: [UUID] = []
-        for workspaceId in movingIds {
+        for isPinnedTier in [false, true] {
+            let tierIds = movingIds.filter { (pinStateById[$0] ?? false) == isPinnedTier }
+            guard !tierIds.isEmpty else { continue }
+            // Recompute against the live destination so the tier base reflects
+            // workspaces inserted by the previous tier.
             let topLevelIds = crossWindowTopLevelTabIds()
             let slot = SidebarDropPlanner.crossWindowInsertion(
                 targetTabId: crossWindowTopLevelTarget(),
-                draggedIsPinned: pinStateById[workspaceId] ?? false,
+                draggedIsPinned: isPinnedTier,
                 indicator: dragState.dropIndicator,
                 tabIds: topLevelIds,
                 pinnedTabIds: crossWindowTopLevelPinnedTabIds()
             ).insertionIndex
-            let rawInsertIndex = crossWindowRawInsertIndex(forTopLevelSlot: slot, topLevelIds: topLevelIds)
-            if app.moveWorkspaceToWindow(
-                workspaceId: workspaceId,
-                windowId: destinationWindowId,
-                atIndex: rawInsertIndex,
-                focus: false
-            ) {
-                movedIds.append(workspaceId)
+            let base = crossWindowRawInsertIndex(forTopLevelSlot: slot, topLevelIds: topLevelIds)
+            var tierOffset = 0
+            for workspaceId in tierIds {
+                if app.moveWorkspaceToWindow(
+                    workspaceId: workspaceId,
+                    windowId: destinationWindowId,
+                    atIndex: base + tierOffset,
+                    focus: false
+                ) {
+                    movedIds.append(workspaceId)
+                    tierOffset += 1
+                }
             }
         }
 
-        guard let lastMovedId = movedIds.last else { return false }
-        // Focus the last moved workspace; the workspace now lives in this window,
-        // so this resolves to the same-manager focus path (no second move).
-        _ = app.moveWorkspaceToWindow(workspaceId: lastMovedId, windowId: destinationWindowId, focus: true)
+        guard !movedIds.isEmpty else { return false }
+        // Focus the workspace the user actually grabbed when it moved, else the
+        // last successful move. It now lives in this window, so this resolves to
+        // the same-manager focus path (no second move).
+        let focusId = movedIds.contains(draggedTabId) ? draggedTabId : (movedIds.last ?? draggedTabId)
+        _ = app.moveWorkspaceToWindow(workspaceId: focusId, windowId: destinationWindowId, focus: true)
         selectedTabIds = Set(movedIds)
         syncSidebarSelection()
         return true
