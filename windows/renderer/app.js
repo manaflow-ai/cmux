@@ -26187,6 +26187,38 @@ function performanceModeLabel() {
   return "Manual";
 }
 
+function quickLagReportModel(performance = performanceOverviewModel()) {
+  const hasStats = hasPerformanceStats();
+  const outputQueued = Math.max(state.terminalOutputStats.currentQueued || 0, state.terminalOutputStats.maxQueued || 0);
+  const slowPaneAdd = state.paneCreateStats.lastMs >= performanceGuardSlowPaneCreateMs
+    || state.paneCreateStats.avgMs >= performanceGuardSlowPaneCreateMs;
+  const slowShellConnect = state.terminalConnectStats.lastMs >= performanceGuardSlowTerminalConnectMs
+    || state.terminalConnectStats.avgMs >= performanceGuardSlowTerminalConnectMs;
+  const warning = Boolean(
+    state.performanceGuardTriggered
+    || state.performanceGuardReason
+    || state.renderStats.slowCount > 0
+    || outputQueued >= terminalOutputBacklogThreshold
+    || slowPaneAdd
+    || slowShellConnect
+    || performance.status === "warning"
+  );
+  return {
+    hasStats,
+    warning,
+    disabled: !hasStats,
+    meta: !hasStats
+      ? "No stats"
+      : warning
+        ? performance.title
+        : performance.render,
+    title: hasStats
+      ? "Copy performance diagnostics with render, terminal output, pane startup, browser, and tuning data."
+      : "No performance diagnostics have been collected yet.",
+    search: normalizeSettingsQuery(`copy lag report performance diagnostics render terminal output backlog pane startup browser guard ${warning ? "warning slow glitch jank " : "stats ready "}${performance.status} ${performance.reason} ${performance.render} ${performance.output} ${performance.shell} ${performance.paneAdd}`)
+  };
+}
+
 function workspaceCountLabel() {
   const count = state.data?.workspaces?.length || 0;
   return `${count} workspace${count === 1 ? "" : "s"}`;
@@ -28804,6 +28836,18 @@ function quickSetupActionDefinitions() {
       run: () => refreshQuickSettingsAfterAction(applyPerformanceHealthFixes({ render: false }))
     },
     {
+      id: "copy-lag-report",
+      icon: "performance",
+      label: "Copy lag report",
+      body: "Capture render, output, pane startup, browser, and guard stats.",
+      meta: () => quickLagReportModel().meta,
+      cta: "Copy",
+      search: () => quickLagReportModel().search,
+      disabled: () => quickLagReportModel().disabled,
+      title: () => quickLagReportModel().title,
+      run: () => refreshQuickSettingsAfterAction(copyPerformanceDiagnostics())
+    },
+    {
       id: "focus-mode",
       icon: "focus",
       label: state.settings.focusMode ? "Leave focus" : "Focus mode",
@@ -28967,6 +29011,8 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   const activeTerminalBackground = activeTerminal ? normalizeBackgroundValue(activeTerminal.backgroundImage) : "";
   const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
   const healthIssueCount = performanceHealthIssueCount();
+  const performance = performanceOverviewModel();
+  const lagReport = quickLagReportModel(performance);
   const setup = activeSettingsSetupModel();
   const profilesFull = savedSettingsProfilesFull();
   const libraryBackup = savedLibraryBackupModel();
@@ -28981,6 +29027,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   if (!workspace) ids.push("new-workspace");
   else if (terminalCount === 0) ids.push("new-terminal");
   if (healthIssueCount > 0) ids.push("fix-lag");
+  if (lagReport.warning && ids.length < 4) ids.push("copy-lag-report");
   if (workspace && browserCount === 0) ids.push("new-browser");
   if (setup.kind === "Unsaved setup" && !profilesFull) ids.push("save-profile");
   if (!isSettingsPresetIdActive("simpleFast")) {
