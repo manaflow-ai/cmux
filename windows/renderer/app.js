@@ -25980,11 +25980,11 @@ function quickLookControlsPanel() {
       title: "Copy theme, accent intensity, surface tint, interface contrast, surface depth, app background, background chrome, and terminal colors as JSON.",
       search: "quick setup look appearance copy theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors clipboard json"
     }),
-    quickOverviewControlButton("Paste look", pasteLookSettings, {
+    quickOverviewControlButton("Paste look", () => refreshQuickSettingsAfterAction(pasteLookSettings({ render: false })), {
       title: "Apply copied cmux look JSON.",
       search: "quick setup look appearance paste theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors clipboard json"
     }),
-    quickOverviewControlButton("Reset look", resetAppearanceSettings, {
+    quickOverviewControlButton("Reset look", () => refreshQuickSettingsAfterAction(resetAppearanceSettings({ render: false })), {
       disabled: lookSettingsDefault,
       title: lookSettingsDefault
         ? "Look settings already match the default setup."
@@ -41051,7 +41051,7 @@ function lookSettingsUpdatesFromPayload(payload) {
   return Object.keys(updates).length ? updates : null;
 }
 
-function applyLookSettingsUpdates(updates, toastText = "Look settings applied.") {
+function applyLookSettingsUpdates(updates, options = {}) {
   if (!updates) {
     toast("Clipboard does not contain look settings.");
     return false;
@@ -41061,12 +41061,12 @@ function applyLookSettingsUpdates(updates, toastText = "Look settings applied.")
     toast("Look settings already match.");
     return false;
   }
-  renderSettingsInspector();
-  toast(toastText);
+  if (options.render !== false) renderSettingsInspector();
+  toast(options.toastText || "Look settings applied.");
   return true;
 }
 
-async function pasteLookSettings() {
+async function pasteLookSettings(options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
@@ -41074,7 +41074,7 @@ async function pasteLookSettings() {
   }
   try {
     const parsed = JSON.parse(clipboard);
-    return applyLookSettingsUpdates(lookSettingsUpdatesFromPayload(parsed));
+    return applyLookSettingsUpdates(lookSettingsUpdatesFromPayload(parsed), options);
   } catch {
     toast("Clipboard does not contain look settings.");
     return false;
@@ -41133,7 +41133,7 @@ function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
   return true;
 }
 
-function resetAppearanceSettings() {
+function resetAppearanceSettings(options = {}) {
   const updates = {};
   for (const key of appearanceResetSettings) updates[key] = defaultSettings[key];
   const changed = updateSettings(updates, { immediate: true });
@@ -41141,7 +41141,7 @@ function resetAppearanceSettings() {
     toast("Look settings already reset.");
     return false;
   }
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast("Look settings reset.");
   return true;
 }
