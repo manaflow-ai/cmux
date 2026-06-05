@@ -1,18 +1,43 @@
 import AppKit
+import CmuxSidebarInterpreterClient
+import CmuxSidebarRemoteRender
 import CmuxSocketControl
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxUpdaterUI
 import SwiftUI
 import Observation
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+
+/// The process entry point. When the binary is launched with a sidebar worker
+/// flag (the app re-executes its own binary that way so a crash in the
+/// interpreter or renderer kills only the worker process), run that worker
+/// loop instead of the app:
+/// - the render worker hosts its own faceless AppKit session and shares the
+///   rendered layer tree with the host;
+/// - the interpreter worker (stage-1 fallback path) runs before any
+///   AppKit/SwiftUI setup.
 @main
+enum CmuxMain {
+    static func main() {
+        if CommandLine.arguments.contains(RenderWorkerClient.workerModeArgument) {
+            runSidebarRenderWorker()
+        }
+        if CommandLine.arguments.contains(InterpreterClient.workerModeArgument) {
+            runSidebarInterpreterWorker()
+            exit(0)
+        }
+        cmuxApp.main()
+    }
+}
+
 struct cmuxApp: App {
     /// Dependency container for the new settings packages. Constructed
     /// once at app launch and injected into the SwiftUI environment via
     /// `.settingsRuntime(_:)`; descendant views resolve their settings
-    /// through it via the `@Setting` property wrapper.
+    /// through it via the `@LiveSetting` property wrapper.
     private let settingsRuntime: SettingsRuntime
 
     @StateObject private var tabManager: TabManager
@@ -26,6 +51,7 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    @State private var browserFocusModeMenuRevision = 0
     @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
@@ -41,16 +67,23 @@ struct cmuxApp: App {
         // shared static.
         let settingsCatalog = SettingCatalog()
         let configFileURL = CmuxConfigLocation().userConfigFile
-        // Secrets live in their own 0600 files under Application Support/cmux,
+        // Relocate a pre-existing socket password out of the legacy
+        // Application Support directory before any store reads it. The CLI reads
+        // this file on every agent hook, and a cross-identity reach into
+        // Application Support triggers the macOS Sequoia "access data from other
+        // apps" prompt; the password now lives in the non-protected cmux state
+        // directory (https://github.com/manaflow-ai/cmux/issues/5146). The app
+        // owns its Application Support data, so it can perform this move silently.
+        // This App initializer is the composition root, so it is where the
+        // concrete `FileManager.default` is named for the package's injected seams.
+        SocketControlPasswordStore.migrateLegacyApplicationSupportPasswordFileIfNeeded(fileManager: .default)
+        // Secrets live in their own 0600 files under the cmux state directory,
         // the same directory (and `socket-control-password` file) the socket
         // auth path reads via SocketControlPasswordStore, so the Settings UI
         // and the listener share one source of truth.
-        let secretBaseDirectory = SocketControlPasswordStore.defaultPasswordFileURL()?
+        let secretBaseDirectory = SocketControlPasswordStore.defaultPasswordFileURL(fileManager: .default)?
             .deletingLastPathComponent()
-            ?? FileManager.default
-                .urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-                .appendingPathComponent("cmux", isDirectory: true)
-            ?? FileManager.default.temporaryDirectory
+            ?? CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
         let secretStore = SecretFileStore(baseDirectory: secretBaseDirectory)
 
         // Lift any plaintext socket-control password out of `cmux.json` into the
@@ -95,6 +128,20 @@ struct cmuxApp: App {
         // (which happens for any shell descended from this process), bare `cmux`
         // resolves here instead of the CLI. See
         // https://github.com/manaflow-ai/cmux/issues/4678.
+        // cmux ships a universal binary so it still supports Intel Macs, but a
+        // stale LaunchServices architecture preference can pin the app to its
+        // x86_64 slice on Apple Silicon, running the whole process tree under
+        // Rosetta (macOS 26 deprecation dialog; translated child shells and
+        // toolchains). `LSArchitecturePriority` in Info.plist fixes future
+        // launches; this corrects an already-mis-pinned install by re-execing the
+        // arm64 slice in place. It runs *before* CLI forwarding so a translated
+        // GUI binary invoked with CLI-style arguments is re-execed natively first
+        // and the forwarded bundled CLI then inherits the native arch too. The
+        // re-exec preserves argv and re-enters this initializer, so forwarding
+        // proceeds normally in the native process. No-op on Intel and on native
+        // launches. See https://github.com/manaflow-ai/cmux/issues/753.
+        RosettaNativeRelaunch.relaunchNativelyIfNeeded()
+
         CLIForwardingLaunchRouter.forwardToBundledCLIIfNeeded()
 
         StartupBreadcrumbLog.append("app.init.begin")
@@ -155,7 +202,7 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
-        appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+        appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState, settingsRuntime: settingsRuntime)
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
 
@@ -321,7 +368,7 @@ struct cmuxApp: App {
                     )
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
-                        UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
+                        AppDelegate.shared?.updateLog.append("ui test: cmuxApp onAppear")
                     }
 #endif
                     bootstrapMainWindowScene()
@@ -331,6 +378,9 @@ struct cmuxApp: App {
                 }
                 .onChange(of: socketControlMode) { _ in
                     updateSocketController()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .browserFocusModeStateDidChange)) { _ in
+                    browserFocusModeMenuRevision &+= 1
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -844,6 +894,14 @@ struct cmuxApp: App {
                 }
             }
 
+            let browserFocusModeMenu = browserFocusModeMenuSnapshot
+            Button(browserFocusModeMenu.title) {
+                if !activeTabManager.toggleBrowserFocusModeForFocusedBrowser(reason: "viewMenu") {
+                    NSSound.beep()
+                }
+            }
+            .disabled(!browserFocusModeMenu.canToggle)
+
             splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
                 _ = activeTabManager.zoomInFocusedBrowser()
             }
@@ -1001,6 +1059,17 @@ struct cmuxApp: App {
 
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
         notificationStore.notificationMenuSnapshot
+    }
+
+    private var browserFocusModeMenuSnapshot: (title: String, canToggle: Bool) {
+        let _ = browserFocusModeMenuRevision
+        let panel = activeTabManager.focusedBrowserPanel
+        return (
+            title: panel?.isBrowserFocusModeActive == true
+                ? String(localized: "menu.view.exitBrowserFocusMode", defaultValue: "Exit Browser Focus Mode")
+                : String(localized: "menu.view.enterBrowserFocusMode", defaultValue: "Enter Browser Focus Mode"),
+            canToggle: panel?.canToggleBrowserFocusMode == true
+        )
     }
 
     var activeTabManager: TabManager {
@@ -5094,6 +5163,18 @@ enum KiroIntegrationSettings {
             return defaultNotificationLevel
         }
         return level
+    }
+}
+
+enum AmpIntegrationSettings {
+    static let hooksEnabledKey = "ampHooksEnabled"
+    static let defaultHooksEnabled = true
+
+    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: hooksEnabledKey) == nil {
+            return defaultHooksEnabled
+        }
+        return defaults.bool(forKey: hooksEnabledKey)
     }
 }
 

@@ -24,6 +24,10 @@ export type PushPayloadResult =
   | { readonly ok: true; readonly value: PushPayload }
   | { readonly ok: false; readonly error: string };
 
+export type JsonObjectResult =
+  | { readonly ok: true; readonly value: Record<string, unknown> }
+  | { readonly ok: false; readonly error: "invalid_json" | "request_too_large" };
+
 const DEV_TAGGED_BUNDLE_ID = /^dev\.cmux\.ios\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const PROD_BUNDLE_IDS = new Set(["com.cmuxterm.app", "dev.cmux.app.beta"]);
 
@@ -73,4 +77,64 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
       hideContent: body.hideContent === true,
     },
   };
+}
+
+export async function readBoundedJsonObject(
+  request: Request,
+  maxBytes: number,
+): Promise<JsonObjectResult> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength) {
+    const parsedLength = Number(contentLength);
+    if (Number.isFinite(parsedLength) && parsedLength > maxBytes) {
+      return { ok: false, error: "request_too_large" };
+    }
+  }
+
+  const textResult = await readBoundedText(request, maxBytes);
+  if (!textResult.ok) return textResult;
+  const text = textResult.value;
+  if (!text) return { ok: true, value: {} };
+
+  try {
+    const raw = JSON.parse(text) as unknown;
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      return { ok: false, error: "invalid_json" };
+    }
+    return { ok: true, value: raw as Record<string, unknown> };
+  } catch {
+    return { ok: false, error: "invalid_json" };
+  }
+}
+
+async function readBoundedText(
+  request: Request,
+  maxBytes: number,
+): Promise<{ readonly ok: true; readonly value: string } | { readonly ok: false; readonly error: "request_too_large" }> {
+  if (!request.body) {
+    return { ok: true, value: "" };
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      return { ok: false, error: "request_too_large" };
+    }
+    chunks.push(value);
+  }
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { ok: true, value: new TextDecoder().decode(body) };
 }

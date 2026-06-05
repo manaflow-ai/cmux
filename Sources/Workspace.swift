@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxSocketControl
 import Combine
 import CryptoKit
 import Darwin
@@ -271,6 +272,7 @@ extension Workspace {
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
+        restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore()
@@ -615,6 +617,7 @@ extension Workspace {
             guard browserPanel.shouldPersistSessionSnapshot() else { return nil }
             terminalSnapshot = nil
             let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
+            let diffViewerComponents = browserPanel.diffViewerSessionComponents()
             browserSnapshot = SessionBrowserPanelSnapshot(
                 urlString: browserPanel.preferredURLStringForSessionSnapshot(),
                 profileID: browserPanel.profileID,
@@ -624,7 +627,10 @@ extension Workspace {
                 isMuted: browserPanel.isMuted,
                 omnibarVisible: browserPanel.isOmnibarVisible,
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
-                forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
+                forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
+                transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
+                diffViewerToken: diffViewerComponents?.token,
+                diffViewerRequestPath: diffViewerComponents?.requestPath
             )
             markdownSnapshot = nil
             filePreviewSnapshot = nil
@@ -1768,6 +1774,15 @@ extension Workspace {
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
+            if startupHandlesWorkingDirectory,
+               localWorkingDirectory == nil,
+               let guardedWorkingDirectory = savedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !guardedWorkingDirectory.isEmpty,
+               Self.unmountedVolumeRoot(for: guardedWorkingDirectory) != nil {
+                restoredGuardedWorkingDirectoriesByPanelId[terminalPanel.id] = guardedWorkingDirectory
+            } else {
+                restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
+            }
             let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(restoredScrollback)
             if let fallbackScrollback {
                 restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback
@@ -1805,7 +1820,8 @@ extension Workspace {
                 url: nil,
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
-                creationPolicy: .restoration
+                creationPolicy: .restoration,
+                transparentBackground: snapshot.browser?.transparentBackground ?? false
             ) else {
                 return nil
             }
@@ -1887,7 +1903,7 @@ extension Workspace {
         }
 
         if let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
-            updatePanelDirectory(panelId: panelId, directory: directory)
+            updatePanelDirectory(panelId: panelId, directory: directory, source: .restoredSnapshotMetadata)
         }
 
         if let branch = snapshot.gitBranch {
@@ -2638,6 +2654,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
 
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
         process.arguments = Self.daemonArguments(configuration: configuration, remotePath: remotePath)
+        process.environment = configuration.sshProcessEnvironment
         process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -2706,6 +2723,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
             localPort: localPort,
             remoteSocketPath: Self.bakedVMDaemonSocketPath
         )
+        process.environment = configuration.sshProcessEnvironment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = stderrPipe
@@ -5990,6 +6008,18 @@ final class WorkspaceRemotePTYBridgeServer {
                     defaultValue: "remote daemon did not respond in time"
                 )
             }
+            // Surface the daemon's PTY-allocation diagnostic (it names the failing
+            // device and the devpts/ptmxmode cause) instead of collapsing it into a
+            // generic message. Key off the daemon's stable marker only, so an
+            // unrelated error that merely mentions a device path is not leaked, and
+            // route the dynamic detail through the localization API to match the
+            // surrounding branches. See issue #5185.
+            if lowered.contains("could not allocate a remote pty") {
+                return String(
+                    localized: "remotePTYAttach.error.allocationDiagnostic",
+                    defaultValue: "\(message)"
+                )
+            }
             return String(
                 localized: "remotePTYAttach.error.attachFailed",
                 defaultValue: "remote PTY attach failed"
@@ -6931,6 +6961,7 @@ final class WorkspaceRemoteSessionController {
             let stderrPipe = Pipe()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
             process.arguments = reverseRelayArguments(relayPort: relayPort, localRelayPort: localRelayPort)
+            process.environment = configuration.sshProcessEnvironment
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = FileHandle.nullDevice
             process.standardError = stderrPipe
@@ -7549,6 +7580,7 @@ final class WorkspaceRemoteSessionController {
         try runProcess(
             executable: "/usr/bin/ssh",
             arguments: arguments,
+            environment: configuration.sshProcessEnvironment,
             stdin: stdin,
             timeout: timeout
         )
@@ -7562,6 +7594,7 @@ final class WorkspaceRemoteSessionController {
         try runProcess(
             executable: "/usr/bin/scp",
             arguments: arguments,
+            environment: configuration.sshProcessEnvironment,
             stdin: nil,
             timeout: timeout,
             operation: operation
@@ -8106,14 +8139,12 @@ final class WorkspaceRemoteSessionController {
     }
 
     private static func remoteDaemonCacheRoot(fileManager: FileManager = .default) throws -> URL {
-        let appSupportRoot = try fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let cacheRoot = appSupportRoot
-            .appendingPathComponent("cmux", isDirectory: true)
+        // Cache under the non-TCC cmux state directory (matching the CLI's
+        // remoteDaemonCacheURL) rather than Application Support, so the
+        // separately-signed CLI can read it on `cmux ssh` without tripping the
+        // macOS Sequoia "access data from other apps" prompt
+        // (https://github.com/manaflow-ai/cmux/issues/5146).
+        let cacheRoot = CmuxStateDirectory.url(homeDirectory: fileManager.homeDirectoryForCurrentUser)
             .appendingPathComponent("remote-daemons", isDirectory: true)
         try fileManager.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
         return cacheRoot
@@ -10498,6 +10529,7 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable
         case awaitingAutoResumeCommand
@@ -11588,6 +11620,29 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? FilePreviewPanel
     }
 
+    /// The working directory app-level actions (diff viewer, configured commands)
+    /// should target for this workspace: the focused panel's tracked directory, then
+    /// its terminal's requested directory, then the workspace's current directory.
+    /// Returns `nil` when none is known so callers can apply their own fallback.
+    ///
+    /// This is the focused-panel case of ``configTrackingDirectory(for:)`` (the same
+    /// three-tier order); the tiers are spelled out here so the public entry point is
+    /// self-contained.
+    func resolvedWorkingDirectory() -> String? {
+        let candidates = [
+            focusedPanelId.flatMap { panelDirectories[$0] },
+            focusedPanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
+            currentDirectory,
+        ]
+        for candidate in candidates {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
@@ -12068,6 +12123,32 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Directory Updates
 
+    private enum PanelDirectoryUpdateSource {
+        case liveReport
+        case restoredSnapshotMetadata
+    }
+
+    private static func unmountedVolumeRoot(
+        for workingDirectory: String,
+        fileManager: FileManager = .default
+    ) -> String? {
+        let trimmed = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let components = URL(fileURLWithPath: trimmed, isDirectory: true)
+            .standardizedFileURL
+            .pathComponents
+        guard components.count >= 3,
+              components[0] == "/",
+              components[1] == "Volumes",
+              !components[2].isEmpty else {
+            return nil
+        }
+
+        let volumeRoot = "/Volumes/\(components[2])"
+        return fileManager.fileExists(atPath: volumeRoot) ? nil : volumeRoot
+    }
+
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
         if let panelId {
             for candidate in [
@@ -12085,9 +12166,23 @@ final class Workspace: Identifiable, ObservableObject {
         return trimmedCurrentDirectory.isEmpty ? nil : trimmedCurrentDirectory
     }
 
-    func updatePanelDirectory(panelId: UUID, directory: String) {
+    @discardableResult
+    func updatePanelDirectory(panelId: UUID, directory: String) -> Bool {
+        updatePanelDirectory(panelId: panelId, directory: directory, source: .liveReport)
+    }
+
+    @discardableResult
+    private func updatePanelDirectory(
+        panelId: UUID,
+        directory: String,
+        source: PanelDirectoryUpdateSource
+    ) -> Bool {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
+        if source == .liveReport,
+           shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
+            return false
+        }
         if panelDirectories[panelId] != trimmed {
             panelDirectories[panelId] = trimmed
         }
@@ -12100,6 +12195,35 @@ final class Workspace: Identifiable, ObservableObject {
                 currentDirectory = trimmed
             }
         }
+        return true
+    }
+
+    private func shouldIgnoreRestoredGuardedDirectoryReport(
+        panelId: UUID,
+        reportedDirectory: String
+    ) -> Bool {
+        guard let restoredDirectory = restoredGuardedWorkingDirectoriesByPanelId[panelId] else {
+            return false
+        }
+
+        if reportedDirectory == restoredDirectory {
+            restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+            return false
+        }
+
+        let missingVolumeRoot = Self.unmountedVolumeRoot(for: restoredDirectory)
+        guard missingVolumeRoot != nil else {
+            restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+            return false
+        }
+
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.cwdReport.ignored panel=\(panelId.uuidString.prefix(5)) " +
+            "missingVolume=\(missingVolumeRoot ?? "") saved=\(restoredDirectory) reported=\(reportedDirectory)"
+        )
+#endif
+        return true
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
@@ -12602,6 +12726,9 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
+        restoredGuardedWorkingDirectoriesByPanelId = restoredGuardedWorkingDirectoriesByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
         remotePTYSessionIDsByPanelId = remotePTYSessionIDsByPanelId.filter { validSurfaceIds.contains($0.key) }
         endedPersistentRemotePTYAttachSurfaceIds = endedPersistentRemotePTYAttachSurfaceIds.filter { validSurfaceIds.contains($0) }
         pruneRemoteRelaySurfaceAliases(validSurfaceIds: validSurfaceIds)
@@ -13238,6 +13365,21 @@ final class Workspace: Identifiable, ObservableObject {
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
 
+    private func terminalStartupEnvironment(
+        base: [String: String],
+        remoteStartupCommand: String?
+    ) -> [String: String] {
+        guard remoteStartupCommand != nil,
+              let remoteEnvironment = remoteConfiguration?.sshTerminalStartupEnvironment else {
+            return base
+        }
+        var environment = base
+        for (key, value) in remoteEnvironment {
+            environment[key] = value
+        }
+        return environment
+    }
+
     private func normalizedRemotePTYSessionID(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -13738,6 +13880,7 @@ final class Workspace: Identifiable, ObservableObject {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
             process.arguments = arguments
+            process.environment = configuration.sshProcessEnvironment
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
@@ -14178,6 +14321,11 @@ final class Workspace: Identifiable, ObservableObject {
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
+        let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
+        let effectiveStartupEnvironment = terminalStartupEnvironment(
+            base: startupEnvironment,
+            remoteStartupCommand: remoteStartupCommandForEnvironment
+        )
         // Hold the pane open after the remote session ends so the user can read the
         // "ssh exited …" message the startup script prints. Otherwise Ghostty silently
         // respawns a local login shell when the command exits (the PTY falls through
@@ -14232,7 +14380,7 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
-            additionalEnvironment: startupEnvironment
+            additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -14358,6 +14506,11 @@ final class Workspace: Identifiable, ObservableObject {
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
+        let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
+        let effectiveStartupEnvironment = terminalStartupEnvironment(
+            base: startupEnvironment,
+            remoteStartupCommand: remoteStartupCommandForEnvironment
+        )
         // See the comment at the other call site: hold the PTY open after the remote
         // command exits so the user sees the error rather than a silently-respawned
         // local login shell.
@@ -14377,7 +14530,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
-            additionalEnvironment: startupEnvironment
+            additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -14467,6 +14620,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
+        transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
         initialDividerPosition: CGFloat? = nil
     ) -> BrowserPanel? {
@@ -14502,6 +14656,7 @@ final class Workspace: Identifiable, ObservableObject {
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             omnibarVisible: omnibarVisible,
+            transparentBackground: transparentBackground,
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
@@ -14576,6 +14731,7 @@ final class Workspace: Identifiable, ObservableObject {
         bypassInsecureHTTPHostOnce: String? = nil,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
+        transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
@@ -14603,6 +14759,7 @@ final class Workspace: Identifiable, ObservableObject {
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             omnibarVisible: omnibarVisible,
+            transparentBackground: transparentBackground,
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
@@ -14749,7 +14906,8 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false,
         filePath: String,
-        focus: Bool = true
+        focus: Bool = true,
+        fontSize: Double? = nil
     ) -> MarkdownPanel? {
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -14763,7 +14921,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
 
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
+        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath, fontSize: fontSize)
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -16004,7 +16162,7 @@ final class Workspace: Identifiable, ObservableObject {
         let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
         let triggerLabel = trigger == .terminalFirstResponder ? "firstResponder" : "standard"
         cmuxDebugLog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane) trigger=\(triggerLabel)")
-        FocusLogStore.shared.append(
+        AppDelegate.shared?.focusLog.append(
             "Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane) trigger=\(triggerLabel)"
         )
 #endif
@@ -17487,6 +17645,10 @@ final class Workspace: Identifiable, ObservableObject {
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
+        let effectiveStartupEnvironment = terminalStartupEnvironment(
+            base: [:],
+            remoteStartupCommand: startupCommand
+        )
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
@@ -17500,7 +17662,8 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
-            initialInput: initialInput
+            initialInput: initialInput,
+            additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -17543,6 +17706,7 @@ final class Workspace: Identifiable, ObservableObject {
         var terminalWorkingDirectory: String?
         var initialTerminalCommand: String?
         var initialTerminalInput: String
+        var initialTerminalEnvironment: [String: String]
         var remoteConfiguration: WorkspaceRemoteConfiguration?
         var autoConnectRemoteConfiguration: Bool
     }
@@ -17573,6 +17737,7 @@ final class Workspace: Identifiable, ObservableObject {
             terminalWorkingDirectory: isRemoteFork ? nil : workingDirectory,
             initialTerminalCommand: remoteConfiguration?.terminalStartupCommand ?? remoteStartupCommand,
             initialTerminalInput: startupInput,
+            initialTerminalEnvironment: isRemoteFork ? (remoteConfiguration?.sshTerminalStartupEnvironment ?? [:]) : [:],
             remoteConfiguration: remoteConfiguration,
             autoConnectRemoteConfiguration: remoteConfiguration != nil
         )
@@ -17730,7 +17895,8 @@ final class Workspace: Identifiable, ObservableObject {
         return remoteConfiguration?.sessionSnapshot(sshOptionsOverride: forkedSSHOptions)?.workspaceConfiguration(
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
             allowPersistentPTYRestore: false,
-            preserveSSHOptions: true
+            preserveSSHOptions: true,
+            agentSocketPath: remoteConfiguration?.agentSocketPath
         ) ?? remoteConfiguration
     }
 
@@ -18101,11 +18267,17 @@ extension Workspace: BonsplitDelegate {
         gitBranch = panelGitBranches[panelId]
         pullRequest = panelPullRequests[panelId]
 
-        // Post notification
-        NotificationCenter.default.post(
-            name: .ghosttyDidFocusSurface,
-            object: nil,
-            userInfo: [GhosttyNotificationKey.tabId: self.id, GhosttyNotificationKey.surfaceId: panelId, GhosttyNotificationKey.explicitFocusIntent: explicitFocusIntent]
+        // Broadcast the focus change. This is deferred + coalesced (not posted
+        // synchronously) so the `@Published` mutations above settle before any
+        // observer runs, and so a notification-driven focus cycle (command-palette
+        // restore + cross-workspace handoff) cannot synchronously re-enter
+        // applyTabSelectionNow and hang the main thread. See issue #5100.
+        FocusSurfaceBroadcaster.shared.emit(
+            FocusSurfaceBroadcaster.FocusSurfacePayload(
+                workspaceId: self.id,
+                panelId: panelId,
+                explicitFocusIntent: explicitFocusIntent
+            )
         )
         publishCmuxFocusedSelection(paneId: focusedPane, surfaceId: panelId, origin: "bonsplit_selection")
 #if DEBUG
@@ -18616,7 +18788,7 @@ extension Workspace: BonsplitDelegate {
         // When a pane is focused, focus its selected tab's panel
         guard let tab = controller.selectedTab(inPane: pane) else { return }
 #if DEBUG
-        FocusLogStore.shared.append(
+        AppDelegate.shared?.focusLog.append(
             "Workspace.didFocusPane paneId=\(pane.id.uuidString) tabId=\(tab.id) focusedPane=\(controller.focusedPaneId?.id.uuidString ?? "nil")"
         )
 #endif
@@ -19185,6 +19357,7 @@ extension Workspace: BonsplitDelegate {
             workingDirectory: launch.terminalWorkingDirectory,
             initialTerminalCommand: launch.initialTerminalCommand,
             initialTerminalInput: launch.initialTerminalInput,
+            initialTerminalEnvironment: launch.initialTerminalEnvironment,
             inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
             autoWelcomeIfNeeded: false
         )

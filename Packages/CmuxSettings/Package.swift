@@ -13,9 +13,15 @@ let package = Package(
             targets: ["CmuxSettings"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxFileWatch"),
+    ],
     targets: [
         .target(
-            name: "CmuxSettings"
+            name: "CmuxSettings",
+            dependencies: [
+                .product(name: "CmuxFileWatch", package: "CmuxFileWatch"),
+            ]
         ),
         .testTarget(
             name: "CmuxSettingsTests",

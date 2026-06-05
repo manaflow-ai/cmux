@@ -335,8 +335,10 @@ private extension View {
 
 func resolvedBrowserChromeBackgroundColor(
     for colorScheme: ColorScheme,
-    themeBackgroundColor: NSColor
+    themeBackgroundColor: NSColor,
+    drawsBackground: Bool
 ) -> NSColor {
+    guard drawsBackground else { return .clear }
     switch colorScheme {
     case .dark, .light:
         return themeBackgroundColor
@@ -347,13 +349,13 @@ func resolvedBrowserChromeBackgroundColor(
 
 func resolvedBrowserChromeColorScheme(
     for colorScheme: ColorScheme,
-    themeBackgroundColor: NSColor
+    themeBackgroundColor: NSColor,
+    windowBackgroundColor: NSColor = .windowBackgroundColor
 ) -> ColorScheme {
-    let backgroundColor = resolvedBrowserChromeBackgroundColor(
-        for: colorScheme,
-        themeBackgroundColor: themeBackgroundColor
-    )
-    return backgroundColor.isLightColor ? .light : .dark
+    let perceivedBackgroundColor = themeBackgroundColor.alphaComponent < 0.999
+        ? cmuxCompositedNSColor(themeBackgroundColor, over: windowBackgroundColor)
+        : themeBackgroundColor
+    return cmuxReadableColorScheme(for: perceivedBackgroundColor)
 }
 
 func resolvedBrowserOmnibarPillBackgroundColor(
@@ -370,7 +372,8 @@ func resolvedBrowserOmnibarPillBackgroundColor(
         darkenMix = 0.04
     }
 
-    return themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
+    let blendedColor = themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
+    return blendedColor.withAlphaComponent(themeBackgroundColor.alphaComponent)
 }
 
 private struct BrowserChromeStyle {
@@ -380,19 +383,21 @@ private struct BrowserChromeStyle {
 
     static func resolve(
         for colorScheme: ColorScheme,
-        themeBackgroundColor: NSColor
+        themeBackgroundColor: NSColor,
+        drawsBackground: Bool
     ) -> BrowserChromeStyle {
         let backgroundColor = resolvedBrowserChromeBackgroundColor(
             for: colorScheme,
-            themeBackgroundColor: themeBackgroundColor
+            themeBackgroundColor: themeBackgroundColor,
+            drawsBackground: drawsBackground
         )
         let chromeColorScheme = resolvedBrowserChromeColorScheme(
             for: colorScheme,
-            themeBackgroundColor: backgroundColor
+            themeBackgroundColor: themeBackgroundColor
         )
         let omnibarPillBackgroundColor = resolvedBrowserOmnibarPillBackgroundColor(
             for: chromeColorScheme,
-            themeBackgroundColor: backgroundColor
+            themeBackgroundColor: themeBackgroundColor
         )
         return BrowserChromeStyle(
             backgroundColor: backgroundColor,
@@ -453,15 +458,18 @@ struct BrowserPanelView: View {
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var addressBarHeight: CGFloat = 0
     @State private var isBrowserImportHintPopoverPresented = false
+    @State private var focusModeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var omnibarSelectAllRequestId: UInt64 = 0
     @State private var suppressNextFocusGainedSelectAll: Bool = false
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
-    @State private var browserChromeStyle = BrowserChromeStyle.resolve(
-        for: .light,
-        themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
-    )
+    @State private var browserChromeStyle: BrowserChromeStyle
+    // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
+    // re-fire on every CoreAnimation commit (issue #5303). This guards the first-
+    // appearance view-state seed (the empty-state import list) so a spurious appear
+    // does no work. App-once settings work lives in the model bootstrap, not here.
+    @State private var didCompleteInitialBrowserPanelSetup = false
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
     private let omnibarPillCornerRadius: CGFloat = 10
@@ -469,6 +477,27 @@ struct BrowserPanelView: View {
     private let addressBarButtonHitSize: CGFloat = 26
     private let addressBarVerticalPadding: CGFloat = 4
     private let devToolsButtonIconSize: CGFloat = 11
+
+    init(
+        panel: BrowserPanel,
+        paneId: PaneID,
+        isFocused: Bool,
+        isVisibleInUI: Bool,
+        portalPriority: Int,
+        onRequestPanelFocus: @escaping () -> Void
+    ) {
+        self.panel = panel
+        self.paneId = paneId
+        self.isFocused = isFocused
+        self.isVisibleInUI = isVisibleInUI
+        self.portalPriority = portalPriority
+        self.onRequestPanelFocus = onRequestPanelFocus
+        self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
+            for: .light,
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
+        ))
+    }
 
     private var searchConfiguration: BrowserSearchConfiguration {
         BrowserSearchSettings.configuration(
@@ -656,6 +685,10 @@ struct BrowserPanelView: View {
             return
         }
 
+        if panel.recoverTerminatedWebContent(reason: "toolbarReload") {
+            return
+        }
+
         if currentEventIsCommandPointerActivation {
 #if DEBUG
             cmuxDebugLog("browser.reload.commandClickDuplicate panel=\(panel.id.uuidString.prefix(5))")
@@ -714,39 +747,51 @@ struct BrowserPanelView: View {
         }
     }
 
+    private func handleBrowserFocusModeButtonAction() {
+        if !panel.toggleBrowserFocusMode(reason: "toolbarButton", focusWebView: true) {
+            NSSound.beep()
+        }
+    }
+
+    private var browserFocusModeButtonHelp: String {
+        let format = String(localized: "browser.focusMode.helpWithShortcut.format", defaultValue: "%@ (%@)")
+        if panel.isBrowserFocusModeActive {
+            let title = String(localized: "browser.focusMode.exit.help", defaultValue: "Exit browser focus mode")
+            // Active: show the double-Escape exit hint.
+            return String(format: format, title, browserFocusModeShortcutHint)
+        }
+        let title = String(localized: "browser.focusMode.enter.help", defaultValue: "Enter browser focus mode")
+        // Inactive: show the configured enter shortcut, if one is bound.
+        guard let enterHint = browserFocusModeEnterShortcutHint else { return title }
+        return String(format: format, title, enterHint)
+    }
+
+    private var browserFocusModeShortcutHint: String {
+        String(localized: "browser.focusMode.shortcutHint", defaultValue: "Esc Esc")
+    }
+
+    private var browserFocusModeEnterShortcutHint: String? {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleBrowserFocusMode)
+        guard !shortcut.isUnbound else { return nil }
+        return shortcut.displayString
+    }
+
+    private var shouldShowBrowserFocusModeShortcutHint: Bool {
+        panel.isBrowserFocusModeActive &&
+            panel.canToggleBrowserFocusMode &&
+            (ShortcutHintDebugSettings.alwaysShowHints() || focusModeShortcutHintMonitor.isModifierPressed)
+    }
+
     private func handleBrowserPanelAppear() {
+        // One-time setup must not re-run on every commit; `.onAppear` can re-fire
+        // repeatedly for a portal-hosted pane (issue #5303). Everything below the
+        // setup call is idempotent and cheap, and genuine state transitions are
+        // already handled by the dedicated `.onChange` observers on `body`, so
+        // re-running this per appear is harmless once the heavy/one-time work is
+        // gated out.
+        performInitialBrowserPanelSetupIfNeeded()
         startOmnibarSuggestionRefreshConsumer()
-        UserDefaults.standard.register(defaults: [
-            BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
-            BrowserSearchSettings.customSearchEngineNameKey: BrowserSearchSettings.defaultCustomSearchEngineName,
-            BrowserSearchSettings.customSearchEngineURLTemplateKey: BrowserSearchSettings.defaultCustomSearchEngineURLTemplate,
-            BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
-            BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
-            BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
-            BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
-            BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
-        ])
         refreshBrowserChromeStyle()
-        let resolvedThemeMode = BrowserThemeSettings.mode(defaults: .standard)
-        if browserThemeModeRaw != resolvedThemeMode.rawValue {
-            browserThemeModeRaw = resolvedThemeMode.rawValue
-        }
-        let resolvedHintVariant = BrowserImportHintSettings.variant(for: browserImportHintVariantRaw)
-        if browserImportHintVariantRaw != resolvedHintVariant.rawValue {
-            browserImportHintVariantRaw = resolvedHintVariant.rawValue
-        }
-        let resolvedToolbarAccessorySpacing = BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
-        if browserToolbarAccessorySpacingRaw != resolvedToolbarAccessorySpacing {
-            browserToolbarAccessorySpacingRaw = resolvedToolbarAccessorySpacing
-        }
-        let resolvedProfilePopoverHorizontalPadding = BrowserProfilePopoverDebugSettings.resolvedHorizontalPadding(browserProfilePopoverHorizontalPaddingRaw)
-        if browserProfilePopoverHorizontalPaddingRaw != resolvedProfilePopoverHorizontalPadding {
-            browserProfilePopoverHorizontalPaddingRaw = resolvedProfilePopoverHorizontalPadding
-        }
-        let resolvedProfilePopoverVerticalPadding = BrowserProfilePopoverDebugSettings.resolvedVerticalPadding(browserProfilePopoverVerticalPaddingRaw)
-        if browserProfilePopoverVerticalPaddingRaw != resolvedProfilePopoverVerticalPadding {
-            browserProfilePopoverVerticalPaddingRaw = resolvedProfilePopoverVerticalPadding
-        }
         panel.noteWebViewVisibility(
             isVisibleInUI && isCurrentPaneOwner,
             reason: "view.onAppear"
@@ -758,11 +803,28 @@ struct BrowserPanelView: View {
         // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
         autoFocusOmnibarIfBlank()
         syncWebViewResponderPolicyWithViewState(reason: "onAppear")
-        refreshEmptyStateImportBrowsers()
         panel.historyStore.loadIfNeeded()
 #if DEBUG
         logBrowserFocusState(event: "view.onAppear")
 #endif
+        focusModeShortcutHintMonitor.start()
+    }
+
+    /// Runs the view-state initialization that should happen on first appearance,
+    /// independent of how many times SwiftUI fires `.onAppear` for the same view
+    /// instance.
+    ///
+    /// `.onAppear` is not a reliable once-or-on-transition signal for a portal-hosted
+    /// browser pane — it can re-fire on every CoreAnimation commit (issue #5303).
+    /// Default registration and settings normalization are app-once work and live in
+    /// ``BrowserPanel/bootstrapBrowserDefaultsIfNeeded()`` (run from the model
+    /// init), not here. This method only seeds view-local state: the initial
+    /// empty-state import list, which `handleCurrentURLChange` refreshes on subsequent
+    /// new-tab navigations.
+    private func performInitialBrowserPanelSetupIfNeeded() {
+        guard !didCompleteInitialBrowserPanelSetup else { return }
+        didCompleteInitialBrowserPanelSetup = true
+        refreshEmptyStateImportBrowsers()
     }
 
     private func handleOmnibarVisibilityChange(_ isVisible: Bool) {
@@ -779,6 +841,7 @@ struct BrowserPanelView: View {
     private func handleBrowserPanelDisappear() {
         stopOmnibarSuggestionRefreshConsumer()
         cancelPendingOmnibarSuggestionWork()
+        focusModeShortcutHintMonitor.stop()
         screenshotPageCopiedTimer?.invalidate()
         screenshotPageCopiedTimer = nil
         screenshotPageCopied = false
@@ -820,6 +883,7 @@ struct BrowserPanelView: View {
     }
 
     private func handleCurrentURLChange() {
+        refreshBrowserChromeStyle()
         let addressWasEmpty = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         syncURLFromPanel()
         // If we auto-focused a blank omnibar but then a URL loads programmatically, move focus
@@ -837,6 +901,13 @@ struct BrowserPanelView: View {
             preserveRoundTrip: true,
             reason: "panel.currentURL.changed"
         )
+    }
+
+    private func handleRenderWebViewChange() {
+        refreshBrowserChromeStyle()
+        if panel.isShowingNewTabPage {
+            refreshEmptyStateImportBrowsers()
+        }
     }
 
     private func handleBrowserThemeModeRawChange() {
@@ -900,6 +971,7 @@ struct BrowserPanelView: View {
             autoFocusOmnibarIfBlank()
         } else {
             panel.invalidateAddressBarPageFocusRestoreAttempts()
+            panel.clearBrowserFocusMode(reason: "panelFocus.onChange.unfocused")
             hideSuggestions()
             setAddressBarFocused(false, reason: "panelFocus.onChange.unfocused")
             // Surface switches in split layouts can keep the browser visible, so
@@ -1054,7 +1126,7 @@ struct BrowserPanelView: View {
         .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
     }
 
-    var body: some View {
+    private var browserPanelLifecycleView: some View {
         browserPanelBaseView
         .coordinateSpace(name: "BrowserPanelViewSpace")
         .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
@@ -1078,6 +1150,12 @@ struct BrowserPanelView: View {
         .onChange(of: panel.currentURL) { _ in
             handleCurrentURLChange()
         }
+        .onChange(of: panel.shouldRenderWebView) { _, _ in
+            handleRenderWebViewChange()
+        }
+        .onChange(of: panel.backgroundAppearanceRevision) { _, _ in
+            refreshBrowserChromeStyle()
+        }
         .onChange(of: browserThemeModeRaw) { _ in
             handleBrowserThemeModeRawChange()
         }
@@ -1090,6 +1168,10 @@ struct BrowserPanelView: View {
         .onChange(of: panel.isOmnibarVisible) { _, isVisible in
             handleOmnibarVisibilityChange(isVisible)
         }
+    }
+
+    var body: some View {
+        browserPanelLifecycleView
         .onReceive(NotificationCenter.default.publisher(for: .commandPaletteVisibilityDidChange)) { notification in
             handleCommandPaletteVisibilityChange(notification)
         }
@@ -1131,6 +1213,7 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
+                browserFocusModeButtonWithShortcutHint
                 screenshotPageButton
                 reactGrabButton
                 browserProfileButton
@@ -1141,6 +1224,11 @@ struct BrowserPanelView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
         .background(browserChromeBackground)
+        .background(
+            WindowAccessor { window in
+                focusModeShortcutHintMonitor.setHostWindow(window)
+            }
+        )
         .background {
             GeometryReader { geo in
                 Color.clear
@@ -1250,6 +1338,58 @@ struct BrowserPanelView: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: screenshotPageCopied)
+    }
+
+    private var browserFocusModeButtonWithShortcutHint: some View {
+        ZStack(alignment: .top) {
+            browserFocusModeButton
+            if shouldShowBrowserFocusModeShortcutHint {
+                ShortcutHintPill(text: browserFocusModeShortcutHint, fontSize: 9, emphasis: 1.05)
+                    .offset(y: -22)
+                    .shortcutHintTransition()
+                    .accessibilityIdentifier("BrowserFocusModeShortcutHint")
+                    .allowsHitTesting(false)
+                    .zIndex(10)
+            }
+        }
+        .shortcutHintVisibilityAnimation(value: shouldShowBrowserFocusModeShortcutHint)
+    }
+
+    private var browserFocusModeButton: some View {
+        Button(action: handleBrowserFocusModeButtonAction) {
+            HStack(spacing: 5) {
+                Image(systemName: "keyboard")
+                    .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                    .scaleEffect(panel.isBrowserFocusModeActive ? 1.08 : 1.0)
+                    .animation(.spring(response: 0.18, dampingFraction: 0.82), value: panel.isBrowserFocusModeActive)
+                if panel.isBrowserFocusModeActive {
+                    Text(
+                        panel.isBrowserFocusModeExitArmed
+                            ? String(localized: "browser.focusMode.armed", defaultValue: "Esc again to exit")
+                            : String(localized: "browser.focusMode.active", defaultValue: "Focus Mode")
+                    )
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+                }
+            }
+            .foregroundStyle(panel.isBrowserFocusModeActive ? Color.orange : devToolsColorOption.color)
+            .padding(.horizontal, panel.isBrowserFocusModeActive ? 7 : 0)
+            .frame(
+                minWidth: panel.isBrowserFocusModeActive ? 0 : addressBarButtonSize,
+                minHeight: addressBarButtonSize,
+                alignment: .center
+            )
+            .animation(.easeOut(duration: 0.14), value: panel.isBrowserFocusModeActive)
+            .animation(.easeOut(duration: 0.12), value: panel.isBrowserFocusModeExitArmed)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(height: addressBarButtonSize, alignment: .center)
+        .disabled(!panel.canToggleBrowserFocusMode)
+        .opacity(panel.canToggleBrowserFocusMode ? 1.0 : 0.4)
+        .safeHelp(browserFocusModeButtonHelp)
+        .accessibilityIdentifier("BrowserFocusModeButton")
     }
 
     private var screenshotPageButtonColor: Color {
@@ -1652,8 +1792,35 @@ struct BrowserPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay {
+            if panel.hasRecoverableWebContentTermination {
+                webContentRecoveryOverlay
+            }
+        }
         .layoutPriority(1)
         .zIndex(0)
+    }
+
+    private var webContentRecoveryOverlay: some View {
+        ZStack {
+            Color(nsColor: browserChromeBackgroundColor)
+                .opacity(0.92)
+            Button(action: {
+                panel.recoverTerminatedWebContent(reason: "overlayButton")
+            }) {
+                Label(
+                    String(localized: "browser.error.reload", defaultValue: "Reload"),
+                    systemImage: "arrow.clockwise"
+                )
+                .font(.system(size: 13, weight: .medium))
+                .padding(.horizontal, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .safeHelp(String(localized: "browser.reload", defaultValue: "Reload"))
+            .accessibilityIdentifier("BrowserWebContentRecoveryButton")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func triggerFocusFlashAnimation() {
@@ -1683,7 +1850,8 @@ struct BrowserPanelView: View {
     private func refreshBrowserChromeStyle() {
         browserChromeStyle = BrowserChromeStyle.resolve(
             for: colorScheme,
-            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
         )
     }
 
@@ -3718,7 +3886,6 @@ final class OmnibarNativeTextField: NSTextField {
     private struct MouseSelectionState {
         let anchor: Int
         let initialWindowLocation: NSPoint
-        let selectAllOnMouseUp: Bool
         var didDrag: Bool
     }
 
@@ -3779,7 +3946,6 @@ final class OmnibarNativeTextField: NSTextField {
         mouseSelectionState = MouseSelectionState(
             anchor: anchor,
             initialWindowLocation: event.locationInWindow,
-            selectAllOnMouseUp: !hadEditor && !event.modifierFlags.contains(.shift),
             didDrag: false
         )
     }
@@ -3802,16 +3968,16 @@ final class OmnibarNativeTextField: NSTextField {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard let state = mouseSelectionState,
-              let editor = currentEditor() as? NSTextView else {
+        guard mouseSelectionState != nil else {
             super.mouseUp(with: event)
             return
         }
 
+        // A single click leaves the caret placed in `mouseDown`; a drag leaves the
+        // range built up in `mouseDragged`. Focus-via-click never selects all — that
+        // is reserved for the keyboard path (Cmd+L), which selects the whole URL via
+        // the `selectAllRequestId` flow, independent of mouse handling.
         mouseSelectionState = nil
-        if state.selectAllOnMouseUp && !state.didDrag {
-            editor.selectAll(nil)
-        }
     }
 
     private func insertionIndex(for event: NSEvent, in editor: NSTextView) -> Int {

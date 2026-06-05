@@ -6,6 +6,16 @@ import Foundation
 /// pattern `<feature-domain>.beta.<flag-name>` so the cmux.json view
 /// groups them sensibly.
 public struct BetaFeaturesCatalogSection: SettingCatalogSection {
+    /// Right-sidebar Feed: an experimental mode that surfaces inline agent
+    /// decisions (permission prompts, questions) in the right-sidebar mode
+    /// switcher. Defaults off; while off, the Feed mode is hidden from the
+    /// switcher so the feature stays opt-in while it is in beta.
+    public let rightSidebarFeed = DefaultsKey<Bool>(
+        id: "rightSidebar.beta.feed.enabled",
+        defaultValue: false,
+        userDefaultsKey: "rightSidebar.beta.feed.enabled"
+    )
+
     /// Right-sidebar Dock: an experimental terminal-controls dock that
     /// replaces the per-pane action chrome with a unified right-side
     /// rail. Defaults off; flagged as unstable in the Settings UI.
@@ -24,6 +34,17 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         id: "extensions.beta.enabled",
         defaultValue: false,
         userDefaultsKey: "extensions.beta.enabled"
+    )
+
+    /// Custom sidebars: user/agent-authored sidebars (interpreted Swift or
+    /// JSON) discovered from `~/.config/cmux/sidebars/` and selectable in the
+    /// sidebar button's provider picker. Defaults off; while off, no custom
+    /// sidebar appears in the picker and a persisted custom selection falls
+    /// back to the default workspaces sidebar.
+    public let customSidebars = DefaultsKey<Bool>(
+        id: "customSidebars.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "customSidebars.beta.enabled"
     )
 
     public init() {}

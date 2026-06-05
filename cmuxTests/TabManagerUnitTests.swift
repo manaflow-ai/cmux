@@ -613,500 +613,9 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
 
 @MainActor
 final class TabManagerPullRequestProbeTests: XCTestCase {
-    func testGitHubRepositorySlugsPrioritizeUpstreamThenOriginAndDeduplicate() {
-        let output = """
-        origin https://github.com/austinwang/cmux.git (fetch)
-        origin https://github.com/austinwang/cmux.git (push)
-        upstream git@github.com:manaflow-ai/cmux.git (fetch)
-        upstream git@github.com:manaflow-ai/cmux.git (push)
-        backup ssh://git@github.com/manaflow-ai/cmux.git (fetch)
-        mirror https://gitlab.com/manaflow-ai/cmux.git (fetch)
-        """
 
-        XCTAssertEqual(
-            TabManager.githubRepositorySlugs(fromGitRemoteVOutput: output),
-            ["manaflow-ai/cmux", "austinwang/cmux"]
-        )
-    }
-
-    func testPullRequestRepoCandidateListIsCappedAfterRemotePriorityOrdering() {
-        XCTAssertEqual(
-            TabManager.workspacePullRequestCandidateRepoSlugsForTesting(
-                from: [
-                    "manaflow-ai/cmux",
-                    "lawrence/cmux",
-                    "austin/cmux",
-                    "extra/cmux",
-                ]
-            ),
-            [
-                "manaflow-ai/cmux",
-                "lawrence/cmux",
-                "austin/cmux",
-            ]
-        )
-    }
-
-    func testGitHubRepositorySlugsFromGitConfigIgnoreInlineComments() {
-        let config = """
-        [remote "origin"] ; user's main fork
-            url = git@github.com:austinwang/cmux.git # main origin
-            fetch = +refs/heads/*:refs/remotes/origin/*
-        [remote "upstream"] # canonical repo
-            url = https://github.com/manaflow-ai/cmux.git ; upstream source
-            fetch = +refs/heads/*:refs/remotes/upstream/*
-        """
-
-        XCTAssertEqual(
-            TabManager.githubRepositorySlugs(fromGitConfigForTesting: config),
-            ["manaflow-ai/cmux", "austinwang/cmux"]
-        )
-    }
-
-    func testGitHubRepositorySlugsFromGitConfigUnquotesUrlValues() {
-        let config = """
-        [remote "origin"] ; user's main fork
-            url = "git@github.com:austinwang/cmux.git" # main origin
-            fetch = +refs/heads/*:refs/remotes/origin/*
-        [remote "upstream"] # canonical repo
-            url = "https://github.com/manaflow-ai/cmux.git" ; upstream source
-            fetch = +refs/heads/*:refs/remotes/upstream/*
-        """
-
-        XCTAssertEqual(
-            TabManager.githubRepositorySlugs(fromGitConfigForTesting: config),
-            ["manaflow-ai/cmux", "austinwang/cmux"]
-        )
-    }
-
-    func testGitHubRepositorySlugsFromGitConfigUsesLastRemoteURLValue() {
-        let config = """
-        [remote "origin"]
-            url = https://github.com/old-owner/old-repo.git
-            url = https://github.com/manaflow-ai/cmux.git
-        """
-
-        XCTAssertEqual(
-            TabManager.githubRepositorySlugs(fromGitConfigForTesting: config),
-            ["manaflow-ai/cmux"]
-        )
-    }
-
-    func testGitHubRepositorySlugsFromGitConfigReadsIncludedConfigFiles() throws {
-        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-git-config-includes-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        let gitURL = repoURL.appendingPathComponent(".git", isDirectory: true)
-        try FileManager.default.createDirectory(at: gitURL, withIntermediateDirectories: true)
-        defer {
-            try? FileManager.default.removeItem(at: repoURL)
-        }
-
-        try "ref: refs/heads/main\n".write(
-            to: gitURL.appendingPathComponent("HEAD"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try """
-        [include]
-            path = remotes.inc
-        [includeIf "gitdir:\(gitURL.path)/**"]
-            path = conditional-remotes.inc
-        """.write(
-            to: gitURL.appendingPathComponent("config"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try """
-        [remote "origin"]
-            url = "git@github.com:austinwang/cmux.git" # user's main fork
-        """.write(
-            to: gitURL.appendingPathComponent("remotes.inc"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try """
-        [remote "upstream"]
-            url = https://github.com/manaflow-ai/cmux.git ; canonical repo
-        """.write(
-            to: gitURL.appendingPathComponent("conditional-remotes.inc"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        XCTAssertEqual(
-            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
-            ["manaflow-ai/cmux", "austinwang/cmux"]
-        )
-    }
-
-    func testGitHubRepositorySlugsFromGitConfigAppliesIncludesInPlace() throws {
-        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-git-config-include-order-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        let gitURL = repoURL.appendingPathComponent(".git", isDirectory: true)
-        try FileManager.default.createDirectory(at: gitURL, withIntermediateDirectories: true)
-        defer {
-            try? FileManager.default.removeItem(at: repoURL)
-        }
-
-        try "ref: refs/heads/main\n".write(
-            to: gitURL.appendingPathComponent("HEAD"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try """
-        [include]
-            path = remotes.inc
-        [remote "origin"]
-            url = https://github.com/manaflow-ai/cmux.git
-        """.write(
-            to: gitURL.appendingPathComponent("config"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try """
-        [remote "origin"]
-            url = https://github.com/old-owner/old-repo.git
-        """.write(
-            to: gitURL.appendingPathComponent("remotes.inc"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        XCTAssertEqual(
-            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
-            ["manaflow-ai/cmux"]
-        )
-    }
-
-    func testGitHubRepositorySlugsFromGitConfigTreatsTrailingSlashGitdirAsRecursive() throws {
-        let parentURL = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-git-config-recursive-include-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        let repoURL = parentURL
-            .appendingPathComponent("teams", isDirectory: true)
-            .appendingPathComponent("cmux", isDirectory: true)
-        let gitURL = repoURL.appendingPathComponent(".git", isDirectory: true)
-        try FileManager.default.createDirectory(at: gitURL, withIntermediateDirectories: true)
-        defer {
-            try? FileManager.default.removeItem(at: parentURL)
-        }
-
-        try "ref: refs/heads/main\n".write(
-            to: gitURL.appendingPathComponent("HEAD"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try """
-        [includeIf "gitdir:\(parentURL.path)/"]
-            path = recursive-remotes.inc
-        """.write(
-            to: gitURL.appendingPathComponent("config"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try """
-        [remote "upstream"]
-            url = https://github.com/manaflow-ai/cmux.git
-        """.write(
-            to: gitURL.appendingPathComponent("recursive-remotes.inc"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        XCTAssertEqual(
-            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
-            ["manaflow-ai/cmux"]
-        )
-    }
-
-    func testPreferredPullRequestPrefersOpenOverMergedAndClosed() {
-        let candidates = [
-            TabManager.GitHubPullRequestProbeItem(
-                number: 1889,
-                state: "MERGED",
-                url: "https://github.com/manaflow-ai/cmux/pull/1889",
-                updatedAt: "2026-03-20T18:00:00Z"
-            ),
-            TabManager.GitHubPullRequestProbeItem(
-                number: 1891,
-                state: "OPEN",
-                url: "https://github.com/manaflow-ai/cmux/pull/1891",
-                updatedAt: "2026-03-19T18:00:00Z"
-            ),
-            TabManager.GitHubPullRequestProbeItem(
-                number: 1800,
-                state: "CLOSED",
-                url: "https://github.com/manaflow-ai/cmux/pull/1800",
-                updatedAt: "2026-03-21T18:00:00Z"
-            ),
-        ]
-
-        XCTAssertEqual(
-            TabManager.preferredPullRequest(from: candidates),
-            candidates[1]
-        )
-    }
-
-    func testPreferredPullRequestPrefersMostRecentlyUpdatedWithinSameStatus() {
-        let olderOpen = TabManager.GitHubPullRequestProbeItem(
-            number: 1880,
-            state: "OPEN",
-            url: "https://github.com/manaflow-ai/cmux/pull/1880",
-            updatedAt: "2026-03-18T18:00:00Z"
-        )
-        let newerOpen = TabManager.GitHubPullRequestProbeItem(
-            number: 1890,
-            state: "OPEN",
-            url: "https://github.com/manaflow-ai/cmux/pull/1890",
-            updatedAt: "2026-03-20T18:00:00Z"
-        )
-
-        XCTAssertEqual(
-            TabManager.preferredPullRequest(from: [olderOpen, newerOpen]),
-            newerOpen
-        )
-    }
-
-    func testPreferredPullRequestIgnoresMalformedCandidates() {
-        let valid = TabManager.GitHubPullRequestProbeItem(
-            number: 1888,
-            state: "OPEN",
-            url: "https://github.com/manaflow-ai/cmux/pull/1888",
-            updatedAt: "2026-03-20T18:00:00Z"
-        )
-
-        XCTAssertEqual(
-            TabManager.preferredPullRequest(from: [
-                TabManager.GitHubPullRequestProbeItem(
-                    number: 9999,
-                    state: "WHATEVER",
-                    url: "https://github.com/manaflow-ai/cmux/pull/9999",
-                    updatedAt: "2026-03-21T18:00:00Z"
-                ),
-                TabManager.GitHubPullRequestProbeItem(
-                    number: 10000,
-                    state: "OPEN",
-                    url: "not a url",
-                    updatedAt: "2026-03-21T18:00:00Z"
-                ),
-                valid,
-            ]),
-            valid
-        )
-    }
-
-    func testPullRequestMapDropsStaleMergedHeadPullRequestForLongLivedBaseBranch() throws {
-        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
-        let pullRequests = [
-            TabManager.GitHubPullRequestProbeItem(
-                number: 2400,
-                state: "MERGED",
-                url: "https://github.com/manaflow-ai/cmux/pull/2400",
-                updatedAt: "2026-03-06T12:00:00Z",
-                mergedAt: "2026-03-06T12:00:00Z",
-                headRefName: "develop",
-                baseRefName: "main"
-            ),
-            TabManager.GitHubPullRequestProbeItem(
-                number: 2501,
-                state: "MERGED",
-                url: "https://github.com/manaflow-ai/cmux/pull/2501",
-                updatedAt: "2026-04-19T12:00:00Z",
-                mergedAt: "2026-04-19T12:00:00Z",
-                headRefName: "feature/recent-one",
-                baseRefName: "develop"
-            ),
-            TabManager.GitHubPullRequestProbeItem(
-                number: 2502,
-                state: "OPEN",
-                url: "https://github.com/manaflow-ai/cmux/pull/2502",
-                updatedAt: "2026-04-20T12:00:00Z",
-                headRefName: "feature/recent-two",
-                baseRefName: "develop"
-            ),
-        ]
-
-        let pullRequestsByBranch = TabManager.pullRequestMapByNormalizedBranchForTesting(
-            from: pullRequests,
-            now: now
-        )
-
-        XCTAssertNil(pullRequestsByBranch["develop"])
-        XCTAssertEqual(pullRequestsByBranch["feature/recent-one"]?.number, 2501)
-        XCTAssertEqual(pullRequestsByBranch["feature/recent-two"]?.number, 2502)
-    }
-
-    func testShouldSkipWorkspacePullRequestLookupOnlyForExactMainAndMaster() {
-        XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "main"))
-        XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "master"))
-        XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: " master \n"))
-
-        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "Main"))
-        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "mainline"))
-        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "feature/main"))
-        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "release/master-fix"))
-    }
-
-    func testWorkspacePullRequestRefreshAllowsRepoCacheForTimerAndPeriodicReasons() {
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "periodicPoll"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "periodicPoll.followUp"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "selectedPeriodicPoll"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "selectedPeriodicPoll.followUp"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer.followUp"))
-
-        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange"))
-        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange.followUp"))
-        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "shellPrompt"))
-        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "commandHint:merge"))
-    }
-
-    func testWorkspacePullRequestGlobalBackoffDefersRefreshes() {
-        let now = Date(timeIntervalSince1970: 1_000)
-
-        XCTAssertTrue(
-            TabManager.workspacePullRequestShouldDeferForGlobalBackoff(
-                now: now,
-                globalBackoffUntil: now.addingTimeInterval(60)
-            )
-        )
-        XCTAssertFalse(
-            TabManager.workspacePullRequestShouldDeferForGlobalBackoff(
-                now: now,
-                globalBackoffUntil: now.addingTimeInterval(-1)
-            )
-        )
-        XCTAssertFalse(
-            TabManager.workspacePullRequestShouldDeferForGlobalBackoff(
-                now: now,
-                globalBackoffUntil: nil
-            )
-        )
-    }
-
-    func testWorkspacePullRequestRerunDoesNotFollowUpDuringTransientFailureOrBackoff() {
-        let now = Date(timeIntervalSince1970: 1_000)
-
-        XCTAssertFalse(
-            TabManager.workspacePullRequestShouldFollowUpForRerun(
-                resultWasTransientFailure: true,
-                globalBackoffUntil: nil,
-                now: now
-            )
-        )
-        XCTAssertFalse(
-            TabManager.workspacePullRequestShouldFollowUpForRerun(
-                resultWasTransientFailure: false,
-                globalBackoffUntil: now.addingTimeInterval(60),
-                now: now
-            )
-        )
-        XCTAssertTrue(
-            TabManager.workspacePullRequestShouldFollowUpForRerun(
-                resultWasTransientFailure: false,
-                globalBackoffUntil: nil,
-                now: now
-            )
-        )
-    }
-
-    func testWorkspacePullRequestRefreshReasonDoesNotRescheduleUnchangedBranches() {
-        XCTAssertEqual(
-            TabManager.workspacePullRequestRefreshReason(
-                previousBranch: nil,
-                nextBranch: "feat/mobile",
-                hasCurrentPullRequest: false,
-                hasScheduledPoll: false
-            ),
-            "branchChange"
-        )
-        XCTAssertNil(
-            TabManager.workspacePullRequestRefreshReason(
-                previousBranch: "feat/mobile",
-                nextBranch: "feat/mobile",
-                hasCurrentPullRequest: true,
-                hasScheduledPoll: true
-            )
-        )
-        XCTAssertNil(
-            TabManager.workspacePullRequestRefreshReason(
-                previousBranch: "feat/mobile",
-                nextBranch: "feat/mobile",
-                hasCurrentPullRequest: false,
-                hasScheduledPoll: true
-            )
-        )
-        XCTAssertEqual(
-            TabManager.workspacePullRequestRefreshReason(
-                previousBranch: "feat/mobile",
-                nextBranch: "feat/mobile",
-                hasCurrentPullRequest: false,
-                hasScheduledPoll: false
-            ),
-            "localGitProbe"
-        )
-        XCTAssertNil(
-            TabManager.workspacePullRequestRefreshReason(
-                previousBranch: "main",
-                nextBranch: "main",
-                hasCurrentPullRequest: false,
-                hasScheduledPoll: false
-            )
-        )
-        XCTAssertEqual(
-            TabManager.workspacePullRequestRefreshReason(
-                previousBranch: "feat/mobile",
-                nextBranch: "main",
-                hasCurrentPullRequest: true,
-                hasScheduledPoll: false
-            ),
-            "branchChange"
-        )
-        XCTAssertEqual(
-            TabManager.workspacePullRequestRefreshReason(
-                previousBranch: "feat/mobile",
-                nextBranch: "master",
-                hasCurrentPullRequest: false,
-                hasScheduledPoll: true
-            ),
-            "branchChange"
-        )
-        XCTAssertNil(
-            TabManager.workspacePullRequestRefreshReason(
-                previousBranch: nil,
-                nextBranch: "main",
-                hasCurrentPullRequest: false,
-                hasScheduledPoll: false
-            )
-        )
-    }
-
-    func testWorkspacePullRequestShouldRefreshHonorsForcedRefreshForTerminalStates() {
-        let now = Date(timeIntervalSince1970: 1_000)
-        let recentTerminalRefresh = now.addingTimeInterval(-60)
-
-        XCTAssertTrue(
-            TabManager.shouldRefreshWorkspacePullRequest(
-                now: now,
-                nextPollAt: .distantPast,
-                lastTerminalStateRefreshAt: recentTerminalRefresh,
-                currentPullRequestStatus: .merged
-            )
-        )
-        XCTAssertFalse(
-            TabManager.shouldRefreshWorkspacePullRequest(
-                now: now,
-                nextPollAt: now.addingTimeInterval(60),
-                lastTerminalStateRefreshAt: recentTerminalRefresh,
-                currentPullRequestStatus: .closed
-            )
-        )
-    }
+    // Pure pull-request selection/policy tests moved to the CmuxGit package
+    // (CmuxGitTests.PullRequestProbeServiceTests) with the extraction.
 
     func testTrackedWorkspaceGitMetadataPollCandidatesIncludeMainAndMasterPanels() throws {
         let manager = TabManager()
@@ -1362,32 +871,9 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id), Set<UUID>())
     }
 
-    func testResolvedCommandPathFallsBackOutsideAppPATH() throws {
-        let fileManager = FileManager.default
-        let tempDir = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-command-path-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: tempDir) }
-
-        let executableName = "cmux-gh-test-\(UUID().uuidString)"
-        let executableURL = tempDir.appendingPathComponent(executableName)
-        try """
-        #!/bin/sh
-        exit 0
-        """.write(to: executableURL, atomically: true, encoding: .utf8)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
-
-        XCTAssertEqual(
-            TabManager.resolvedCommandPathForTesting(
-                executable: executableName,
-                environment: ["PATH": "/usr/bin:/bin"],
-                fallbackDirectories: [tempDir.path]
-            ),
-            executableURL.path
-        )
-    }
+    // testResolvedCommandPathFallsBackOutsideAppPATH moved to
+    // CmuxProcessTests.resolvesCommandViaFallbackDirectoryOutsidePath when the
+    // command runner was extracted into the CmuxProcess package.
 
     func testPeriodicWorkspaceGitMetadataRefreshClearsStalePullRequestAfterBranchReset() throws {
         let fileManager = FileManager.default
@@ -1619,6 +1105,40 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         )
         XCTAssertEqual(prompts.first?.acceptCmdD, false)
         XCTAssertEqual(manager.tabs.count, 5, "Expected only one workspace to close after the first accepted confirmation")
+    }
+
+    func testCloseWorkspaceEnqueuesTerminalRuntimeTeardownOffMainThread() {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace()
+        manager.selectWorkspace(workspace)
+
+        guard let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let fakeSurface: ghostty_surface_t = UnsafeMutableRawPointer(bitPattern: 0x5282)!
+        terminalPanel.surface.installRuntimeSurfaceForTesting(fakeSurface)
+        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+
+        let nativeFreeStarted = expectation(description: "native free started")
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            XCTAssertFalse(Thread.isMainThread, "Native surface free must not run on the main thread")
+            nativeFreeStarted.fulfill()
+        }
+        defer {
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        manager.confirmCloseHandler = { _, _, _ in true }
+
+        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(workspace))
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
+        XCTAssertNil(terminalPanel.surface.surface)
+
+        wait(for: [nativeFreeStarted], timeout: 3.0)
     }
 
     func testCloseCurrentTabSpamWithConfirmationDisabledClosesEveryRequestedWorkspace() {

@@ -239,6 +239,7 @@ typeset -g _CMUX_GIT_HEAD_LAST_PWD=""
 typeset -g _CMUX_GIT_HEAD_PATH=""
 typeset -g _CMUX_GIT_HEAD_SIGNATURE=""
 typeset -g _CMUX_GIT_HEAD_WATCH_PID=""
+typeset -g _CMUX_GIT_ACTIVE_PWD_FILE="${_CMUX_GIT_ACTIVE_PWD_FILE:-$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-git-active-pwd.XXXXXX" 2>/dev/null || true)}"
 typeset -g _CMUX_PR_POLL_PID=""
 typeset -g _CMUX_PR_POLL_PWD=""
 typeset -g _CMUX_PR_LAST_BRANCH=""
@@ -609,6 +610,35 @@ _cmux_git_branch_for_path() {
     print -r -- "${head_line#$prefix}"
 }
 
+_cmux_set_git_active_pwd() {
+    local active_pwd="$1"
+    [[ -n "$active_pwd" ]] || return 0
+    [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] || return 0
+    print -r -- "$active_pwd" >| "$_CMUX_GIT_ACTIVE_PWD_FILE" 2>/dev/null || true
+}
+
+_cmux_git_report_path_is_active() {
+    local repo_path="$1"
+    [[ -n "$repo_path" ]] || return 1
+    [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] || return 0
+    [[ -r "$_CMUX_GIT_ACTIVE_PWD_FILE" ]] || return 0
+
+    local active_pwd=""
+    IFS= read -r active_pwd < "$_CMUX_GIT_ACTIVE_PWD_FILE" || active_pwd=""
+    # No recorded cwd yet, or the report targets the current cwd exactly: allow.
+    [[ -z "$active_pwd" || "$repo_path" == "$active_pwd" ]] && return 0
+
+    # Otherwise the report is valid only when the current cwd is in the SAME
+    # repository as repo_path. This keeps live branch updates flowing after an
+    # in-repo `cd pkg` (the HEAD watch still reports the preexec watch_pwd) while
+    # still dropping a report once the shell has left the repo entirely (the
+    # stale-branch case). Resolve both HEAD paths without invoking git and compare.
+    local repo_head active_head
+    repo_head="$(_cmux_git_resolve_head_path "$repo_path" 2>/dev/null || true)"
+    active_head="$(_cmux_git_resolve_head_path "$active_pwd" 2>/dev/null || true)"
+    [[ -n "$repo_head" && "$repo_head" == "$active_head" ]]
+}
+
 _cmux_report_tty_payload() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$_CMUX_TTY_NAME" ]] || return 0
@@ -685,9 +715,11 @@ _cmux_report_git_branch_for_path() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _cmux_git_report_path_is_active "$repo_path" || return 0
 
     local branch dirty_opt="--status=unknown"
     branch="$(_cmux_git_branch_for_path "$repo_path" 2>/dev/null || true)"
+    _cmux_git_report_path_is_active "$repo_path" || return 0
     if [[ -n "$branch" ]]; then
         _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     else
@@ -1550,6 +1582,7 @@ _cmux_precmd() {
 
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     local pwd="$PWD"
+    _cmux_set_git_active_pwd "$pwd"
 
     _cmux_prompt_wrap_guard "$cmd_start" "$pwd"
 
@@ -1701,6 +1734,17 @@ _cmux_fix_path() {
     add-zsh-hook -d precmd _cmux_fix_path
 }
 
+_cmux_chpwd() {
+    # Only refresh the active-cwd marker so async git reporters (the HEAD-watch
+    # loop and deferred prompt probes) are scoped to the new cwd. Do NOT tear the
+    # HEAD watch down here: chpwd fires mid-line for compound commands such as
+    # `cd foo && pnpm dev`, and killing the watcher would drop live branch updates
+    # during the long-running step. The marker guard already suppresses any stale
+    # report for the path the shell just left, and precmd stops the watch at the
+    # next prompt.
+    _cmux_set_git_active_pwd "$PWD"
+}
+
 _cmux_restore_terminal_identity_after_startup() {
     if [[ -n "${CMUX_ZSH_RESTORE_TERM:-}" ]]; then
         builtin export TERM="$CMUX_ZSH_RESTORE_TERM"
@@ -1712,10 +1756,12 @@ _cmux_restore_terminal_identity_after_startup() {
 _cmux_zshexit() {
     _cmux_stop_git_head_watch
     _cmux_stop_pr_poll_loop
+    [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] && /bin/rm -f -- "$_CMUX_GIT_ACTIVE_PWD_FILE" >/dev/null 2>&1 || true
 }
 
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec _cmux_preexec
 add-zsh-hook precmd _cmux_precmd
 add-zsh-hook precmd _cmux_fix_path
+add-zsh-hook chpwd _cmux_chpwd
 add-zsh-hook zshexit _cmux_zshexit

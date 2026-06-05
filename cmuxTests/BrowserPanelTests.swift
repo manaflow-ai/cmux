@@ -97,36 +97,53 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
 }
 
 @MainActor
-final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
-    func testActiveMediaCaptureBlocksHiddenWebViewDiscardScheduling() {
-        let defaults = UserDefaults.standard
-        let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        defer {
-            if let previousEnabled {
-                defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-            } else {
-                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-            }
-        }
+private func makeHiddenWebViewDiscardBlockerSnapshot(
+    hasActiveMainFrameProvisionalNavigation: Bool = false,
+    isCapturingMedia: Bool = false
+) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
+    BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
+        isClosing: false,
+        isVisibleInUI: false,
+        shouldRenderWebView: true,
+        hasPendingRemoteNavigation: false,
+        hasCurrentURL: true,
+        isLoading: false,
+        webViewIsLoading: false,
+        hasActiveMainFrameProvisionalNavigation: hasActiveMainFrameProvisionalNavigation,
+        isDownloading: false,
+        activeDownloadCount: 0,
+        preferredDeveloperToolsVisible: false,
+        isDeveloperToolsVisible: false,
+        isElementFullscreenActive: false,
+        isReactGrabActive: false,
+        hasPopups: false,
+        isCapturingMedia: isCapturingMedia
+    )
+}
 
-        let snapshot = BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
-            isClosing: false,
-            isVisibleInUI: false,
-            shouldRenderWebView: true,
-            hasPendingRemoteNavigation: false,
-            hasCurrentURL: true,
-            isLoading: false,
-            webViewIsLoading: false,
-            isDownloading: false,
-            activeDownloadCount: 0,
-            preferredDeveloperToolsVisible: false,
-            isDeveloperToolsVisible: false,
-            isElementFullscreenActive: false,
-            isReactGrabActive: false,
-            hasPopups: false,
-            isCapturingMedia: true
-        )
+@MainActor
+final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
+    private var previousEnabled: Any?
+
+    override func setUp() {
+        super.setUp()
+        let defaults = UserDefaults.standard
+        previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+    }
+
+    override func tearDown() {
+        let defaults = UserDefaults.standard
+        if let previousEnabled {
+            defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        } else {
+            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        }
+        super.tearDown()
+    }
+
+    func testActiveMediaCaptureBlocksHiddenWebViewDiscardScheduling() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isCapturingMedia: true)
         let manager = BrowserHiddenWebViewDiscardManager()
         let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
         manager.delegate = delegate
@@ -136,6 +153,71 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         manager.scheduleIfNeeded(reason: "test.hidden")
 
         XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+
+    // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5261:
+    // a main-frame provisional navigation (e.g. a cross-origin process swap in
+    // flight) must block a hidden-webview discard from replacing the WKWebView.
+    func testMainFrameProvisionalNavigationBlocksHiddenWebViewDiscardScheduling() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(
+            hasActiveMainFrameProvisionalNavigation: true
+        )
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+        manager.delegate = delegate
+
+        XCTAssertEqual(manager.blockers(for: snapshot), ["provisional_navigation"])
+
+        manager.scheduleIfNeeded(reason: "test.provisional")
+
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+
+    // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5261:
+    // a discard countdown that elapsed across system sleep must restart from
+    // wake instead of discarding the webview immediately after wake, while
+    // WebKit pages are still reconnecting/renavigating.
+    func testSystemWakeRestartsHiddenWebViewDiscardCountdown() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot()
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(
+            snapshot: snapshot,
+            hiddenAt: Date(timeIntervalSinceNow: -7200)
+        )
+        manager.delegate = delegate
+
+        manager.noteSystemDidWake(now: Date())
+        manager.scheduleIfNeeded(reason: "test.postWake")
+
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+        XCTAssertTrue(manager.hasScheduledDiscard)
+    }
+
+    // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5261:
+    // sleep cancels an armed discard countdown and blocks re-arming until wake,
+    // and wake re-arms a fresh countdown without discarding.
+    func testSystemSleepCancelsArmedHiddenWebViewDiscard() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot()
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+        manager.delegate = delegate
+
+        manager.scheduleIfNeeded(reason: "test.hidden")
+        XCTAssertTrue(manager.hasScheduledDiscard)
+
+        manager.noteSystemWillSleep()
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(manager.blockers(for: snapshot), ["system_sleeping"])
+
+        manager.scheduleIfNeeded(reason: "test.whileSleeping")
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+
+        manager.noteSystemDidWake(now: Date())
+        XCTAssertTrue(manager.hasScheduledDiscard)
+        XCTAssertEqual(manager.blockers(for: snapshot), [])
         XCTAssertEqual(delegate.discardRequestCount, 0)
     }
 }
@@ -158,6 +240,130 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         assertResolvedColorMatchesTheme(for: .dark)
     }
 
+    func testTransparentGhosttyBackgroundUsesClearBlankBrowserChrome() {
+        let baseColor = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 1.0)
+        let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.42)
+
+        guard let actual = resolvedBrowserChromeBackgroundColor(
+            for: .dark,
+            themeBackgroundColor: themeBackground,
+            drawsBackground: false
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(actual.alphaComponent, 0.0, accuracy: 0.001)
+    }
+
+    func testGhosttyBackgroundThemeColorCompositesTranslucentBackgrounds() {
+        let baseColor = NSColor(srgbRed: 0.02, green: 0.03, blue: 0.04, alpha: 1.0)
+        let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.05)
+
+        XCTAssertEqual(themeBackground.alphaComponent, 1.0, accuracy: 0.001)
+    }
+
+    func testBrowserChromeColorSchemeAccountsForTranslucentBackground() {
+        let darkTranslucentBackground = NSColor(srgbRed: 0.02, green: 0.03, blue: 0.04, alpha: 0.05)
+
+        XCTAssertEqual(
+            resolvedBrowserChromeColorScheme(
+                for: .dark,
+                themeBackgroundColor: darkTranslucentBackground,
+                windowBackgroundColor: .white
+            ),
+            .light
+        )
+    }
+
+    func testBrowserChromeDrawDecisionClearsBlankPageForTransparentGhosttyBackground() {
+        XCTAssertFalse(BrowserPanel.drawsWebViewBackground(
+            isBlankPage: true,
+            opacity: 0.42,
+            usesGhosttyGlassStyle: false,
+            usesTransparentWindow: false
+        ))
+    }
+
+    func testBrowserChromeDrawDecisionClearsBlankPageForGhosttyGlassStyle() {
+        XCTAssertFalse(BrowserPanel.drawsWebViewBackground(
+            isBlankPage: true,
+            opacity: 1.0,
+            usesGhosttyGlassStyle: true,
+            usesTransparentWindow: false
+        ))
+    }
+
+    func testBrowserChromeDrawDecisionClearsBlankPageForTransparentWindow() {
+        XCTAssertFalse(BrowserPanel.drawsWebViewBackground(
+            isBlankPage: true,
+            opacity: 1.0,
+            usesGhosttyGlassStyle: false,
+            usesTransparentWindow: true
+        ))
+    }
+
+    func testBrowserChromeDrawDecisionKeepsFillForRealPagesWithTransparentGhosttyBackground() {
+        XCTAssertTrue(BrowserPanel.drawsWebViewBackground(
+            isBlankPage: false,
+            opacity: 0.42,
+            usesGhosttyGlassStyle: false,
+            usesTransparentWindow: false
+        ))
+    }
+
+    func testBrowserChromeDrawDecisionClearsTransparentInternalRealPagesWithTransparentGhosttyBackground() {
+        XCTAssertFalse(BrowserPanel.drawsWebViewBackground(
+            isBlankPage: false,
+            usesTransparentBackground: true,
+            opacity: 0.42,
+            usesGhosttyGlassStyle: false,
+            usesTransparentWindow: false
+        ))
+    }
+
+    func testBrowserChromeDrawDecisionKeepsFillForOpaqueGhosttyBackground() {
+        XCTAssertTrue(BrowserPanel.drawsWebViewBackground(
+            isBlankPage: true,
+            opacity: 1.0,
+            usesGhosttyGlassStyle: false,
+            usesTransparentWindow: false
+        ))
+    }
+
+    func testBrowserBlankPageURLDetectionTreatsOnlyEmptyAndAboutBlankAsBlank() throws {
+        XCTAssertTrue(BrowserPanel.isBlankBrowserPageURL(nil))
+        XCTAssertTrue(BrowserPanel.isBlankBrowserPageURL(try XCTUnwrap(URL(string: "about:blank"))))
+        XCTAssertFalse(BrowserPanel.isBlankBrowserPageURL(try XCTUnwrap(URL(string: "https://mail.google.com/"))))
+    }
+
+    func testBrowserBlankPageDetectionTreatsPendingRealNavigationAsNonBlank() throws {
+        XCTAssertFalse(BrowserPanel.isBlankBrowserPage(
+            liveURL: nil,
+            currentURL: nil,
+            pendingNavigationURL: try XCTUnwrap(URL(string: "https://mail.google.com/")),
+            isMainFrameProvisionalNavigationActive: true
+        ))
+    }
+
+    func testBrowserBlankPageDetectionTreatsInitialPendingRealNavigationAsNonBlank() throws {
+        XCTAssertFalse(BrowserPanel.isBlankBrowserPage(
+            liveURL: nil,
+            currentURL: nil,
+            pendingNavigationURL: try XCTUnwrap(URL(string: "https://mail.google.com/")),
+            isMainFrameProvisionalNavigationActive: false
+        ))
+    }
+
+    func testBrowserBlankPageDetectionClearsAfterCommittedAboutBlank() throws {
+        XCTAssertTrue(BrowserPanel.isBlankBrowserPage(
+            liveURL: try XCTUnwrap(URL(string: "about:blank")),
+            currentURL: try XCTUnwrap(URL(string: "about:blank")),
+            pendingNavigationURL: try XCTUnwrap(URL(string: "about:blank")),
+            isMainFrameProvisionalNavigationActive: false
+        ))
+    }
+
     private func assertResolvedColorMatchesTheme(
         for colorScheme: ColorScheme,
         file: StaticString = #filePath,
@@ -168,7 +374,8 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         guard
             let actual = resolvedBrowserChromeBackgroundColor(
                 for: colorScheme,
-                themeBackgroundColor: themeBackground
+                themeBackgroundColor: themeBackground,
+                drawsBackground: true
             ).usingColorSpace(.sRGB),
             let expected = themeBackground.usingColorSpace(.sRGB)
         else {
@@ -553,6 +760,21 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
 
     func testDarkModeSlightlyDarkensThemeBackground() {
         assertResolvedColorMatchesExpectedBlend(for: .dark, darkenMix: 0.05)
+    }
+
+    func testTransparentGhosttyBackgroundUsesCompositedOmnibarPill() {
+        let baseColor = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0)
+        let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.42)
+
+        guard let actual = resolvedBrowserOmnibarPillBackgroundColor(
+            for: .light,
+            themeBackgroundColor: themeBackground
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(actual.alphaComponent, 1.0, accuracy: 0.001)
     }
 
     private func assertResolvedColorMatchesExpectedBlend(
@@ -3623,6 +3845,91 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             webView.displayIfNeededCount,
             displayCountBeforeRebind,
             "Workspace rebind should refresh the preserved browser without recreating its portal slot"
+        )
+    }
+}
+
+@MainActor
+final class OmnibarNativeTextFieldCaretTests: XCTestCase {
+    /// A window that hands the omnibar field a real, controllable field editor so
+    /// the click path can be exercised headlessly in CI (mirrors the probe pattern
+    /// used by the omnibar key-routing tests in `BrowserConfigTests`).
+    private final class CaretProbeWindow: NSWindow {
+        let probeFieldEditor = NSTextView(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+
+        override func fieldEditor(_ createFlag: Bool, for object: Any?) -> NSText? {
+            probeFieldEditor
+        }
+    }
+
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow,
+        clickCount: Int = 1,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: clickCount,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/5268: a single,
+    /// unmodified click that focuses the omnibar must leave a caret (zero-length
+    /// selection) at the click position, not select the entire URL.
+    func testSingleClickFocusPlacesCaretInsteadOfSelectingAll() {
+        let window = CaretProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 80, width: 360, height: 24))
+        field.font = .systemFont(ofSize: 12)
+        field.isEditable = true
+        field.isSelectable = true
+        field.isEnabled = true
+        field.stringValue = "https://github.com/manaflow-ai/cmux"
+        container.addSubview(field)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            field.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        // Do NOT pre-focus: the bug only manifests on the click that first acquires
+        // focus, where the old code forced a select-all on mouseUp.
+        let clickPoint = NSPoint(x: field.frame.midX, y: field.frame.midY)
+        let pointInWindow = container.convert(clickPoint, to: nil)
+        field.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window))
+        field.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: pointInWindow, window: window))
+
+        guard let editor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected a field editor after the click acquired focus")
+            return
+        }
+        let textLength = (editor.string as NSString).length
+        XCTAssertGreaterThan(textLength, 0, "Test precondition: the omnibar should contain a URL")
+        XCTAssertEqual(
+            editor.selectedRange().length,
+            0,
+            "A single click must place a caret, not select the whole URL"
         )
     }
 }
