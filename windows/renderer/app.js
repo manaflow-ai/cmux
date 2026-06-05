@@ -2088,6 +2088,10 @@ function folderName(folderPath) {
   return parts.at(-1) || "Workspace";
 }
 
+function workspaceTitleFromFolderPath(folderPath) {
+  return folderName(folderPath).trim().slice(0, 80) || "Workspace";
+}
+
 function folderKey(folderPath) {
   return String(folderPath || "").trim().toLowerCase();
 }
@@ -41058,6 +41062,7 @@ async function createWorkspaceFromFolder() {
 async function createWorkspaceFromFolderPath(folder) {
   try {
     await createWorkspace({
+      title: workspaceTitleFromFolderPath(folder),
       cwd: folder
     });
     toast("Workspace created from folder.");
@@ -41284,7 +41289,9 @@ async function chooseWorkspaceFolder(workspace = activeWorkspace()) {
 async function setWorkspaceFolder(cwd, workspaceId = activeWorkspace()?.id) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace || !cwd) return;
-  const ok = await updateWorkspace(workspace.id, { cwd });
+  const updates = { cwd };
+  if (workspaceNeedsQuickRename(workspace)) updates.title = workspaceTitleFromFolderPath(cwd);
+  const ok = await updateWorkspace(workspace.id, updates);
   if (!ok) return;
   rememberRecentFolder(cwd);
   toast("Workspace folder updated.");
