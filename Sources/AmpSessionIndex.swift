@@ -65,7 +65,7 @@ extension SessionIndexStore {
             let data = try Data(contentsOf: storeURL)
             store = try JSONDecoder().decode(AmpHookSessionStoreFile.self, from: data)
         } catch {
-            errorBag.add("Amp: cannot read \(storeURL.lastPathComponent) (\(error.localizedDescription))")
+            errorBag.add("Amp: cannot read \(storeURL.lastPathComponent)")
             return []
         }
 
