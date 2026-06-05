@@ -17852,43 +17852,51 @@ struct SidebarTabDropDelegate: DropDelegate {
         let movingIds = candidateIds.filter { !sourceAnchorIds.contains($0) }
         guard !movingIds.isEmpty else { return false }
 
-        // Plan against the destination's top-level ids, since `attachWorkspace`
-        // normalizes incoming workspaces to top-level/group boundaries.
-        let topLevelIds = crossWindowTopLevelTabIds()
-        let draggedIsPinned = sourceManager.tabs.first { $0.id == draggedTabId }?.isPinned ?? false
-        let slot = SidebarDropPlanner.crossWindowInsertion(
-            targetTabId: crossWindowTopLevelTarget(),
-            draggedIsPinned: draggedIsPinned,
-            indicator: dragState.dropIndicator,
-            tabIds: topLevelIds,
-            pinnedTabIds: crossWindowTopLevelPinnedTabIds()
-        ).insertionIndex
-        let rawInsertIndex = crossWindowRawInsertIndex(forTopLevelSlot: slot, topLevelIds: topLevelIds)
-
 #if DEBUG
         cmuxDebugLog(
             "sidebar.drop.crossWindow.commit count=\(movingIds.count) " +
-            "to=\(destinationWindowId.uuidString.prefix(5)) slot=\(slot) raw=\(rawInsertIndex)"
+            "to=\(destinationWindowId.uuidString.prefix(5))"
         )
 #endif
-        // Offset by the count of *successful* inserts, not the enumeration
-        // index: each successful insert grows the destination by one, so a
-        // skipped move must not leave a gap in later target indices. Only the
-        // workspaces that actually moved become the destination selection.
+        // A cross-window selection can span pinned and unpinned workspaces, and
+        // `attachWorkspace` normalizes each insert into the leading-pinned /
+        // unpinned region individually. Planning every move from one
+        // `draggedIsPinned` bit would scatter a mixed selection, so plan each
+        // workspace by its *own* pin state against the *live* destination: the
+        // hover indicator still anchors the slot, the per-iteration recompute
+        // keeps each pin tier a contiguous block in source order, and a skipped
+        // move simply doesn't grow the destination (no index gap, no stale
+        // selection). Pin state can't change mid-drag, so snapshot it once.
+        let pinStateById: [UUID: Bool] = Dictionary(
+            uniqueKeysWithValues: movingIds.map { id in
+                (id, sourceManager.tabs.first { $0.id == id }?.isPinned ?? false)
+            }
+        )
         var movedIds: [UUID] = []
         for workspaceId in movingIds {
-            let isLast = workspaceId == movingIds.last
+            let topLevelIds = crossWindowTopLevelTabIds()
+            let slot = SidebarDropPlanner.crossWindowInsertion(
+                targetTabId: crossWindowTopLevelTarget(),
+                draggedIsPinned: pinStateById[workspaceId] ?? false,
+                indicator: dragState.dropIndicator,
+                tabIds: topLevelIds,
+                pinnedTabIds: crossWindowTopLevelPinnedTabIds()
+            ).insertionIndex
+            let rawInsertIndex = crossWindowRawInsertIndex(forTopLevelSlot: slot, topLevelIds: topLevelIds)
             if app.moveWorkspaceToWindow(
                 workspaceId: workspaceId,
                 windowId: destinationWindowId,
-                atIndex: rawInsertIndex + movedIds.count,
-                focus: isLast
+                atIndex: rawInsertIndex,
+                focus: false
             ) {
                 movedIds.append(workspaceId)
             }
         }
 
-        guard !movedIds.isEmpty else { return false }
+        guard let lastMovedId = movedIds.last else { return false }
+        // Focus the last moved workspace; the workspace now lives in this window,
+        // so this resolves to the same-manager focus path (no second move).
+        _ = app.moveWorkspaceToWindow(workspaceId: lastMovedId, windowId: destinationWindowId, focus: true)
         selectedTabIds = Set(movedIds)
         syncSidebarSelection()
         return true
