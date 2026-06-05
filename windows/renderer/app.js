@@ -7731,6 +7731,7 @@ const commands = [
   { id: "settings.pasteTerminalSetup", label: "Paste Terminal Setup", shortcut: "", run: () => pasteTerminalSetup() },
   { id: "settings.resetTerminalSetup", label: "Reset Terminal Setup", shortcut: "", run: () => resetTerminalSetupSettings() },
   { id: "settings.cycleTerminalReadability", label: "Cycle Terminal Readability", shortcut: "", run: () => cycleTerminalReadabilityPreset() },
+  { id: "settings.cycleTerminalColors", label: "Cycle Terminal Colors", shortcut: "", run: () => cycleTerminalColorPreset() },
   { id: "settings.terminalColors", label: "Reset Terminal Colors", shortcut: "", run: () => applyTerminalColorPresetById("cmux") },
   { id: "settings.saveTerminalProfile", label: "Save Terminal Profile", shortcut: "", run: () => saveCurrentTerminalProfile() },
   { id: "settings.colors", label: "Open Color Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "color", focusSearch: true }) },
@@ -7854,6 +7855,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.pasteTerminalSetup",
   "settings.resetTerminalSetup",
   "settings.cycleTerminalReadability",
+  "settings.cycleTerminalColors",
   "settings.terminalColors",
   "settings.resetCommandPalette",
   "settings.resetLayoutMode",
@@ -8439,6 +8441,17 @@ function customizationCommandPaletteState(commandId) {
       icon: "terminal",
       title: model.title,
       search: normalizeSettingsQuery(`terminal readability cycle next typography preset font size line height padding history cursor ${model.search}`)
+    };
+  }
+  if (commandId === "settings.cycleTerminalColors") {
+    const model = terminalColorPresetCycleModel();
+    return {
+      meta: model.meta,
+      shortcut: "Cycle",
+      disabled: model.disabled,
+      icon: "terminal",
+      title: model.title,
+      search: normalizeSettingsQuery(`terminal colors cycle next theme preset palette background foreground text cursor ${model.search}`)
     };
   }
   if (commandId === "settings.copyTerminalSetup" || commandId === "settings.pasteTerminalSetup" || commandId === "settings.resetTerminalSetup") {
@@ -16443,7 +16456,7 @@ function renderSettingsInspector(options = {}) {
     ));
     const colorActions = document.createElement("div");
     colorActions.className = "settings-actions";
-    colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color text typography reset default background foreground cursor save copy paste terminal profile setup reusable clipboard json font size line height padding history shell cursor blink shape");
+    colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color text typography cycle reset default background foreground cursor save copy paste terminal profile setup reusable clipboard json font size line height padding history shell cursor blink shape");
     const terminalColorsReset = isTerminalColorPresetIdActive("cmux");
     const terminalTextDefault = terminalTextSettings.every((key) => state.settings[key] === defaultSettings[key]);
     const terminalSetupDefault = terminalSetupSettingsAreDefault();
@@ -16459,6 +16472,10 @@ function renderSettingsInspector(options = {}) {
     const cycleReadability = settingsActionButton("Cycle readability", cycleTerminalReadabilityPreset, "", `terminal readability cycle next preset typography font size line height padding history cursor ${readabilityCycle.search}`);
     cycleReadability.disabled = readabilityCycle.disabled;
     cycleReadability.title = readabilityCycle.title;
+    const terminalColorCycle = terminalColorPresetCycleModel();
+    const cycleTerminalColors = settingsActionButton("Cycle colors", cycleTerminalColorPreset, "", `terminal color colors cycle next theme preset palette background foreground text cursor ${terminalColorCycle.search}`);
+    cycleTerminalColors.disabled = terminalColorCycle.disabled;
+    cycleTerminalColors.title = terminalColorCycle.title;
     const resetTerminalText = settingsActionButton("Reset text", resetTerminalTextSettings, "", `terminal text typography font size line height padding cursor blink shape reset default ${terminalTextDefault ? "active current " : ""}`);
     resetTerminalText.disabled = terminalTextDefault;
     resetTerminalText.title = terminalTextDefault
@@ -16480,6 +16497,7 @@ function renderSettingsInspector(options = {}) {
         "Save this terminal setup as a reusable Settings profile."
       ),
       cycleReadability,
+      cycleTerminalColors,
       copyTerminalSetupAction,
       pasteTerminalSetupAction,
       copyTerminalColors,
@@ -25454,6 +25472,7 @@ function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount
         : "Save the latest recent terminal command as a reusable snippet.";
   const setupDefault = terminalSetupSettingsAreDefault();
   const readabilityCycle = terminalReadabilityCycleModel();
+  const colorCycle = terminalColorPresetCycleModel();
   const actions = [
     quickOverviewControlButton("New terminal", () => createTerminalPanel(newPaneDirection(), { workspaceId: workspace?.id }), {
       disabled: !hasWorkspace || creationDisabled,
@@ -25510,6 +25529,11 @@ function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount
       disabled: readabilityCycle.disabled,
       title: readabilityCycle.title,
       search: `quick setup terminal readability cycle next preset typography font size line height ${readabilityCycle.search}`
+    }),
+    quickOverviewControlButton("Cycle colors", () => refreshQuickSettingsAfterAction(cycleTerminalColorPreset({ render: false })), {
+      disabled: colorCycle.disabled,
+      title: colorCycle.title,
+      search: `quick setup terminal colors cycle next theme preset palette background foreground text cursor ${colorCycle.search}`
     }),
     quickOverviewControlButton("Terminal", () => openSettingsCategory("terminal"), {
       title: "Open full terminal settings.",
@@ -31315,6 +31339,33 @@ function terminalColorPresetCopyTitle(preset) {
   return `Copy ${preset.label} terminal colors as JSON.`;
 }
 
+function terminalColorPresetCycleModel() {
+  const presets = terminalColorPresets.filter((preset) => preset);
+  const activeIndex = presets.findIndex((preset) => isActiveTerminalColorPreset(preset));
+  const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % presets.length : 0;
+  const preset = presets[nextIndex] || null;
+  const current = terminalColorPalettePayload().effective;
+  const next = terminalColorPresetPalettePayload(preset)?.effective || current;
+  return {
+    preset,
+    disabled: !preset || (presets.length === 1 && activeIndex === 0),
+    meta: preset ? `${preset.label} / ${next.background} / ${next.foreground}` : "No terminal color presets",
+    title: preset
+      ? `Cycle terminal colors to ${preset.label}.`
+      : "No terminal color presets are available.",
+    search: normalizeSettingsQuery(`terminal colors cycle next theme preset palette background foreground text cursor current ${current.background} ${current.foreground} ${current.cursor} next ${preset?.label || ""} ${preset?.body || ""} ${next.background} ${next.foreground} ${next.cursor}`)
+  };
+}
+
+function cycleTerminalColorPreset(options = {}) {
+  const model = terminalColorPresetCycleModel();
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applyTerminalColorPreset(model.preset, options);
+}
+
 const terminalSetupSettings = [
   "terminalFontFamily",
   "terminalFontSize",
@@ -31961,8 +32012,8 @@ async function pasteTerminalColorPalette() {
   }
 }
 
-function applyTerminalColorPreset(preset) {
-  if (!preset) return;
+function applyTerminalColorPreset(preset, options = {}) {
+  if (!preset) return false;
   const changed = updateSettings({
     terminalBackground: preset.background,
     terminalForeground: preset.foreground,
@@ -31970,14 +32021,15 @@ function applyTerminalColorPreset(preset) {
   });
   if (!changed) {
     toast(`${preset.label} terminal colors already active.`);
-    return;
+    return false;
   }
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast(`${preset.label} terminal colors applied.`);
+  return true;
 }
 
-function applyTerminalColorPresetById(presetId) {
-  applyTerminalColorPreset(terminalColorPresets.find((preset) => preset.id === presetId));
+function applyTerminalColorPresetById(presetId, options = {}) {
+  return applyTerminalColorPreset(terminalColorPresetById(presetId), options);
 }
 
 function terminalColorPresetGrid() {
