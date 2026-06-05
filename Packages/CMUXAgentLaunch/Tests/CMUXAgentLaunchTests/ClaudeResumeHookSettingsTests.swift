@@ -56,8 +56,10 @@ struct ClaudeResumeHookSettingsTests {
         #expect(argv.contains("opus"))
     }
 
-    @Test("Claude resume re-applies hooks for the --settings=<value> equals form")
-    func claudeResumeReinjectsHookSettingsEqualsForm() throws {
+    @Test("Claude resume strips a stale captured hook --settings in equals form")
+    func claudeResumeStripsStaleEqualsFormHookSettings() throws {
+        // Equals form of the captured (stale) hook --settings must be dropped,
+        // and cmux's current hooks re-applied.
         let argv = try #require(
             AgentResumeArgv().builtInKind(
                 kind: "claude",
@@ -72,34 +74,52 @@ struct ClaudeResumeHookSettingsTests {
             )
         )
 
-        let settings = try #require(
-            settingsValue(in: argv),
-            "Claude resume argv must carry a --settings option re-applying cmux hooks"
-        )
+        let settings = try #require(settingsValue(in: argv))
         #expect(settings.contains("hooks claude session-start"))
-        #expect(settings.contains("hooks claude stop"))
-        #expect(settings.contains("hooks claude notification"))
-
         #expect(!argv.contains("--settings=/tmp/cmux-claude-hook-x/settings.json"))
         #expect(argv.contains("--model"))
         #expect(argv.contains("opus"))
     }
 
-    @Test("A non-hook --settings is preserved and does not trigger re-injection")
-    func nonHookSettingsPreservedWithoutInjection() {
+    @Test("Production shape: re-applies hooks even when captured argv was already sanitized")
+    func reappliesHooksForAlreadySanitizedCapture() throws {
+        // The real capture pipeline persists a sanitized launch command, so the
+        // hook --settings is already gone by resume time. Hooks must still be
+        // re-applied. https://github.com/manaflow-ai/cmux/issues/5427
+        let argv = try #require(
+            AgentResumeArgv().builtInKind(
+                kind: "claude",
+                sessionId: "s",
+                executablePath: nil,
+                arguments: ["claude", "--model", "opus", "--permission-mode", "auto"]
+            )
+        )
+        let settings = try #require(settingsValue(in: argv))
+        #expect(settings.contains("hooks claude session-start"))
+        #expect(settings.contains("hooks claude stop"))
+        #expect(settings.contains("hooks claude notification"))
+        #expect(argv == [
+            "claude", "--resume", "s",
+            "--settings", ClaudeHookSettings.settingsJSON,
+            "--model", "opus", "--permission-mode", "auto"
+        ])
+    }
+
+    @Test("A non-hook --settings is preserved alongside the re-applied hooks")
+    func nonHookSettingsPreservedAlongsideHooks() {
         let argv = AgentResumeArgv().builtInKind(
             kind: "claude",
             sessionId: "s",
             executablePath: nil,
-            arguments: [
-                "claude",
-                "--settings",
-                "/home/me/settings.json"
-            ]
+            arguments: ["claude", "--settings", "/home/me/settings.json"]
         )
 
-        // The user's own settings survive, and because the captured launch
-        // never carried a cmux hook --settings, no hook settings are injected.
-        #expect(argv == ["claude", "--resume", "s", "--settings", "/home/me/settings.json"])
+        // The user's own settings survive, and cmux's hook --settings is applied
+        // first (matching the fresh-launch wrapper order: hooks, then user args).
+        #expect(argv == [
+            "claude", "--resume", "s",
+            "--settings", ClaudeHookSettings.settingsJSON,
+            "--settings", "/home/me/settings.json"
+        ])
     }
 }

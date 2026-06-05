@@ -1773,7 +1773,12 @@ final class SessionPersistenceTests: XCTestCase {
 }
 
 final class SocketListenerAcceptPolicyTests: XCTestCase {
-    func testClaudeResumeCommandDropsStaleHookSettingsAndReappliesCurrentHooks() {
+    func testClaudeResumeCommandReappliesCurrentHooksOnAlreadySanitizedCapture() {
+        // Production shape: the persisted claude launch command is sanitized at
+        // capture time (the hook --settings and --session-id are already gone),
+        // so resume must re-apply cmux's current hooks from nothing rather than
+        // relying on the captured argv still carrying them.
+        // https://github.com/manaflow-ai/cmux/issues/5427
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: "claude-session-123",
@@ -1786,12 +1791,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "--model",
                     "sonnet",
                     "--permission-mode",
-                    "auto",
-                    "--settings",
-                    #"{"hooks":{"SessionStart":[{"hooks":[{"command":"cmux claude-hook session-start"}]}]}}"#,
-                    "--session-id",
-                    "old-session",
-                    "initial prompt should not replay"
+                    "auto"
                 ],
                 workingDirectory: "/tmp/cmux project",
                 environment: ["CLAUDE_CONFIG_DIR": "/tmp/claude config"],
@@ -1800,9 +1800,6 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        // The captured (stale) hook --settings is dropped, but cmux's current
-        // hook settings are re-applied so SessionStart/Stop/Notification still
-        // fire on the resumed session. https://github.com/manaflow-ai/cmux/issues/5427
         XCTAssertEqual(
             snapshot.resumeCommand,
             "{ cd -- '/tmp/cmux project' 2>/dev/null || [ ! -d '/tmp/cmux project' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/opt/Claude Code/bin/claude' '--resume' 'claude-session-123' '--settings' '\(ClaudeHookSettings.settingsJSON)' '--model' 'sonnet' '--permission-mode' 'auto'"

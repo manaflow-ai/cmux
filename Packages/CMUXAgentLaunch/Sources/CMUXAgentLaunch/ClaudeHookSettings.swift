@@ -29,10 +29,8 @@ import Foundation
 /// Re-apply cmux's hooks when resuming a captured `claude` launch:
 ///
 /// ```swift
-/// var argv = ["claude", "--resume", sessionId]
-/// if AgentLaunchSanitizer.containsClaudeHookSettingsOption(capturedTail) {
-///     argv += ["--settings", ClaudeHookSettings.settingsJSON]
-/// }
+/// let argv = ["claude", "--resume", sessionId, "--settings", ClaudeHookSettings.settingsJSON]
+///     + preservedUserArguments
 /// ```
 public struct ClaudeHookSettings: Sendable, Equatable {
     /// Creates a value. The type holds no state; it namespaces the canonical
