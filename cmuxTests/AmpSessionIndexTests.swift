@@ -42,22 +42,24 @@ final class AmpSessionIndexTests: XCTestCase {
         XCTAssertEqual(entry.title, "Amp session in amp repo")
         let resume = try XCTUnwrap(entry.resumeCommand)
         XCTAssertTrue(
-            resume.hasSuffix("amp threads continue \(SessionEntry.shellQuote("T-newer"))"),
+            resume.hasSuffix("amp threads continue T-newer"),
             "unexpected resume command: \(resume)"
         )
         XCTAssertTrue(resume.contains("/tmp/amp repo"), "resume should cd into the cwd: \(resume)")
     }
 
     func testResumeCommandWithoutCwd() throws {
+        // Whitespace-containing id so the assertion independently verifies
+        // shell-quoting rather than echoing SessionEntry.shellQuote back.
         let storeURL = try writeStore([
-            "T-nocwd": ["sessionId": "T-nocwd", "updatedAt": 50.0],
+            "T nocwd": ["sessionId": "T nocwd", "updatedAt": 50.0],
         ])
         defer { try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent()) }
 
         let entry = try XCTUnwrap(SessionIndexStore.loadAmpEntriesForTesting(storeURL: storeURL).entries.first)
         XCTAssertNil(entry.cwd)
         XCTAssertEqual(entry.title, "Amp session")
-        XCTAssertEqual(entry.resumeCommand, "amp threads continue \(SessionEntry.shellQuote("T-nocwd"))")
+        XCTAssertEqual(entry.resumeCommand, "amp threads continue 'T nocwd'")
     }
 
     func testPrefersRecordTitleWhenPresent() throws {
@@ -86,7 +88,9 @@ final class AmpSessionIndexTests: XCTestCase {
         let outcome = SessionIndexStore.loadAmpEntriesForTesting(storeURL: storeURL)
         XCTAssertEqual(outcome.entries, [])
         XCTAssertEqual(outcome.errors.count, 1)
-        XCTAssertTrue(outcome.errors[0].contains("Amp: cannot read session store"))
+        // Sanitized: filename only, no absolute path.
+        XCTAssertTrue(outcome.errors[0].contains("Amp: cannot read amp-hook-sessions.json"))
+        XCTAssertFalse(outcome.errors[0].contains(storeURL.path))
     }
 
     func testMissingStoreIsEmptyWithoutError() throws {

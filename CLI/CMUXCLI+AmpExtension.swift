@@ -482,9 +482,12 @@ export default function (amp: PluginAPI) {
     return title ? { title } : {};
   }
 
-  // Amp usually generates the title during/after the first turn, so reading it
-  // on session.start/agent.start misses it for single-turn threads. Subscribe
-  // once per thread and push each new title through to cmux as it lands.
+  // Amp usually generates the title mid-turn, so reading it on
+  // session.start/agent.start misses it. Subscribe once per thread and push each
+  // new title to cmux as it lands. The push reuses the session-start hook, which
+  // also marks the session running, so it must only fire while a turn is active —
+  // otherwise a title that finalizes after the turn ends would revive a session
+  // cmux has already marked idle.
   const titleSubs = new Map<string, { unsubscribe?: () => void }>();
   function watchThreadTitle(threadID: string, ctx?: AmpThreadContext): void {
     const observable = ctx?.thread?.title;
@@ -492,6 +495,7 @@ export default function (amp: PluginAPI) {
     let lastSent: string | null = null;
     try {
       const sub = observable.subscribe((value) => {
+        if (!turnActive) return;
         const title = value?.trim();
         if (!title || title === lastSent) return;
         lastSent = title;
