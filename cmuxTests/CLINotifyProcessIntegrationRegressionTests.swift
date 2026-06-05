@@ -955,7 +955,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let sessionId = "legacy-stop-turn-stack-session"
-        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        var launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        launchEnvironment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "1"
         startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
 
         let parentPrompt = runCodexHook(
@@ -2036,12 +2037,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let sessionId = "late-stale-turn-stop-session"
-        let transcriptURL = try writeCodexTerminalTranscript(
-            context: context,
-            name: "codex-late-stale-turn-stop.jsonl",
-            turnId: "old-turn",
-            eventType: "turn_aborted"
-        )
+        let transcriptURL = context.root.appendingPathComponent("codex-late-stale-turn-stop.jsonl")
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
         startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
 
@@ -2054,6 +2054,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
         XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
 
+        let currentPromptStart = context.state.snapshot().count
         let currentPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
@@ -2062,19 +2063,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
         XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
-
-        let sawPromptResumeBinding = waitForMockSocketCommand(in: context.state) {
-            jsonObject($0)?["method"] as? String == "surface.resume.set"
-        }
-        XCTAssertTrue(
-            sawPromptResumeBinding,
-            "A prompt should publish a resume binding before Stop, saw \(context.state.snapshot())"
+        let currentPromptCommands = Array(context.state.snapshot().dropFirst(currentPromptStart))
+        XCTAssertFalse(
+            currentPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Before the late terminal transcript update, the current prompt should still look nested, saw \(currentPromptCommands)"
         )
 
         try [
             #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}"#,
             #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"old-turn"}}"#,
             #"{"type":"turn_context","payload":{"turn_id":"current-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"current-turn"}}"#,
             #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"current-turn","last_agent_message":"current done"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
@@ -4950,6 +4950,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             case "workspace.current":
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": currentWorkspaceId])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
@@ -4957,6 +4961,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
+        environment.removeValue(forKey: "CMUX_SOCKET")
         environment["CMUX_WORKSPACE_ID"] = currentWorkspaceId
         environment["CMUX_SURFACE_ID"] = currentSurfaceId
         environment["CMUX_CLI_TTY_NAME"] = ttyName
@@ -4966,7 +4971,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "prompt-submit"],
+            arguments: [
+                "--socket", socketPath,
+                "hooks", "codex", "prompt-submit",
+                "--workspace", currentWorkspaceId,
+                "--surface", currentSurfaceId,
+            ],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
             timeout: 5

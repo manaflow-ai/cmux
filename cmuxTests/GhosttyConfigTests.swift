@@ -2325,11 +2325,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        settleInitialBlankLoad(panel.webView)
 
         panel.noteWebViewVisibility(true, reason: "test.visible.first")
         XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)

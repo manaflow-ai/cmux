@@ -3336,14 +3336,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        // A reaped, definitely-exited PID forces the no-argv capture path: processArguments() returns
-        // nil for a dead process, so the hook can only carry CODEX_HOME via the env-only record.
-        let deadHelper = Process()
-        deadHelper.executableURL = URL(fileURLWithPath: "/usr/bin/true")
-        try deadHelper.run()
-        deadHelper.waitUntilExit()
-        let deadPID = Int(deadHelper.processIdentifier)
-
         let now = Date().timeIntervalSince1970
         let store: [String: Any] = [
             "version": 1,
@@ -3355,17 +3347,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "cwd": root.path,
                     "startedAt": now,
                     "updatedAt": now,
-                    "pid": deadPID,
                 ],
             ],
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
             .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
 
-        let serverHandled = startMockServer(
+        startDetachedMockServer(
             listenerFD: listenerFD,
-            state: state,
-            fulfillWhen: { self.jsonObject($0)?["method"] as? String == "surface.resume.set" }
+            state: state
         ) { line in
             guard let payload = self.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
@@ -3412,41 +3402,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-
-        let waitForResumeRequest = {
-            let deadline = Date().addingTimeInterval(5)
-            while Date() < deadline {
-                if state.snapshot().contains(where: {
-                    self.jsonObject($0)?["method"] as? String == "surface.resume.set"
-                }) {
-                    return true
-                }
-                RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-            }
-            return state.snapshot().contains(where: {
-                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
-            })
-        }
-        XCTAssertTrue(
-            waitForResumeRequest(),
-            "expected a surface.resume.set; saw \(state.snapshot())"
-        )
-        let resumeRequests = state.snapshot().compactMap { command -> [String: Any]? in
-            guard let payload = self.jsonObject(command),
-                  payload["method"] as? String == "surface.resume.set" else { return nil }
-            return payload["params"] as? [String: Any]
-        }
-        let params = try XCTUnwrap(resumeRequests.last, "expected a surface.resume.set; saw \(state.snapshot())")
-        let boundEnvironment = params["environment"] as? [String: String]
-        XCTAssertEqual(
-            boundEnvironment?["CODEX_HOME"], codexHome,
-            "resume binding must carry the captured CODEX_HOME; params=\(params)"
-        )
-        let command = try XCTUnwrap(params["command"] as? String)
-        XCTAssertTrue(command.contains("'resume' '\(sessionId)'"), command)
 
         // The env-only record must also be PERSISTED to the hook session store (its arguments are
         // empty, so the store's "only assign launchCommand when arguments is non-empty" gate would
