@@ -201,7 +201,7 @@ check_test_depot_fails_closed() {
     /^[[:space:]]*- name: Run unit tests$/ { in_unit=1; next }
     in_unit && /^[[:space:]]*- name:/ { in_unit=0 }
     in_unit && /scripts\/ci\/run-cmux-unit-tests-isolated\.sh/ { saw_unit_runner=1 }
-    in_unit && /All \[1-9\]\[0-9\]\* selected cmuxTests XCTestCase classes passed in shard-/ { saw_unit_guard=1 }
+    in_unit && /All \[1-9\]\[0-9\]\* selected cmuxTests XCTestCase classes and Swift Testing suites passed in shard-\.\* batches/ { saw_unit_guard=1 }
     in_unit && /Unit test workflow completed without executing any tests/ { saw_unit_message=1 }
     /^[[:space:]]*- name: Run UI tests$/ { in_ui=1; next }
     in_ui && /^[[:space:]]*- name:/ { in_ui=0 }
@@ -549,7 +549,7 @@ check_xcodebuild_unit_step_requires_nonzero_execution() {
     in_step && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_wrapper=1 }
     in_step && /scripts\/ci\/run-cmux-unit-tests-isolated\.sh/ { saw_sharded_runner=1 }
     in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
-    in_step && /All \[1-9\]\[0-9\]\* selected cmuxTests XCTestCase classes passed in shard-/ { saw_shard_nonzero_guard=1 }
+    in_step && /All \[1-9\]\[0-9\]\* selected cmuxTests XCTestCase classes and Swift Testing suites passed in shard-\.\* batches/ { saw_shard_nonzero_guard=1 }
     in_step && index($0, message) { saw_message=1 }
     END {
       if (require_class_sharding) {

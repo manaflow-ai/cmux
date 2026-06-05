@@ -28073,6 +28073,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
 
             if hasInvalidAmbientWorkspaceArg || hasInvalidAmbientSurfaceArg {
+                if let workspaceId = resolveAccessibleWorkspaceId(mapped?.workspaceId),
+                   let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: nil, mapped: mapped) {
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=mapped-invalid-ambient workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) mapped=1",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                    return target
+                }
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=invalidAmbientBinding mapped=\(mapped == nil ? 0 : 1)",

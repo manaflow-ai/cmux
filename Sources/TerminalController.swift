@@ -120,6 +120,8 @@ class TerminalController {
         var sticky: Bool = false
     }
     private static let mobileViewportReportTTL: TimeInterval = 5
+    private static let mobileViewportClientIDMaxLength = 128
+    private static let mobileViewportStickyReportLimitPerSurface = 16
     private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
 #if DEBUG
@@ -21364,7 +21366,8 @@ class TerminalController {
         terminalPanel: TerminalPanel,
         sticky: Bool = false
     ) {
-        guard let clientID = v2String(params, "client_id"),
+        guard let rawClientID = v2String(params, "client_id"),
+              let clientID = Self.validMobileViewportClientID(rawClientID),
               let rawColumns = v2Int(params, "viewport_columns"),
               let rawRows = v2Int(params, "viewport_rows") else {
             return
@@ -21376,6 +21379,11 @@ class TerminalController {
         var reports = mobileViewportReportsBySurfaceID[terminalPanel.id] ?? [:]
         reports = reports.filter { _, report in
             report.sticky || now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
+        }
+        if sticky,
+           reports[clientID] == nil,
+           reports.values.filter(\.sticky).count >= Self.mobileViewportStickyReportLimitPerSurface {
+            return
         }
         reports[clientID] = MobileViewportReport(
             columns: columns,
@@ -21495,6 +21503,16 @@ class TerminalController {
             )
         }
         scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
+    }
+
+    private static func validMobileViewportClientID(_ rawClientID: String) -> String? {
+        let clientID = rawClientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clientID.isEmpty,
+              clientID.count <= mobileViewportClientIDMaxLength,
+              clientID.unicodeScalars.allSatisfy({ !$0.properties.isControl }) else {
+            return nil
+        }
+        return clientID
     }
 
     private func mobileResolveWorkspaceAndSurface(

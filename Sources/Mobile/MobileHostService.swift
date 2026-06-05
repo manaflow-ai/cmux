@@ -244,6 +244,8 @@ final class MobileHostService {
     static let shared = MobileHostService()
     static let preferredPort = CmxMobileDefaults.defaultHostPort
     nonisolated private static let maximumActiveConnectionCount = 10
+    nonisolated private static let maximumStickyViewportClientIDsPerConnection = 16
+    nonisolated private static let maximumViewportClientIDLength = 128
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     private let routeResolver = MobileRouteResolver()
@@ -695,13 +697,22 @@ final class MobileHostService {
             return
         }
         var clientIDs = stickyViewportClientIDsByConnectionID[connectionID] ?? []
+        guard clientIDs.contains(clientID) || clientIDs.count < Self.maximumStickyViewportClientIDsPerConnection else {
+            return
+        }
         clientIDs.insert(clientID)
         stickyViewportClientIDsByConnectionID[connectionID] = clientIDs
     }
 
     private nonisolated static func clientID(from params: [String: Any]) -> String? {
         let trimmed = (params["client_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
+        guard let trimmed,
+              !trimmed.isEmpty,
+              trimmed.count <= maximumViewportClientIDLength,
+              trimmed.unicodeScalars.allSatisfy({ !$0.properties.isControl }) else {
+            return nil
+        }
+        return trimmed
     }
 
     func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {

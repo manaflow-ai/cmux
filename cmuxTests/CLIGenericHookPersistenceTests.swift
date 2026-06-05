@@ -3634,7 +3634,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testCodexHookFallsBackToMappedSessionWhenAmbientSurfaceIsStaleWithoutProcessBinding() throws {
+    func testCodexHookFallsBackToMappedSessionWhenAmbientBindingIsStaleWithoutProcessBinding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-stale-mapped")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -3642,6 +3642,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-stale-mapped-\(UUID().uuidString)", isDirectory: true)
         let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let staleWorkspaceId = "44444444-4444-4444-4444-444444444444"
         let staleSurfaceId = "22222222-2222-2222-2222-222222222222"
         let mappedSurfaceId = "33333333-3333-3333-3333-333333333333"
         let sessionId = "codex-stale-mapped-session"
@@ -3682,6 +3683,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
             switch method {
             case "surface.list":
+                let params = payload["params"] as? [String: Any]
+                if params?["workspace_id"] as? String == staleWorkspaceId {
+                    return self.v2Response(id: id, ok: true, result: ["surfaces": []])
+                }
                 return self.surfaceListResponse(id: id, surfaceId: mappedSurfaceId)
             case "debug.terminals":
                 return self.v2Response(id: id, ok: true, result: ["terminals": []])
@@ -3700,7 +3705,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["HOME"] = root.path
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_WORKSPACE_ID"] = staleWorkspaceId
         environment["CMUX_SURFACE_ID"] = staleSurfaceId
         environment.removeValue(forKey: "CMUX_CLI_TTY_NAME")
         environment.removeValue(forKey: "TTY")

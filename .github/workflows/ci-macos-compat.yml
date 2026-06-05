@@ -224,7 +224,7 @@ jobs:
             exit "$EXIT_CODE"
           fi
 
-          if ! grep -Eq 'All [1-9][0-9]* selected cmuxTests XCTestCase classes passed in shard-' <<<"$OUTPUT"; then
+          if ! grep -Eq 'All [1-9][0-9]* selected cmuxTests XCTestCase classes and Swift Testing suites passed in shard-.* batches' <<<"$OUTPUT"; then
             echo "Compatibility unit tests completed without executing any tests" >&2
             exit 1
           fi

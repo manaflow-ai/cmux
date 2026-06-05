@@ -829,6 +829,23 @@ final class MobileHostAuthorizationTests: XCTestCase {
         terminalController.debugResetMobileViewportReportsForTesting()
     }
 
+    func testMobileHostCapsStickyViewportClientIDsPerConnection() {
+        let service = MobileHostService.shared
+        let connectionID = UUID()
+
+        service.debugResetMobileLifecycleStateForTesting()
+
+        for index in 0..<20 {
+            service.debugRecordStickyViewportClientIDForTesting("ios-client-\(index)", connectionID: connectionID)
+        }
+
+        XCTAssertEqual(
+            service.debugTrackedClientIDsForTesting(connectionID: connectionID)?.count,
+            16,
+            "Dedicated viewport connections must not retain unbounded sticky client IDs."
+        )
+    }
+
     func testMobileHostIgnoresStaleListenerStateCallbacks() {
         let service = MobileHostService.shared
         let currentGeneration = UUID()

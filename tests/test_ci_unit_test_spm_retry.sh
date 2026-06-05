@@ -18,7 +18,7 @@ REQUIRED_PATTERNS=(
   'CMUX_UNIT_TEST_SHARD_COUNT="${{ matrix.shard_count }}"'
   "scripts/ci/run-cmux-unit-tests-isolated.sh"
   "run_unit_tests | tee /tmp/test-output.txt"
-  "selected cmuxTests XCTestCase classes passed in shard-"
+  "selected cmuxTests XCTestCase classes and Swift Testing suites passed in shard-.* batches"
   "Unit tests failed"
   'exit "$EXIT_CODE"'
 )
