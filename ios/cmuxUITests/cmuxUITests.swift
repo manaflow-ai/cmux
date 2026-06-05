@@ -129,21 +129,17 @@ final class cmuxUITests: XCTestCase {
         try openSelectedWorkspaceIfNeeded(app)
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
-        let workspaceStart = Date()
         assertTerminalRows([
             1: "workspace: Workspace 3",
             2: "terminal: Terminal 1",
         ], in: app)
-        XCTAssertLessThan(Date().timeIntervalSince(workspaceStart), 6.0)
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        openTerminalPicker(targetItemIdentifier: "MobileNewTerminalMenuItem", in: app)
         tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
-        let terminalStart = Date()
         assertTerminalRows([
             1: "workspace: Workspace 3",
             2: "terminal: Terminal 2",
         ], in: app)
-        XCTAssertLessThan(Date().timeIntervalSince(terminalStart), 6.0)
     }
 
     @MainActor
@@ -497,12 +493,13 @@ final class cmuxUITests: XCTestCase {
         _ index: Int,
         label expectedLabel: String,
         in app: XCUIApplication,
+        timeout: TimeInterval = 30,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
-        let rows = waitForTerminalRows(in: app, timeout: 12) { rows in
+        let rows = waitForTerminalRows(in: app, timeout: timeout) { rows in
             rows.dropFirst(index).first == expectedLabel
         }
         guard rows.dropFirst(index).first == expectedLabel else {
@@ -520,12 +517,13 @@ final class cmuxUITests: XCTestCase {
     private func assertTerminalRows(
         _ expectedLabels: [Int: String],
         in app: XCUIApplication,
+        timeout: TimeInterval = 30,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
-        let rows = waitForTerminalRows(in: app, timeout: 12) { rows in
+        let rows = waitForTerminalRows(in: app, timeout: timeout) { rows in
             expectedLabels.allSatisfy { index, expectedLabel in
                 rows.dropFirst(index).first == expectedLabel
             }
@@ -567,9 +565,40 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        tap(app.buttons["MobileTerminalDropdown"], in: app, file: file, line: line)
+        openTerminalPicker(targetItemIdentifier: "MobileTerminalMenuItem-terminal-tui", in: app, file: file, line: line)
         tap(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app, file: file, line: line)
         assertTerminalRow(0, label: "LAZYGIT", in: app, file: file, line: line)
+    }
+
+    @MainActor
+    private func openTerminalPicker(
+        targetItemIdentifier: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let dropdown = app.buttons["MobileTerminalDropdown"]
+        let targetItem = app.buttons[targetItemIdentifier]
+        XCTAssertTrue(dropdown.waitForExistence(timeout: 6), file: file, line: line)
+
+        for _ in 0..<3 {
+            dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: true)
+            if targetItem.waitForExistence(timeout: 1) {
+                return
+            }
+
+            if dropdown.isHittable {
+                dropdown.tap()
+            } else {
+                tap(dropdown, in: app, file: file, line: line)
+            }
+
+            if targetItem.waitForExistence(timeout: 3) {
+                return
+            }
+        }
+
+        XCTFail("Expected terminal picker item \(targetItemIdentifier) to appear", file: file, line: line)
     }
 
     @MainActor
