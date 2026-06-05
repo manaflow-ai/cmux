@@ -28664,6 +28664,20 @@ function quickSetupActionDefinitions() {
       }
     },
     {
+      id: "fix-lag",
+      icon: "speed",
+      label: "Fix lag",
+      body: "Apply pending performance health fixes.",
+      meta: performanceHealthIssueCountLabel,
+      cta: "Fix",
+      active: () => performanceHealthIssueCount() === 0,
+      activeCta: "Ready",
+      search: () => performanceHealthAllSearchText(performanceHealthIssueCount()),
+      disabled: () => performanceHealthIssueCount() === 0,
+      title: () => performanceHealthApplyAllTitle(),
+      run: () => refreshQuickSettingsAfterAction(applyPerformanceHealthFixes({ render: false }))
+    },
+    {
       id: "focus-mode",
       icon: "focus",
       label: state.settings.focusMode ? "Leave focus" : "Focus mode",
@@ -28794,10 +28808,12 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   const activeTerminal = activeTerminalPanelForSettings();
   const activeTerminalBackground = activeTerminal ? normalizeBackgroundValue(activeTerminal.backgroundImage) : "";
   const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
+  const healthIssueCount = performanceHealthIssueCount();
   const ids = [];
 
   if (!workspace) ids.push("new-workspace");
   else if (terminalCount === 0) ids.push("new-terminal");
+  if (healthIssueCount > 0) ids.push("fix-lag");
   if (workspace && browserCount === 0) ids.push("new-browser");
   if (!isSettingsPresetIdActive("simpleFast")) {
     ids.push(state.savedSettingsProfiles.length === 0 ? "save-clean-fast-profile" : "clean-fast");
@@ -28823,7 +28839,7 @@ function quickSetupGuidePanel() {
     .filter(Boolean);
   const panel = document.createElement("div");
   panel.className = "quick-setup-guide";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup recommended simple speed background terminal browser rename layout profile save");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup recommended simple speed lag performance health fixes background terminal browser rename layout profile save");
   panel.innerHTML = `
     <div class="quick-guide-heading">
       <span class="quick-guide-title"></span>
@@ -28899,7 +28915,7 @@ function quickSetupActionGrid() {
   const actions = quickSetupActionDefinitions();
   const grid = document.createElement("div");
   grid.className = "quick-settings-shortcut-grid quick-action-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new workspace terminal browser add pane clean ui speed tune focus mode background image wallpaper save accent color saved library pane shape resize split rows columns");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new workspace terminal browser add pane clean ui speed lag performance health fixes tune focus mode background image wallpaper save accent color saved library pane shape resize split rows columns");
   for (const action of actions) {
     const active = Boolean(action.active?.());
     const disabled = Boolean(action.disabled?.()) || (active && action.activeDisabled !== false);
