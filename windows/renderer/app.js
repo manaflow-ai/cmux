@@ -25697,11 +25697,11 @@ function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount
       title: "Copy the current terminal font, spacing, colors, cursor, and shell setup.",
       search: "quick setup terminal copy setup font size line height colors cursor shell clipboard json"
     }),
-    quickOverviewControlButton("Paste setup", pasteTerminalSetup, {
+    quickOverviewControlButton("Paste setup", () => refreshQuickSettingsAfterAction(pasteTerminalSetup({ render: false })), {
       title: "Apply a copied cmux terminal setup.",
       search: "quick setup terminal paste setup font size line height colors cursor shell clipboard json"
     }),
-    quickOverviewControlButton("Reset setup", resetTerminalSetupSettings, {
+    quickOverviewControlButton("Reset setup", () => refreshQuickSettingsAfterAction(resetTerminalSetupSettings({ render: false })), {
       disabled: setupDefault,
       title: setupDefault
         ? "Terminal setup already uses defaults."
@@ -31841,16 +31841,16 @@ function terminalSetupSettingsAreDefault() {
   return settingsKeysMatchDefaults(terminalSetupSettings);
 }
 
-function resetTerminalSetupSettings() {
+function resetTerminalSetupSettings(options = {}) {
   const updates = {};
   for (const key of terminalSetupSettings) updates[key] = defaultSettings[key];
   const changed = updateSettings(updates, { immediate: true });
   if (!changed) {
-    toast("Terminal setup already uses defaults.");
+    if (options.toast !== false) toast("Terminal setup already uses defaults.");
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
-  toast("Terminal setup reset.");
+  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  if (options.toast !== false) toast("Terminal setup reset.");
   return true;
 }
 
@@ -31867,7 +31867,7 @@ function resetTerminalTextSettings() {
   return true;
 }
 
-async function pasteTerminalSetup() {
+async function pasteTerminalSetup(options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
@@ -31875,7 +31875,7 @@ async function pasteTerminalSetup() {
   }
   try {
     const parsed = JSON.parse(clipboard);
-    return applyTerminalSetupUpdates(terminalSetupUpdatesFromPayload(parsed));
+    return applyTerminalSetupUpdates(terminalSetupUpdatesFromPayload(parsed), options);
   } catch {
     toast("Clipboard does not contain terminal setup.");
     return false;
