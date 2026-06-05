@@ -7600,6 +7600,7 @@ const commands = [
   { id: "layout.copyChrome", label: "Copy Workspace Chrome Settings", shortcut: "", run: () => copyWorkspaceChromeSettings() },
   { id: "layout.pasteChrome", label: "Paste Workspace Chrome Settings", shortcut: "", run: () => pasteWorkspaceChromeSettings() },
   { id: "layout.resetChrome", label: "Reset Workspace Chrome", shortcut: "", run: () => resetWorkspaceChrome() },
+  { id: "layout.cycleChromePreset", label: "Cycle Workspace Chrome Preset", shortcut: "", run: () => cycleWorkspaceChromePreset() },
   { id: "layout.equalPanes", label: "Equalize Panes", shortcut: "", run: () => applyPaneLayoutPreset("equal") },
   { id: "layout.sideBySide", label: "Layout Panes Side by Side", shortcut: "", run: () => applyPaneLayoutPreset("sideBySide") },
   { id: "layout.stacked", label: "Stack Panes Vertically", shortcut: "", run: () => applyPaneLayoutPreset("stacked") },
@@ -8764,6 +8765,7 @@ const corePaletteCommandIds = new Set([
   "layout.copyChrome",
   "layout.pasteChrome",
   "layout.resetChrome",
+  "layout.cycleChromePreset",
   "layout.activePercent",
   "layout.focusMode"
 ]);
@@ -9412,6 +9414,17 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       icon: "focus",
       title: state.settings.focusMode ? "Turn focus mode off." : "Turn focus mode on.",
       search: "layout focus mode hide chrome simple workspace"
+    };
+  }
+  if (commandId === "layout.cycleChromePreset") {
+    const model = workspaceChromePresetCycleModel();
+    return {
+      meta: model.meta,
+      shortcut: "Cycle",
+      disabled: model.disabled,
+      icon: "layout",
+      title: model.title,
+      search: normalizeSettingsQuery(`layout workspace chrome preset cycle next simple compact minimal focus control display ${model.search}`)
     };
   }
   if (["layout.copySetup", "layout.pasteSetup", "layout.copyChrome", "layout.pasteChrome", "layout.resetChrome"].includes(commandId)) {
@@ -18689,6 +18702,10 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
   copyChromeAction.title = "Copy toolbar mode, label mode, top bar style, button style, sidebar style, rail tools, home screen, and width, settings panel style, overlay style, switcher style, toast placement, command palette density, quick actions, details, result cap, and placement, workspace row size, active workspace style, workspace color style, tabs, tab bar style, active tab style, status bar detail and style, corner style, pane dividers, divider style, new pane placement, pane surface, pane spacing, active pane highlight, marker style, and panel widths as JSON.";
   const pasteChromeAction = settingsActionButton("Paste chrome", pasteWorkspaceChromeSettings, "", "workspace chrome layout paste toolbar label mode icons labels top bar style button style ghost filled tab bar quiet banded sidebar rail tools home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus mode clipboard json");
   pasteChromeAction.title = "Apply copied cmux workspace chrome JSON.";
+  const chromeCycle = workspaceChromePresetCycleModel();
+  const cycleChromeAction = settingsActionButton("Cycle chrome", cycleWorkspaceChromePreset, "", `workspace chrome layout cycle next preset simple compact minimal focus control room ${chromeCycle.search}`);
+  cycleChromeAction.disabled = chromeCycle.disabled;
+  cycleChromeAction.title = chromeCycle.title;
   const resetChromeAction = settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", `workspace chrome toolbar label mode icons labels top bar style button style ghost filled tab bar quiet banded sidebar rail tools home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color reset ${workspaceChromeDefault ? "active current " : ""}`);
   resetChromeAction.disabled = workspaceChromeDefault;
   resetChromeAction.title = workspaceChromeDefault
@@ -18715,6 +18732,7 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
     pasteLayoutAction,
     copySetupAction,
     pasteSetupAction,
+    cycleChromeAction,
     copyChromeAction,
     pasteChromeAction,
     settingsActionButton("Blueprints", () => openSettingsCategory("blueprints"), "", "open saved workspace blueprints layout templates"),
@@ -24859,6 +24877,7 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
   const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
   const profilesFull = savedSettingsProfilesFull();
   const refreshQuick = refreshQuickSettingsAfterAction;
+  const chromeCycle = workspaceChromePresetCycleModel();
   const presetAction = (presetId, label) => {
     const preset = workspaceChromePresetById(presetId);
     const settings = workspaceChromePresetSettings(preset);
@@ -24883,6 +24902,11 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
     presetAction("focus", "Focus"),
     presetAction("control", "Control room"),
     presetAction("default", "Default"),
+    quickOverviewControlButton("Cycle chrome", () => refreshQuick(cycleWorkspaceChromePreset()), {
+      disabled: chromeCycle.disabled,
+      title: chromeCycle.title,
+      search: `quick setup layout workspace chrome cycle next preset simple compact minimal focus control ${chromeCycle.search}`
+    }),
     quickOverviewControlButton("Copy setup", copyLayoutSetup, {
       title: workspace?.panels?.length
         ? "Copy the current pane layout and workspace chrome as JSON."
@@ -32561,6 +32585,7 @@ function settingsActionIconMarkup(label, tone = "") {
   if (text.startsWith("open")) return controlIconMarkup("external");
   if (text.startsWith("more")) return quickActionIconMarkup("actions");
   if (text.startsWith("refresh") || text.startsWith("restart")) return controlIconMarkup("reload");
+  if (text.startsWith("cycle")) return controlIconMarkup("reload");
   if (text.startsWith("rename") || text === "edit") return quickActionIconMarkup("rename");
   if (text.startsWith("run")) return controlIconMarkup("terminal");
   if (text.startsWith("focus") || text.startsWith("leave focus")) return quickActionIconMarkup("focus");
@@ -40264,6 +40289,35 @@ function workspaceChromePresetTitle(preset, active) {
   if (!preset) return "Choose a chrome preset first.";
   if (active) return `${preset.label} chrome is already active.`;
   return `Apply ${preset.label} workspace chrome.`;
+}
+
+function workspaceChromePresetCycleModel() {
+  const presets = workspaceChromePresets
+    .map((preset) => ({ preset, settings: workspaceChromePresetSettings(preset) }))
+    .filter((entry) => entry.settings);
+  const activeIndex = presets.findIndex(({ preset }) => isActiveWorkspaceChromePreset(preset));
+  const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % presets.length : 0;
+  const entry = presets[nextIndex] || null;
+  const summary = workspaceChromeSummaryForSettings(entry?.settings || state.settings);
+  return {
+    preset: entry?.preset || null,
+    settings: entry?.settings || null,
+    disabled: !entry || (presets.length === 1 && activeIndex === 0),
+    meta: entry ? `${entry.preset.label} / ${summary.toolbar} / ${summary.paletteResults} results` : "No chrome presets",
+    title: entry
+      ? `Cycle workspace chrome to ${entry.preset.label}.`
+      : "No workspace chrome presets are available.",
+    search: normalizeSettingsQuery(`workspace chrome cycle next preset layout display simple clean compact focus control room toolbar tabs sidebar palette command results quick actions toast switcher overlay settings panel panes spacing status widths ${entry?.preset?.label || ""} ${entry?.preset?.body || ""} ${summary.density} ${summary.toolbar} ${summary.toolbarLabels} ${summary.topbarStyle} ${summary.toolbarButtons} ${summary.tabBar} ${summary.sidebarStyle} ${summary.sidebarTools} ${summary.emptyWorkspace} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneSurface} ${summary.paneSpacing} ${summary.activePane} ${summary.statusbar} ${summary.statusbarStyle} ${summary.widths}`)
+  };
+}
+
+function cycleWorkspaceChromePreset() {
+  const model = workspaceChromePresetCycleModel();
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applyWorkspaceChromePreset(model.preset.id);
 }
 
 function updateWorkspaceChromePresetButton(button, preset) {
