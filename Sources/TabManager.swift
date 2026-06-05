@@ -2202,6 +2202,13 @@ class TabManager: ObservableObject {
         panelId: UUID,
         reason: String = "initial"
     ) {
+#if DEBUG
+        didScheduleInitialWorkspaceGitMetadataRefreshForTesting(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: reason
+        )
+#endif
         guard let workspace = tabs.first(where: { $0.id == workspaceId }),
               !workspace.isRemoteWorkspace else {
             return
@@ -2473,6 +2480,16 @@ class TabManager: ObservableObject {
 
     /// Test seam for mutating live workspace state after the creation snapshot is captured.
     func didCaptureWorkspaceCreationSnapshot() {}
+
+#if DEBUG
+    /// Test seam: invoked when an initial workspace git-metadata refresh is
+    /// scheduled, so tests can observe scheduling without the network probe.
+    func didScheduleInitialWorkspaceGitMetadataRefreshForTesting(
+        workspaceId: UUID,
+        panelId: UUID,
+        reason: String
+    ) {}
+#endif
 
 #if DEBUG
     func maybeMutateSelectionDuringWorkspaceCreationForDev(
