@@ -511,7 +511,7 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     private func mentionPopoverRowTitles(in app: XCUIApplication, textBox: XCUIElement? = nil) -> [String] {
-        let indexedRows = (0..<12).compactMap { index in
+        let indexedRows = (0..<12).compactMap { index -> String? in
             let row = app.descendants(matching: .any)
                 .matching(identifier: "TextBoxMentionCompletionPopover.Row.\(index)")
                 .firstMatch
