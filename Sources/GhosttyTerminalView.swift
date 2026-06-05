@@ -6281,7 +6281,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
-            let currentPath = env["PATH"]
+            let currentPath = initialEnvironmentOverrides["PATH"]
+                ?? env["PATH"]
                 ?? getenv("PATH").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["PATH"]
                 ?? ""

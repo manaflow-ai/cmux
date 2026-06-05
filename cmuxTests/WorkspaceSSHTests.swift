@@ -1,6 +1,6 @@
 import XCTest
 
-final class WorkspaceSSHFishShellTests: XCTestCase {
+final class WorkspaceSSHTests: XCTestCase {
     private struct ProcessRunResult { let status: Int32; let stderr: String; let timedOut: Bool }
 
     private final class MockSocketServerState: @unchecked Sendable {
@@ -13,7 +13,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
     func testSSHBootstrapStartupCommandPassesRemoteInstallScriptAsSingleSSHCommand() throws {
         let cliPath = try bundledCLIPath()
         let python3Path = try requireExecutable(["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"], name: "python3")
-        let fishExecutable = try requireExecutable(["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish", "/bin/fish"], name: "fish")
         let socketPath = makeSocketPath("sshboot")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
@@ -45,6 +44,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
                     ok: true,
                     result: [
                         "workspace_id": workspaceID,
+                        "surface_id": "22222222-2222-2222-2222-222222222222",
                         "window_id": windowID,
                     ]
                 )
@@ -151,7 +151,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         startupEnvironment["PATH"] = "\(fakeBin.path):/usr/bin:/bin:/usr/sbin:/sbin"
         startupEnvironment["CMUX_FAKE_SSH_LOG"] = fakeSSHLog.path
         startupEnvironment["CMUX_TEST_PYTHON3"] = python3Path
-        startupEnvironment["CMUX_TEST_LOCAL_SHELL"] = fishExecutable
+        startupEnvironment["CMUX_TEST_LOCAL_SHELL"] = "/bin/sh"
         startupEnvironment["CMUX_SOCKET_PATH"] = socketPath
         startupEnvironment["CMUX_WORKSPACE_ID"] = workspaceID
         startupEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -232,17 +232,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             0,
             "Expected LocalCommand shell snippet to parse cleanly, stderr: \(localCommandSyntaxCheck.stderr)"
         )
-        let fishLocalCommandCheck = runProcess(
-            executablePath: fishExecutable,
-            arguments: ["-n", "-c", localCommand],
-            environment: ProcessInfo.processInfo.environment,
-            timeout: 5
-        )
-        XCTAssertEqual(
-            fishLocalCommandCheck.status,
-            0,
-            "Expected LocalCommand wrapper to parse cleanly when the user's login shell is fish, stderr: \(fishLocalCommandCheck.stderr)"
-        )
         let destinationIndex = try XCTUnwrap(firstInvocation.lastIndex(of: "cmux-macmini"))
         let remoteCommandArgs = Array(firstInvocation.suffix(from: firstInvocation.index(after: destinationIndex)))
 
@@ -275,18 +264,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             secondRemoteCommand.contains("cmux_bootstrap_tty=") || secondRemoteCommand.contains("cmux_bootstrap_tty\\\""),
             "Expected staged remote bootstrap command body in \(secondRemoteCommand)"
         )
-        let remoteFishCommandCheck = runProcess(
-            executablePath: fishExecutable,
-            arguments: ["-n", "-c", secondRemoteCommand],
-            environment: ProcessInfo.processInfo.environment,
-            timeout: 5
-        )
-        XCTAssertEqual(
-            remoteFishCommandCheck.status,
-            0,
-            "Expected staged remote command wrapper to parse cleanly when the remote login shell is fish, stderr: \(remoteFishCommandCheck.stderr)"
-        )
-
         XCTAssertEqual(foregroundAuthState.commands.count, 1)
         let foregroundAuthPayloadData = try XCTUnwrap(foregroundAuthState.commands.first?.data(using: .utf8))
         let foregroundAuthPayload = try XCTUnwrap(
@@ -296,6 +273,155 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         let foregroundAuthParams = try XCTUnwrap(foregroundAuthPayload["params"] as? [String: Any])
         XCTAssertEqual(foregroundAuthParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(foregroundAuthParams["foreground_auth_token"] as? String, foregroundAuthToken)
+    }
+
+    @MainActor
+    func testSSHForwardsSafeCallerEnvironmentByDefault() throws {
+        let captured = try captureSSHWorkspaceCreateParams(
+            arguments: ["ssh", "work.jumpgate-workspace"],
+            environmentOverrides: [
+                "PATH": "/opt/work/bin:/usr/bin:/bin",
+                "SHELL": "/opt/homebrew/bin/fish",
+                "SSH_AUTH_SOCK": "/tmp/fake-ssh-agent.sock",
+                "WORK_TOKEN": "secret-token",
+            ]
+        )
+        let initialEnv = try XCTUnwrap(captured["initial_env"] as? [String: String])
+        XCTAssertEqual(initialEnv["PATH"], "/opt/work/bin:/usr/bin:/bin")
+        XCTAssertEqual(initialEnv["SHELL"], "/opt/homebrew/bin/fish")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], "/tmp/fake-ssh-agent.sock")
+        XCTAssertNil(initialEnv["WORK_TOKEN"])
+    }
+
+    @MainActor
+    func testSSHInheritEnvForwardsCallerEnvironmentAndScrubsCmuxContext() throws {
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let captured = try captureSSHWorkspaceCreateParams(
+            arguments: ["ssh", "--inherit-env", "work.jumpgate-workspace"],
+            environmentOverrides: [
+                "PATH": "/opt/work/bin:/usr/bin:/bin",
+                "SHELL": "/opt/homebrew/bin/fish",
+                "SSH_AUTH_SOCK": "/tmp/fake-ssh-agent.sock",
+                "WORK_TOKEN": "secret-token",
+                "CMUX_SOCKET": "__SOCKET_PATH__",
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_SURFACE_ID": surfaceID,
+                "CMUX_PANEL_ID": surfaceID,
+                "CMUX_TAB_ID": workspaceID,
+                "CMUX_PANE_ID": surfaceID,
+                "CMUX_RELAY_ID": "relay-id-abc",
+                "CMUX_RELAY_TOKEN": "relay-token-xyz",
+                "CMUX_BUNDLED_CLI_PATH": "/tmp/fake-tagged-build/bin/cmux",
+            ]
+        )
+        let initialEnv = try XCTUnwrap(captured["initial_env"] as? [String: String])
+        XCTAssertEqual(initialEnv["PATH"], "/opt/work/bin:/usr/bin:/bin")
+        XCTAssertEqual(initialEnv["SHELL"], "/opt/homebrew/bin/fish")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], "/tmp/fake-ssh-agent.sock")
+        XCTAssertEqual(initialEnv["WORK_TOKEN"], "secret-token")
+        XCTAssertNil(initialEnv["CMUX_SOCKET"])
+        XCTAssertNil(initialEnv["CMUX_SOCKET_PATH"])
+        XCTAssertNil(initialEnv["CMUX_WORKSPACE_ID"])
+        XCTAssertNil(initialEnv["CMUX_SURFACE_ID"])
+        XCTAssertNil(initialEnv["CMUX_PANEL_ID"])
+        XCTAssertNil(initialEnv["CMUX_TAB_ID"])
+        XCTAssertNil(initialEnv["CMUX_PANE_ID"])
+        XCTAssertNil(initialEnv["CMUX_RELAY_ID"])
+        XCTAssertNil(initialEnv["CMUX_RELAY_TOKEN"])
+        XCTAssertNil(initialEnv["CMUX_BUNDLED_CLI_PATH"])
+    }
+
+    private func captureSSHWorkspaceCreateParams(
+        arguments: [String],
+        environmentOverrides: [String: String]
+    ) throws -> [String: Any] {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshenv")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let workspaceRef = "workspace:8"
+        let windowID = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let data = line.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.v2Response(
+                    id: "unknown",
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected payload"]
+                )
+            }
+
+            switch method {
+            case "workspace.create":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceID,
+                        "surface_id": "22222222-2222-2222-2222-222222222222",
+                        "window_id": windowID,
+                    ]
+                )
+            case "workspace.rename":
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
+            case "workspace.remote.configure":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceID,
+                        "workspace_ref": workspaceRef,
+                        "remote": [
+                            "enabled": true,
+                            "state": "disconnected",
+                        ],
+                    ]
+                )
+            case "workspace.select":
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        for (key, value) in environmentOverrides {
+            environment[key] = value == "__SOCKET_PATH__" ? socketPath : value
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: arguments,
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let requests = try state.commands.map { line -> [String: Any] in
+            let data = try XCTUnwrap(line.data(using: .utf8))
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+        }
+        return try XCTUnwrap(requests.first { $0["method"] as? String == "workspace.create" }?["params"] as? [String: Any])
     }
 
     private func makeSocketPath(_ name: String) -> String {

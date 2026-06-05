@@ -2,6 +2,12 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- `cmux ssh` now forwards `PATH`, `SHELL`, and `SSH_AUTH_SOCK` from the invoking shell by default, so ProxyCommand helpers and other tools on your shell PATH are reachable from the SSH session. Add `--inherit-env` to forward your full environment (stale cmux socket and workspace variables are scrubbed automatically).
+
 ## [0.64.13] - 2026-06-04
 
 ### Added

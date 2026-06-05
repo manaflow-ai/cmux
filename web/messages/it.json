@@ -1254,6 +1254,7 @@
       "flagIdentity": "Percorso del file di identità",
       "flagSshOption": "Passa opzioni SSH arbitrarie (ad esempio -o StrictHostKeyChecking=no)",
       "flagNoFocus": "Crea l'area di lavoro senza passare ad essa",
+      "flagInheritEnv": "Inoltra l'ambiente completo del chiamante alla sessione SSH, rimuovendo le variabili obsolete di socket e workspace di cmux",
       "deepLinksTitle": "Collegamenti diretti SSH",
       "deepLinksDesc": "Utilizza i collegamenti diretti cmux SSH quando un sito Web o uno strumento desidera offrire un pulsante Apri in cmux. Il collegamento apre cmux, mostra una richiesta di conferma, quindi esegue il comando cmux ssh equivalente dopo la conferma dell'utente.",
       "deepLinksWebFallbackDesc": "Utilizzare l'URL di fallback cmux.com per i pulsanti del sito Web. Apre il collegamento nativo e mostra il download se cmux non è installato.",

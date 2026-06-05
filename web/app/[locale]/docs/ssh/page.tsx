@@ -51,6 +51,7 @@ cmux ssh user@remote -i ~/.ssh/id_ed25519`}</CodeBlock>
           <tr><td><code>-i, --identity</code></td><td>{t("flagIdentity")}</td></tr>
           <tr><td><code>-o, --ssh-option</code></td><td>{t("flagSshOption")}</td></tr>
           <tr><td><code>--no-focus</code></td><td>{t("flagNoFocus")}</td></tr>
+          <tr><td><code>--inherit-env</code></td><td>{t("flagInheritEnv")}</td></tr>
         </tbody>
       </table>
 

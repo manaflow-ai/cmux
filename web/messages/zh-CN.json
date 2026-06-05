@@ -1254,6 +1254,7 @@
       "flagIdentity": "身份文件的路径",
       "flagSshOption": "传递任意 SSH 选项（例如 -o StrictHostKeyChecking=no）",
       "flagNoFocus": "创建工作区而不切换到它",
+      "flagInheritEnv": "将调用者的完整环境转发到 SSH 会话，清除过时的 cmux socket 和工作区变量",
       "deepLinksTitle": "SSH 深层链接",
       "deepLinksDesc": "当网站或工具想要提供“在 cmux 中打开”按钮时，请使用 cmux SSH 深层链接。该链接将打开 cmux，显示确认提示，然后在用户确认后运行等效的 cmux ssh 命令。",
       "deepLinksWebFallbackDesc": "使用网站按钮的 cmux.com 后备 URL。如果未安装 cmux，它将打开本机链接并显示下载。",
