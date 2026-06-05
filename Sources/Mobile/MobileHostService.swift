@@ -302,8 +302,25 @@ final class MobileHostService {
     /// Defaults off in every build so macOS does not ask for Local Network
     /// permission until the user enables iOS pairing in Settings.
     nonisolated static var isListeningEnabled: Bool {
+        #if DEBUG
+        if isRunningUnderXCTest {
+            return true
+        }
+        #endif
         isListeningEnabled(defaults: .standard)
     }
+
+    #if DEBUG
+    nonisolated private static var isRunningUnderXCTest: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
+            || environment["XCTestSessionIdentifier"] != nil
+            || environment["XCInjectBundle"] != nil
+            || environment["XCInjectBundleInto"] != nil
+            || environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true
+    }
+    #endif
 
     nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
         if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {

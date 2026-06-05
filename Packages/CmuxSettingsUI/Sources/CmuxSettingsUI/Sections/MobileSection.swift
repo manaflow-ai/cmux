@@ -7,10 +7,12 @@ import SwiftUI
 public struct MobileSection: View {
     @State private var iOSPairingHost: DefaultsValueModel<Bool>
 
+    /// Creates a Mobile settings section bound to the supplied settings stores.
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _iOSPairingHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingHost))
     }
 
+    /// The Mobile settings section content.
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.mobile", defaultValue: "Mobile"), section: .mobile)

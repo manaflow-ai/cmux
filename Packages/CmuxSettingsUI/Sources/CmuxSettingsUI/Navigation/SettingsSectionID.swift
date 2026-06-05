@@ -14,6 +14,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case app
     case terminal
     case textBox
+    /// Mobile pairing and sync settings.
     case mobile
     case sidebarAppearance
     case betaFeatures

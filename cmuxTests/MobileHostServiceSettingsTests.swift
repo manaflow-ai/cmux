@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,30 +7,30 @@ import XCTest
 @testable import cmux
 #endif
 
-final class MobileHostServiceSettingsTests: XCTestCase {
-    func testMobileHostListenerDefaultsOffUntilIOSPairingIsEnabled() throws {
+struct MobileHostServiceSettingsTests {
+    @Test func mobileHostListenerDefaultsOffUntilIOSPairingIsEnabled() throws {
         let suiteName = "MobileHostServiceSettingsTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertFalse(MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
 
         defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
-        XCTAssertTrue(MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults))
 
         defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
-        XCTAssertFalse(MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
     }
 
-    func testMobileHostListenerHonorsLegacyExplicitOptIn() throws {
+    @Test func mobileHostListenerHonorsLegacyExplicitOptIn() throws {
         let suiteName = "MobileHostServiceSettingsTests.Legacy.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(true, forKey: "cmuxMobilePairingHostEnabled")
-        XCTAssertTrue(MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults))
 
         defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
-        XCTAssertFalse(MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
     }
 }

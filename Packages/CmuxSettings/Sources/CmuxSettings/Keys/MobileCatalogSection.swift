@@ -14,5 +14,6 @@ public struct MobileCatalogSection: SettingCatalogSection {
         ]
     )
 
+    /// Creates the Mobile settings catalog section.
     public init() {}
 }
