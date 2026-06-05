@@ -24719,6 +24719,38 @@ function quickBlueprintControlsPanel(workspace = activeWorkspace()) {
   });
 }
 
+function quickSavedBlueprintControlsPanel(workspace = activeWorkspace()) {
+  if (state.workspaceBlueprints.length === 0) return null;
+  const paneCount = workspaceBlueprintPaneCount(workspace);
+  const currentBlueprint = currentWorkspaceBlueprintSnapshot("Current setup");
+  const creationDisabled = paneCreationButtonsDisabled();
+  const previewLimit = 6;
+  const visibleBlueprints = state.workspaceBlueprints.slice(0, previewLimit);
+  const hiddenBlueprintCount = Math.max(0, state.workspaceBlueprints.length - visibleBlueprints.length);
+  const actions = visibleBlueprints.map((blueprint) => {
+    const active = workspaceBlueprintMatchesSnapshot(blueprint, currentBlueprint);
+    const summary = workspaceBlueprintSummary(blueprint);
+    return quickOverviewControlButton(blueprint.label, () => createWorkspaceFromBlueprint(blueprint.id), {
+      disabled: creationDisabled,
+      title: paneCreationActionTitle(workspaceBlueprintNewTitle(blueprint), summary),
+      search: normalizeSettingsQuery(`quick setup saved workspace blueprint starter layout new workspace create reusable ${active ? "active current " : ""}${blueprint.label} ${summary}`)
+    });
+  });
+  if (hiddenBlueprintCount > 0) {
+    actions.push(quickOverviewControlButton("More", () => openSettingsCategory("blueprints"), {
+      title: `Open all ${state.workspaceBlueprints.length} saved workspace blueprints.`,
+      search: normalizeSettingsQuery(`quick setup saved workspace blueprints more full blueprints manage starter layout ${state.workspaceBlueprints.map((blueprint) => blueprint.label).join(" ")}`)
+    }));
+  }
+  return quickOverviewControlsPanel({
+    className: "quick-overview-blueprints",
+    title: "Saved blueprints",
+    meta: `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} saved / ${paneCount} current pane${paneCount === 1 ? "" : "s"}${hiddenBlueprintCount ? ` / ${hiddenBlueprintCount} more` : ""}`,
+    search: `quick setup saved workspace blueprints starter layouts reusable new workspace create ${workspaceBlueprintCountLabel()} ${visibleBlueprints.map((blueprint) => `${blueprint.label} ${workspaceBlueprintSummary(blueprint)}`).join(" ")}`,
+    actions
+  });
+}
+
 function quickPaneControlsPanel(panel) {
   const hasPane = Boolean(panel);
   const pending = isPendingPanel(panel);
@@ -25874,6 +25906,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-workspace-controls></div>
     <div data-quick-layout-controls></div>
     <div data-quick-blueprint-controls></div>
+    <div data-quick-saved-blueprint-controls></div>
     <div data-quick-pane-controls></div>
     <div data-quick-pane-preset-controls></div>
     <div data-quick-terminal-controls></div>
@@ -25971,6 +26004,10 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   panel.querySelector("[data-quick-workspace-controls]").replaceWith(quickWorkspaceControlsPanel(workspace, terminalCount, browserCount));
   panel.querySelector("[data-quick-layout-controls]").replaceWith(quickLayoutControlsPanel(workspace));
   panel.querySelector("[data-quick-blueprint-controls]").replaceWith(quickBlueprintControlsPanel(workspace));
+  const savedBlueprintControls = quickSavedBlueprintControlsPanel(workspace);
+  const savedBlueprintSlot = panel.querySelector("[data-quick-saved-blueprint-controls]");
+  if (savedBlueprintControls) savedBlueprintSlot.replaceWith(savedBlueprintControls);
+  else savedBlueprintSlot.remove();
   panel.querySelector("[data-quick-pane-controls]").replaceWith(quickPaneControlsPanel(activePane));
   const panePresetControls = quickPanePresetControlsPanel(activePane);
   const panePresetSlot = panel.querySelector("[data-quick-pane-preset-controls]");
