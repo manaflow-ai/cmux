@@ -39,6 +39,22 @@ import Testing
         #expect(metrics.plusFrame == SidebarWorkspaceGroupHeaderMetrics.basePlusFrame * scale)
     }
 
+    @Test func metricsScaleProportionallyWhenSidebarFontShrunk() {
+        let scale: CGFloat = 0.5
+        let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: scale)
+
+        #expect(metrics.chevronFontSize == SidebarWorkspaceGroupHeaderMetrics.baseChevronFontSize * scale)
+        #expect(metrics.chevronFrame == SidebarWorkspaceGroupHeaderMetrics.baseChevronFrame * scale)
+        #expect(metrics.iconFontSize == SidebarWorkspaceGroupHeaderMetrics.baseIconFontSize * scale)
+        #expect(metrics.iconFrame == SidebarWorkspaceGroupHeaderMetrics.baseIconFrame * scale)
+        #expect(metrics.nameFontSize == SidebarWorkspaceGroupHeaderMetrics.baseNameFontSize * scale)
+        #expect(metrics.unreadFontSize == SidebarWorkspaceGroupHeaderMetrics.baseUnreadFontSize * scale)
+        #expect(metrics.unreadHorizontalPadding == SidebarWorkspaceGroupHeaderMetrics.baseUnreadHorizontalPadding * scale)
+        #expect(metrics.unreadVerticalPadding == SidebarWorkspaceGroupHeaderMetrics.baseUnreadVerticalPadding * scale)
+        #expect(metrics.plusFontSize == SidebarWorkspaceGroupHeaderMetrics.basePlusFontSize * scale)
+        #expect(metrics.plusFrame == SidebarWorkspaceGroupHeaderMetrics.basePlusFrame * scale)
+    }
+
     @Test func headerAndRowFontScaleShareOneScalingPath() {
         // The header must grow at the same rate as the workspace rows, which
         // derive their scale from SidebarTabItemFontScale. Reusing that scale
