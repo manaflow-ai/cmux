@@ -976,6 +976,46 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionSkillSuggestionsFilterWeakPartialFuzzyMatches() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-skill-partial-fuzzy-filter-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let skillsDirectory = root.appendingPathComponent("skills", isDirectory: true)
+        for skillName in [
+            "agent-browser",
+            "agent-cli-integration",
+            "pi-agent-rust",
+            "iterate-pr"
+        ] {
+            let skillDirectory = skillsDirectory.appendingPathComponent(skillName, isDirectory: true)
+            try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+            try "name: \(skillName)\n".write(
+                to: skillDirectory.appendingPathComponent("SKILL.md"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 8),
+                query: "iterate",
+                trigger: "/"
+            ),
+            rootDirectory: root.path
+        )
+
+        #expect(suggestions.first?.title == "/iterate-pr")
+        #expect(!suggestions.contains { $0.title == "/agent-browser" })
+        #expect(!suggestions.contains { $0.title == "/pi-agent-rust" })
+    }
+
+    @Test
     func testTextBoxMentionCandidateIndexDoesNotReturnUnvalidatedNucleoRows() {
         let skillNames = [
             "agent-browser",
@@ -1004,6 +1044,32 @@ struct TextBoxMentionCompletionTests {
         )
 
         #expect(matches.isEmpty)
+    }
+
+    @Test
+    func testTextBoxMentionCandidateIndexFiltersWeakPartialFuzzyRows() {
+        let candidates = [
+            "agent-browser",
+            "agent-cli-integration",
+            "pi-agent-rust",
+            "iterate-pr"
+        ].map { skillName in
+            TextBoxMentionCandidate(
+                title: "/\(skillName)",
+                subtitle: "/tmp/skills/\(skillName)/SKILL.md",
+                targetPath: "/tmp/skills/\(skillName)/SKILL.md",
+                systemImageName: "sparkle.magnifyingglass",
+                searchKey: skillName,
+                priority: 0
+            )
+        }
+
+        let matches = TextBoxMentionCandidateIndex(candidates: candidates).rankedCandidates(
+            matching: "iterate",
+            limit: 500
+        )
+
+        #expect(matches.map(\.title) == ["/iterate-pr"])
     }
 
     @Test
@@ -1037,6 +1103,38 @@ struct TextBoxMentionCompletionTests {
         #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!(textView.debugAcceptMentionCompletion()))
         #expect(!(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion)))
+    }
+
+    @Test
+    func testTextBoxMentionDidChangeTextRefreshesRowsWithoutDelegateNotification() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$"
+        textView.setSelectedRange(NSRange(location: 1, length: 0))
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/agent-browser/SKILL.md",
+            title: "$agent-browser",
+            subtitle: "/tmp/agent-browser/SKILL.md",
+            insertionText: "$agent-browser",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "$"
+            ),
+            suggestions: [staleSuggestion]
+        )
+
+        textView.string = "$iterate-pr"
+        textView.setSelectedRange(NSRange(location: 11, length: 0))
+        textView.didChangeText()
+
+        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(!textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
     }
 
     @Test

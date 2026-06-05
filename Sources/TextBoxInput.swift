@@ -3655,6 +3655,7 @@ final class TextBoxInputTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         flushAutomaticAttachmentFileCleanup()
+        refreshMentionCompletions()
     }
 
     override func copy(_ sender: Any?) {
@@ -4128,13 +4129,21 @@ final class TextBoxInputTextView: NSTextView {
 
     func debugInteractionState() -> [String: Any] {
         let selection = selectedRange()
+        let mentionQuery = mentionCompletionController.activeQuery
         return [
             "selected_location": selection.location,
             "selected_length": selection.length,
             "focused_attachment_index": focusedAttachmentCharacterIndex ?? -1,
             "preview_shown": isAttachmentPreviewShown,
             "attachment_count": inlineAttachments().count,
-            "plain_text": plainText()
+            "plain_text": plainText(),
+            "mention_active": mentionCompletionController.isActive,
+            "mention_query": mentionQuery?.query ?? "",
+            "mention_trigger": mentionQuery.map { String($0.trigger) } ?? "",
+            "mention_loading": mentionCompletionController.isLoadingSuggestions,
+            "mention_should_show": mentionCompletionController.debugShouldShowPopover,
+            "mention_current": mentionCompletionController.debugHasCurrentSuggestions,
+            "mention_titles": mentionCompletionController.debugSuggestionTitles
         ]
     }
 

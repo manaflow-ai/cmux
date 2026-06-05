@@ -95,14 +95,39 @@ struct TextBoxMentionCandidateIndex: Sendable {
         limit: Int,
         shouldCancel: @escaping () -> Bool
     ) -> [TextBoxMentionCandidate] {
-        CommandPaletteSearchEngine.search(
-            entries: entries,
+        let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
+        let filteredEntries = preparedQuery.isEmpty ? entries : entries.filter {
+            mentionCandidate($0, matches: preparedQuery)
+        }
+        guard !filteredEntries.isEmpty else { return [] }
+
+        return CommandPaletteSearchEngine.search(
+            entries: filteredEntries,
             query: query,
             resultLimit: limit,
             historyBoost: { _, _ in 0 },
             shouldCancel: shouldCancel
         )
         .map(\.payload)
+    }
+
+    private static func mentionCandidate(
+        _ entry: CommandPaletteSearchCorpusEntry<TextBoxMentionCandidate>,
+        matches preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery
+    ) -> Bool {
+        guard !preparedQuery.isEmpty else { return true }
+        for token in preparedQuery.tokens {
+            var tokenMatchesCandidate = false
+            for candidate in entry.preparedSearchableTexts where CommandPaletteFuzzyMatcher
+                .tokenCanMatchWithoutSingleEdit(token, preparedCandidate: candidate) {
+                tokenMatchesCandidate = true
+                break
+            }
+            if !tokenMatchesCandidate {
+                return false
+            }
+        }
+        return true
     }
 
 }
