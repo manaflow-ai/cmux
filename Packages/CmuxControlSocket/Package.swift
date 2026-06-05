@@ -14,12 +14,14 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxSettings"),
         .package(path: "../CmuxSocketControl"),
     ],
     targets: [
         .target(
             name: "CmuxControlSocket",
             dependencies: [
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CmuxSocketControl", package: "CmuxSocketControl"),
             ],
             swiftSettings: [
