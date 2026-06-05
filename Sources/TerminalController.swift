@@ -22210,14 +22210,9 @@ class TerminalController {
     }
 
     private func mobileTerminalPanels(in workspace: Workspace) -> [TerminalPanel] {
-        let focusedPanelID = workspace.focusedPanelId
-        return workspace.panels.values
-            .compactMap { $0 as? TerminalPanel }
-            .sorted { lhs, rhs in
-                if lhs.id == focusedPanelID { return true }
-                if rhs.id == focusedPanelID { return false }
-                return lhs.id.uuidString < rhs.id.uuidString
-            }
+        // Match the on-screen bonsplit order. The payload's per-terminal
+        // `is_focused` field already carries focus state without reordering.
+        orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }
     }
 
     private func mobileNonEmpty(_ raw: String?) -> String? {
