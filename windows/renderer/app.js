@@ -28659,6 +28659,20 @@ function quickSetupActionDefinitions() {
       run: () => refreshQuickSettingsAfterAction(saveCurrentColorSetToPalette(activeWorkspace(), { render: false }))
     },
     {
+      id: "color-everywhere",
+      icon: "appearance",
+      label: "Color everywhere",
+      body: "Apply the current color to accent, workspace, and panes.",
+      meta: () => currentColorEverywhereModel().meta,
+      cta: "Apply",
+      active: () => currentColorEverywhereModel().active,
+      activeCta: "Applied",
+      search: () => `apply current color everywhere accent workspace pane all reusable palette ${currentColorEverywhereModel().search}`,
+      disabled: () => currentColorEverywhereModel().disabled,
+      title: () => currentColorEverywhereModel().title,
+      run: () => refreshQuickSettingsAfterAction(applyCurrentColorEverywhere(state.colorApplyTarget, activeWorkspace(), { render: false }))
+    },
+    {
       id: "tune-speed",
       icon: "speed",
       label: "Tune speed",
@@ -28858,6 +28872,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   const setup = activeSettingsSetupModel();
   const profilesFull = savedSettingsProfilesFull();
   const colorSetSave = currentColorSetSaveModel(workspace);
+  const colorEverywhere = currentColorEverywhereModel(state.colorApplyTarget, workspace);
   const backgroundSetSave = currentBackgroundSetSaveModel(workspace);
   const backgroundTargetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
   const backgroundEverywhere = currentBackgroundEverywhereModel(backgroundTargetStatus.scope, workspace);
@@ -28876,6 +28891,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   else if (activeTerminal && !normalizeBackgroundValue(activeTerminal.backgroundImage)) ids.push("pane-background");
   if (!backgroundSetSave.disabled && backgroundSetSave.newBackgrounds.length > 1 && ids.length < 4) ids.push("save-background-set");
   if (state.savedSettingsProfiles.length === 0 && !ids.includes("save-clean-fast-profile") && !ids.includes("save-profile") && ids.length < 4) ids.push("save-profile");
+  if (!colorEverywhere.disabled && ids.length < 4) ids.push("color-everywhere");
   if (!colorSetSave.disabled && colorSetSave.newColors.length > 1 && ids.length < 4) ids.push("save-color-set");
   if (!ids.includes("save-color-set") && canSaveCustomColor(state.settings.accent) && !customColorPaletteHasColor(state.settings.accent) && ids.length < 4) ids.push("save-accent-color");
   if (!ids.includes("save-background-set") && appBackground && canSaveBackgroundImage(appBackground) && !savedBackgroundImageExists(appBackground) && ids.length < 4) ids.push("save-background-image");
