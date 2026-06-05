@@ -17998,7 +17998,7 @@ function refreshBackgroundPreviewNodes() {
 
 function refreshBackgroundLibraryPanels() {
   for (const grid of elements.inspectorBody.querySelectorAll(".background-preset-grid")) {
-    grid.replaceWith(backgroundPresetGrid());
+    if (!refreshBackgroundPresetGrid(grid)) grid.replaceWith(backgroundPresetGrid());
   }
   for (const panel of elements.inspectorBody.querySelectorAll(".saved-background-panel")) {
     const draft = panel.querySelector(".saved-background-input")?.value || "";
@@ -31085,6 +31085,118 @@ function savedBackgroundImageApplyTitle(background, targetOption, active) {
   return `Apply ${label} to ${targetOption.label.toLowerCase()}.`;
 }
 
+function backgroundPresetTargetModel(preset, context = {}) {
+  const workspace = context.workspace || activeWorkspace();
+  const activeTerminal = context.activeTerminal === undefined
+    ? activeTerminalPanelForSettings()
+    : context.activeTerminal;
+  const terminalPanels = context.terminalPanels || workspaceTerminalPanels(workspace);
+  const hasTerminalPanes = terminalPanels.length > 0;
+  const target = normalizeBackgroundApplyTarget(context.target || state.backgroundApplyTarget);
+  const targetOption = context.targetOption || backgroundApplyTargetOption(target, workspace);
+  const activeApp = backgroundPresetActiveForTarget(preset.value, "app", workspace);
+  const activePane = Boolean(activeTerminal && panelBackgroundMatches(activeTerminal, preset.value));
+  const activeAll = terminalBackgroundsMatch(workspace, preset.value);
+  const activeEverywhere = backgroundEverywhereApplyModel(preset.value, preset.label, workspace);
+  const activeTarget = target === "pane" ? activePane : target === "all" ? activeAll : activeApp;
+  const targetDisabled = Boolean(targetOption.disabled) || activeTarget;
+  return {
+    workspace,
+    activeTerminal,
+    terminalPanels,
+    hasTerminalPanes,
+    target,
+    targetOption,
+    activeApp,
+    activePane,
+    activeAll,
+    activeEverywhere,
+    activeTarget,
+    targetDisabled,
+    applyTitle: backgroundPresetApplyTitle(preset, targetOption, activeTarget),
+    savedBackground: backgroundPresetSavedBackground(preset)
+  };
+}
+
+function replaceBackgroundScopeChips(scope, chips) {
+  if (!scope) return;
+  scope.replaceChildren(...chips.map(({ label, active, muted }) => {
+    const chip = document.createElement("span");
+    chip.className = [
+      "background-preset-scope-chip",
+      active ? "is-active" : "",
+      muted ? "is-muted" : ""
+    ].filter(Boolean).join(" ");
+    chip.textContent = active ? `${label} active` : label;
+    return chip;
+  }));
+}
+
+function updateBackgroundPresetCard(card, preset, context = {}) {
+  if (!card || !preset) return false;
+  const model = backgroundPresetTargetModel(preset, context);
+  setClassNameIfChanged(card, [
+    "background-preset-card",
+    model.activeApp ? "is-active-app" : "",
+    model.activePane ? "is-active-pane" : "",
+    model.activeAll ? "is-active-all" : "",
+    model.activeEverywhere.active ? "is-active-everywhere" : ""
+  ].filter(Boolean).join(" "));
+  const cardSearch = normalizeSettingsQuery(`background image wallpaper template save copy reusable everywhere ${model.activeEverywhere.search} ${preset.label}`);
+  if (card.dataset.settingsSearch !== cardSearch) {
+    card.dataset.settingsSearch = cardSearch;
+    updateSettingsSearchIndexItemSearch(card, cardSearch);
+  }
+  const button = card.querySelector(".background-preset");
+  if (button) {
+    setClassNameIfChanged(button, `background-preset${model.activeTarget ? " is-active" : ""}`);
+    setDisabledIfChanged(button, model.targetDisabled);
+    setTitleIfChanged(button, model.applyTitle);
+    setAttributeIfChanged(button, "aria-label", model.applyTitle);
+    setAttributeIfChanged(button, "aria-pressed", model.activeTarget ? "true" : "false");
+  }
+  replaceBackgroundScopeChips(card.querySelector(".background-preset-scope"), [
+    { label: "App", active: model.activeApp },
+    { label: "Pane", active: model.activePane, muted: !model.activeTerminal },
+    { label: "All", active: model.activeAll, muted: !model.hasTerminalPanes }
+  ]);
+  const applyAction = card.querySelector("[data-background-preset-action='apply']");
+  if (applyAction) {
+    const applyLabel = backgroundApplyTargetPrimaryLabel(model.target);
+    setSettingsActionLabel(applyAction, applyLabel);
+    setDisabledIfChanged(applyAction, model.targetDisabled);
+    setTitleIfChanged(applyAction, model.applyTitle);
+    const search = normalizeSettingsQuery(`${applyLabel} background template apply selected target ${model.targetOption.label} ${preset.label}`);
+    if (applyAction.dataset.settingsSearch !== search) {
+      applyAction.dataset.settingsSearch = search;
+      updateSettingsSearchIndexItemSearch(applyAction, search);
+    }
+  }
+  return true;
+}
+
+function refreshBackgroundPresetGrid(grid) {
+  const cards = [...grid.querySelectorAll("[data-background-preset-card]")];
+  if (cards.length !== backgroundPresets.length) return false;
+  const workspace = activeWorkspace();
+  const activeTerminal = activeTerminalPanelForSettings();
+  const terminalPanels = workspaceTerminalPanels(workspace);
+  const target = normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
+  const targetOption = backgroundApplyTargetOption(target, workspace);
+  for (const [index, preset] of backgroundPresets.entries()) {
+    const card = cards[index];
+    if (card.dataset.backgroundPresetCard !== (preset.value || "none")) return false;
+    updateBackgroundPresetCard(card, preset, {
+      workspace,
+      activeTerminal,
+      terminalPanels,
+      target,
+      targetOption
+    });
+  }
+  return true;
+}
+
 function backgroundPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "background-preset-grid";
@@ -31095,74 +31207,69 @@ function backgroundPresetGrid() {
   const target = normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
   const targetOption = backgroundApplyTargetOption(target, workspace);
   for (const preset of backgroundPresets) {
-    const activeApp = backgroundPresetActiveForTarget(preset.value, "app", workspace);
-    const activePane = Boolean(activeTerminal && panelBackgroundMatches(activeTerminal, preset.value));
-    const activeAll = terminalBackgroundsMatch(workspace, preset.value);
-    const activeEverywhere = backgroundEverywhereApplyModel(preset.value, preset.label, workspace);
-    const activeTarget = target === "pane" ? activePane : target === "all" ? activeAll : activeApp;
-    const savedBackground = backgroundPresetSavedBackground(preset);
-    const targetDisabled = Boolean(targetOption.disabled) || activeTarget;
-    const applyTitle = backgroundPresetApplyTitle(preset, targetOption, activeTarget);
+    const model = backgroundPresetTargetModel(preset, {
+      workspace,
+      activeTerminal,
+      terminalPanels,
+      target,
+      targetOption
+    });
     const card = document.createElement("div");
     card.className = [
       "background-preset-card",
-      activeApp ? "is-active-app" : "",
-      activePane ? "is-active-pane" : "",
-      activeAll ? "is-active-all" : "",
-      activeEverywhere.active ? "is-active-everywhere" : ""
+      model.activeApp ? "is-active-app" : "",
+      model.activePane ? "is-active-pane" : "",
+      model.activeAll ? "is-active-all" : "",
+      model.activeEverywhere.active ? "is-active-everywhere" : ""
     ].filter(Boolean).join(" ");
-    card.dataset.settingsSearch = normalizeSettingsQuery(`background image wallpaper template save copy reusable everywhere ${activeEverywhere.search} ${preset.label}`);
+    card.dataset.backgroundPresetCard = preset.value || "none";
+    card.dataset.settingsSearch = normalizeSettingsQuery(`background image wallpaper template save copy reusable everywhere ${model.activeEverywhere.search} ${preset.label}`);
 
     const button = document.createElement("button");
-    button.className = `background-preset${activeTarget ? " is-active" : ""}`;
+    button.className = `background-preset${model.activeTarget ? " is-active" : ""}`;
     button.type = "button";
-    button.disabled = targetDisabled;
-    button.title = applyTitle;
-    button.setAttribute("aria-label", applyTitle);
-    button.setAttribute("aria-pressed", activeTarget ? "true" : "false");
+    button.disabled = model.targetDisabled;
+    button.title = model.applyTitle;
+    button.setAttribute("aria-label", model.applyTitle);
+    button.setAttribute("aria-pressed", model.activeTarget ? "true" : "false");
     button.style.setProperty("--preset-background", preset.preview);
     button.innerHTML = `<span class="background-preset-preview"></span><span class="background-preset-label"></span>`;
     button.querySelector(".background-preset-label").textContent = preset.label;
     button.onclick = () => {
-      if (!backgroundPresetActiveForTarget(preset.value, target)) applyBackgroundPresetToTarget(preset, target);
+      const currentTarget = normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
+      if (!backgroundPresetActiveForTarget(preset.value, currentTarget)) applyBackgroundPresetToTarget(preset, currentTarget);
     };
 
     const scope = document.createElement("div");
     scope.className = "background-preset-scope";
     scope.dataset.settingsSearch = normalizeSettingsQuery(`background template scope app pane all terminals ${preset.label}`);
-    const addScopeChip = (label, active, muted = false) => {
-      const chip = document.createElement("span");
-      chip.className = [
-        "background-preset-scope-chip",
-        active ? "is-active" : "",
-        muted ? "is-muted" : ""
-      ].filter(Boolean).join(" ");
-      chip.textContent = active ? `${label} active` : label;
-      scope.append(chip);
-    };
-    addScopeChip("App", activeApp);
-    addScopeChip("Pane", activePane, !activeTerminal);
-    addScopeChip("All", activeAll, !hasTerminalPanes);
+    replaceBackgroundScopeChips(scope, [
+      { label: "App", active: model.activeApp },
+      { label: "Pane", active: model.activePane, muted: !model.activeTerminal },
+      { label: "All", active: model.activeAll, muted: !hasTerminalPanes }
+    ]);
 
     const actions = document.createElement("div");
     actions.className = "background-preset-actions";
     const applyAction = settingsActionButton(backgroundApplyTargetPrimaryLabel(target), () => {
-      if (!backgroundPresetActiveForTarget(preset.value, target)) applyBackgroundPresetToTarget(preset, target);
+      const currentTarget = normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
+      if (!backgroundPresetActiveForTarget(preset.value, currentTarget)) applyBackgroundPresetToTarget(preset, currentTarget);
     }, "primary", `background template apply selected target ${targetOption.label} ${preset.label}`);
     applyAction.classList.add("background-preset-apply-action");
-    applyAction.disabled = targetDisabled;
-    applyAction.title = applyTitle;
-    const everywhereAction = settingsActionButton("Everywhere", () => applyBackgroundValueEverywhere(preset.value, { label: preset.label, workspace }), "", `background template apply everywhere whole app all terminals ${activeEverywhere.search} ${preset.label}`);
-    everywhereAction.disabled = activeEverywhere.disabled;
-    everywhereAction.title = activeEverywhere.title;
+    applyAction.dataset.backgroundPresetAction = "apply";
+    applyAction.disabled = model.targetDisabled;
+    applyAction.title = model.applyTitle;
+    const everywhereAction = settingsActionButton("Everywhere", () => applyBackgroundValueEverywhere(preset.value, { label: preset.label, workspace }), "", `background template apply everywhere whole app all terminals ${model.activeEverywhere.search} ${preset.label}`);
+    everywhereAction.disabled = model.activeEverywhere.disabled;
+    everywhereAction.title = model.activeEverywhere.title;
     const saveAction = settingsActionButton(
-      savedBackground ? "Saved" : "Save",
+      model.savedBackground ? "Saved" : "Save",
       () => saveBackgroundPresetImage(preset),
-      savedBackground ? "primary" : "",
-      `background template save reusable library ${savedBackground ? "saved active current " : ""}${preset.label}`
+      model.savedBackground ? "primary" : "",
+      `background template save reusable library ${model.savedBackground ? "saved active current " : ""}${preset.label}`
     );
-    saveAction.disabled = !preset.value || Boolean(savedBackground) || savedBackgroundImagesFull();
-    saveAction.title = backgroundPresetSaveTitle(preset, savedBackground);
+    saveAction.disabled = !preset.value || Boolean(model.savedBackground) || savedBackgroundImagesFull();
+    saveAction.title = backgroundPresetSaveTitle(preset, model.savedBackground);
     const copyAction = settingsActionButton("Copy", () => copyBackgroundPresetImage(preset), "", `background template copy reusable library clipboard json ${preset.label}`);
     copyAction.disabled = !preset.value;
     copyAction.title = preset.value ? "Copy this template as saved background JSON." : "This template has no reusable background.";
