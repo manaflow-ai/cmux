@@ -7162,15 +7162,72 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
 
         let menu = NSMenu()
-        if onTriggerFlash != nil {
-            let flashItem = menu.addItem(
-                withTitle: String(localized: "terminalContextMenu.triggerFlash", defaultValue: "Trigger Flash"),
-                action: #selector(triggerFlash(_:)),
+
+        // Resolve what sits under the right-click once, so the smart items act on
+        // the exact click location rather than re-resolving at selection time.
+        let resolvedWordPath = resolveWordUnderCursorPath(at: point)?.path
+        let smartLinkURL: URL? = {
+            // A real file path always wins over link interpretation.
+            guard resolvedWordPath == nil, let token = wordUnderCursorToken() else { return nil }
+            return GhosttyNSView.browserURL(forToken: token)
+        }()
+        let workingDirectory = surfaceWorkingDirectory()
+
+        // 1. Contextual actions on the path / link under the cursor (top slot).
+        if let resolvedWordPath {
+            let name = (resolvedWordPath as NSString).lastPathComponent
+            let openItem = menu.addItem(
+                withTitle: String(
+                    format: String(localized: "terminalContextMenu.openPath", defaultValue: "Open %@"),
+                    name
+                ),
+                action: #selector(openResolvedWordPath(_:)),
                 keyEquivalent: ""
             )
-            flashItem.target = self
+            openItem.target = self
+            openItem.representedObject = resolvedWordPath
+            openItem.image = NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: nil)
+
+            let revealItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.revealInFinder", defaultValue: "Reveal in Finder"),
+                action: #selector(revealResolvedWordPathInFinder(_:)),
+                keyEquivalent: ""
+            )
+            revealItem.target = self
+            revealItem.representedObject = resolvedWordPath
+            revealItem.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+
+            let copyPathItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.copyPath", defaultValue: "Copy Path"),
+                action: #selector(copyResolvedWordPath(_:)),
+                keyEquivalent: ""
+            )
+            copyPathItem.target = self
+            copyPathItem.representedObject = resolvedWordPath
+            copyPathItem.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
+            menu.addItem(.separator())
+        } else if let smartLinkURL {
+            let openLinkItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.openLink", defaultValue: "Open Link in Browser"),
+                action: #selector(openSmartLink(_:)),
+                keyEquivalent: ""
+            )
+            openLinkItem.target = self
+            openLinkItem.representedObject = smartLinkURL
+            openLinkItem.image = NSImage(systemSymbolName: "safari", accessibilityDescription: nil)
+
+            let copyLinkItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.copyLink", defaultValue: "Copy Link"),
+                action: #selector(copySmartLink(_:)),
+                keyEquivalent: ""
+            )
+            copyLinkItem.target = self
+            copyLinkItem.representedObject = smartLinkURL
+            copyLinkItem.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
             menu.addItem(.separator())
         }
+
+        // 2. Selection / edit.
         if ghostty_surface_has_selection(surface) {
             let item = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.copy", defaultValue: "Copy"),
@@ -7185,6 +7242,45 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEquivalent: ""
         )
         pasteItem.target = self
+        if terminalSurface != nil {
+            let findItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.find", defaultValue: "Find…"),
+                action: #selector(openSurfaceFind(_:)),
+                keyEquivalent: ""
+            )
+            findItem.target = self
+            findItem.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
+        }
+
+        // 3. Workspace / repo actions, when the surface's working directory is known.
+        if let workingDirectory {
+            menu.addItem(.separator())
+            let openFolderItem = menu.addItem(
+                withTitle: String(
+                    localized: "terminalContextMenu.openFolderInFinder",
+                    defaultValue: "Open Folder in Finder"
+                ),
+                action: #selector(openWorkingDirectoryInFinder(_:)),
+                keyEquivalent: ""
+            )
+            openFolderItem.target = self
+            openFolderItem.representedObject = workingDirectory
+            openFolderItem.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+
+            let copyCwdItem = menu.addItem(
+                withTitle: String(
+                    localized: "terminalContextMenu.copyWorkingDirectory",
+                    defaultValue: "Copy Working Directory"
+                ),
+                action: #selector(copyWorkingDirectory(_:)),
+                keyEquivalent: ""
+            )
+            copyCwdItem.target = self
+            copyCwdItem.representedObject = workingDirectory
+            copyCwdItem.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
+        }
+
+        // 4. Layout.
         menu.addItem(.separator())
         let splitHorizontallyItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.splitHorizontally", defaultValue: "Split Horizontally"),
@@ -7220,6 +7316,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "arrow.trianglehead.2.clockwise",
             accessibilityDescription: nil
         )
+        if onTriggerFlash != nil {
+            let flashItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.triggerFlash", defaultValue: "Trigger Flash"),
+                action: #selector(triggerFlash(_:)),
+                keyEquivalent: ""
+            )
+            flashItem.target = self
+        }
         if terminalSurface != nil {
             menu.addItem(.separator())
             let identifiersItem = menu.addItem(
@@ -7285,6 +7389,155 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @objc private func resetTerminal(_ sender: Any?) {
         _ = performBindingAction("reset")
+    }
+
+    // MARK: - Smart context-menu helpers
+
+    /// The surface's current working directory, if known (local terminals only).
+    private func surfaceWorkingDirectory() -> String? {
+        guard let termSurface = terminalSurface,
+              let workspace = termSurface.owningWorkspace(),
+              !workspace.isRemoteTerminalSurface(termSurface.id) else { return nil }
+        return resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: termSurface)
+    }
+
+    /// Raw token under the mouse cursor (Ghostty quicklook word), trimmed.
+    private func wordUnderCursorToken() -> String? {
+        guard let surface = surface else { return nil }
+        var text = ghostty_text_s()
+        guard ghostty_surface_quicklook_word(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard text.text_len > 0, let ptr = text.text else { return nil }
+        let data = Data(bytes: ptr, count: Int(text.text_len))
+        let token = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let token, !token.isEmpty else { return nil }
+        return token
+    }
+
+    /// Recognize a browser-openable target: an explicit http(s) URL, or GitHub
+    /// `owner/repo`, `owner/repo#123`, `owner/repo@<sha>` shorthand.
+    static func browserURL(forToken token: String) -> URL? {
+        let trimmed = token.trimmingCharacters(in: CharacterSet(charactersIn: "()[]{}<>\"'`.,;:"))
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
+            return URL(string: trimmed)
+        }
+        return githubShorthandURL(forToken: trimmed)
+    }
+
+    /// Map a bare GitHub `owner/repo[#issue][@sha]` token to its github.com URL.
+    /// Returns nil for anything that is not a plausible `owner/repo` slug.
+    static func githubShorthandURL(forToken token: String) -> URL? {
+        var slug = token
+        var suffixPath = ""
+        var hasExplicitGitHubSuffix = false
+        if let hash = slug.firstIndex(of: "#") {
+            let issue = slug[slug.index(after: hash)...]
+            guard !issue.isEmpty, issue.allSatisfy(\.isNumber) else { return nil }
+            suffixPath = "/issues/\(issue)"
+            hasExplicitGitHubSuffix = true
+            slug = String(slug[..<hash])
+        } else if let at = slug.firstIndex(of: "@") {
+            let sha = slug[slug.index(after: at)...]
+            guard sha.count >= 7, sha.allSatisfy(\.isHexDigit) else { return nil }
+            suffixPath = "/commit/\(sha)"
+            hasExplicitGitHubSuffix = true
+            slug = String(slug[..<at])
+        }
+        let parts = slug.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        let owner = String(parts[0])
+        let repo = String(parts[1])
+        let ownerAllowed = CharacterSet(
+            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+        )
+        let repoAllowed = CharacterSet(
+            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._"
+        )
+        let commonSlashTokenPrefixes = Set([
+            "application", "audio", "font", "image", "model", "multipart", "text", "video"
+        ])
+        guard !owner.isEmpty, !repo.isEmpty,
+              owner.count <= 39, repo.count <= 100,
+              !owner.hasPrefix("-"), !owner.hasSuffix("-"),
+              !commonSlashTokenPrefixes.contains(owner.lowercased()),
+              owner.unicodeScalars.allSatisfy(ownerAllowed.contains),
+              repo.unicodeScalars.allSatisfy(repoAllowed.contains),
+              hasExplicitGitHubSuffix || !repo.contains(".") else { return nil }
+        return URL(string: "https://github.com/\(owner)/\(repo)\(suffixPath)")
+    }
+
+    private func writeStringToPasteboard(_ string: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(string, forType: .string)
+    }
+
+    @objc private func openResolvedWordPath(_ sender: Any?) {
+        guard let path = (sender as? NSMenuItem)?.representedObject as? String else { return }
+        PreferredEditorSettings.open(URL(fileURLWithPath: path))
+    }
+
+    @objc private func revealResolvedWordPathInFinder(_ sender: Any?) {
+        guard let path = (sender as? NSMenuItem)?.representedObject as? String else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    @objc private func copyResolvedWordPath(_ sender: Any?) {
+        guard let path = (sender as? NSMenuItem)?.representedObject as? String else { return }
+        writeStringToPasteboard(path)
+    }
+
+    @objc private func openSmartLink(_ sender: Any?) {
+        guard let url = (sender as? NSMenuItem)?.representedObject as? URL else { return }
+        // Route through the same browser-preference logic as cmd-click hyperlinks so
+        // "Open Link in Browser" respects the user's embedded-browser toggle, host
+        // whitelist, and external-open patterns.
+        if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser()
+            || BrowserLinkOpenSettings.shouldOpenExternally(url) {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        guard let rawHost = url.host,
+              let host = BrowserInsecureHTTPSettings.normalizeHost(rawHost),
+              BrowserLinkOpenSettings.hostMatchesWhitelist(host),
+              let tabId,
+              let surfaceId = terminalSurface?.id else {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        _ = GhosttyNSView.openEmbeddedBrowserLink(
+            url: url, sourceWorkspaceId: tabId, sourcePanelId: surfaceId, host: host
+        )
+    }
+
+    @objc private func copySmartLink(_ sender: Any?) {
+        guard let url = (sender as? NSMenuItem)?.representedObject as? URL else { return }
+        writeStringToPasteboard(url.absoluteString)
+    }
+
+    @objc private func openWorkingDirectoryInFinder(_ sender: Any?) {
+        guard let dir = (sender as? NSMenuItem)?.representedObject as? String else { return }
+        // Use the shared opener: verifies the directory still exists, uses
+        // activateFileViewerSelecting (reveals the folder rather than opening its
+        // contents), and beeps on a stale path — matching the sidebar's behavior.
+        Task { @MainActor in
+            await WorkspaceFinderDirectoryOpener.openInFinder(URL(fileURLWithPath: dir))
+        }
+    }
+
+    @objc private func copyWorkingDirectory(_ sender: Any?) {
+        guard let dir = (sender as? NSMenuItem)?.representedObject as? String else { return }
+        writeStringToPasteboard(dir)
+    }
+
+    @objc private func openSurfaceFind(_ sender: Any?) {
+        guard let terminalSurface else { return }
+        if terminalSurface.searchState == nil {
+            terminalSurface.searchState = TerminalSurface.SearchState(needle: "")
+        }
+        NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
     }
 
     override func mouseMoved(with event: NSEvent) {
