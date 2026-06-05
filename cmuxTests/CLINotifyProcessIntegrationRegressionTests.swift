@@ -6707,11 +6707,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let sessionId = "codex-invalid-mapped-session"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        var listenerClosed = false
         defer {
-            if !listenerClosed {
-                Darwin.close(listenerFD)
-            }
+            Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
         }
@@ -6733,7 +6730,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted]).write(to: storeURL, options: .atomic)
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
                 return line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
                     ? self.malformedRequestResponse(raw: line)
@@ -6768,9 +6765,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             timeout: 5
         )
 
-        Darwin.close(listenerFD)
-        listenerClosed = true
-        wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
