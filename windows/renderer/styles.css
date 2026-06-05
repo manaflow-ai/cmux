@@ -10871,8 +10871,9 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border: 1px solid color-mix(in oklch, var(--color-text) 14%, var(--color-line) 86%);
   border-radius: 4px;
   background-image: var(--quick-background-preview);
-  background-size: 8px 8px, 8px 8px, cover;
+  background-size: var(--quick-background-preview-size, 8px 8px, 8px 8px, cover);
   background-position: center;
+  background-repeat: var(--quick-background-preview-repeat, repeat);
   box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 9%, transparent);
 }
 

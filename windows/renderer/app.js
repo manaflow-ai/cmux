@@ -25546,6 +25546,45 @@ function quickBackgroundPresetControlsPanel(workspace = activeWorkspace()) {
   });
 }
 
+function quickSavedBackgroundControlsPanel(workspace = activeWorkspace()) {
+  if (state.savedBackgroundImages.length === 0) return null;
+  const targetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
+  const targetOption = backgroundApplyTargetOption(targetStatus.scope, workspace);
+  const previewLimit = 6;
+  const visibleBackgrounds = state.savedBackgroundImages.slice(0, previewLimit);
+  const hiddenBackgroundCount = Math.max(0, state.savedBackgroundImages.length - visibleBackgrounds.length);
+  const actions = visibleBackgrounds.map((background) => {
+    const active = Boolean(targetStatus.canTarget && savedBackgroundImageActiveForTarget(background, targetStatus.scope, workspace));
+    const searchSource = String(background.url || "").startsWith("data:image") ? "data image" : background.url;
+    const button = quickOverviewControlButton(active ? "Active" : background.label, () => applySavedBackgroundImageToTarget(background.id, targetStatus.scope), {
+      disabled: !targetStatus.canTarget || active,
+      title: !targetStatus.canTarget
+        ? `${targetOption.label}: ${targetOption.meta}.`
+        : savedBackgroundImageApplyTitle(background, targetOption, active),
+      search: normalizeSettingsQuery(`quick setup saved background image wallpaper library apply ${targetOption.label} app pane all terminals ${active ? "active current " : ""}${background.label} ${searchSource}`)
+    });
+    button.classList.add("quick-background-preset-action", "quick-saved-background-action");
+    button.style.setProperty("--quick-background-preview", backgroundCss(background.url));
+    button.style.setProperty("--quick-background-preview-repeat", backgroundRepeatCss(background.url));
+    button.style.setProperty("--quick-background-preview-size", isBackgroundPreset(background.url) ? "8px 8px, 8px 8px, cover" : "cover");
+    return button;
+  });
+  if (hiddenBackgroundCount > 0) {
+    const backgroundSearch = state.savedBackgroundImages.map((background) => background.label).join(" ");
+    actions.push(quickOverviewControlButton("More", () => openSettingsCategory("appearance", { query: "saved backgrounds", focusSearch: false }), {
+      title: `Open full background settings for all ${state.savedBackgroundImages.length} saved backgrounds.`,
+      search: normalizeSettingsQuery(`quick setup saved backgrounds more full background settings manage library ${backgroundSearch}`)
+    }));
+  }
+  return quickOverviewControlsPanel({
+    className: "quick-overview-backgrounds",
+    title: "Saved backgrounds",
+    meta: `${targetOption.label}: ${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved${hiddenBackgroundCount ? ` / ${hiddenBackgroundCount} more` : ""}`,
+    search: `quick setup saved backgrounds image wallpaper library reusable target app pane all terminals ${targetOption.label} ${targetOption.meta} ${visibleBackgrounds.map((background) => background.label).join(" ")}`,
+    actions
+  });
+}
+
 function quickBackgroundTuneControlsPanel() {
   const activePreset = backgroundTuningPresets.find(backgroundTuningPresetActive) || null;
   const presetSearch = backgroundTuningPresets.map((preset) => `${preset.label} ${preset.body}`).join(" ");
@@ -25829,6 +25868,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-performance-preset-controls></div>
     <div data-quick-background-controls></div>
     <div data-quick-background-preset-controls></div>
+    <div data-quick-saved-background-controls></div>
     <div data-quick-background-tune-controls></div>
     <div class="quick-overview-scope" aria-label="Background scope">
       <button class="quick-overview-scope-item" type="button" data-quick-scope-item="app">
@@ -25938,6 +25978,10 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   else performancePresetSlot.remove();
   panel.querySelector("[data-quick-background-controls]").replaceWith(quickBackgroundControlsPanel(workspace));
   panel.querySelector("[data-quick-background-preset-controls]").replaceWith(quickBackgroundPresetControlsPanel(workspace));
+  const savedBackgroundControls = quickSavedBackgroundControlsPanel(workspace);
+  const savedBackgroundSlot = panel.querySelector("[data-quick-saved-background-controls]");
+  if (savedBackgroundControls) savedBackgroundSlot.replaceWith(savedBackgroundControls);
+  else savedBackgroundSlot.remove();
   panel.querySelector("[data-quick-background-tune-controls]").replaceWith(quickBackgroundTuneControlsPanel());
   panel.querySelector("[data-quick-scope-app]").textContent = scope.hasBackground
     ? appearanceBackgroundLabel(state.settings.backgroundImage)
