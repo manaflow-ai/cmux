@@ -4672,11 +4672,11 @@ final class TextBoxInputTextView: NSTextView {
 
     @discardableResult
     private func acceptMentionCompletion(_ explicitSuggestion: TextBoxMentionSuggestion? = nil) -> Bool {
-        guard mentionCompletionController.hasVisibleSuggestions,
+        guard mentionCompletionController.hasAcceptableSuggestions,
               let query = mentionCompletionController.activeQuery,
               let suggestion = explicitSuggestion ?? mentionCompletionController.selectedSuggestion,
               explicitSuggestion == nil ||
-                  mentionCompletionController.visibleSuggestions.contains(where: { $0.id == suggestion.id }),
+                  mentionCompletionController.canAccept(suggestion),
               isValidSelectedRange(query.range),
               shouldChangeText(in: query.range, replacementString: suggestion.insertionText) else {
             return false

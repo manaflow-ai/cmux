@@ -23,6 +23,8 @@ final class TextBoxMentionCompletionController {
     @ObservationIgnored
     private var suggestionsRootDirectory: String?
     @ObservationIgnored
+    private var locallyFilteredSuggestions: [TextBoxMentionSuggestion]?
+    @ObservationIgnored
     var onStateChanged: (() -> Void)?
 
     var hasSuggestions: Bool {
@@ -30,11 +32,20 @@ final class TextBoxMentionCompletionController {
     }
 
     var visibleSuggestions: [TextBoxMentionSuggestion] {
-        hasCurrentSuggestions ? suggestions : []
+        guard hasSuggestions else { return [] }
+        if hasCurrentSuggestions {
+            return suggestions
+        }
+        if isLoadingSuggestions { return locallyFilteredSuggestions ?? [] }
+        return []
     }
 
     var hasVisibleSuggestions: Bool {
         !visibleSuggestions.isEmpty
+    }
+
+    var hasAcceptableSuggestions: Bool {
+        hasCurrentSuggestions
     }
 
     var isActive: Bool {
@@ -54,6 +65,10 @@ final class TextBoxMentionCompletionController {
     var selectedSuggestion: TextBoxMentionSuggestion? {
         guard visibleSuggestions.indices.contains(selectionIndex) else { return nil }
         return visibleSuggestions[selectionIndex]
+    }
+
+    func canAccept(_ suggestion: TextBoxMentionSuggestion) -> Bool {
+        hasAcceptableSuggestions && suggestions.contains(where: { $0.id == suggestion.id })
     }
 
     func matchesCurrentInput(query: TextBoxMentionQuery?, rootDirectory: String?) -> Bool {
@@ -78,22 +93,18 @@ final class TextBoxMentionCompletionController {
         activeRootDirectory = rootDirectory
         selectionIndex = 0
         isLoadingSuggestions = true
-        // Moving between a bare trigger and typed query changes the expected
-        // result shape. Show the loading row until that exact query finishes.
         let previousQueryWasEmpty = previousActiveQuery?.query
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty ?? true
         let queryIsEmpty = query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let queryChangedToNonEmpty = previousQueryWasEmpty &&
-            !queryIsEmpty
         let queryChangedToEmpty = !previousQueryWasEmpty && queryIsEmpty
         if previousActiveQuery?.trigger != query.trigger ||
             previousRootDirectory != rootDirectory ||
-            queryChangedToNonEmpty ||
             queryChangedToEmpty {
             suggestions = []
             suggestionsQuery = nil
             suggestionsRootDirectory = nil
+            locallyFilteredSuggestions = nil
         } else if previousActiveQuery?.query != query.query,
                   !queryIsEmpty {
             filterVisibleStaleSuggestions(matching: query.query)
@@ -119,6 +130,7 @@ final class TextBoxMentionCompletionController {
                 self.suggestions = suggestions
                 self.suggestionsQuery = query
                 self.suggestionsRootDirectory = rootDirectory
+                self.locallyFilteredSuggestions = nil
                 self.isLoadingSuggestions = false
                 self.selectionIndex = suggestions.isEmpty ? 0 : min(self.selectionIndex, suggestions.count - 1)
                 self.onStateChanged?()
@@ -139,6 +151,7 @@ final class TextBoxMentionCompletionController {
         suggestions = []
         suggestionsQuery = nil
         suggestionsRootDirectory = nil
+        locallyFilteredSuggestions = nil
         isLoadingSuggestions = false
         selectionIndex = 0
         lookupTask?.cancel()
@@ -150,31 +163,20 @@ final class TextBoxMentionCompletionController {
     private func filterVisibleStaleSuggestions(matching query: String) {
         let normalizedQuery = Self.normalizedMentionSearchText(query)
         guard !normalizedQuery.isEmpty, !suggestions.isEmpty else { return }
+        let filteredSuggestions: [TextBoxMentionSuggestion]
         if suggestions.count > Self.maxVisibleStaleSuggestionsToFilter {
             // The index store caps visible rows at this size; oversized injected
             // stale state is safer to clear than filter on the main actor.
-            suggestions = []
+            filteredSuggestions = []
         } else {
-            let filteredSuggestions = suggestions.filter { suggestion in
+            filteredSuggestions = suggestions.filter { suggestion in
                 Self.title(suggestion.title, matchesNormalizedQuery: normalizedQuery)
             }
-            if !filteredSuggestions.isEmpty {
-                suggestions = filteredSuggestions
-            }
         }
-        if suggestions.isEmpty {
-            suggestionsQuery = nil
-            suggestionsRootDirectory = nil
-        } else if suggestions.allSatisfy({ suggestion in
-            Self.title(suggestion.title, matchesNormalizedQuery: normalizedQuery)
-        }) {
-            suggestionsQuery = activeQuery
-            suggestionsRootDirectory = activeRootDirectory
-        } else {
-            suggestionsQuery = nil
-            suggestionsRootDirectory = nil
-        }
-        selectionIndex = suggestions.isEmpty ? 0 : min(selectionIndex, suggestions.count - 1)
+        locallyFilteredSuggestions = filteredSuggestions
+        suggestionsQuery = nil
+        suggestionsRootDirectory = nil
+        selectionIndex = filteredSuggestions.isEmpty ? 0 : min(selectionIndex, filteredSuggestions.count - 1)
     }
 
     private static func title(_ title: String, matchesNormalizedQuery normalizedQuery: String) -> Bool {
@@ -219,6 +221,7 @@ final class TextBoxMentionCompletionController {
         suggestions = debugSuggestions
         suggestionsQuery = query
         suggestionsRootDirectory = rootDirectory
+        locallyFilteredSuggestions = nil
         isLoadingSuggestions = isLoading
         selectionIndex = suggestions.isEmpty ? 0 : min(selectionIndex, suggestions.count - 1)
         onStateChanged?()

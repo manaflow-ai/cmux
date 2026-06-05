@@ -1270,8 +1270,9 @@ struct TextBoxMentionCompletionTests {
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
         #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
-        #expect(textView.debugMentionSuggestionsAreCurrent())
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
         #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(!textView.debugAcceptMentionCompletion(suggestion: currentSuggestion))
     }
 
     @Test
@@ -1301,9 +1302,10 @@ struct TextBoxMentionCompletionTests {
         textView.setSelectedRange(NSRange(location: 6, length: 0))
         textView.refreshMentionCompletions()
 
-        #expect(textView.debugMentionSuggestionsAreCurrent())
         #expect(textView.debugMentionSuggestionTitles() == ["$autoreview"])
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
         #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(!textView.debugAcceptMentionCompletion(suggestion: previousSuggestion))
     }
 
     @Test
@@ -1341,9 +1343,10 @@ struct TextBoxMentionCompletionTests {
         textView.refreshMentionCompletions()
 
         #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
-        #expect(textView.debugMentionSuggestionsAreCurrent())
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
         #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
+        #expect(!textView.debugAcceptMentionCompletion(suggestion: currentSuggestion))
     }
 
     @Test
@@ -1380,13 +1383,13 @@ struct TextBoxMentionCompletionTests {
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
         #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
-        #expect(textView.debugMentionSuggestionsAreCurrent())
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
 
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
         textView.refreshMentionCompletions()
         #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
-        #expect(textView.debugMentionSuggestionsAreCurrent())
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
     }
 
     @Test
