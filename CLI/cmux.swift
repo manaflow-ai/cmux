@@ -27834,6 +27834,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             if hookWsFlag == nil,
                explicitSurfaceFlag == nil,
+               ambientSurfaceArg != nil,
+               resolvedDirectSurfaceArg == nil,
                case .promptSubmit = action,
                def.name == "codex",
                let binding = processBinding(),
