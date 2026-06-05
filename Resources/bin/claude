@@ -315,6 +315,77 @@ normalize_node_options_for_restore() {
     fi
 }
 
+cmux_claude_settings_directory() {
+    if [[ -n "${HOME:-}" ]]; then
+        printf '%s' "$HOME/Library/Application Support/cmux/claude"
+        return 0
+    fi
+
+    local uid
+    uid="$(id -u 2>/dev/null || printf 'unknown')"
+    printf '%s' "${TMPDIR:-/tmp}/cmux-claude-settings-$uid"
+}
+
+cmux_claude_settings_hash() {
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 | awk '{print $1}'
+        return 0
+    fi
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum | awk '{print $1}'
+        return 0
+    fi
+    return 1
+}
+
+prune_old_claude_settings_files() {
+    local settings_dir="$1"
+    local keep_path="$2"
+    local candidate
+
+    while IFS= read -r -d '' candidate; do
+        [[ "$candidate" == "$keep_path" ]] && continue
+        rm -f "$candidate" || true
+    done < <(find "$settings_dir" -maxdepth 1 -type f -name 'claude-hook-settings-*.json' -mtime +1 -print0 2>/dev/null)
+}
+
+ensure_claude_settings_file() {
+    local settings_json="$1"
+    local settings_dir settings_hash settings_path temp_path
+    settings_dir="$(cmux_claude_settings_directory)" || return 1
+    mkdir -p "$settings_dir" || return 1
+    [[ -O "$settings_dir" ]] || return 1
+    chmod 0700 "$settings_dir" 2>/dev/null || return 1
+
+    settings_hash="$(printf '%s' "$settings_json" | cmux_claude_settings_hash)" || return 1
+    [[ -n "$settings_hash" ]] || return 1
+    settings_path="$settings_dir/claude-hook-settings-$settings_hash.json"
+
+    if [[ -f "$settings_path" ]] && printf '%s' "$settings_json" | cmp -s - "$settings_path"; then
+        prune_old_claude_settings_files "$settings_dir" "$settings_path"
+        printf '%s' "$settings_path"
+        return 0
+    fi
+
+    temp_path="$(mktemp "$settings_dir/.claude-hook-settings-$settings_hash.XXXXXX")" || return 1
+    printf '%s' "$settings_json" >"$temp_path" || {
+        rm -f "$temp_path"
+        return 1
+    }
+    chmod 0644 "$temp_path" || {
+        rm -f "$temp_path"
+        return 1
+    }
+
+    mv -f "$temp_path" "$settings_path" || {
+        rm -f "$temp_path"
+        return 1
+    }
+
+    prune_old_claude_settings_files "$settings_dir" "$settings_path"
+    printf '%s' "$settings_path"
+}
+
 encode_launch_argv() {
     {
         printf '%s\0' "$REAL_CLAUDE"
@@ -479,10 +550,14 @@ fi
 # - SubagentStop: feed telemetry only. It must not run the visible Stop
 #   hook because a subagent finishing should not notify like the parent.
 HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+HOOKS_SETTINGS="$HOOKS_JSON"
+if HOOKS_SETTINGS_FILE="$(ensure_claude_settings_file "$HOOKS_JSON")"; then
+    HOOKS_SETTINGS="$HOOKS_SETTINGS_FILE"
+fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
-    exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
+    exec "$REAL_CLAUDE" --settings "$HOOKS_SETTINGS" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-    exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+    exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_SETTINGS" "$@"
 fi

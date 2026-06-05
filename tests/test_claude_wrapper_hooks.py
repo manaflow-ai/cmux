@@ -17,6 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "claude"
+CAPTURED_SETTINGS_BY_PATH: dict[str, str] = {}
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -36,7 +37,15 @@ def parse_settings_arg(argv: list[str]) -> dict:
     index = argv.index("--settings")
     if index + 1 >= len(argv):
         return {}
-    return json.loads(argv[index + 1])
+    settings_arg = argv[index + 1]
+    if settings_arg.startswith("{"):
+        return json.loads(settings_arg)
+    settings_path = Path(settings_arg)
+    if settings_path.exists():
+        return json.loads(settings_path.read_text(encoding="utf-8"))
+    if settings_arg in CAPTURED_SETTINGS_BY_PATH:
+        return json.loads(CAPTURED_SETTINGS_BY_PATH[settings_arg])
+    return {}
 
 
 def run_wrapper(
@@ -165,6 +174,7 @@ exit 0
 
         env = os.environ.copy()
         env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
+        env["HOME"] = str(tmp / "home")
         env["CMUX_SURFACE_ID"] = "surface:test"
         env["CMUX_SOCKET_PATH"] = socket_path
         env["FAKE_REAL_ARGS_LOG"] = str(real_args_log)
@@ -214,9 +224,17 @@ exit 0
         child_node_options_value = child_node_options_lines[0] if child_node_options_lines else ""
         hook_cmux_bin_value = hook_cmux_bin_lines[0] if hook_cmux_bin_lines else ""
         launch_argv_b64_value = launch_argv_b64_lines[0] if launch_argv_b64_lines else ""
+        real_argv = read_lines(real_args_log)
+        if "--settings" in real_argv:
+            settings_index = real_argv.index("--settings")
+            if settings_index + 1 < len(real_argv):
+                settings_path = Path(real_argv[settings_index + 1])
+                if settings_path.exists() and settings_path.is_file():
+                    CAPTURED_SETTINGS_BY_PATH[str(settings_path)] = settings_path.read_text(encoding="utf-8")
+
         return (
             proc.returncode,
-            read_lines(real_args_log),
+            real_argv,
             read_lines(cmux_log),
             proc.stderr.strip(),
             claudecode_value,
@@ -574,6 +592,55 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     expect(
         any(h.get("timeout", 999) <= 2 for h in session_end_hooks),
         f"SessionEnd hook should have short timeout, got {session_end_hooks}",
+        failures,
+    )
+
+
+def test_live_socket_settings_file_is_user_scoped(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+    )
+    expect(code == 0, f"user-scoped settings: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in real_argv, f"user-scoped settings: missing --settings in args: {real_argv}", failures)
+    if "--settings" not in real_argv:
+        return
+
+    settings_index = real_argv.index("--settings")
+    expect(
+        settings_index + 1 < len(real_argv),
+        f"user-scoped settings: --settings missing value in args: {real_argv}",
+        failures,
+    )
+    if settings_index + 1 >= len(real_argv):
+        return
+
+    settings_arg = real_argv[settings_index + 1]
+    expect(
+        not settings_arg.startswith("{"),
+        "user-scoped settings: expected --settings to receive a generated file path, got inline JSON",
+        failures,
+    )
+    expect(
+        "/Library/Application Support/cmux/claude/" in settings_arg,
+        f"user-scoped settings: expected Application Support cmux path, got {settings_arg!r}",
+        failures,
+    )
+    expect(
+        "/claude-hook-settings-" in settings_arg,
+        f"user-scoped settings: expected hook-identifying settings filename, got {settings_arg!r}",
+        failures,
+    )
+    fallback_marker = f"/cmux-claude-settings-{os.getuid()}/"
+    expect(
+        fallback_marker not in settings_arg,
+        f"user-scoped settings: expected path outside shared tmp, got {settings_arg!r}",
+        failures,
+    )
+    settings = parse_settings_arg(real_argv)
+    expect(
+        settings.get("preferredNotifChannel") == "notifications_disabled",
+        f"user-scoped settings: expected readable generated settings JSON, got {settings}",
         failures,
     )
 
@@ -1166,6 +1233,7 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
+    test_live_socket_settings_file_is_user_scoped(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
