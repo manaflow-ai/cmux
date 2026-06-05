@@ -2115,10 +2115,10 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
 }
 
 .native-window-controls {
-  position: absolute;
+  position: fixed;
   top: 0;
   right: 0;
-  z-index: 12;
+  z-index: 90;
   height: 44px;
   display: flex;
   align-items: stretch;
@@ -2128,6 +2128,7 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
   flex: 0 0 138px;
   border-left: 1px solid color-mix(in oklch, var(--color-line) 64%, transparent);
   background: color-mix(in oklch, var(--color-chrome-surface) 88%, var(--color-pane) 12%);
+  -webkit-app-region: no-drag;
 }
 
 .window-control {
