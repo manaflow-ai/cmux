@@ -860,6 +860,11 @@ final class NotificationDockBadgeTests: XCTestCase {
             defaults: defaults,
             systemSoundStagingDirectory: stagingDirectory
         ))
+        let stagedSoundURL = stagingDirectory.appendingPathComponent(
+            NotificationSoundSettings.stagedSystemSoundFileName(for: "Ping"),
+            isDirectory: false
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagedSoundURL.path))
     }
 
     func testNotificationSoundDisablesSystemSoundForNoneAndCustomFile() {

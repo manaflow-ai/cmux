@@ -490,7 +490,17 @@ enum NotificationSoundSettings {
             try fileManager.removeItem(at: normalizedDestination)
         }
 
-        try fileManager.copyItem(at: normalizedSource, to: normalizedDestination)
+        do {
+            try fileManager.copyItem(at: normalizedSource, to: normalizedDestination)
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain,
+               nsError.code == NSFileWriteFileExistsError,
+               fileManager.fileExists(atPath: normalizedDestination.path) {
+                return
+            }
+            throw error
+        }
     }
 
     private static func transcodeStagedSoundIfNeeded(
