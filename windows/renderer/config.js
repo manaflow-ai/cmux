@@ -77,7 +77,7 @@ export const defaultSettings = {
   reduceMotion: false,
   chromeMotionMode: "balanced",
   sidebarWidth: 216,
-  inspectorWidth: 376,
+  inspectorWidth: 560,
   terminalFontFamily: "cascadia",
   terminalFontSize: 13,
   terminalLineHeight: 1.2,
