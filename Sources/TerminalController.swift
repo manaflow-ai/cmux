@@ -3576,11 +3576,25 @@ class TerminalController {
             }
         }
 
-        return [
+        var result: [String: Any] = [
             "socket_path": socketPath,
             "focused": focused.isEmpty ? NSNull() : focused,
             "caller": v2OrNull(resolvedCaller)
         ]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            result["bundle_identifier"] = bundleIdentifier
+        }
+        result["app_bundle_path"] = Bundle.main.bundleURL.path
+        if let executablePath = Bundle.main.executableURL?.path {
+            result["app_executable_path"] = executablePath
+        }
+        if let cliPath = Bundle.main.resourceURL?
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: false)
+            .path {
+            result["app_cli_path"] = cliPath
+        }
+        return result
     }
 
     private struct V2WindowRouting {
