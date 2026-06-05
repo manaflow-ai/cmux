@@ -3670,6 +3670,66 @@ extension SessionPersistenceTests {
         XCTAssertTrue(startupInput.contains("cd -- '/tmp/it'\\''s repo'"), startupInput)
     }
 
+    /// #5271 regression (behavioral, not string-shape): a restored surface resume
+    /// binding must run the agent in its persisted `cwd`, even when the shell the
+    /// resume command is handed to started in a *different* directory. That is the
+    /// exact reported condition — the resume command goes in as `initialInput` typed
+    /// into the PTY, so before the fix (which emitted no `cd`) it ran wherever the
+    /// shell happened to start instead of `binding.cwd`.
+    ///
+    /// This drives the real `startupInput` through `/bin/zsh` starting in a directory
+    /// other than the bound cwd, and checks which directory the command actually ran
+    /// in via a marker file. It fails on pre-#5271 code (marker lands in the shell's
+    /// start dir) and passes with the cwd guard.
+    func testSurfaceResumeBindingResumesInBoundCwdWhenShellStartsElsewhere() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-5271-\(UUID().uuidString)", isDirectory: true)
+        let boundCwd = root.appendingPathComponent("bound-repo", isDirectory: true)
+        let shellStartCwd = root.appendingPathComponent("home-or-wherever", isDirectory: true)
+        try fileManager.createDirectory(at: boundCwd, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: shellStartCwd, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        // `touch <marker>` stands in for the agent's resume command; the directory the
+        // marker is created in is the directory the agent actually resumed in.
+        let marker = "resumed-here.marker"
+        let binding = SurfaceResumeBindingSnapshot(command: "touch \(marker)", cwd: boundCwd.path)
+        let startupInput = try XCTUnwrap(binding.startupInput)
+
+        try runResumeStartupInput(startupInput, startingIn: shellStartCwd)
+
+        XCTAssertTrue(
+            fileManager.fileExists(atPath: boundCwd.appendingPathComponent(marker).path),
+            "Resume binding did not run in its bound cwd \(boundCwd.path). startupInput=\(startupInput)"
+        )
+        XCTAssertFalse(
+            fileManager.fileExists(atPath: shellStartCwd.appendingPathComponent(marker).path),
+            "Resume binding ran in the shell's start dir \(shellStartCwd.path) instead of its bound cwd. "
+                + "startupInput=\(startupInput)"
+        )
+    }
+
+    /// Runs a resume `startupInput` through `/bin/zsh -c` whose process starts in
+    /// `startDirectory`, modeling session restore handing the resume command to a
+    /// shell that did not start in the bound cwd. Fails the test on a non-zero exit.
+    private func runResumeStartupInput(_ startupInput: String, startingIn startDirectory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-c", startupInput]
+        process.currentDirectoryURL = startDirectory
+        let stderr = Pipe()
+        process.standardError = stderr
+        try process.run()
+        let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        XCTAssertEqual(
+            process.terminationStatus,
+            0,
+            String(data: errorData, encoding: .utf8) ?? ""
+        )
+    }
+
     func testSurfaceResumeBindingStartupInputKeepsEnvironmentScopedToCommandAfterWorkingDirectoryGuard() throws {
         let binding = SurfaceResumeBindingSnapshot(
             command: "codex resume session",
