@@ -25235,6 +25235,40 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
   });
 }
 
+function quickPerformancePresetControlsPanel() {
+  const presets = performanceTuningPresets
+    .map((preset) => ({ preset, settings: performanceTuningPresetSettings(preset) }))
+    .filter((entry) => entry.settings);
+  if (!presets.length) return null;
+  const activePreset = presets.find(({ preset }) => isActivePerformanceTuningPreset(preset))?.preset || null;
+  const presetSearch = presets.map(({ preset, settings }) => {
+    const summary = performanceSetupSummaryForSettings(settings);
+    return `${preset.label} ${preset.body} ${summary.mode} ${summary.motion} ${summary.background} ${summary.browserChrome} ${summary.history}`;
+  }).join(" ");
+  const actions = presets.map(({ preset, settings }) => {
+    const active = isActivePerformanceTuningPreset(preset);
+    const savedProfile = savedSettingsProfileForPerformanceTuningPreset(preset);
+    return quickOverviewControlButton(active ? "Active" : `Use ${preset.label}`, () => applyPerformanceTuningPreset(preset.id), {
+      disabled: active,
+      title: performanceTuningPresetTitle(preset, active),
+      search: normalizeSettingsQuery(`quick setup ${performanceTuningPresetSearchText(preset, settings, savedProfile)}`)
+    });
+  });
+  actions.push(
+    quickOverviewControlButton("Performance", () => openSettingsCategory("performance", { query: "preset", focusSearch: false }), {
+      title: "Open full performance tuning presets, health checks, and diagnostics.",
+      search: normalizeSettingsQuery(`quick setup performance speed preset settings health diagnostics save copy ${presetSearch}`)
+    })
+  );
+  return quickOverviewControlsPanel({
+    className: "quick-overview-performance",
+    title: "Speed presets",
+    meta: activePreset ? `${activePreset.label} active / ${performanceHealthIssueCountLabel()}` : `${presets.length} presets / ${performanceHealthIssueCountLabel()}`,
+    search: `quick setup speed performance presets lag smooth low motion live panes apply tune ${presetSearch}`,
+    actions
+  });
+}
+
 function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
   const scope = activeBackgroundScopeModel(state.settings.backgroundImage, workspace);
   const appSave = quickAppBackgroundSaveModel();
@@ -25537,7 +25571,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   const librarySummary = quickCustomizationLibrarySummary(libraryEntries);
   const panel = document.createElement("div");
   panel.className = "quick-setup-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls presets theme look appearance layout terminal browser commands actions workflows shortcuts palette performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints starter layouts reusable colors backgrounds snippets packs data maintenance backup restore cleanup privacy storage`);
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls presets theme look appearance layout terminal browser commands actions workflows shortcuts palette performance speed presets lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints starter layouts reusable colors backgrounds snippets packs data maintenance backup restore cleanup privacy storage`);
   panel.innerHTML = `
     <div class="quick-overview-heading">
       <span class="quick-overview-copy">
@@ -25600,6 +25634,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
       </span>
     </button>
     <div data-quick-performance-controls></div>
+    <div data-quick-performance-preset-controls></div>
     <div data-quick-background-controls></div>
     <div class="quick-overview-scope" aria-label="Background scope">
       <button class="quick-overview-scope-item" type="button" data-quick-scope-item="app">
@@ -25696,6 +25731,10 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     if (state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
   };
   panel.querySelector("[data-quick-performance-controls]").replaceWith(quickPerformanceControlsPanel(performance));
+  const performancePresetControls = quickPerformancePresetControlsPanel();
+  const performancePresetSlot = panel.querySelector("[data-quick-performance-preset-controls]");
+  if (performancePresetControls) performancePresetSlot.replaceWith(performancePresetControls);
+  else performancePresetSlot.remove();
   panel.querySelector("[data-quick-background-controls]").replaceWith(quickBackgroundControlsPanel(workspace));
   panel.querySelector("[data-quick-scope-app]").textContent = scope.hasBackground
     ? appearanceBackgroundLabel(state.settings.backgroundImage)
