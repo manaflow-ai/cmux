@@ -5906,7 +5906,7 @@ function pastedColorSourceFromPayload(payload) {
 
 function refreshAppearanceSettingsForColorChange(options = {}) {
   if (options.render !== false && state.inspectorMode === "settings" && state.settingsCategory === "appearance") {
-    scheduleSettingsInspectorRender({ ifChanged: true });
+    scheduleAppearancePreviewRefresh();
   }
 }
 
@@ -16019,8 +16019,16 @@ function renderSettingsInspector(options = {}) {
       "theme recommended accent color match sync palette"
     ));
     appearanceSection.append(appearanceThemeGalleryDisclosurePanel());
-    appearanceSection.append(settingRow("Accent", swatchGrid(accentColorPalette(), state.settings.accent, (accent) => updateSettings({ accent }))));
-    appearanceSection.append(settingRow("Custom accent", colorPicker(state.settings.accent, (accent) => updateSettings({ accent })), false, "custom accent color hex picker"));
+    appearanceSection.append(settingRow(
+      "Accent",
+      swatchGrid(accentColorPalette(), state.settings.accent, (accent) => updateSettings({ accent }), { id: "accent" })
+    ));
+    appearanceSection.append(settingRow(
+      "Custom accent",
+      colorPicker(state.settings.accent, (accent) => updateSettings({ accent }), "#5d8cff", { id: "accent" }),
+      false,
+      "custom accent color hex picker"
+    ));
     appearanceSection.append(settingRow(
       "Accent intensity",
       settingSegmentedControl("accentIntensity", accentIntensityOptions, "accent intensity strength subtle balanced vivid hover focus selection ring", { compact: true }),
@@ -16052,13 +16060,16 @@ function renderSettingsInspector(options = {}) {
     const lookSettingsDefault = appearanceSettingsAreDefault();
     const lookCycle = lookPackCycleModel();
     const cycleLook = settingsActionButton("Cycle look", cycleLookPack, "", `appearance look cycle pack preset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors ${lookCycle.search}`);
+    cycleLook.dataset.appearanceAction = "cycle-look";
     cycleLook.disabled = lookCycle.disabled;
     cycleLook.title = lookCycle.title;
     const themeCycle = themeChoiceCycleModel();
     const cycleTheme = settingsActionButton("Cycle theme", cycleThemeChoice, "", `appearance theme gallery cycle next accent visual preview color ${themeCycle.search}`);
+    cycleTheme.dataset.appearanceAction = "cycle-theme";
     cycleTheme.disabled = themeCycle.disabled;
     cycleTheme.title = themeCycle.title;
     const lookReset = settingsActionButton("Reset look", resetAppearanceSettings, "", `appearance look reset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors default ${lookSettingsDefault ? "active current " : ""}`);
+    lookReset.dataset.appearanceAction = "reset-look";
     lookReset.disabled = lookSettingsDefault;
     lookReset.title = lookReset.disabled
       ? "Look settings already match the default setup."
@@ -18402,6 +18413,54 @@ function updateThemeChoiceCard(card, theme) {
   }
 }
 
+function refreshAccentSwatchGrid(grid) {
+  if (!grid) return false;
+  const colors = accentColorPalette();
+  const buttons = [...grid.querySelectorAll("[data-swatch-color]")];
+  const structureChanged = buttons.length !== colors.length
+    || buttons.some((button, index) => colorKey(button.dataset.swatchColor) !== colorKey(colors[index]));
+  if (structureChanged) {
+    grid.replaceWith(swatchGrid(colors, state.settings.accent, (accent) => updateSettings({ accent }), { id: "accent" }));
+    return true;
+  }
+  return refreshSwatchGrid(grid, state.settings.accent);
+}
+
+function refreshAccentColorControls() {
+  for (const grid of elements.inspectorBody.querySelectorAll('[data-swatch-grid="accent"]')) {
+    refreshAccentSwatchGrid(grid);
+  }
+  for (const picker of elements.inspectorBody.querySelectorAll('[data-color-picker="accent"]')) {
+    refreshColorPicker(picker, state.settings.accent);
+  }
+}
+
+function refreshAppearanceActions() {
+  const cycleLook = elements.inspectorBody.querySelector('[data-appearance-action="cycle-look"]');
+  if (cycleLook) {
+    const model = lookPackCycleModel();
+    setDisabledIfChanged(cycleLook, model.disabled);
+    setTitleIfChanged(cycleLook, model.title);
+    setSettingsSearchIfChanged(cycleLook, `appearance look cycle pack preset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors ${model.search}`);
+  }
+  const cycleTheme = elements.inspectorBody.querySelector('[data-appearance-action="cycle-theme"]');
+  if (cycleTheme) {
+    const model = themeChoiceCycleModel();
+    setDisabledIfChanged(cycleTheme, model.disabled);
+    setTitleIfChanged(cycleTheme, model.title);
+    setSettingsSearchIfChanged(cycleTheme, `appearance theme gallery cycle next accent visual preview color ${model.search}`);
+  }
+  const resetLook = elements.inspectorBody.querySelector('[data-appearance-action="reset-look"]');
+  if (resetLook) {
+    const isDefault = appearanceSettingsAreDefault();
+    setDisabledIfChanged(resetLook, isDefault);
+    setTitleIfChanged(resetLook, isDefault
+      ? "Look settings already match the default setup."
+      : "Reset theme, accent intensity, surface tint, interface contrast, surface depth, app background, background chrome, and terminal colors.");
+    setSettingsSearchIfChanged(resetLook, `appearance look reset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors default ${isDefault ? "active current " : ""}`);
+  }
+}
+
 function refreshAppearancePreview() {
   const preview = elements.inspectorBody.querySelector(".appearance-preview");
   if (preview) preview.replaceWith(appearancePreviewPanel());
@@ -18413,6 +18472,7 @@ function refreshAppearancePreview() {
   const themeSelect = elements.inspectorBody.querySelector('[data-setting-control="theme"]');
   if (themeSelect && themeSelect.value !== state.settings.theme) themeSelect.value = state.settings.theme;
   refreshThemeAccentControl();
+  refreshAccentColorControls();
   for (const card of elements.inspectorBody.querySelectorAll("[data-theme-choice-card]")) {
     const theme = themeChoiceById(card.dataset.themeChoiceCard);
     updateThemeChoiceCard(card, theme);
@@ -18421,6 +18481,8 @@ function refreshAppearancePreview() {
     const pack = lookPackById(card.dataset.lookPack);
     updateLookPackCard(card, pack);
   }
+  refreshAppearanceActions();
+  refreshSavedColorPalettePanels();
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
 
@@ -29970,23 +30032,38 @@ function toggleInput(checked, onChange) {
   return label;
 }
 
-function swatchGrid(colors, activeColor, onPick) {
+function swatchGrid(colors, activeColor, onPick, options = {}) {
   const grid = document.createElement("div");
   grid.className = "swatch-grid";
+  if (options.id) grid.dataset.swatchGrid = options.id;
   for (const color of colors) {
+    const active = colorKey(color) === colorKey(activeColor);
     const button = document.createElement("button");
-    button.className = `swatch-button${color === activeColor ? " is-active" : ""}`;
+    button.className = `swatch-button${active ? " is-active" : ""}`;
     button.type = "button";
     button.title = color;
+    button.dataset.swatchColor = color;
+    button.setAttribute("aria-label", color);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
     button.style.setProperty("--swatch-color", color);
     button.onclick = () => {
       onPick(color);
-      for (const sibling of grid.querySelectorAll(".swatch-button")) sibling.classList.remove("is-active");
-      button.classList.add("is-active");
+      refreshSwatchGrid(grid, color);
     };
     grid.append(button);
   }
   return grid;
+}
+
+function refreshSwatchGrid(grid, activeColor) {
+  if (!grid) return false;
+  const activeKey = colorKey(activeColor);
+  for (const button of grid.querySelectorAll("[data-swatch-color]")) {
+    const active = colorKey(button.dataset.swatchColor) === activeKey;
+    button.classList.toggle("is-active", active);
+    setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
+  }
+  return true;
 }
 
 function terminalFontOptionById(fontId) {
@@ -30215,15 +30292,16 @@ function refreshTerminalSettingsPreview() {
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
 
-function colorPicker(activeColor, onPick, fallback = "#5d8cff") {
+function colorPicker(activeColor, onPick, fallback = "#5d8cff", options = {}) {
   const wrapper = document.createElement("div");
   wrapper.className = "color-picker";
+  if (options.id) wrapper.dataset.colorPicker = options.id;
   const input = document.createElement("input");
   input.className = "setting-control color-picker-input";
   input.type = "color";
   input.value = colorInputValue(activeColor, fallback);
+  input.dataset.committedColor = input.value;
   input.dataset.settingsSearch = normalizeSettingsQuery("custom color picker hex");
-  let committedColor = input.value;
   const swatch = document.createElement("span");
   swatch.className = "color-picker-preview";
   swatch.style.setProperty("--picked-color", colorInputValue(activeColor, fallback));
@@ -30231,12 +30309,26 @@ function colorPicker(activeColor, onPick, fallback = "#5d8cff") {
     swatch.style.setProperty("--picked-color", input.value);
   });
   input.addEventListener("change", () => {
-    if (input.value === committedColor) return;
-    committedColor = input.value;
+    if (colorKey(input.value) === colorKey(input.dataset.committedColor)) return;
+    input.dataset.committedColor = input.value;
     onPick(input.value);
   });
   wrapper.append(input, swatch);
   return wrapper;
+}
+
+function refreshColorPicker(picker, activeColor, fallback = "#5d8cff") {
+  const input = picker?.querySelector?.(".color-picker-input");
+  if (!input) return false;
+  const swatch = picker.querySelector(".color-picker-preview");
+  const nextValue = colorInputValue(activeColor, fallback);
+  const focused = document.activeElement === input;
+  if (!focused) {
+    if (colorKey(input.value) !== colorKey(nextValue)) input.value = nextValue;
+    input.dataset.committedColor = nextValue;
+  }
+  if (swatch) setStylePropertyIfChanged(swatch, "--picked-color", focused ? input.value : nextValue);
+  return true;
 }
 
 function colorSummaryLabel(activeColor, fallbackColor = "#5d8cff") {
