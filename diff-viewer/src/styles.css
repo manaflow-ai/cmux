@@ -496,24 +496,6 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   height: 100%;
   min-height: 0;
 }
-#files-footer {
-  flex: 0 0 auto;
-  padding: 7px 10px 8px;
-  border-top: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-  background: var(--cmux-diff-sidebar-bg);
-}
-.stats-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 19px;
-  color: var(--cmux-diff-text-muted);
-}
-.stats-row strong {
-  color: var(--cmux-diff-text-subtle);
-  font-weight: 600;
-}
 .file-entry {
   width: 100%;
   min-height: 30px;

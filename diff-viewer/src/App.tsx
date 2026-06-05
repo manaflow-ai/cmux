@@ -656,20 +656,6 @@ function FilesSidebar({
           <div className="visually-hidden">{state.status.message}</div>
         )}
       </div>
-      <div id="files-footer" aria-label={label("diffStats")}>
-        <div className="stats-row">
-          <span>{label("files")}</span>
-          <strong id="stats-files">{state.treeSource?.diffStats.fileCount ?? 0}</strong>
-        </div>
-        <div className="stats-row">
-          <span>{label("additions")}</span>
-          <strong id="stats-added" className="stat-add">+{state.treeSource?.diffStats.addedLines ?? 0}</strong>
-        </div>
-        <div className="stats-row">
-          <span>{label("deletions")}</span>
-          <strong id="stats-deleted" className="stat-del">-{state.treeSource?.diffStats.deletedLines ?? 0}</strong>
-        </div>
-      </div>
     </aside>
   );
 }
