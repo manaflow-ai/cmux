@@ -1742,7 +1742,17 @@ final class BrowserHistoryStore: ObservableObject {
         }
     }
 
-    @Published private(set) var entries: [Entry] = []
+    // Single source of truth for history. `private(set)` + `@MainActor` means
+    // every mutation runs through this setter, so dropping the derived
+    // suggestion cache here is the one enforced invalidation point. Setting it
+    // to nil both frees the retained Entry/URL strings promptly (so clearing
+    // history does not leave browsing history resident in the cache) and forces
+    // a rebuild on next use. It must stay `@Published` for SwiftUI observation.
+    // Do not add a writer that bypasses this setter (e.g. an unsafe-buffer bulk
+    // write or an external `Binding<[Entry]>`) without dropping the cache.
+    @Published private(set) var entries: [Entry] = [] {
+        didSet { cachedSuggestionCandidates = nil }
+    }
 
     private let fileURL: URL?
     private var didLoad: Bool = false
@@ -1766,6 +1776,27 @@ final class BrowserHistoryStore: ObservableObject {
     private struct ScoredSuggestion {
         let entry: Entry
         let score: Double
+    }
+
+    // Lazily built, lowercased/parsed match fields for every entry. Building a
+    // SuggestionCandidate parses the URL (URLComponents) and lowercases five
+    // fields; doing that for all entries on every omnibar keystroke pegged the
+    // main thread once history grew to a few thousand rows (the typing
+    // beachball). `nil` means "not built / just invalidated"; it is rebuilt only
+    // when `entries` changes (via the didSet above), so steady-state typing
+    // reuses it and pays only the cheap substring scoring in `suggestionScore`.
+    private var cachedSuggestionCandidates: [SuggestionCandidate]?
+
+    /// Number of suggestion candidates currently resident in the cache, or 0
+    /// when the cache has been invalidated. Used by tests to verify that
+    /// clearing history drops the retained candidates promptly.
+    var residentSuggestionCandidateCount: Int { cachedSuggestionCandidates?.count ?? 0 }
+
+    private func suggestionCandidates() -> [SuggestionCandidate] {
+        if let cached = cachedSuggestionCandidates { return cached }
+        let built = entries.map(makeSuggestionCandidate)
+        cachedSuggestionCandidates = built
+        return built
     }
 
     init(fileURL: URL? = nil) {
@@ -1911,12 +1942,11 @@ final class BrowserHistoryStore: ObservableObject {
         let queryTokens = tokenizeSuggestionQuery(q)
         let now = Date()
 
-        let matched = entries.compactMap { entry -> ScoredSuggestion? in
-            let candidate = makeSuggestionCandidate(entry: entry)
+        let matched = suggestionCandidates().compactMap { candidate -> ScoredSuggestion? in
             guard let score = suggestionScore(candidate: candidate, query: q, queryTokens: queryTokens, now: now) else {
                 return nil
             }
-            return ScoredSuggestion(entry: entry, score: score)
+            return ScoredSuggestion(entry: candidate.entry, score: score)
         }
         .sorted { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
