@@ -27595,12 +27595,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let hasInvalidAmbientSurfaceArg = explicitSurfaceFlag == nil
             && ambientSurfaceArg != nil
             && resolvedDirectSurfaceArg == nil
-        let codexAmbientSurfaceProcessBinding = def.name == "codex"
-            && hookWsFlag == nil
-            && explicitSurfaceFlag == nil
-            && ambientSurfaceArg != nil
-            ? processBinding()
-            : nil
         let hasUnusableDirectBinding = hasInvalidDirectWorkspaceArg || hasInvalidDirectSurfaceArg
         func workspaceArg() -> String? {
             guard !hasUnusableDirectBinding else { return nil }
@@ -27799,7 +27793,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             func correctedDirectSurfaceId(workspaceId: String) -> String? {
                 guard let envSurface = resolvedDirectSurfaceArg else { return nil }
                 guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return envSurface }
-                guard let binding = codexAmbientSurfaceProcessBinding ?? processBinding(),
+                guard case .promptSubmit = action, def.name == "codex" else { return envSurface }
+                guard let binding = processBinding(),
                       let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
                       let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
                       resolveAccessibleWorkspaceId(boundWorkspaceRaw) == workspaceId,
@@ -27820,7 +27815,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if let workspaceId = resolvedDirectWorkspaceArg {
                 if hasInvalidAmbientSurfaceArg {
                     if hookWsFlag == nil,
-                       let binding = codexAmbientSurfaceProcessBinding ?? processBinding(),
+                       case .promptSubmit = action,
+                       def.name == "codex",
+                       let binding = processBinding(),
                        let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
                        resolveAccessibleWorkspaceId(boundWorkspaceRaw) == workspaceId,
                        let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
