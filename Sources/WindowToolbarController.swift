@@ -53,10 +53,12 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         })
 
         // A grouped anchor's command label name is derived from its group's
-        // name, so a group rename must refresh the label text (#5404).
+        // name, so a group rename must refresh the label text (#5404). Scope to
+        // this controller's own `tabManager` (the notification's `object`) so a
+        // rename in another window doesn't spuriously refresh this one.
         observers.append(center.addObserver(
             forName: .workspaceGroupNameDidChange,
-            object: nil,
+            object: tabManager,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
