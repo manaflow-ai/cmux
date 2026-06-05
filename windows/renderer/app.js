@@ -2998,7 +2998,7 @@ async function pasteCommandSnippet(options = {}) {
   }
   const saved = upsertCustomCommandSnippet(snippet);
   if (!saved) return null;
-  if (options.render !== false) renderSettingsInspector();
+  refreshCommandSnippetSettings(options);
   toast(`${saved.label} snippet saved.`);
   return saved;
 }
@@ -3015,7 +3015,7 @@ function saveRecentCommandAsSnippet(command = state.recentCommands[0], options =
     command: normalized
   });
   if (!saved) return null;
-  if (options.render !== false) renderSettingsInspector();
+  refreshCommandSnippetSettings(options);
   resetPaletteEntriesCache();
   toast(`${saved.label} snippet saved.`);
   return saved;
@@ -33995,6 +33995,41 @@ function commandSnippetsSettings() {
   return wrapper;
 }
 
+function refreshCommandSnippetDisclosureSummaries() {
+  for (const disclosure of elements.inspectorBody.querySelectorAll(".command-snippets-disclosure")) {
+    const meta = disclosure.querySelector(".settings-disclosure-meta");
+    if (meta) {
+      setTextIfChanged(meta, formatMessage("commands.snippetCount", {
+        count: state.customCommandSnippets.length,
+        limit: customCommandSnippetsLimit
+      }));
+    }
+  }
+}
+
+function refreshCommandSnippetPanels() {
+  let changed = false;
+  for (const panel of elements.inspectorBody.querySelectorAll(".command-snippet-list")) {
+    panel.replaceWith(commandSnippetsSettings());
+    changed = true;
+  }
+  refreshCommandSnippetDisclosureSummaries();
+  return changed;
+}
+
+function refreshCommandSnippetSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory !== "commands" || normalizeSettingsQuery(state.settingsQuery)) {
+    scheduleSettingsInspectorRender({ ifChanged: true });
+    return;
+  }
+  requestAnimationFrame(() => {
+    if (state.inspectorMode === "settings" && state.settingsCategory === "commands" && !normalizeSettingsQuery(state.settingsQuery)) {
+      refreshCommandSnippetPanels();
+    }
+  });
+}
+
 function commandSnippetPackById(packId) {
   return commandSnippetPackDefinitions.find((candidate) => candidate.id === packId) || null;
 }
@@ -34048,7 +34083,7 @@ function saveCommandSnippetPack(packId, options = {}) {
       command: snippet.command
     });
   }
-  if (options.render !== false) renderSettingsInspector();
+  refreshCommandSnippetSettings(options);
   toast(`${pack.label} pack saved.`);
   return true;
 }
@@ -34180,7 +34215,7 @@ async function addCustomCommandSnippet(options = {}) {
     command: details.command
   });
   if (!saved) return null;
-  if (options.render !== false) renderSettingsInspector();
+  refreshCommandSnippetSettings(options);
   toast("Command snippet saved.");
   return saved;
 }
@@ -34201,7 +34236,7 @@ async function editCustomCommandSnippet(snippetId) {
     command: details.command
   });
   if (!saved) return;
-  renderSettingsInspector();
+  refreshCommandSnippetSettings();
   toast("Command snippet updated.");
 }
 
@@ -34216,7 +34251,7 @@ async function deleteCustomCommandSnippet(snippetId) {
   })) return;
   state.customCommandSnippets = state.customCommandSnippets.filter((candidate) => candidate.id !== snippetId);
   saveCustomCommandSnippets();
-  renderSettingsInspector();
+  refreshCommandSnippetSettings();
   toast("Command snippet deleted.");
 }
 
@@ -34231,7 +34266,7 @@ function saveBuiltInCommandSnippet(snippet) {
     command: snippet.command
   });
   if (!saved) return;
-  renderSettingsInspector();
+  refreshCommandSnippetSettings();
   toast("Command snippet saved.");
 }
 
