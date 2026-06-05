@@ -553,9 +553,12 @@ const expand=p=>p.indexOf("~/")===0?path.join(os.homedir(),p.slice(2)):p;
 const load=v=>{const t=String(v).trim();return (t[0]==="{"||t[0]==="[")?JSON.parse(t):JSON.parse(fs.readFileSync(expand(t),"utf8"));};
 let acc=JSON.parse(process.env.CMUX_BASE_SETTINGS);
 const raw=Buffer.from(process.env.CMUX_USER_SETTINGS_B64||"","base64").toString("utf8");
-// Apply user --settings in reverse so the FIRST --settings wins a scalar
-// conflict, matching Claude Code first-wins CLI precedence (issue #2816).
-try{for(const it of raw.split("\0").filter(s=>s.length).reverse())acc=merge(acc,load(it));}
+// split() leaves one trailing "" from printf terminating NUL; slice it off
+// rather than filtering all empties, so an explicit empty --settings= reaches
+// load("") -> JSON.parse throws -> merge fails loudly (warning + fallback)
+// instead of being silently dropped. reverse() makes the FIRST --settings win a
+// scalar conflict, matching Claude Code first-wins CLI precedence (issue #2816).
+try{for(const it of raw.split("\0").slice(0,-1).reverse())acc=merge(acc,load(it));}
 catch(e){process.stderr.write("cmux: --settings merge error: "+((e&&e.message)||e)+"\n");process.exit(1);}
 process.stdout.write(JSON.stringify(acc));
 '

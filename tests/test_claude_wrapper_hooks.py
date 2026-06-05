@@ -704,6 +704,49 @@ def test_live_socket_invalid_settings_warns_and_falls_back(failures: list[str]) 
     )
 
 
+def test_live_socket_merges_settings_file_form(failures: list[str]) -> None:
+    # --settings <path> reads JSON from disk (readFileSync/expand). Exercise that
+    # loader branch end-to-end so path parsing/merging cannot silently regress.
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-settings-file-") as td:
+        settings_path = Path(td) / "user-settings.json"
+        settings_path.write_text('{"ultracode": true, "effortLevel": "max"}', encoding="utf-8")
+        code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+            socket_state="live",
+            argv=["--settings", str(settings_path), "hello"],
+        )
+    expect(code == 0, f"settings file: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv.count("--settings") == 1,
+        f"settings file: expected one merged --settings, got {real_argv}",
+        failures,
+    )
+    settings = parse_settings_arg(real_argv)
+    expect(settings.get("ultracode") is True, f"settings file: user key dropped, got {settings}", failures)
+    expect(settings.get("effortLevel") == "max", f"settings file: user key dropped, got {settings}", failures)
+    expect(
+        settings.get("preferredNotifChannel") == "notifications_disabled",
+        f"settings file: cmux hooks lost, got {settings}",
+        failures,
+    )
+    expect(real_argv[-1] == "hello", f"settings file: positional arg dropped, got {real_argv}", failures)
+
+
+def test_live_socket_empty_settings_warns_instead_of_silent_drop(failures: list[str]) -> None:
+    # An explicit empty --settings= must not be swallowed in silence: the wrapper
+    # surfaces the merge-failure warning instead of dropping the flag with no
+    # signal (CodeRabbit review on #5388).
+    code, _real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--settings=", "hi"],
+    )
+    expect(code == 0, f"empty settings: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "merge failed" in stderr,
+        f"empty settings: expected a stderr warning, got {stderr!r}",
+        failures,
+    )
+
+
 def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> None:
     code, _, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
         socket_state="live",
@@ -1296,6 +1339,8 @@ def main() -> int:
     test_live_socket_merges_inline_settings_form(failures)
     test_live_socket_repeated_settings_preserve_first_wins(failures)
     test_live_socket_invalid_settings_warns_and_falls_back(failures)
+    test_live_socket_merges_settings_file_form(failures)
+    test_live_socket_empty_settings_warns_instead_of_silent_drop(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
