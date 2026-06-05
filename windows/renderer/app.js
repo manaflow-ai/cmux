@@ -25166,6 +25166,38 @@ function quickColorPresetControlsPanel(workspace = activeWorkspace()) {
   });
 }
 
+function quickSavedColorControlsPanel(workspace = activeWorkspace()) {
+  if (state.customColorPalette.length === 0) return null;
+  const targetOption = colorApplyTargetOption(state.colorApplyTarget, workspace);
+  const previewLimit = 8;
+  const visibleColors = state.customColorPalette.slice(0, previewLimit);
+  const hiddenColorCount = Math.max(0, state.customColorPalette.length - visibleColors.length);
+  const actions = visibleColors.map((color) => {
+    const active = Boolean(!targetOption.disabled && savedColorActiveForTarget(color, targetOption.id, workspace));
+    const button = quickOverviewControlButton(active ? "Active" : color.toUpperCase(), () => applyQuickColorPreset(color, state.colorApplyTarget), {
+      disabled: targetOption.disabled || active,
+      title: savedColorApplyTitle(color, targetOption, active),
+      search: normalizeSettingsQuery(`quick setup saved color custom palette apply ${targetOption.label} accent workspace pane all ${active ? "active current " : ""}${color} ${targetOption.status} ${targetOption.meta}`)
+    });
+    button.classList.add("quick-color-preset-action");
+    button.style.setProperty("--quick-preset-color", color);
+    return button;
+  });
+  if (hiddenColorCount > 0) {
+    actions.push(quickOverviewControlButton("More", () => openSettingsCategory("appearance", { query: "saved colors", focusSearch: false }), {
+      title: `Open full color settings for all ${state.customColorPalette.length} saved colors.`,
+      search: normalizeSettingsQuery(`quick setup saved colors more full color settings manage palette ${state.customColorPalette.join(" ")}`)
+    }));
+  }
+  return quickOverviewControlsPanel({
+    className: "quick-overview-colors",
+    title: "Saved colors",
+    meta: `${targetOption.label}: ${state.customColorPalette.length}/${customColorPaletteLimit} saved${hiddenColorCount ? ` / ${hiddenColorCount} more` : ""}`,
+    search: `quick setup saved colors custom palette apply reusable accent workspace pane all target ${targetOption.label} ${targetOption.status} ${targetOption.meta} ${state.customColorPalette.join(" ")}`,
+    actions
+  });
+}
+
 function quickColorControlsPanel(workspace = activeWorkspace()) {
   const targetOption = colorApplyTargetOption(state.colorApplyTarget, workspace);
   const accentSave = currentColorSaveModel("accent", workspace);
@@ -25780,6 +25812,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-look-pack-controls></div>
     <div data-quick-color-target-controls></div>
     <div data-quick-color-preset-controls></div>
+    <div data-quick-saved-color-controls></div>
     <div data-quick-color-controls></div>
     <button class="quick-overview-speed" type="button" data-performance-status>
       <span class="quick-overview-speed-icon" aria-hidden="true"></span>
@@ -25874,6 +25907,10 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   panel.querySelector("[data-quick-look-pack-controls]").replaceWith(quickLookPackControlsPanel());
   panel.querySelector("[data-quick-color-target-controls]").replaceWith(quickColorTargetControlsPanel(workspace));
   panel.querySelector("[data-quick-color-preset-controls]").replaceWith(quickColorPresetControlsPanel(workspace));
+  const savedColorControls = quickSavedColorControlsPanel(workspace);
+  const savedColorSlot = panel.querySelector("[data-quick-saved-color-controls]");
+  if (savedColorControls) savedColorSlot.replaceWith(savedColorControls);
+  else savedColorSlot.remove();
   panel.querySelector("[data-quick-color-controls]").replaceWith(quickColorControlsPanel(workspace));
   const speed = panel.querySelector(".quick-overview-speed");
   speed.className = `quick-overview-speed is-${performance.status}`;
