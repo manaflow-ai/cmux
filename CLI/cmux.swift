@@ -743,7 +743,7 @@ private final class ClaudeHookSessionStore {
                 }
                 if let lastTurnId = turnStack.last {
                     if lastTurnId == normalizedTurnId {
-                        let nested = totalDepthBeforeStop > 1
+                        let nested = turnStack.count > 1
                         turnStack.removeLast()
                         setActivePromptTurnStack(
                             turnStack,
