@@ -1471,15 +1471,50 @@ func terminalKeyboardCopyModeResolve(
     )
 }
 
-private final class GhosttySurfaceCallbackContext {
+final class GhosttySurfaceCallbackContext {
     weak var surfaceView: GhosttyNSView?
     weak var terminalSurface: TerminalSurface?
     let surfaceId: UUID
+
+    // Registry of context instances that are currently alive. A ghostty surface
+    // stores a context pointer as `userdata`, but ghostty exposes no setter to
+    // clear it — so after we `Unmanaged.release()` the context, the freed pointer
+    // lingers in the native surface and can be handed back by a queued mailbox
+    // action (e.g. `scrollbar`). `malloc_zone_from_ptr`/`malloc_size` are NOT
+    // sufficient to detect this: libmalloc keeps freed small blocks on the zone
+    // free list, so a freed-but-not-reused context still "appears live" and gets
+    // reinterpreted, crashing on the first ARC/weak-load of its fields.
+    //
+    // Binding membership to `init`/`deinit` tracks true object lifetime: the
+    // pointer is present exactly while a live instance exists, regardless of which
+    // of the many release sites freed it. Registrations and the `isLive` check all
+    // happen synchronously, but a lock guards against `deinit` running off the main
+    // actor on some teardown path.
+    private static let liveLock = NSLock()
+    private static var livePointers = Set<UInt>()
+
+    /// Whether `pointer` currently refers to a live `GhosttySurfaceCallbackContext`.
+    static func isLive(_ pointer: UnsafeMutableRawPointer) -> Bool {
+        liveLock.lock()
+        defer { liveLock.unlock() }
+        return livePointers.contains(UInt(bitPattern: pointer))
+    }
 
     init(surfaceView: GhosttyNSView, terminalSurface: TerminalSurface) {
         self.surfaceView = surfaceView
         self.terminalSurface = terminalSurface
         self.surfaceId = terminalSurface.id
+        let key = UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque())
+        Self.liveLock.lock()
+        Self.livePointers.insert(key)
+        Self.liveLock.unlock()
+    }
+
+    deinit {
+        let key = UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque())
+        Self.liveLock.lock()
+        Self.livePointers.remove(key)
+        Self.liveLock.unlock()
     }
 
     var tabId: UUID? {
@@ -4245,9 +4280,31 @@ class GhosttyApp {
         }
     }
 
-    private static func callbackContext(from userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceCallbackContext? {
-        guard let userdata else { return nil }
+    /// Resolves a ghostty surface `userdata` pointer back to its
+    /// ``GhosttySurfaceCallbackContext``, or `nil` if the pointer is null.
+    ///
+    /// Exposed as `internal` (rather than folding into the private
+    /// ``callbackContext(from:)`` wrapper) so it can be exercised by unit tests
+    /// with both a live context pointer and a known-garbage pointer without
+    /// launching the app or invoking a private ghostty callback.
+    static func resolveCallbackContext(from userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceCallbackContext? {
+        // A queued ghostty mailbox action (e.g. `scrollbar`) can be drained for a
+        // surface whose `userdata` slot still points at a `GhosttySurfaceCallbackContext`
+        // we already released — ghostty exposes no `set_userdata`, so the dangling
+        // pointer lingers in the native surface. `takeUnretainedValue()` would then
+        // ARC-retain freed memory and crash on the first field access.
+        //
+        // We can't use malloc liveness (`malloc_zone_from_ptr`/`malloc_size`): libmalloc
+        // keeps freed small blocks on the zone free list, so a freed-but-not-reused
+        // context still passes those checks. Instead consult the lifetime-bound live
+        // registry (see ``GhosttySurfaceCallbackContext``), which contains the pointer
+        // exactly while a live instance exists.
+        guard let userdata, GhosttySurfaceCallbackContext.isLive(userdata) else { return nil }
         return Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
+    }
+
+    private static func callbackContext(from userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceCallbackContext? {
+        resolveCallbackContext(from: userdata)
     }
 
     private static func runtimeApp(from userdata: UnsafeMutableRawPointer?) -> GhosttyApp? {
@@ -4665,6 +4722,13 @@ class GhosttyApp {
                 surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
                     preferredColorScheme: preferredColorScheme
                 )
+                // `reloadSurfaceConfiguration` calls `ghostty_surface_update_config`
+                // on the raw surface pointer. A queued reload action can outlive the
+                // surface, leaving `target.target.surface` dangling — skip if it no
+                // longer points at a live allocation.
+                guard cmuxSurfacePointerAppearsLive(target.target.surface) else {
+                    return true
+                }
                 self.reloadSurfaceConfiguration(
                     target.target.surface,
                     soft: soft,
@@ -5647,6 +5711,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
               cmuxSurfacePointerAppearsLive(surface) else {
             let callbackContext = surfaceCallbackContext
             surfaceCallbackContext = nil
+            // Detach the about-to-be-freed context from the (stale but not yet
+            // freed) surface so a late callback can't dereference it.
+            ghostty_surface_set_userdata(surface, nil)
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
@@ -6187,6 +6254,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         ))
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(surfaceView: view, terminalSurface: self))
         surfaceConfig.userdata = callbackContext.toOpaque()
+        // If a previous surface is still alive, it holds the old context as its
+        // userdata. We're about to release that context, so detach it from the
+        // surface first — otherwise a queued mailbox action could hand the freed
+        // context back to a callback (the root cause of the handleAction UAF).
+        if let staleSurface = surface {
+            ghostty_surface_set_userdata(staleSurface, nil)
+        }
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
