@@ -1755,18 +1755,27 @@ async function validateBackgroundImageValue(value) {
   return { ok, url };
 }
 
+function refreshBackgroundApplicationSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "appearance" || elements.inspectorBody?.querySelector?.(".active-background-panel")) {
+    scheduleAppearancePreviewRefresh();
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 async function applyCustomBackgroundImage(value, options = {}) {
   const raw = String(value || "").trim();
   if (!raw) {
     const changed = updateSettings({ backgroundImage: "" }, { immediate: true });
-    if (changed && options.render !== false) renderSettingsInspector();
+    if (changed) refreshBackgroundApplicationSettings(options);
     if (options.toast) toast(changed ? "Background image cleared." : "Background image is already clear.");
     return changed;
   }
   const preset = isBackgroundPreset(raw) ? raw : "";
   if (preset) {
     const changed = updateSettings(backgroundImageSettings(preset), { immediate: true });
-    if (changed && options.render !== false) renderSettingsInspector();
+    if (changed) refreshBackgroundApplicationSettings(options);
     if (options.toast) {
       const label = backgroundPresetMap.get(preset)?.label || "Selected";
       toast(changed ? `${label} background applied.` : `${label} background already active.`);
@@ -1780,7 +1789,7 @@ async function applyCustomBackgroundImage(value, options = {}) {
     return null;
   }
   const changed = updateSettings(backgroundImageSettings(validated.url), { immediate: true });
-  if (changed && options.render !== false) renderSettingsInspector();
+  if (changed) refreshBackgroundApplicationSettings(options);
   if (options.toast) toast(changed ? "Background image updated." : "Background image already active.");
   return changed;
 }
@@ -5161,7 +5170,7 @@ async function applyAndSaveCustomBackgroundImage(background, options = {}) {
     return null;
   }
   const changed = updateSettings(backgroundImageSettings(validated.url), { immediate: true });
-  if (options.render !== false) renderSettingsInspector();
+  refreshBackgroundApplicationSettings(options);
   if (options.toast !== false) {
     if (changed && !wasSaved) toast("Background image applied and saved.");
     else if (changed) toast(`${saved.label} background applied.`);
@@ -5198,7 +5207,7 @@ async function applyAndSaveBackgroundImageToTarget(background, target = state.ba
     return null;
   }
   const changed = await applyBackgroundValueToTarget(validated.url, scope, { render: false, toast: false });
-  if (changed !== null && options.render !== false) renderSettingsInspector();
+  if (changed !== null) refreshBackgroundApplicationSettings(options);
   if (options.toast !== false) {
     const targetLabel = targetOption.label.toLowerCase();
     if (changed === true && !wasSaved) toast(`Background saved and applied to ${targetLabel}.`);
@@ -5222,7 +5231,7 @@ async function applySavedBackgroundImage(backgroundId, options = {}) {
     if (options.toast !== false) toast(`${background.label} background already active.`);
     return false;
   }
-  if (options.render !== false) renderSettingsInspector();
+  refreshBackgroundApplicationSettings(options);
   if (options.toast !== false) toast(`${background.label} background applied.`);
   return true;
 }
@@ -5242,7 +5251,7 @@ async function applyPanelBackgroundImage(value, panel = focusedPanel(), options 
       return false;
     }
     await updatePanel(terminalPanel.id, { backgroundImage: "" });
-    if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+    refreshBackgroundApplicationSettings(options);
     if (options.toast !== false) toast("Pane background cleared.");
     return true;
   }
@@ -5253,7 +5262,7 @@ async function applyPanelBackgroundImage(value, panel = focusedPanel(), options 
       return false;
     }
     await updatePanel(terminalPanel.id, { backgroundImage: preset });
-    if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+    refreshBackgroundApplicationSettings(options);
     if (options.toast !== false) toast("Pane background updated.");
     return true;
   }
@@ -5267,7 +5276,7 @@ async function applyPanelBackgroundImage(value, panel = focusedPanel(), options 
     return false;
   }
   await updatePanel(terminalPanel.id, { backgroundImage: validated.url });
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshBackgroundApplicationSettings(options);
   if (options.toast !== false) toast("Pane background updated.");
   return true;
 }
@@ -5305,7 +5314,7 @@ async function applyWorkspaceBackgroundImageToTerminals(value, workspace = activ
     panelId: panel.id,
     updates: { backgroundImage: normalized }
   })));
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshBackgroundApplicationSettings(options);
   if (options.toast !== false) {
     const action = normalized ? "updated" : "cleared";
     toast(`${changedPanels.length} terminal pane${changedPanels.length === 1 ? "" : "s"} ${action}.`);
@@ -6312,7 +6321,7 @@ async function applyBackgroundSetupPayload(payload, target = state.backgroundApp
     ? updateSettings(setup.tuningUpdates, { immediate: true })
     : false;
   if (backgroundChanged || tuningChanged) {
-    if (options.render !== false) renderSettingsInspector();
+    refreshBackgroundApplicationSettings(options);
     toast(`Background setup applied to ${targetOption.label.toLowerCase()}.`);
     return true;
   }
@@ -6350,7 +6359,7 @@ async function resetBackgroundSetup(target = state.backgroundApplyTarget, option
   for (const key of backgroundTuningSettings) tuningUpdates[key] = defaultSettings[key];
   const tuningChanged = updateSettings(tuningUpdates, { immediate: true });
   if (backgroundResult || tuningChanged) {
-    if (options.render !== false) renderSettingsInspector();
+    refreshBackgroundApplicationSettings(options);
     toast(`Background setup reset for ${targetOption.label.toLowerCase()}.`);
     return true;
   }
@@ -6521,7 +6530,7 @@ async function applyPaneBackgroundToApp(panel = activeTerminalPanelForSettings()
     return null;
   }
   const changed = updateSettings(backgroundImageSettings(validated.url), { immediate: true });
-  if (changed && state.inspectorMode === "settings") renderSettingsInspector();
+  if (changed) refreshBackgroundApplicationSettings();
   toast(changed ? "App background set from pane." : "App already uses this pane background.");
   return changed;
 }
@@ -6547,7 +6556,7 @@ async function applyWorkspaceTerminalBackgroundToApp(workspace = activeWorkspace
     return null;
   }
   const changed = updateSettings(backgroundImageSettings(validated.url), { immediate: true });
-  if (changed && options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  if (changed) refreshBackgroundApplicationSettings(options);
   if (options.toast !== false) {
     toast(changed ? "App background set from terminal panes." : "App already uses this terminal background.");
   }
@@ -17723,7 +17732,7 @@ function activeBackgroundPanel(options = {}) {
       render: false,
       toast: showToast
     });
-    if (changed !== null) renderSettingsInspector();
+    if (changed !== null) refreshBackgroundApplicationSettings();
     return changed;
   });
   imageInput.addEventListener("keydown", (event) => {
@@ -18507,6 +18516,7 @@ function refreshAppearancePreview() {
   }
   refreshAppearanceActions();
   refreshSavedColorPalettePanels();
+  refreshBackgroundLibraryPanels();
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
 
@@ -31339,13 +31349,13 @@ async function applyBackgroundValueEverywhere(value, options = {}) {
   if (model.hasTerminalPanes) {
     terminalsChanged = await applyWorkspaceBackgroundImageToTerminals(validated.url, workspace, { render: false, toast: false });
     if (terminalsChanged === null) {
-      if (appChanged && options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+      if (appChanged) refreshBackgroundApplicationSettings(options);
       toast(`${label} could not be applied to terminal panes.`);
       return Boolean(appChanged);
     }
   }
   const changed = Boolean(appChanged || terminalsChanged);
-  if (changed && options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  if (changed) refreshBackgroundApplicationSettings(options);
   if (changed) {
     toast(model.hasTerminalPanes
       ? `${label} applied to app and terminal panes.`
@@ -31809,7 +31819,7 @@ function applyBackgroundPreset(preset, options = {}) {
     if (options.toast !== false) toast(`${preset.label} background already active.`);
     return false;
   }
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshBackgroundApplicationSettings(options);
   if (options.toast) toast(`${preset.label} background applied.`);
   return true;
 }
@@ -34259,12 +34269,12 @@ async function chooseBackgroundImage(options = {}) {
   if (options.save) {
     const saved = await applyAndSaveCustomBackgroundImage({ url }, { render: false });
     if (!saved) return false;
-    if (options.render !== false) renderSettingsInspector();
+    refreshBackgroundApplicationSettings(options);
     return saved;
   }
   const changed = await applyCustomBackgroundImage(url, { render: false, toast: true });
   if (changed === null) return false;
-  if (options.render !== false) renderSettingsInspector();
+  refreshBackgroundApplicationSettings(options);
   return changed;
 }
 
@@ -34293,7 +34303,7 @@ async function chooseBackgroundImageForTarget(options = {}) {
     return applyAndSaveBackgroundImageToTarget({ url }, target, { render: options.render });
   }
   const changed = await applyBackgroundValueToTarget(url, target, { render: false, toast: true });
-  if (changed !== null && options.render !== false) renderSettingsInspector();
+  if (changed !== null) refreshBackgroundApplicationSettings(options);
   return changed;
 }
 
@@ -34363,7 +34373,7 @@ async function chooseWorkspaceTerminalBackground(workspace = activeWorkspace(), 
   const url = await window.cmuxNative.pickBackgroundImage();
   if (!url) return null;
   const changed = await applyWorkspaceBackgroundImageToTerminals(url, workspace, { render: false, toast: true });
-  if (changed !== null && options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  if (changed !== null) refreshBackgroundApplicationSettings(options);
   return changed;
 }
 
@@ -34372,7 +34382,7 @@ async function pasteWorkspaceTerminalBackgroundFromClipboard(workspace = activeW
   const payload = await readBackgroundImageFromClipboard();
   if (!payload) return null;
   const changed = await applyWorkspaceBackgroundImageToTerminals(payload.value, workspace, { render: false, toast: true });
-  if (changed !== null && options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  if (changed !== null) refreshBackgroundApplicationSettings(options);
   return changed;
 }
 
