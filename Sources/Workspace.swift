@@ -14509,6 +14509,8 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         startupEnvironment: [String: String] = [:],
+        autoRefreshMetadata: Bool = true,
+        preserveFocusWhenUnfocused: Bool = true,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false
     ) -> TerminalPanel? {
@@ -14592,19 +14594,23 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(newTabId)
             newPanel.focus()
             applyTabSelection(tabId: newTabId, inPane: paneId)
-        } else {
+        } else if preserveFocusWhenUnfocused || owningTabManager?.selectedTabId == id {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
                 splitPanelId: newPanel.id,
                 previousHostedView: previousHostedView
             )
+        } else {
+            clearNonFocusSplitFocusReassert()
         }
 
-        owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
-            workspaceId: id,
-            panelId: newPanel.id,
-            reason: "surfaceCreate"
-        )
+        if autoRefreshMetadata {
+            owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+                workspaceId: id,
+                panelId: newPanel.id,
+                reason: "surfaceCreate"
+            )
+        }
         return newPanel
     }
 
