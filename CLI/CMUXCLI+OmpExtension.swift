@@ -9,7 +9,7 @@ extension CMUXCLI {
 // Installed by `cmux hooks omp install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
@@ -179,20 +179,6 @@ async function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record
   });
 }
 
-function sendHookSync(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): void {
-  const invocation = hookInvocation(subcommand, ctx, extra);
-  if (!invocation) return;
-  try {
-    spawnSync(invocation.cmux, ["hooks", "omp", subcommand], {
-      input: invocation.payload,
-      encoding: "utf8",
-      env: invocation.env,
-      stdio: ["pipe", "ignore", "ignore"],
-      timeout: 5000,
-    });
-  } catch (_) {}
-}
-
 export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
   api.on("session_start", async (_event, ctx) => {
     await sendHook("session-start", ctx);
@@ -203,7 +189,7 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
   });
 
   api.on("agent_end", async (event, ctx) => {
-    sendHookSync("stop", ctx, { last_assistant_message: lastAssistantMessage(event) });
+    await sendHook("stop", ctx, { last_assistant_message: lastAssistantMessage(event) });
   });
 }
 """#

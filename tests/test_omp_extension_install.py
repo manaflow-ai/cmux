@@ -359,7 +359,7 @@ def main() -> int:
             fake_cmux,
             """#!/usr/bin/env bash
 set -euo pipefail
-sleep 1
+sleep 3
 printf '%s\n' "$*" >> "$FAKE_CMUX_ARGS_LOG"
 cat >> "$FAKE_CMUX_STDIN_LOG"
 printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
