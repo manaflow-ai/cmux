@@ -571,7 +571,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             exitSignal.signal()
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timeoutFloor = ProcessInfo.processInfo.environment["CMUX_CLI_NOTIFY_PROCESS_TIMEOUT_SECONDS"]
+            .flatMap(TimeInterval.init) ?? timeout
+        let effectiveTimeout = max(timeout, timeoutFloor)
+        let timedOut = exitSignal.wait(timeout: .now() + effectiveTimeout) == .timedOut
         if timedOut {
             process.terminate()
             if exitSignal.wait(timeout: .now() + 1) == .timedOut {

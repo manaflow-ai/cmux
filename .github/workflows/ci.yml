@@ -346,6 +346,7 @@ jobs:
               DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
               CMUX_UNIT_TEST_SHARD_INDEX="${{ matrix.shard_index }}" \
               CMUX_UNIT_TEST_SHARD_COUNT="${{ matrix.shard_count }}" \
+              CMUX_CLI_NOTIFY_PROCESS_TIMEOUT_SECONDS=20 \
               scripts/ci/run-cmux-unit-tests-isolated.sh
           }
 
