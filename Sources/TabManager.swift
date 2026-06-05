@@ -989,7 +989,12 @@ class TabManager: ObservableObject {
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
 
-    @Published var tabs: [Workspace] = []
+    @Published var tabs: [Workspace] = [] {
+        didSet {
+            rebuildTabLookup()
+        }
+    }
+    private var tabById: [UUID: Workspace] = [:]
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
     /// Group order in this array defines section order in the sidebar.
     /// Each member workspace stores its `groupId` on the `Workspace` model.
@@ -2207,7 +2212,7 @@ class TabManager: ObservableObject {
 
     var selectedWorkspace: Workspace? {
         guard let selectedTabId else { return nil }
-        return tabs.first(where: { $0.id == selectedTabId })
+        return tabById[selectedTabId]
     }
 
     // Keep selectedTab as convenience alias
@@ -6252,13 +6257,21 @@ class TabManager: ObservableObject {
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
+        if pendingPanelTitleUpdates[key] == trimmed {
+            return
+        }
+        if let tab = tabById[tabId],
+           tab.alreadyReflectsPanelTitleUpdate(panelId: panelId, title: trimmed),
+           selectedTabId != tabId || window?.title == windowTitle(for: tab) {
+            return
+        }
 #if DEBUG
         cmuxDebugLog(
             "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(tabId)) " +
             "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
         )
 #endif
-        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         pendingPanelTitleUpdates[key] = trimmed
         panelTitleUpdateCoalescer.signal { [weak self] in
             self?.flushPendingPanelTitleUpdates()
@@ -6274,8 +6287,17 @@ class TabManager: ObservableObject {
         }
     }
 
+    private func rebuildTabLookup() {
+        var lookup: [UUID: Workspace] = [:]
+        lookup.reserveCapacity(tabs.count)
+        for tab in tabs {
+            lookup[tab.id] = tab
+        }
+        tabById = lookup
+    }
+
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        guard let tab = tabById[tabId] else { return }
         _ = tab.updatePanelTitle(panelId: panelId, title: title)
 
         if tab.focusedPanelId == panelId {
@@ -6287,7 +6309,7 @@ class TabManager: ObservableObject {
     }
 
     func focusedSurfaceTitleDidChange(tabId: UUID) {
-        guard let tab = tabs.first(where: { $0.id == tabId }),
+        guard let tab = tabById[tabId],
               let focusedPanelId = tab.focusedPanelId,
               let title = tab.panelTitles[focusedPanelId] else { return }
         tab.applyProcessTitle(title)

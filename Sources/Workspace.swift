@@ -12062,6 +12062,15 @@ final class Workspace: Identifiable, ObservableObject {
         self.title = title
     }
 
+    func alreadyReflectsPanelTitleUpdate(panelId: UUID, title: String) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        guard panelTitles[panelId] == trimmed else { return false }
+        guard focusedPanelId == panelId else { return true }
+        guard processTitle == trimmed else { return false }
+        return customTitle != nil || self.title == trimmed
+    }
+
     func setCustomColor(_ hex: String?) {
         if let hex {
             customColor = WorkspaceTabColorSettings.normalizedHex(hex)
