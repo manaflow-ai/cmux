@@ -117,8 +117,10 @@ public actor SecretFileStore {
                     continuation.finish()
                     return
                 }
-                let initial = (try? await self.value(for: key)) ?? key.defaultValue
-                await state.yieldInitial(initial, to: continuation)
+                await state.refresh(
+                    read: { (try? await self.value(for: key)) ?? key.defaultValue },
+                    to: continuation
+                )
             }
 
             let observer = NotificationObserverToken(
@@ -136,8 +138,10 @@ public actor SecretFileStore {
                             continuation.finish()
                             return
                         }
-                        let current = (try? await self.value(for: key)) ?? key.defaultValue
-                        await state.yieldIfChanged(current, to: continuation)
+                        await state.refresh(
+                            read: { (try? await self.value(for: key)) ?? key.defaultValue },
+                            to: continuation
+                        )
                     }
                 }
             )
@@ -169,16 +173,29 @@ public actor SecretFileStore {
 
 private actor SecretFileObservationState {
     private var lastYielded: String?
+    private var isRefreshing = false
+    private var needsRefresh = false
 
-    func yieldInitial(_ value: String, to continuation: AsyncStream<String>.Continuation) {
-        guard lastYielded == nil else { return }
-        lastYielded = value
-        continuation.yield(value)
-    }
-
-    func yieldIfChanged(_ value: String, to continuation: AsyncStream<String>.Continuation) {
-        guard lastYielded != value else { return }
-        lastYielded = value
-        continuation.yield(value)
+    func refresh(
+        read: @escaping @Sendable () async -> String,
+        to continuation: AsyncStream<String>.Continuation
+    ) async {
+        if isRefreshing {
+            needsRefresh = true
+            return
+        }
+        isRefreshing = true
+        while true {
+            needsRefresh = false
+            let value = await read()
+            if needsRefresh { continue }
+            if lastYielded != value {
+                lastYielded = value
+                continuation.yield(value)
+            }
+            if needsRefresh { continue }
+            isRefreshing = false
+            return
+        }
     }
 }

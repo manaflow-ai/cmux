@@ -109,8 +109,7 @@ public actor UserDefaultsSettingsStore {
                     continuation.finish()
                     return
                 }
-                let initial = await self.value(for: key)
-                await state.yieldInitial(initial, to: continuation)
+                await state.refresh(read: { await self.value(for: key) }, to: continuation)
             }
 
             let observer = NotificationObserverToken(
@@ -124,8 +123,7 @@ public actor UserDefaultsSettingsStore {
                             continuation.finish()
                             return
                         }
-                        let current = await self.value(for: key)
-                        await state.yieldIfChanged(current, to: continuation)
+                        await state.refresh(read: { await self.value(for: key) }, to: continuation)
                     }
                 }
             )
@@ -139,20 +137,40 @@ public actor UserDefaultsSettingsStore {
 
 private actor SettingObservationState<Value: Sendable & Equatable> {
     private var lastYielded: Value?
+    private var isRefreshing = false
+    private var needsRefresh = false
 
-    func yieldInitial(_ value: Value, to continuation: AsyncStream<Value>.Continuation) {
-        guard lastYielded == nil else { return }
-        lastYielded = value
-        continuation.yield(value)
-    }
-
-    func yieldIfChanged(_ value: Value, to continuation: AsyncStream<Value>.Continuation) {
-        guard lastYielded != value else { return }
-        lastYielded = value
-        continuation.yield(value)
+    func refresh(
+        read: @escaping @Sendable () async -> Value,
+        to continuation: AsyncStream<Value>.Continuation
+    ) async {
+        if isRefreshing {
+            needsRefresh = true
+            return
+        }
+        isRefreshing = true
+        while true {
+            needsRefresh = false
+            let value = await read()
+            if needsRefresh { continue }
+            if lastYielded != value {
+                lastYielded = value
+                continuation.yield(value)
+            }
+            if needsRefresh { continue }
+            isRefreshing = false
+            return
+        }
     }
 }
 
+/// Wraps the opaque observer returned by `NotificationCenter.addObserver` so it
+/// can cross task boundaries despite Objective-C not modeling Sendable.
+///
+/// Safety: the token is an immutable reference, this final class exposes no
+/// mutable shared state, and `remove()` only passes that token back to
+/// NotificationCenter's thread-safe observer-removal API. Callers own the
+/// lifecycle and must call `remove()` when their stream terminates.
 final class NotificationObserverToken: @unchecked Sendable {
     private let token: NSObjectProtocol
 
