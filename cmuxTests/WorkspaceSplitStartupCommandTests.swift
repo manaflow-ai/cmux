@@ -232,6 +232,44 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(surface.surface.debugTmuxStartCommand(), tmuxStartCommand)
     }
 
+    func testRespawnTerminalSurfacePreservesPaneTabAndSurfaceIdentity() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let placeholderCommand = "/bin/sh -c 'printf placeholder; while :; do sleep 86400; done'"
+        let attachCommand = "/bin/sh -c 'opencode attach http://127.0.0.1:4096 --session subagent --dir /tmp/omo'"
+        let requestedDirectory = "/tmp/cmux-respawn-\(UUID().uuidString)"
+
+        let placeholderPanel = try XCTUnwrap(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: true,
+            initialCommand: placeholderCommand,
+            tmuxStartCommand: placeholderCommand
+        ))
+        let originalPanelId = placeholderPanel.id
+        let originalPaneId = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelId)?.id)
+        let originalTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(originalPanelId))
+
+        let respawnedPanel = try XCTUnwrap(workspace.respawnTerminalSurface(
+            panelId: originalPanelId,
+            command: attachCommand,
+            workingDirectory: requestedDirectory,
+            tmuxStartCommand: attachCommand
+        ))
+
+        XCTAssertEqual(respawnedPanel.id, originalPanelId)
+        XCTAssertTrue(workspace.terminalPanel(for: originalPanelId) === respawnedPanel)
+        XCTAssertEqual(workspace.paneId(forPanelId: originalPanelId)?.id, originalPaneId)
+        XCTAssertEqual(workspace.surfaceIdFromPanelId(originalPanelId), originalTabId)
+        XCTAssertEqual(respawnedPanel.requestedWorkingDirectory, requestedDirectory)
+        XCTAssertEqual(respawnedPanel.surface.debugInitialCommand(), attachCommand)
+        XCTAssertEqual(respawnedPanel.surface.debugTmuxStartCommand(), attachCommand)
+        XCTAssertTrue(
+            TerminalSurfaceRegistry.shared.surface(id: originalPanelId) === respawnedPanel.surface,
+            "Respawn should replace the registered terminal surface for the existing cmux surface id"
+        )
+    }
+
     func testSessionRestoreRelaunchesOMXHudTmuxStartCommand() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)

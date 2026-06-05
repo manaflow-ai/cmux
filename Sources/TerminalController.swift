@@ -2845,6 +2845,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceFocus(params: params))
         case "surface.split":
             return v2Result(id: id, self.v2SurfaceSplit(params: params))
+        case "surface.respawn":
+            return v2Result(id: id, self.v2SurfaceRespawn(params: params))
         case "surface.create":
             return v2Result(id: id, self.v2SurfaceCreate(params: params))
         case "surface.close":
@@ -3312,6 +3314,7 @@ class TerminalController {
             "surface.current",
             "surface.focus",
             "surface.split",
+            "surface.respawn",
             "surface.create",
             "surface.close",
             "surface.drag_to_split",
@@ -8672,6 +8675,81 @@ class TerminalController {
         }
         return result
     }
+
+    private func v2SurfaceRespawn(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        let command = v2OptionalTrimmedRawString(params, "command")
+            ?? v2OptionalTrimmedRawString(params, "initial_command")
+            ?? "exec ${SHELL:-/bin/zsh} -l"
+        let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command") ?? command
+        let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
+        let focus: Bool?
+        if v2HasNonNullParam(params, "focus") {
+            guard let parsedFocus = v2Bool(params, "focus") else {
+                return .err(code: "invalid_params", message: "Missing or invalid focus", data: nil)
+            }
+            focus = v2FocusAllowed(requested: parsedFocus)
+        } else {
+            focus = nil
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to respawn surface", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard ws.terminalPanel(for: surfaceId) != nil else {
+                result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+            guard let replacementPanel = ws.respawnTerminalSurface(
+                panelId: surfaceId,
+                command: command,
+                workingDirectory: workingDirectory,
+                tmuxStartCommand: tmuxStartCommand,
+                focus: focus
+            ) else {
+                result = .err(code: "internal_error", message: "Failed to respawn surface", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "type": replacementPanel.panelType.rawValue,
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId)
+            ])
+        }
+        return result
+    }
+
     private func v2SurfaceCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)

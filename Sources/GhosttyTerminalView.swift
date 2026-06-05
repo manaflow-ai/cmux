@@ -5127,8 +5127,14 @@ final class TerminalSurfaceRegistry {
 
     func unregister(_ surface: TerminalSurface) {
         lock.lock()
+        let surfaceId = surface.id
         surfaces.remove(surface)
-        surfaceFocusPlacements.removeValue(forKey: surface.id)
+        let stillRegistered = surfaces.allObjects
+            .compactMap { $0 as? TerminalSurface }
+            .contains { $0 !== surface && $0.id == surfaceId }
+        if !stillRegistered {
+            surfaceFocusPlacements.removeValue(forKey: surfaceId)
+        }
         lock.unlock()
 
         Task { @MainActor in
@@ -5483,6 +5489,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     init(
+        id: UUID = UUID(),
         tabId: UUID,
         context: ghostty_surface_context_e,
         configTemplate: CmuxSurfaceConfigTemplate?,
@@ -5499,7 +5506,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         dispatchPrecondition(condition: .onQueue(.main))
         #endif
 
-        self.id = UUID()
+        self.id = id
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate

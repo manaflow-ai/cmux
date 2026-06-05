@@ -20187,6 +20187,32 @@ struct CMUXCLI {
                 "orientation": "vertical"
             ])
 
+        case "respawn-pane", "respawnp":
+            let parsed = try parseTmuxArguments(
+                rawArgs,
+                valueFlags: ["-c", "-t"],
+                boolFlags: ["-k"]
+            )
+            let target = try tmuxResolvePaneTarget(parsed.value("-t"), client: client)
+            let surfaceId = try tmuxSelectedSurfaceId(
+                workspaceId: target.workspaceId,
+                paneId: target.paneId,
+                client: client
+            )
+            let commandText = tmuxStartCommand(commandTokens: parsed.positional)
+                ?? "exec ${SHELL:-/bin/sh} -l"
+            var params: [String: Any] = [
+                "workspace_id": target.workspaceId,
+                "surface_id": surfaceId,
+                "command": commandText,
+                "tmux_start_command": commandText
+            ]
+            if let cwd = parsed.value("-c")?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !cwd.isEmpty {
+                params["working_directory"] = resolvePath(cwd)
+            }
+            _ = try client.sendV2(method: "surface.respawn", params: params)
+
         case "send-keys", "send":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: ["-l"])
             let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
@@ -21120,14 +21146,17 @@ struct CMUXCLI {
             let workspaceArg = workspaceOpt ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let commandText = (commandOpt ?? respawnRem3.dropFirst(respawnRem3.first == "--" ? 1 : 0).joined(separator: " ")).trimmingCharacters(in: .whitespacesAndNewlines)
             let finalCommand = commandText.isEmpty ? "exec ${SHELL:-/bin/zsh} -l" : commandText
-            var params: [String: Any] = ["text": finalCommand + "\n"]
+            var params: [String: Any] = [
+                "command": finalCommand,
+                "tmux_start_command": finalCommand
+            ]
             let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId, allowCurrent: winId == nil)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId, allowFocused: true)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_text", params: params)
+            let payload = try client.sendV2(method: "surface.respawn", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "display-message":
