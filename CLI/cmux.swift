@@ -805,10 +805,11 @@ private final class ClaudeHookSessionStore {
                 record.activePromptTurnId = nil
                 record.activePromptTurnIds = nil
             } else {
-                let turnStack = activePromptTurnStack(from: record)
+                var turnStack = activePromptTurnStack(from: record)
                 if !turnStack.isEmpty {
+                    turnStack.removeLast()
                     setActivePromptTurnStack(
-                        Array(turnStack.prefix(depthAfterStop)),
+                        turnStack,
                         totalDepth: depthAfterStop,
                         on: &record
                     )
