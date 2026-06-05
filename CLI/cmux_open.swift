@@ -377,9 +377,10 @@ extension CMUXCLI {
         var pid: Int32
         var rootPath: String
         var protocolVersion: String?
+        var executablePath: String?
     }
 
-    private static let diffViewerHTTPServerProtocolVersion = "wait-v2 remote-stream manifest-refresh react-app-v1"
+    private static let diffViewerHTTPServerProtocolVersion = "wait-v2 remote-stream manifest-refresh react-app-v2 executable-bound"
     private static let diffViewerHTTPServerHealthResponse = Data("ok \(diffViewerHTTPServerProtocolVersion)\n".utf8)
 
     private struct DiffViewerLabels {
@@ -402,6 +403,7 @@ extension CMUXCLI {
                 "commit": CMUXDiffViewerLocalization.string("about.commit", defaultValue: "Commit"),
                 "collapseAllDiffs": CMUXDiffViewerLocalization.string("diffViewer.collapseAllDiffs", defaultValue: "Collapse all diffs"),
                 "collapseUnchangedContext": CMUXDiffViewerLocalization.string("diffViewer.collapseUnchangedContext", defaultValue: "Collapse unchanged context"),
+                "copyFailedGitApplyCommand": CMUXDiffViewerLocalization.string("diffViewer.copyFailedGitApplyCommand", defaultValue: "Could not copy git apply command."),
                 "copiedGitApplyCommand": CMUXDiffViewerLocalization.string("diffViewer.copiedGitApplyCommand", defaultValue: "Copied git apply command"),
                 "copyGitApplyCommand": CMUXDiffViewerLocalization.string("diffViewer.copyGitApplyCommand", defaultValue: "Copy git apply command"),
                 "deletions": CMUXDiffViewerLocalization.string("diffViewer.deletions", defaultValue: "Deletions"),
@@ -4105,6 +4107,7 @@ extension CMUXCLI {
            state.rootPath == rootDirectory.path,
            state.protocolVersion == Self.diffViewerHTTPServerProtocolVersion,
            (1...65535).contains(state.port),
+           diffViewerHTTPServerStateMatchesCurrentExecutable(state),
            diffViewerHTTPServerIsReachable(port: state.port) {
             guard let url = URL(string: "http://127.0.0.1:\(state.port)") else {
                 throw CLIError(message: "Failed to build diff viewer server URL")
@@ -4126,6 +4129,38 @@ extension CMUXCLI {
         let url = diffViewerHTTPServerStateURL(rootDirectory: rootDirectory)
         try encoder.encode(state).write(to: url, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private func diffViewerHTTPServerStateMatchesCurrentExecutable(_ state: DiffViewerHTTPServerState) -> Bool {
+        guard state.pid > 0,
+              let currentExecutablePath = resolvedExecutableURL()?.path,
+              let serverExecutablePath = diffViewerHTTPServerExecutablePath(pid: state.pid),
+              serverExecutablePath == currentExecutablePath else {
+            return false
+        }
+
+        guard let recordedExecutablePath = state.executablePath else {
+            return true
+        }
+        return recordedExecutablePath == currentExecutablePath
+    }
+
+    private func diffViewerHTTPServerExecutablePath(pid: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4096)
+        let count = buffer.withUnsafeMutableBufferPointer { pointer -> Int32 in
+            guard let baseAddress = pointer.baseAddress else { return 0 }
+            return proc_pidpath(pid, baseAddress, UInt32(pointer.count))
+        }
+        guard count > 0 else {
+            return nil
+        }
+
+        let rawPath = String(cString: buffer)
+        if let resolvedPath = realpath(rawPath, nil) {
+            defer { free(resolvedPath) }
+            return URL(fileURLWithPath: String(cString: resolvedPath)).standardizedFileURL.path
+        }
+        return URL(fileURLWithPath: rawPath).standardizedFileURL.path
     }
 
     private func startDiffViewerHTTPServer(rootDirectory: URL) throws -> URL {
@@ -4265,7 +4300,8 @@ extension CMUXCLI {
                 port: port,
                 pid: getpid(),
                 rootPath: rootDirectory.path,
-                protocolVersion: Self.diffViewerHTTPServerProtocolVersion
+                protocolVersion: Self.diffViewerHTTPServerProtocolVersion,
+                executablePath: resolvedExecutableURL()?.path
             ),
             rootDirectory: rootDirectory
         )
@@ -5037,7 +5073,7 @@ extension CMUXCLI {
             return path.hasSuffix(".html")
         }
         if mimeType == "text/javascript" {
-            return path.hasSuffix(".mjs")
+            return path.hasSuffix(".mjs") || path.hasSuffix(".js")
         }
         if mimeType == "text/x-diff" {
             return path.hasSuffix(".patch")
@@ -5461,7 +5497,7 @@ extension CMUXCLI {
 
     private func ensureDiffViewerAssets(nextTo viewerURL: URL) throws -> DiffViewerAssets {
         let sourceDirectory = try diffViewerBundledAssetDirectory()
-        let assetDirectoryName = "pierre-diffs-1.2.1-trees-1.0.0-beta.4"
+        let assetDirectoryName = "pierre-diffs-1.2.7-trees-1.0.0-beta.4"
         let targetDirectory = viewerURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent(assetDirectoryName, isDirectory: true)
@@ -5478,7 +5514,7 @@ extension CMUXCLI {
         guard assetPaths.contains("diffs.mjs"),
               assetPaths.contains("trees.mjs"),
               assetPaths.contains("worker-pool/worker-pool.mjs"),
-              assetPaths.contains("worker-pool/worker-portable.mjs") else {
+              assetPaths.contains("worker-pool/worker-portable.js") else {
             throw CLIError(message: "Bundled diff viewer entry assets not found")
         }
         for assetPath in assetPaths {
@@ -5498,7 +5534,7 @@ extension CMUXCLI {
             diffsModuleURL: "./assets/\(assetDirectoryName)/diffs.mjs",
             treesModuleURL: "./assets/\(assetDirectoryName)/trees.mjs",
             workerPoolModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-pool.mjs",
-            workerModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-portable.mjs",
+            workerModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-portable.js",
             files: assetPaths.map { targetDirectory.appendingPathComponent($0, isDirectory: false) }
                 + appAssetPaths.map { targetAppDirectory.appendingPathComponent($0, isDirectory: false) }
         )
@@ -5567,7 +5603,7 @@ extension CMUXCLI {
 
         var relativePaths: [String] = []
         for case let fileURL as URL in enumerator {
-            guard fileURL.pathExtension == "mjs",
+            guard ["js", "mjs"].contains(fileURL.pathExtension),
                   let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
                   values.isRegularFile == true else {
                 continue

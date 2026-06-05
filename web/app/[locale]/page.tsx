@@ -6,6 +6,7 @@ import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
 import { SiteHeader } from "./components/site-header";
+import { BrandLogoLink } from "./components/brand-logo-link";
 import {
   testimonials,
   getTestimonialSubtitle,
@@ -34,13 +35,15 @@ function HomeContent() {
       <main className="w-full max-w-2xl mx-auto px-6 py-16 sm:py-24">
         {/* Header */}
         <div className="flex items-center gap-4 mb-10" data-dev="header">
-          <img
-            src="/logo.png"
-            alt="cmux icon"
-            width={48}
-            height={48}
-            className="rounded-xl"
-          />
+          <BrandLogoLink className="shrink-0">
+            <img
+              src="/logo.png"
+              alt="cmux icon"
+              width={48}
+              height={48}
+              className="rounded-xl"
+            />
+          </BrandLogoLink>
           <h1 className="text-2xl font-semibold tracking-tight">cmux</h1>
         </div>
 
