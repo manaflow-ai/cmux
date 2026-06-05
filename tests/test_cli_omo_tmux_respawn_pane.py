@@ -312,6 +312,7 @@ def assert_omo_split_is_listed_and_respawned(
     assert_failure(non_forced_respawn, "OMO non-forced respawn-pane", "requires -k")
     if state.respawn_params:
         raise AssertionError(f"non-forced respawn must not call surface.respawn: {state.respawn_params!r}")
+    state.sent_text.clear()
 
     empty_respawn = run_cli(
         cli_path,
@@ -335,6 +336,8 @@ def assert_omo_split_is_listed_and_respawned(
         raise AssertionError(f"empty respawn did not reuse stored command: {empty_respawn_params!r}")
     if empty_respawn_params.get("tmux_start_command") != PLACEHOLDER_COMMAND:
         raise AssertionError(f"empty respawn did not preserve tmux start metadata: {empty_respawn_params!r}")
+    if state.sent_text:
+        raise AssertionError(f"empty respawn must replace the pane, not send text: {state.sent_text!r}")
     state.respawn_params.clear()
     state.sent_text.clear()
 
@@ -404,6 +407,9 @@ def assert_public_respawn_uses_same_surface_lifecycle(
     fake_home: Path,
     state: FakeCmuxState,
 ) -> None:
+    state.respawn_params.clear()
+    state.sent_text.clear()
+
     public = run_cli(
         cli_path,
         socket_path,
@@ -419,9 +425,9 @@ def assert_public_respawn_uses_same_surface_lifecycle(
         ],
     )
     assert_success(public, "public respawn-pane")
-    if len(state.respawn_params) != 2:
+    if len(state.respawn_params) != 1:
         raise AssertionError(f"expected public respawn to call surface.respawn: {state.respawn_params!r}")
-    respawn_params = state.respawn_params[-1]
+    respawn_params = state.respawn_params[0]
     if respawn_params.get("surface_id") != SUBAGENT_SURFACE_ID:
         raise AssertionError(f"public respawn targeted wrong surface: {respawn_params!r}")
     if respawn_params.get("command") != "echo TEST_PUBLIC":
