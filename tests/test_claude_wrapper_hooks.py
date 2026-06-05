@@ -17,6 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "claude"
+LAST_SETTINGS_CONTENT = ""
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -31,12 +32,25 @@ def read_lines(path: Path) -> list[str]:
 
 
 def parse_settings_arg(argv: list[str]) -> dict:
-    if "--settings" not in argv:
+    value = settings_arg_value(argv)
+    if not value:
         return {}
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        path = Path(value)
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(LAST_SETTINGS_CONTENT)
+
+
+def settings_arg_value(argv: list[str]) -> str:
+    if "--settings" not in argv:
+        return ""
     index = argv.index("--settings")
     if index + 1 >= len(argv):
-        return {}
-    return json.loads(argv[index + 1])
+        return ""
+    return argv[index + 1]
 
 
 def run_wrapper(
@@ -81,6 +95,21 @@ printf '%s\\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-__UNSET__}" > "$FAKE_REAL_LAUNCH_AR
 printf '%s\\n' "${CMUX_CLAUDE_HOOK_CMUX_BIN-__UNSET__}" > "$FAKE_HOOK_CMUX_BIN_LOG"
 for arg in "$@"; do
   printf '%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
+done
+settings_next=false
+for arg in "$@"; do
+  if [[ "$settings_next" == true ]]; then
+    if [[ -f "$arg" ]]; then
+      printf '__CMUX_SETTINGS_CONTENT__=%s\\n' "$(cat "$arg")" >> "$FAKE_REAL_ARGS_LOG"
+    else
+      printf '__CMUX_SETTINGS_CONTENT__=%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
+    fi
+    settings_next=false
+    continue
+  fi
+  if [[ "$arg" == "--settings" ]]; then
+    settings_next=true
+  fi
 done
 if [[ "${1:-}" == "--help" ]]; then
   cat <<'HELP'
@@ -214,9 +243,15 @@ exit 0
         child_node_options_value = child_node_options_lines[0] if child_node_options_lines else ""
         hook_cmux_bin_value = hook_cmux_bin_lines[0] if hook_cmux_bin_lines else ""
         launch_argv_b64_value = launch_argv_b64_lines[0] if launch_argv_b64_lines else ""
+        global LAST_SETTINGS_CONTENT
+        real_args_lines = read_lines(real_args_log)
+        settings_prefix = "__CMUX_SETTINGS_CONTENT__="
+        settings_lines = [line.removeprefix(settings_prefix) for line in real_args_lines if line.startswith(settings_prefix)]
+        LAST_SETTINGS_CONTENT = settings_lines[-1] if settings_lines else ""
+        real_args_lines = [line for line in real_args_lines if not line.startswith(settings_prefix)]
         return (
             proc.returncode,
-            read_lines(real_args_log),
+            real_args_lines,
             read_lines(cmux_log),
             proc.stderr.strip(),
             claudecode_value,
@@ -574,6 +609,214 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     expect(
         any(h.get("timeout", 999) <= 2 for h in session_end_hooks),
         f"SessionEnd hook should have short timeout, got {session_end_hooks}",
+        failures,
+    )
+
+def test_live_socket_merges_user_settings_file_into_first_settings(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-user-settings-") as td:
+        settings_path = Path(td) / "settings.json"
+        settings_path.write_text(
+            json.dumps({
+                "model": "opus",
+                "preferredNotifChannel": "terminal_bell",
+                "hooks": {
+                    "Stop": [
+                        {
+                            "matcher": "",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "echo user-stop",
+                                    "timeout": 3,
+                                }
+                            ],
+                        }
+                    ]
+                },
+            }),
+            encoding="utf-8",
+        )
+        code, real_argv, *_ = run_wrapper(
+            socket_state="live",
+            argv=["--settings", str(settings_path), "hello"],
+        )
+
+    expect(code == 0, f"user settings file: wrapper exited {code}", failures)
+    settings_arg = settings_arg_value(real_argv)
+    expect(
+        settings_arg and not settings_arg.lstrip().startswith("{"),
+        f"user settings file: merged settings should be passed as a file path, got {settings_arg!r}",
+        failures,
+    )
+    expect(
+        settings_arg and not Path(settings_arg).exists(),
+        f"user settings file: merged settings temp file should be removed after Claude exits, got {settings_arg!r}",
+        failures,
+    )
+    settings = parse_settings_arg(real_argv)
+    expect(settings.get("model") == "opus", f"user settings file: expected model to survive, got {settings}", failures)
+    expect(
+        settings.get("preferredNotifChannel") == "notifications_disabled",
+        f"user settings file: expected cmux to keep Claude native notifications disabled, got {settings}",
+        failures,
+    )
+    stop_groups = settings.get("hooks", {}).get("Stop", [])
+    stop_commands = [
+        hook.get("command", "")
+        for group in stop_groups
+        for hook in group.get("hooks", [])
+    ]
+    expect(
+        any("hooks claude stop" in command for command in stop_commands),
+        f"user settings file: expected cmux Stop hook to survive, got {stop_commands}",
+        failures,
+    )
+    expect(
+        "echo user-stop" in stop_commands,
+        f"user settings file: expected user Stop hook to be appended, got {stop_commands}",
+        failures,
+    )
+    expect(
+        str(settings_path) not in real_argv,
+        f"user settings file: merged settings file should not be passed again, got {real_argv}",
+        failures,
+    )
+
+
+def test_live_socket_merges_inline_settings_form(failures: list[str]) -> None:
+    inline = json.dumps({
+        "permissionMode": "acceptEdits",
+        "hooks": {
+            "Notification": [
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "echo user-notify",
+                            "timeout": 2,
+                        }
+                    ],
+                }
+            ]
+        },
+    })
+    code, real_argv, *_ = run_wrapper(
+        socket_state="live",
+        argv=[f"--settings={inline}", "hello"],
+    )
+
+    expect(code == 0, f"inline settings: wrapper exited {code}", failures)
+    settings = parse_settings_arg(real_argv)
+    expect(
+        settings.get("permissionMode") == "acceptEdits",
+        f"inline settings: expected permissionMode to survive, got {settings}",
+        failures,
+    )
+    notification_groups = settings.get("hooks", {}).get("Notification", [])
+    notification_commands = [
+        hook.get("command", "")
+        for group in notification_groups
+        for hook in group.get("hooks", [])
+    ]
+    expect(
+        any("hooks claude notification" in command for command in notification_commands),
+        f"inline settings: expected cmux Notification hook to survive, got {notification_commands}",
+        failures,
+    )
+    expect(
+        "echo user-notify" in notification_commands,
+        f"inline settings: expected user Notification hook to be appended, got {notification_commands}",
+        failures,
+    )
+    expect(
+        not any(arg == f"--settings={inline}" for arg in real_argv),
+        f"inline settings: merged settings should not be passed again, got {real_argv}",
+        failures,
+    )
+
+
+def test_live_socket_does_not_merge_settings_after_double_dash(failures: list[str]) -> None:
+    inline = json.dumps({"model": "opus"})
+    code, real_argv, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--", f"--settings={inline}", "hello"],
+    )
+
+    expect(code == 0, f"settings after --: wrapper exited {code}", failures)
+    settings = parse_settings_arg(real_argv)
+    expect(
+        settings.get("model") != "opus",
+        f"settings after --: positional settings-like text should not merge, got {settings}",
+        failures,
+    )
+    expect(
+        real_argv[-3:] == ["--", f"--settings={inline}", "hello"],
+        f"settings after --: expected positional args preserved, got {real_argv}",
+        failures,
+    )
+
+
+def test_live_socket_does_not_merge_settings_like_option_value(failures: list[str]) -> None:
+    inline = json.dumps({"model": "opus"})
+    code, real_argv, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--append-system-prompt", f"--settings={inline}", "hello"],
+    )
+
+    expect(code == 0, f"settings-like option value: wrapper exited {code}", failures)
+    settings = parse_settings_arg(real_argv)
+    expect(
+        settings.get("model") != "opus",
+        f"settings-like option value: option value should not merge, got {settings}",
+        failures,
+    )
+    expect(
+        real_argv[-3:] == ["--append-system-prompt", f"--settings={inline}", "hello"],
+        f"settings-like option value: expected original args preserved, got {real_argv}",
+        failures,
+    )
+
+
+def test_live_socket_merges_settings_after_common_value_options(failures: list[str]) -> None:
+    inline = json.dumps({"model": "opus"})
+    for option in ("--allowedTools", "--plugin-dir"):
+        code, real_argv, *_ = run_wrapper(
+            socket_state="live",
+            argv=[option, "Read", f"--settings={inline}", "hello"],
+        )
+
+        expect(code == 0, f"settings after {option}: wrapper exited {code}", failures)
+        settings = parse_settings_arg(real_argv)
+        expect(
+            settings.get("model") == "opus",
+            f"settings after {option}: expected settings to merge after option value, got {settings}",
+            failures,
+        )
+        expect(
+            real_argv[-3:] == [option, "Read", "hello"],
+            f"settings after {option}: expected consumed settings stripped and other args preserved, got {real_argv}",
+            failures,
+        )
+
+
+def test_live_socket_does_not_merge_settings_after_prompt(failures: list[str]) -> None:
+    inline = json.dumps({"model": "opus"})
+    code, real_argv, *_ = run_wrapper(
+        socket_state="live",
+        argv=["hello", f"--settings={inline}"],
+    )
+
+    expect(code == 0, f"settings after prompt: wrapper exited {code}", failures)
+    settings = parse_settings_arg(real_argv)
+    expect(
+        settings.get("model") != "opus",
+        f"settings after prompt: prompt text should not merge, got {settings}",
+        failures,
+    )
+    expect(
+        real_argv[-2:] == ["hello", f"--settings={inline}"],
+        f"settings after prompt: expected prompt args preserved, got {real_argv}",
         failures,
     )
 
@@ -1166,6 +1409,12 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
+    test_live_socket_merges_user_settings_file_into_first_settings(failures)
+    test_live_socket_merges_inline_settings_form(failures)
+    test_live_socket_does_not_merge_settings_after_double_dash(failures)
+    test_live_socket_does_not_merge_settings_like_option_value(failures)
+    test_live_socket_merges_settings_after_common_value_options(failures)
+    test_live_socket_does_not_merge_settings_after_prompt(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)

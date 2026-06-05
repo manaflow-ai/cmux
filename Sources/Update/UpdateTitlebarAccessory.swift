@@ -2626,10 +2626,12 @@ private struct NotificationPopoverRow: View {
                 }
 
                 if !notification.body.isEmpty {
-                    Text(notification.body)
-                        .font(.system(size: 11.5))
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
+                    NotificationBodyText(
+                        notification: notification,
+                        font: .system(size: 11.5),
+                        color: .secondary,
+                        lineLimit: 2
+                    )
                         .fixedSize(horizontal: false, vertical: true)
                 }
 

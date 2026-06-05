@@ -353,12 +353,21 @@ enum AgentResumeCommandBuilder {
         includeWorkingDirectoryPrefix: Bool
     ) -> String {
         var commandParts: [String] = []
-        let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
+        let wrapped = claudeWrapperResumeCommandPartsIfNeeded(
+            argv: argv,
+            kind: kind,
+            launchCommand: launchCommand
+        )
+        let environmentParts = launchEnvironmentParts(
+            kind: kind,
+            environment: launchCommand?.environment,
+            additionalEnvironment: wrapped.additionalEnvironment
+        )
         if !environmentParts.isEmpty {
             commandParts.append("env")
             commandParts.append(contentsOf: environmentParts)
         }
-        commandParts.append(contentsOf: argv)
+        commandParts.append(contentsOf: wrapped.argv)
 
         let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
             ? nil
@@ -389,15 +398,19 @@ enum AgentResumeCommandBuilder {
 
     private static func launchEnvironmentParts(
         kind: RestorableAgentKind,
-        environment: [String: String]?
+        environment: [String: String]?,
+        additionalEnvironment: [String: String] = [:]
     ) -> [String] {
-        guard let environment, !environment.isEmpty else {
+        guard environment?.isEmpty == false || !additionalEnvironment.isEmpty else {
             return []
         }
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: kind.rawValue)
+        var selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment ?? [:], kind: kind.rawValue)
+        for (key, value) in additionalEnvironment {
+            selectedEnvironment[key] = value
+        }
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
@@ -413,6 +426,53 @@ enum AgentResumeCommandBuilder {
             )
         }
         return environmentParts
+    }
+
+    private static func claudeWrapperResumeCommandPartsIfNeeded(
+        argv: [String],
+        kind: RestorableAgentKind,
+        launchCommand: AgentLaunchCommandSnapshot?
+    ) -> (argv: [String], additionalEnvironment: [String: String]) {
+        guard kind == .claude,
+              launchCommand?.launcher != "claudeTeams",
+              !argv.isEmpty,
+              !isClaudeTeamsCommand(argv),
+              let wrapperPath = currentBundledClaudeWrapperPath(),
+              let claudeExecutable = normalized(argv.first),
+              claudeExecutable != wrapperPath else {
+            return (argv, [:])
+        }
+        return (
+            [wrapperPath] + Array(argv.dropFirst()),
+            ["CMUX_CUSTOM_CLAUDE_PATH": claudeExecutable]
+        )
+    }
+
+    private static func isClaudeTeamsCommand(_ argv: [String]) -> Bool {
+        guard argv.count >= 2 else { return false }
+        return argv[1] == "claude-teams"
+    }
+
+    private static func currentBundledClaudeWrapperPath() -> String? {
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+           let bundlePath = normalized(Bundle.main.resourceURL?.appendingPathComponent("bin/claude").path),
+           (bundlePath as NSString).lastPathComponent == "claude",
+           FileManager.default.isExecutableFile(atPath: bundlePath) {
+            return bundlePath
+        }
+        guard let path = normalized(ProcessInfo.processInfo.environment["CMUX_BUNDLED_CLI_PATH"]),
+              (path as NSString).lastPathComponent == "cmux" else {
+            return nil
+        }
+        let wrapperPath = URL(fileURLWithPath: path)
+            .deletingLastPathComponent()
+            .appendingPathComponent("claude", isDirectory: false)
+            .path
+        guard FileManager.default.isExecutableFile(atPath: wrapperPath)
+                || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil else {
+            return nil
+        }
+        return wrapperPath
     }
 
     private static func resumeArguments(

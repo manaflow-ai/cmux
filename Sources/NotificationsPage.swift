@@ -240,10 +240,12 @@ private struct NotificationRow: View {
                         }
 
                         if !notification.body.isEmpty {
-                            Text(notification.body)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                                .lineLimit(3)
+                            NotificationBodyText(
+                                notification: notification,
+                                font: .subheadline,
+                                color: .secondary,
+                                lineLimit: 3
+                            )
                         }
 
                         if let tabTitle {

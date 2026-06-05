@@ -4210,11 +4210,8 @@ class TerminalController {
         rootPath: String?,
         projectRootPath: String?
     ) -> [String: Any] {
-        let latestNotificationText = TerminalNotificationStore.shared.latestNotification(forTabId: workspace.id).flatMap {
-            let text = $0.body.isEmpty ? $0.title : $0.body
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
+        let latestNotificationText = TerminalNotificationStore.shared.latestNotification(forTabId: workspace.id)
+            .flatMap(TerminalNotificationStore.sidebarPreviewText(for:))
         return [
             "id": workspace.id.uuidString,
             "ref": v2Ref(kind: .workspace, uuid: workspace.id),
@@ -9666,6 +9663,12 @@ class TerminalController {
 
     // MARK: - V2 Notification Methods
 
+    private static func v2NotificationBodyFormat(_ value: Any?) -> TerminalNotificationBodyFormat {
+        let rawValue = ((value as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return TerminalNotificationBodyFormat(rawValue: rawValue) ?? .plain
+    }
+
     private func v2NotificationCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -9675,6 +9678,7 @@ class TerminalController {
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
+        let bodyFormat = Self.v2NotificationBodyFormat(params["body_format"])
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         v2MainSync {
@@ -9696,7 +9700,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                bodyFormat: bodyFormat
             )
             result = .ok(["workspace_id": ws.id.uuidString, "surface_id": v2OrNull(surfaceId?.uuidString)])
         }
@@ -9714,6 +9719,7 @@ class TerminalController {
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
+        let bodyFormat = Self.v2NotificationBodyFormat(params["body_format"])
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         v2MainSync {
@@ -9730,7 +9736,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                bodyFormat: bodyFormat
             )
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
@@ -9751,6 +9758,7 @@ class TerminalController {
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
+        let bodyFormat = Self.v2NotificationBodyFormat(params["body_format"])
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         v2MainSync {
@@ -9767,7 +9775,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                bodyFormat: bodyFormat
             )
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
@@ -9986,6 +9995,7 @@ class TerminalController {
             "title": notification.title,
             "subtitle": notification.subtitle,
             "body": notification.body,
+            "body_format": notification.bodyFormat.rawValue,
             "created_at": Self.notificationCreatedAtString(notification.createdAt),
             "tab_title": v2OrNull(AppDelegate.shared?.tabTitle(for: notification.tabId)),
         ]
@@ -17003,13 +17013,14 @@ class TerminalController {
                 return
             }
             let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-            let (title, subtitle, body) = parseNotificationPayload(args)
+            let parsedPayload = parseNotificationPayload(args)
             deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
-                title: title,
-                subtitle: subtitle,
-                body: body
+                title: parsedPayload.title,
+                subtitle: parsedPayload.subtitle,
+                body: parsedPayload.body,
+                bodyFormat: parsedPayload.bodyFormat
             )
         }
         return result
@@ -17035,13 +17046,14 @@ class TerminalController {
                 result = "ERROR: Surface not found"
                 return
             }
-            let (title, subtitle, body) = parseNotificationPayload(payload)
+            let parsedPayload = parseNotificationPayload(payload)
             deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
-                title: title,
-                subtitle: subtitle,
-                body: body
+                title: parsedPayload.title,
+                subtitle: parsedPayload.subtitle,
+                body: parsedPayload.body,
+                bodyFormat: parsedPayload.bodyFormat
             )
         }
         return result
@@ -17058,7 +17070,7 @@ class TerminalController {
         let tabArg = parts[0]
         let panelArg = parts[1]
         let payload = parts.count > 2 ? parts[2] : ""
-        let (title, subtitle, body) = parseNotificationPayload(payload)
+        let parsedPayload = parseNotificationPayload(payload)
 
         if let workspaceId = UUID(uuidString: tabArg),
            let panelId = UUID(uuidString: panelArg) {
@@ -17075,9 +17087,10 @@ class TerminalController {
                 deliverNotificationSynchronously(
                     tabId: workspaceId,
                     surfaceId: panelId,
-                    title: title,
-                    subtitle: subtitle,
-                    body: body
+                    title: parsedPayload.title,
+                    subtitle: parsedPayload.subtitle,
+                    body: parsedPayload.body,
+                    bodyFormat: parsedPayload.bodyFormat
                 )
             }
             return result
@@ -17103,9 +17116,10 @@ class TerminalController {
             deliverNotificationSynchronously(
                 tabId: tab.id,
                 surfaceId: panelId,
-                title: title,
-                subtitle: subtitle,
-                body: body
+                title: parsedPayload.title,
+                subtitle: parsedPayload.subtitle,
+                body: parsedPayload.body,
+                bodyFormat: parsedPayload.bodyFormat
             )
         }
         return result
@@ -17132,18 +17146,19 @@ class TerminalController {
         guard !payload.isEmpty else {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
-        let (title, subtitle, body) = parseNotificationPayload(payload)
+        let parsedPayload = parseNotificationPayload(payload)
 #if DEBUG
         cmuxDebugLog(
-            "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
+            "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(parsedPayload.title.count) subtitleLen=\(parsedPayload.subtitle.count) bodyLen=\(parsedPayload.body.count) bodyFormat=\(parsedPayload.bodyFormat.rawValue) coalesces=0"
         )
 #endif
         TerminalMutationBus.shared.enqueueNotification(
             tabId: tabId,
             surfaceId: surfaceId,
-            title: title,
-            subtitle: subtitle,
-            body: body,
+            title: parsedPayload.title,
+            subtitle: parsedPayload.subtitle,
+            body: parsedPayload.body,
+            bodyFormat: parsedPayload.bodyFormat,
             coalesces: false
         )
         return "OK"
@@ -17157,11 +17172,22 @@ class TerminalController {
                 let readText = notification.isRead ? "read" : "unread"
                 let createdAt = Self.notificationCreatedAtString(notification.createdAt)
                 let tabTitle = Self.notificationListTrailingField(AppDelegate.shared?.tabTitle(for: notification.tabId) ?? "")
-                return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.subtitle)|\(notification.body)|\(createdAt)|\(tabTitle)"
+                let title = Self.notificationListField(notification.title)
+                let subtitle = Self.notificationListField(notification.subtitle)
+                let body = Self.notificationListField(notification.body)
+                return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(title)|\(subtitle)|\(body)|\(createdAt)|\(tabTitle)"
             }
             result = lines.joined(separator: "\n")
         }
         return result.isEmpty ? "No notifications" : result
+    }
+
+    private static func notificationListField(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\r\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\n")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "|", with: "%7C")
     }
 
     private func clearNotifications(_ args: String) -> String {
@@ -17894,16 +17920,42 @@ class TerminalController {
         return nil
     }
 
-    private func parseNotificationPayload(_ args: String) -> (String, String, String) {
+    private func parseNotificationPayload(_ args: String) -> ParsedNotificationPayload {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return ("Notification", "", "") }
+        guard !trimmed.isEmpty else {
+            return ParsedNotificationPayload(title: "Notification", subtitle: "", body: "", bodyFormat: .plain)
+        }
+        if trimmed.hasPrefix("json64:"),
+           let data = Data(base64Encoded: String(trimmed.dropFirst("json64:".count))),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let title = ((object["title"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let subtitle = ((object["subtitle"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let body = ((object["body"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawFormat = ((object["body_format"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let bodyFormat = TerminalNotificationBodyFormat(rawValue: rawFormat) ?? .plain
+            return ParsedNotificationPayload(
+                title: title.isEmpty ? "Notification" : title,
+                subtitle: subtitle,
+                body: body,
+                bodyFormat: bodyFormat
+            )
+        }
         let parts = trimmed.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
         let title = parts.count > 0 ? parts[0].trimmingCharacters(in: .whitespacesAndNewlines) : ""
         let subtitle = parts.count > 2 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
         let body = parts.count > 2
             ? parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
             : (parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : "")
-        return (title.isEmpty ? "Notification" : title, subtitle, body)
+        return ParsedNotificationPayload(
+            title: title.isEmpty ? "Notification" : title,
+            subtitle: subtitle,
+            body: body,
+            bodyFormat: .plain
+        )
     }
 
     private func closeWorkspace(_ tabId: String) -> String {

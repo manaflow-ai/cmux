@@ -171,8 +171,34 @@ if (typeof mod.CMUXSessionRestore !== "function") {
 if (typeof mod.default !== "function") {
   throw new Error("missing default export");
 }
-const hooks = await mod.default({ directory: "/tmp/opencode-project" });
-const duplicateHooks = await duplicateMod.default({ directory: "/tmp/opencode-project" });
+const fakeMessages = [
+  {
+    info: { role: "user" },
+    parts: [{ type: "text", text: "3+3" }],
+  },
+  {
+    info: { role: "assistant" },
+    parts: [{ type: "text", text: "6" }],
+  },
+];
+const hookContext = {
+  directory: "/tmp/opencode-project",
+  client: {
+    session: {
+      messages: async ({ path, query }) => {
+        if (path.id !== "opencode-session-test") {
+          return { data: [] };
+        }
+        if (query.directory !== "/tmp/opencode-project") {
+          throw new Error("missing directory query");
+        }
+        return { data: fakeMessages };
+      },
+    },
+  },
+};
+const hooks = await mod.default(hookContext);
+const duplicateHooks = await duplicateMod.default(hookContext);
 if (!hooks || typeof hooks.event !== "function") {
   throw new Error("missing event hook");
 }
@@ -194,6 +220,119 @@ await hooks.event({
       info: {
         id: "opencode-session-test",
         directory: "/tmp/opencode-project"
+      }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.updated",
+    properties: {
+      info: {
+        id: "opencode-session-test",
+        directory: "/tmp/opencode-project"
+      }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.status",
+    properties: {
+      sessionID: "opencode-session-test",
+      status: { type: "idle" }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.idle",
+    properties: {
+      sessionID: "opencode-session-test"
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.status",
+    properties: {
+      sessionID: "opencode-session-test",
+      status: { type: "busy" }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.status",
+    properties: {
+      sessionID: "opencode-session-test",
+      status: { type: "idle" }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.updated",
+    properties: {
+      info: {
+        id: "opencode-session-test",
+        directory: "/tmp/opencode-project"
+      }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.status",
+    properties: {
+      sessionID: "opencode-session-test",
+      status: { type: "idle" }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.created",
+    properties: {
+      info: {
+        id: "opencode-idle-only-session-test",
+        directory: "/tmp/opencode-project"
+      }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.idle",
+    properties: {
+      sessionID: "opencode-idle-only-session-test"
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.deleted",
+    properties: {
+      sessionID: "opencode-idle-only-session-test"
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.idle",
+    properties: {
+      sessionID: "opencode-idle-only-session-test"
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.updated",
+    properties: {
+      info: {
+        id: "opencode-session-test",
+        directory: "/tmp/opencode-project",
+        time: { archived: 1710000000000 }
       }
     }
   }
@@ -221,11 +360,20 @@ await hooks.event({
         if "hooks opencode session-start" not in args_log:
             print(f"FAIL: plugin did not invoke hooks opencode session-start, got {args_log!r}")
             return 1
-        if args_log.count("hooks opencode session-start") != 1:
-            print(f"FAIL: plugin invoked duplicate session-start hooks, got {args_log!r}")
+        if args_log.count("hooks opencode session-start") != 2:
+            print(f"FAIL: plugin did not start both test sessions, got {args_log!r}")
+            return 1
+        if args_log.count("hooks opencode stop") != 4:
+            print(f"FAIL: plugin did not reset active stop dedupe or ignore ended sessions, got {args_log!r}")
+            return 1
+        if args_log.count("hooks opencode session-end") != 2:
+            print(f"FAIL: plugin did not invoke archived and deleted session-end hooks, got {args_log!r}")
             return 1
         if '"session_id":"opencode-session-test"' not in stdin_log or '"/tmp/opencode-project"' not in stdin_log:
             print(f"FAIL: plugin did not pass expected session payload, got {stdin_log!r}")
+            return 1
+        if '"last_assistant_message":"6"' not in stdin_log:
+            print(f"FAIL: plugin did not pass latest assistant message on stop, got {stdin_log!r}")
             return 1
         if "kind=opencode" not in env_log or "cwd=/tmp/opencode-project" not in env_log or "argv=" not in env_log:
             print(f"FAIL: plugin did not pass launch metadata environment, got {env_log!r}")
