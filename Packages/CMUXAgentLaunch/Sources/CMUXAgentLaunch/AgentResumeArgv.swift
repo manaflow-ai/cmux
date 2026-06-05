@@ -138,23 +138,24 @@ public struct AgentResumeArgv: Sendable, Equatable {
         }
     }
 
-    /// Builds the claude resume argv, re-applying cmux's current hook `--settings`.
+    /// Builds the claude resume argv, routing it through cmux's `claude` wrapper
+    /// so cmux hooks fire on the resumed session.
     ///
-    /// On a fresh launch `Resources/bin/claude` injects a hook `--settings`, and
-    /// claude's SessionStart hook is what publishes cmux's resume binding in the
-    /// first place. So a claude session that cmux can natively resume necessarily
-    /// ran with cmux hooks enabled. The capture/resume sanitizer strips the
-    /// captured hook `--settings` (it can be stale, and is often already gone
-    /// because the persisted launch command was sanitized at capture time), which
-    /// left resumed sessions with no hooks at all
+    /// cmux injects Claude Code's hook `--settings` from the `Resources/bin/claude`
+    /// wrapper, which is first on `PATH` inside cmux terminals. The wrapper
+    /// re-injects those hooks whenever it sees `--resume`, exactly as it does on a
+    /// fresh launch (and it also re-applies the rest of the fresh-launch setup:
+    /// `CLAUDE_CONFIG_DIR` normalization, auth-selection env handling, NODE_OPTIONS,
+    /// nested-session unset). The captured launch executable, however, is the
+    /// *real* claude binary (`CMUX_AGENT_LAUNCH_EXECUTABLE`), so resuming with it
+    /// directly bypassed the wrapper and dropped every hook
     /// (https://github.com/manaflow-ai/cmux/issues/5427).
     ///
-    /// This re-applies ``ClaudeHookSettings/settingsJSON`` unconditionally, right
-    /// after the resume verb, mirroring how the wrapper injects `--settings`
-    /// ahead of the user's own arguments on a fresh launch. Re-applying the
-    /// *current* settings is intentional: it is correct across app builds where a
-    /// captured path/JSON would be stale, and it does not depend on the captured
-    /// argv still carrying the (already-stripped) hook option.
+    /// Forcing the executable to the bare `claude` wrapper is the same thing the
+    /// session-index resume builder (`SessionEntry.resumeCommand`) already does,
+    /// so both resume paths now share one injection point. The captured executable
+    /// is intentionally ignored for claude; the wrapper resolves the real binary
+    /// (honouring `CMUX_CUSTOM_CLAUDE_PATH`).
     private func claudeResumeArgv(
         sessionId: String,
         executablePath: String?,
@@ -164,7 +165,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
         guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: parts.tail) else {
             return nil
         }
-        return [parts.executable, "--resume", sessionId, "--settings", ClaudeHookSettings.settingsJSON] + preserved
+        return ["claude", "--resume", sessionId] + preserved
     }
 
     private func withOption(

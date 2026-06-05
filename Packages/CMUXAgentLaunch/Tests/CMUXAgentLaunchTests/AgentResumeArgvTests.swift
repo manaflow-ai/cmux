@@ -4,6 +4,7 @@ import Testing
 @Suite("AgentResumeArgv")
 struct AgentResumeArgvTests {
     @Test("Built-in --option style kinds", arguments: [
+        ("claude", "claude", ["claude", "--resume", "SID"]),
         ("grok", "grok", ["grok", "-r", "SID"]),
         ("pi", "pi", ["pi", "--session", "SID"]),
         ("cursor", "cursor-agent", ["cursor-agent", "--resume", "SID"]),
@@ -55,26 +56,14 @@ struct AgentResumeArgvTests {
 
     @Test("Captured executable path overrides the fallback executable")
     func executablePathOverridesFallback() {
-        // claude always re-applies cmux's hook --settings on resume.
+        // Non-claude kinds replay the captured executable path verbatim.
         #expect(
             AgentResumeArgv().builtInKind(
-                kind: "claude",
+                kind: "codex",
                 sessionId: "SID",
-                executablePath: "/opt/bin/claude",
-                arguments: ["/opt/bin/claude"]
-            ) == ["/opt/bin/claude", "--resume", "SID", "--settings", ClaudeHookSettings.settingsJSON]
-        )
-    }
-
-    @Test("Claude resume always re-applies cmux's hook --settings")
-    func claudeResumeAlwaysReappliesHookSettings() {
-        // A cmux-resumable claude session always ran with hooks (the SessionStart
-        // hook is what publishes the resume binding), so resume re-applies cmux's
-        // current hook settings even when the captured argv was already sanitized.
-        #expect(
-            AgentResumeArgv().builtInKind(
-                kind: "claude", sessionId: "SID", executablePath: nil, arguments: ["claude"]
-            ) == ["claude", "--resume", "SID", "--settings", ClaudeHookSettings.settingsJSON]
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex"]
+            ) == ["/opt/bin/codex", "resume", "SID"]
         )
     }
 

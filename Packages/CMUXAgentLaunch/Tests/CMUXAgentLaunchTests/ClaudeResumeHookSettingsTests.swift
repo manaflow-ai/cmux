@@ -3,32 +3,44 @@ import Testing
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/5427.
 ///
-/// A cmux-launched `claude` process always carries cmux's hook `--settings`
-/// (injected by the `Resources/bin/claude` wrapper) so SessionStart / Stop /
-/// Notification fire back into cmux. Native `claude --resume` captures the live
-/// process argv, and the resume sanitizer intentionally strips that captured
-/// hook `--settings` (it can be stale). The bug is that nothing re-applies
-/// cmux's current hook settings, so resumed sessions silently lose every hook.
-@Suite("Claude resume re-applies cmux hook settings")
+/// cmux injects Claude Code's hooks from the `Resources/bin/claude` wrapper,
+/// which is first on `PATH` inside cmux terminals and re-injects the hook
+/// `--settings` whenever it sees `--resume`. The captured launch executable,
+/// however, is the *real* claude binary (`CMUX_AGENT_LAUNCH_EXECUTABLE`).
+/// Resuming with that captured path directly bypassed the wrapper, so resumed
+/// claude sessions silently lost SessionStart / Stop / Notification. The fix
+/// routes the claude resume argv through the bare `claude` wrapper.
+@Suite("Claude resume routes through the cmux wrapper")
 struct ClaudeResumeHookSettingsTests {
-    /// Pulls the value passed to the last `--settings` option in an argv.
-    private func settingsValue(in argv: [String]) -> String? {
-        guard let optionIndex = argv.lastIndex(of: "--settings"),
-              optionIndex + 1 < argv.count else {
-            return nil
-        }
-        return argv[optionIndex + 1]
-    }
-
-    @Test("Claude resume re-includes cmux's current hook --settings")
-    func claudeResumeReinjectsHookSettings() throws {
+    @Test("Resume uses the `claude` wrapper, not the captured real binary")
+    func resumeRoutesThroughWrapper() throws {
         let argv = try #require(
             AgentResumeArgv().builtInKind(
                 kind: "claude",
                 sessionId: "s",
-                executablePath: nil,
+                executablePath: "/opt/homebrew/bin/claude",
+                arguments: ["/opt/homebrew/bin/claude", "--model", "opus"]
+            )
+        )
+
+        // The wrapper (bare `claude`) must be the executable so its --resume hook
+        // injection fires; the captured real-binary path must not survive.
+        #expect(argv.first == "claude")
+        #expect(!argv.contains("/opt/homebrew/bin/claude"))
+        #expect(argv == ["claude", "--resume", "s", "--model", "opus"])
+    }
+
+    @Test("A captured hook --settings is still stripped (the wrapper re-adds current hooks)")
+    func staleHookSettingsStripped() throws {
+        // Process-captured argv may still carry the inline hook --settings. It is
+        // dropped; the wrapper re-applies cmux's current hooks at exec time.
+        let argv = try #require(
+            AgentResumeArgv().builtInKind(
+                kind: "claude",
+                sessionId: "s",
+                executablePath: "/opt/homebrew/bin/claude",
                 arguments: [
-                    "claude",
+                    "/opt/homebrew/bin/claude",
                     "--model",
                     "opus",
                     "--settings",
@@ -36,90 +48,17 @@ struct ClaudeResumeHookSettingsTests {
                 ]
             )
         )
-
-        let settings = try #require(
-            settingsValue(in: argv),
-            "Claude resume argv must carry a --settings option re-applying cmux hooks"
-        )
-
-        // The re-applied settings must wire the lifecycle hooks back to the
-        // cmux bridge subcommand (`cmux hooks claude <event>`), not just be
-        // any --settings value.
-        #expect(settings.contains("hooks claude session-start"))
-        #expect(settings.contains("hooks claude stop"))
-        #expect(settings.contains("hooks claude notification"))
-
-        // The captured session selector still must not survive the resume.
-        #expect(!argv.contains("/tmp/cmux-claude-hook-x/settings.json"))
-        // Non-hook flags are preserved.
-        #expect(argv.contains("--model"))
-        #expect(argv.contains("opus"))
+        #expect(argv == ["claude", "--resume", "s", "--model", "opus"])
     }
 
-    @Test("Claude resume strips a stale captured hook --settings in equals form")
-    func claudeResumeStripsStaleEqualsFormHookSettings() throws {
-        // Equals form of the captured (stale) hook --settings must be dropped,
-        // and cmux's current hooks re-applied.
-        let argv = try #require(
-            AgentResumeArgv().builtInKind(
-                kind: "claude",
-                sessionId: "s",
-                executablePath: nil,
-                arguments: [
-                    "claude",
-                    "--model",
-                    "opus",
-                    "--settings=/tmp/cmux-claude-hook-x/settings.json"
-                ]
-            )
-        )
-
-        let settings = try #require(settingsValue(in: argv))
-        #expect(settings.contains("hooks claude session-start"))
-        #expect(!argv.contains("--settings=/tmp/cmux-claude-hook-x/settings.json"))
-        #expect(argv.contains("--model"))
-        #expect(argv.contains("opus"))
-    }
-
-    @Test("Production shape: re-applies hooks even when captured argv was already sanitized")
-    func reappliesHooksForAlreadySanitizedCapture() throws {
-        // The real capture pipeline persists a sanitized launch command, so the
-        // hook --settings is already gone by resume time. Hooks must still be
-        // re-applied. https://github.com/manaflow-ai/cmux/issues/5427
-        let argv = try #require(
-            AgentResumeArgv().builtInKind(
-                kind: "claude",
-                sessionId: "s",
-                executablePath: nil,
-                arguments: ["claude", "--model", "opus", "--permission-mode", "auto"]
-            )
-        )
-        let settings = try #require(settingsValue(in: argv))
-        #expect(settings.contains("hooks claude session-start"))
-        #expect(settings.contains("hooks claude stop"))
-        #expect(settings.contains("hooks claude notification"))
-        #expect(argv == [
-            "claude", "--resume", "s",
-            "--settings", ClaudeHookSettings.settingsJSON,
-            "--model", "opus", "--permission-mode", "auto"
-        ])
-    }
-
-    @Test("A non-hook --settings is preserved alongside the re-applied hooks")
-    func nonHookSettingsPreservedAlongsideHooks() {
+    @Test("A non-hook --settings is preserved and still routes through the wrapper")
+    func nonHookSettingsPreserved() {
         let argv = AgentResumeArgv().builtInKind(
             kind: "claude",
             sessionId: "s",
-            executablePath: nil,
-            arguments: ["claude", "--settings", "/home/me/settings.json"]
+            executablePath: "/opt/homebrew/bin/claude",
+            arguments: ["/opt/homebrew/bin/claude", "--settings", "/home/me/settings.json"]
         )
-
-        // The user's own settings survive, and cmux's hook --settings is applied
-        // first (matching the fresh-launch wrapper order: hooks, then user args).
-        #expect(argv == [
-            "claude", "--resume", "s",
-            "--settings", ClaudeHookSettings.settingsJSON,
-            "--settings", "/home/me/settings.json"
-        ])
+        #expect(argv == ["claude", "--resume", "s", "--settings", "/home/me/settings.json"])
     }
 }
