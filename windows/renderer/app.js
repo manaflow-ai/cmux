@@ -28684,6 +28684,12 @@ function activePaneSettingsQuickLabel() {
   return panel ? panelDisplayTitle(panel, true) : "No pane";
 }
 
+function activeWorkspaceFolderQuickLabel() {
+  const workspace = activeWorkspace();
+  if (!workspace) return "No workspace";
+  return workspace.cwd ? shortFolderPath(workspace.cwd) : "No folder";
+}
+
 function quickWorkspacePaneCreationTitle(baseTitle, readyHint = "") {
   if (!activeWorkspace()) return "Open a workspace before adding panes.";
   return paneCreationActionTitle(baseTitle, readyHint);
@@ -28791,6 +28797,21 @@ function quickSetupActionDefinitions() {
       title: () => workspaceRenameActionTitle(activeWorkspace(), "Rename the active workspace from quick setup."),
       disabledTitle: () => workspaceRenameActionTitle(activeWorkspace()),
       run: () => renameActiveWorkspace()
+    },
+    {
+      id: "workspace-folder",
+      icon: "workspace",
+      label: "Set folder",
+      body: "Choose where terminals and new panes start.",
+      meta: activeWorkspaceFolderQuickLabel,
+      cta: "Choose",
+      search: "workspace folder directory cwd choose picker quick setup project path terminal start",
+      disabled: () => !activeWorkspace(),
+      disabledTitle: () => "Open a workspace before choosing its folder.",
+      title: () => activeWorkspace()
+        ? "Choose the active workspace folder. Generic workspace names update from the folder name."
+        : "Open a workspace before choosing its folder.",
+      run: () => refreshQuickSettingsAfterAction(chooseWorkspaceFolder(activeWorkspace()))
     },
     {
       id: "clean-fast",
@@ -29155,6 +29176,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   if (!workspace) ids.push("new-workspace");
   else if (terminalCount === 0) ids.push("new-terminal");
   if (workspaceNeedsQuickRename(workspace)) ids.push("rename");
+  if (workspace && !workspace.cwd) ids.push("workspace-folder");
   if (onlyDisplayCleanup) ids.push("simplify-display");
   else if (healthIssueCount > 0) ids.push("fix-lag");
   if (lagReport.warning && ids.length < 4) ids.push("copy-lag-report");
@@ -29190,7 +29212,7 @@ function quickSetupGuidePanel() {
     .filter(Boolean);
   const panel = document.createElement("div");
   panel.className = "quick-setup-guide";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup recommended simple speed lag performance health fixes background terminal browser rename layout profile save");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup recommended simple speed lag performance health fixes background terminal browser rename folder directory cwd project path layout profile save");
   panel.innerHTML = `
     <div class="quick-guide-heading">
       <span class="quick-guide-title"></span>
@@ -29266,7 +29288,7 @@ function quickSetupActionGrid() {
   const actions = quickSetupActionDefinitions();
   const grid = document.createElement("div");
   grid.className = "quick-settings-shortcut-grid quick-action-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new workspace terminal browser add pane clean ui speed lag performance health fixes tune focus mode background image wallpaper save accent color saved library pane shape resize split rows columns");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new workspace terminal browser add pane folder directory cwd project path clean ui speed lag performance health fixes tune focus mode background image wallpaper save accent color saved library pane shape resize split rows columns");
   for (const action of actions) {
     const active = Boolean(action.active?.());
     const disabled = Boolean(action.disabled?.()) || (active && action.activeDisabled !== false);
