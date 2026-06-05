@@ -1515,6 +1515,7 @@ private struct TextBoxMentionCompletionPopoverView: View {
                             Spacer(minLength: 0)
                         }
                         .frame(maxWidth: .infinity, minHeight: 28, alignment: .center)
+                        .accessibilityIdentifier("TextBoxMentionCompletionPopover.Loading")
                     } else {
                         ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
                             Button {
@@ -1533,6 +1534,12 @@ private struct TextBoxMentionCompletionPopoverView: View {
                             }
                             .buttonStyle(.plain)
                             .id(index)
+                            .accessibilityIdentifier("TextBoxMentionCompletionPopover.Row.\(index)")
+                            .accessibilityValue(
+                                index == selectionIndex
+                                    ? "selected \(suggestion.title)"
+                                    : suggestion.title
+                            )
                         }
                     }
                 }
@@ -1548,6 +1555,8 @@ private struct TextBoxMentionCompletionPopoverView: View {
         .transaction { transaction in
             transaction.animation = nil
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("TextBoxMentionCompletionPopover")
     }
 
     private static func highlightedTitle(_ title: String, query: String) -> AttributedString {

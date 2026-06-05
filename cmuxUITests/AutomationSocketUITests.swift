@@ -115,16 +115,36 @@ final class AutomationSocketUITests: XCTestCase {
             "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
         )
 
+        let windowContext = try XCTUnwrap(
+            waitForMainWindowContext(timeout: 12.0),
+            "Expected system.identify to resolve a main window. diagnostics=\(loadDiagnostics())"
+        )
+        let workspace = try XCTUnwrap(
+            socketResult(
+                method: "workspace.create",
+                params: [
+                    "window_id": windowContext.windowID,
+                    "title": "Textbox mention XCUITest",
+                    "working_directory": skillRoot.path,
+                    "focus": true,
+                    "eager_load_terminal": true,
+                    "auto_refresh_metadata": false,
+                ]
+            ),
+            "Expected workspace.create to succeed after main window readiness"
+        )
+        let surfaceID = try XCTUnwrap(workspace["surface_id"] as? String, "Expected created surface id")
+
         let fixture = try XCTUnwrap(
             waitForTextBoxFixture(
-                surfaceID: nil,
+                surfaceID: surfaceID,
                 beforeText: "$",
                 completionRootDirectory: skillRoot.path,
                 timeout: 8.0
             ),
             "Expected text box fixture to mount with a bare $ trigger. last=\(lastTextBoxFixtureResponse) diagnostics=\(loadDiagnostics())"
         )
-        let surfaceID = try XCTUnwrap(fixture["surface_id"] as? String, "Expected fixture surface id")
+        XCTAssertEqual(fixture["surface_id"] as? String, surfaceID)
         _ = try XCTUnwrap(
             socketResult(
                 method: "debug.textbox.interact",
@@ -167,6 +187,16 @@ final class AutomationSocketUITests: XCTestCase {
 
         let typedTitles = typedState["mention_titles"] as? [String] ?? []
         XCTAssertEqual(typedTitles.first, "$autoreview")
+        XCTAssertTrue(
+            waitForMentionPopoverRow(
+                app: app,
+                index: 0,
+                expectedTitle: "$autoreview",
+                forbiddenTitle: "$agent-browser",
+                timeout: 8.0
+            ),
+            "Expected rendered autocomplete row 0 to show $autoreview and not stale $agent-browser"
+        )
     }
 
     private func configuredApp(mode: String) -> XCUIApplication {
@@ -316,6 +346,26 @@ final class AutomationSocketUITests: XCTestCase {
         return envelope["result"] as? [String: Any]
     }
 
+    private func waitForMainWindowContext(timeout: TimeInterval) -> (windowID: String, surfaceID: String?)? {
+        waitForJSON(timeout: timeout) {
+            guard let result = self.socketResult(method: "system.identify", params: [:]),
+                  let focused = result["focused"] as? [String: Any],
+                  let windowID = focused["window_id"] as? String,
+                  !windowID.isEmpty else {
+                return nil
+            }
+            var payload: [String: Any] = ["window_id": windowID]
+            if let surfaceID = focused["surface_id"] as? String, !surfaceID.isEmpty {
+                payload["surface_id"] = surfaceID
+            }
+            return payload
+        }
+        .flatMap { payload in
+            guard let windowID = payload["window_id"] as? String else { return nil }
+            return (windowID, payload["surface_id"] as? String)
+        }
+    }
+
     private func waitForTextBoxFixture(
         surfaceID: String?,
         beforeText: String,
@@ -357,6 +407,35 @@ final class AutomationSocketUITests: XCTestCase {
             return String(describing: value)
         }
         return text
+    }
+
+    private func waitForMentionPopoverRow(
+        app: XCUIApplication,
+        index: Int,
+        expectedTitle: String,
+        forbiddenTitle: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let row = app.descendants(matching: .any)
+            .matching(identifier: "TextBoxMentionCompletionPopover.Row.\(index)")
+            .firstMatch
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if row.exists {
+                let renderedValue = row.value.map { String(describing: $0) } ?? ""
+                let renderedText = [
+                    row.label,
+                    renderedValue,
+                ]
+                .joined(separator: " ")
+                if renderedText.contains(expectedTitle),
+                   !renderedText.contains(forbiddenTitle) {
+                    return true
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return false
     }
 
     private func waitForMentionState(
