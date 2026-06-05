@@ -20750,7 +20750,7 @@ function applyBrowserTabSessionToPanel(panel, item, options = {}) {
   }
   if (activeTab?.url) queueBrowserUrlSync(target.id, activeTab.url);
   focusPanel(target.id);
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshBrowserTabSessionSettings(options);
   toast(`Browser tabs applied (${browserTabSessionCountLabel(snapshot)}).`);
   return true;
 }
@@ -33950,6 +33950,32 @@ function refreshRecentActivitySettings(options = {}) {
       else if (state.settingsCategory === "browser") {
         refreshRecentBrowserPagePanels();
         refreshBrowserTabSessionPanels();
+      }
+    });
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
+function refreshBrowserTabSessionSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (normalizeSettingsQuery(state.settingsQuery)) {
+    scheduleSettingsInspectorRender({ ifChanged: true });
+    return;
+  }
+  if (state.settingsCategory === "browser") {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode === "settings" && state.settingsCategory === "browser" && !normalizeSettingsQuery(state.settingsQuery)) {
+        refreshBrowserSettingsPreview();
+        refreshBrowserTabSessionPanels();
+      }
+    });
+    return;
+  }
+  if (state.settingsCategory === "data") {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode === "settings" && state.settingsCategory === "data" && !normalizeSettingsQuery(state.settingsQuery)) {
+        refreshDataRecentActivityPanels();
       }
     });
     return;
