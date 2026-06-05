@@ -16,7 +16,9 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
   expect(css).toContain("--diffs-bg-deletion-override: color-mix");
   expect(css).toContain("[data-diffs-header] {");
   expect(css).toContain("background-color: var(--cmux-diff-surface-bg) !important");
-  expect(css).toContain("border-block: 1px solid var(--cmux-diff-border)");
+  expect(css).toContain("min-height: 30px");
+  expect(css).not.toContain("border-block: 1px solid var(--cmux-diff-border)");
+  expect(css).not.toContain("@container sticky-header scroll-state");
   expect(css).toContain("[data-separator='line-info'] {");
   expect(css).toContain("[data-separator='line-info'] [data-separator-wrapper]");
   expect(css).not.toContain("[data-line-type='change-addition'] span");

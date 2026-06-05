@@ -80,8 +80,8 @@ export function codeViewUnsafeCSS(): string {
     [data-diffs-header] {
       container-type: scroll-state;
       container-name: sticky-header;
+      min-height: 30px;
       background-color: var(--cmux-diff-surface-bg) !important;
-      border-block: 1px solid var(--cmux-diff-border);
     }
     [data-line-type='change-addition'] {
       color: var(--diffs-addition-base);
@@ -96,17 +96,6 @@ export function codeViewUnsafeCSS(): string {
     [data-separator='line-info'] [data-separator-content],
     [data-separator='line-info'] [data-expand-button] {
       background-color: transparent;
-    }
-    @container sticky-header scroll-state(stuck: top) {
-      [data-diffs-header]::after {
-        position: absolute;
-        bottom: -1px;
-        left: 0;
-        width: 100%;
-        height: 1px;
-        content: '';
-        background-color: var(--cmux-diff-border);
-      }
     }
     [data-diffs-header=default],
     [data-diffs-header=default] [data-additions-count],
