@@ -24547,6 +24547,17 @@ function quickOverviewControlButton(label, run, options = {}) {
   return button;
 }
 
+function scheduleQuickSettingsRefresh(options = {}) {
+  if (state.inspectorMode !== "settings" || state.settingsCategory !== "quick") return false;
+  scheduleSettingsInspectorRender({ ifChanged: true, ...options });
+  return true;
+}
+
+function refreshQuickSettingsAfterAction(result, options = {}) {
+  if (result !== false) scheduleQuickSettingsRefresh(options);
+  return result;
+}
+
 function quickOverviewControlsPanel(options = {}) {
   const panel = document.createElement("div");
   const actions = options.actions || [];
@@ -24578,10 +24589,7 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
   const pageTitle = workspaceBrowserPageTitleSuggestion(workspace);
   const paneSummary = `${terminalCount} terminal${terminalCount === 1 ? "" : "s"} / ${browserCount} browser${browserCount === 1 ? "" : "s"}`;
   const disabledTitle = "Open a workspace before changing workspace setup.";
-  const refreshQuick = (result) => {
-    if (result !== false && state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
-    return result;
-  };
+  const refreshQuick = refreshQuickSettingsAfterAction;
   const actions = [
     quickOverviewControlButton("Rename", renameActiveWorkspace, {
       disabled: !hasWorkspace,
@@ -24692,10 +24700,7 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
   const activePreset = activeWorkspaceChromePresetLabel();
   const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
   const profilesFull = savedSettingsProfilesFull();
-  const refreshQuick = (result) => {
-    if (result !== false && state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
-    return result;
-  };
+  const refreshQuick = refreshQuickSettingsAfterAction;
   const presetAction = (presetId, label) => {
     const preset = workspaceChromePresetById(presetId);
     const settings = workspaceChromePresetSettings(preset);
@@ -25339,7 +25344,7 @@ function quickColorTargetControlsPanel(workspace = activeWorkspace()) {
 
 async function applyQuickColorPreset(color, target = state.colorApplyTarget) {
   const changed = await applySavedColorToTarget(color, target);
-  if (changed && state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
+  if (changed) scheduleQuickSettingsRefresh();
   return changed;
 }
 
@@ -25520,7 +25525,7 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
         return;
       }
       tunePerformanceNow();
-      if (state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
+      scheduleQuickSettingsRefresh();
     }, {
       title: tuneTitle,
       search: "quick setup performance tune speed lag smooth reduce effects hidden output"
@@ -26328,7 +26333,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
       return;
     }
     tunePerformanceNow();
-    if (state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
+    scheduleQuickSettingsRefresh();
   };
   panel.querySelector("[data-quick-performance-controls]").replaceWith(quickPerformanceControlsPanel(performance));
   const performanceHealthControls = quickPerformanceHealthFixControlsPanel();
@@ -26821,7 +26826,7 @@ function quickSetupActionDefinitions() {
           return;
         }
         tunePerformanceNow();
-        if (state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
+        scheduleQuickSettingsRefresh();
       }
     },
     {
@@ -26833,8 +26838,7 @@ function quickSetupActionDefinitions() {
       cta: "Toggle",
       search: "focus mode hide chrome simple clean workspace",
       run: () => {
-        toggleFocusMode();
-        if (state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
+        refreshQuickSettingsAfterAction(toggleFocusMode());
       }
     },
     {
