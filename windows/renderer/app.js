@@ -17116,6 +17116,33 @@ function appearanceSpeedModel(settings = state.settings) {
   };
 }
 
+function simplifiedAppearanceEffectsSettings(settings = state.settings) {
+  return {
+    backgroundOpacity: Math.min(Number(settings.backgroundOpacity) || 0, 12),
+    backgroundBlur: 0,
+    backgroundEffects: "flat",
+    backgroundChromeMode: "readable",
+    backgroundReadability: "readable",
+    interfaceDepth: "flat"
+  };
+}
+
+function appearanceEffectsAreSimplified(settings = state.settings) {
+  const simplified = simplifiedAppearanceEffectsSettings(settings);
+  return Object.entries(simplified).every(([key, value]) => settings[key] === value);
+}
+
+function simplifyAppearanceEffects(options = {}) {
+  const changed = updateSettings(simplifiedAppearanceEffectsSettings(), { immediate: true });
+  if (!changed) {
+    toast(t("appearance.effectsAlreadySimple", "Appearance effects are already simplified."));
+    return false;
+  }
+  refreshAppearanceLookSettings(options);
+  toast(t("appearance.effectsSimplified", "Appearance effects simplified."));
+  return true;
+}
+
 function appearancePreviewPanel() {
   const readability = backgroundReadabilityCssVars();
   const speed = appearanceSpeedModel();
@@ -17141,6 +17168,22 @@ function appearancePreviewPanel() {
   preview.style.setProperty("--preview-background-blur", `${state.settings.backgroundBlur}px`);
   preview.style.setProperty("--preview-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
   preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent intensity surface tint contrast depth shadow background image strength soften blur readability chrome readable soft immersive terminal colors font speed performance lag heavy fast effects");
+  const actions = preview.querySelector("[data-appearance-preview-actions]");
+  if (actions) {
+    const simplified = appearanceEffectsAreSimplified();
+    const simplify = settingsActionButton(
+      t("appearance.simplifyEffects", "Simplify effects"),
+      () => simplifyAppearanceEffects(),
+      speed.tone === "heavy" && !simplified ? "primary" : "",
+      `appearance speed performance lag simplify lighten effects flatten background blur glass layered depth readable chrome ${speed.label}`
+    );
+    simplify.dataset.appearanceAction = "simplify-effects";
+    simplify.disabled = simplified;
+    simplify.title = simplified
+      ? t("appearance.effectsAlreadySimple", "Appearance effects are already simplified.")
+      : t("appearance.simplifyEffectsTitle", "Reduce background opacity, blur, glass, and layered depth for a faster look.");
+    actions.append(simplify);
+  }
   return preview;
 }
 

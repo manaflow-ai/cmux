@@ -70,6 +70,7 @@ export function createAppearancePreview({
       <span><b data-preview-label-speed></b><em data-preview-speed></em></span>
       <span><b data-preview-label-terminal></b><em data-preview-terminal></em></span>
     </div>
+    <div class="appearance-preview-actions settings-actions" data-appearance-preview-actions></div>
   `;
 
   panel.querySelector("[data-preview-label-theme]").textContent = t("appearance.theme");
