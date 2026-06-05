@@ -25073,6 +25073,49 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
   });
 }
 
+function quickRecentBrowserPageControlsPanel(workspace = activeWorkspace()) {
+  if (state.recentBrowserPages.length === 0) return null;
+  const hasWorkspace = Boolean(workspace);
+  const paneQueueFull = paneCreationButtonsDisabled();
+  const paneQueueLabel = paneCreationQueueStatusLabel();
+  const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
+  const previewLimit = 4;
+  const visiblePages = state.recentBrowserPages.slice(0, previewLimit);
+  const hiddenPageCount = Math.max(0, state.recentBrowserPages.length - visiblePages.length);
+  const actions = visiblePages.map((url) => {
+    const pageUrl = normalizeBrowserPageUrl(url);
+    const pageHost = hostnameOf(pageUrl) || pageUrl;
+    const disabled = !pageUrl || !hasWorkspace || paneQueueFull;
+    return quickOverviewControlButton(pageHost, () => createPanel("browser", newPaneDirection(), {
+      workspaceId: workspace?.id,
+      url: pageUrl
+    }), {
+      disabled,
+      title: !pageUrl
+        ? "Choose a browser page first."
+        : !hasWorkspace
+          ? "Open a workspace before opening recent browser pages."
+          : paneQueueFull
+            ? paneCreationLimitLabel()
+            : `Open ${pageHost} in a new browser pane.`,
+      search: normalizeSettingsQuery(`quick setup recent browser page open web url history ${disabled ? "unavailable " : "ready "}${pageHost} ${pageUrl} ${workspaceTitle} ${paneQueueLabel}`)
+    });
+  });
+  if (hiddenPageCount > 0) {
+    actions.push(quickOverviewControlButton("More", () => openSettingsCategory("browser", { query: "recent pages", focusSearch: false }), {
+      title: `Open all ${state.recentBrowserPages.length} recent browser pages.`,
+      search: normalizeSettingsQuery(`quick setup recent browser pages more full browser settings manage history web urls ${state.recentBrowserPages.join(" ")}`)
+    }));
+  }
+  return quickOverviewControlsPanel({
+    className: "quick-overview-browser",
+    title: "Recent pages",
+    meta: `${workspaceTitle}: ${state.recentBrowserPages.length}/${recentBrowserPagesLimit} recent${hiddenPageCount ? ` / ${hiddenPageCount} more` : ""}`,
+    search: `quick setup recent browser pages open web urls history ${hasWorkspace ? "ready" : "no workspace"} ${paneQueueLabel} ${workspaceTitle} ${visiblePages.join(" ")}`,
+    actions
+  });
+}
+
 function quickLookControlsPanel() {
   const lookSettingsDefault = appearanceSettingsAreDefault();
   const profilesFull = savedSettingsProfilesFull();
@@ -25978,6 +26021,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-command-controls></div>
     <div data-quick-saved-command-controls></div>
     <div data-quick-browser-controls></div>
+    <div data-quick-recent-browser-controls></div>
     <div data-quick-look-controls></div>
     <div data-quick-look-pack-controls></div>
     <div data-quick-color-target-controls></div>
@@ -26090,6 +26134,10 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   if (savedCommandControls) savedCommandSlot.replaceWith(savedCommandControls);
   else savedCommandSlot.remove();
   panel.querySelector("[data-quick-browser-controls]").replaceWith(quickBrowserControlsPanel(workspace, browserCount));
+  const recentBrowserControls = quickRecentBrowserPageControlsPanel(workspace);
+  const recentBrowserSlot = panel.querySelector("[data-quick-recent-browser-controls]");
+  if (recentBrowserControls) recentBrowserSlot.replaceWith(recentBrowserControls);
+  else recentBrowserSlot.remove();
   panel.querySelector("[data-quick-look-controls]").replaceWith(quickLookControlsPanel());
   panel.querySelector("[data-quick-look-pack-controls]").replaceWith(quickLookPackControlsPanel());
   panel.querySelector("[data-quick-color-target-controls]").replaceWith(quickColorTargetControlsPanel(workspace));
