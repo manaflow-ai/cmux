@@ -13,16 +13,20 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `176bd550f`, based on `ff6e1260d`, with the
+Current cmux pinned fork head: `55d154a`, based on `176bd550f`, adding the
+cmd-click link refresh under mouse reporting (manaflow-ai/ghostty#71) for
+https://github.com/manaflow-ai/cmux/issues/5128 on top of the previous head's
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
 the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
 regex bound for spaced file paths followed by prose. This head keeps the cmux
 theme picker hooks, exposes the manual surface IO needed by libghostty iOS
-clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
-prevents Cmd-hover from highlighting normal sentence text after a file path.
+clients, bounds shaped glyph iteration during IME/preedit row rebuilds,
+prevents Cmd-hover from highlighting normal sentence text after a file path,
+and lets Cmd-click open links even while a mouse-reporting alt-screen TUI
+(Claude Code, Codex) has grabbed the mouse.
 It also supports Ctrl-N and Ctrl-P in the cmux theme picker.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-55d154a9776750460dfd29a15422ac284f9c8564-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -212,11 +216,38 @@ tend to conflict together during rebases.
   - Preserves versioned or dotted path components before the first space, such as
     `/tmp/v1.2 captures/video.mp4`.
 
+### 13) Cmd-click opens links under mouse reporting (alt-screen TUIs)
+
+- Commits (manaflow-ai/ghostty#71, by @doronpr):
+  - `1c7613c95` (fix: open terminal links on cmd-click even when mouse reporting is active)
+  - `55d154a97` (fix: gate link refresh on effective mouse-reporting state)
+- Files:
+  - `src/Surface.zig`
+- Summary:
+  - Link hover/highlight state was refreshed in `keyCallback`/`cursorPosCallback`
+    only when mouse reporting was off, or shift was releasing the mouse from
+    capture. Holding the ctrl/super link-activation modifier was not considered,
+    so under a mouse-grabbing alt-screen TUI (Claude Code, Codex) `over_link`
+    stayed `false`, the link-click branch in `mouseButtonCallback` was skipped,
+    and the Cmd-click was reported to the program — which made cmux fall back to
+    the OS default browser instead of honoring the configured link-open target.
+  - Adds a shared `mouseLinkRefreshAllowed` gate (pure logic in
+    `mouseLinkRefreshAllowedState`) that also allows local link handling when the
+    ctrl/super modifier is held, using the effective mouse-reporting state
+    (`isMouseReporting()`), matching iTerm2 and macOS Terminal. Fixes
+    https://github.com/manaflow-ai/cmux/issues/5128.
+  - Known limitation (noted by review): the bypass matches the default
+    `ctrlOrSuper` chord, which is exactly what both link kinds already require to
+    activate (OSC 8 `linkAtPos` and the default url `hover_mods = ctrlOrSuper`); a
+    user who reconfigures `link.highlight.hover_mods` to a non-default chord would
+    not get the under-mouse-reporting bypass. Out of scope for #5128.
+
 The current cmux pin is the head listed above. It is reachable from
 `manaflow-ai/ghostty` through the
-`xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1`
-release tag and branch `issue-themes-broken-ctrl-np`.
-Published `xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1` and pinned its
+`xcframework-55d154a9776750460dfd29a15422ac284f9c8564-crashsubdir-cmux-crash-v1`
+release tag and is an ancestor of `manaflow-ai/ghostty` `main` (PR #71 is merged
+into fork `main` with a merge commit, keeping `55d154a` an ancestor).
+Published `xcframework-55d154a9776750460dfd29a15422ac284f9c8564-crashsubdir-cmux-crash-v1` and pinned its
 archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
 pin must be regenerated whenever this commit changes, even for comment-only
 amends, because the release tag is keyed by the Ghostty commit SHA.
