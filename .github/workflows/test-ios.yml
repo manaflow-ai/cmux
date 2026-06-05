@@ -196,7 +196,7 @@ jobs:
           selected_tests_passed_despite_xcodebuild_status() {
             local log_path="$1"
             grep -Eq "Test Suite 'Selected tests' passed|Test Suite 'cmuxUITests' passed" "$log_path" &&
-              grep -Eq "Executed [0-9]+ tests, with 0 failures \\(0 unexpected\\)" "$log_path" &&
+              grep -Eq "Executed [1-9][0-9]* tests, with 0 failures \\(0 unexpected\\)" "$log_path" &&
               ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)" "$log_path"
           }
           for attempt in 1 2; do

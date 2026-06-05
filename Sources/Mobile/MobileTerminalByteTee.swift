@@ -111,6 +111,16 @@ final class MobileTerminalByteTee {
         statesBySurfaceID[surfaceID] = state
         MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
 
+        // The render-grid path (the primary mobile path) only needs the seq
+        // advance + `noteTerminalBytes` tick above; it never consumes the raw
+        // `terminal.bytes` wire payload. Gate the base64 allocation and its
+        // fan-out on whether anyone is actually subscribed to `terminal.bytes`,
+        // so render-grid-only attaches don't pay for it on the output hot path.
+        // The check is the same O(1) subscription read used elsewhere; the
+        // `seq`/render-grid work above stays unconditional so render-grid
+        // subscribers keep correct sequence continuity.
+        guard MobileHostService.hasEventSubscribers(topic: "terminal.bytes") else { return }
+
         // JSON+base64 stopgap for the wire format. A future commit can
         // switch to a binary opcode on the same connection if PTY
         // throughput becomes a bottleneck.
