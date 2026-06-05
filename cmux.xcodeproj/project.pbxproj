@@ -47,6 +47,10 @@
 		D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */; };
 		B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770BA00000000000000002 /* BrowserAutomation.swift */; };
 		E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */; };
+		F5425B030000000000000001 /* BrowserFaviconPanelState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5425A030000000000000001 /* BrowserFaviconPanelState.swift */; };
+		F5425B010000000000000001 /* BrowserFaviconRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5425A010000000000000001 /* BrowserFaviconRequest.swift */; };
+		F5425B020000000000000001 /* BrowserFaviconStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5425A020000000000000001 /* BrowserFaviconStore.swift */; };
+		F5425B040000000000000001 /* BrowserFaviconStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5425A040000000000000001 /* BrowserFaviconStoreTests.swift */; };
 		A5008373 /* BrowserFindJavaScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008372 /* BrowserFindJavaScript.swift */; };
 		A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
 		B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */; };
@@ -706,6 +710,10 @@
 		D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
 		B3770BA00000000000000002 /* BrowserAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomation.swift; sourceTree = "<group>"; };
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
+		F5425A030000000000000001 /* BrowserFaviconPanelState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserFaviconPanelState.swift; sourceTree = "<group>"; };
+		F5425A010000000000000001 /* BrowserFaviconRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserFaviconRequest.swift; sourceTree = "<group>"; };
+		F5425A020000000000000001 /* BrowserFaviconStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserFaviconStore.swift; sourceTree = "<group>"; };
+		F5425A040000000000000001 /* BrowserFaviconStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFaviconStoreTests.swift; sourceTree = "<group>"; };
 		A5008372 /* BrowserFindJavaScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserFindJavaScript.swift; sourceTree = "<group>"; };
 		A5008380 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
 		B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardManager.swift; sourceTree = "<group>"; };
@@ -1626,6 +1634,9 @@
 				A5001411 /* TerminalPanel.swift */,
 				B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */,
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
+				F5425A030000000000000001 /* BrowserFaviconPanelState.swift */,
+				F5425A010000000000000001 /* BrowserFaviconRequest.swift */,
+				F5425A020000000000000001 /* BrowserFaviconStore.swift */,
 				A5001412 /* BrowserPanel.swift */,
 				B3770BA00000000000000002 /* BrowserAutomation.swift */,
 				4472B0014472B0014472B001 /* BrowserScreenshot.swift */,
@@ -1835,6 +1846,7 @@
 				43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */,
 				D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */,
 				D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */,
+				F5425A040000000000000001 /* BrowserFaviconStoreTests.swift */,
 				58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */,
 				D0B1000DA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift */,
 					D0B1000FA1B2C3D4E5F60001 /* BrowserPaneDropRoutingTests.swift */,
@@ -2298,6 +2310,9 @@
 				D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */,
 				D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */,
 				B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */,
+				F5425B030000000000000001 /* BrowserFaviconPanelState.swift in Sources */,
+				F5425B010000000000000001 /* BrowserFaviconRequest.swift in Sources */,
+				F5425B020000000000000001 /* BrowserFaviconStore.swift in Sources */,
 				A5008373 /* BrowserFindJavaScript.swift in Sources */,
 				B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */,
 				B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */,
@@ -2706,6 +2721,7 @@
 				A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */,
 				D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
 				E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,
+				F5425B040000000000000001 /* BrowserFaviconStoreTests.swift in Sources */,
 				A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
 				FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */,
 					C2B6A97D1F2E4C71A8B9D001 /* BrowserOmnibarPerformanceSupportTests.swift in Sources */,
