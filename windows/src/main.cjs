@@ -14,6 +14,7 @@ let trustedRendererOrigin = "";
 let windowResizeSession = null;
 const zoomLockedContents = new WeakSet();
 const navigationGuardedContents = new WeakSet();
+const commandShortcutContents = new WeakSet();
 
 const appRoot = path.resolve(__dirname, "..");
 const appName = "cmux";
@@ -68,6 +69,27 @@ function lockWebContentsZoom(contents) {
     resetWebContentsZoom(contents);
   });
   contents.on("did-finish-load", () => resetWebContentsZoom(contents));
+}
+
+function sendCmuxCommand(commandId) {
+  if (!mainWindow || mainWindow.isDestroyed?.()) return;
+  mainWindow.webContents.send("cmux-command", commandId);
+}
+
+function isSettingsShortcutInput(input) {
+  if (!input || input.type !== "keyDown") return false;
+  if (!input.control || input.shift || input.alt || input.meta) return false;
+  return input.key === "," || input.code === "Comma";
+}
+
+function installCommandShortcutBridge(contents) {
+  if (!contents || commandShortcutContents.has(contents)) return;
+  commandShortcutContents.add(contents);
+  contents.on("before-input-event", (event, input) => {
+    if (!isSettingsShortcutInput(input)) return;
+    event.preventDefault();
+    sendCmuxCommand("settings.open");
+  });
 }
 
 async function openExternalSafely(url) {
@@ -154,6 +176,7 @@ function attachWebviewHardening(contents) {
   contents.on("did-attach-webview", (_event, webContents) => {
     hardenWebContents(webContents);
     guardWebviewNavigation(webContents);
+    installCommandShortcutBridge(webContents);
   });
 }
 
@@ -518,7 +541,7 @@ function buildMenu() {
         { label: t("menu.closeActivePane"), accelerator: "Ctrl+W", click: () => mainWindow?.webContents.send("cmux-command", "terminal.close") },
         { label: t("menu.openBrowser"), accelerator: "Ctrl+Shift+L", click: () => mainWindow?.webContents.send("cmux-command", "browser.new") },
         { type: "separator" },
-        { label: t("menu.settings"), accelerator: "Ctrl+,", click: () => mainWindow?.webContents.send("cmux-command", "settings.open") },
+        { label: t("menu.settings"), accelerator: "Ctrl+,", click: () => sendCmuxCommand("settings.open") },
         { label: t("menu.colorSettings"), click: () => mainWindow?.webContents.send("cmux-command", "settings.colors") },
         { label: t("menu.backgroundSettings"), click: () => mainWindow?.webContents.send("cmux-command", "settings.backgrounds") },
         { label: t("menu.settingsProfiles"), click: () => mainWindow?.webContents.send("cmux-command", "settings.profiles") },
@@ -598,6 +621,7 @@ async function createWindow() {
     log(`did-fail-load code=${errorCode} description=${errorDescription} url=${validatedURL}`);
   });
   attachWebviewHardening(mainWindow.webContents);
+  installCommandShortcutBridge(mainWindow.webContents);
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     log(`render-process-gone ${JSON.stringify(details)}`);
   });
