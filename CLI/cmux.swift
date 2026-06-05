@@ -658,6 +658,7 @@ private final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         turnId: String? = nil,
         terminalActivePromptTurnIds: Set<String> = [],
+        terminalPromptTurnIdsFromTranscript: ((String, Set<String>) -> Set<String>)? = nil,
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
@@ -707,7 +708,16 @@ private final class ClaudeHookSessionStore {
             if let normalizedTurnId {
                 var turnStack = activePromptTurnStack(from: record)
                 var totalDepthBeforeStop = max(depthBeforeStop, turnStack.count)
-                let terminalTurnIdsToPrune = terminalActivePromptTurnIds.subtracting([normalizedTurnId])
+                var terminalPromptTurnIds = terminalActivePromptTurnIds
+                let storedTurnIdsToCheck = Set(turnStack.filter { $0 != normalizedTurnId })
+                if !storedTurnIdsToCheck.isEmpty,
+                   let transcriptPath = normalizeOptional(transcriptPath ?? record.transcriptPath),
+                   let terminalPromptTurnIdsFromTranscript {
+                    terminalPromptTurnIds.formUnion(
+                        terminalPromptTurnIdsFromTranscript(transcriptPath, storedTurnIdsToCheck)
+                    )
+                }
+                let terminalTurnIdsToPrune = terminalPromptTurnIds.subtracting([normalizedTurnId])
                 if !terminalTurnIdsToPrune.isEmpty {
                     var removedTerminalTurnIds: [String] = []
                     turnStack.removeAll { activeTurnId in
@@ -28324,6 +28334,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     turnId: input.turnId,
                     terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
+                    terminalPromptTurnIdsFromTranscript: def.name == "codex" ? { path, turnIds in
+                        self.codexTranscriptTerminalTurnIds(path: path, turnIds: turnIds)
+                    } : nil,
                     pid: pid,
                     launchCommand: launchCommand,
                     agentLifecycle: lifecycleAfterStop,
