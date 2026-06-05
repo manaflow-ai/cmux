@@ -307,7 +307,7 @@ const performanceGuardSlowPaneCreateMs = 2000;
 const performanceGuardSlowTerminalConnectMs = 1500;
 const performanceHealthBackgroundOpacityLimit = 16;
 const performanceHealthScrollbackLimit = 10000;
-const browserViewBoundsSyncFrames = 3;
+const browserViewBoundsSyncFrames = 8;
 const settingsDisclosureSearchMountBatchSize = 3;
 const settingsDisclosureSearchMountSlowBatchSize = 1;
 const settingsSearchInteractiveFilterDelayMs = 90;
@@ -729,6 +729,7 @@ const visibleBackgroundOpacity = 24;
 const terminalCursorMigrationStorageKey = "cmux.terminalCursorBarMigration";
 const browserHomeMigrationStorageKey = "cmux.browserHomeGoogleMigration";
 const sidebarBranchMigrationStorageKey = "cmux.sidebarBranchQuietMigration";
+const settingsPanelWidthMigrationStorageKey = "cmux.settingsPanelReadableWidthMigration";
 const launchToken = new URLSearchParams(location.search).get("token") || "";
 const eventReconnectMinDelayMs = 250;
 const eventReconnectMaxDelayMs = 5000;
@@ -1754,6 +1755,17 @@ function loadSettings() {
   ) {
     parsed.sidebarBranchMode = defaultSettings.sidebarBranchMode;
     localStorage.setItem(sidebarBranchMigrationStorageKey, "1");
+    migrated = true;
+  }
+  if (
+    localStorage.getItem(settingsPanelWidthMigrationStorageKey) !== "1"
+    && parsed
+    && typeof parsed === "object"
+    && !Array.isArray(parsed)
+    && parsed.inspectorWidth === 340
+  ) {
+    parsed.inspectorWidth = defaultSettings.inspectorWidth;
+    localStorage.setItem(settingsPanelWidthMigrationStorageKey, "1");
     migrated = true;
   }
   const legacyFontSize = Number(localStorage.getItem("cmux.terminalFontSize") || 0);
@@ -14339,8 +14351,8 @@ function browserViewBounds(session) {
   const content = session?.content;
   if (!content?.isConnected) return null;
   const rect = content.getBoundingClientRect();
-  const width = Math.round(content.clientWidth || rect.width || 0);
-  const height = Math.round(content.clientHeight || rect.height || 0);
+  const width = Math.ceil(Math.max(content.clientWidth || 0, rect.width || 0));
+  const height = Math.ceil(Math.max(content.clientHeight || 0, rect.height || 0));
   if (width <= 0 || height <= 0) return null;
   return { width, height };
 }
