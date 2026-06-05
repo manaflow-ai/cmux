@@ -8677,16 +8677,7 @@ class TerminalController {
     }
 
     private func v2SurfaceRespawn(params: [String: Any]) -> V2CallResult {
-        guard let fallbackTabManager = v2ResolveTabManager(params: params) else {
-            return .err(
-                code: "unavailable",
-                message: String(
-                    localized: "rpc.v2.surface.respawn.tabManagerUnavailable",
-                    defaultValue: "TabManager not available"
-                ),
-                data: nil
-            )
-        }
+        let fallbackTabManager = v2ResolveTabManager(params: params)
 
         let command = v2OptionalTrimmedRawString(params, "command")
             ?? v2OptionalTrimmedRawString(params, "initial_command")
@@ -8750,6 +8741,17 @@ class TerminalController {
                 tabManager = located.tabManager
                 surfaceId = requestedSurfaceId
             } else {
+                guard let fallbackTabManager = fallbackTabManager else {
+                    result = .err(
+                        code: "unavailable",
+                        message: String(
+                            localized: "rpc.v2.surface.respawn.tabManagerUnavailable",
+                            defaultValue: "Unable to access the target workspace"
+                        ),
+                        data: nil
+                    )
+                    return
+                }
                 guard let resolvedWorkspace = v2ResolveWorkspace(params: params, tabManager: fallbackTabManager) else {
                     result = .err(
                         code: "not_found",

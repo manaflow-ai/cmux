@@ -14692,7 +14692,7 @@ final class Workspace: Identifiable, ObservableObject {
             origin: "terminal_respawn",
             closePanel: false,
             publishSurfaceClosedEvent: false,
-            clearSurfaceNotifications: true,
+            clearSurfaceNotifications: false,
             requestTransferredRemoteCleanup: true,
             cleanupControllerSurfaceState: false
         )

@@ -297,6 +297,8 @@ def assert_omo_split_is_listed_and_respawned(
     if f"{subagent_pane_token},1,1" not in lines:
         raise AssertionError(f"expected active subagent pane in list-panes, got {lines!r}")
 
+    state.sent_text.clear()
+
     non_forced_respawn = run_cli(
         cli_path,
         socket_path,
@@ -312,6 +314,8 @@ def assert_omo_split_is_listed_and_respawned(
     assert_failure(non_forced_respawn, "OMO non-forced respawn-pane", "requires -k")
     if state.respawn_params:
         raise AssertionError(f"non-forced respawn must not call surface.respawn: {state.respawn_params!r}")
+    if state.sent_text:
+        raise AssertionError(f"non-forced respawn must not send text: {state.sent_text!r}")
     state.sent_text.clear()
 
     empty_respawn = run_cli(
