@@ -67,6 +67,14 @@ final class CmuxHostedWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        // `sceneBridgingOptions` makes the NSHostingController reference its
+        // window (to drive the bridged toolbar), and the window references the
+        // hosting controller as its content, a retain cycle that keeps the
+        // window in the window list after close (AltTab could resurrect it,
+        // issue #5321). Break it on close so the window deallocates and leaves
+        // the window list.
+        window?.toolbar = nil
+        window?.contentViewController = nil
         onWindowWillClose()
     }
 }
