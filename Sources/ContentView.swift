@@ -10719,7 +10719,18 @@ struct VerticalTabsSidebar: View {
     private var draggedTabIdBinding: Binding<UUID?> {
         Binding(
             get: { dragState.draggedTabId },
-            set: { dragState.draggedTabId = $0 }
+            // Route the clear through `clearDrag()` so a locally originated drag
+            // also ends its `SidebarWorkspaceDragRegistry` entry. The extension /
+            // browser-stack sidebar drop delegates end drags by writing `nil`
+            // through this binding; without this they'd leave the process-wide
+            // registry stale and a later cross-window drop could act on it.
+            set: { newValue in
+                if let newValue {
+                    dragState.draggedTabId = newValue
+                } else {
+                    dragState.clearDrag()
+                }
+            }
         )
     }
 
