@@ -7,6 +7,7 @@ import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import CmuxUpdater
@@ -11171,8 +11172,14 @@ struct VerticalTabsSidebar: View {
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
             // default sidebar's TimelineView. No banned timers involved.
+            // Fully out-of-process: the render worker interprets AND renders
+            // the file; this view only hosts the worker's remote layer and
+            // forwards input, so no file-derived view code runs in the host.
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                CustomSidebarView(
+                // No .id(customSidebarURL): the worker swaps files in place on
+                // the next scene message, so remounting the surface would only
+                // flash the previous sidebar's pixels during the switch.
+                RemoteCustomSidebarHost(
                     fileURL: customSidebarURL,
                     dataContext: customSidebarDataContext(now: timeline.date),
                     dispatch: makeCmuxSidebarActionDispatch(),
@@ -11181,7 +11188,6 @@ struct VerticalTabsSidebar: View {
                         bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
                     )
                 )
-                    .id(customSidebarURL)
             }
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(

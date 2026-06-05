@@ -1742,7 +1742,17 @@ final class BrowserHistoryStore: ObservableObject {
         }
     }
 
-    @Published private(set) var entries: [Entry] = []
+    // Single source of truth for history. `private(set)` + `@MainActor` means
+    // every mutation runs through this setter, so dropping the derived
+    // suggestion cache here is the one enforced invalidation point. Setting it
+    // to nil both frees the retained Entry/URL strings promptly (so clearing
+    // history does not leave browsing history resident in the cache) and forces
+    // a rebuild on next use. It must stay `@Published` for SwiftUI observation.
+    // Do not add a writer that bypasses this setter (e.g. an unsafe-buffer bulk
+    // write or an external `Binding<[Entry]>`) without dropping the cache.
+    @Published private(set) var entries: [Entry] = [] {
+        didSet { cachedSuggestionCandidates = nil }
+    }
 
     private let fileURL: URL?
     private var didLoad: Bool = false
@@ -1766,6 +1776,27 @@ final class BrowserHistoryStore: ObservableObject {
     private struct ScoredSuggestion {
         let entry: Entry
         let score: Double
+    }
+
+    // Lazily built, lowercased/parsed match fields for every entry. Building a
+    // SuggestionCandidate parses the URL (URLComponents) and lowercases five
+    // fields; doing that for all entries on every omnibar keystroke pegged the
+    // main thread once history grew to a few thousand rows (the typing
+    // beachball). `nil` means "not built / just invalidated"; it is rebuilt only
+    // when `entries` changes (via the didSet above), so steady-state typing
+    // reuses it and pays only the cheap substring scoring in `suggestionScore`.
+    private var cachedSuggestionCandidates: [SuggestionCandidate]?
+
+    /// Number of suggestion candidates currently resident in the cache, or 0
+    /// when the cache has been invalidated. Used by tests to verify that
+    /// clearing history drops the retained candidates promptly.
+    var residentSuggestionCandidateCount: Int { cachedSuggestionCandidates?.count ?? 0 }
+
+    private func suggestionCandidates() -> [SuggestionCandidate] {
+        if let cached = cachedSuggestionCandidates { return cached }
+        let built = entries.map(makeSuggestionCandidate)
+        cachedSuggestionCandidates = built
+        return built
     }
 
     init(fileURL: URL? = nil) {
@@ -1911,12 +1942,11 @@ final class BrowserHistoryStore: ObservableObject {
         let queryTokens = tokenizeSuggestionQuery(q)
         let now = Date()
 
-        let matched = entries.compactMap { entry -> ScoredSuggestion? in
-            let candidate = makeSuggestionCandidate(entry: entry)
+        let matched = suggestionCandidates().compactMap { candidate -> ScoredSuggestion? in
             guard let score = suggestionScore(candidate: candidate, query: q, queryTokens: queryTokens, now: now) else {
                 return nil
             }
-            return ScoredSuggestion(entry: entry, score: score)
+            return ScoredSuggestion(entry: candidate.entry, score: score)
         }
         .sorted { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
@@ -3064,44 +3094,6 @@ final class BrowserPanel: Panel, ObservableObject {
     })()
     """
 
-    private static func clampedGhosttyBackgroundOpacity(_ opacity: Double) -> CGFloat {
-        CGFloat(max(0.0, min(1.0, opacity)))
-    }
-
-    private static func isDarkAppearance(
-        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
-    ) -> Bool {
-        guard let appAppearance else { return false }
-        return appAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-    }
-
-    private static func resolvedGhosttyBackgroundColor(from notification: Notification? = nil) -> NSColor {
-        let userInfo = notification?.userInfo
-        let baseColor = (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
-            ?? GhosttyApp.shared.defaultBackgroundColor
-
-        let opacity: Double
-        if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? Double {
-            opacity = value
-        } else if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? NSNumber {
-            opacity = value.doubleValue
-        } else {
-            opacity = GhosttyApp.shared.defaultBackgroundOpacity
-        }
-
-        return baseColor.withAlphaComponent(clampedGhosttyBackgroundOpacity(opacity))
-    }
-
-    private static func resolvedBrowserChromeBackgroundColor(
-        from notification: Notification? = nil,
-        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
-    ) -> NSColor {
-        if isDarkAppearance(appAppearance: appAppearance) {
-            return resolvedGhosttyBackgroundColor(from: notification)
-        }
-        return NSColor.windowBackgroundColor
-    }
-
     let id: UUID
     let panelType: PanelType = .browser
 
@@ -3362,7 +3354,12 @@ final class BrowserPanel: Panel, ObservableObject {
     """
 
     /// Published URL being displayed
-    @Published private(set) var currentURL: URL?
+    @Published private(set) var currentURL: URL? {
+        didSet {
+            guard oldValue != currentURL else { return }
+            applyConfiguredWebViewBackground()
+        }
+    }
 
     /// Whether the browser panel should render its WKWebView in the content area.
     /// New browser tabs stay in an empty "new tab" state until first navigation.
@@ -3370,9 +3367,11 @@ final class BrowserPanel: Panel, ObservableObject {
         didSet {
             if oldValue != shouldRenderWebView {
                 refreshWebViewLifecycleState()
+                applyConfiguredWebViewBackground()
             }
         }
     }
+    @Published private(set) var backgroundAppearanceRevision: UInt64 = 0
     private let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
 
     @Published private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab
@@ -3397,6 +3396,16 @@ final class BrowserPanel: Panel, ObservableObject {
     /// True when the browser is showing the internal empty new-tab page.
     var isShowingNewTabPage: Bool {
         !shouldRenderWebView && preferredURLStringForOmnibar() == nil
+    }
+
+    var isShowingBlankBrowserPage: Bool {
+        Self.isBlankBrowserPage(
+            liveURL: Self.remoteProxyDisplayURL(for: webView.url) ?? webView.url,
+            currentURL: currentURL,
+            pendingNavigationURL: Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
+                ?? navigationDelegate?.lastAttemptedURL,
+            isMainFrameProvisionalNavigationActive: isMainFrameProvisionalNavigationActive
+        )
     }
 
     /// Published page title
@@ -4161,6 +4170,7 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = true
+                self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
             }
         }
@@ -4206,12 +4216,16 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
+                self.navigationDelegate?.lastAttemptedURL = nil
+                self.refreshBackgroundAppearance()
             }
         }
     }
 
     private func publishCommittedURL(from webView: WKWebView) {
         currentURL = Self.remoteProxyDisplayURL(for: webView.url)
+        navigationDelegate?.lastAttemptedURL = nil
+        refreshBackgroundAppearance()
         GlobalSearchCoordinator.shared.captureBrowserPanel(self)
     }
 
@@ -5071,6 +5085,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 guard !self.isMainFrameProvisionalNavigationActive else { return }
                 self.currentURL = Self.remoteProxyDisplayURL(for: observedURL)
+                self.refreshBackgroundAppearance()
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
         }
@@ -5193,17 +5208,19 @@ final class BrowserPanel: Panel, ObservableObject {
         applyWebViewBackground(color: GhosttyBackgroundTheme.currentColor())
     }
 
-    /// Applies the webview background for a given composited terminal color.
+    private func refreshBackgroundAppearance() {
+        applyConfiguredWebViewBackground()
+        backgroundAppearanceRevision &+= 1
+    }
+
+    /// Applies the webview background for a given terminal theme color.
     ///
-    /// Normal browser surfaces always paint the solid composited color so pages
-    /// never flash the desktop while loading. Transparent internal-UI surfaces
-    /// (``usesTransparentBackground``) instead let the page's own CSS own the
-    /// background: when the terminal theme is transparent (alpha < 1) the
-    /// webview is made fully clear so the page composites against the window
-    /// exactly once, with no extra native fill. When the theme is opaque the
-    /// solid fill is kept even for transparent surfaces to avoid a load flash.
+    /// When Ghostty transparency/glass makes the window root own the terminal
+    /// backdrop, clear the browser's native fill for blank pages. Real websites
+    /// keep WebKit's background drawing so pages without their own CSS
+    /// background remain readable.
     private func applyWebViewBackground(color: NSColor) {
-        if usesTransparentBackground, Self.shouldClearTransparentSurfaceBackground() {
+        if !drawsConfiguredWebViewBackgroundForCurrentPage() {
             webView.wantsLayer = true
             webView.setValue(false, forKey: "drawsBackground")
             webView.underPageBackgroundColor = .clear
@@ -5211,26 +5228,91 @@ final class BrowserPanel: Panel, ObservableObject {
             webView.layer?.backgroundColor = NSColor.clear.cgColor
             return
         }
-        if usesTransparentBackground {
-            // Restore opaque drawing in case a transparent theme previously made
-            // this webview clear before the user switched to an opaque theme.
-            webView.setValue(true, forKey: "drawsBackground")
-            webView.layer?.isOpaque = true
-            webView.layer?.backgroundColor = nil
-        }
+        // Restore opaque drawing in case a transparent theme previously made
+        // this webview clear before the user switched to an opaque theme.
+        webView.setValue(true, forKey: "drawsBackground")
+        webView.layer?.isOpaque = color.alphaComponent >= 0.999
+        webView.layer?.backgroundColor = nil
         webView.underPageBackgroundColor = color
     }
 
-    /// Whether a transparent internal-UI surface should drop its webview fill so
-    /// the window backdrop shows through. Mirrors the terminal/markdown panels'
-    /// ``PanelAppearance/usesClearContentBackground`` decision using the live
-    /// Ghostty appearance: the composited terminal color is always opaque, so we
-    /// gate on the runtime opacity/blur/transparent-window state instead.
-    private static func shouldClearTransparentSurfaceBackground() -> Bool {
-        PanelAppearance.shouldUseClearContentBackground(
+    func drawsConfiguredWebViewBackgroundForCurrentPage() -> Bool {
+        Self.drawsConfiguredWebViewBackground(
+            isBlankPage: isShowingBlankBrowserPage,
+            usesTransparentBackground: usesTransparentBackground
+        )
+    }
+
+    /// Whether browser native/SwiftUI fills should draw over the window root
+    /// backdrop. Mirrors terminal/markdown panel background decisions.
+    static func drawsConfiguredWebViewBackground(
+        isBlankPage: Bool,
+        usesTransparentBackground: Bool = false
+    ) -> Bool {
+        drawsWebViewBackground(
+            isBlankPage: isBlankPage,
+            usesTransparentBackground: usesTransparentBackground,
             opacity: GhosttyApp.shared.defaultBackgroundOpacity,
             usesGhosttyGlassStyle: GhosttyApp.shared.defaultBackgroundBlur.isMacOSGlassStyle,
             usesTransparentWindow: cmuxShouldUseTransparentBackgroundWindow()
+        )
+    }
+
+    nonisolated static func isBlankBrowserPageURL(_ url: URL?) -> Bool {
+        guard let url else { return true }
+        let value = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.caseInsensitiveCompare("about:blank") == .orderedSame
+    }
+
+    nonisolated static func isBlankBrowserPage(
+        liveURL: URL?,
+        currentURL: URL?,
+        pendingNavigationURL: URL?,
+        isMainFrameProvisionalNavigationActive: Bool
+    ) -> Bool {
+        if isMainFrameProvisionalNavigationActive,
+           !isBlankBrowserPageURL(pendingNavigationURL) {
+            return false
+        }
+        if !isBlankBrowserPageURL(pendingNavigationURL),
+           isBlankBrowserPageURL(liveURL),
+           isBlankBrowserPageURL(currentURL) {
+            return false
+        }
+        return isBlankBrowserPageURL(liveURL) && isBlankBrowserPageURL(currentURL)
+    }
+
+    nonisolated static func drawsWebViewBackground(
+        isBlankPage: Bool,
+        usesTransparentBackground: Bool = false,
+        opacity: Double,
+        usesGhosttyGlassStyle: Bool,
+        usesTransparentWindow: Bool
+    ) -> Bool {
+        if usesTransparentBackground {
+            return drawsWebViewBackground(
+                opacity: opacity,
+                usesGhosttyGlassStyle: usesGhosttyGlassStyle,
+                usesTransparentWindow: usesTransparentWindow
+            )
+        }
+        guard isBlankPage else { return true }
+        return drawsWebViewBackground(
+            opacity: opacity,
+            usesGhosttyGlassStyle: usesGhosttyGlassStyle,
+            usesTransparentWindow: usesTransparentWindow
+        )
+    }
+
+    nonisolated static func drawsWebViewBackground(
+        opacity: Double,
+        usesGhosttyGlassStyle: Bool,
+        usesTransparentWindow: Bool
+    ) -> Bool {
+        !PanelAppearance.shouldUseClearContentBackground(
+            opacity: opacity,
+            usesGhosttyGlassStyle: usesGhosttyGlassStyle,
+            usesTransparentWindow: usesTransparentWindow
         )
     }
 
@@ -5890,9 +5972,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 preserveRestoredSessionHistory: preserveRestoredSessionHistory
             )
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
-            shouldRenderWebView = true
             currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
             navigationDelegate?.lastAttemptedURL = url
+            refreshBackgroundAppearance()
+            shouldRenderWebView = true
             return
         }
         performNavigation(
@@ -5937,6 +6020,8 @@ final class BrowserPanel: Panel, ObservableObject {
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
+        navigationDelegate?.lastAttemptedURL = originalURL
+        refreshBackgroundAppearance()
         shouldRenderWebView = true
         if shouldPreloadInitialNavigationInBackground {
             shouldPreloadInitialNavigationInBackground = false
@@ -5945,7 +6030,6 @@ final class BrowserPanel: Panel, ObservableObject {
         if recordTypedNavigation {
             historyStore.recordTypedNavigation(url: originalURL)
         }
-        navigationDelegate?.lastAttemptedURL = originalURL
         browserLoadRequest(effectiveRequest, in: webView)
     }
 
@@ -8785,7 +8869,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var lastAttemptedURL: URL?
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        lastAttemptedURL = webView.url
+        lastAttemptedURL = lastAttemptedURL ?? webView.url
         didStartProvisionalNavigation?(webView)
     }
 
@@ -9053,6 +9137,9 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
         cmuxDebugLog("browser.nav.decidePolicy.action kind=allow url=\(targetURL)")
 #endif
+        if navigationAction.targetFrame?.isMainFrame != false {
+            lastAttemptedURL = navigationAction.request.url
+        }
         decisionHandler(.allow)
     }
 
