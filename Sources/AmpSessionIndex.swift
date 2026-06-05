@@ -65,7 +65,7 @@ extension SessionIndexStore {
             let data = try Data(contentsOf: storeURL)
             store = try JSONDecoder().decode(AmpHookSessionStoreFile.self, from: data)
         } catch {
-            errorBag.add("Amp: cannot read session store \(storeURL.path) (\(error.localizedDescription))")
+            errorBag.add("Amp: cannot read \(storeURL.lastPathComponent) (\(error.localizedDescription))")
             return []
         }
 
@@ -142,15 +142,19 @@ extension SessionIndexStore {
         return String(localized: "sessionIndex.amp.title", defaultValue: "Amp session")
     }
 
+    // Match SessionIndexStore.normalizedDirectory: standardizingPath (no symlink
+    // resolution) so Amp cwds bucket and scope-filter the same way as every other
+    // agent's entries.
     private nonisolated static func ampNormalizedCwd(_ path: String?) -> String? {
         guard let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
         }
-        return URL(fileURLWithPath: NSString(string: trimmed).expandingTildeInPath)
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
-            .path
+        var normalized = (NSString(string: trimmed).expandingTildeInPath as NSString).standardizingPath
+        if normalized.count > 1 && normalized.hasSuffix("/") {
+            normalized.removeLast()
+        }
+        return normalized
     }
 
     #if DEBUG

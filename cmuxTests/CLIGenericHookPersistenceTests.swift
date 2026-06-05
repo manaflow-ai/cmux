@@ -3734,7 +3734,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(
+                    id: id, ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
             }
         }
 
