@@ -603,7 +603,7 @@
           "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
         },
         "shortcuts": {
-          "when": "アクションごとの任意のフォーカス述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、フォーカスコンテキストキー sidebarFocus、browserFocus、markdownFocus、terminalFocus を !、&&、||、括弧で組み合わせた boolean 式です。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択し、Ctrl+1–5 をサイドバー用に空けます。"
+          "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。"
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",

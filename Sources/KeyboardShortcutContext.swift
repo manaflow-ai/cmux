@@ -6,6 +6,11 @@ struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
     let markdownPanel: MarkdownPanel?
     let rightSidebarFocused: Bool
+    /// The full context snapshot a ``ShortcutWhenClause`` evaluates against: the
+    /// focus atoms plus the non-focus keys (`commandPaletteVisible`, `sidebarMode`,
+    /// `terminalFindVisible`, `paneCount`, `workspaceCount`) read from the shortcut
+    /// window's state.
+    let shortcutContext: ShortcutContext
 
     /// Projects the runtime focus snapshot onto the atoms a
     /// ``ShortcutWhenClause`` evaluates against.
@@ -144,15 +149,60 @@ extension AppDelegate {
 
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
         let browserPanel = shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
+        // Only treat a markdown panel as focused when no browser panel owns the
+        // event, so a focused browser never routes markdown shortcuts.
+        let markdownPanel = browserPanel == nil ? shortcutFocusedMarkdownPanel(in: shortcutWindow) : nil
+        let rightSidebarFocused = shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false
+        let focusState = ShortcutFocusState(
+            browser: browserPanel != nil,
+            markdown: markdownPanel != nil,
+            sidebar: rightSidebarFocused
+        )
         let context = ShortcutEventFocusContext(
             browserPanel: browserPanel,
-            // Only treat a markdown panel as focused when no browser panel owns
-            // the event, so a focused browser never routes markdown shortcuts.
-            markdownPanel: browserPanel == nil ? shortcutFocusedMarkdownPanel(in: shortcutWindow) : nil,
-            rightSidebarFocused: shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false
+            markdownPanel: markdownPanel,
+            rightSidebarFocused: rightSidebarFocused,
+            shortcutContext: buildShortcutContext(focusState: focusState, window: shortcutWindow)
         )
         shortcutEventFocusContextCache = ShortcutEventFocusContextCache(event: event, context: context)
         return context
+    }
+
+    /// Builds the full ``ShortcutContext`` for a shortcut event: the focus atoms
+    /// (via ``ShortcutFocusState/context``) plus the non-focus context keys read
+    /// synchronously from the shortcut window's state. Called once per event (the
+    /// result is cached in ``shortcutEventFocusContextCache``).
+    private func buildShortcutContext(focusState: ShortcutFocusState, window: NSWindow?) -> ShortcutContext {
+        var context = focusState.context
+        context.setBool(
+            ShortcutContextKnownKey.commandPaletteVisible.rawValue,
+            window.map { isCommandPaletteVisible(for: $0) } ?? false
+        )
+        if let tabManager = shortcutContextTabManager(in: window) {
+            context.setInt(ShortcutContextKnownKey.workspaceCount.rawValue, tabManager.tabs.count)
+            if let workspace = tabManager.selectedWorkspace {
+                context.setInt(ShortcutContextKnownKey.paneCount.rawValue, workspace.panels.count)
+                context.setBool(
+                    ShortcutContextKnownKey.terminalFindVisible.rawValue,
+                    workspace.focusedTerminalPanel?.searchState != nil
+                )
+            }
+        }
+        if let mode = window.flatMap({ keyboardFocusCoordinator(for: $0)?.activeRightSidebarMode }) {
+            context.setString(ShortcutContextKnownKey.sidebarMode.rawValue, mode.rawValue)
+        }
+        return context
+    }
+
+    /// The ``TabManager`` driving the shortcut window, falling back to the app's
+    /// current tab manager when the window is unknown.
+    private func shortcutContextTabManager(in window: NSWindow?) -> TabManager? {
+        if let window,
+           let context = mainWindowContexts[ObjectIdentifier(window)] ??
+               mainWindowContexts.values.first(where: { $0.window === window }) {
+            return context.tabManager
+        }
+        return tabManager
     }
 
     private func shortcutFocusedMarkdownPanel(in window: NSWindow?) -> MarkdownPanel? {

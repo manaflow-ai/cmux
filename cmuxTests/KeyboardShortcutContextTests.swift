@@ -248,6 +248,42 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserForward), KeyboardShortcutSettings.shortcut(for: .browserForward))
     }
 
+    func testEmptyWhenClauseDoesNotSuppressMenuShortcut() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let directoryURL = try makeTemporaryDirectory()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "when": {
+                  "closeTab": "   "
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        KeyboardShortcutSettings.resetAll()
+
+        let closeTabShortcut = KeyboardShortcutSettings.shortcut(for: .closeTab)
+
+        XCTAssertEqual(KeyboardShortcutSettings.effectiveWhenClause(for: .closeTab), .always)
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .closeTab), closeTabShortcut)
+    }
+
     @MainActor
     func testMenuShortcutsStandDownWhilePackageRecorderIsActive() {
         let button = RecorderHostButton(frame: .zero)
@@ -415,6 +451,64 @@ final class KeyboardShortcutContextTests: XCTestCase {
                 configuredShortcut: ctrl1
             )
         )
+    }
+
+    func testSettingsFileWhenClauseSupportsContextComparisons() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let directoryURL = try makeTemporaryDirectory()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "when": {
+                  "selectWorkspaceByNumber": "commandPaletteVisible && paneCount > 1",
+                  "selectSurfaceByNumber": "sidebarMode == 'find'"
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        // A boolean key combined with an integer comparison, parsed from cmux.json.
+        let workspaceWhen = KeyboardShortcutSettings.effectiveWhenClause(for: .selectWorkspaceByNumber)
+        var matching = ShortcutContext()
+        matching.setBool("commandPaletteVisible", true)
+        matching.setInt("paneCount", 2)
+        XCTAssertTrue(workspaceWhen.evaluate(matching))
+
+        var paletteHidden = ShortcutContext()
+        paletteHidden.setBool("commandPaletteVisible", false)
+        paletteHidden.setInt("paneCount", 2)
+        XCTAssertFalse(workspaceWhen.evaluate(paletteHidden))
+
+        var singlePane = ShortcutContext()
+        singlePane.setBool("commandPaletteVisible", true)
+        singlePane.setInt("paneCount", 1)
+        XCTAssertFalse(workspaceWhen.evaluate(singlePane))
+
+        // A string comparison against the sidebar mode.
+        let surfaceWhen = KeyboardShortcutSettings.effectiveWhenClause(for: .selectSurfaceByNumber)
+        var findMode = ShortcutContext()
+        findMode.setString("sidebarMode", "find")
+        XCTAssertTrue(surfaceWhen.evaluate(findMode))
+
+        var filesMode = ShortcutContext()
+        filesMode.setString("sidebarMode", "files")
+        XCTAssertFalse(surfaceWhen.evaluate(filesMode))
     }
 
     private func makeTemporaryDirectory() throws -> URL {

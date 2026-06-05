@@ -31,9 +31,16 @@ final class ShortcutWhenClauseTests: XCTestCase {
 
     func testRejectsMalformedExpressions() {
         XCTAssertNil(ShortcutWhenClause.parse("sidebarFocus &&"))
-        XCTAssertNil(ShortcutWhenClause.parse("bogusKey"))
         XCTAssertNil(ShortcutWhenClause.parse("(sidebarFocus"))
         XCTAssertNil(ShortcutWhenClause.parse("!"))
+        XCTAssertNil(ShortcutWhenClause.parse("paneCount >"))
+    }
+
+    func testUnknownKeyParsesToKey() {
+        // An unknown bare key is a valid (always-false) clause, matching VS Code's
+        // treatment of undefined context keys — it is no longer rejected as malformed.
+        XCTAssertEqual(ShortcutWhenClause.parse("bogusKey"), .key("bogusKey"))
+        XCTAssertEqual(ShortcutWhenClause.parse("commandPaletteVisible"), .key("commandPaletteVisible"))
     }
 
     func testEmptyClauseParsesToAlways() {

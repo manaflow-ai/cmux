@@ -36,7 +36,7 @@ extension KeyboardShortcutSettings {
         // has explicitly scoped an action with `when`, drop its menu equivalent so
         // the context-gated keyDown handler is the sole dispatcher (issue #5189).
         // Built-in default contexts are left alone to preserve existing menu badges.
-        if hasConfiguredWhenClause(for: action) {
+        if hasRestrictingConfiguredWhenClause(for: action) {
             return .unbound
         }
 
@@ -66,10 +66,12 @@ extension KeyboardShortcutSettings {
         settingsFileStore.whenClause(for: action) ?? action.shortcutContext.defaultWhenClause
     }
 
-    /// Whether `action` has an explicit `shortcuts.when` override in cmux.json
-    /// (as opposed to relying on its built-in context default).
-    static func hasConfiguredWhenClause(for action: Action) -> Bool {
-        settingsFileStore.whenClause(for: action) != nil
+    /// Whether `action` has an explicit `shortcuts.when` override that restricts focus.
+    static func hasRestrictingConfiguredWhenClause(for action: Action) -> Bool {
+        guard let clause = settingsFileStore.whenClause(for: action) else {
+            return false
+        }
+        return clause != .always
     }
 
     static func unbindShortcut(for action: Action) {

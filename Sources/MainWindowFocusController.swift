@@ -64,6 +64,11 @@ final class MainWindowFocusController {
     private var rememberedRightSidebarMode: RightSidebarMode?
     private var nextRightSidebarFocusRequestId: UInt64 = 0
     private var rightSidebarFocusState: RightSidebarFocusState = .inactive
+    /// The right sidebar's active mode when it owns focus, else `nil`. Surfaces the
+    /// private focus state for the `sidebarMode` keyboard-shortcut context key.
+    var activeRightSidebarMode: RightSidebarMode? {
+        rightSidebarFocusState.mode
+    }
     private var feedSelectedItemId: UUID?
     private var lastPublishedFeedFocusSnapshot = FeedFocusSnapshot()
 
