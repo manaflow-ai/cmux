@@ -16466,6 +16466,7 @@ function renderSettingsInspector(options = {}) {
     fontRange.min = String(terminalFontSizeMin);
     fontRange.max = String(terminalFontSizeMax);
     fontRange.value = String(state.settings.terminalFontSize);
+    fontRange.dataset.settingControl = "terminalFontSize";
     const fontRow = settingRow(`Default text size ${state.settings.terminalFontSize}px`, fontRange);
     bindDeferredSettingRange(fontRange, fontRow, {
       settingKey: "terminalFontSize",
@@ -16479,6 +16480,7 @@ function renderSettingsInspector(options = {}) {
     lineHeightRange.max = "1.5";
     lineHeightRange.step = "0.02";
     lineHeightRange.value = String(state.settings.terminalLineHeight);
+    lineHeightRange.dataset.settingControl = "terminalLineHeight";
     const lineHeightRow = settingRow(`Line height ${formatLineHeight(state.settings.terminalLineHeight)}`, lineHeightRange);
     bindDeferredSettingRange(lineHeightRange, lineHeightRow, {
       settingKey: "terminalLineHeight",
@@ -16491,6 +16493,7 @@ function renderSettingsInspector(options = {}) {
     paddingRange.min = "0";
     paddingRange.max = "16";
     paddingRange.value = String(state.settings.terminalPadding);
+    paddingRange.dataset.settingControl = "terminalPadding";
     const paddingRow = settingRow(`Padding ${state.settings.terminalPadding}px`, paddingRange);
     bindDeferredSettingRange(paddingRange, paddingRow, {
       settingKey: "terminalPadding",
@@ -16505,6 +16508,7 @@ function renderSettingsInspector(options = {}) {
     scrollbackRange.max = "50000";
     scrollbackRange.step = "2000";
     scrollbackRange.value = String(state.settings.terminalScrollback);
+    scrollbackRange.dataset.settingControl = "terminalScrollback";
     const scrollbackRow = settingRow(`Scrollback ${state.settings.terminalScrollback}`, scrollbackRange);
     bindDeferredSettingRange(scrollbackRange, scrollbackRow, {
       settingKey: "terminalScrollback",
@@ -16523,7 +16527,10 @@ function renderSettingsInspector(options = {}) {
     cursorSelect.value = state.settings.terminalCursorStyle;
     cursorSelect.onchange = () => updateSettings({ terminalCursorStyle: cursorSelect.value });
     terminalSection.append(settingRow("Cursor", cursorSelect, false, "terminal cursor line bar block underline powershell caret shape"));
-    terminalSection.append(settingRow("Cursor blink", toggleInput(state.settings.terminalCursorBlink, (checked) => updateSettings({ terminalCursorBlink: checked }))));
+    const cursorBlinkToggle = toggleInput(state.settings.terminalCursorBlink, (checked) => updateSettings({ terminalCursorBlink: checked }));
+    const cursorBlinkInput = cursorBlinkToggle.querySelector("input");
+    if (cursorBlinkInput) cursorBlinkInput.dataset.settingControl = "terminalCursorBlink";
+    terminalSection.append(settingRow("Cursor blink", cursorBlinkToggle));
     terminalSection.append(terminalColorDisclosurePanel());
     terminalSection.append(settingRow(
       "Background color",
@@ -16577,27 +16584,33 @@ function renderSettingsInspector(options = {}) {
     pasteTerminalColors.title = "Apply terminal colors copied from cmux.";
     const fontCycle = terminalFontCycleModel();
     const cycleTerminalFontAction = settingsActionButton("Cycle font", cycleTerminalFont, "", `terminal font cycle next typography gallery preview monospace ${fontCycle.search}`);
+    cycleTerminalFontAction.dataset.terminalAction = "cycle-font";
     cycleTerminalFontAction.disabled = fontCycle.disabled;
     cycleTerminalFontAction.title = fontCycle.title;
     const readabilityCycle = terminalReadabilityCycleModel();
     const cycleReadability = settingsActionButton("Cycle readability", cycleTerminalReadabilityPreset, "", `terminal readability cycle next preset typography font size line height padding history cursor ${readabilityCycle.search}`);
+    cycleReadability.dataset.terminalAction = "cycle-readability";
     cycleReadability.disabled = readabilityCycle.disabled;
     cycleReadability.title = readabilityCycle.title;
     const terminalColorCycle = terminalColorPresetCycleModel();
     const cycleTerminalColors = settingsActionButton("Cycle colors", cycleTerminalColorPreset, "", `terminal color colors cycle next theme preset palette background foreground text cursor ${terminalColorCycle.search}`);
+    cycleTerminalColors.dataset.terminalAction = "cycle-colors";
     cycleTerminalColors.disabled = terminalColorCycle.disabled;
     cycleTerminalColors.title = terminalColorCycle.title;
     const resetTerminalText = settingsActionButton("Reset text", resetTerminalTextSettings, "", `terminal text typography font size line height padding cursor blink shape reset default ${terminalTextDefault ? "active current " : ""}`);
+    resetTerminalText.dataset.terminalAction = "reset-text";
     resetTerminalText.disabled = terminalTextDefault;
     resetTerminalText.title = terminalTextDefault
       ? "Terminal text and cursor already use defaults."
       : "Reset terminal font, spacing, cursor shape, and cursor blink.";
     const resetTerminalColors = settingsActionButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), "", `terminal color reset default background foreground cursor ${terminalColorsReset ? "active current " : ""}`);
+    resetTerminalColors.dataset.terminalAction = "reset-colors";
     resetTerminalColors.disabled = terminalColorsReset;
     resetTerminalColors.title = terminalColorsReset
       ? "Terminal colors already match the cmux default."
       : "Reset background, text, and cursor colors to the cmux default.";
     const resetTerminalSetupAction = settingsActionButton("Reset setup", resetTerminalSetupSettings, "", `terminal setup reset default font size line height padding history color cursor shell ${terminalSetupDefault ? "active current " : ""}`);
+    resetTerminalSetupAction.dataset.terminalAction = "reset-setup";
     resetTerminalSetupAction.disabled = terminalSetupDefault;
     resetTerminalSetupAction.title = terminalSetupDefault
       ? "Terminal setup already uses defaults."
@@ -30373,7 +30386,7 @@ function applyTerminalFont(fontId, options = {}) {
     if (options.toast !== false) toast(`${label} font already active.`);
     return false;
   }
-  if (options.render !== false) refreshTerminalFontChoices();
+  refreshTerminalSetupSettings(options, { terminalFontFamily: value });
   if (options.toast !== false) toast(`${label} font applied.`);
   return true;
 }
@@ -30506,6 +30519,99 @@ function refreshTerminalFontChoices() {
   }
 }
 
+function refreshTerminalRangeControl(settingKey, formatLabel) {
+  const inputs = elements.inspectorBody.querySelectorAll(`[data-setting-control="${settingKey}"]`);
+  if (!inputs.length) return false;
+  let changed = false;
+  const value = state.settings[settingKey];
+  for (const input of inputs) {
+    if (document.activeElement !== input && input.value !== String(value)) {
+      input.value = String(value);
+      changed = true;
+    }
+    const row = input.closest(".setting-row");
+    const label = row?.querySelector(".setting-label");
+    if (label) changed = setTextIfChanged(label, formatLabel(value)) || changed;
+  }
+  return changed;
+}
+
+function refreshTerminalCursorBlinkControls() {
+  let changed = false;
+  for (const input of elements.inspectorBody.querySelectorAll('[data-setting-control="terminalCursorBlink"]')) {
+    if (input.checked !== state.settings.terminalCursorBlink) {
+      input.checked = state.settings.terminalCursorBlink;
+      changed = true;
+    }
+    const label = input.closest(".setting-toggle")?.querySelector("span");
+    if (label) changed = setTextIfChanged(label, state.settings.terminalCursorBlink ? "On" : "Off") || changed;
+  }
+  return changed;
+}
+
+function updateTerminalSetupAction(button, disabled, title, search) {
+  if (!button) return;
+  setDisabledIfChanged(button, disabled);
+  setTitleIfChanged(button, title);
+  setSettingsSearchIfChanged(button, search);
+}
+
+function refreshTerminalSetupActions() {
+  const saveProfile = elements.inspectorBody.querySelector('[data-terminal-action="save-profile"]');
+  if (saveProfile) {
+    applySettingsProfileSaveLimit(saveProfile, "Save this terminal setup as a reusable Settings profile.");
+    setSettingsSearchIfChanged(saveProfile, `terminal save profile setup font color cursor shell reusable ${savedSettingsProfileCountLabel()} ${savedSettingsProfilesFull() ? "limit full unavailable " : "ready "}`);
+  }
+
+  const fontCycle = terminalFontCycleModel();
+  updateTerminalSetupAction(
+    elements.inspectorBody.querySelector('[data-terminal-action="cycle-font"]'),
+    fontCycle.disabled,
+    fontCycle.title,
+    `terminal font cycle next typography gallery preview monospace ${fontCycle.search}`
+  );
+
+  const readabilityCycle = terminalReadabilityCycleModel();
+  updateTerminalSetupAction(
+    elements.inspectorBody.querySelector('[data-terminal-action="cycle-readability"]'),
+    readabilityCycle.disabled,
+    readabilityCycle.title,
+    `terminal readability cycle next preset typography font size line height padding history cursor ${readabilityCycle.search}`
+  );
+
+  const colorCycle = terminalColorPresetCycleModel();
+  updateTerminalSetupAction(
+    elements.inspectorBody.querySelector('[data-terminal-action="cycle-colors"]'),
+    colorCycle.disabled,
+    colorCycle.title,
+    `terminal color colors cycle next theme preset palette background foreground text cursor ${colorCycle.search}`
+  );
+
+  const terminalTextDefault = terminalTextSettings.every((key) => state.settings[key] === defaultSettings[key]);
+  updateTerminalSetupAction(
+    elements.inspectorBody.querySelector('[data-terminal-action="reset-text"]'),
+    terminalTextDefault,
+    terminalTextDefault ? "Terminal text and cursor already use defaults." : "Reset terminal font, spacing, cursor shape, and cursor blink.",
+    `terminal text typography font size line height padding cursor blink shape reset default ${terminalTextDefault ? "active current " : ""}`
+  );
+
+  const terminalColorsReset = isTerminalColorPresetIdActive("cmux");
+  updateTerminalSetupAction(
+    elements.inspectorBody.querySelector('[data-terminal-action="reset-colors"]'),
+    terminalColorsReset,
+    terminalColorsReset ? "Terminal colors already match the cmux default." : "Reset background, text, and cursor colors to the cmux default.",
+    `terminal color reset default background foreground cursor ${terminalColorsReset ? "active current " : ""}`
+  );
+
+  const terminalSetupDefault = terminalSetupSettingsAreDefault();
+  updateTerminalSetupAction(
+    elements.inspectorBody.querySelector('[data-terminal-action="reset-setup"]'),
+    terminalSetupDefault,
+    terminalSetupDefault ? "Terminal setup already uses defaults." : "Reset terminal font, spacing, history, colors, cursor, and default shell.",
+    `terminal setup reset default font size line height padding history color cursor shell ${terminalSetupDefault ? "active current " : ""}`
+  );
+}
+
 function terminalSettingsPreviewPanel() {
   const panel = document.createElement("div");
   const colors = terminalTheme();
@@ -30555,6 +30661,13 @@ function scheduleTerminalSettingsPreviewRefresh() {
 function refreshTerminalSettingsPreview() {
   const preview = elements.inspectorBody.querySelector(".terminal-settings-preview");
   if (preview) preview.replaceWith(terminalSettingsPreviewPanel());
+  refreshTerminalFontChoices();
+  refreshTerminalRangeControl("terminalFontSize", (value) => `Default text size ${value}px`);
+  refreshTerminalRangeControl("terminalLineHeight", (value) => `Line height ${formatLineHeight(value)}`);
+  refreshTerminalRangeControl("terminalPadding", (value) => `Padding ${value}px`);
+  refreshTerminalRangeControl("terminalScrollback", (value) => `Scrollback ${value}`);
+  refreshTerminalCursorBlinkControls();
+  refreshTerminalSetupActions();
   refreshTerminalReadabilityPresetGrid();
   refreshTerminalColorPresetGrid();
   const cursorSelect = elements.inspectorBody.querySelector('[data-setting-control="terminalCursorStyle"]');
@@ -30565,14 +30678,25 @@ function refreshTerminalSettingsPreview() {
 }
 
 function refreshTerminalProfileSaveControls() {
-  const saveProfile = elements.inspectorBody.querySelector('[data-terminal-action="save-profile"]');
-  if (saveProfile) {
-    applySettingsProfileSaveLimit(saveProfile, "Save this terminal setup as a reusable Settings profile.");
-    setSettingsSearchIfChanged(saveProfile, `terminal save profile setup font color cursor shell reusable ${savedSettingsProfileCountLabel()} ${savedSettingsProfilesFull() ? "limit full unavailable " : "ready "}`);
-  }
+  refreshTerminalSetupActions();
   refreshTerminalReadabilityPresetGrid();
   refreshTerminalColorPresetGrid();
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function terminalSetupNeedsFullRender(updates = {}) {
+  return Object.hasOwn(updates, "terminalProfile")
+    || Object.hasOwn(updates, "terminalCustomShell")
+    || [...terminalSetupColorSettings].some((key) => Object.hasOwn(updates, key));
+}
+
+function refreshTerminalSetupSettings(options = {}, updates = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "terminal" && !normalizeSettingsQuery(state.settingsQuery) && !terminalSetupNeedsFullRender(updates)) {
+    scheduleTerminalSettingsPreviewRefresh();
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
 }
 
 function refreshTerminalProfileSaveSettings(options = {}) {
@@ -33058,7 +33182,7 @@ function applyTerminalSetupUpdates(updates, options = {}) {
     toast(options.alreadyText || "Terminal setup already matches.");
     return false;
   }
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshTerminalSetupSettings(options, updates);
   toast(options.toastText || "Terminal setup applied.");
   return true;
 }
@@ -33075,21 +33199,21 @@ function resetTerminalSetupSettings(options = {}) {
     if (options.toast !== false) toast("Terminal setup already uses defaults.");
     return false;
   }
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshTerminalSetupSettings(options, updates);
   if (options.toast !== false) toast("Terminal setup reset.");
   return true;
 }
 
-function resetTerminalTextSettings() {
+function resetTerminalTextSettings(options = {}) {
   const updates = {};
   for (const key of terminalTextSettings) updates[key] = defaultSettings[key];
   const changed = updateSettings(updates);
   if (!changed) {
-    toast("Terminal text already uses defaults.");
+    if (options.toast !== false) toast("Terminal text already uses defaults.");
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
-  toast("Terminal text reset.");
+  refreshTerminalSetupSettings(options, updates);
+  if (options.toast !== false) toast("Terminal text reset.");
   return true;
 }
 
