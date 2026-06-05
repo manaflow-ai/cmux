@@ -2098,6 +2098,12 @@ enum TerminalWindowPortalRegistry {
         existingPortal(for: window)?.scheduleExternalGeometrySynchronize(forceImmediate: forceImmediate)
     }
 
+#if DEBUG
+    static func synchronizeExternalGeometryNow(for window: NSWindow) {
+        existingPortal(for: window)?.synchronizeAllEntriesFromExternalGeometryChange()
+    }
+#endif
+
     static func beginInteractiveGeometryResize() {
         interactiveGeometryResizeCount += 1
     }

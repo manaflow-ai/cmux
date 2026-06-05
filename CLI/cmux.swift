@@ -24549,7 +24549,13 @@ struct CMUXCLI {
 
     // MARK: - Agent PID inference
 
-    private func inferredAgentPID() -> Int? {
+    private func inferredAgentPID(env: [String: String] = ProcessInfo.processInfo.environment) -> Int? {
+        if let rawPID = env["CMUX_AGENT_HOOK_PID_OVERRIDE"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let pid = Int(rawPID),
+           pid > 0 {
+            return pid
+        }
+
         var candidate = getppid()
         var remainingWrapperSkips = 8
 
@@ -27468,7 +27474,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Workspace/surface resolution: prefer --workspace/--surface flags,
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
-        let inferredPID = inferredAgentPID()
+        let inferredPID = inferredAgentPID(env: env)
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let ambientWorkspaceArg = normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let directWorkspaceArg = hookWsFlag ?? ambientWorkspaceArg
@@ -28982,6 +28988,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         _ source: String,
         env: [String: String] = ProcessInfo.processInfo.environment
     ) -> Int {
+        if let pid = agentPIDForHookAgent(source, env: env) {
+            return pid
+        }
+        return Int(getppid())
+    }
+
+    private func agentPIDForHookAgent(
+        _ source: String,
+        env: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Int? {
         let envKey: String
         switch source {
         case "claude": envKey = "CMUX_CLAUDE_PID"
@@ -29001,7 +29017,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
            pid > 0 {
             return pid
         }
-        return Int(getppid())
+        return nil
     }
 
     private func stableFallbackFeedSessionId(

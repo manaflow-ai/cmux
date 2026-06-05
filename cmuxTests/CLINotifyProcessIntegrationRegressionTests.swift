@@ -7697,12 +7697,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     private func codexLaunchEnvironment(context: ClaudeHookContext, sessionId: String) -> [String: String] {
-        agentLaunchEnvironment(
+        var environment = agentLaunchEnvironment(
             context: context,
             kind: "codex",
             executable: "/usr/local/bin/codex",
             arguments: ["/usr/local/bin/codex", "--model", "gpt-5.4"]
         )
+        environment["CMUX_AGENT_HOOK_PID_OVERRIDE"] = "1"
+        return environment
     }
 
     private func agentLaunchEnvironment(

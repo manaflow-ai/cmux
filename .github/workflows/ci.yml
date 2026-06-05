@@ -768,6 +768,13 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Prepare isolated DerivedData
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-deriveddata-tests-build-and-lag-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
       - name: Capture Ghostty revision
         id: ghostty-revision
         run: |
@@ -824,10 +831,12 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          rm -rf "$CMUX_DERIVED_DATA_PATH"
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -1199,6 +1208,13 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
 
+      - name: Prepare isolated DerivedData
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-deriveddata-ui-regressions-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
       - name: Download pre-built GhosttyKit.xcframework
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
@@ -1245,10 +1261,12 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          rm -rf "$CMUX_DERIVED_DATA_PATH"
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0

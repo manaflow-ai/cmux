@@ -973,6 +973,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    /// Strongly-held observers for every active TabManager. Each observer owns
+    /// Combine subscriptions that publish workspace.updated to mobile clients.
+    private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
+
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
     /// main window's `NSHostingView` itself, so it injects this into the
@@ -989,6 +993,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
+    private var mobileHostSettingsObserver: NSObjectProtocol?
     private var reloadConfigurationMenuItemRefreshScheduled = false
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
@@ -1119,8 +1124,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupTerminalCmdClickUITest = false
     private var didSetupGotoSplitUITest = false
     private var didSetupBonsplitTabDragUITest = false
+    private var didSetupTerminalViewportUITest = false
     private var terminalCmdClickUITestPoller: DispatchSourceTimer?
     private var bonsplitTabDragUITestRecorder: DispatchSourceTimer?
+    private var terminalViewportUITestRecorder: TerminalViewportUITestRecorder?
     private var gotoSplitUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
@@ -2145,6 +2152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
+        MobileHostService.shared.stop()
         TerminalController.shared.stop()
         GhosttyPasteboardHelper.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
@@ -2179,6 +2187,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
+        ensureMobileWorkspaceListObserver(for: tabManager)
+        MobileTerminalRenderObserver.shared.start()
+        installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
@@ -2192,6 +2203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupTerminalCmdClickUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
         setupBonsplitTabDragUITestIfNeeded()
+        setupTerminalViewportUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
         setupEmptyNotificationsBlockingUITestIfNeeded()
         setupUITestSocketBridgeIfNeeded()
@@ -4738,6 +4750,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
+    func ensureMobileWorkspaceListObserver(for tabManager: TabManager) {
+        let id = ObjectIdentifier(tabManager)
+        if mobileWorkspaceListObservers[id] == nil {
+            mobileWorkspaceListObservers[id] = MobileWorkspaceListObserver(tabManager: tabManager)
+        }
+    }
+
+    private func removeMobileWorkspaceListObserverIfUnused(for tabManager: TabManager) {
+        guard !mainWindowContexts.values.contains(where: { $0.tabManager === tabManager }) else {
+            return
+        }
+        mobileWorkspaceListObservers.removeValue(forKey: ObjectIdentifier(tabManager))
+    }
+
     /// Register a terminal window with the AppDelegate so menu commands and socket control
     /// can target whichever window is currently active.
     func registerMainWindow(
@@ -4834,6 +4860,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         ensureSocketListenerIfEnabled(tabManager: tabManager, source: "mainWindow.register")
+        ensureMobileWorkspaceListObserver(for: tabManager)
         notifyMainWindowContextsDidChange()
         if window.isKeyWindow {
             setActiveMainWindow(window)
@@ -4876,6 +4903,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxConfigStore: cmuxConfigStore,
             window: window
         )
+        ensureMobileWorkspaceListObserver(for: tabManager)
         if notifyObservers {
             notifyMainWindowContextsDidChange()
         }
@@ -6290,6 +6318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainWindowContexts.removeValue(forKey: key)
         }
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
+        removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
         return removed
     }
@@ -6306,6 +6335,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainWindowContexts.removeValue(forKey: key)
         }
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
+        removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         if notifyObservers {
             notifyMainWindowContextsDidChange()
         }
@@ -7524,6 +7554,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: manager,
                 source: "bootstrapInitialMainWindow.\(debugSource)"
             )
+            MobileHostService.shared.start()
         }
         guard !didBootstrapInitialMainWindow else { return windowId }
 
@@ -8654,8 +8685,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sidebarWidth = sessionWindowSnapshot?.sidebar.width
             .map { SessionPersistencePolicy.sanitizedSidebarWidth($0) }
             ?? SessionPersistencePolicy.defaultSidebarWidth
+#if DEBUG
+        let shouldStartWithHiddenSidebarForTerminalViewportUITest =
+            ProcessInfo.processInfo.environment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] == "1"
+#else
+        let shouldStartWithHiddenSidebarForTerminalViewportUITest = false
+#endif
         let sidebarState = SidebarState(
-            isVisible: sessionWindowSnapshot?.sidebar.isVisible ?? true,
+            isVisible: shouldStartWithHiddenSidebarForTerminalViewportUITest
+                ? false
+                : (sessionWindowSnapshot?.sidebar.isVisible ?? true),
             persistedWidth: CGFloat(sidebarWidth)
         )
         let sidebarSelectionState = SidebarSelectionState(
@@ -9093,6 +9132,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func syncApplicationPresentationPreferences(defaults: UserDefaults = .standard) {
         syncActivationPolicy(defaults: defaults)
         syncMenuBarExtraVisibility(defaults: defaults)
+    }
+
+    private func installMobileHostSettingsObserver() {
+        guard mobileHostSettingsObserver == nil else { return }
+        mobileHostSettingsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.syncMobileHostService()
+            }
+        }
+    }
+
+    private func syncMobileHostService() {
+        if MobileHostService.isListeningEnabled {
+            MobileHostService.shared.start()
+        } else {
+            MobileHostService.shared.stop()
+        }
     }
 
     private func syncActivationPolicy(defaults: UserDefaults = .standard) {
@@ -10675,6 +10735,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             runSetupWhenWindowReady()
         }
+    }
+
+    private func setupTerminalViewportUITestIfNeeded() {
+        guard !didSetupTerminalViewportUITest else { return }
+        let env = ProcessInfo.processInfo.environment
+        guard TerminalViewportUITestRecorder.isEnabled(environment: env) else { return }
+        didSetupTerminalViewportUITest = true
+
+        terminalViewportUITestRecorder?.stop()
+        terminalViewportUITestRecorder = TerminalViewportUITestRecorder(environment: env) { [weak self] in
+            guard let self else { return [] }
+            return Array(self.mainWindowContexts.values)
+        }
+        terminalViewportUITestRecorder?.start()
     }
 
     private func bonsplitTabDragUITestDataPath() -> String? {

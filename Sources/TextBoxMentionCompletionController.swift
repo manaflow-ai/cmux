@@ -62,11 +62,19 @@ final class TextBoxMentionCompletionController {
         activeRootDirectory = rootDirectory
         selectionIndex = 0
         isLoadingSuggestions = true
-        // Editing within the same trigger keeps the current rows on screen until
-        // the async lookup returns, avoiding a per-keystroke popover flicker.
-        // Switching triggers is a different completion kind, so drop stale rows
-        // immediately rather than showing them under the wrong trigger.
-        if previousActiveQuery?.trigger != query.trigger || previousRootDirectory != rootDirectory {
+        // Moving between a bare trigger and typed query changes the expected
+        // result shape. Show the loading row until that exact query finishes.
+        let previousQueryWasEmpty = previousActiveQuery?.query
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ?? true
+        let queryIsEmpty = query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let queryChangedToNonEmpty = previousQueryWasEmpty &&
+            !queryIsEmpty
+        let queryChangedToEmpty = !previousQueryWasEmpty && queryIsEmpty
+        if previousActiveQuery?.trigger != query.trigger ||
+            previousRootDirectory != rootDirectory ||
+            queryChangedToNonEmpty ||
+            queryChangedToEmpty {
             suggestions = []
             suggestionsQuery = nil
             suggestionsRootDirectory = nil
@@ -154,6 +162,10 @@ final class TextBoxMentionCompletionController {
 
     var debugShouldShowPopover: Bool {
         shouldShowPopover
+    }
+
+    var debugSuggestionTitles: [String] {
+        suggestions.map(\.title)
     }
 #endif
 }
