@@ -349,8 +349,11 @@ final class AutomationSocketUITests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    private func socketCommand(_ command: String) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: 1.0).sendLine(command)
+    private func socketCommand(_ command: String, responseTimeout: TimeInterval = 1.0) -> String? {
+        if let response = ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendLine(command) {
+            return response
+        }
+        return socketCommandViaNetcat(command, responseTimeout: responseTimeout)
     }
 
     private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
@@ -359,7 +362,49 @@ final class AutomationSocketUITests: XCTestCase {
             "method": method,
             "params": params,
         ]
-        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+        guard JSONSerialization.isValidJSONObject(request),
+              let data = try? JSONSerialization.data(withJSONObject: request),
+              let line = String(data: data, encoding: .utf8),
+              let response = socketCommand(line, responseTimeout: 2.0),
+              let responseData = response.data(using: .utf8) else {
+            return nil
+        }
+        return (try? JSONSerialization.jsonObject(with: responseData)) as? [String: Any]
+    }
+
+    private func socketCommandViaNetcat(_ command: String, responseTimeout: TimeInterval) -> String? {
+        let nc = "/usr/bin/nc"
+        guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let timeoutSeconds = max(1, Int(ceil(responseTimeout)))
+        let script = "printf '%s\\n' \(shellSingleQuote(command)) | \(nc) -U \(shellSingleQuote(socketPath)) -w \(timeoutSeconds) 2>/dev/null"
+        proc.arguments = ["-lc", script]
+
+        let outPipe = Pipe()
+        proc.standardOutput = outPipe
+
+        do {
+            try proc.run()
+        } catch {
+            return nil
+        }
+
+        proc.waitUntilExit()
+
+        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let outStr = String(data: outData, encoding: .utf8) else { return nil }
+        if let first = outStr.split(separator: "\n", maxSplits: 1).first {
+            return String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let trimmed = outStr.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func shellSingleQuote(_ value: String) -> String {
+        if value.isEmpty { return "''" }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
     private func socketResult(method: String, params: [String: Any]) -> [String: Any]? {
