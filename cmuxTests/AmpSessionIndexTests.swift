@@ -88,8 +88,8 @@ final class AmpSessionIndexTests: XCTestCase {
         let outcome = SessionIndexStore.loadAmpEntriesForTesting(storeURL: storeURL)
         XCTAssertEqual(outcome.entries, [])
         XCTAssertEqual(outcome.errors.count, 1)
-        // Sanitized: filename only, no absolute path.
-        XCTAssertTrue(outcome.errors[0].contains("Amp: cannot read amp-hook-sessions.json"))
+        // Sanitized: generic copy, no internal filename or path.
+        XCTAssertTrue(outcome.errors[0].contains("Amp: couldn't read saved sessions"))
         XCTAssertFalse(outcome.errors[0].contains(storeURL.path))
     }
 

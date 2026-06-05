@@ -65,11 +65,10 @@ extension SessionIndexStore {
             let data = try Data(contentsOf: storeURL)
             store = try JSONDecoder().decode(AmpHookSessionStoreFile.self, from: data)
         } catch {
-            let format = String(
+            errorBag.add(String(
                 localized: "sessionIndex.error.ampStoreRead",
-                defaultValue: "Amp: cannot read %@"
-            )
-            errorBag.add(String(format: format, storeURL.lastPathComponent))
+                defaultValue: "Amp: couldn't read saved sessions"
+            ))
             return []
         }
 
