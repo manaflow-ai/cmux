@@ -233,7 +233,7 @@ body {
   display: block;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.75;
+  stroke-width: 1;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -452,7 +452,7 @@ body[data-status-only="true"] #files-sidebar {
   height: 15px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.75;
+  stroke-width: 1;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
