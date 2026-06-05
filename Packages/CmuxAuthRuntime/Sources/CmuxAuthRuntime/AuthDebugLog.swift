@@ -18,7 +18,7 @@ public struct AuthDebugLog: Sendable {
         let redactedMessage = Self.redacted(message)
         Self.logger.log(level: Self.logType(for: redactedMessage), "\(redactedMessage, privacy: .public)")
         #if DEBUG && os(macOS)
-        let line = "[\(Self.timestampFormatter.string(from: Date()))] auth: \(redactedMessage)\n"
+        let line = "[\(Date().formatted(Self.timestampFormat))] auth: \(redactedMessage)\n"
         Self.appendToDebugFile(line)
         #endif
     }
@@ -28,15 +28,9 @@ public struct AuthDebugLog: Sendable {
     #if DEBUG && os(macOS)
     private static let debugLogPath = "/tmp/cmux-auth-debug.log"
 
-    // ISO8601DateFormatter is expensive to construct (calendar + locale +
-    // time zone). Reuse one instance across the high-frequency log path.
-    // nonisolated(unsafe): configured once here, only read afterwards, and
-    // Apple documents the ISO8601/NSDateFormatter family as thread-safe.
-    private nonisolated(unsafe) static let timestampFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
+    // A Sendable value-type format (unlike ISO8601DateFormatter), so the
+    // multi-actor logging path needs no unsafe shared formatter.
+    private static let timestampFormat = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
 
     /// Append one line with `O_APPEND` so concurrent logs from different actor
     /// executors (the token stores, the browser flow) stay line-atomic instead
