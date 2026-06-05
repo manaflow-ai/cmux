@@ -5350,6 +5350,10 @@ function backgroundCommandPaletteSignature() {
   const cycleTemplate = backgroundTemplateCycleModel(state.backgroundApplyTarget, workspace);
   appendSignatureValue(parts, cycleTemplate.preset?.value || "");
   appendSignatureValue(parts, Boolean(cycleTemplate.disabled));
+  const cycleTune = backgroundTuningCycleModel();
+  appendSignatureValue(parts, cycleTune.preset?.id || "");
+  appendSignatureValue(parts, Boolean(cycleTune.disabled));
+  appendSignatureValue(parts, cycleTune.title || "");
   for (const target of ["app", "pane", "all"]) {
     const model = activeBackgroundPanelViewModel(target, workspace);
     appendSignatureValue(parts, target);
@@ -5417,6 +5421,17 @@ function backgroundCommandPaletteState(commandId, workspace = activeWorkspace())
       disabled: model.disabled,
       title: model.title,
       search: normalizeSettingsQuery(`${base.search} selected target cycle built in template ${model.search}`)
+    };
+  }
+  if (commandId === "background.cycleTuningPreset") {
+    const model = backgroundTuningCycleModel();
+    return {
+      ...base,
+      meta: model.meta,
+      shortcut: "Cycle",
+      disabled: model.disabled,
+      title: model.title,
+      search: normalizeSettingsQuery(`${base.search} tune tuning preset cycle readability performance opacity blur chrome glass tinted flat ${model.search}`)
     };
   }
   if (commandId === "background.chooseActiveTerminal") {
@@ -7731,6 +7746,7 @@ const commands = [
   { id: "background.pasteApp", label: "Paste App Background", shortcut: "", run: () => pasteBackgroundImageFromClipboard({ target: "app" }) },
   { id: "background.clearApp", label: "Clear App Background", shortcut: "", run: () => applyBackgroundValueToTarget("", "app", { toast: true }) },
   { id: "background.cycleSelectedTemplate", label: "Cycle Selected Background Template", shortcut: "", run: () => cycleBackgroundTemplate() },
+  { id: "background.cycleTuningPreset", label: "Cycle Background Tuning Preset", shortcut: "", run: () => cycleBackgroundTuningPreset() },
   { id: "background.chooseActiveTerminal", label: "Choose Active Terminal Background", shortcut: "", run: () => chooseBackgroundImageForTarget({ target: "pane" }) },
   { id: "background.pasteActiveTerminal", label: "Paste Active Terminal Background", shortcut: "", run: () => pasteBackgroundImageFromClipboard({ target: "pane" }) },
   { id: "background.clearActiveTerminal", label: "Clear Active Terminal Background", shortcut: "", run: () => applyBackgroundValueToTarget("", "pane", { toast: true }) },
@@ -7767,6 +7783,7 @@ const backgroundPaletteCommandIds = new Set([
   "background.pasteApp",
   "background.clearApp",
   "background.cycleSelectedTemplate",
+  "background.cycleTuningPreset",
   "background.chooseActiveTerminal",
   "background.pasteActiveTerminal",
   "background.clearActiveTerminal",
@@ -17103,6 +17120,53 @@ function backgroundTuningPresetActive(preset) {
   return Boolean(preset && Object.entries(preset.settings).every(([key, value]) => state.settings[key] === value));
 }
 
+function backgroundTuningPresetSettings(preset) {
+  if (!preset?.settings) return null;
+  return normalizeSettings({
+    ...state.settings,
+    ...preset.settings
+  });
+}
+
+function backgroundTuningPresetSummary(settings = state.settings) {
+  return [
+    optionLabel(backgroundEffectsOptions, settings.backgroundEffects, settings.backgroundEffects),
+    optionLabel(backgroundChromeOptions, settings.backgroundChromeMode, settings.backgroundChromeMode),
+    `${settings.backgroundOpacity}% strength`,
+    `${settings.backgroundBlur}px soften`
+  ].join(" / ");
+}
+
+function backgroundTuningPresetTitle(preset, active = backgroundTuningPresetActive(preset)) {
+  if (!preset) return "Choose a background tune first.";
+  if (active) return `${preset.label} background tune is already active.`;
+  return `Apply ${preset.label} background tune.`;
+}
+
+function backgroundTuningPresetSearchText(preset, active = backgroundTuningPresetActive(preset)) {
+  const settings = backgroundTuningPresetSettings(preset);
+  return normalizeSettingsQuery(`background tune preset wallpaper opacity strength soften blur chrome glass tinted flat readable soft immersive performance ${active ? "active current unavailable " : "ready "}${preset?.label || ""} ${preset?.body || ""} ${backgroundTuningPresetSummary(settings || state.settings)}`);
+}
+
+function backgroundTuningCycleModel() {
+  const presets = backgroundTuningPresets.filter((preset) => preset?.settings);
+  const activeIndex = presets.findIndex((preset) => backgroundTuningPresetActive(preset));
+  const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % presets.length : 0;
+  const preset = presets[nextIndex] || null;
+  const settings = backgroundTuningPresetSettings(preset);
+  const summary = backgroundTuningPresetSummary(settings || state.settings);
+  return {
+    preset,
+    settings,
+    disabled: !preset || (presets.length === 1 && activeIndex === 0),
+    meta: preset ? `${preset.label} / ${summary}` : "No background tunes",
+    title: preset
+      ? `Cycle background tuning to ${preset.label}.`
+      : "No background tuning presets are available.",
+    search: normalizeSettingsQuery(`background tune cycle next preset wallpaper performance readability opacity strength soften blur chrome glass tinted flat current ${backgroundTuningPresetSummary(state.settings)} next ${preset?.label || ""} ${preset?.body || ""} ${summary}`)
+  };
+}
+
 function backgroundTuningSettingsDefault() {
   return backgroundTuningSettings.every((key) => state.settings[key] === defaultSettings[key]);
 }
@@ -17117,7 +17181,7 @@ function updateBackgroundTuneResetAction(button) {
   return changed;
 }
 
-function applyBackgroundTuningPreset(presetId) {
+function applyBackgroundTuningPreset(presetId, options = {}) {
   const preset = backgroundTuningPresets.find((candidate) => candidate.id === presetId);
   if (!preset) {
     toast("Background tune not found.");
@@ -17128,9 +17192,18 @@ function applyBackgroundTuningPreset(presetId) {
     toast(`${preset.label} background tune already active.`);
     return false;
   }
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast(`${preset.label} background tune applied.`);
   return true;
+}
+
+function cycleBackgroundTuningPreset(options = {}) {
+  const model = backgroundTuningCycleModel();
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applyBackgroundTuningPreset(model.preset.id, options);
 }
 
 function resetBackgroundTuningSettings() {
@@ -17157,9 +17230,9 @@ function backgroundTuningPresetGrid() {
     button.type = "button";
     button.disabled = active;
     button.dataset.backgroundTunePreset = preset.id;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`background tune preset ${active ? "active current " : ""}${preset.label} ${preset.body}`);
+    button.dataset.settingsSearch = backgroundTuningPresetSearchText(preset, active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
-    button.title = active ? `${preset.label} background tune is already active.` : `Apply ${preset.label} background tune.`;
+    button.title = backgroundTuningPresetTitle(preset, active);
     button.innerHTML = `
       <span class="background-tune-preset-title"></span>
       <span class="background-tune-preset-body"></span>
@@ -17236,11 +17309,15 @@ function backgroundTuningPanel(onCommit = null) {
 
   const actions = document.createElement("div");
   actions.className = "settings-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery("background tune reset default fit repeat position effects chrome strength opacity soften blur");
+  actions.dataset.settingsSearch = normalizeSettingsQuery("background tune cycle preset reset default fit repeat position effects chrome strength opacity soften blur");
+  const tuneCycle = backgroundTuningCycleModel();
+  const cycleTune = settingsActionButton("Cycle tune", () => cycleBackgroundTuningPreset(), "", `background tune cycle preset readability performance fit repeat position effects chrome strength opacity soften blur ${tuneCycle.search}`);
+  cycleTune.disabled = tuneCycle.disabled;
+  cycleTune.title = tuneCycle.title;
   const resetTune = settingsActionButton("Reset tune", resetBackgroundTuningSettings, "", `background tune reset default fit repeat position effects chrome strength opacity soften blur ${backgroundTuningSettingsDefault() ? "active current " : ""}`);
   resetTune.dataset.backgroundAction = "reset-tune";
   updateBackgroundTuneResetAction(resetTune);
-  actions.append(resetTune);
+  actions.append(cycleTune, resetTune);
 
   panel.append(backgroundTuningPresetGrid(), controls, opacityRow, blurRow, actions);
   return panel;
@@ -26124,14 +26201,22 @@ function quickSavedBackgroundControlsPanel(workspace = activeWorkspace()) {
 function quickBackgroundTuneControlsPanel() {
   const activePreset = backgroundTuningPresets.find(backgroundTuningPresetActive) || null;
   const presetSearch = backgroundTuningPresets.map((preset) => `${preset.label} ${preset.body}`).join(" ");
-  const actions = backgroundTuningPresets.map((preset) => {
+  const tuneCycle = backgroundTuningCycleModel();
+  const actions = [
+    quickOverviewControlButton("Cycle tune", () => refreshQuickSettingsAfterAction(cycleBackgroundTuningPreset({ render: false })), {
+      disabled: tuneCycle.disabled,
+      title: tuneCycle.title,
+      search: normalizeSettingsQuery(`quick setup background tune cycle preset wallpaper opacity blur chrome glass tinted flat performance ${tuneCycle.search}`)
+    })
+  ];
+  actions.push(...backgroundTuningPresets.map((preset) => {
     const active = backgroundTuningPresetActive(preset);
-    return quickOverviewControlButton(active ? "Active" : `Use ${preset.label}`, () => applyBackgroundTuningPreset(preset.id), {
+    return quickOverviewControlButton(active ? "Active" : `Use ${preset.label}`, () => refreshQuickSettingsAfterAction(applyBackgroundTuningPreset(preset.id, { render: false })), {
       disabled: active,
-      title: active ? `${preset.label} background tune is already active.` : `Apply ${preset.label} background tune.`,
-      search: normalizeSettingsQuery(`quick setup background tune preset wallpaper opacity blur chrome glass tinted flat performance ${active ? "active current " : ""}${preset.label} ${preset.body}`)
+      title: backgroundTuningPresetTitle(preset, active),
+      search: normalizeSettingsQuery(`quick setup ${backgroundTuningPresetSearchText(preset, active)}`)
     });
-  });
+  }));
   actions.push(
     quickOverviewControlButton("Backgrounds", () => openSettingsCategory("appearance", { query: "background tune", focusSearch: false }), {
       title: "Open full background image and tuning settings.",
@@ -36870,6 +36955,23 @@ function paletteEntries() {
       title: everywhereModel.title,
       search: normalizeSettingsQuery(`background setup current ${label} apply everywhere app whole window all terminal panes workspace ${everywhereModel.search}`),
       run: () => applyCurrentBackgroundEverywhere(id, paletteWorkspace)
+    });
+  }
+  for (const preset of backgroundTuningPresets) {
+    const active = backgroundTuningPresetActive(preset);
+    const settings = backgroundTuningPresetSettings(preset);
+    const summary = backgroundTuningPresetSummary(settings || state.settings);
+    entries.push({
+      id: `backgroundTune.${preset.id}`,
+      label: `Background tune: ${preset.label}`,
+      meta: active ? `Active / ${summary}` : summary,
+      shortcut: active ? "Active" : "Tune",
+      active,
+      disabled: active,
+      icon: "background",
+      title: backgroundTuningPresetTitle(preset, active),
+      search: backgroundTuningPresetSearchText(preset, active),
+      run: () => applyBackgroundTuningPreset(preset.id)
     });
   }
   for (const preset of backgroundPresets) {
