@@ -826,11 +826,15 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(observedCallCount, 1)
         XCTAssertEqual(observedMaxActiveCallCount, 1)
 
+        let batchApplied = expectation(description: "same-directory git snapshot batch applied")
+        Task {
+            await manager.waitForWorkspaceGitMetadataSnapshotBatchForTesting(directory: directoryURL.path)
+            batchApplied.fulfill()
+        }
         await reader.releaseAll()
+        await fulfillment(of: [batchApplied], timeout: 2.0)
         XCTAssertTrue(
-            waitForCondition {
-                panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" }
-            },
+            panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" },
             "One same-directory snapshot should update every queued panel."
         )
         let finalObservedCallCount = await reader.observedCallCount

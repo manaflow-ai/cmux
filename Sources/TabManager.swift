@@ -1222,6 +1222,7 @@ class TabManager: ObservableObject {
     private var sidebarGitMetadataWatchEnabledOverrideForTesting: Bool?
     private var sidebarPullRequestPollingEnabledOverrideForTesting: Bool?
     private var workspaceGitMetadataRefreshDelaysOverrideForTesting: [TimeInterval]?
+    private var workspaceGitMetadataSnapshotBatchWaitersForTesting: [String: [CheckedContinuation<Void, Never>]] = [:]
 #endif
     private var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     private var lastSidebarPullRequestPollingEnabled = SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
@@ -2215,6 +2216,16 @@ class TabManager: ObservableObject {
     func setWorkspaceGitMetadataRefreshSynchronousForTesting(_ enabled: Bool) {
         workspaceGitMetadataRefreshDelaysOverrideForTesting = enabled ? [0] : nil
     }
+
+    func waitForWorkspaceGitMetadataSnapshotBatchForTesting(directory: String) async {
+        let normalizedDirectory = normalizeDirectory(directory)
+        let hasPendingBatch = workspaceGitSnapshotTasksByDirectory[normalizedDirectory] != nil ||
+            workspaceGitSnapshotRequestsByDirectory[normalizedDirectory]?.isEmpty == false
+        guard hasPendingBatch else { return }
+        await withCheckedContinuation { continuation in
+            workspaceGitMetadataSnapshotBatchWaitersForTesting[normalizedDirectory, default: []].append(continuation)
+        }
+    }
 #endif
 
     func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
@@ -2963,6 +2974,12 @@ class TabManager: ObservableObject {
                 isLastAttempt: request.isLastAttempt
             )
         }
+#if DEBUG
+        let waiters = workspaceGitMetadataSnapshotBatchWaitersForTesting.removeValue(forKey: expectedDirectory) ?? []
+        for waiter in waiters {
+            waiter.resume()
+        }
+#endif
     }
 
     private func removeWorkspaceGitSnapshotRequest(for key: WorkspaceGitProbeKey) {
