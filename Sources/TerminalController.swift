@@ -13973,7 +13973,7 @@ class TerminalController {
 
     private func v2BrowserScreenshot(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let snapshotResult: Data?? = v2AwaitCallback(timeout: 5.0) { finish in
+            let snapshotResult: Data?? = v2AwaitCallback(timeout: 15.0) { finish in
                 browserPanel.takeSnapshot { image in
                     finish(image.flatMap { self.v2PNGData(from: $0) })
                 }

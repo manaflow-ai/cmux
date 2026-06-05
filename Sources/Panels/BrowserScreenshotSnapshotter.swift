@@ -60,11 +60,18 @@ enum BrowserScreenshotCaptureBounds {
 
 @MainActor
 enum BrowserScreenshotWebViewSnapshotter {
-    static func captureFullPage(from webView: WKWebView) async throws -> NSImage {
+    static func captureFullPage(
+        from webView: WKWebView,
+        afterScreenUpdates: Bool = true
+    ) async throws -> NSImage {
         let metrics = try await webContentMetrics(for: webView)
         try BrowserScreenshotCaptureBounds.validateFullPageSize(metrics.contentSize)
         do {
-            let image = try await captureSingleFullContentSnapshot(from: webView, metrics: metrics)
+            let image = try await captureSingleFullContentSnapshot(
+                from: webView,
+                metrics: metrics,
+                afterScreenUpdates: afterScreenUpdates
+            )
             if isAcceptableFullContentSnapshot(image, metrics: metrics) {
                 return image
             }
@@ -74,21 +81,29 @@ enum BrowserScreenshotWebViewSnapshotter {
             #endif
         }
 
-        return try await captureStitchedFullPage(from: webView, metrics: metrics)
+        return try await captureStitchedFullPage(
+            from: webView,
+            metrics: metrics,
+            afterScreenUpdates: afterScreenUpdates
+        )
     }
 
-    static func captureVisibleViewport(from webView: WKWebView) async throws -> NSImage {
+    static func captureVisibleViewport(
+        from webView: WKWebView,
+        afterScreenUpdates: Bool = true
+    ) async throws -> NSImage {
         let configuration = WKSnapshotConfiguration()
-        configuration.afterScreenUpdates = true
+        configuration.afterScreenUpdates = afterScreenUpdates
         return try await takeSnapshot(from: webView, configuration: configuration)
     }
 
     private static func captureSingleFullContentSnapshot(
         from webView: WKWebView,
-        metrics: BrowserScreenshotWebContentMetrics
+        metrics: BrowserScreenshotWebContentMetrics,
+        afterScreenUpdates: Bool
     ) async throws -> NSImage {
         let configuration = WKSnapshotConfiguration()
-        configuration.afterScreenUpdates = true
+        configuration.afterScreenUpdates = afterScreenUpdates
         configuration.snapshotWidth = nil
         configuration.rect = NSRect(origin: .zero, size: metrics.contentSize)
         return try await takeSnapshot(from: webView, configuration: configuration)
@@ -96,7 +111,8 @@ enum BrowserScreenshotWebViewSnapshotter {
 
     private static func captureStitchedFullPage(
         from webView: WKWebView,
-        metrics: BrowserScreenshotWebContentMetrics
+        metrics: BrowserScreenshotWebContentMetrics,
+        afterScreenUpdates: Bool
     ) async throws -> NSImage {
         let contentSize = metrics.contentSize
         let viewportSize = metrics.viewportSize
@@ -118,7 +134,10 @@ enum BrowserScreenshotWebViewSnapshotter {
             for y in yPositions {
                 for x in xPositions {
                     try await scroll(webView, to: NSPoint(x: x, y: y))
-                    let tile = try await captureVisibleViewport(from: webView)
+                    let tile = try await captureVisibleViewport(
+                        from: webView,
+                        afterScreenUpdates: afterScreenUpdates
+                    )
                     drawTile(
                         tile,
                         at: NSPoint(x: x, y: y),
@@ -143,6 +162,152 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
 
         return output
+    }
+
+    static func withOffscreenRenderHost<T>(
+        _ webView: WKWebView,
+        viewportSize: NSSize,
+        expectedURL: URL?,
+        operation: () async throws -> T
+    ) async throws -> T {
+        let previousSuperview = webView.superview
+        let previousSubviews = previousSuperview?.subviews ?? []
+        let previousIndex = previousSubviews.firstIndex(of: webView)
+        let previousFrame = webView.frame
+        let previousBounds = webView.bounds
+        let previousAutoresizingMask = webView.autoresizingMask
+        let previousTranslatesAutoresizingMaskIntoConstraints = webView.translatesAutoresizingMaskIntoConstraints
+        let restoreAnchor: NSView?
+        let restorePosition: NSWindow.OrderingMode
+        if let previousIndex, previousIndex > 0 {
+            restoreAnchor = previousSubviews[previousIndex - 1]
+            restorePosition = .above
+        } else if let previousIndex, previousIndex == 0, previousSubviews.count > 1 {
+            restoreAnchor = previousSubviews[1]
+            restorePosition = .below
+        } else {
+            restoreAnchor = nil
+            restorePosition = .above
+        }
+
+        let normalizedSize = normalizedViewportSize(viewportSize)
+        let frame = NSRect(
+            x: -100_000 - normalizedSize.width,
+            y: -100_000 - normalizedSize.height,
+            width: normalizedSize.width,
+            height: normalizedSize.height
+        )
+        let window = BrowserScreenshotOffscreenRenderPanel(
+            contentRect: frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.browserVisualAutomationRender")
+        window.hasShadow = false
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.alphaValue = 0.01
+        window.ignoresMouseEvents = true
+        window.hidesOnDeactivate = false
+        window.collectionBehavior = [.transient, .ignoresCycle, .stationary, .canJoinAllSpaces]
+        window.isExcludedFromWindowsMenu = true
+
+        let contentView = NSView(frame: NSRect(origin: .zero, size: normalizedSize))
+        contentView.wantsLayer = true
+        webView.removeFromSuperview()
+        webView.frame = contentView.bounds
+        webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(webView)
+        window.contentView = contentView
+        window.orderFrontRegardless()
+
+        do {
+            try await prepareForVisualCapture(webView, expectedURL: expectedURL)
+            let value = try await operation()
+            restoreWebView(
+                webView,
+                to: previousSuperview,
+                frame: previousFrame,
+                bounds: previousBounds,
+                autoresizingMask: previousAutoresizingMask,
+                translatesAutoresizingMaskIntoConstraints: previousTranslatesAutoresizingMaskIntoConstraints,
+                anchor: restoreAnchor,
+                position: restorePosition
+            )
+            window.orderOut(nil)
+            window.contentView = nil
+            window.close()
+            return value
+        } catch {
+            restoreWebView(
+                webView,
+                to: previousSuperview,
+                frame: previousFrame,
+                bounds: previousBounds,
+                autoresizingMask: previousAutoresizingMask,
+                translatesAutoresizingMaskIntoConstraints: previousTranslatesAutoresizingMaskIntoConstraints,
+                anchor: restoreAnchor,
+                position: restorePosition
+            )
+            window.orderOut(nil)
+            window.contentView = nil
+            window.close()
+            throw error
+        }
+    }
+
+    static func prepareForVisualCapture(_ webView: WKWebView, expectedURL: URL?) async throws {
+        try await waitForExpectedURLIfNeeded(webView, expectedURL: expectedURL)
+
+        webView.needsLayout = true
+        webView.superview?.needsLayout = true
+        webView.superview?.layoutSubtreeIfNeeded()
+        webView.layoutSubtreeIfNeeded()
+        webView.superview?.displayIfNeeded()
+        webView.displayIfNeeded()
+
+        do {
+            _ = try await webView.callAsyncJavaScript(
+                """
+                await new Promise((resolve) => {
+                  let settled = false;
+                  const finish = () => {
+                    if (settled) return;
+                    settled = true;
+                    resolve(true);
+                  };
+                  const afterPaint = () => {
+                    try {
+                      requestAnimationFrame(() => requestAnimationFrame(finish));
+                    } catch (_) {
+                      finish();
+                    }
+                  };
+                  setTimeout(finish, 1500);
+                  if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", afterPaint, { once: true });
+                  } else {
+                    afterPaint();
+                  }
+                });
+                return document.readyState;
+                """,
+                arguments: [:],
+                in: nil,
+                contentWorld: .page
+            )
+        } catch {
+            #if DEBUG
+            cmuxDebugLog("browser.screenshot.prepare.failed error=\(error.localizedDescription)")
+            #endif
+        }
+
+        webView.superview?.layoutSubtreeIfNeeded()
+        webView.layoutSubtreeIfNeeded()
+        webView.superview?.displayIfNeeded()
+        webView.displayIfNeeded()
     }
 
     private static func isAcceptableFullContentSnapshot(
@@ -292,6 +457,64 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
     }
 
+    private static func waitForExpectedURLIfNeeded(_ webView: WKWebView, expectedURL: URL?) async throws {
+        guard let expectedURL else { return }
+        let expectedAbsoluteString = expectedURL.absoluteString
+        let deadline = Date().addingTimeInterval(5.0)
+        while Date() < deadline {
+            if let currentURL = webView.url,
+               urlMatches(currentURL, expectedAbsoluteString: expectedAbsoluteString),
+               !webView.isLoading {
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
+    private static func urlMatches(_ currentURL: URL, expectedAbsoluteString: String) -> Bool {
+        let currentAbsoluteString = currentURL.absoluteString
+        if currentAbsoluteString == expectedAbsoluteString {
+            return true
+        }
+
+        guard !expectedAbsoluteString.isEmpty else { return false }
+        return currentAbsoluteString.contains(expectedAbsoluteString)
+    }
+
+    private static func normalizedViewportSize(_ viewportSize: NSSize) -> NSSize {
+        let fallback = NSSize(width: 1280, height: 720)
+        let width = viewportSize.width.isFinite && viewportSize.width > 1 ? viewportSize.width : fallback.width
+        let height = viewportSize.height.isFinite && viewportSize.height > 1 ? viewportSize.height : fallback.height
+        return NSSize(
+            width: min(max(width, 1), 4096),
+            height: min(max(height, 1), 4096)
+        )
+    }
+
+    private static func restoreWebView(
+        _ webView: WKWebView,
+        to previousSuperview: NSView?,
+        frame: NSRect,
+        bounds: NSRect,
+        autoresizingMask: NSView.AutoresizingMask,
+        translatesAutoresizingMaskIntoConstraints: Bool,
+        anchor: NSView?,
+        position: NSWindow.OrderingMode
+    ) {
+        webView.removeFromSuperview()
+        if let previousSuperview {
+            if let anchor, anchor.superview === previousSuperview {
+                previousSuperview.addSubview(webView, positioned: position, relativeTo: anchor)
+            } else {
+                previousSuperview.addSubview(webView)
+            }
+            webView.frame = frame
+            webView.bounds = bounds
+            webView.autoresizingMask = autoresizingMask
+            webView.translatesAutoresizingMaskIntoConstraints = translatesAutoresizingMaskIntoConstraints
+        }
+    }
+
     private static func numberValue(_ value: Any?) -> CGFloat {
         switch value {
         case let number as NSNumber:
@@ -304,4 +527,10 @@ enum BrowserScreenshotWebViewSnapshotter {
             return 0
         }
     }
+}
+
+@MainActor
+private final class BrowserScreenshotOffscreenRenderPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
 }

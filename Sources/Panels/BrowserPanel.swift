@@ -3354,6 +3354,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     private var shouldPreloadInitialNavigationInBackground: Bool
     private var backgroundPreloadWindow: NSWindow?
+    private var activeVisualAutomationCaptureCount: Int = 0
     private struct PendingInteractiveBrowserPrompt {
         let present: (NSWindow, @escaping () -> Void) -> Void
         let cancel: () -> Void
@@ -6222,6 +6223,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isDeveloperToolsVisible: isDeveloperToolsVisible(),
             isElementFullscreenActive: isElementFullscreenActive,
             isReactGrabActive: isReactGrabActive,
+            isVisualAutomationCaptureActive: activeVisualAutomationCaptureCount > 0,
             hasPopups: !popupControllers.isEmpty,
             isCapturingMedia: webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none
         )
@@ -7303,15 +7305,90 @@ extension BrowserPanel {
 
     /// Take a snapshot of the web view
     func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
-        let config = WKSnapshotConfiguration()
-        webView.takeSnapshot(with: config) { image, error in
-            if let error = error {
-                NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
+        Task { @MainActor [weak self] in
+            guard let self else {
                 completion(nil)
                 return
             }
-            completion(image)
+
+            do {
+                let image = try await captureAutomationVisibleViewportSnapshot()
+                completion(image)
+            } catch {
+                NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
+                completion(nil)
+            }
         }
+    }
+
+    func captureAutomationVisibleViewportSnapshot() async throws -> NSImage {
+        try await withVisualAutomationRenderLease(reason: "browser.screenshot") { webView, afterScreenUpdates in
+            try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
+                from: webView,
+                afterScreenUpdates: afterScreenUpdates
+            )
+        }
+    }
+
+    private func withVisualAutomationRenderLease<T>(
+        reason: String,
+        operation: (_ webView: WKWebView, _ afterScreenUpdates: Bool) async throws -> T
+    ) async throws -> T {
+        activeVisualAutomationCaptureCount += 1
+        cancelHiddenWebViewDiscard()
+
+        let expectedURLForRestoredWebView = restoredHistoryCurrentURL ?? currentURL
+        let restoredDiscardedWebView = restoreDiscardedWebViewIfNeeded(reason: "\(reason).restore")
+
+        defer {
+            activeVisualAutomationCaptureCount = max(0, activeVisualAutomationCaptureCount - 1)
+            refreshWebViewLifecycleState()
+            if activeVisualAutomationCaptureCount == 0, !isWebViewVisibleInUI {
+                scheduleHiddenWebViewDiscardIfNeeded(reason: "\(reason).finished")
+            }
+        }
+
+        let viewportSize = visualAutomationViewportSize()
+        let captureWebView = webView
+        if shouldUseOffscreenRenderHostForVisualAutomation {
+            return try await BrowserScreenshotWebViewSnapshotter.withOffscreenRenderHost(
+                captureWebView,
+                viewportSize: viewportSize,
+                expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil,
+                operation: {
+                    try await operation(captureWebView, false)
+                }
+            )
+        }
+
+        try await BrowserScreenshotWebViewSnapshotter.prepareForVisualCapture(
+            captureWebView,
+            expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil
+        )
+        return try await operation(captureWebView, true)
+    }
+
+    private var shouldUseOffscreenRenderHostForVisualAutomation: Bool {
+        guard isWebViewVisibleInUI else { return true }
+        guard webView.window != nil else { return true }
+        guard !webView.isHiddenOrHasHiddenAncestor else { return true }
+        guard webView.bounds.width > 1, webView.bounds.height > 1 else { return true }
+        return false
+    }
+
+    private func visualAutomationViewportSize() -> NSSize {
+        let candidates = [
+            webView.bounds.size,
+            webView.frame.size,
+            webView.window?.contentView?.bounds.size ?? .zero,
+        ]
+        for candidate in candidates where candidate.width > 1 && candidate.height > 1 {
+            return NSSize(
+                width: min(max(candidate.width, 1), 4096),
+                height: min(max(candidate.height, 1), 4096)
+            )
+        }
+        return NSSize(width: 1280, height: 720)
     }
 
     /// Execute JavaScript
