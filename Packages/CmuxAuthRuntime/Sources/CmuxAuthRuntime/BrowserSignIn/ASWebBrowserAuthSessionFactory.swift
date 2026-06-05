@@ -23,7 +23,7 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
         let session = ASWebAuthenticationSession(
             url: signInURL,
             callbackURLScheme: callbackScheme,
-            completionHandler: Self.sessionCompletionBridge(log: log, completion: completion)
+            completionHandler: sessionCompletionBridge(completion: completion)
         )
         session.presentationContextProvider = anchor
         session.prefersEphemeralWebBrowserSession = false
@@ -35,15 +35,15 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
     /// Deliberately `nonisolated` + `@Sendable`: the session does NOT reliably
     /// call back on the main thread (observed on macOS 26: the cancel path
     /// delivers on the `SafariLaunchAgent` NSXPCConnection queue). A closure
-    /// formed inside this `@MainActor` class would inherit main-actor
+    /// formed in this class's `@MainActor` context would inherit main-actor
     /// isolation and Swift 6 would trap (`dispatch_assert_queue`) at the ObjC
     /// boundary when that off-main delivery happens. This bridge carries no
     /// isolation assumption and hops to the main actor itself.
-    nonisolated static func sessionCompletionBridge(
-        log: AuthDebugLog,
+    nonisolated func sessionCompletionBridge(
         completion: @escaping @MainActor (URL?) -> Void
     ) -> @Sendable (URL?, (any Error)?) -> Void {
-        { callbackURL, error in
+        let log = self.log
+        return { callbackURL, error in
             Task { @MainActor in
                 if let error {
                     log.log("auth.webauth failed: \(error)")
