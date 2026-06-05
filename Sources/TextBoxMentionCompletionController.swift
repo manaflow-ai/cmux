@@ -155,16 +155,24 @@ final class TextBoxMentionCompletionController {
             // stale state is safer to clear than filter on the main actor.
             suggestions = []
         } else {
-            suggestions = suggestions.filter { suggestion in
+            let filteredSuggestions = suggestions.filter { suggestion in
                 Self.title(suggestion.title, matchesNormalizedQuery: normalizedQuery)
+            }
+            if !filteredSuggestions.isEmpty {
+                suggestions = filteredSuggestions
             }
         }
         if suggestions.isEmpty {
             suggestionsQuery = nil
             suggestionsRootDirectory = nil
-        } else {
+        } else if suggestions.allSatisfy({ suggestion in
+            Self.title(suggestion.title, matchesNormalizedQuery: normalizedQuery)
+        }) {
             suggestionsQuery = activeQuery
             suggestionsRootDirectory = activeRootDirectory
+        } else {
+            suggestionsQuery = nil
+            suggestionsRootDirectory = nil
         }
         selectionIndex = suggestions.isEmpty ? 0 : min(selectionIndex, suggestions.count - 1)
     }
