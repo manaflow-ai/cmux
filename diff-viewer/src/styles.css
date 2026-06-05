@@ -107,8 +107,11 @@ body {
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
   min-width: 0;
+}
+.toolbar-left,
+.toolbar-middle {
+  gap: 6px;
 }
 .toolbar-left {
   justify-self: stretch;
@@ -118,6 +121,7 @@ body {
 }
 .toolbar-actions {
   justify-self: end;
+  gap: 4px;
 }
 #source-select,
 #repo-select,
@@ -202,8 +206,8 @@ body {
   }
 }
 .toolbar-icon {
-  width: 28px;
-  height: 26px;
+  width: 20px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -228,8 +232,8 @@ body {
 }
 .toolbar-icon svg,
 .menu-item svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   display: block;
   fill: none;
   stroke: currentColor;
