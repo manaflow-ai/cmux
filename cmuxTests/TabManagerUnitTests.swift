@@ -76,7 +76,6 @@ private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
     private var callCount = 0
     private var maxActiveCallCount = 0
     private var activeCallCount = 0
-    private var callCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
 
     init(metadata: GitWorkspaceMetadata) {
@@ -87,19 +86,11 @@ private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
         callCount += 1
         activeCallCount += 1
         maxActiveCallCount = max(maxActiveCallCount, activeCallCount)
-        resumeSatisfiedCallCountWaiters()
         await withCheckedContinuation { continuation in
             releaseContinuations.append(continuation)
         }
         activeCallCount -= 1
         return metadata
-    }
-
-    func waitForCallCount(_ expected: Int) async {
-        guard callCount < expected else { return }
-        await withCheckedContinuation { continuation in
-            callCountWaiters.append((expected, continuation))
-        }
     }
 
     func releaseAll() {
@@ -116,18 +107,6 @@ private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
 
     var observedMaxActiveCallCount: Int {
         maxActiveCallCount
-    }
-
-    private func resumeSatisfiedCallCountWaiters() {
-        var remaining: [(Int, CheckedContinuation<Void, Never>)] = []
-        for waiter in callCountWaiters {
-            if callCount >= waiter.0 {
-                waiter.1.resume()
-            } else {
-                remaining.append(waiter)
-            }
-        }
-        callCountWaiters = remaining
     }
 }
 
@@ -809,12 +788,11 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
 
-        let firstRead = expectation(description: "first git snapshot read started")
-        Task {
-            await reader.waitForCallCount(1)
-            firstRead.fulfill()
+        let firstReadDeadline = Date().addingTimeInterval(1.0)
+        while await reader.observedCallCount < 1, Date() < firstReadDeadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
-        await fulfillment(of: [firstRead], timeout: 1.0)
+        XCTAssertGreaterThanOrEqual(await reader.observedCallCount, 1)
 
         try await Task.sleep(nanoseconds: 200_000_000)
 
