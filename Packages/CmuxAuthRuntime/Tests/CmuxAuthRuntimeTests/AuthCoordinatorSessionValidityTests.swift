@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import Foundation
+import StackAuth
 import Testing
 @testable import CmuxAuthRuntime
 
@@ -136,5 +137,53 @@ import Testing
 
         #expect(coordinator.isAuthenticated == false)
         #expect(store.bool(forKey: "has_tokens") == false)
+    }
+
+    // The discriminator pair: validating a cached session throws the SAME error
+    // in both cases — code `USER_NOT_SIGNED_IN`, which the SDK raises for both a
+    // definitive rejection and a transient `/users/me` failure, and which the
+    // error mapper classifies as `preserveCachedSession`. The outcome must instead
+    // be decided by LIVE token-store validity, so these two tests throw the
+    // identical error and differ only in whether a refresh token survives.
+    private static func userNotSignedInError() -> any Error {
+        StackAuthError(code: "USER_NOT_SIGNED_IN", message: "User is not signed in.")
+    }
+
+    // Definitively gone: validation throws and no refresh token survives in the
+    // live store. The stale "signed in" flag must NOT outlive the tokens; the
+    // gate routes to the sign-in page. A non-nil access token is present so
+    // `checkExistingSession` reaches `validateCachedSession` (its `hasStoredTokens`
+    // gate is `access != nil || refresh != nil`) and the catch discriminator runs.
+    @Test func validationFailureWithNoRefreshTokenRoutesToLogin() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let (coordinator, store) = try await signedInCoordinator(client: client)
+
+        await client.setTokens(access: "stale", refresh: nil)
+        await client.setThrowOnCurrentUser(Self.userNotSignedInError())
+
+        await coordinator.revalidateSession()
+
+        #expect(coordinator.isAuthenticated == false)
+        #expect(coordinator.currentUser == nil)
+        #expect(store.bool(forKey: "has_tokens") == false)
+    }
+
+    // Transient: validation throws the same error, but a refresh token survives,
+    // so the failure was a network/server hiccup and the cached session is
+    // preserved (a flaky network must never sign a valid user out).
+    @Test func validationFailureWithSurvivingRefreshTokenPreservesSession() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let (coordinator, store) = try await signedInCoordinator(client: client)
+
+        await client.setTokens(access: "a", refresh: "r")
+        await client.setThrowOnCurrentUser(Self.userNotSignedInError())
+
+        await coordinator.revalidateSession()
+
+        #expect(coordinator.isAuthenticated == true)
+        #expect(coordinator.currentUser == user)
+        #expect(store.bool(forKey: "has_tokens") == true)
     }
 }
