@@ -312,6 +312,7 @@ final class WorkspaceSSHTests: XCTestCase {
                 "CMUX_PANE_ID": surfaceID,
                 "CMUX_RELAY_ID": "relay-id-abc",
                 "CMUX_RELAY_TOKEN": "relay-token-xyz",
+                "CMUX_BUNDLED_CLI_PATH": "/tmp/fake-tagged-build/bin/cmux",
             ]
         )
         let initialEnv = try XCTUnwrap(captured["initial_env"] as? [String: String])
@@ -328,6 +329,7 @@ final class WorkspaceSSHTests: XCTestCase {
         XCTAssertNil(initialEnv["CMUX_PANE_ID"])
         XCTAssertNil(initialEnv["CMUX_RELAY_ID"])
         XCTAssertNil(initialEnv["CMUX_RELAY_TOKEN"])
+        XCTAssertNil(initialEnv["CMUX_BUNDLED_CLI_PATH"])
     }
 
     private func captureSSHWorkspaceCreateParams(
