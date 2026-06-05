@@ -3247,6 +3247,15 @@ function canSaveCustomColor(color) {
   return Boolean(normalized && (customColorPaletteHasColor(normalized) || !customColorPaletteFull()));
 }
 
+function refreshCustomColorPaletteSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "appearance") {
+    scheduleAppearancePreviewRefresh();
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 function currentColorSetColors(workspace = activeWorkspace()) {
   const activePaneColor = paneColorValue(activePaneForColorTarget(), workspace);
   return uniqueColors([
@@ -3319,7 +3328,7 @@ function saveCurrentColorSetToPalette(workspace = activeWorkspace(), options = {
   }
   state.customColorPalette = next;
   saveCustomColorPalette();
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshCustomColorPaletteSettings(options);
   toast(`${model.newColors.length} current color${model.newColors.length === 1 ? "" : "s"} saved.`);
   return true;
 }
@@ -3377,7 +3386,7 @@ function saveColorVariantsToPalette(color, options = {}) {
   }
   state.customColorPalette = uniqueColors([...model.savableColors, ...state.customColorPalette]).slice(0, customColorPaletteLimit);
   saveCustomColorPalette();
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshCustomColorPaletteSettings(options);
   toast(`${model.savableColors.length} color variant${model.savableColors.length === 1 ? "" : "s"} saved.`);
   return true;
 }
@@ -3480,17 +3489,17 @@ function upsertCustomColorPalette(color, options = {}) {
     ...state.customColorPalette.filter((candidate) => candidate.toLowerCase() !== normalized)
   ].slice(0, customColorPaletteLimit);
   saveCustomColorPalette();
-  if (options.render !== false) renderSettingsInspector();
+  refreshCustomColorPaletteSettings(options);
   if (options.toast !== false) toast(existed ? "Saved color moved to top." : "Saved color added.");
   return true;
 }
 
-function deleteCustomColorPalette(color) {
+function deleteCustomColorPalette(color, options = {}) {
   const normalized = normalizeCustomPaletteColor(color);
   if (!normalized) return;
   state.customColorPalette = state.customColorPalette.filter((candidate) => candidate.toLowerCase() !== normalized);
   saveCustomColorPalette();
-  renderSettingsInspector();
+  refreshCustomColorPaletteSettings(options);
   toast("Saved color deleted.");
 }
 
@@ -3566,7 +3575,7 @@ function applySavedColorPaletteUpdates(colors, options = {}) {
   }
   state.customColorPalette = next;
   saveCustomColorPalette();
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshCustomColorPaletteSettings(options);
   toast("Saved color palette applied.");
   return true;
 }
