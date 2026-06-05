@@ -12,11 +12,37 @@ extension TerminalSurface {
         var workspaceNotesDir: String?
     }
 
-    /// Resolves a workspace UUID to its Notes tree root. Injected once by the
-    /// composition root (`ContentView`), which owns the `TabManager` needed to
-    /// map the ephemeral workspace id to its stable note anchor. App-target DI
-    /// seam — set on the main actor, read at PTY-spawn time.
-    @MainActor static var workspaceNotesDirectoryResolver: ((UUID) -> String?)?
+    /// Per-window resolvers mapping a workspace UUID to its Notes tree root,
+    /// keyed by the registrant's identity. Each main window registers its own
+    /// (its `TabManager` only knows that window's workspaces); a single
+    /// last-writer-wins closure would drop every other window's workspaces, so
+    /// ``resolveWorkspaceNotesDirectory(_:)`` searches all registered windows.
+    @MainActor private static var workspaceNotesDirectoryResolvers: [ObjectIdentifier: (UUID) -> String?] = [:]
+
+    /// Register (or replace) a window's notes-dir resolver, keyed by `owner`
+    /// (typically that window's `TabManager`). App-target DI seam — set on the
+    /// main actor by the composition root, read at PTY-spawn time.
+    @MainActor static func registerWorkspaceNotesDirectoryResolver(
+        owner: AnyObject,
+        _ resolve: @escaping (UUID) -> String?
+    ) {
+        workspaceNotesDirectoryResolvers[ObjectIdentifier(owner)] = resolve
+    }
+
+    /// Remove a window's resolver (e.g. when its window closes).
+    @MainActor static func unregisterWorkspaceNotesDirectoryResolver(owner: AnyObject) {
+        workspaceNotesDirectoryResolvers.removeValue(forKey: ObjectIdentifier(owner))
+    }
+
+    /// Resolve a workspace's Notes tree root across every registered window,
+    /// returning the first match (a given workspace id lives in exactly one
+    /// window's `TabManager`).
+    @MainActor static func resolveWorkspaceNotesDirectory(_ workspaceId: UUID) -> String? {
+        for resolve in workspaceNotesDirectoryResolvers.values {
+            if let dir = resolve(workspaceId) { return dir }
+        }
+        return nil
+    }
 
     static let managedTerminalType = "xterm-256color"
     static let managedTerminalProgram = "ghostty"

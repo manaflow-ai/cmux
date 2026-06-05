@@ -5472,7 +5472,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 workspaceId: tabId,
                 surfaceId: id,
                 socketPath: socketPath,
-                workspaceNotesDir: Self.workspaceNotesDirectoryResolver?(tabId)
+                workspaceNotesDir: Self.resolveWorkspaceNotesDirectory(tabId)
             ),
             to: &environment,
             protectedKeys: &protectedKeys
@@ -6375,7 +6375,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 workspaceId: tabId,
                 surfaceId: id,
                 socketPath: socketPath,
-                workspaceNotesDir: Self.workspaceNotesDirectoryResolver?(tabId)
+                workspaceNotesDir: Self.resolveWorkspaceNotesDirectory(tabId)
             ),
             to: &env,
             protectedKeys: &protectedStartupEnvironmentKeys

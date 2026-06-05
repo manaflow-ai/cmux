@@ -2576,7 +2576,9 @@ struct ContentView: View {
     /// (keyed by cwd), and expose this window's per-workspace notes root to
     /// spawned terminals via `CMUX_WORKSPACE_NOTES_DIR` (for the cmux-notes skill).
     private func installNotesSessionLoaderIfNeeded() {
-        TerminalSurface.workspaceNotesDirectoryResolver = { [weak tabManager] id in
+        // Register this window's resolver keyed by its TabManager so multiple
+        // windows coexist (the static map is searched, not overwritten).
+        TerminalSurface.registerWorkspaceNotesDirectoryResolver(owner: tabManager) { [weak tabManager] id in
             guard let tabManager,
                   let workspace = tabManager.tabs.first(where: { $0.id == id }) else { return nil }
             let cwd = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
