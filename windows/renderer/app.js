@@ -2462,9 +2462,7 @@ async function loadBrowserProfiles(options = {}) {
     state.browserProfilesLoading = false;
   }
   refreshBrowserExternalProfileButtons();
-  if (options.render && state.inspectorMode === "settings" && state.settingsCategory === "browser") {
-    renderSettingsInspector();
-  }
+  if (options.render) refreshBrowserSetupSettings({ ...options, browserPageOnly: true });
   return state.browserProfiles;
 }
 
@@ -2482,6 +2480,35 @@ function browserProfileLabel(profileId = state.settings.externalBrowserProfileId
 function browserExternalProfileTitle(profileId = state.settings.externalBrowserProfileId) {
   const label = browserProfileLabel(profileId);
   return profileId === "system" ? "Open in system browser" : `Open in ${label}`;
+}
+
+function browserProfileSelectSignature(profiles) {
+  return JSON.stringify(profiles.map((profile) => [profile.id, profile.label]));
+}
+
+function syncBrowserProfileSelectOptions(profileSelect) {
+  if (!profileSelect) return false;
+  const profiles = browserProfileOptions();
+  const signature = browserProfileSelectSignature(profiles);
+  let changed = false;
+  if (profileSelect.dataset.browserProfileOptions !== signature) {
+    profileSelect.replaceChildren(...profiles.map((profile) => {
+      const option = document.createElement("option");
+      option.value = profile.id;
+      option.textContent = profile.label;
+      return option;
+    }));
+    profileSelect.dataset.browserProfileOptions = signature;
+    changed = true;
+  }
+  const nextProfileId = profiles.some((profile) => profile.id === state.settings.externalBrowserProfileId)
+    ? state.settings.externalBrowserProfileId
+    : "system";
+  if (profileSelect.value !== nextProfileId) {
+    profileSelect.value = nextProfileId;
+    changed = true;
+  }
+  return changed;
 }
 
 function refreshBrowserExternalProfileButtons() {
@@ -16158,16 +16185,7 @@ function renderSettingsInspector(options = {}) {
     const profileSelect = document.createElement("select");
     profileSelect.className = "setting-select";
     profileSelect.dataset.settingControl = "externalBrowserProfileId";
-    const profiles = browserProfileOptions();
-    for (const profile of profiles) {
-      const option = document.createElement("option");
-      option.value = profile.id;
-      option.textContent = profile.label;
-      profileSelect.append(option);
-    }
-    profileSelect.value = profiles.some((profile) => profile.id === state.settings.externalBrowserProfileId)
-      ? state.settings.externalBrowserProfileId
-      : "system";
+    syncBrowserProfileSelectOptions(profileSelect);
     profileSelect.onchange = () => updateSettings({ externalBrowserProfileId: profileSelect.value });
     browserSection.append(settingRow("Open external in", profileSelect, false, "browser chrome edge brave profile system external open"));
     browserSection.append(settingRow(
@@ -20850,13 +20868,7 @@ function refreshBrowserSettingsPreview() {
     launchModeSelect.value = state.settings.browserLaunchMode;
   }
   const profileSelect = elements.inspectorBody.querySelector('[data-setting-control="externalBrowserProfileId"]');
-  if (profileSelect) {
-    const profiles = browserProfileOptions();
-    const nextProfileId = profiles.some((profile) => profile.id === state.settings.externalBrowserProfileId)
-      ? state.settings.externalBrowserProfileId
-      : "system";
-    if (profileSelect.value !== nextProfileId) profileSelect.value = nextProfileId;
-  }
+  syncBrowserProfileSelectOptions(profileSelect);
   refreshSettingSegmentedControl("browserChromeMode");
   refreshSettingSegmentedControl("browserZoom");
   refreshBrowserSetupActions();
