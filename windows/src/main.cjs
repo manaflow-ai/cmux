@@ -16,6 +16,9 @@ const zoomLockedContents = new WeakSet();
 const navigationGuardedContents = new WeakSet();
 
 const appRoot = path.resolve(__dirname, "..");
+const appName = "cmux";
+const appUserModelId = "com.cmux.windows";
+const appIconPath = path.join(__dirname, "assets", "cmux.ico");
 const serverProcessPath = path.join(__dirname, "server-process.cjs");
 const clipboardImageDataUrlLimitBytes = 2 * 1024 * 1024;
 const windowResizeEdges = new Set([
@@ -543,7 +546,8 @@ async function createWindow() {
     height: 860,
     minWidth: 480,
     minHeight: 400,
-    title: "cmux Windows",
+    title: appName,
+    icon: appIconPath,
     backgroundColor: "#111316",
     frame: false,
     thickFrame: true,
@@ -592,6 +596,9 @@ const hasLock = app.requestSingleInstanceLock();
 if (!hasLock) {
   app.quit();
 } else {
+  app.setName(appName);
+  if (process.platform === "win32") app.setAppUserModelId(appUserModelId);
+
   ipcMain.handle("window:minimize", trustedIpcHandler(() => {
     mainWindow?.minimize();
     return true;

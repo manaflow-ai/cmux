@@ -29,7 +29,7 @@
 
 This repository hosts an unofficial community Windows build of cmux for users who want to try the Electron-based Windows port. It is not an official upstream cmux release, but it keeps the same cmux spirit: workspaces, panes, browser surfaces, notifications, customization, and CLI control adapted for Windows.
 
-Download the latest Windows `.exe` installer from this repository's [Releases](https://github.com/imthegoodboy/cmux-window/releases) page. The official macOS release remains available from [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux).
+Download `cmux-0.1.0-setup.exe` from this repository's [Releases](https://github.com/imthegoodboy/cmux-window/releases) page. The app and installer are named `cmux`; this repository's Windows build is an unofficial community build. The official macOS release remains available from [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux).
 
 ## Features
 

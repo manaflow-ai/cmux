@@ -12,10 +12,10 @@
     <div class="shell sidebar-footer-workspace" id="shell">
       <aside class="sidebar" id="sidebar">
         <div class="brand">
-          <div class="brand-mark">cm</div>
+          <div class="brand-mark"><img src="./assets/cmux-icon.png" alt="" aria-hidden="true"></div>
           <div>
             <div class="brand-title">cmux</div>
-            <div class="brand-subtitle">Windows</div>
+            <div class="brand-subtitle">Windows build</div>
           </div>
         </div>
         <div class="sidebar-tools">
@@ -28,6 +28,7 @@
         <div class="sidebar-footer">
           <button type="button" class="sidebar-action" id="newWorkspaceButton" title="New workspace" aria-label="New workspace">+ Workspace</button>
           <button type="button" class="sidebar-action danger" id="resetSessionButton" title="Reset session" aria-label="Reset session">Reset</button>
+          <div class="sidebar-credit">Built by Nikku</div>
         </div>
       </aside>
 
@@ -63,15 +64,15 @@
         <section class="pane-grid" id="paneGrid">
           <div class="empty-workspace">
             <div class="empty-workspace-inner">
-              <div class="empty-workspace-logo" role="img" aria-label="cmux Windows"><img src="./assets/cmux-empty.svg" alt=""></div>
+              <div class="empty-workspace-logo" role="img" aria-label="cmux"><img src="./assets/cmux-icon.png" alt=""></div>
               <div class="empty-workspace-title">cmux</div>
-              <div class="empty-workspace-body">Starting cmux Windows...</div>
+              <div class="empty-workspace-body">Starting cmux...</div>
               <div class="empty-workspace-launchers"></div>
             </div>
           </div>
         </section>
         <footer class="statusbar">
-          <span id="statusSummary">cmux Windows</span>
+          <span id="statusSummary">cmux</span>
           <span id="statusPipe">pipe</span>
           <span id="statusPty">terminal</span>
           <span id="statusRender" class="statusbar-perf">render --</span>

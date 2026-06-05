@@ -8291,7 +8291,7 @@ function customizationCommandPaletteState(commandId) {
       meta: "Full setup import",
       shortcut: "Paste",
       icon: "data",
-      title: "Paste exported cmux Windows app setup JSON.",
+      title: "Paste exported cmux app setup JSON.",
       search: "app setup full restore import settings profiles blueprints snippets colors backgrounds recent clipboard json"
     };
   }
@@ -10680,7 +10680,7 @@ function isUiOperationActive(key) {
 }
 
 function defaultStatusSummary(workspace = activeWorkspace(), options = {}) {
-  if (!workspace) return "cmux Windows";
+  if (!workspace) return "cmux";
   const panelCount = options.panelCount ?? workspace.panels.length;
   const attentionCount = options.attentionCount ?? allAttentionPanels().length;
   const zoomedPanel = options.zoomedPanel ?? zoomedPanelForWorkspace(workspace);
@@ -24348,7 +24348,7 @@ function performanceDiagnosticsPayload() {
     version: 1,
     generatedAt: new Date().toISOString(),
     app: {
-      name: "cmux Windows",
+      name: "cmux",
       userAgent: navigator.userAgent,
       viewport: {
         width: window.innerWidth,
@@ -26490,6 +26490,7 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
   const profilesFull = savedSettingsProfilesFull();
   const refreshQuick = refreshQuickSettingsAfterAction;
   const chromeCycle = workspaceChromePresetCycleModel();
+  const displayCleanup = quickDisplayCleanupModel();
   const presetAction = (presetId, label) => {
     const preset = workspaceChromePresetById(presetId);
     const settings = workspaceChromePresetSettings(preset);
@@ -26509,6 +26510,11 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save this layout and workspace chrome as a reusable Settings profile.",
       search: "quick setup layout workspace chrome save profile reusable settings toolbar tabs sidebar panes palette command placement"
+    }),
+    quickOverviewControlButton("Simplify", () => refreshQuick(applyPerformanceHealthFix("workspaceChrome", { render: false })), {
+      disabled: !displayCleanup.needsCleanup,
+      title: displayCleanup.title,
+      search: normalizeSettingsQuery(`quick setup layout simplify display clean declutter simple compact quiet chrome toolbar sidebar palette panes spacing ${displayCleanup.search}`)
     }),
     presetAction("compact", "Compact"),
     presetAction("focus", "Focus"),
@@ -27808,7 +27814,7 @@ function quickDataMaintenanceControlsPanel(storageBytes = totalDataStorageBytes(
       search: "quick setup data maintenance backup export copy app setup settings profiles blueprints snippets colors backgrounds recent clipboard json"
     }),
     quickOverviewControlButton("Restore", () => refreshQuickSettingsAfterAction(pasteAppSetup({ render: false })), {
-      title: "Paste exported cmux Windows app setup JSON.",
+      title: "Paste exported cmux app setup JSON.",
       search: "quick setup data maintenance restore import paste app setup settings profiles blueprints snippets colors backgrounds recent clipboard json"
     }),
     quickOverviewControlButton("Clear recent", () => refreshQuickSettingsAfterAction(clearRecentActivity({ render: false })), {
@@ -28119,7 +28125,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   copySetup.onclick = () => copyAppSetup();
   const pasteSetup = panel.querySelector('[data-quick-setup-action="paste"]');
   pasteSetup.querySelector(".quick-overview-save-icon").innerHTML = controlIconMarkup("clipboard");
-  pasteSetup.title = "Paste exported cmux Windows app setup JSON.";
+  pasteSetup.title = "Paste exported cmux app setup JSON.";
   pasteSetup.setAttribute("aria-label", pasteSetup.title);
   pasteSetup.dataset.settingsSearch = normalizeSettingsQuery("quick setup paste app setup import settings profiles blueprints colors backgrounds snippets clipboard json");
   pasteSetup.onclick = () => refreshQuickSettingsAfterAction(pasteAppSetup({ render: false }));
@@ -29611,7 +29617,7 @@ function dataSettingsOverviewPanel(entries = dataStorageEntries()) {
   panel.innerHTML = `
     <div class="data-overview-heading">
       <span class="data-overview-title">Local data</span>
-      <span class="data-overview-subtitle">cmux Windows</span>
+      <span class="data-overview-subtitle">cmux</span>
     </div>
     <div class="data-overview-grid">
       <span><b>Storage</b><em data-data-overview-storage></em></span>
@@ -29628,9 +29634,9 @@ function dataSettingsOverviewPanel(entries = dataStorageEntries()) {
   const savedLibrary = savedDataItemCount() > 0;
   const actions = panel.querySelector(".data-overview-actions");
   const copySetup = settingsActionButton("Copy setup", copyAppSetup, "primary", "data overview backup export full app setup settings profiles colors backgrounds recent clipboard json");
-  copySetup.title = "Copy the complete cmux Windows setup as JSON.";
+  copySetup.title = "Copy the complete cmux setup as JSON.";
   const pasteSetup = settingsActionButton("Paste setup", pasteAppSetup, "", "data overview restore import full app setup settings profiles colors backgrounds recent clipboard json");
-  pasteSetup.title = "Paste exported cmux Windows app setup JSON.";
+  pasteSetup.title = "Paste exported cmux app setup JSON.";
   const copyLibrary = settingsActionButton("Copy library", copySavedLibrary, "", `data overview saved customization library export snippets profiles blueprints colors backgrounds clipboard json ${savedSearch}`);
   copyLibrary.disabled = !savedLibrary;
   copyLibrary.title = savedLibraryCopyTitle();
@@ -29651,7 +29657,7 @@ function dataMaintenanceDefinitions(entries = dataStorageEntries()) {
     {
       id: "appBackup",
       label: "App backup",
-      body: "Export or restore the complete cmux Windows setup.",
+      body: "Export or restore the complete cmux setup.",
       meta: formatBytes(storageBytes),
       search: "settings data app setup backup export import restore full preferences profiles blueprints snippets colors backgrounds recent",
       actions: [
@@ -29664,7 +29670,7 @@ function dataMaintenanceDefinitions(entries = dataStorageEntries()) {
         {
           label: "Paste app setup",
           run: pasteAppSetup,
-          title: "Paste exported cmux Windows app setup JSON.",
+          title: "Paste exported cmux app setup JSON.",
           search: "settings data import paste app setup restore preferences profiles blueprints snippets colors backgrounds recent clipboard json"
         }
       ]
@@ -29748,7 +29754,7 @@ function dataMaintenanceDefinitions(entries = dataStorageEntries()) {
           label: "Reset settings",
           run: resetSettings,
           tone: "danger",
-          title: "Restore cmux Windows settings to defaults.",
+          title: "Restore cmux settings to defaults.",
           search: "settings data reset preferences default factory"
         }
       ]
@@ -44550,7 +44556,7 @@ function copyAppSetup() {
 function pasteAppSetup(options = {}) {
   return importSettings({
     title: "Paste app setup",
-    message: "Paste exported cmux Windows app setup JSON.",
+    message: "Paste exported cmux app setup JSON.",
     confirmLabel: "Paste",
     toastText: "App setup applied.",
     ...options
@@ -44598,7 +44604,7 @@ async function importSettings(options = {}) {
   const suggested = clipboardText.trim().startsWith("{") ? clipboardText : "";
   const raw = await showTextDialog({
     title: options.title || "Import settings",
-    message: options.message || "Paste exported cmux Windows settings JSON.",
+    message: options.message || "Paste exported cmux settings JSON.",
     value: suggested,
     placeholder: "{ ... }",
     confirmLabel: options.confirmLabel || "Import",
@@ -44751,7 +44757,7 @@ async function importSettings(options = {}) {
 async function resetSettings() {
   if (!await showConfirmDialog({
     title: "Reset settings",
-    message: "Restore cmux Windows settings to defaults.",
+    message: "Restore cmux settings to defaults.",
     confirmLabel: "Reset",
     danger: true
   })) return;

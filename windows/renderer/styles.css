@@ -921,15 +921,20 @@ body.reduce-motion *::after {
 }
 
 .brand-mark {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
-  border: 1px solid color-mix(in oklch, var(--color-accent) 70%, var(--color-line) 30%);
-  border-radius: var(--radius-2);
-  color: var(--color-accent-ink);
-  background: color-mix(in oklch, var(--color-accent) 42%, var(--color-pane) 58%);
-  font: 800 11px/1 var(--font-mono);
+  border: 0;
+  background: transparent;
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  filter: drop-shadow(0 5px 10px color-mix(in oklch, var(--color-accent) 24%, transparent));
 }
 
 .brand-title {
@@ -1471,6 +1476,22 @@ body.reduce-motion *::after {
 .shell.sidebar-footer-compact .sidebar-footer {
   grid-template-columns: 32px 32px;
   justify-content: space-between;
+}
+
+.sidebar-credit {
+  grid-column: 1 / -1;
+  color: var(--color-faint);
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.shell.sidebar-footer-workspace .sidebar-credit {
+  text-align: left;
+}
+
+.shell.sidebar-footer-compact .sidebar-credit {
+  display: none;
 }
 
 .sidebar-action {

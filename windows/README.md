@@ -1,4 +1,4 @@
-# cmux Windows
+# cmux for Windows
 
 This is the first runnable Windows port milestone. It is intentionally additive and does not touch the macOS Xcode app.
 
@@ -21,9 +21,10 @@ npm install
 npm run dist:win
 ```
 
-The installer is written to `windows/release/cmux-windows-0.1.0-setup.exe`.
-This is an unofficial community Windows build; official upstream cmux releases
-remain macOS-focused.
+The installer is written to `windows/release/cmux-0.1.0-setup.exe`.
+The app, shortcut, executable, and installer are named `cmux`. This is an
+unofficial community Windows build; official upstream cmux releases remain
+macOS-focused.
 
 ## CLI
 
@@ -40,7 +41,7 @@ npm run cli -- new-terminal
 npm run cli -- restart-terminal
 npm run cli -- browser-open https://example.com
 npm run cli -- notify "Build finished"
-npm run cli -- send "echo hello from cmux Windows"
+npm run cli -- send "echo hello from cmux"
 ```
 
 The runtime listens on `\\.\pipe\cmux-windows` on Windows and falls back to a temp Unix socket on other platforms.

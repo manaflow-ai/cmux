@@ -425,7 +425,7 @@ async function waitForCondition(label, probe, timeoutMs = 3000) {
   }
 
   runtime.close();
-  process.stdout.write("cmux Windows smoke passed\n");
+process.stdout.write("cmux smoke passed\n");
 })().catch((error) => {
   process.stderr.write(`${error.stack || error.message}\n`);
   process.exit(1);

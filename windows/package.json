@@ -1,9 +1,13 @@
 {
-  "name": "cmux-windows",
+  "name": "cmux",
   "version": "0.1.0",
+  "productName": "cmux",
   "private": true,
-  "description": "Windows desktop milestone for cmux",
-  "author": "cmux contributors",
+  "description": "cmux desktop app for Windows with terminal workspaces, browser panes, notifications, and customization.",
+  "author": {
+    "name": "Nikku"
+  },
+  "homepage": "https://github.com/imthegoodboy/cmux-window",
   "main": "src/main.cjs",
   "scripts": {
     "build:renderer": "vite build --mode production --config vite.renderer.config.mjs",
@@ -34,9 +38,11 @@
     "vite": "^8.0.14"
   },
   "build": {
-    "appId": "com.cmux.windows.unofficial",
-    "productName": "cmux Windows",
-    "artifactName": "cmux-windows-${version}-setup.${ext}",
+    "appId": "com.cmux.windows",
+    "productName": "cmux",
+    "executableName": "cmux",
+    "artifactName": "cmux-${version}-setup.${ext}",
+    "copyright": "Copyright © 2026 Nikku",
     "asar": false,
     "npmRebuild": false,
     "directories": {
@@ -48,6 +54,8 @@
       "renderer/**/*"
     ],
     "win": {
+      "icon": "src/assets/cmux.ico",
+      "requestedExecutionLevel": "asInvoker",
       "target": [
         {
           "target": "nsis",
@@ -64,7 +72,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "cmux Windows"
+      "shortcutName": "cmux",
+      "uninstallDisplayName": "cmux ${version}",
+      "installerIcon": "src/assets/cmux.ico",
+      "uninstallerIcon": "src/assets/cmux.ico",
+      "installerHeaderIcon": "src/assets/cmux.ico"
     }
   }
 }

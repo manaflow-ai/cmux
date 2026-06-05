@@ -52,6 +52,6 @@ socket.on("data", (chunk) => {
 });
 
 socket.on("error", () => {
-  process.stderr.write("cmuxw: unable to connect to a running cmux Windows app\n");
+  process.stderr.write("cmuxw: unable to connect to a running cmux app\n");
   process.exitCode = 1;
 });

@@ -787,7 +787,7 @@ class CmuxWindowsRuntime {
     for (const terminal of this.terminals.values()) terminal.close();
     this.terminals.clear();
     const rendererPort = sanitizeRendererPort(this.state.rendererPort);
-    const workspace = this.newWorkspace("cmux Windows");
+    const workspace = this.newWorkspace("cmux");
     this.state = { activeWorkspaceId: workspace.id, rendererPort, workspaces: [workspace] };
     this.persistAndBroadcast();
     return this.serializedState();
@@ -1146,7 +1146,7 @@ class CmuxWindowsRuntime {
       this.terminals.delete(panel.id);
     }
     if (this.state.workspaces.length <= 1) {
-      workspace.title = "cmux Windows";
+      workspace.title = "cmux";
       workspace.panels = [];
       workspace.activePanelId = null;
       this.persistAndBroadcast();
