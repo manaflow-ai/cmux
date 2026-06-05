@@ -816,13 +816,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         }
         await fulfillment(of: [firstRead], timeout: 1.0)
 
-        let uncoalescedSecondRead = expectation(description: "uncoalesced second git snapshot read")
-        uncoalescedSecondRead.isInverted = true
-        Task {
-            await reader.waitForCallCount(2)
-            uncoalescedSecondRead.fulfill()
-        }
-        await fulfillment(of: [uncoalescedSecondRead], timeout: 0.2)
+        try await Task.sleep(nanoseconds: 200_000_000)
 
         let observedCallCount = await reader.observedCallCount
         let observedMaxActiveCallCount = await reader.observedMaxActiveCallCount
