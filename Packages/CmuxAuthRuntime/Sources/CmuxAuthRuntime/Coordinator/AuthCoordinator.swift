@@ -317,7 +317,7 @@ public final class AuthCoordinator {
         isLoading = true
         defer { isLoading = false }
 
-        let fullCode = CMUXAuthMagicLinkCode.compose(code: code, nonce: nonce)
+        let fullCode = CMUXAuthMagicLinkCode(code: code, nonce: nonce).composed
         do {
             try await client.signInWithMagicLink(code: fullCode)
             try await completeSignIn()
@@ -575,16 +575,16 @@ public final class AuthCoordinator {
     }
 
     private var autoLoginCredentials: CMUXAuthAutoLoginCredentials? {
-        CMUXAuthLaunchConfig.autoLoginCredentials(
-            from: launch.environment,
+        CMUXAuthAutoLoginCredentials(
+            environment: launch.environment,
             clearAuth: launch.clearAuthRequested,
             mockDataEnabled: launch.mockDataEnabled
         )
     }
 
     private var fixtureUser: CMUXAuthUser? {
-        CMUXAuthLaunchConfig.fixtureUser(
-            from: launch.environment,
+        CMUXAuthUser(
+            uiTestFixtureEnvironment: launch.environment,
             clearAuth: launch.clearAuthRequested,
             mockDataEnabled: launch.mockDataEnabled
         )

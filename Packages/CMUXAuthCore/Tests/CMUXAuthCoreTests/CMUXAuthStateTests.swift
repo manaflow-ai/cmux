@@ -6,7 +6,7 @@ import Testing
 struct CMUXAuthStateTests {
     @Test("Config resolves development defaults and overrides")
     func configResolvesDevelopmentDefaultsAndOverrides() {
-        let defaults = CMUXAuthConfig.resolve(
+        let defaults = CMUXAuthConfig(
             environment: .development,
             developmentProjectId: "dev-project",
             productionProjectId: "prod-project",
@@ -15,7 +15,7 @@ struct CMUXAuthStateTests {
         )
         #expect(defaults == CMUXAuthConfig(projectId: "dev-project", publishableClientKey: "dev-key"))
 
-        let overrides = CMUXAuthConfig.resolve(
+        let overrides = CMUXAuthConfig(
             environment: .development,
             overrides: [
                 "STACK_PROJECT_ID_DEV": "override-project",
@@ -31,7 +31,7 @@ struct CMUXAuthStateTests {
 
     @Test("Config resolves production defaults and overrides")
     func configResolvesProductionDefaultsAndOverrides() {
-        let defaults = CMUXAuthConfig.resolve(
+        let defaults = CMUXAuthConfig(
             environment: .production,
             developmentProjectId: "dev-project",
             productionProjectId: "prod-project",
@@ -40,7 +40,7 @@ struct CMUXAuthStateTests {
         )
         #expect(defaults == CMUXAuthConfig(projectId: "prod-project", publishableClientKey: "prod-key"))
 
-        let overrides = CMUXAuthConfig.resolve(
+        let overrides = CMUXAuthConfig(
             environment: .production,
             overrides: [
                 "STACK_PROJECT_ID_PROD": "override-project",
@@ -62,22 +62,22 @@ struct CMUXAuthStateTests {
         ]
 
         #expect(
-            CMUXAuthLaunchConfig.autoLoginCredentials(
-                from: environment,
+            CMUXAuthAutoLoginCredentials(
+                environment: environment,
                 clearAuth: false,
                 mockDataEnabled: false
             ) == CMUXAuthAutoLoginCredentials(email: "test@example.com", password: "pass123")
         )
         #expect(
-            CMUXAuthLaunchConfig.autoLoginCredentials(
-                from: environment,
+            CMUXAuthAutoLoginCredentials(
+                environment: environment,
                 clearAuth: true,
                 mockDataEnabled: false
             ) == nil
         )
         #expect(
-            CMUXAuthLaunchConfig.autoLoginCredentials(
-                from: environment,
+            CMUXAuthAutoLoginCredentials(
+                environment: environment,
                 clearAuth: false,
                 mockDataEnabled: true
             ) == nil
@@ -94,8 +94,8 @@ struct CMUXAuthStateTests {
         ]
 
         #expect(
-            CMUXAuthLaunchConfig.fixtureUser(
-                from: environment,
+            CMUXAuthUser(
+                uiTestFixtureEnvironment: environment,
                 clearAuth: false,
                 mockDataEnabled: false
             ) == CMUXAuthUser(
@@ -105,15 +105,15 @@ struct CMUXAuthStateTests {
             )
         )
         #expect(
-            CMUXAuthLaunchConfig.fixtureUser(
-                from: environment,
+            CMUXAuthUser(
+                uiTestFixtureEnvironment: environment,
                 clearAuth: true,
                 mockDataEnabled: false
             ) == nil
         )
         #expect(
-            CMUXAuthLaunchConfig.fixtureUser(
-                from: environment,
+            CMUXAuthUser(
+                uiTestFixtureEnvironment: environment,
                 clearAuth: false,
                 mockDataEnabled: true
             ) == nil

@@ -49,7 +49,7 @@ public struct MobileAuthComposition {
 
         let isDevelopment = Self.isDevelopmentBuild
         let overrides = Self.localConfigStringOverrides(in: bundle)
-        let resolvedConfig = AuthConfig.resolve(
+        let resolvedConfig = AuthConfig(
             environment: isDevelopment ? .development : .production,
             overrides: overrides
         )

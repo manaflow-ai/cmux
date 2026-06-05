@@ -1,69 +1,35 @@
 import Foundation
 
-public struct CMUXAuthAutoLoginCredentials: Equatable, Sendable {
-    public let email: String
-    public let password: String
-
-    public init(email: String, password: String) {
-        self.email = email
-        self.password = password
-    }
-}
-
-public enum CMUXAuthLaunchConfig {
-    public static func autoLoginCredentials(
-        from environment: [String: String],
-        clearAuth: Bool,
-        mockDataEnabled: Bool
-    ) -> CMUXAuthAutoLoginCredentials? {
-        if clearAuth || mockDataEnabled {
-            return nil
-        }
-        guard let email = environment["CMUX_UITEST_STACK_EMAIL"], !email.isEmpty else {
-            return nil
-        }
-        guard let password = environment["CMUX_UITEST_STACK_PASSWORD"], !password.isEmpty else {
-            return nil
-        }
-        return CMUXAuthAutoLoginCredentials(email: email, password: password)
-    }
-
-    public static func fixtureUser(
-        from environment: [String: String],
-        clearAuth: Bool,
-        mockDataEnabled: Bool
-    ) -> CMUXAuthUser? {
-        if clearAuth || mockDataEnabled {
-            return nil
-        }
-        guard environment["CMUX_UITEST_AUTH_FIXTURE"] == "1" else {
-            return nil
-        }
-        return CMUXAuthUser(
-            id: environment["CMUX_UITEST_AUTH_USER_ID"] ?? "uitest_user",
-            primaryEmail: environment["CMUX_UITEST_AUTH_EMAIL"] ?? "uitest@cmux.local",
-            displayName: environment["CMUX_UITEST_AUTH_NAME"] ?? "UI Test"
-        )
-    }
-}
-
-public enum CMUXAuthMagicLinkCode {
-    public static func compose(code: String, nonce: String) -> String {
-        code + nonce
-    }
-}
-
+/// The observable session-state snapshot the auth coordinator publishes:
+/// whether a user is signed in, who they are, and whether a cached session is
+/// still being restored.
 public struct CMUXAuthState: Equatable, Sendable {
+    /// Whether a user session is currently active.
     public let isAuthenticated: Bool
+    /// The signed-in (or cached) user, if any.
     public let currentUser: CMUXAuthUser?
+    /// Whether a cached session is being restored/validated at launch.
     public let isRestoringSession: Bool
 
+    /// Creates a state snapshot from its parts.
     public init(isAuthenticated: Bool, currentUser: CMUXAuthUser?, isRestoringSession: Bool) {
         self.isAuthenticated = isAuthenticated
         self.currentUser = currentUser
         self.isRestoringSession = isRestoringSession
     }
 
+    /// The launch-time priming state, decided from the launch inputs in
+    /// priority order: cleared auth, mock data, a UI-test fixture user,
+    /// pending auto-login, then the cached user (restoring iff tokens are
+    /// known to exist).
+    /// - Parameters:
+    ///   - clearAuthRequested: Whether the launch requested a cleared auth state.
+    ///   - mockDataEnabled: Whether mock-data mode is active.
+    ///   - fixtureUser: A UI-test fixture user, if the launch supplied one.
+    ///   - autoLoginCredentials: UI-test auto-login credentials, if supplied.
+    ///   - cachedUser: The persisted user from the previous session, if any.
+    ///   - hasTokens: Whether the session cache says tokens exist.
+    ///   - mockUser: The fixed user mock-data mode presents.
     public static func primed(
         clearAuthRequested: Bool,
         mockDataEnabled: Bool,
@@ -96,6 +62,7 @@ public struct CMUXAuthState: Equatable, Sendable {
         )
     }
 
+    /// The fully signed-out state.
     public static func cleared() -> Self {
         Self(isAuthenticated: false, currentUser: nil, isRestoringSession: false)
     }
