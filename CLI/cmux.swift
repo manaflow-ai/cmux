@@ -27850,7 +27850,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                explicitSurfaceFlag != nil,
                case .promptSubmit = action,
                def.name == "codex",
-               mapped != nil,
                let workspaceId = try? resolveWorkspaceId(hookWsFlag, client: client),
                let surfaceId = try? resolveSurfaceId(explicitSurfaceFlag, workspaceId: workspaceId, client: client) {
 #if DEBUG
