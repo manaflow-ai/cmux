@@ -37762,9 +37762,10 @@ function showPanelContextMenu(event, panel) {
   menu.className = "context-menu context-menu-pane";
   const found = findPanelState(panel.id);
   if (!found) return;
-  const index = found.workspace.panels.findIndex((candidate) => candidate.id === panel.id);
-  const panesToRight = found.workspace.panels.slice(index + 1);
-  const summary = contextPaneSummary(panel, found.workspace);
+  const workspace = found.workspace;
+  const index = workspace.panels.findIndex((candidate) => candidate.id === panel.id);
+  const panesToRight = workspace.panels.slice(index + 1);
+  const summary = contextPaneSummary(panel, workspace);
   if (isPendingPanel(panel)) {
     menu.replaceChildren(
       summary,
