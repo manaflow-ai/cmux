@@ -27656,14 +27656,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return nil
             }
         }
-        let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
-        // Only an EXPLICIT --workspace flag that fails to resolve is a hard, hook-dropping error. A
-        // stale/invalid AMBIENT CMUX_WORKSPACE_ID must not abort routing — treated as absent, it falls
-        // through to the PID/TTY binding below, which is ground truth.
-        let hasInvalidDirectWorkspaceArg = hookWsFlag != nil && resolvedDirectWorkspaceArg == nil
-        let hasInvalidAmbientWorkspaceArg = hookWsFlag == nil
-            && ambientWorkspaceArg != nil
-            && resolvedDirectWorkspaceArg == nil
+        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let input = parseClaudeHookInput(rawInput: rawInput)
+
+        let store = ClaudeHookSessionStore(
+            processEnv: env.merging(
+                ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
+                uniquingKeysWith: { _, new in new }
+            )
+        )
+
+        let hookCwd = input.cwd
+            ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
+            ?? normalizedHookValue(env["PWD"])
+        let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
+        let action = Self.subcommandActions[subcommand] ?? .noop
         var processBindingCache: CallerTerminalBinding?
         var didResolveProcessBinding = false
         func processBinding() -> CallerTerminalBinding? {
@@ -27671,10 +27678,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 didResolveProcessBinding = true
                 // Always resolve the agent process's own terminal binding (TTY first, then PID), even
                 // when env supplies both ids. Historically this was suppressed whenever both env ids
-                // were present, which made a leaked/stale CMUX_SURFACE_ID impossible to correct — the
+                // were present, which made a leaked/stale CMUX_SURFACE_ID impossible to correct. This is the
                 // codex jumble class, where a session routes to the wrong surface and the no-pid-gate
                 // resume binding persists it across reload. resolveAgentHookTarget now uses this
-                // binding to OVERRIDE a disagreeing ambient-env surface; the binding stays nil (env
+                // binding to override a disagreeing ambient-env surface; the binding stays nil (env
                 // trusted) under remote/SSH where no local TTY maps to a surface.
                 processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
                     ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
@@ -27687,6 +27694,29 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return processBindingCache == nil ? "nil" : "resolved"
         }
 #endif
+        let earlyCodexPromptTTYTarget: CallerTerminalBinding? = {
+            guard hookWsFlag == nil,
+                  explicitSurfaceFlag == nil,
+                  case .promptSubmit = action,
+                  def.name == "codex",
+                  let ambientWorkspaceId = ambientWorkspaceArg,
+                  ambientSurfaceArg != nil,
+                  let binding = processBinding(),
+                  nonEmptyClaudeHookIdentifier(binding.workspaceId) == ambientWorkspaceId,
+                  let boundSurfaceId = nonEmptyClaudeHookIdentifier(binding.surfaceId),
+                  surfaceIsAccessible(boundSurfaceId, workspaceId: ambientWorkspaceId) else {
+                return nil
+            }
+            return binding
+        }()
+        let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
+        // Only an EXPLICIT --workspace flag that fails to resolve is a hard, hook-dropping error. A
+        // stale/invalid AMBIENT CMUX_WORKSPACE_ID must not abort routing. Treated as absent, it falls
+        // through to the PID/TTY binding below, which is ground truth.
+        let hasInvalidDirectWorkspaceArg = hookWsFlag != nil && resolvedDirectWorkspaceArg == nil
+        let hasInvalidAmbientWorkspaceArg = hookWsFlag == nil
+            && ambientWorkspaceArg != nil
+            && resolvedDirectWorkspaceArg == nil
         let resolvedDirectSurfaceArg: String? = {
             guard let directSurfaceArg else { return nil }
             guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
@@ -27706,21 +27736,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
         }
 
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let input = parseClaudeHookInput(rawInput: rawInput)
-
-        let store = ClaudeHookSessionStore(
-            processEnv: env.merging(
-                ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
-                uniquingKeysWith: { _, new in new }
-            )
-        )
-
-        let hookCwd = input.cwd
-            ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
-            ?? normalizedHookValue(env["PWD"])
-        let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
-        let action = Self.subcommandActions[subcommand] ?? .noop
 #if DEBUG
         agentHookDebugLog(
             "agentHook.start agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) inputSession=\(agentHookDebugShort(input.sessionId)) rawBytes=\(rawInput.utf8.count) hasCwd=\(hookCwd == nil ? 0 : 1) envWorkspace=\(env["CMUX_WORKSPACE_ID"] == nil ? 0 : 1) envSurface=\(env["CMUX_SURFACE_ID"] == nil ? 0 : 1) directWorkspace=\(directWorkspaceArg == nil ? 0 : 1) directSurface=\(directSurfaceArg == nil ? 0 : 1) invalidDirect=\(hasUnusableDirectBinding ? 1 : 0) processBinding=\(processBindingDebugState()) socketName=\(agentHookDebugSocketName(client.socketPath))",
@@ -27856,15 +27871,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             try? store.markNotificationEmitted(sessionId: sessionId, fingerprint: fingerprint)
         }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
-            if hookWsFlag == nil,
-               explicitSurfaceFlag == nil,
-               case .promptSubmit = action,
-               def.name == "codex",
-               let ambientWorkspaceId = ambientWorkspaceArg,
-               ambientSurfaceArg != nil,
-               let binding = processBinding(),
+            if let binding = earlyCodexPromptTTYTarget,
                let boundWorkspace = nonEmptyClaudeHookIdentifier(binding.workspaceId),
-               boundWorkspace == ambientWorkspaceId,
                let boundSurface = nonEmptyClaudeHookIdentifier(binding.surfaceId) {
 #if DEBUG
                 agentHookDebugLog(
