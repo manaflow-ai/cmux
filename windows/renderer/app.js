@@ -17740,6 +17740,9 @@ function refreshBackgroundPreviewNodes() {
     for (const [id] of backgroundChromeOptions) {
       toggleClassIfChanged(preview, `appearance-background-${id}`, state.settings.backgroundChromeMode === id);
     }
+    for (const [id] of backgroundEffectsOptions) {
+      toggleClassIfChanged(preview, `appearance-effect-${id}`, state.settings.backgroundEffects === id);
+    }
     setStylePropertyIfChanged(preview, "--preview-background-image", appModel.image);
     setStylePropertyIfChanged(preview, "--preview-background-opacity", String(state.settings.backgroundOpacity / 100));
     setStylePropertyIfChanged(preview, "--preview-background-blur", `${state.settings.backgroundBlur}px`);

@@ -7969,6 +7969,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .appearance-preview-backdrop {
   position: absolute;
   inset: 0;
+  z-index: 0;
   opacity: var(--preview-background-opacity);
   background-image: var(--preview-background-image);
   background-size: var(--preview-background-size, cover);
@@ -7977,6 +7978,29 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   filter: blur(var(--preview-background-blur, 0px));
   transform: scale(var(--preview-background-scale, 1));
   pointer-events: none;
+}
+
+.appearance-preview-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.appearance-preview.appearance-effect-tinted .appearance-preview-frame::after {
+  opacity: .62;
+  background:
+    linear-gradient(135deg, color-mix(in oklch, var(--color-accent) 9%, transparent), transparent 44%),
+    color-mix(in oklch, var(--color-canvas-surface) 72%, transparent);
+}
+
+.appearance-preview.appearance-effect-vignette .appearance-preview-frame::after {
+  opacity: .78;
+  background:
+    radial-gradient(ellipse at center, transparent 0 42%, color-mix(in oklch, var(--color-canvas-surface) 54%, transparent) 78%, color-mix(in oklch, var(--color-canvas-surface) 82%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in oklch, var(--color-canvas-surface) 26%, transparent), transparent 38%, color-mix(in oklch, var(--color-canvas-surface) 34%, transparent));
 }
 
 .appearance-preview-sidebar,
@@ -8092,6 +8116,18 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .appearance-preview.appearance-background-immersive .appearance-preview-tabs span.is-active {
   background: color-mix(in oklch, var(--color-accent) 18%, var(--color-pane) 62%);
+}
+
+.appearance-preview.appearance-effect-glass .appearance-preview-sidebar {
+  background: color-mix(in oklch, var(--color-rail) 78%, transparent);
+}
+
+.appearance-preview.appearance-effect-glass .appearance-preview-tabs span {
+  background: color-mix(in oklch, var(--color-pane) 72%, transparent);
+}
+
+.appearance-preview.appearance-effect-glass .appearance-preview-tabs span.is-active {
+  background: color-mix(in oklch, var(--color-accent) 18%, var(--color-pane) 70%);
 }
 
 .appearance-preview-terminal {
