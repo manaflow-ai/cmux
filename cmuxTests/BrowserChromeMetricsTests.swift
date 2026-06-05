@@ -53,7 +53,7 @@ import Testing
     }
 
     @Test func smallerFontScalesEverySizeDownProportionally() {
-        let smaller = BrowserChromeMetrics.referenceFontSize - 3 // 8: the in-range minimum
+        let smaller = BrowserChromeMetrics.referenceFontSize - 3 // 8: the minimum valid tab bar font size
         let metrics = BrowserChromeMetrics(tabBarFontSize: smaller)
         let expectedScale = smaller / BrowserChromeMetrics.referenceFontSize
 
@@ -75,7 +75,7 @@ import Testing
         #expect(metrics.omnibarFontSize == Self.legacy.omnibarFontSize * BrowserChromeMetrics.minimumScale)
     }
 
-    @Test(arguments: [CGFloat(0), CGFloat(-5), CGFloat.nan, CGFloat.infinity])
+    @Test(arguments: [CGFloat(0), CGFloat(-5), CGFloat.nan, CGFloat.infinity, -CGFloat.infinity])
     func nonPositiveOrNonFiniteFontFallsBackToNeutralScale(_ value: CGFloat) {
         let metrics = BrowserChromeMetrics(tabBarFontSize: value)
         #expect(metrics.scale == 1)
