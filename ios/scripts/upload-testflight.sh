@@ -5,6 +5,7 @@ usage() {
   cat <<'EOF'
 Usage:
   ios/scripts/upload-testflight.sh [--lane beta] [--build-number <number>]
+                                  [--signing manual|automatic]
                                   [--archive-path <path>] [--export-only]
 
 Archives cmux iOS, exports an App Store Connect IPA, and uploads it to
@@ -38,6 +39,13 @@ or:
 Options:
   --lane <beta>             Distribution lane. Only beta is currently defined.
   --build-number <number>   CFBundleVersion. Defaults to UTC yyyyMMddHHmm.
+  --signing <mode>          Export signing mode: manual (default) or automatic.
+                            manual uses the "Apple Distribution" certificate and
+                            the "cmux Beta Distribution" provisioning profile from
+                            the local keychain (for local/dev exports). automatic
+                            uses Xcode cloud-managed signing via the ASC API key
+                            and -allowProvisioningUpdates, so CI does not need an
+                            iOS distribution cert/profile in the keychain.
   --archive-path <path>     Reuse an existing archive instead of archiving.
   --export-only             Stop after exporting the signed IPA.
   -h, --help                Show this help.
@@ -58,6 +66,10 @@ LANE="beta"
 BUILD_NUMBER="$(date -u +%Y%m%d%H%M)"
 ARCHIVE_PATH=""
 EXPORT_ONLY=0
+# Export signing mode. "manual" keeps the original local-keychain behavior;
+# "automatic" switches the export to Xcode cloud-managed signing (used by CI,
+# which has no iOS distribution cert/profile, only the ASC API key).
+SIGNING="manual"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -69,6 +81,11 @@ while [[ $# -gt 0 ]]; do
     --build-number)
       require_option_value "$1" "${2:-}"
       BUILD_NUMBER="$2"
+      shift 2
+      ;;
+    --signing)
+      require_option_value "$1" "${2:-}"
+      SIGNING="$2"
       shift 2
       ;;
     --archive-path)
@@ -99,6 +116,15 @@ case "$LANE" in
     ;;
   *)
     echo "error: unsupported lane '$LANE'" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
+
+case "$SIGNING" in
+  manual|automatic) ;;
+  *)
+    echo "error: unsupported signing mode '$SIGNING' (expected manual or automatic)" >&2
     usage >&2
     exit 2
     ;;
@@ -160,16 +186,28 @@ mkdir -p "$EXPORT_PATH"
 rm -f "$EXPORT_OPTIONS"
 touch "$EXPORT_OPTIONS"
 plutil -create xml1 "$EXPORT_OPTIONS"
+# Keys common to both signing modes.
 plutil -insert method -string app-store-connect "$EXPORT_OPTIONS"
 plutil -insert destination -string export "$EXPORT_OPTIONS"
 plutil -insert teamID -string "$DEVELOPMENT_TEAM" "$EXPORT_OPTIONS"
 plutil -insert manageAppVersionAndBuildNumber -bool NO "$EXPORT_OPTIONS"
 plutil -insert testFlightInternalTestingOnly -bool YES "$EXPORT_OPTIONS"
 plutil -insert uploadSymbols -bool YES "$EXPORT_OPTIONS"
-plutil -insert signingStyle -string manual "$EXPORT_OPTIONS"
-plutil -insert signingCertificate -string "Apple Distribution" "$EXPORT_OPTIONS"
-/usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
-/usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
+if [[ "$SIGNING" == "automatic" ]]; then
+  # Cloud-managed signing: Xcode mints the distribution cert/profile on demand
+  # via the ASC API key + -allowProvisioningUpdates (already passed below), so
+  # the runner needs no iOS distribution cert/profile in its keychain. The
+  # signingCertificate/provisioningProfiles keys must be omitted in this mode;
+  # naming a profile that isn't installed makes -exportArchive fail.
+  plutil -insert signingStyle -string automatic "$EXPORT_OPTIONS"
+else
+  # Manual signing: requires the "Apple Distribution" certificate and the named
+  # provisioning profile to already be present in the local keychain.
+  plutil -insert signingStyle -string manual "$EXPORT_OPTIONS"
+  plutil -insert signingCertificate -string "Apple Distribution" "$EXPORT_OPTIONS"
+  /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
+  /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
+fi
 
 xcodebuild -exportArchive \
   -archivePath "$ARCHIVE_PATH" \

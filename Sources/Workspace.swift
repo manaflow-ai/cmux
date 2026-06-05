@@ -10344,6 +10344,20 @@ final class Workspace: Identifiable, ObservableObject {
     /// Mapping from bonsplit TabID to our Panel instances
     @Published var panels: [UUID: any Panel] = [:]
 
+    /// Monotonic counter bumped only when the spatial (left-to-right, top-to-bottom)
+    /// order of panels changes without the panel *set* changing — i.e. a pure
+    /// drag-reorder of tabs within or across panes. Membership changes already
+    /// fire `$panels`; pure reorders mutate only `bonsplitController` state, which
+    /// is not `@Published`, so observers (e.g. the mobile workspace-list observer)
+    /// would otherwise never learn about a reorder. We gate the bump on an actual
+    /// change of `orderedPanelIds` so that divider drags and selection-only events
+    /// (which also flow through `didChangeGeometry`) do not fire `objectWillChange`.
+    @Published var paneLayoutVersion: Int = 0
+
+    /// Snapshot of `orderedPanelIds` from the last geometry notification, used to
+    /// gate `paneLayoutVersion` bumps to genuine reorder events.
+    private var lastOrderedPanelIds: [UUID] = []
+
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
 
@@ -10374,6 +10388,27 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         return panelIdFromSurfaceId(tab.id)
+    }
+
+    /// Panel ids in bonsplit's spatial order: depth-first over the split tree
+    /// (left/top child before right/bottom child), and within each pane in tab
+    /// order. This is the on-screen left-to-right, top-to-bottom ordering and is
+    /// the single source of truth for serializing panels (e.g. the mobile
+    /// terminal list) and for detecting reorders. Any panels not currently in
+    /// bonsplit are appended in a stable id order so the list never drops a panel.
+    var orderedPanelIds: [UUID] {
+        var result: [UUID] = []
+        var seen = Set<UUID>()
+        for tabId in bonsplitController.allTabIds {
+            guard let panelId = panelIdFromSurfaceId(tabId), panels[panelId] != nil else { continue }
+            guard seen.insert(panelId).inserted else { continue }
+            result.append(panelId)
+        }
+        let orphans = panels.keys
+            .filter { !seen.contains($0) }
+            .sorted { $0.uuidString < $1.uuidString }
+        result.append(contentsOf: orphans)
+        return result
     }
 
     /// The currently focused terminal panel (if any)
@@ -19381,6 +19416,17 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         tmuxLayoutSnapshot = snapshot
+        // Every order/membership mutation (same-pane reorder, cross-pane move,
+        // split, close) routes through here. A pure reorder mutates only
+        // bonsplit's internal state, which is not `@Published`, so observers
+        // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
+        // sequence actually changed, so divider drags and selection-only events
+        // (also routed here) do not fire `objectWillChange` app-wide.
+        let currentOrder = orderedPanelIds
+        if currentOrder != lastOrderedPanelIds {
+            lastOrderedPanelIds = currentOrder
+            paneLayoutVersion &+= 1
+        }
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
