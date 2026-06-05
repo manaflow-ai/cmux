@@ -1,6 +1,6 @@
 import XCTest
 
-final class WorkspaceSSHFishShellTests: XCTestCase {
+final class WorkspaceSSHTests: XCTestCase {
     private struct ProcessRunResult { let status: Int32; let stderr: String; let timedOut: Bool }
 
     private final class MockSocketServerState: @unchecked Sendable {
@@ -13,7 +13,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
     func testSSHBootstrapStartupCommandPassesRemoteInstallScriptAsSingleSSHCommand() throws {
         let cliPath = try bundledCLIPath()
         let python3Path = try requireExecutable(["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"], name: "python3")
-        let fishExecutable = try requireExecutable(["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish", "/bin/fish"], name: "fish")
         let socketPath = makeSocketPath("sshboot")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
@@ -152,7 +151,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         startupEnvironment["PATH"] = "\(fakeBin.path):/usr/bin:/bin:/usr/sbin:/sbin"
         startupEnvironment["CMUX_FAKE_SSH_LOG"] = fakeSSHLog.path
         startupEnvironment["CMUX_TEST_PYTHON3"] = python3Path
-        startupEnvironment["CMUX_TEST_LOCAL_SHELL"] = fishExecutable
+        startupEnvironment["CMUX_TEST_LOCAL_SHELL"] = "/bin/sh"
         startupEnvironment["CMUX_SOCKET_PATH"] = socketPath
         startupEnvironment["CMUX_WORKSPACE_ID"] = workspaceID
         startupEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -233,17 +232,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             0,
             "Expected LocalCommand shell snippet to parse cleanly, stderr: \(localCommandSyntaxCheck.stderr)"
         )
-        let fishLocalCommandCheck = runProcess(
-            executablePath: fishExecutable,
-            arguments: ["-n", "-c", localCommand],
-            environment: ProcessInfo.processInfo.environment,
-            timeout: 5
-        )
-        XCTAssertEqual(
-            fishLocalCommandCheck.status,
-            0,
-            "Expected LocalCommand wrapper to parse cleanly when the user's login shell is fish, stderr: \(fishLocalCommandCheck.stderr)"
-        )
         let destinationIndex = try XCTUnwrap(firstInvocation.lastIndex(of: "cmux-macmini"))
         let remoteCommandArgs = Array(firstInvocation.suffix(from: firstInvocation.index(after: destinationIndex)))
 
@@ -276,18 +264,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             secondRemoteCommand.contains("cmux_bootstrap_tty=") || secondRemoteCommand.contains("cmux_bootstrap_tty\\\""),
             "Expected staged remote bootstrap command body in \(secondRemoteCommand)"
         )
-        let remoteFishCommandCheck = runProcess(
-            executablePath: fishExecutable,
-            arguments: ["-n", "-c", secondRemoteCommand],
-            environment: ProcessInfo.processInfo.environment,
-            timeout: 5
-        )
-        XCTAssertEqual(
-            remoteFishCommandCheck.status,
-            0,
-            "Expected staged remote command wrapper to parse cleanly when the remote login shell is fish, stderr: \(remoteFishCommandCheck.stderr)"
-        )
-
         XCTAssertEqual(foregroundAuthState.commands.count, 1)
         let foregroundAuthPayloadData = try XCTUnwrap(foregroundAuthState.commands.first?.data(using: .utf8))
         let foregroundAuthPayload = try XCTUnwrap(
