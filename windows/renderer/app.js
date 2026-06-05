@@ -17332,6 +17332,12 @@ function updateBackgroundTuneResetAction(button) {
   return changed;
 }
 
+function refreshBackgroundTuningSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "appearance") return;
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 function applyBackgroundTuningPreset(presetId, options = {}) {
   const preset = backgroundTuningPresets.find((candidate) => candidate.id === presetId);
   if (!preset) {
@@ -17343,7 +17349,7 @@ function applyBackgroundTuningPreset(presetId, options = {}) {
     toast(`${preset.label} background tune already active.`);
     return false;
   }
-  if (options.render !== false) renderSettingsInspector();
+  refreshBackgroundTuningSettings(options);
   toast(`${preset.label} background tune applied.`);
   return true;
 }
@@ -17357,7 +17363,7 @@ function cycleBackgroundTuningPreset(options = {}) {
   return applyBackgroundTuningPreset(model.preset.id, options);
 }
 
-function resetBackgroundTuningSettings() {
+function resetBackgroundTuningSettings(options = {}) {
   const updates = {};
   for (const key of backgroundTuningSettings) updates[key] = defaultSettings[key];
   const changed = updateSettings(updates);
@@ -17365,7 +17371,7 @@ function resetBackgroundTuningSettings() {
     toast("Background tuning already uses defaults.");
     return false;
   }
-  renderSettingsInspector();
+  refreshBackgroundTuningSettings(options);
   toast("Background tuning reset.");
   return true;
 }
