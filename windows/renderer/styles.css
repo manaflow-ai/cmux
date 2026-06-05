@@ -7351,11 +7351,16 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   grid-template-columns: minmax(0, 1fr) minmax(68px, auto) minmax(92px, auto) minmax(80px, auto) minmax(74px, auto);
 }
 
+.workspace-name-control.has-branch-title {
+  grid-template-columns: minmax(0, 1fr) minmax(68px, auto) minmax(92px, auto) minmax(88px, auto) minmax(80px, auto) minmax(74px, auto);
+}
+
 @container (max-width: 560px) {
   .active-pane-title-control,
   .active-pane-title-control.has-page-title,
   .workspace-name-control,
-  .workspace-name-control.has-page-title {
+  .workspace-name-control.has-page-title,
+  .workspace-name-control.has-branch-title {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 

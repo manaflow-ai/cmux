@@ -9462,6 +9462,12 @@ function workspaceFolderNameSuggestion(workspace = activeWorkspace()) {
   return workspace ? folderName(workspace.cwd) : "";
 }
 
+function workspaceBranchNameSuggestion(workspace = activeWorkspace()) {
+  const branch = String(workspace?.branch || "").trim().replace(/^refs\/heads\//i, "");
+  if (!branch || branch === "HEAD" || /^detached/i.test(branch)) return "";
+  return branch.slice(0, 80);
+}
+
 function allPanelIds() {
   return new Set(allPanels().map((panel) => panel.id));
 }
@@ -15445,11 +15451,13 @@ function renderSettingsInspector(options = {}) {
     titleInput.disabled = !workspace;
     let titleSave = null;
     let titleUseFolder = null;
+    let titleUseBranch = null;
     let titleUsePane = null;
     let titleUsePageTitle = null;
     const workspaceNameTarget = () => activeWorkspace() || workspace;
     const currentWorkspaceName = () => workspaceNameTarget()?.title || "";
     const suggestedWorkspaceName = () => workspaceFolderNameSuggestion(workspaceNameTarget());
+    const suggestedBranchWorkspaceName = () => workspaceBranchNameSuggestion(workspaceNameTarget());
     const suggestedPaneWorkspaceName = () => {
       const targetWorkspace = workspaceNameTarget();
       return targetWorkspace?.panels?.length ? workspacePaneSuggestedTitle(targetWorkspace) : "";
@@ -15460,6 +15468,7 @@ function renderSettingsInspector(options = {}) {
       const nextTitle = titleInput.value.trim();
       const currentTitle = currentWorkspaceName();
       const suggestedTitle = suggestedWorkspaceName();
+      const suggestedBranchTitle = suggestedBranchWorkspaceName();
       const suggestedPaneTitle = suggestedPaneWorkspaceName();
       const suggestedPageTitle = suggestedBrowserPageWorkspaceName();
       if (titleSave) {
@@ -15469,6 +15478,10 @@ function renderSettingsInspector(options = {}) {
       if (titleUseFolder) {
         titleUseFolder.disabled = !targetWorkspace || !suggestedTitle || suggestedTitle === currentTitle;
         titleUseFolder.title = workspaceUseFolderNameTitle(targetWorkspace);
+      }
+      if (titleUseBranch) {
+        titleUseBranch.disabled = !targetWorkspace || !suggestedBranchTitle || suggestedBranchTitle === currentTitle;
+        titleUseBranch.title = workspaceUseBranchNameTitle(targetWorkspace);
       }
       if (titleUsePane) {
         titleUsePane.disabled = !targetWorkspace || !suggestedPaneTitle || suggestedPaneTitle === currentTitle;
@@ -15536,6 +15549,25 @@ function renderSettingsInspector(options = {}) {
       toast(changed ? "Workspace name set from folder." : "Workspace already uses the folder name.");
       return changed;
     }, "", workspaceRenameActionSearchText("useFolder", workspace));
+    titleUseBranch = settingsActionButton("Use branch", async () => {
+      const targetWorkspace = workspaceNameTarget();
+      const suggestedTitle = suggestedBranchWorkspaceName();
+      if (!targetWorkspace) {
+        updateWorkspaceNameActions();
+        toast("Open a workspace before using its Git branch name.");
+        return false;
+      }
+      if (!suggestedTitle) {
+        updateWorkspaceNameActions();
+        toast("Open a Git workspace before using its branch name.");
+        return false;
+      }
+      titleInput.value = suggestedTitle;
+      const changed = await renameWorkspaceTo(suggestedTitle, targetWorkspace.id);
+      revertWorkspaceNameInput();
+      toast(changed ? "Workspace name set from Git branch." : "Workspace already uses the Git branch name.");
+      return changed;
+    }, "", workspaceRenameActionSearchText("useBranch", workspace));
     titleUsePane = settingsActionButton("Use pane", async () => {
       const targetWorkspace = workspaceNameTarget();
       const suggestedTitle = suggestedPaneWorkspaceName();
@@ -15575,10 +15607,10 @@ function renderSettingsInspector(options = {}) {
       return changed;
     }, "", workspaceRenameActionSearchText("usePageTitle", workspace, "browser page document title"));
     const titleControl = document.createElement("span");
-    titleControl.className = "workspace-name-control has-page-title";
-    titleControl.append(titleInput, titleSave, titleUseFolder, titleUsePane, titleUsePageTitle);
+    titleControl.className = "workspace-name-control has-page-title has-branch-title";
+    titleControl.append(titleInput, titleSave, titleUseFolder, titleUseBranch, titleUsePane, titleUsePageTitle);
     updateWorkspaceNameActions();
-    workspaceSection.append(settingRow("Name", titleControl, false, workspaceRenameActionSearchText("actions", workspace, "input save use folder use active pane use browser page title")));
+    workspaceSection.append(settingRow("Name", titleControl, false, workspaceRenameActionSearchText("actions", workspace, "input save use folder use git branch use active pane use browser page title")));
     const folderInput = document.createElement("input");
     folderInput.className = "setting-control";
     folderInput.readOnly = true;
@@ -16365,6 +16397,7 @@ function activeWorkspaceSettingsSignature() {
   appendSignatureValue(parts, workspace.color);
   appendSignatureValue(parts, workspace.cwd);
   appendSignatureValue(parts, workspace.cwdShort);
+  appendSignatureValue(parts, workspace.branch || "");
   appendSignatureValue(parts, workspace.activePanelId);
   appendSignatureValue(parts, workspace.splitDirection);
   appendSignatureValue(parts, workspace.terminalCount);
@@ -16484,6 +16517,7 @@ function quickWorkspaceSettingsSignature(workspace = activeWorkspace()) {
   appendSignatureValue(parts, workspace.title);
   appendSignatureValue(parts, workspace.color);
   appendSignatureValue(parts, workspace.cwdShort || workspace.cwd || "");
+  appendSignatureValue(parts, workspace.branch || "");
   appendSignatureValue(parts, workspace.activePanelId);
   appendSignatureValue(parts, paneLayoutDirection(workspace));
   appendSignatureValue(parts, workspace.terminalCount);
@@ -20083,6 +20117,7 @@ function workspaceNamingPanel(workspace) {
     || null;
   const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
   const folderTitle = workspaceFolderNameSuggestion(workspace);
+  const branchTitle = workspaceBranchNameSuggestion(workspace);
   const paneTitle = panel ? panelDisplayTitle(panel, true) : "No pane";
   const paneWorkspaceTitle = workspacePaneSuggestedTitle(workspace);
   const browserPageTitle = workspaceBrowserPageTitleSuggestion(workspace);
@@ -20100,6 +20135,7 @@ function workspaceNamingPanel(workspace) {
     <div class="workspace-naming-grid">
       <span><b>Workspace</b><em data-workspace-name></em></span>
       <span><b>Folder name</b><em data-workspace-folder-name></em></span>
+      <span><b>Git branch</b><em data-workspace-branch-name></em></span>
       <span><b>Active pane</b><em data-pane-name></em></span>
       <span><b>Pane default</b><em data-pane-default-name></em></span>
     </div>
@@ -20107,6 +20143,7 @@ function workspaceNamingPanel(workspace) {
   naming.querySelector(".workspace-naming-mode").textContent = paneMode;
   naming.querySelector("[data-workspace-name]").textContent = workspaceTitle;
   naming.querySelector("[data-workspace-folder-name]").textContent = folderTitle || "No folder";
+  naming.querySelector("[data-workspace-branch-name]").textContent = branchTitle || "No branch";
   naming.querySelector("[data-pane-name]").textContent = paneTitle;
   naming.querySelector("[data-pane-default-name]").textContent = paneDefaultTitle;
 
@@ -20124,6 +20161,14 @@ function workspaceNamingPanel(workspace) {
   }, "", workspaceRenameActionSearchText("useFolder", workspace));
   useFolderAction.disabled = !workspace || !folderTitle || folderTitle === workspace.title;
   useFolderAction.title = workspaceUseFolderNameTitle(workspace);
+  const useBranchAction = settingsActionButton("Use branch", async () => {
+    if (!workspace || !branchTitle) return false;
+    const changed = await renameWorkspaceTo(branchTitle, workspace.id);
+    toast(changed ? "Workspace name set from Git branch." : "Workspace already uses the Git branch name.");
+    return changed;
+  }, "", workspaceRenameActionSearchText("useBranch", workspace));
+  useBranchAction.disabled = !workspace || !branchTitle || branchTitle === workspace.title;
+  useBranchAction.title = workspaceUseBranchNameTitle(workspace);
   const usePaneAction = settingsActionButton("Use pane", async () => {
     if (!workspace || !paneWorkspaceTitle) return false;
     const changed = await renameWorkspaceTo(paneWorkspaceTitle, workspace.id);
@@ -20148,7 +20193,7 @@ function workspaceNamingPanel(workspace) {
   }, "", paneNamingActionSearchText("default", panel, workspace));
   useDefaultPaneAction.disabled = !panel || panelIsPending || !panel.titleLocked;
   useDefaultPaneAction.title = paneUseDefaultNameTitle(panel);
-  actions.append(renameWorkspaceAction, useFolderAction, usePaneAction, usePageTitleAction, renamePaneAction, useDefaultPaneAction);
+  actions.append(renameWorkspaceAction, useFolderAction, useBranchAction, usePaneAction, usePageTitleAction, renamePaneAction, useDefaultPaneAction);
   naming.append(actions);
   return naming;
 }
@@ -20993,12 +21038,14 @@ function workspacePaneSuggestedTitle(workspace = activeWorkspace()) {
 function workspaceNamingBaseSearchText(workspace = activeWorkspace()) {
   const title = workspaceDisplayTitle(workspace, "No workspace");
   const folderTitle = workspaceFolderNameSuggestion(workspace);
+  const branchTitle = workspaceBranchNameSuggestion(workspace);
   const paneTitle = workspace?.panels?.length ? workspacePaneSuggestedTitle(workspace) : "";
   const pageTitle = workspaceBrowserPageTitleSuggestion(workspace);
   return [
-    "workspace naming rename name title folder active pane tab browser page title default automatic generated custom",
+    "workspace naming rename name title folder git branch active pane tab browser page title default automatic generated custom",
     title,
     folderTitle,
+    branchTitle,
     paneTitle,
     pageTitle,
     workspace?.cwdShort || "",
@@ -21015,6 +21062,14 @@ function workspaceUseFolderNameTitle(workspace = activeWorkspace(), availableTit
   if (!workspace) return "Open a workspace before using its folder name.";
   if (!folderTitle) return "Set a workspace folder before using its name.";
   if (folderTitle === workspace.title) return "Workspace already uses the folder name.";
+  return availableTitle;
+}
+
+function workspaceUseBranchNameTitle(workspace = activeWorkspace(), availableTitle = "Rename the workspace from its Git branch.") {
+  const branchTitle = workspaceBranchNameSuggestion(workspace);
+  if (!workspace) return "Open a workspace before using its Git branch name.";
+  if (!branchTitle) return "Open a Git workspace before using its branch name.";
+  if (branchTitle === workspace.title) return "Workspace already uses the Git branch name.";
   return availableTitle;
 }
 
@@ -21046,11 +21101,12 @@ function workspaceUseBrowserPageTitleTitle(workspace = activeWorkspace(), pageTi
 function workspaceRenameActionSearchText(actionId, workspace = activeWorkspace(), extra = "") {
   const actionTerms = {
     panel: "settings panel overview",
-    actions: "actions controls use folder active pane browser page title default automatic generated",
+    actions: "actions controls use folder git branch active pane browser page title default automatic generated",
     input: "input edit name title current custom",
     rename: "rename edit title name",
     save: "save input edit title name",
     useFolder: "use folder directory cwd title suggested",
+    useBranch: "use git branch name title suggested",
     usePane: "use active pane tab title page host folder terminal browser suggested",
     usePageTitle: "use active browser page document title suggested"
   }[actionId] || actionId;
@@ -24517,6 +24573,7 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
   const hasWorkspace = Boolean(workspace);
   const workspaceName = workspaceDisplayTitle(workspace, "No workspace");
   const folderTitle = workspace ? folderName(workspace.cwd) : "";
+  const branchTitle = workspaceBranchNameSuggestion(workspace);
   const paneTitle = workspacePaneSuggestedTitle(workspace);
   const pageTitle = workspaceBrowserPageTitleSuggestion(workspace);
   const paneSummary = `${terminalCount} terminal${terminalCount === 1 ? "" : "s"} / ${browserCount} browser${browserCount === 1 ? "" : "s"}`;
@@ -24540,6 +24597,16 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
       disabled: !hasWorkspace || !folderTitle || folderTitle === workspace?.title,
       title: workspaceUseFolderNameTitle(workspace),
       search: workspaceRenameActionSearchText("useFolder", workspace, "quick setup")
+    }),
+    quickOverviewControlButton("Use branch", async () => {
+      if (!workspace || !branchTitle) return false;
+      const changed = await renameWorkspaceTo(branchTitle, workspace.id);
+      toast(changed ? "Workspace name set from Git branch." : "Workspace already uses the Git branch name.");
+      return refreshQuick(changed);
+    }, {
+      disabled: !hasWorkspace || !branchTitle || branchTitle === workspace?.title,
+      title: workspaceUseBranchNameTitle(workspace),
+      search: workspaceRenameActionSearchText("useBranch", workspace, "quick setup git branch")
     }),
     quickOverviewControlButton("Use pane", async () => {
       if (!workspace || !paneTitle) return false;
@@ -24586,7 +24653,7 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
     className: "quick-overview-workspace",
     title: "Workspace controls",
     meta: hasWorkspace ? `${workspaceName} / ${paneSummary}` : "Open a workspace first",
-    search: workspaceRenameActionSearchText("actions", workspace, `quick setup workspace controls rename folder active pane browser page title layout copy paste setup ${workspaceName} ${folderTitle} ${paneTitle} ${pageTitle} ${paneSummary}`),
+    search: workspaceRenameActionSearchText("actions", workspace, `quick setup workspace controls rename folder git branch active pane browser page title layout copy paste setup ${workspaceName} ${folderTitle} ${branchTitle} ${paneTitle} ${pageTitle} ${paneSummary}`),
     actions
   });
 }
@@ -35617,6 +35684,7 @@ function paletteEntries() {
       run: () => chooseWorkspaceFolder(workspace)
     });
     const folderTitle = workspace.cwd ? folderName(workspace.cwd) : "";
+    const branchTitle = workspaceBranchNameSuggestion(workspace);
     const paneTitle = workspace.panels?.length ? workspacePaneSuggestedTitle(workspace) : "";
     const pageTitle = workspaceBrowserPageTitleSuggestion(workspace);
     entries.push({
@@ -35631,6 +35699,21 @@ function paletteEntries() {
         if (!folderTitle) return false;
         const changed = await renameWorkspaceTo(folderTitle, workspace.id);
         toast(changed ? "Workspace name set from folder." : "Workspace already uses the folder name.");
+        return changed;
+      }
+    });
+    entries.push({
+      id: `workspace.useBranchName.${workspace.id}`,
+      label: `Use branch name: ${workspaceLabel}`,
+      meta: branchTitle || "No Git branch",
+      shortcut: "Name",
+      disabled: !branchTitle || branchTitle === workspace.title,
+      title: workspaceUseBranchNameTitle(workspace, "Rename this workspace from its Git branch."),
+      search: workspaceRenameActionSearchText("useBranch", workspace, `command palette workspace ${workspaceIndex + 1}`),
+      run: async () => {
+        if (!branchTitle) return false;
+        const changed = await renameWorkspaceTo(branchTitle, workspace.id);
+        toast(changed ? "Workspace name set from Git branch." : "Workspace already uses the Git branch name.");
         return changed;
       }
     });
