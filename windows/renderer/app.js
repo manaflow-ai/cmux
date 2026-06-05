@@ -25681,7 +25681,7 @@ async function applyAndSaveCleanFastProfile() {
   });
   if (!label) {
     if (changed) {
-      renderSettingsInspector();
+      refreshSettingsPresetApplicationSettings();
       toast("Clean + fast settings applied.");
     }
     return;
@@ -25692,7 +25692,7 @@ async function applyAndSaveCleanFastProfile() {
     settings: state.settings,
     createdAt: Date.now()
   });
-  renderSettingsInspector();
+  refreshSettingsPresetApplicationSettings();
   if (!saved) return;
   toast(changed ? "Clean + fast profile saved and applied." : "Clean + fast profile saved.");
 }
@@ -35508,13 +35508,18 @@ function isActiveSettingsProfile(profile) {
   return profileSettingsSettingKeys.every((key) => state.settings[key] === normalized[key]);
 }
 
+function refreshSettingsPresetApplicationSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 function applySettingsPreset(preset, options = {}) {
   const changed = updateSettings(preset.settings);
   if (!changed) {
     toast(`${preset.label} settings already active.`);
     return false;
   }
-  if (options.render !== false) renderSettingsInspector();
+  refreshSettingsPresetApplicationSettings(options);
   toast(`${preset.label} settings applied.`);
   return true;
 }
