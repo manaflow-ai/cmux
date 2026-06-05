@@ -52,6 +52,20 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             }
         })
 
+        // A grouped anchor's command label name is derived from its group's
+        // name, so a group rename must refresh the label text (#5404). Scope to
+        // this controller's own `tabManager` (the notification's `object`) so a
+        // rename in another window doesn't spuriously refresh this one.
+        observers.append(center.addObserver(
+            forName: .workspaceGroupNameDidChange,
+            object: tabManager,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleFocusedCommandTextUpdate()
+            }
+        })
+
         observers.append(center.addObserver(
             forName: NSWindow.didBecomeMainNotification,
             object: nil,
@@ -138,7 +152,8 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         let text: String
         if let selectedId = tabManager.selectedTabId,
            let tab = tabManager.tabs.first(where: { $0.id == selectedId }) {
-            let title = tab.title.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            let title = tabManager.resolvedWorkspaceDisplayTitle(for: tab)
+                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
             text = title.isEmpty ? "Cmd: —" : "Cmd: \(title)"
         } else {
             text = "Cmd: —"

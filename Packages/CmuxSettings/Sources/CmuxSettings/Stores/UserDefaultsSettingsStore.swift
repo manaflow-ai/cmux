@@ -8,10 +8,11 @@ import Foundation
 /// The store only accepts ``DefaultsKey``; a ``JSONKey`` would be rejected at
 /// compile time. There are no runtime store/key-mismatch traps.
 ///
-/// Observation uses `NotificationCenter.default.notifications(named:)` as the
-/// modern AsyncSequence-based KVO replacement. Each ``values(for:)`` consumer
-/// owns a `Task` that watches the global notification stream and yields when
-/// the typed value at this key changes.
+/// Observation uses `NotificationCenter.addObserver(forName:object:queue:using:)`
+/// to feed a bounded signal into one cancellable drain task per
+/// ``values(for:)`` consumer. The observer token is removed and the drain task
+/// is cancelled when the stream terminates, without a permanently parked
+/// NotificationCenter async-sequence task or per-notification task fan-out.
 ///
 /// ```swift
 /// let catalog = SettingCatalog()
@@ -94,8 +95,8 @@ public actor UserDefaultsSettingsStore {
     /// - Subsequent elements are yielded when `UserDefaults.didChangeNotification`
     ///   fires and the typed value at this key differs from the previously
     ///   yielded value.
-    /// - Cancelling the consuming `Task` cancels the underlying notification
-    ///   loop and ends the stream.
+    /// - Cancelling the consuming `Task` removes the underlying notification
+    ///   observer, cancels the drain task, and ends the stream.
     /// - Buffering is `.bufferingNewest(1)`: a burst of writes (e.g. a
     ///   `ColorPicker` drag spraying a value per frame) coalesces to the
     ///   most recent value rather than replaying every intermediate
@@ -103,7 +104,22 @@ public actor UserDefaultsSettingsStore {
     ///   latest value matters; the stale ones are dropped.
     public nonisolated func values<Value>(for key: DefaultsKey<Value>) -> AsyncStream<Value> {
         AsyncStream<Value>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let task = Task { [weak self] in
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+
+            let observer = NotificationObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: UserDefaults.didChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { [weak self] _ in
+                    guard self != nil else { return }
+                    signalContinuation.yield(())
+                }
+            )
+
+            let drainTask = Task { [weak self] in
                 guard let self else {
                     continuation.finish()
                     return
@@ -111,10 +127,7 @@ public actor UserDefaultsSettingsStore {
                 var lastYielded = await self.value(for: key)
                 continuation.yield(lastYielded)
 
-                let notifications = NotificationCenter.default.notifications(
-                    named: UserDefaults.didChangeNotification
-                )
-                for await _ in notifications {
+                for await _ in signals {
                     if Task.isCancelled { break }
                     let current = await self.value(for: key)
                     if current != lastYielded {
@@ -124,8 +137,12 @@ public actor UserDefaultsSettingsStore {
                 }
                 continuation.finish()
             }
-            continuation.onTermination = { _ in task.cancel() }
+
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
         }
     }
-
 }
