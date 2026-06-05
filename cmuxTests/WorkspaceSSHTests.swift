@@ -282,12 +282,14 @@ final class WorkspaceSSHTests: XCTestCase {
             environmentOverrides: [
                 "PATH": "/opt/work/bin:/usr/bin:/bin",
                 "SHELL": "/opt/homebrew/bin/fish",
+                "SSH_AUTH_SOCK": "/tmp/fake-ssh-agent.sock",
                 "WORK_TOKEN": "secret-token",
             ]
         )
         let initialEnv = try XCTUnwrap(captured["initial_env"] as? [String: String])
         XCTAssertEqual(initialEnv["PATH"], "/opt/work/bin:/usr/bin:/bin")
         XCTAssertEqual(initialEnv["SHELL"], "/opt/homebrew/bin/fish")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], "/tmp/fake-ssh-agent.sock")
         XCTAssertNil(initialEnv["WORK_TOKEN"])
     }
 
@@ -300,6 +302,7 @@ final class WorkspaceSSHTests: XCTestCase {
             environmentOverrides: [
                 "PATH": "/opt/work/bin:/usr/bin:/bin",
                 "SHELL": "/opt/homebrew/bin/fish",
+                "SSH_AUTH_SOCK": "/tmp/fake-ssh-agent.sock",
                 "WORK_TOKEN": "secret-token",
                 "CMUX_SOCKET": "__SOCKET_PATH__",
                 "CMUX_WORKSPACE_ID": workspaceID,
@@ -314,6 +317,7 @@ final class WorkspaceSSHTests: XCTestCase {
         let initialEnv = try XCTUnwrap(captured["initial_env"] as? [String: String])
         XCTAssertEqual(initialEnv["PATH"], "/opt/work/bin:/usr/bin:/bin")
         XCTAssertEqual(initialEnv["SHELL"], "/opt/homebrew/bin/fish")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], "/tmp/fake-ssh-agent.sock")
         XCTAssertEqual(initialEnv["WORK_TOKEN"], "secret-token")
         XCTAssertNil(initialEnv["CMUX_SOCKET"])
         XCTAssertNil(initialEnv["CMUX_SOCKET_PATH"])

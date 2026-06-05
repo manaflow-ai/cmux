@@ -8007,6 +8007,7 @@ struct CMUXCLI {
     ]
 
     private static let sshInheritedEnvironmentScrubbedKeys: Set<String> = [
+        "CMUX_BUNDLED_CLI_PATH",
         "CMUX_SOCKET",
         "CMUX_SOCKET_PATH",
         "CMUX_SOCKET_PASSWORD",
