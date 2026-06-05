@@ -5548,6 +5548,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    func debugWaitAfterCommand() -> Bool {
+        configTemplate?.waitAfterCommand ?? false
+    }
+
     func updateWorkspaceId(_ newTabId: UUID) {
         tabId = newTabId
         attachedView?.tabId = newTabId

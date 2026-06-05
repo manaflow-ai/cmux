@@ -39,10 +39,6 @@ extension TerminalSurface {
         tmuxStartCommand
     }
 
-    func debugWaitAfterCommand() -> Bool {
-        configTemplate?.waitAfterCommand ?? false
-    }
-
     func debugInitialInputMetadata() -> (hasInitialInput: Bool, byteCount: Int) {
         let byteCount = initialInput?.utf8.count ?? 0
         return (byteCount > 0, byteCount)
