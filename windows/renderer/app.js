@@ -7637,6 +7637,7 @@ const commands = [
   { id: "browser.homeExternal", label: "Open Browser Home Externally", shortcut: "", run: () => openExternalBrowser(state.settings.browserHomeUrl) },
   { id: "browser.copySetup", label: "Copy Browser Setup", shortcut: "", run: () => copyBrowserSetup() },
   { id: "browser.pasteSetup", label: "Paste Browser Setup", shortcut: "", run: () => pasteBrowserSetup() },
+  { id: "browser.cycleWorkflowPreset", label: "Cycle Browser Workflow Preset", shortcut: "", run: () => cycleBrowserWorkflowPreset() },
   { id: "browser.resetSetup", label: "Reset Browser Setup", shortcut: "", run: () => resetBrowserSetupSettings() },
   { id: "browser.copyRecentPages", label: "Copy Recent Browser Pages", shortcut: "", run: () => copyRecentBrowserPages() },
   { id: "browser.pasteRecentPages", label: "Paste Recent Browser Pages", shortcut: "", run: () => pasteRecentBrowserPages() },
@@ -7814,6 +7815,7 @@ const customizationPaletteCommandIds = new Set([
   "terminal.pasteRecentCommands",
   "browser.copyRecentPages",
   "browser.pasteRecentPages",
+  "browser.cycleWorkflowPreset",
   "settings.copySavedLibrary",
   "settings.pasteSavedLibrary",
   "settings.pasteCommandSnippet",
@@ -9075,6 +9077,17 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       icon: "browserPlus",
       title: !hasWorkspace ? noWorkspaceTitle : creationTitle("Open the browser home page in a new pane."),
       search: `browser new pane web home add workspace ${workspaceTitle} ${state.settings.browserHomeUrl}`
+    };
+  }
+  if (commandId === "browser.cycleWorkflowPreset") {
+    const model = browserWorkflowPresetCycleModel();
+    return {
+      meta: model.meta,
+      shortcut: "Cycle",
+      disabled: model.disabled,
+      icon: "browserPlus",
+      title: model.title,
+      search: normalizeSettingsQuery(`browser workflow setup cycle next preset home launch external profile suspend pane chrome tabs address controls full compact content zoom scale localhost local dev app api backend ${model.search}`)
     };
   }
   if (["browser.copySetup", "browser.pasteSetup", "browser.resetSetup"].includes(commandId)) {
@@ -16090,6 +16103,10 @@ function renderSettingsInspector(options = {}) {
     copyBrowser.title = "Copy browser home, launch mode, external profile, suspend setting, pane chrome, and pane zoom as JSON.";
     const pasteBrowser = settingsActionButton("Paste setup", pasteBrowserSetup, "", "browser setup paste home launch external profile suspend pane chrome tabs address controls full compact content zoom scale clipboard json");
     pasteBrowser.title = "Apply copied cmux browser setup.";
+    const workflowCycle = browserWorkflowPresetCycleModel();
+    const cycleBrowserWorkflow = settingsActionButton("Cycle workflow", cycleBrowserWorkflowPreset, "", `browser workflow setup cycle next preset home launch external profile suspend pane chrome tabs address controls full compact content zoom scale localhost local dev app api backend ${workflowCycle.search}`);
+    cycleBrowserWorkflow.disabled = workflowCycle.disabled;
+    cycleBrowserWorkflow.title = workflowCycle.title;
     const browserSetupDefault = browserSetupSettingsAreDefault();
     const resetBrowserSetupAction = settingsActionButton("Reset setup", resetBrowserSetupSettings, "", `browser setup reset default home launch external profile suspend pane chrome zoom ${browserSetupDefault ? "active current " : ""}`);
     resetBrowserSetupAction.disabled = browserSetupDefault;
@@ -16101,6 +16118,7 @@ function renderSettingsInspector(options = {}) {
         settingsActionButton("Save browser profile", saveCurrentBrowserProfile, "primary", "browser save profile home page launch external chrome edge brave pane chrome tabs address controls full compact content zoom scale reusable"),
         "Save this browser setup as a reusable Settings profile."
       ),
+      cycleBrowserWorkflow,
       copyBrowser,
       pasteBrowser,
       resetBrowserSetupAction,
@@ -19935,7 +19953,7 @@ function applyBrowserSetupUpdates(updates, options = {}) {
     toast(options.alreadyText || "Browser setup already matches.");
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
   toast(options.toastText || "Browser setup applied.");
   return true;
 }
@@ -19955,7 +19973,7 @@ async function pasteBrowserSetup() {
   }
 }
 
-function applyBrowserWorkflowPreset(presetId) {
+function applyBrowserWorkflowPreset(presetId, options = {}) {
   const preset = browserWorkflowPresetById(presetId);
   const settings = browserWorkflowPresetSettings(preset);
   if (!preset || !settings) {
@@ -19964,8 +19982,39 @@ function applyBrowserWorkflowPreset(presetId) {
   }
   return applyBrowserSetupUpdates(settings, {
     toastText: `${preset.label} browser workflow applied.`,
-    alreadyText: `${preset.label} browser workflow already active.`
+    alreadyText: `${preset.label} browser workflow already active.`,
+    ...options
   });
+}
+
+function browserWorkflowPresetCycleModel() {
+  const presets = browserWorkflowPresets
+    .map((preset) => ({ preset, settings: browserWorkflowPresetSettings(preset) }))
+    .filter((entry) => entry.settings);
+  const activeIndex = presets.findIndex(({ preset }) => isActiveBrowserWorkflowPreset(preset));
+  const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % presets.length : 0;
+  const entry = presets[nextIndex] || null;
+  const summary = browserSetupSummaryForSettings(entry?.settings || state.settings);
+  const home = hostnameOf(summary.home) || summary.home || "Browser home";
+  return {
+    preset: entry?.preset || null,
+    settings: entry?.settings || null,
+    disabled: !entry || (presets.length === 1 && activeIndex === 0),
+    meta: entry ? `${entry.preset.label} / ${home} / ${summary.chrome}` : "No browser workflows",
+    title: entry
+      ? `Cycle browser workflow to ${entry.preset.label}.`
+      : "No browser workflow presets are available.",
+    search: normalizeSettingsQuery(`browser workflow setup cycle next preset current next home launch external profile suspend pane chrome tabs address controls full compact content zoom scale localhost local dev app api backend 3000 5173 8080 ${entry?.preset?.label || ""} ${entry?.preset?.body || ""} ${summary.home} ${summary.launch} ${summary.profile} ${summary.inactivePanes} ${summary.chrome} ${summary.zoom}`)
+  };
+}
+
+function cycleBrowserWorkflowPreset(options = {}) {
+  const model = browserWorkflowPresetCycleModel();
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applyBrowserWorkflowPreset(model.preset.id, options);
 }
 
 function copyBrowserWorkflowPresetSetup(presetId) {
@@ -25439,6 +25488,7 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
   const hasWorkspace = Boolean(workspace);
   const profilesFull = savedSettingsProfilesFull();
   const setupDefault = browserSetupSettingsAreDefault();
+  const workflowCycle = browserWorkflowPresetCycleModel();
   const activeBrowserTitle = activeBrowser
     ? panelDisplayTitle(activeBrowser, true)
     : "No active browser";
@@ -25486,6 +25536,11 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
       disabled: profilesFull,
       title: saveSetupTitle,
       search: "quick setup browser save setup profile reusable settings home launch external profile suspend pane chrome zoom"
+    }),
+    quickOverviewControlButton("Cycle workflow", () => refreshQuickSettingsAfterAction(cycleBrowserWorkflowPreset({ render: false })), {
+      disabled: workflowCycle.disabled,
+      title: workflowCycle.title,
+      search: `quick setup browser workflow cycle next preset home launch external profile suspend pane chrome tabs address controls full compact content zoom scale localhost local dev app api backend ${workflowCycle.search}`
     }),
     quickOverviewControlButton("Copy setup", copyBrowserSetup, {
       title: "Copy browser home, launch mode, external profile, suspend setting, pane chrome, and pane zoom as JSON.",
