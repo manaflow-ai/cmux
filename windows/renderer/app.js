@@ -2035,7 +2035,7 @@ function clearRecentFolders() {
   }
   state.recentFolders = [];
   saveRecentFolders();
-  renderSettingsInspector();
+  refreshRecentFolderSettings();
   toast("Recent folders cleared.");
   return true;
 }
@@ -2103,7 +2103,7 @@ function mergeRecentFolders(folders) {
   }
   state.recentFolders = next;
   saveRecentFolders();
-  renderSettingsInspector();
+  refreshRecentFolderSettings();
   toast(`Recent folders updated (${state.recentFolders.length}/${recentFoldersLimit}).`);
   return true;
 }
@@ -2165,14 +2165,14 @@ function rememberRecentCommand(command) {
   saveRecentCommands();
 }
 
-function clearRecentCommands() {
+function clearRecentCommands(options = {}) {
   if (state.recentCommands.length === 0) {
     toast("Recent commands are already clear.");
     return false;
   }
   state.recentCommands = [];
   saveRecentCommands();
-  renderSettingsInspector();
+  refreshRecentCommandSettings(options);
   toast("Recent commands cleared.");
   return true;
 }
@@ -2240,7 +2240,7 @@ function mergeRecentCommands(commands, options = {}) {
   }
   state.recentCommands = next;
   saveRecentCommands();
-  if (options.render !== false) renderSettingsInspector();
+  refreshRecentCommandSettings(options);
   toast(`Recent commands updated (${state.recentCommands.length}/${recentCommandsLimit}).`);
   return true;
 }
@@ -2308,19 +2308,17 @@ function rememberRecentBrowserPage(value) {
   }
   state.recentBrowserPages = nextPages;
   saveRecentBrowserPages();
-  if (state.inspectorMode === "settings" && state.settingsCategory === "browser") {
-    renderSettingsInspector();
-  }
+  refreshRecentBrowserPageSettings({ browserPageOnly: true });
 }
 
-function clearRecentBrowserPages() {
+function clearRecentBrowserPages(options = {}) {
   if (state.recentBrowserPages.length === 0) {
     toast("Recent browser pages are already clear.");
     return false;
   }
   state.recentBrowserPages = [];
   saveRecentBrowserPages();
-  renderSettingsInspector();
+  refreshRecentBrowserPageSettings(options);
   toast("Recent browser pages cleared.");
   return true;
 }
@@ -2388,7 +2386,7 @@ function mergeRecentBrowserPages(pages, options = {}) {
   }
   state.recentBrowserPages = next;
   saveRecentBrowserPages();
-  if (options.render !== false) renderSettingsInspector();
+  refreshRecentBrowserPageSettings(options);
   toast(`Recent browser pages updated (${state.recentBrowserPages.length}/${recentBrowserPagesLimit}).`);
   return true;
 }
@@ -2763,7 +2761,7 @@ function mergeRecentActivity(payload, options = {}) {
     toast("Recent activity already matches.");
     return false;
   }
-  if (options.render !== false) renderSettingsInspector();
+  refreshRecentActivitySettings(options);
   toast("Recent activity updated.");
   return true;
 }
@@ -2801,7 +2799,7 @@ async function clearRecentActivity(options = {}) {
   saveRecentCommands();
   saveRecentBrowserPages();
   saveBrowserTabSnapshots(state.browserTabSnapshots);
-  if (options.render !== false) renderSettingsInspector();
+  refreshRecentActivitySettings(options);
   toast("Recent activity cleared.");
   return true;
 }
@@ -16675,7 +16673,9 @@ function renderSettingsInspector(options = {}) {
     const storageEntries = getStorageEntriesForRender();
     const actionsSection = settingsSection("Settings data");
     actionsSection.append(dataSettingsOverviewPanel(storageEntries));
-    actionsSection.append(settingsMetricGrid(settingsDataMetrics(storageEntries), "data storage local settings metric"));
+    const dataMetrics = settingsMetricGrid(settingsDataMetrics(storageEntries), "data storage local settings metric");
+    dataMetrics.classList.add("data-metric-grid");
+    actionsSection.append(dataMetrics);
     actionsSection.append(dataMaintenanceGrid(storageEntries));
     actionsSection.append(dataStorageBreakdownDisclosurePanel(storageEntries));
     actionsSection.append(recentCommandsDisclosurePanel());
@@ -33761,9 +33761,176 @@ function refreshTerminalColorPresetGrid(root = elements.inspectorBody) {
   return changed;
 }
 
+function refreshRecentFolderDisclosureSummaries() {
+  for (const disclosure of elements.inspectorBody.querySelectorAll(".recent-folders-disclosure")) {
+    const meta = disclosure.querySelector(".settings-disclosure-meta");
+    if (meta) {
+      setTextIfChanged(meta, formatMessage("workspace.recentFolderCount", {
+        count: state.recentFolders.length,
+        limit: recentFoldersLimit
+      }));
+    }
+  }
+}
+
+function refreshRecentCommandDisclosureSummaries() {
+  for (const disclosure of elements.inspectorBody.querySelectorAll(".data-recent-commands-disclosure")) {
+    const meta = disclosure.querySelector(".settings-disclosure-meta");
+    if (meta) {
+      setTextIfChanged(meta, formatMessage("data.recentCommandCount", {
+        count: state.recentCommands.length,
+        limit: recentCommandsLimit
+      }));
+    }
+  }
+}
+
+function refreshRecentBrowserPageDisclosureSummaries() {
+  for (const disclosure of elements.inspectorBody.querySelectorAll(".browser-recent-pages-disclosure")) {
+    const meta = disclosure.querySelector(".settings-disclosure-meta");
+    if (meta) {
+      setTextIfChanged(meta, formatMessage("browser.recentPageCount", {
+        count: state.recentBrowserPages.length,
+        limit: recentBrowserPagesLimit
+      }));
+    }
+  }
+}
+
+function refreshBrowserTabSessionDisclosureSummaries() {
+  for (const disclosure of elements.inspectorBody.querySelectorAll(".browser-tab-sessions-disclosure")) {
+    const meta = disclosure.querySelector(".settings-disclosure-meta");
+    if (meta) setTextIfChanged(meta, browserTabSessionsMeta());
+  }
+}
+
+function refreshRecentFolderPanels() {
+  let changed = false;
+  for (const panel of elements.inspectorBody.querySelectorAll(".recent-folder-history-list")) {
+    panel.replaceWith(recentFoldersSettings());
+    changed = true;
+  }
+  refreshRecentFolderDisclosureSummaries();
+  return changed;
+}
+
+function refreshRecentBrowserPagePanels() {
+  let changed = false;
+  if (state.settingsCategory === "browser") refreshBrowserSettingsPreview();
+  for (const panel of elements.inspectorBody.querySelectorAll(".recent-browser-page-list")) {
+    panel.replaceWith(recentBrowserPagesSettings());
+    changed = true;
+  }
+  refreshRecentBrowserPageDisclosureSummaries();
+  return changed;
+}
+
+function refreshBrowserTabSessionPanels() {
+  let changed = false;
+  for (const panel of elements.inspectorBody.querySelectorAll(".browser-tab-session-list")) {
+    panel.replaceWith(browserTabSessionsSettings());
+    changed = true;
+  }
+  refreshBrowserTabSessionDisclosureSummaries();
+  return changed;
+}
+
+function refreshDataRecentActivityPanels() {
+  const entries = dataStorageEntries();
+  let changed = false;
+  for (const panel of elements.inspectorBody.querySelectorAll(".data-settings-overview")) {
+    panel.replaceWith(dataSettingsOverviewPanel(entries));
+    changed = true;
+  }
+  for (const grid of elements.inspectorBody.querySelectorAll(".data-metric-grid")) {
+    const nextGrid = settingsMetricGrid(settingsDataMetrics(entries), "data storage local settings metric");
+    nextGrid.classList.add("data-metric-grid");
+    grid.replaceWith(nextGrid);
+    changed = true;
+  }
+  for (const grid of elements.inspectorBody.querySelectorAll(".data-maintenance-grid")) {
+    grid.replaceWith(dataMaintenanceGrid(entries));
+    changed = true;
+  }
+  for (const panel of elements.inspectorBody.querySelectorAll(".data-storage-breakdown")) {
+    panel.replaceWith(dataStorageBreakdownPanel(entries));
+    changed = true;
+  }
+  for (const panel of elements.inspectorBody.querySelectorAll(".recent-command-list")) {
+    panel.replaceWith(recentCommandsSettings());
+    changed = true;
+  }
+  refreshRecentCommandDisclosureSummaries();
+  return changed;
+}
+
+function refreshRecentFolderSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "workspace" && !normalizeSettingsQuery(state.settingsQuery)) {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode === "settings" && state.settingsCategory === "workspace" && !normalizeSettingsQuery(state.settingsQuery)) {
+        refreshRecentFolderPanels();
+      }
+    });
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
+function refreshRecentCommandSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "data" && !normalizeSettingsQuery(state.settingsQuery)) {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode === "settings" && state.settingsCategory === "data" && !normalizeSettingsQuery(state.settingsQuery)) {
+        refreshDataRecentActivityPanels();
+      }
+    });
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
+function refreshRecentBrowserPageSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  const browserPageOnly = options.browserPageOnly === true;
+  const browserCategory = state.settingsCategory === "browser";
+  const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  if (browserCategory && !searching) {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode === "settings" && state.settingsCategory === "browser" && !normalizeSettingsQuery(state.settingsQuery)) {
+        refreshRecentBrowserPagePanels();
+      }
+    });
+    return;
+  }
+  if (!browserPageOnly || (browserCategory && searching)) scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
+function refreshRecentActivitySettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (normalizeSettingsQuery(state.settingsQuery)) {
+    scheduleSettingsInspectorRender({ ifChanged: true });
+    return;
+  }
+  const category = state.settingsCategory;
+  if (category === "data" || category === "workspace" || category === "browser") {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode !== "settings" || normalizeSettingsQuery(state.settingsQuery)) return;
+      if (state.settingsCategory === "data") refreshDataRecentActivityPanels();
+      else if (state.settingsCategory === "workspace") refreshRecentFolderPanels();
+      else if (state.settingsCategory === "browser") {
+        refreshRecentBrowserPagePanels();
+        refreshBrowserTabSessionPanels();
+      }
+    });
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 function recentFoldersSettings() {
   const section = document.createElement("div");
-  section.className = "recent-folder-list";
+  section.className = "recent-folder-list recent-folder-history-list";
   section.dataset.settingsSearch = normalizeSettingsQuery("recent folders recent workspace folder history directory cwd quick reopen copy paste clipboard json");
 
   const header = document.createElement("div");
@@ -33828,7 +33995,7 @@ function recentFoldersSettings() {
 
 function recentCommandsSettings() {
   const section = document.createElement("div");
-  section.className = "recent-folder-list";
+  section.className = "recent-folder-list recent-command-list";
   section.dataset.settingsSearch = normalizeSettingsQuery("recent terminal commands shell command history run clear copy paste clipboard json snippets");
 
   const header = document.createElement("div");
@@ -33906,7 +34073,7 @@ function recentCommandsSettings() {
 
 function recentBrowserPagesSettings() {
   const section = document.createElement("div");
-  section.className = "recent-folder-list";
+  section.className = "recent-folder-list recent-browser-page-list";
   section.dataset.settingsSearch = normalizeSettingsQuery("recent browser pages urls web history open home profile clear copy paste clipboard json");
 
   const header = document.createElement("div");
@@ -34085,7 +34252,7 @@ function refreshRecentBrowserHomeActions() {
 
 function browserTabSessionsSettings() {
   const section = document.createElement("div");
-  section.className = "recent-folder-list";
+  section.className = "recent-folder-list browser-tab-session-list";
   const entries = browserTabSessionEntries();
   const workspace = activeWorkspace();
   const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
