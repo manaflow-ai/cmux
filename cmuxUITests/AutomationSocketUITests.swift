@@ -133,7 +133,6 @@ final class AutomationSocketUITests: XCTestCase {
         _ = try XCTUnwrap(
             waitForMentionRows(
                 in: app,
-                fallbackTitles: ["$agent-browser"],
                 timeout: 8.0
             ) { rows in
                 rows.contains { $0.contains("$agent-browser") }
@@ -149,7 +148,6 @@ final class AutomationSocketUITests: XCTestCase {
         let typedRows = try XCTUnwrap(
             waitForMentionRows(
                 in: app,
-                fallbackTitles: ["$autoreview", "$agent-browser"],
                 timeout: 8.0
             ) { rows in
                 rows.first?.contains("$autoreview") == true &&
@@ -161,6 +159,12 @@ final class AutomationSocketUITests: XCTestCase {
             """
         )
         XCTAssertTrue(typedRows.first?.contains("$autoreview") == true)
+        assertMentionRowsRemain(
+            in: app,
+            firstTitle: "$autoreview",
+            absentTitle: "$agent-browser",
+            duration: 0.5
+        )
 
         app.typeKey("a", modifierFlags: [.command])
         app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
@@ -169,7 +173,6 @@ final class AutomationSocketUITests: XCTestCase {
         let iterateRows = try XCTUnwrap(
             waitForMentionRows(
                 in: app,
-                fallbackTitles: ["$iterate-pr", "$agent-browser"],
                 timeout: 8.0
             ) { rows in
                 rows.first?.contains("$iterate-pr") == true &&
@@ -181,6 +184,12 @@ final class AutomationSocketUITests: XCTestCase {
             """
         )
         XCTAssertTrue(iterateRows.first?.contains("$iterate-pr") == true)
+        assertMentionRowsRemain(
+            in: app,
+            firstTitle: "$iterate-pr",
+            absentTitle: "$agent-browser",
+            duration: 0.5
+        )
     }
 
     private func configuredApp(mode: String) -> XCUIApplication {
@@ -548,7 +557,16 @@ final class AutomationSocketUITests: XCTestCase {
         in app: XCUIApplication,
         fallbackTitles: [String] = []
     ) -> [String] {
-        let indexedRows = (0..<12).compactMap { index -> String? in
+        let indexedRows = indexedMentionPopoverRowTitles(in: app)
+        if !indexedRows.isEmpty {
+            return indexedRows
+        }
+
+        return fallbackTitles.filter { mentionElementExists(in: app, title: $0) }
+    }
+
+    private func indexedMentionPopoverRowTitles(in app: XCUIApplication) -> [String] {
+        (0..<12).compactMap { index -> String? in
             let row = app.descendants(matching: .any)
                 .matching(identifier: "TextBoxMentionCompletionPopover.Row.\(index)")
                 .firstMatch
@@ -561,29 +579,50 @@ final class AutomationSocketUITests: XCTestCase {
             }
             return nil
         }
-        if !indexedRows.isEmpty {
-            return indexedRows
-        }
-
-        return fallbackTitles.filter { mentionElementExists(in: app, title: $0) }
     }
 
     private func waitForMentionRows(
         in app: XCUIApplication,
-        fallbackTitles: [String],
         timeout: TimeInterval,
         predicate: @escaping ([String]) -> Bool
     ) -> [String]? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            let rows = mentionPopoverRowTitles(in: app, fallbackTitles: fallbackTitles)
+            let rows = indexedMentionPopoverRowTitles(in: app)
             if predicate(rows) {
                 return rows
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        let rows = mentionPopoverRowTitles(in: app, fallbackTitles: fallbackTitles)
+        let rows = indexedMentionPopoverRowTitles(in: app)
         return predicate(rows) ? rows : nil
+    }
+
+    private func assertMentionRowsRemain(
+        in app: XCUIApplication,
+        firstTitle: String,
+        absentTitle: String,
+        duration: TimeInterval,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(duration)
+        var sampleCount = 0
+        while Date() < deadline {
+            let rows = indexedMentionPopoverRowTitles(in: app)
+            sampleCount += 1
+            guard rows.first?.contains(firstTitle) == true,
+                  !rows.contains(where: { $0.contains(absentTitle) }) else {
+                XCTFail(
+                    "Expected popover rows to remain filtered. firstTitle=\(firstTitle) absentTitle=\(absentTitle) rows=\(rows)",
+                    file: file,
+                    line: line
+                )
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertGreaterThan(sampleCount, 0, file: file, line: line)
     }
 
     private func mentionElementExists(in app: XCUIApplication, title: String) -> Bool {
@@ -612,7 +651,7 @@ final class AutomationSocketUITests: XCTestCase {
             guard row.exists else { return nil }
             return row.label.isEmpty ? row.value as? String : row.label
         }
-        let knownTitles = ["$agent-browser", "$autoreview"]
+        let knownTitles = ["$agent-browser", "$autoreview", "$iterate-pr"]
         let rows = mentionPopoverRowTitles(in: app, fallbackTitles: knownTitles)
         let popoverExists = app.descendants(matching: .any)
             .matching(identifier: "TextBoxMentionCompletionPopover")
