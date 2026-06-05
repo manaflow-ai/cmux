@@ -17850,15 +17850,15 @@ function activeBackgroundScopeModel(background = state.settings.backgroundImage,
 function refreshAppearancePreviewOpacity(value = state.settings.backgroundOpacity) {
   const opacity = String(clamp(value, 0, 42) / 100);
   for (const preview of elements.inspectorBody.querySelectorAll(".appearance-preview")) {
-    preview.style.setProperty("--preview-background-opacity", opacity);
+    setStylePropertyIfChanged(preview, "--preview-background-opacity", opacity);
   }
 }
 
 function refreshAppearancePreviewBlur(value = state.settings.backgroundBlur) {
   const blur = clamp(value, 0, 12);
   for (const preview of elements.inspectorBody.querySelectorAll(".appearance-preview")) {
-    preview.style.setProperty("--preview-background-blur", `${blur}px`);
-    preview.style.setProperty("--preview-background-scale", blur > 0 ? "1.03" : "1");
+    setStylePropertyIfChanged(preview, "--preview-background-blur", `${blur}px`);
+    setStylePropertyIfChanged(preview, "--preview-background-scale", blur > 0 ? "1.03" : "1");
   }
 }
 
@@ -17868,33 +17868,33 @@ function refreshBackgroundPreviewNodes() {
     for (const [id] of backgroundChromeOptions) {
       toggleClassIfChanged(preview, `appearance-background-${id}`, state.settings.backgroundChromeMode === id);
     }
-    preview.style.setProperty("--preview-background-image", appModel.image);
-    preview.style.setProperty("--preview-background-opacity", String(state.settings.backgroundOpacity / 100));
-    preview.style.setProperty("--preview-background-blur", `${state.settings.backgroundBlur}px`);
-    preview.style.setProperty("--preview-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
-    preview.style.setProperty("--preview-background-size", appModel.size);
-    preview.style.setProperty("--preview-background-repeat", appModel.repeat);
-    preview.style.setProperty("--preview-background-position", appModel.position);
+    setStylePropertyIfChanged(preview, "--preview-background-image", appModel.image);
+    setStylePropertyIfChanged(preview, "--preview-background-opacity", String(state.settings.backgroundOpacity / 100));
+    setStylePropertyIfChanged(preview, "--preview-background-blur", `${state.settings.backgroundBlur}px`);
+    setStylePropertyIfChanged(preview, "--preview-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
+    setStylePropertyIfChanged(preview, "--preview-background-size", appModel.size);
+    setStylePropertyIfChanged(preview, "--preview-background-repeat", appModel.repeat);
+    setStylePropertyIfChanged(preview, "--preview-background-position", appModel.position);
     setTextIfChanged(preview.querySelector("[data-preview-background]"), appearanceBackgroundLabel(state.settings.backgroundImage));
   }
   for (const panel of elements.inspectorBody.querySelectorAll(".active-background-panel")) {
     const workspace = activeWorkspace();
     const model = activeBackgroundPanelViewModel(state.backgroundApplyTarget, workspace);
     toggleClassIfChanged(panel, "has-image", model.hasBackground);
-    panel.style.setProperty("--active-background-image", model.image);
-    panel.style.setProperty("--active-background-repeat", model.repeat);
-    panel.style.setProperty("--active-background-size", model.size);
-    panel.style.setProperty("--active-background-position", model.position);
-    panel.style.setProperty("--active-background-blur", `${state.settings.backgroundBlur}px`);
-    panel.style.setProperty("--active-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
+    setStylePropertyIfChanged(panel, "--active-background-image", model.image);
+    setStylePropertyIfChanged(panel, "--active-background-repeat", model.repeat);
+    setStylePropertyIfChanged(panel, "--active-background-size", model.size);
+    setStylePropertyIfChanged(panel, "--active-background-position", model.position);
+    setStylePropertyIfChanged(panel, "--active-background-blur", `${state.settings.backgroundBlur}px`);
+    setStylePropertyIfChanged(panel, "--active-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
     const kicker = panel.querySelector(".active-background-kicker");
     const title = panel.querySelector(".active-background-title");
     const source = panel.querySelector(".active-background-source");
     setTextIfChanged(kicker, model.kicker);
     setTextIfChanged(title, model.label);
     setTextIfChanged(source, model.source);
-    if (title) title.title = model.label;
-    if (source) source.title = model.source;
+    setTitleIfChanged(title, model.label);
+    setTitleIfChanged(source, model.source);
     updateActiveBackgroundScopeSnapshot(panel.querySelector(".active-background-snapshot"), workspace);
     updateActiveBackgroundTargetControl(panel);
     const targetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
