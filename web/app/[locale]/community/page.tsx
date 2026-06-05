@@ -5,7 +5,7 @@ import { SiteHeader } from "../components/site-header";
 import { OfficialLinks } from "../components/official-links";
 import {
   awesomeCmuxCategoryOrder,
-  awesomeCmuxProjectRows,
+  awesomeCmuxCuratedProjectRows,
   awesomeCmuxProjects,
   awesomeCmuxSourceUrl,
 } from "./awesome-cmux-projects";
@@ -77,7 +77,7 @@ export default function CommunityPage() {
             {t("sourceAction")}
           </a>
           <span className="text-muted">
-            {numberFormatter.format(awesomeCmuxProjectRows)}{" "}
+            {numberFormatter.format(awesomeCmuxCuratedProjectRows)}{" "}
             {t("sourceRowsLabel")}
           </span>
         </div>

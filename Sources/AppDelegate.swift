@@ -1,4 +1,5 @@
 import AppKit
+import CmuxControlSocket
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSocketControl
@@ -706,6 +707,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let includeScrollback: Bool
         let flushClosedItemHistory: Bool
     }
+
+    /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
+    nonisolated let socketTransport = SocketTransport()
+
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -1567,7 +1572,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let socketPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
         let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
         let pingResponse = health.isHealthy
-            ? TerminalController.probeSocketCommand("ping", at: socketPath, timeout: 1.0)
+            ? socketTransport.probeCommand("ping", at: socketPath, timeout: 1.0)
             : nil
         let isReady = health.isHealthy && pingResponse == "PONG"
         var failureSignals = health.failureSignals
@@ -2743,7 +2748,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let expectedPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
             let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: expectedPath)
             let pingResponse = health.isHealthy
-                ? TerminalController.probeSocketCommand("ping", at: expectedPath, timeout: 1.0)
+                ? socketTransport.probeCommand("ping", at: expectedPath, timeout: 1.0)
                 : nil
             let isReady = health.isHealthy && pingResponse == "PONG"
             if isReady {
@@ -3672,7 +3677,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let config = socketListenerConfigurationIfEnabled() else { return }
         let startupPath = SocketControlSettings.initialSocketPathBeforeListenerStart(
             preferredPath: config.path,
-            stableDefaultSocketCanBeReclaimed: TerminalController.socketPathCanBeReclaimedForStartup
+            stableDefaultSocketCanBeReclaimed: socketTransport.pathCanBeReclaimedForStartup
         )
         TerminalController.shared.reserveStartupSocketPath(startupPath)
     }
@@ -4602,7 +4607,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func moveWorkspaceToWindow(workspaceId: UUID, windowId: UUID, focus: Bool = true) -> Bool {
+    func moveWorkspaceToWindow(workspaceId: UUID, windowId: UUID, atIndex: Int? = nil, focus: Bool = true) -> Bool {
         guard let sourceManager = tabManagerFor(tabId: workspaceId),
               let destinationManager = tabManagerFor(windowId: windowId) else {
             return false
@@ -4618,7 +4623,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         guard let workspace = sourceManager.detachWorkspace(tabId: workspaceId) else { return false }
-        destinationManager.attachWorkspace(workspace, select: focus)
+        destinationManager.attachWorkspace(workspace, at: atIndex, select: focus)
 
         if focus {
             _ = focusMainWindow(windowId: windowId)
@@ -11569,9 +11574,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         func publishCurrentState(isTimedOut: Bool) {
             let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
             let dataPath = path
+            let socketTransport = self.socketTransport
             DispatchQueue.global(qos: .utility).async { [weak self] in
                 let pingResponse = health.isHealthy
-                    ? TerminalController.probeSocketCommand("ping", at: socketPath, timeout: 1.0)
+                    ? socketTransport.probeCommand("ping", at: socketPath, timeout: 1.0)
                     : nil
                 let isReady = health.isHealthy && pingResponse == "PONG"
                 let failureSignals = {
@@ -12803,6 +12809,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+            return false
+        }
+
         if let mode = RightSidebarMode.modeShortcut(for: event),
            let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
            shouldRouteRightSidebarModeShortcut(in: rightSidebarWindow) {
@@ -13785,13 +13795,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func focusBrowserAddressBar(in panel: BrowserPanel) {
 #if DEBUG
-        let requestId = panel.requestAddressBarFocus()
+        let requestId = panel.requestAddressBarFocus(selectionIntent: .selectAll)
         cmuxDebugLog(
             "browser.focus.addressBar.request panel=\(panel.id.uuidString.prefix(5)) " +
             "request=\(requestId.uuidString.prefix(8)) \(browserFocusStateSnapshot())"
         )
 #else
-        _ = panel.requestAddressBarFocus()
+        _ = panel.requestAddressBarFocus(selectionIntent: .selectAll)
 #endif
         browserAddressBarFocusedPanelId = panel.id
 #if DEBUG
@@ -17000,6 +17010,19 @@ private extension NSWindow {
         }()
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
+        }
+        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+            let textInputTarget: NSResponder? = firstResponderGhosttyView
+                ?? firstResponderWebView
+                ?? self.firstResponder
+            if let textInputTarget, textInputTarget !== self {
+                textInputTarget.keyDown(with: event)
+#if DEBUG
+                cmuxDebugLog("  → printable Option text routed to keyDown")
+#endif
+                return true
+            }
+            return false
         }
         if let mode = RightSidebarMode.modeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {

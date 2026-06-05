@@ -871,6 +871,12 @@
           "descriptionKey": "schemaDescriptions.automation.suppressSubagentNotifications",
           "description": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
         },
+        "ampIntegration": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.automation.ampIntegration",
+          "description": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed."
+        },
         "cursorIntegration": {
           "type": "boolean",
           "default": true,
