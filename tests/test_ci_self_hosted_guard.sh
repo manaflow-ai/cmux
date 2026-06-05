@@ -584,6 +584,10 @@ check_cmux_unit_isolated_runner() {
     'CMUX_UNIT_TEST_BATCH_SIZE must be a positive integer' \
     'HOME="$home_path"' \
     'CFFIXED_USER_HOME="$home_path"' \
+    'candidate_kind = "xctest"' \
+    '\bfunc\s+test[A-Za-z0-9_]*\s*\(' \
+    '\@Test\b' \
+    '\@Suite\b' \
     'CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS=1' \
     'RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo"' \
     'SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"' \

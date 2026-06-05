@@ -34,6 +34,7 @@ done < <(
       $imports_testing = 0;
       $pending_suite_attribute = 0;
       $candidate_name = "";
+      $candidate_kind = "";
       $candidate_depth = 0;
       $candidate_has_test = 0;
       $candidate_has_suite_attribute = 0;
@@ -52,6 +53,7 @@ done < <(
         print "$candidate_name\n";
       }
       $candidate_name = "";
+      $candidate_kind = "";
       $candidate_depth = 0;
       $candidate_has_test = 0;
       $candidate_has_suite_attribute = 0;
@@ -72,21 +74,31 @@ done < <(
     next if @inactive_blocks;
 
     $imports_testing = 1 if /^\s*import\s+Testing\b/;
-    print "$1\n" if /^\s*(?:@[A-Za-z0-9_()]+\s+)*(?:final\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*XCTestCase\b/;
 
     my $line = $_;
     my $depth_before = $swift_brace_depth // 0;
 
-    if ($imports_testing) {
-      $pending_suite_attribute = 1 if /^\s*@Suite\b/;
+    if ($candidate_name eq "" && /^\s*(?:\@[A-Za-z0-9_()]+\s+)*(?:final\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*XCTestCase\b/) {
+      $candidate_name = $1;
+      $candidate_kind = "xctest";
+      $candidate_depth = $depth_before;
+      $candidate_has_test = /\bfunc\s+test[A-Za-z0-9_]*\s*\(/ ? 1 : 0;
+      $candidate_has_suite_attribute = 0;
+    } elsif ($candidate_kind eq "xctest" && /\bfunc\s+test[A-Za-z0-9_]*\s*\(/) {
+      $candidate_has_test = 1;
+    }
 
-      if ($candidate_name eq "" && $depth_before == 0 && /^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*(?:(?:public|private|fileprivate|internal)\s+)?struct\s+([A-Za-z_][A-Za-z0-9_]*)\b/) {
+    if ($imports_testing) {
+      $pending_suite_attribute = 1 if /^\s*\@Suite\b/;
+
+      if ($candidate_name eq "" && $depth_before == 0 && /^\s*(?:\@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*(?:(?:public|private|fileprivate|internal)\s+)?struct\s+([A-Za-z_][A-Za-z0-9_]*)\b/) {
         $candidate_name = $1;
+        $candidate_kind = "swift-testing";
         $candidate_depth = $depth_before;
         $candidate_has_test = 0;
-        $candidate_has_suite_attribute = $pending_suite_attribute || /^\s*@Suite\b/;
+        $candidate_has_suite_attribute = $pending_suite_attribute || /^\s*\@Suite\b/;
         $pending_suite_attribute = 0;
-      } elsif ($candidate_name ne "" && /^\s*@Test\b/) {
+      } elsif ($candidate_name ne "" && /^\s*\@Test\b/) {
         $candidate_has_test = 1;
       }
     }
