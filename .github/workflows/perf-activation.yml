@@ -38,7 +38,47 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  activation-scope:
+    runs-on: ubuntu-latest
+    outputs:
+      requires_activation: ${{ steps.scope.outputs.requires_activation }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify PR scope
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "requires_activation=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed_files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          requires_activation=false
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            case "$path" in
+              windows/*|README.md|.gitignore|.gitattributes|.github/workflows/windows-app.yml|.github/workflows/windows-release.yml|.github/workflows/ci.yml|.github/workflows/perf-activation.yml|tests/test_ci_self_hosted_guard.sh)
+                ;;
+              *)
+                requires_activation=true
+                break
+                ;;
+            esac
+          done <<< "$changed_files"
+          echo "requires_activation=$requires_activation" >> "$GITHUB_OUTPUT"
+
   activation-session:
+    needs: activation-scope
+    if: needs.activation-scope.outputs.requires_activation == 'true'
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}
     timeout-minutes: 45
     env:

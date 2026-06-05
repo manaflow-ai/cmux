@@ -13,6 +13,7 @@ CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
+PERF_FILE="$ROOT_DIR/.github/workflows/perf-activation.yml"
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -129,7 +130,7 @@ check_windows_scope_gate() {
     exit 1
   fi
 
-  if ! grep -Fq "windows/*|README.md|.gitignore|.gitattributes|.github/workflows/windows-app.yml|.github/workflows/windows-release.yml|.github/workflows/ci.yml|tests/test_ci_self_hosted_guard.sh)" "$CI_FILE"; then
+  if ! grep -Fq "windows/*|README.md|.gitignore|.gitattributes|.github/workflows/windows-app.yml|.github/workflows/windows-release.yml|.github/workflows/ci.yml|.github/workflows/perf-activation.yml|tests/test_ci_self_hosted_guard.sh)" "$CI_FILE"; then
     echo "FAIL: ci.yml must treat Windows-only PRs as not requiring macOS runners"
     exit 1
   fi
@@ -155,12 +156,44 @@ check_windows_scope_gate() {
   echo "PASS: Windows-only PRs skip paid macOS CI jobs"
 }
 
+check_activation_scope_gate() {
+  if ! grep -Fq "activation-scope:" "$PERF_FILE"; then
+    echo "FAIL: perf-activation.yml must classify PR scope before scheduling paid macOS activation runs"
+    exit 1
+  fi
+
+  if ! grep -Fq "windows/*|README.md|.gitignore|.gitattributes|.github/workflows/windows-app.yml|.github/workflows/windows-release.yml|.github/workflows/ci.yml|.github/workflows/perf-activation.yml|tests/test_ci_self_hosted_guard.sh)" "$PERF_FILE"; then
+    echo "FAIL: perf-activation.yml must treat Windows-only PRs as not requiring activation performance runners"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  activation-session:/ { in_job=1; saw_needs=0; saw_if=0; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ {
+      if (!(saw_needs && saw_if)) exit 1
+      in_job=0
+    }
+    in_job && /^[[:space:]]+needs:[[:space:]]*activation-scope[[:space:]]*$/ { saw_needs=1 }
+    in_job && /^[[:space:]]+if:[[:space:]]*needs\.activation-scope\.outputs\.requires_activation == '\''true'\''[[:space:]]*$/ { saw_if=1 }
+    END {
+      if (in_job && !(saw_needs && saw_if)) exit 1
+    }
+  ' "$PERF_FILE"; then
+    echo "FAIL: activation-session must depend on activation-scope and skip for Windows-only PRs"
+    exit 1
+  fi
+
+  echo "PASS: Windows-only PRs skip activation performance runs"
+}
+
 # ci.yml jobs
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-build"
 check_macos_runner "$CI_FILE" "ui-regressions"
 check_windows_scope_gate
+check_macos_runner "$PERF_FILE" "activation-session"
+check_activation_scope_gate
 
 # build-ghosttykit.yml
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
