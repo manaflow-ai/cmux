@@ -688,9 +688,11 @@ struct cmuxApp: App {
                         defaultValue: "Open Folder in VS Code (Inline)…"
                     )
                 ) {
-                    AppDelegate.shared?.showOpenFolderInInlineVSCodePanel()
+                    AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(
+                        vscodeApplicationURL: configuredInlineVSCodeApplicationURL()
+                    )
                 }
-                .disabled(!TerminalDirectoryOpenTarget.vscodeInline.isAvailable())
+                .disabled(configuredInlineVSCodeApplicationURL() == nil)
             }
 
             // Close tab/workspace
@@ -1076,6 +1078,17 @@ struct cmuxApp: App {
         AppDelegate.shared?.activeTabManagerForCommands(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) ?? tabManager
+    }
+
+    private func configuredInlineVSCodeApplicationURL() -> URL? {
+        guard let configStore = AppDelegate.shared?.mainWindowContexts.values
+            .first(where: { $0.tabManager === activeTabManager })?
+            .cmuxConfigStore else {
+            return TerminalDirectoryOpenTarget.vscodeInline.applicationURL()
+        }
+        return configStore.loadedDirectoryTools
+            .first { $0.kind == .vscodeServeWeb && $0.isAvailable() }?
+            .applicationURL()
     }
 
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {

@@ -308,6 +308,67 @@ final class ServeWebOutputCollectorTests: XCTestCase {
         XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
         XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:9001?tkn=final-token")
     }
+
+    func testReportsOutputSnippetAsTextArrives() {
+        var snippets: [String] = []
+        let collector = ServeWebOutputCollector { snippet in
+            snippets.append(snippet)
+        }
+
+        collector.append(Data("Starting VS Code server\n".utf8))
+        collector.append(Data("Preparing web UI\n".utf8))
+
+        XCTAssertEqual(snippets, [
+            "Starting VS Code server",
+            "Starting VS Code server\nPreparing web UI"
+        ])
+    }
+}
+
+
+final class DirectoryToolWebServerOutputCollectorTests: XCTestCase {
+    func testWaitForURLReturnsFalseAfterProcessExitSignal() {
+        let collector = DirectoryToolWebServerOutputCollector(urlPattern: nil)
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            collector.append(Data("Jupyter is not installed\n".utf8))
+            collector.markProcessExited()
+        }
+
+        let start = Date()
+        let resolved = collector.waitForURL(timeoutSeconds: 1)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertFalse(resolved)
+        XCTAssertLessThan(elapsed, 0.5)
+        XCTAssertEqual(collector.outputSnippet, "Jupyter is not installed")
+    }
+
+    func testCustomRegexParsesLocalhostJupyterURL() {
+        let collector = DirectoryToolWebServerOutputCollector(
+            urlPattern: "(http://(?:127\\.0\\.0\\.1|localhost):[^\\s]+)"
+        )
+
+        collector.append(Data("http://localhost:8888/lab?token=test-token\n".utf8))
+
+        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
+        XCTAssertEqual(collector.webServerURL?.absoluteString, "http://localhost:8888/lab?token=test-token")
+    }
+
+    func testReportsOutputSnippetAsTextArrives() {
+        var snippets: [String] = []
+        let collector = DirectoryToolWebServerOutputCollector(urlPattern: nil) { snippet in
+            snippets.append(snippet)
+        }
+
+        collector.append(Data("Resolving packages\n".utf8))
+        collector.append(Data("Installed jupyterlab\n".utf8))
+
+        XCTAssertEqual(snippets, [
+            "Resolving packages",
+            "Resolving packages\nInstalled jupyterlab"
+        ])
+    }
 }
 
 

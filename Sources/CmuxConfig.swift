@@ -10,6 +10,7 @@ extension CodingUserInfoKey {
 
 struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
+    var directoryTools: [CmuxDirectoryToolDefinition]?
     var ui: CmuxConfigUIDefinition?
     var notifications: CmuxNotificationConfigDefinition?
     var newWorkspaceCommand: String?
@@ -19,11 +20,12 @@ struct CmuxConfigFile: Codable, Sendable {
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case actions, directoryTools, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
     }
 
     init(
         actions: [String: CmuxConfigActionDefinition] = [:],
+        directoryTools: [CmuxDirectoryToolDefinition]? = nil,
         ui: CmuxConfigUIDefinition? = nil,
         notifications: CmuxNotificationConfigDefinition? = nil,
         newWorkspaceCommand: String? = nil,
@@ -33,6 +35,7 @@ struct CmuxConfigFile: Codable, Sendable {
         workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
     ) {
         self.actions = actions
+        self.directoryTools = directoryTools
         self.ui = ui
         self.notifications = notifications
         self.newWorkspaceCommand = newWorkspaceCommand
@@ -52,6 +55,7 @@ struct CmuxConfigFile: Codable, Sendable {
             decodedActions,
             codingPath: decoder.codingPath + [CodingKeys.actions]
         )
+        directoryTools = try container.decodeIfPresent([CmuxDirectoryToolDefinition].self, forKey: .directoryTools)
         ui = try container.decodeIfPresent(CmuxConfigUIDefinition.self, forKey: .ui)
         notifications = try container.decodeIfPresent(CmuxNotificationConfigDefinition.self, forKey: .notifications)
 
@@ -321,6 +325,299 @@ struct CmuxResolvedNotificationHook: Sendable, Hashable {
         hasher.combine(sourcePath)
         hasher.combine(cwd)
         hasher.combine(trustDescriptor?.fingerprint)
+    }
+}
+
+enum CmuxDirectoryToolKind: String, Codable, Sendable, Hashable {
+    case vscodeServeWeb
+    case shellWebServer
+}
+
+struct CmuxDirectoryToolDefinition: Codable, Sendable, Hashable {
+    var id: String
+    var title: String
+    var subtitle: String?
+    var keywords: [String]
+    var enabled: Bool
+    var kind: CmuxDirectoryToolKind
+    var applicationBundlePathCandidates: [String]
+    var executablePathCandidates: [String]
+    var command: String?
+    var cwd: String?
+    var urlRegex: String?
+    var failureMessage: String?
+    var installCommand: String?
+    var startupTimeoutSeconds: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case subtitle
+        case keywords
+        case enabled
+        case kind
+        case applicationBundlePathCandidates
+        case executablePathCandidates
+        case command
+        case cwd
+        case urlRegex
+        case failureMessage
+        case installCommand
+        case startupTimeoutSeconds
+    }
+
+    init(
+        id: String,
+        title: String,
+        subtitle: String? = nil,
+        keywords: [String] = [],
+        enabled: Bool = true,
+        kind: CmuxDirectoryToolKind,
+        applicationBundlePathCandidates: [String] = [],
+        executablePathCandidates: [String] = [],
+        command: String? = nil,
+        cwd: String? = nil,
+        urlRegex: String? = nil,
+        failureMessage: String? = nil,
+        installCommand: String? = nil,
+        startupTimeoutSeconds: Double? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.keywords = keywords
+        self.enabled = enabled
+        self.kind = kind
+        self.applicationBundlePathCandidates = applicationBundlePathCandidates
+        self.executablePathCandidates = executablePathCandidates
+        self.command = command
+        self.cwd = cwd
+        self.urlRegex = urlRegex
+        self.failureMessage = failureMessage
+        self.installCommand = installCommand
+        self.startupTimeoutSeconds = startupTimeoutSeconds
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try Self.requiredTrimmedString(forKey: .id, in: container)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        if let decodedTitle = try Self.optionalTrimmedString(forKey: .title, in: container) {
+            title = decodedTitle
+        } else if enabled == false {
+            title = id
+        } else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .title,
+                in: container,
+                debugDescription: "title must not be blank"
+            )
+        }
+        subtitle = try Self.optionalTrimmedString(forKey: .subtitle, in: container)
+        keywords = try container.decodeIfPresent([String].self, forKey: .keywords)?
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+        kind = try container.decodeIfPresent(CmuxDirectoryToolKind.self, forKey: .kind) ?? .shellWebServer
+        applicationBundlePathCandidates = try Self.trimmedStringArray(
+            forKey: .applicationBundlePathCandidates,
+            in: container
+        )
+        executablePathCandidates = try Self.trimmedStringArray(
+            forKey: .executablePathCandidates,
+            in: container
+        )
+        command = try Self.optionalTrimmedString(forKey: .command, in: container)
+        cwd = try Self.optionalTrimmedString(forKey: .cwd, in: container)
+        urlRegex = try Self.optionalTrimmedString(forKey: .urlRegex, in: container)
+        failureMessage = try Self.optionalTrimmedString(forKey: .failureMessage, in: container)
+        installCommand = try Self.optionalTrimmedString(forKey: .installCommand, in: container)
+        startupTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .startupTimeoutSeconds)
+
+        switch kind {
+        case .vscodeServeWeb:
+            if applicationBundlePathCandidates.isEmpty {
+                applicationBundlePathCandidates = Self.defaultVSCodeApplicationBundlePathCandidates
+            }
+        case .shellWebServer:
+            if enabled, command == nil {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .command,
+                    in: container,
+                    debugDescription: "shellWebServer directory tools require command"
+                )
+            }
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(subtitle, forKey: .subtitle)
+        if !keywords.isEmpty {
+            try container.encode(keywords, forKey: .keywords)
+        }
+        try container.encode(enabled, forKey: .enabled)
+        try container.encode(kind, forKey: .kind)
+        if !applicationBundlePathCandidates.isEmpty {
+            try container.encode(applicationBundlePathCandidates, forKey: .applicationBundlePathCandidates)
+        }
+        if !executablePathCandidates.isEmpty {
+            try container.encode(executablePathCandidates, forKey: .executablePathCandidates)
+        }
+        try container.encodeIfPresent(command, forKey: .command)
+        try container.encodeIfPresent(cwd, forKey: .cwd)
+        try container.encodeIfPresent(urlRegex, forKey: .urlRegex)
+        try container.encodeIfPresent(failureMessage, forKey: .failureMessage)
+        try container.encodeIfPresent(installCommand, forKey: .installCommand)
+        try container.encodeIfPresent(startupTimeoutSeconds, forKey: .startupTimeoutSeconds)
+    }
+
+    static let defaultVSCodeApplicationBundlePathCandidates = [
+        "/Applications/Visual Studio Code.app",
+        "/Applications/Code.app",
+    ]
+
+    static let defaultDefinitions: [CmuxDirectoryToolDefinition] = [
+        CmuxDirectoryToolDefinition(
+            id: "vscode-inline",
+            title: String(localized: "menu.openInVSCode", defaultValue: "Open Current Directory in VS Code (Inline)"),
+            subtitle: String(localized: "command.openFolderInVSCodeInline.subtitle", defaultValue: "VS Code Inline"),
+            keywords: ["terminal", "directory", "open", "ide", "vs", "code", "visual", "studio", "inline", "browser", "serve-web"],
+            kind: .vscodeServeWeb,
+            applicationBundlePathCandidates: defaultVSCodeApplicationBundlePathCandidates
+        ),
+        CmuxDirectoryToolDefinition(
+            id: "jupyter",
+            title: String(localized: "menu.openInJupyter", defaultValue: "Open Current Directory in Jupyter"),
+            subtitle: String(localized: "command.openFolderInJupyter.subtitle", defaultValue: "Jupyter"),
+            keywords: ["terminal", "directory", "open", "notebook", "jupyter", "lab", "python", "browser"],
+            kind: .shellWebServer,
+            executablePathCandidates: [
+                "/opt/homebrew/bin/jupyter",
+                "/usr/local/bin/jupyter",
+                "/usr/bin/jupyter",
+                "~/.local/bin/jupyter",
+                "~/.pyenv/shims/jupyter",
+                "~/.asdf/shims/jupyter",
+            ],
+            command: """
+            jupyter="${CMUX_TOOL_EXECUTABLE:-}"
+            if [ -z "$jupyter" ]; then
+              jupyter="$(command -v jupyter || command -v jupyter-lab || true)"
+            fi
+
+            if [ -n "$jupyter" ]; then
+              if [ "$(basename "$jupyter")" = "jupyter-lab" ]; then
+                exec "$jupyter" --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50
+              fi
+              exec "$jupyter" lab --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50
+            fi
+
+            if command -v uvx >/dev/null 2>&1; then
+              exec uvx --from jupyterlab jupyter lab --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50
+            fi
+
+            echo "Jupyter is not installed and uvx is not on PATH." >&2
+            exit 127
+            """,
+            cwd: "{directory}",
+            urlRegex: "(http://(?:127\\.0\\.0\\.1|localhost):[^\\s]+)",
+            failureMessage: String(
+                localized: "directoryTool.jupyter.failureMessage",
+                defaultValue: "Jupyter is not installed, uvx is not available, or the tool did not print a local URL. Install uv, then run this command again."
+            ),
+            installCommand: "if command -v brew >/dev/null 2>&1; then brew install uv; else curl -LsSf https://astral.sh/uv/install.sh | sh; fi",
+            startupTimeoutSeconds: 20
+        ),
+    ]
+
+    private static func requiredTrimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String {
+        let value = try container.decode(String.self, forKey: key)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "\(key.stringValue) must not be blank"
+            )
+        }
+        return value
+    }
+
+    private static func optionalTrimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String? {
+        guard let value = try container.decodeIfPresent(String.self, forKey: key)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private static func trimmedStringArray(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> [String] {
+        try container.decodeIfPresent([String].self, forKey: key)?
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+    }
+}
+
+struct CmuxResolvedDirectoryTool: Sendable, Hashable, Identifiable {
+    var id: String
+    var title: String
+    var subtitle: String?
+    var keywords: [String]
+    var kind: CmuxDirectoryToolKind
+    var applicationBundlePathCandidates: [String]
+    var executablePathCandidates: [String]
+    var command: String?
+    var cwd: String?
+    var urlRegex: String?
+    var failureMessage: String?
+    var installCommand: String?
+    var startupTimeoutSeconds: Double?
+    var sourcePath: String?
+
+    var commandPaletteCommandId: String {
+        "palette.terminalDirectoryTool.\(id)"
+    }
+
+    var stopCommandPaletteCommandId: String {
+        "\(commandPaletteCommandId).stop"
+    }
+
+    var displayCommand: String {
+        switch kind {
+        case .vscodeServeWeb:
+            return "code-tunnel serve-web"
+        case .shellWebServer:
+            return command ?? ""
+        }
+    }
+
+    init(definition: CmuxDirectoryToolDefinition, sourcePath: String?) {
+        id = definition.id
+        title = definition.title
+        subtitle = definition.subtitle
+        keywords = definition.keywords
+        kind = definition.kind
+        applicationBundlePathCandidates = definition.applicationBundlePathCandidates
+        executablePathCandidates = definition.executablePathCandidates
+        command = definition.command
+        cwd = definition.cwd
+        urlRegex = definition.urlRegex
+        failureMessage = definition.failureMessage
+        installCommand = definition.installCommand
+        startupTimeoutSeconds = definition.startupTimeoutSeconds
+        self.sourcePath = sourcePath
     }
 }
 
@@ -1885,6 +2182,9 @@ final class CmuxConfigStore: ObservableObject {
 
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
     @Published private(set) var loadedActions: [CmuxResolvedConfigAction] = []
+    @Published private(set) var loadedDirectoryTools: [CmuxResolvedDirectoryTool] = CmuxDirectoryToolDefinition.defaultDefinitions.map {
+        CmuxResolvedDirectoryTool(definition: $0, sourcePath: nil)
+    }
     @Published private(set) var newWorkspaceCommandName: String?
     @Published private(set) var newWorkspaceActionID: String?
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
@@ -2176,6 +2476,11 @@ final class CmuxConfigStore: ObservableObject {
         }
         let localActions = localConfig.map { actionEntries(from: $0.actions, sourcePath: localPath) } ?? [:]
         let globalActions = globalConfig.map { actionEntries(from: $0.actions, sourcePath: globalConfigPath) } ?? [:]
+        let directoryTools = resolvedDirectoryTools(
+            globalDefinitions: globalConfig?.directoryTools,
+            localDefinitions: localConfig?.directoryTools,
+            localPath: localPath
+        )
 
         // Local config takes precedence
         if let localConfig {
@@ -2295,6 +2600,7 @@ final class CmuxConfigStore: ObservableObject {
 
         loadedCommands = commands
         loadedActions = resolvedActions
+        loadedDirectoryTools = directoryTools
         commandSourcePaths = sourcePaths
         actionLookup = resolvedActionLookup
         newWorkspaceActionID = configuredNewWorkspaceActionID
@@ -2420,6 +2726,57 @@ final class CmuxConfigStore: ObservableObject {
         fallback: [String: ActionEntry]
     ) -> [String: ActionEntry] {
         fallback.merging(primary) { _, primary in primary }
+    }
+
+    private func resolvedDirectoryTools(
+        globalDefinitions: [CmuxDirectoryToolDefinition]?,
+        localDefinitions: [CmuxDirectoryToolDefinition]?,
+        localPath: String?
+    ) -> [CmuxResolvedDirectoryTool] {
+        struct Entry {
+            let definition: CmuxDirectoryToolDefinition
+            let sourcePath: String?
+            let order: Int
+        }
+
+        var entriesByID: [String: Entry] = [:]
+        var nextOrder = 0
+
+        func normalizedID(_ id: String) -> String {
+            id.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        func apply(_ definitions: [CmuxDirectoryToolDefinition], sourcePath: String?) {
+            for definition in definitions {
+                let id = normalizedID(definition.id)
+                guard !id.isEmpty else { continue }
+                let order = entriesByID[id]?.order ?? nextOrder
+                if entriesByID[id] == nil {
+                    nextOrder += 1
+                }
+                entriesByID[id] = Entry(definition: definition, sourcePath: sourcePath, order: order)
+            }
+        }
+
+        apply(CmuxDirectoryToolDefinition.defaultDefinitions, sourcePath: nil)
+        if let globalDefinitions {
+            apply(globalDefinitions, sourcePath: globalConfigPath)
+        }
+        if let localDefinitions {
+            apply(localDefinitions, sourcePath: localPath)
+        }
+
+        return entriesByID.values
+            .filter { $0.definition.enabled }
+            .sorted { lhs, rhs in
+                if lhs.order != rhs.order {
+                    return lhs.order < rhs.order
+                }
+                return lhs.definition.id < rhs.definition.id
+            }
+            .map { entry in
+                CmuxResolvedDirectoryTool(definition: entry.definition, sourcePath: entry.sourcePath)
+            }
     }
 
     private func sanitizeConfigText(_ text: String) -> String {

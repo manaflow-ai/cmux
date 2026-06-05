@@ -7221,9 +7221,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func openDirectoryInInlineVSCode(
         _ directoryURL: URL,
+        vscodeApplicationURL preferredVSCodeApplicationURL: URL? = nil,
         tabManager preferredTabManager: TabManager? = nil
     ) -> Bool {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
+        guard let vscodeApplicationURL = preferredVSCodeApplicationURL
+            ?? TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return false
         }
 
@@ -7238,15 +7240,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? targetTabManager.addWorkspace(select: true).id
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
-        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+        var progressController: DirectoryToolLaunchPanelController!
+        progressController = DirectoryToolLaunchPanelController(
+            title: DirectoryToolLaunchPanelController.startingTitle(displayName: "VS Code"),
+            initialMessage: String(
+                localized: "directoryTool.launchProgress.message",
+                defaultValue: "Waiting for the tool to print a local URL."
+            ),
+            launchingMessage: String(
+                localized: "directoryTool.launchProgress.message",
+                defaultValue: "Waiting for the tool to print a local URL."
+            ),
+            initialOutput: String(
+                localized: "directoryTool.launchProgress.noOutput",
+                defaultValue: "No output yet."
+            ),
+            requiresApproval: false,
+            onAllow: nil,
+            onStop: {
+                VSCodeServeWebController.shared.stop()
+            }
+        )
+        progressController.show(presentingWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+
+        VSCodeServeWebController.shared.ensureServeWebURL(
+            vscodeApplicationURL: vscodeApplicationURL,
+            progress: { output in
+                progressController.updateOutput(output)
+            }
+        ) { serveWebURL in
             guard let serveWebURL,
                   let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
                       baseWebUIURL: serveWebURL,
                       directoryPath: normalizedDirectoryURL.path
                   ) else {
+                progressController.finish(
+                    message: String(
+                        localized: "directoryTool.launchProgress.failed",
+                        defaultValue: "The server did not start."
+                    ),
+                    stopTitle: String(
+                        localized: "directoryTool.launchProgress.hide",
+                        defaultValue: "Hide"
+                    )
+                )
                 NSSound.beep()
                 return
             }
+            progressController.close()
 
             guard targetTabManager.openBrowser(
                 inWorkspace: targetWorkspaceId,
@@ -7261,8 +7302,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
-        guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
+    func showOpenFolderInInlineVSCodePanel(
+        vscodeApplicationURL preferredVSCodeApplicationURL: URL? = nil,
+        tabManager preferredTabManager: TabManager? = nil
+    ) {
+        guard preferredVSCodeApplicationURL != nil || TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
             NSSound.beep()
             return
         }
@@ -7293,7 +7337,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if panel.runModal() == .OK,
            let url = panel.url,
-           !openDirectoryInInlineVSCode(url, tabManager: targetTabManager) {
+           !openDirectoryInInlineVSCode(
+               url,
+               vscodeApplicationURL: preferredVSCodeApplicationURL,
+               tabManager: targetTabManager
+           ) {
             NSSound.beep()
         }
     }

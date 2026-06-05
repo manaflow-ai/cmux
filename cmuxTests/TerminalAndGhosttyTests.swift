@@ -2326,7 +2326,53 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
 
         let availableTargets = TerminalDirectoryOpenTarget.availableTargets(in: env)
         XCTAssertTrue(availableTargets.contains(.vscode))
-        XCTAssertTrue(availableTargets.contains(.vscodeInline))
+        XCTAssertFalse(availableTargets.contains(.vscodeInline))
+    }
+
+    func testDefaultDirectoryToolsDetectVSCodeInlineAndJupyter() {
+        let env = environment(
+            existingPaths: [
+                "/Applications/Visual Studio Code.app",
+                "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel",
+            ]
+        )
+        let tools = CmuxDirectoryToolDefinition.defaultDefinitions.map {
+            CmuxResolvedDirectoryTool(definition: $0, sourcePath: nil)
+        }
+
+        let availableTools = CmuxResolvedDirectoryTool.availableTools(tools, in: env)
+        XCTAssertTrue(availableTools.contains("vscode-inline"))
+        XCTAssertTrue(availableTools.contains("jupyter"))
+    }
+
+    func testShellDirectoryToolsArePaletteAvailableWithoutStaticExecutableMatch() {
+        let env = environment(existingPaths: [])
+        let tool = CmuxDirectoryToolDefinition(
+            id: "notebook",
+            title: "Open Notebook",
+            kind: .shellWebServer,
+            executablePathCandidates: ["/opt/homebrew/bin/notebook"],
+            command: "notebook --port=0"
+        )
+
+        let availableTools = CmuxResolvedDirectoryTool.availableTools(
+            [CmuxResolvedDirectoryTool(definition: tool, sourcePath: nil)],
+            in: env
+        )
+
+        XCTAssertEqual(availableTools, ["notebook"])
+    }
+
+    func testDefaultJupyterUsesUVXFallbackAndInstallCommand() throws {
+        let definition = try XCTUnwrap(CmuxDirectoryToolDefinition.defaultDefinitions.first { $0.id == "jupyter" })
+        let command = try XCTUnwrap(definition.command)
+        XCTAssertTrue(command.contains("uvx --from jupyterlab jupyter lab"))
+        XCTAssertTrue(command.contains("jupyter=\"${CMUX_TOOL_EXECUTABLE:-}\""))
+        XCTAssertTrue(command.contains("command -v jupyter || command -v jupyter-lab"))
+        XCTAssertEqual(
+            definition.installCommand,
+            "if command -v brew >/dev/null 2>&1; then brew install uv; else curl -LsSf https://astral.sh/uv/install.sh | sh; fi"
+        )
     }
 
     func testTowerDetectedViaApplicationLookupOutsideApplications() {
