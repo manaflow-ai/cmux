@@ -822,6 +822,19 @@ _cmux_clear_pr_for_panel() {
     _cmux_send_bg "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
+_cmux_clear_pr_command_hint_file() {
+    [[ -n "${_CMUX_PR_ACTION_HINT_FILE:-}" ]] || return 0
+    /bin/rm -f -- "$_CMUX_PR_ACTION_HINT_FILE" >/dev/null 2>&1 || true
+}
+
+_cmux_clear_pr_for_disabled_git_watch() {
+    _cmux_clear_pr_command_hint_file
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _cmux_send_bg "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
 _cmux_pr_output_indicates_no_pull_request() {
     local output="${1:l}"
     [[ "$output" == *"no pull requests found"* \
@@ -1555,6 +1568,7 @@ _cmux_precmd() {
         _CMUX_PR_FORCE=0
         _CMUX_LAST_PR_ACTION=""
         _CMUX_LAST_PR_TARGET=""
+        _cmux_clear_pr_for_disabled_git_watch
     fi
 
     local cmux_has_unix_socket=0
