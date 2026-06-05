@@ -5013,7 +5013,7 @@ function mergedSavedBackgroundLibrary(imported, current) {
   return next;
 }
 
-function mergeSavedLibrary(payload) {
+function mergeSavedLibrary(payload, options = {}) {
   const entries = savedLibraryEntriesFromPayload(payload);
   if (!hasSavedLibraryEntries(entries)) {
     toast("Clipboard does not contain a customization library.");
@@ -5063,19 +5063,19 @@ function mergeSavedLibrary(payload) {
     toast("Customization library already matches.");
     return false;
   }
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast("Customization library updated.");
   return true;
 }
 
-async function pasteSavedLibrary() {
+async function pasteSavedLibrary(options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
     return false;
   }
   try {
-    return mergeSavedLibrary(JSON.parse(clipboard));
+    return mergeSavedLibrary(JSON.parse(clipboard), options);
   } catch {
     toast("Clipboard does not contain a customization library.");
     return false;
@@ -14130,14 +14130,14 @@ function useActiveBrowserPageAsHome(panel = focusedPanel()) {
   return useBrowserPageAsHome(browserPanelUrl(browserPanel));
 }
 
-function saveActiveBrowserPageProfile(panel = focusedPanel()) {
+function saveActiveBrowserPageProfile(panel = focusedPanel(), options = {}) {
   const browserPanel = resolveBrowserPanel(panel);
   if (!browserPanel) {
     toast("Focus a browser pane first.");
     return null;
   }
   focusPanel(browserPanel.id);
-  return saveBrowserProfileForHome(browserPanelUrl(browserPanel));
+  return saveBrowserProfileForHome(browserPanelUrl(browserPanel), options);
 }
 
 function newBrowserTabFromPanel(panel = focusedPanel()) {
@@ -24528,7 +24528,7 @@ function performanceHealthCombinedUpdates() {
   return Object.keys(updates).length ? updates : null;
 }
 
-function applyPerformanceHealthFix(checkId) {
+function applyPerformanceHealthFix(checkId, options = {}) {
   const check = performanceHealthCheckById(checkId);
   const updates = performanceHealthCheckUpdates(check);
   if (!check || !updates) {
@@ -24540,12 +24540,12 @@ function applyPerformanceHealthFix(checkId) {
     toast(`${check.label} is already tuned.`);
     return false;
   }
-  if (state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
+  if (options.render !== false && state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
   toast(`${check.label} tuned.`);
   return true;
 }
 
-function applyPerformanceHealthFixes() {
+function applyPerformanceHealthFixes(options = {}) {
   const updates = performanceHealthCombinedUpdates();
   if (!updates) {
     toast("Performance health is already tuned.");
@@ -24556,7 +24556,7 @@ function applyPerformanceHealthFixes() {
     toast("Performance health is already tuned.");
     return false;
   }
-  if (state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
+  if (options.render !== false && state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
   toast("Performance health fixes applied.");
   return true;
 }
@@ -25043,12 +25043,13 @@ function settingsProfileSaveStateSearch(savedProfile = null) {
   return `${savedSettingsProfileCountLabel()} profiles ${savedSettingsProfilesFull() ? "limit full unavailable" : "capacity ready"}`;
 }
 
-function saveQuickSetupProfile() {
+function saveQuickSetupProfile(options = {}) {
   const setup = activeSettingsSetupModel();
   return saveCurrentSettingsProfile({
     title: "Save current setup",
     message: "Save the current colors, layout, terminal, browser, and performance settings as a reusable profile.",
-    baseName: setup.baseName
+    baseName: setup.baseName,
+    ...options
   });
 }
 
@@ -25375,7 +25376,7 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
       title: state.settings.focusMode ? "Turn focus mode off." : "Turn focus mode on.",
       search: "quick setup layout focus mode simple clean hide chrome workspace"
     }),
-    quickOverviewControlButton("Save profile", saveCurrentLayoutProfile, {
+    quickOverviewControlButton("Save profile", () => refreshQuick(saveCurrentLayoutProfile({ render: false })), {
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save this layout and workspace chrome as a reusable Settings profile.",
       search: "quick setup layout workspace chrome save profile reusable settings toolbar tabs sidebar panes palette command placement"
@@ -25714,7 +25715,7 @@ function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount
         : "Reset terminal font, spacing, history, colors, cursor, and default shell.",
       search: `quick setup terminal reset setup default font size line height padding history color cursor shell ${setupDefault ? "active current " : ""}`
     }),
-    quickOverviewControlButton("Save profile", saveCurrentTerminalProfile, {
+    quickOverviewControlButton("Save profile", () => refreshQuickSettingsAfterAction(saveCurrentTerminalProfile({ render: false })), {
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save this terminal setup as a reusable Settings profile.",
       search: "quick setup terminal save profile reusable settings font color shell"
@@ -25808,12 +25809,12 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
           : "Set the active browser page as the home page.",
       search: "quick setup browser use active page as home homepage"
     }),
-    quickOverviewControlButton("Save profile", () => saveActiveBrowserPageProfile(activeBrowser), {
+    quickOverviewControlButton("Save profile", () => refreshQuickSettingsAfterAction(saveActiveBrowserPageProfile(activeBrowser, { render: false })), {
       disabled: !activeBrowser || profilesFull,
       title: saveProfileTitle,
       search: "quick setup browser save active page profile reusable settings"
     }),
-    quickOverviewControlButton("Save setup", saveCurrentBrowserProfile, {
+    quickOverviewControlButton("Save setup", () => refreshQuickSettingsAfterAction(saveCurrentBrowserProfile({ render: false })), {
       disabled: profilesFull,
       title: saveSetupTitle,
       search: "quick setup browser save setup profile reusable settings home launch external profile suspend pane chrome zoom"
@@ -25961,7 +25962,7 @@ function quickLookControlsPanel() {
   const lookCycle = lookPackCycleModel();
   const themeCycle = themeChoiceCycleModel();
   const actions = [
-    quickOverviewControlButton("Save profile", saveCurrentLookProfile, {
+    quickOverviewControlButton("Save profile", () => refreshQuickSettingsAfterAction(saveCurrentLookProfile({ render: false })), {
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save this look as a reusable Settings profile.",
       search: "quick setup look appearance save profile theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors reusable"
@@ -26249,14 +26250,14 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
       title: tuneTitle,
       search: "quick setup performance tune speed lag smooth reduce effects hidden output"
     }),
-    quickOverviewControlButton(healthIssueCount === 0 ? "Health ready" : "Fix health", applyPerformanceHealthFixes, {
+    quickOverviewControlButton(healthIssueCount === 0 ? "Health ready" : "Fix health", () => refreshQuickSettingsAfterAction(applyPerformanceHealthFixes({ render: false })), {
       disabled: healthIssueCount === 0,
       title: healthIssueCount === 0
         ? "Performance health is already tuned."
         : `Apply ${performanceHealthIssueCountLabel(healthIssueCount).toLowerCase()} for a lighter workspace.`,
       search: `quick setup performance health checklist fixes speed lag smooth tune ${performanceHealthAllSearchText(healthIssueCount)}`
     }),
-    quickOverviewControlButton("Save profile", saveCurrentPerformanceProfile, {
+    quickOverviewControlButton("Save profile", () => refreshQuickSettingsAfterAction(saveCurrentPerformanceProfile({ render: false })), {
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save the current performance setup as a reusable profile.",
       search: "quick setup performance save speed profile reusable settings"
@@ -26306,7 +26307,7 @@ function quickPerformanceHealthFixControlsPanel() {
   const previewLimit = 5;
   const visibleChecks = checks.slice(0, previewLimit);
   const hiddenCheckCount = Math.max(0, checks.length - visibleChecks.length);
-  const actions = visibleChecks.map((check) => quickOverviewControlButton(check.label, () => applyPerformanceHealthFix(check.id), {
+  const actions = visibleChecks.map((check) => quickOverviewControlButton(check.label, () => refreshQuickSettingsAfterAction(applyPerformanceHealthFix(check.id, { render: false })), {
     title: `Apply the ${check.label.toLowerCase()} performance fix. ${check.meta?.() || ""}`,
     search: performanceHealthCheckSearchText(check, true, check.meta?.() || "")
   }));
@@ -26593,7 +26594,7 @@ function quickProfileDataControlsPanel(storageBytes = totalDataStorageBytes()) {
   const savedCapacitySearch = savedLibraryCapacityLimited() ? "limit full " : "";
   const meta = `${savedSettingsProfileCountLabel()} profiles / ${savedStatus} / ${recentItems} recent / ${formatBytes(storageBytes)}`;
   const actions = [
-    quickOverviewControlButton("Save profile", saveQuickSetupProfile, {
+    quickOverviewControlButton("Save profile", () => refreshQuickSettingsAfterAction(saveQuickSetupProfile({ render: false })), {
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save the current setup as a reusable Settings profile.",
       search: `quick setup profile data save current settings profile reusable ${setup.label} ${setup.kind}`
@@ -26607,7 +26608,7 @@ function quickProfileDataControlsPanel(storageBytes = totalDataStorageBytes()) {
       title: savedLibraryCopyTitle(),
       search: `quick setup profile data copy saved customization library snippets profiles blueprints colors backgrounds clipboard json ${savedSearch}`
     }),
-    quickOverviewControlButton("Paste library", pasteSavedLibrary, {
+    quickOverviewControlButton("Paste library", () => refreshQuickSettingsAfterAction(pasteSavedLibrary({ render: false })), {
       title: savedLibraryPasteTitle(),
       search: `quick setup profile data paste saved customization library import snippets profiles blueprints colors backgrounds clipboard json ${savedCapacitySearch}${savedSearch}`
     }),
@@ -26646,7 +26647,7 @@ function quickSavedProfileControlsPanel() {
   const actions = visibleProfiles.map((profile) => {
     const active = isActiveSettingsProfile(profile);
     const summary = settingsProfileSummary(profile.settings);
-    return quickOverviewControlButton(active ? "Active" : profile.label, () => applySavedSettingsProfile(profile.id), {
+    return quickOverviewControlButton(active ? "Active" : profile.label, () => refreshQuickSettingsAfterAction(applySavedSettingsProfile(profile.id, { render: false })), {
       disabled: active,
       title: active ? `${profile.label} profile already active.` : `Apply ${profile.label} settings profile.`,
       search: normalizeSettingsQuery(`quick setup saved settings profile apply reusable ${active ? "active current " : ""}${profile.label} ${summary}`)
@@ -26982,7 +26983,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   saveSetup.dataset.settingsSearch = normalizeSettingsQuery("quick setup save current settings profile look layout terminal browser performance");
   saveSetup.setAttribute("aria-label", saveSetup.title);
   saveSetup.onclick = () => {
-    if (!saveSetup.disabled) saveQuickSetupProfile();
+    if (!saveSetup.disabled) refreshQuickSettingsAfterAction(saveQuickSetupProfile({ render: false }));
   };
   const copySetup = panel.querySelector('[data-quick-setup-action="copy"]');
   copySetup.querySelector(".quick-overview-save-icon").innerHTML = controlIconMarkup("copy");
@@ -27123,7 +27124,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   pasteLibraryAction.title = savedLibraryPasteTitle();
   pasteLibraryAction.setAttribute("aria-label", pasteLibraryAction.title);
   pasteLibraryAction.dataset.settingsSearch = normalizeSettingsQuery(`quick setup saved customization library paste import snippets profiles blueprints colors backgrounds clipboard json ${savedCapacitySearch}${savedSearch}`);
-  pasteLibraryAction.onclick = () => pasteSavedLibrary();
+  pasteLibraryAction.onclick = () => refreshQuickSettingsAfterAction(pasteSavedLibrary({ render: false }));
   const libraryAction = library.querySelector('[data-quick-library-action="data"]');
   libraryAction.title = "Open Settings data for import, export, and cleanup.";
   libraryAction.setAttribute("aria-label", libraryAction.title);
@@ -27531,7 +27532,7 @@ function quickSetupActionDefinitions() {
       search: "save current settings profile setup look layout terminal browser performance",
       disabled: savedSettingsProfilesFull,
       disabledTitle: settingsProfileLimitTitle,
-      run: () => saveQuickSetupProfile()
+      run: () => refreshQuickSettingsAfterAction(saveQuickSetupProfile({ render: false }))
     },
     {
       id: "save-accent-color",
@@ -33743,19 +33744,21 @@ async function saveCurrentSettingsProfile(options = {}) {
   return saved;
 }
 
-function saveCurrentLookProfile() {
+function saveCurrentLookProfile(options = {}) {
   return saveCurrentSettingsProfile({
     title: "Save appearance profile",
     message: "Save this look together with the current layout, terminal, and performance settings.",
-    baseName: "Look profile"
+    baseName: "Look profile",
+    ...options
   });
 }
 
-function saveCurrentLayoutProfile() {
+function saveCurrentLayoutProfile(options = {}) {
   return saveCurrentSettingsProfile({
     title: "Save layout profile",
     message: "Save this layout and workspace chrome together with the current look, terminal, browser, and performance settings.",
-    baseName: "Layout profile"
+    baseName: "Layout profile",
+    ...options
   });
 }
 
@@ -33819,11 +33822,12 @@ function copyThemeChoiceProfile(themeId) {
   }, `${label} theme profile copied.`);
 }
 
-function saveCurrentTerminalProfile() {
+function saveCurrentTerminalProfile(options = {}) {
   return saveCurrentSettingsProfile({
     title: "Save terminal profile",
     message: "Save the current terminal font, colors, cursor, shell, and supporting app settings.",
-    baseName: "Terminal profile"
+    baseName: "Terminal profile",
+    ...options
   });
 }
 
@@ -33854,15 +33858,16 @@ function saveTerminalColorPresetProfile(presetId) {
   return saved;
 }
 
-function saveCurrentBrowserProfile() {
+function saveCurrentBrowserProfile(options = {}) {
   return saveCurrentSettingsProfile({
     title: "Save browser profile",
     message: "Save the current browser home page, launch mode, external profile, suspend setting, pane chrome, and pane zoom.",
-    baseName: "Browser profile"
+    baseName: "Browser profile",
+    ...options
   });
 }
 
-function saveBrowserProfileForHome(url = state.recentBrowserPages[0]) {
+function saveBrowserProfileForHome(url = state.recentBrowserPages[0], options = {}) {
   const homeUrl = normalizeBrowserPageUrl(url);
   if (!homeUrl) {
     toast("Choose a browser page first.");
@@ -33877,7 +33882,8 @@ function saveBrowserProfileForHome(url = state.recentBrowserPages[0]) {
       ...state.settings,
       browserHomeUrl: homeUrl
     },
-    toastText: "Browser profile saved."
+    toastText: "Browser profile saved.",
+    ...options
   });
 }
 
@@ -33948,11 +33954,12 @@ function copyBrowserHomePresetProfile(presetId) {
   }, `${preset.label} browser profile copied.`);
 }
 
-function saveCurrentPerformanceProfile() {
+function saveCurrentPerformanceProfile(options = {}) {
   return saveCurrentSettingsProfile({
     title: "Save performance profile",
     message: "Save the current speed, rendering, terminal output, browser pane chrome, and supporting app settings.",
-    baseName: "Performance profile"
+    baseName: "Performance profile",
+    ...options
   });
 }
 
@@ -33997,16 +34004,17 @@ function defaultSettingsProfileName(baseName = "My profile") {
   return base;
 }
 
-function applySavedSettingsProfile(profileId) {
+function applySavedSettingsProfile(profileId, options = {}) {
   const profile = state.savedSettingsProfiles.find((candidate) => candidate.id === profileId);
-  if (!profile) return;
+  if (!profile) return false;
   const changed = updateSettings(profile.settings);
   if (!changed) {
     toast(`${profile.label} profile already active.`);
-    return;
+    return false;
   }
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast(`${profile.label} profile applied.`);
+  return true;
 }
 
 async function updateSavedSettingsProfile(profileId) {
