@@ -3612,6 +3612,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                   payload["method"] as? String == "surface.resume.set" else { return nil }
             return payload["params"] as? [String: Any]
         }
+        XCTAssertTrue(
+            state.snapshot().contains { command in
+                self.jsonObject(command)?["method"] as? String == "debug.terminals"
+            },
+            "stale ambient surface recovery must inspect the process TTY binding; saw \(state.snapshot())"
+        )
         let params = try XCTUnwrap(
             resumeRequests.last,
             "stale ambient surface must not drop the hook; expected a surface.resume.set, saw \(state.snapshot())"
