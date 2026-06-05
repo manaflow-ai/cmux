@@ -370,6 +370,7 @@ extension CMUXCLI {
 
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
     private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
+    private static let hermesAgentPinnedHookMarker = "cmux-hermes-agent-hook-v2"
 
     private static func agentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         if usesPinnedHookDispatch(def) {
@@ -385,35 +386,23 @@ extension CMUXCLI {
     }
 
     private static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
-        def.name == "grok" || def.name == "antigravity"
+        def.name == "grok" || def.name == "antigravity" || def.name == "hermes-agent"
     }
 
     private static func pinnedHookMarker(for def: AgentHookDef) -> String {
-        def.name == "antigravity" ? antigravityPinnedHookMarker : grokPinnedHookMarker
+        switch def.name {
+        case "antigravity":
+            return antigravityPinnedHookMarker
+        case "hermes-agent":
+            return hermesAgentPinnedHookMarker
+        default:
+            return grokPinnedHookMarker
+        }
     }
 
     private static func pinnedAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let socketPath = pinnedAgentHookSocketPath()
-        let shellTraceStart = pinnedHookShellTraceCommand(
-            agentName: def.name,
-            phase: "start",
-            routedArguments: routedArguments,
-            socketPath: socketPath
-        )
-        let shellTraceDisabled = pinnedHookShellTraceCommand(
-            agentName: def.name,
-            phase: "disabled",
-            routedArguments: routedArguments,
-            socketPath: socketPath
-        )
-        let shellTraceExit = pinnedHookShellTraceCommand(
-            agentName: def.name,
-            phase: "exit",
-            routedArguments: routedArguments,
-            socketPath: socketPath,
-            statusExpression: "$cmux_hook_status"
-        )
         let fallbackInvocation = pinnedHookInvocation(
             executable: "cmux",
             routedArguments: routedArguments,
@@ -431,7 +420,7 @@ extension CMUXCLI {
         } else {
             dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || echo '{}'"
         }
-        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+        return ": \(pinnedHookMarker(for: def)); printenv \(def.disableEnvVar) | grep -qx 1 && echo '{}' || { \(dispatch); cmux_hook_status=$?; exit $cmux_hook_status; }"
     }
 
     private static func pinnedHookInvocation(
@@ -494,38 +483,6 @@ extension CMUXCLI {
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         guard !slug.isEmpty else { return nil }
         return "/tmp/cmux-debug-\(slug).sock"
-    }
-
-    private static func pinnedHookShellTraceCommand(
-        agentName: String,
-        phase: String,
-        routedArguments: String,
-        socketPath: String?,
-        statusExpression: String? = nil
-    ) -> String {
-#if DEBUG
-        let logPath = shellSingleQuote(pinnedHookShellTraceLogPath(socketPath: socketPath))
-        let event = shellSingleQuote(routedArguments)
-        let socket = shellSingleQuote(socketPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "nil")
-        let statusField = statusExpression == nil ? "" : " status=%s"
-        let statusArgument = statusExpression.map { " \($0)" } ?? ""
-        return "printf '%s \(agentName)Hook.shell phase=%s event=%s pid=%s ppid=%s socket=%s\(statusField)\\n' \"$(date +%s)\" \(shellSingleQuote(phase)) \(event) \"$$\" \"${PPID:-}\" \(socket)\(statusArgument) >> \(logPath) 2>/dev/null || true"
-#else
-        return ":"
-#endif
-    }
-
-    private static func pinnedHookShellTraceLogPath(socketPath: String?) -> String {
-        guard let socketPath else {
-            return "/tmp/cmux-debug.log"
-        }
-        let socketName = URL(fileURLWithPath: socketPath).lastPathComponent
-        if socketName.hasPrefix("cmux-debug-"), socketName.hasSuffix(".sock") {
-            return URL(fileURLWithPath: "/tmp", isDirectory: true)
-                .appendingPathComponent(String(socketName.dropLast(".sock".count)) + ".log")
-                .path
-        }
-        return "/tmp/cmux-debug.log"
     }
 
     private static func normalizedHookInstallValue(_ value: String?) -> String? {

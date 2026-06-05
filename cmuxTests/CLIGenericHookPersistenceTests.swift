@@ -948,6 +948,70 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(cmuxGroup["PostToolUse"])
     }
 
+    func testHermesAgentHookInstallUsesPinnedDispatcherAndAllowlist() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-hook-install-\(UUID().uuidString)", isDirectory: true)
+        let hermesHome = root.appendingPathComponent(".hermes", isDirectory: true)
+        try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let pinnedCLI = root.appendingPathComponent("cmux pinned dev cli", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: pinnedCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pinnedCLI.path)
+
+        let socketPath = "/tmp/cmux-debug-hermes-pin.sock"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "hermes-agent", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "HERMES_HOME": hermesHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_BUNDLED_CLI_PATH": pinnedCLI.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let configURL = hermesHome.appendingPathComponent("config.yaml", isDirectory: false)
+        let config = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertTrue(config.contains("cmux-hermes-agent-hook-v2"), config)
+        XCTAssertTrue(config.contains("sh -c"), config)
+        XCTAssertFalse(config.contains("printf"), config)
+        XCTAssertFalse(config.contains("Hook.shell"), config)
+        XCTAssertTrue(config.contains("hooks hermes-agent session-start"), config)
+        XCTAssertTrue(config.contains("hooks feed --source hermes-agent --event pre_tool_call"), config)
+        XCTAssertTrue(config.contains(pinnedCLI.path), config)
+        XCTAssertTrue(config.contains(socketPath), config)
+        XCTAssertFalse(
+            config.contains(#"[ -n "$CMUX_SURFACE_ID" ]"#),
+            "Hermes hooks should use the same pinned dispatch path as Grok and Antigravity, saw \(config)"
+        )
+        XCTAssertFalse(
+            config.contains("$CMUX_"),
+            "Hermes hook config should avoid live CMUX_* shell interpolation, saw \(config)"
+        )
+
+        let allowlistURL = hermesHome.appendingPathComponent("shell-hooks-allowlist.json", isDirectory: false)
+        let allowlist = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: allowlistURL)) as? [String: Any])
+        let approvals = try XCTUnwrap(allowlist["approvals"] as? [[String: Any]])
+        let approvedCommands = approvals.compactMap { $0["command"] as? String }
+        XCTAssertFalse(approvedCommands.isEmpty)
+        XCTAssertTrue(
+            approvedCommands.allSatisfy { $0.contains("cmux-hermes-agent-hook-v2") },
+            "Expected Hermes allowlist entries to match pinned cmux hook commands, saw \(approvedCommands)"
+        )
+        XCTAssertTrue(
+            approvedCommands.contains { $0.contains("hooks feed --source hermes-agent --event pre_tool_call") },
+            "Expected Hermes Feed bridge to be allowlisted, saw \(approvedCommands)"
+        )
+    }
+
     func testKiroHookInstallUsesAgentConfigShapeAndPreservesDenyExit() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -2926,6 +2990,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             allCommands.allSatisfy { $0.contains("cmux-grok-hook-v2") },
             "Expected installed Grok hooks to carry the owned-hook marker, saw \(allCommands)"
+        )
+        XCTAssertFalse(
+            allCommands.contains { $0.contains("printf") || $0.contains("Hook.shell") },
+            "Installed Grok hooks should stay compact and avoid debug shell tracing, saw \(allCommands)"
         )
         XCTAssertTrue(
             allCommands.allSatisfy { $0.contains("'\(pinnedCLI.path)'") },
