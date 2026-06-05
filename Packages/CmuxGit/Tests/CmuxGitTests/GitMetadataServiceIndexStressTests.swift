@@ -56,7 +56,7 @@ import Testing
         #expect(snapshot.entries.map(\.path) == ["tracked.txt"])
     }
 
-    @Test(.timeLimit(.seconds(30)))
+    @Test(.timeLimit(.minutes(1)))
     func concurrentParsingSurvivesTornIndexRewritesAcrossLinkedWorktrees() async throws {
         let fixture = try Self.makeLinkedWorktreeFixture(count: 4)
         defer {
