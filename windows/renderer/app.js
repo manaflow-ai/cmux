@@ -25384,6 +25384,32 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
   });
 }
 
+function quickBackgroundTuneControlsPanel() {
+  const activePreset = backgroundTuningPresets.find(backgroundTuningPresetActive) || null;
+  const presetSearch = backgroundTuningPresets.map((preset) => `${preset.label} ${preset.body}`).join(" ");
+  const actions = backgroundTuningPresets.map((preset) => {
+    const active = backgroundTuningPresetActive(preset);
+    return quickOverviewControlButton(active ? "Active" : `Use ${preset.label}`, () => applyBackgroundTuningPreset(preset.id), {
+      disabled: active,
+      title: active ? `${preset.label} background tune is already active.` : `Apply ${preset.label} background tune.`,
+      search: normalizeSettingsQuery(`quick setup background tune preset wallpaper opacity blur chrome glass tinted flat performance ${active ? "active current " : ""}${preset.label} ${preset.body}`)
+    });
+  });
+  actions.push(
+    quickOverviewControlButton("Backgrounds", () => openSettingsCategory("appearance", { query: "background tune", focusSearch: false }), {
+      title: "Open full background image and tuning settings.",
+      search: normalizeSettingsQuery(`quick setup background tune settings full appearance wallpaper opacity blur chrome saved library ${presetSearch}`)
+    })
+  );
+  return quickOverviewControlsPanel({
+    className: "quick-overview-backgrounds",
+    title: "Background tune",
+    meta: activePreset ? `${activePreset.label} active` : `${backgroundTuningPresets.length} presets / Custom`,
+    search: `quick setup background tune presets readable soft showcase fast wallpaper opacity blur chrome glass tinted flat performance ${presetSearch}`,
+    actions
+  });
+}
+
 function quickProfileDataControlsPanel(storageBytes = totalDataStorageBytes()) {
   const setup = activeSettingsSetupModel();
   const profilesFull = savedSettingsProfilesFull();
@@ -25571,7 +25597,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   const librarySummary = quickCustomizationLibrarySummary(libraryEntries);
   const panel = document.createElement("div");
   panel.className = "quick-setup-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls presets theme look appearance layout terminal browser commands actions workflows shortcuts palette performance speed presets lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints starter layouts reusable colors backgrounds snippets packs data maintenance backup restore cleanup privacy storage`);
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls presets theme look appearance layout terminal browser commands actions workflows shortcuts palette performance speed presets lag ${performance.status} ${performance.title} ${performance.reason} background image tuning app pane all terminal scope saved customization library profiles blueprints starter layouts reusable colors backgrounds snippets packs data maintenance backup restore cleanup privacy storage`);
   panel.innerHTML = `
     <div class="quick-overview-heading">
       <span class="quick-overview-copy">
@@ -25636,6 +25662,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-performance-controls></div>
     <div data-quick-performance-preset-controls></div>
     <div data-quick-background-controls></div>
+    <div data-quick-background-tune-controls></div>
     <div class="quick-overview-scope" aria-label="Background scope">
       <button class="quick-overview-scope-item" type="button" data-quick-scope-item="app">
         <span class="quick-overview-scope-preview" aria-hidden="true"></span>
@@ -25736,6 +25763,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   if (performancePresetControls) performancePresetSlot.replaceWith(performancePresetControls);
   else performancePresetSlot.remove();
   panel.querySelector("[data-quick-background-controls]").replaceWith(quickBackgroundControlsPanel(workspace));
+  panel.querySelector("[data-quick-background-tune-controls]").replaceWith(quickBackgroundTuneControlsPanel());
   panel.querySelector("[data-quick-scope-app]").textContent = scope.hasBackground
     ? appearanceBackgroundLabel(state.settings.backgroundImage)
     : "None";
