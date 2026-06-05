@@ -277,6 +277,35 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         XCTAssertEqual(classicWithShortcutHints.width, 172, accuracy: 0.001)
     }
 
+    func testShortcutHintGeometryUsesVisibleSlotOrderForNonPrefixSubsets() {
+        let config = TitlebarControlsStyle.classic.config
+        let renderedInterval = TitlebarControlsLayoutMetrics.hintInterval(
+            visibleIndex: 0,
+            width: 20,
+            config: config,
+            xOffset: 0
+        )
+        let renderedCenter = (renderedInterval.lowerBound + renderedInterval.upperBound) / 2
+        let firstButtonCenter = TitlebarControlsLayoutMetrics.buttonCenterX(visibleIndex: 0, config: config)
+        let rawFocusBackCenter = TitlebarControlsLayoutMetrics.buttonCenterX(
+            visibleIndex: TitlebarShortcutHintActionSlot.focusHistoryBack.rawValue,
+            config: config
+        )
+
+        XCTAssertEqual(renderedCenter, firstButtonCenter, accuracy: 0.001)
+        XCTAssertLessThan(renderedCenter, rawFocusBackCenter)
+
+        let nonPrefixSubsetSize = TitlebarControlsLayoutMetrics.contentSize(
+            config: config,
+            actionSlots: [.focusHistoryBack]
+        )
+        let prefixSubsetSize = TitlebarControlsLayoutMetrics.contentSize(
+            config: config,
+            actionSlots: [.toggleSidebar]
+        )
+        XCTAssertEqual(nonPrefixSubsetSize.width, prefixSubsetSize.width, accuracy: 0.001)
+    }
+
     func testTitlebarControlStylesKeepReleaseIconMetrics() {
         let expectedMetrics: [(style: TitlebarControlsStyle, iconSize: CGFloat, buttonSize: CGFloat, cornerRadius: CGFloat)] = [
             (.classic, 15, 24, 8),

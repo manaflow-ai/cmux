@@ -442,19 +442,18 @@ func titlebarHintPillWidth(for shortcut: StoredShortcut, config: TitlebarControl
 /// are currently visible. Returns 0 when no slot would show a hint.
 func titlebarHintLayoutRightmostExtent(
     config: TitlebarControlsStyleConfig,
-    buttonCount: Int = TitlebarShortcutHintActionSlot.allCases.count,
+    actionSlots: [TitlebarShortcutHintActionSlot] = TitlebarShortcutHintActionSlot.allCases,
     titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX
 ) -> CGFloat {
     let xOffset = CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
-    let clampedButtonCount = max(0, min(buttonCount, TitlebarShortcutHintActionSlot.allCases.count))
     var intervals: [ClosedRange<CGFloat>] = []
-    for slot in TitlebarShortcutHintActionSlot.allCases.prefix(clampedButtonCount) {
+    for (visibleIndex, slot) in actionSlots.enumerated() {
         let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
         guard !shortcut.isUnbound, shortcut.command else { continue }
         let width = titlebarHintPillWidth(for: shortcut, config: config)
         intervals.append(
             TitlebarControlsLayoutMetrics.hintInterval(
-                for: slot,
+                visibleIndex: visibleIndex,
                 width: width,
                 config: config,
                 xOffset: xOffset
@@ -570,23 +569,20 @@ enum TitlebarControlsLayoutMetrics {
         return config.replacing(spacing: spacing, iconSize: iconSize, buttonSize: buttonSize)
     }
 
-    static func buttonCenterX(
-        for slot: TitlebarShortcutHintActionSlot,
-        config: TitlebarControlsStyleConfig
-    ) -> CGFloat {
-        let index = CGFloat(slot.rawValue)
+    static func buttonCenterX(visibleIndex: Int, config: TitlebarControlsStyleConfig) -> CGFloat {
+        let index = CGFloat(max(0, visibleIndex))
         return config.groupPadding.leading
             + (index * (config.buttonSize + config.spacing))
             + (config.buttonSize / 2.0)
     }
 
     static func hintInterval(
-        for slot: TitlebarShortcutHintActionSlot,
+        visibleIndex: Int,
         width: CGFloat,
         config: TitlebarControlsStyleConfig,
         xOffset: CGFloat
     ) -> ClosedRange<CGFloat> {
-        let centerX = buttonCenterX(for: slot, config: config) + xOffset
+        let centerX = buttonCenterX(visibleIndex: visibleIndex, config: config) + xOffset
         return (centerX - (width / 2.0))...(centerX + (width / 2.0))
     }
 
@@ -595,6 +591,39 @@ enum TitlebarControlsLayoutMetrics {
         buttonCount: Int = TitlebarShortcutHintActionSlot.allCases.count,
         titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX,
         reservesShortcutHintOverflow: Bool = false
+    ) -> NSSize {
+        let clampedButtonCount = max(0, buttonCount)
+        let hintActionSlots = Array(TitlebarShortcutHintActionSlot.allCases.prefix(clampedButtonCount))
+        return contentSize(
+            config: config,
+            buttonCount: clampedButtonCount,
+            hintActionSlots: hintActionSlots,
+            titlebarShortcutHintXOffset: titlebarShortcutHintXOffset,
+            reservesShortcutHintOverflow: reservesShortcutHintOverflow
+        )
+    }
+
+    static func contentSize(
+        config: TitlebarControlsStyleConfig,
+        actionSlots: [TitlebarShortcutHintActionSlot],
+        titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX,
+        reservesShortcutHintOverflow: Bool = false
+    ) -> NSSize {
+        contentSize(
+            config: config,
+            buttonCount: actionSlots.count,
+            hintActionSlots: actionSlots,
+            titlebarShortcutHintXOffset: titlebarShortcutHintXOffset,
+            reservesShortcutHintOverflow: reservesShortcutHintOverflow
+        )
+    }
+
+    private static func contentSize(
+        config: TitlebarControlsStyleConfig,
+        buttonCount: Int,
+        hintActionSlots: [TitlebarShortcutHintActionSlot],
+        titlebarShortcutHintXOffset: Double,
+        reservesShortcutHintOverflow: Bool
     ) -> NSSize {
         // Base button-lane width for the requested slot count.
         let buttonRow = outerLeadingPadding
@@ -610,12 +639,12 @@ enum TitlebarControlsLayoutMetrics {
             // Drive the reservation from the planner's actual rightmost hint edge so the
             // overlap-shift the planner applies (which the fixed inset above ignores) is
             // always covered. This is what prevents the rightmost pill from clipping. The
-            // extent is bounded to the active slot count so the narrower sidebar chrome
-            // (three buttons) does not reserve for the full titlebar's focus-history hints.
+            // extent is bounded to the active slots so non-prefix subsets reserve for their
+            // rendered positions instead of their enum declaration positions.
             let hintReservation = hintLeadingPadding
                 + titlebarHintLayoutRightmostExtent(
                     config: config,
-                    buttonCount: buttonCount,
+                    actionSlots: hintActionSlots,
                     titlebarShortcutHintXOffset: titlebarShortcutHintXOffset
                 )
                 + hintShadowMargin
@@ -944,6 +973,10 @@ struct TitlebarControlsView: View {
             || shouldShowTitlebarShortcutHints
     }
 
+    private var renderedActionSlots: [TitlebarShortcutHintActionSlot] {
+        TitlebarShortcutHintActionSlot.allCases.filter { actionSlots.contains($0) }
+    }
+
     var body: some View {
         // Force the `.safeHelp(...)` tooltips to re-evaluate when shortcuts are changed in settings.
         // (The titlebar controls don't otherwise re-render on UserDefaults changes.)
@@ -952,9 +985,10 @@ struct TitlebarControlsView: View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = styleConfigOverride ?? style.config
         let reservesShortcutHintOverflow = shouldShowTitlebarShortcutHints
+        let visibleActionSlots = renderedActionSlots
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(
             config: config,
-            buttonCount: actionSlots.count,
+            actionSlots: visibleActionSlots,
             titlebarShortcutHintXOffset: titlebarShortcutHintXOffset,
             reservesShortcutHintOverflow: reservesShortcutHintOverflow
         )
@@ -1206,7 +1240,7 @@ struct TitlebarControlsView: View {
     ) -> [(action: KeyboardShortcutSettings.Action, shortcut: StoredShortcut, width: CGFloat, interval: ClosedRange<CGFloat>)] {
         guard shouldShowTitlebarShortcutHints else { return [] }
 
-        return actionSlots.compactMap { slot in
+        return renderedActionSlots.enumerated().compactMap { visibleIndex, slot in
             let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
             guard titlebarShortcutHintShouldShow(
                 shortcut: shortcut,
@@ -1216,7 +1250,7 @@ struct TitlebarControlsView: View {
 
             let width = titlebarHintWidth(for: shortcut, config: config)
             let interval = TitlebarControlsLayoutMetrics.hintInterval(
-                for: slot,
+                visibleIndex: visibleIndex,
                 width: width,
                 config: config,
                 xOffset: xOffset
