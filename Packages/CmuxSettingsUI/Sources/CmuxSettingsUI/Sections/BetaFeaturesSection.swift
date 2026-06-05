@@ -2,21 +2,22 @@ import CmuxSettings
 import SwiftUI
 
 /// **Beta Features** section — a warning note followed by the
-/// experimental toggles: `Feed`, `Dock`, `Extensions`, and
-/// `Custom Sidebars`. Each toggle gates an unstable feature that is off
-/// by default.
+/// experimental toggles. Each toggle gates an unstable feature that is
+/// off by default.
 @MainActor
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
     @State private var dock: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
+    @State private var iOSPairingHost: DefaultsValueModel<Bool>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
+        _iOSPairingHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.iOSPairingHost))
     }
 
     public var body: some View {
@@ -34,6 +35,8 @@ public struct BetaFeaturesSection: View {
                 extensionsRow
                 SettingsCardDivider()
                 customSidebarsRow
+                SettingsCardDivider()
+                iOSPairingHostRow
             }
         }
     }
@@ -103,6 +106,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaCustomSidebarsToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var iOSPairingHostRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:iOSPairingHost",
+            String(localized: "settings.betaFeatures.iOSPairingHost", defaultValue: "iOS Pairing"),
+            subtitle: iOSPairingHost.current
+                ? String(localized: "settings.betaFeatures.iOSPairingHost.subtitleOn", defaultValue: "Allows the iOS app to discover and sync with this Mac on your local network.")
+                : String(localized: "settings.betaFeatures.iOSPairingHost.subtitleOff", defaultValue: "Keeps the Mac-side iOS pairing listener off until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { iOSPairingHost.current }, set: { iOSPairingHost.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaIOSPairingHostToggle")
         }
     }
 }

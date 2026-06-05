@@ -128,6 +128,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:betaFeatures:feed",
         "setting:betaFeatures:dock",
         "setting:betaFeatures:customSidebars",
+        "setting:betaFeatures:iOSPairingHost",
         "setting:browser:history",
         "setting:browser:http-allowlist",
         "setting:workspaceColors:palette",
