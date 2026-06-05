@@ -513,7 +513,7 @@ final class MobileHostService {
                     guard let clientID = Self.clientID(from: request.params) else {
                         return
                     }
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
+                    await MobileHostService.shared.recordClientID(clientID, method: request.method, for: id)
                 },
                 handleRequest: { request in
                     if request.method == "mobile.host.status" {

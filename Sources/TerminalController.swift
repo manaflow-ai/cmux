@@ -15858,6 +15858,7 @@ class TerminalController {
         return result
     }
 
+#if DEBUG
     private func v2DebugSettingsSet(params: [String: Any]) -> V2CallResult {
         guard let key = v2String(params, "key") else {
             return .err(code: "invalid_params", message: "Missing setting key", data: nil)
@@ -15929,6 +15930,7 @@ class TerminalController {
         }
         return result
     }
+#endif
 
     private func v2DebugSidebarHelpPerform(params: [String: Any]) -> V2CallResult {
         guard let rawAction = v2String(params, "action") else {
