@@ -4171,14 +4171,16 @@ final class BrowserPanel: Panel, ObservableObject {
         // media is exempted from memory discard
         // (https://github.com/manaflow-ai/cmux/issues/5409). Injected into every
         // frame so embedded players in cross-origin iframes keep the pane alive
-        // too. Unlike the telemetry hooks above, this script is purely passive
-        // (no console/global tampering), so it does not trip CAPTCHA fingerprint
+        // too. Runs in an isolated content world (shared DOM, separate JS scope)
+        // so the handler is hidden from page JavaScript that could otherwise post
+        // a fake playing report; this also keeps it clear of CAPTCHA fingerprint
         // checks in those iframes.
         configuration.userContentController.addUserScript(
             WKUserScript(
                 source: Self.mediaPlaybackTrackingBootstrapScriptSource,
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: false
+                forMainFrameOnly: false,
+                in: Self.mediaPlaybackContentWorld
             )
         )
     }

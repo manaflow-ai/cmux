@@ -5,6 +5,17 @@ import WebKit
 private let mediaPlaybackMessageHandlerName = "cmuxMediaPlayback"
 
 extension BrowserPanel {
+    /// Isolated content world for the media-playback hook.
+    ///
+    /// Both the injected script and the message handler live here, not the page
+    /// world, so arbitrary page JavaScript cannot reach
+    /// `window.webkit.messageHandlers.cmuxMediaPlayback` and post a fake
+    /// `{ playing: true }` report that would pin the pane alive forever and
+    /// defeat hidden-webview discard. A content world shares the DOM, so the
+    /// script's media event listeners and `MutationObserver` still observe page
+    /// playback.
+    static let mediaPlaybackContentWorld = WKContentWorld.world(name: "cmuxMediaPlayback")
+
     /// Injected document-start hook that reports whether the current frame has
     /// any actively-playing `<video>`/`<audio>` element.
     ///
@@ -170,7 +181,11 @@ extension BrowserPanel {
             self?.handleMediaPlaybackReport(report, fromWebViewInstanceID: boundWebViewInstanceID)
         }
         mediaPlaybackMessageHandler = handler
-        webView.configuration.userContentController.add(handler, name: mediaPlaybackMessageHandlerName)
+        webView.configuration.userContentController.add(
+            handler,
+            contentWorld: Self.mediaPlaybackContentWorld,
+            name: mediaPlaybackMessageHandlerName
+        )
     }
 
     /// Applies a per-frame playback report from the injected hook, aggregating
