@@ -295,8 +295,6 @@ final class MobileHostService {
 
     /// User-default key for the opt-in Mac-side iOS pairing listener.
     nonisolated static let listeningEnabledDefaultsKey = SettingCatalog().mobile.iOSPairingHost.userDefaultsKey
-    nonisolated private static let legacyListeningEnabledDefaultsKey = "cmuxMobilePairingHostEnabled"
-    nonisolated private static let legacyBetaListeningEnabledDefaultsKey = "ios.beta.pairingHost.enabled"
 
     /// Whether the mobile pairing host should bind a network listener at all.
     ///
@@ -321,12 +319,6 @@ final class MobileHostService {
     nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
         if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
             return override
-        }
-        if let legacyOverride = defaults.object(forKey: legacyListeningEnabledDefaultsKey) as? Bool {
-            return legacyOverride
-        }
-        if let legacyBetaOverride = defaults.object(forKey: legacyBetaListeningEnabledDefaultsKey) as? Bool {
-            return legacyBetaOverride
         }
         return SettingCatalog().mobile.iOSPairingHost.defaultValue
     }
@@ -353,8 +345,6 @@ final class MobileHostService {
     nonisolated private static func canPublishRoutesWithoutListenerForXCTest(defaults: UserDefaults) -> Bool {
         guard isRunningUnderXCTest else { return false }
         return defaults.object(forKey: listeningEnabledDefaultsKey) == nil
-            && defaults.object(forKey: legacyListeningEnabledDefaultsKey) == nil
-            && defaults.object(forKey: legacyBetaListeningEnabledDefaultsKey) == nil
     }
 
     private func publishRoutesWithoutListenerForXCTest() {

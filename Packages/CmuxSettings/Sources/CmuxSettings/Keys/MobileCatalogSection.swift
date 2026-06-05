@@ -7,11 +7,7 @@ public struct MobileCatalogSection: SettingCatalogSection {
     public let iOSPairingHost = DefaultsKey<Bool>(
         id: "mobile.iOSPairingHost.enabled",
         defaultValue: false,
-        userDefaultsKey: "mobile.iOSPairingHost.enabled",
-        legacyUserDefaultsKeys: [
-            "cmuxMobilePairingHostEnabled",
-            "ios.beta.pairingHost.enabled",
-        ]
+        userDefaultsKey: "mobile.iOSPairingHost.enabled"
     )
 
     /// Creates the Mobile settings catalog section.
