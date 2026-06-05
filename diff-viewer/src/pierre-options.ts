@@ -139,17 +139,6 @@ export function fileTreeUnsafeCSS(): string {
       flex: 1 1 auto;
       min-width: 0;
     }
-    [data-item-section='decoration'] {
-      flex: 0 0 auto;
-      min-width: 44px;
-      margin-inline-start: 2px;
-      justify-content: flex-end;
-      text-align: right;
-    }
-    [data-item-section='decoration'] > span {
-      display: inline-block;
-      font-variant-numeric: tabular-nums;
-    }
     [data-item-section='git'] {
       opacity: 0.75;
     }

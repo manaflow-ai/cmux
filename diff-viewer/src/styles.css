@@ -429,8 +429,7 @@ body[data-status-only="true"] #files-sidebar {
   gap: 2px;
   flex: 0 0 auto;
 }
-#file-search-toggle,
-#file-collapse-toggle {
+#file-search-toggle {
   width: 24px;
   height: 24px;
   flex: 0 0 auto;
@@ -444,13 +443,11 @@ body[data-status-only="true"] #files-sidebar {
   padding: 0;
 }
 #file-search-toggle:hover,
-#file-search-toggle[aria-pressed="true"],
-#file-collapse-toggle:hover {
+#file-search-toggle[aria-pressed="true"] {
   background: var(--cmux-diff-hover-bg);
   color: var(--cmux-diff-fg);
 }
-#file-search-toggle svg,
-#file-collapse-toggle svg {
+#file-search-toggle svg {
   width: 15px;
   height: 15px;
   fill: none;

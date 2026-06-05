@@ -311,17 +311,6 @@ function Toolbar({
           </a>
         ) : null}
         <button
-          id="files-toggle"
-          className="toolbar-icon"
-          type="button"
-          title={state.filesVisible ? label("hideFiles") : label("showFiles")}
-          aria-label={state.filesVisible ? label("hideFiles") : label("showFiles")}
-          aria-pressed={state.filesVisible}
-          onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })}
-        >
-          <Icon name="files" />
-        </button>
-        <button
           id="layout-toggle"
           className="toolbar-icon"
           type="button"
@@ -342,6 +331,17 @@ function Toolbar({
           onClick={() => dispatch({ type: "set-options-open", open: !state.optionsOpen })}
         >
           <Icon name="dots" />
+        </button>
+        <button
+          id="files-toggle"
+          className="toolbar-icon"
+          type="button"
+          title={state.filesVisible ? label("hideFiles") : label("showFiles")}
+          aria-label={state.filesVisible ? label("hideFiles") : label("showFiles")}
+          aria-pressed={state.filesVisible}
+          onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })}
+        >
+          <Icon name="files" />
         </button>
         <span id="copy-feedback" className="visually-hidden" aria-live="polite">
           {state.copyFeedback}
@@ -630,15 +630,6 @@ function FilesSidebar({
           >
             <Icon name="search" />
           </button>
-          <button
-            id="file-collapse-toggle"
-            type="button"
-            title={label("hideFiles")}
-            aria-label={label("hideFiles")}
-            onClick={() => dispatch({ type: "set-files-visible", visible: false })}
-          >
-            <Icon name="sidebarCollapse" />
-          </button>
         </span>
       </div>
       <div id="file-list">
@@ -688,19 +679,6 @@ function PierreFileTree({
     searchBlurBehavior: "retain",
     stickyFolders: true,
     gitStatus: source.gitStatus as any,
-    renderRowDecoration(context: any) {
-      if (context.item.kind !== "file") {
-        return null;
-      }
-      const stats = latest.current.source.statsByPath.get(context.item.path);
-      if (stats == null || (stats.added === 0 && stats.deleted === 0)) {
-        return null;
-      }
-      return {
-        text: `+${stats.added} -${stats.deleted}`,
-        title: `${stats.added} ${latest.current.label("additions")}, ${stats.deleted} ${latest.current.label("deletions")}`,
-      };
-    },
     sort: () => 0,
     unsafeCSS: fileTreeUnsafeCSS(),
     onSelectionChange(paths: readonly string[]) {
