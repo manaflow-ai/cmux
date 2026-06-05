@@ -19135,6 +19135,7 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
     settingsActionButton("Save profile", saveCurrentLayoutProfile, "primary", "layout workspace chrome save current settings profile reusable toolbar tabs sidebar panes palette command placement"),
     "Save this layout as a reusable Settings profile."
   );
+  saveLayoutProfileAction.dataset.layoutAction = "save-profile";
   const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", currentWorkspaceBlueprintSaveSearchText(workspace, layoutBlueprintsFull, layoutPaneCount));
   applyWorkspaceBlueprintSaveLimit(saveLayoutAction, workspace, "Save the current workspace pane layout as a reusable blueprint.", layoutPaneCount);
   const copyLayoutAction = settingsActionButton("Copy layout", copyCurrentWorkspaceBlueprint, "", currentWorkspaceBlueprintCopySearchText(workspace, layoutPaneCount));
@@ -19453,6 +19454,26 @@ function refreshLayoutSettingsPreview() {
   }
   refreshPaneLayoutPresetGrid();
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function refreshLayoutProfileSaveControls() {
+  const saveProfile = elements.inspectorBody.querySelector('[data-layout-action="save-profile"]');
+  if (saveProfile) {
+    applySettingsProfileSaveLimit(saveProfile, "Save this layout as a reusable Settings profile.");
+    setSettingsSearchIfChanged(saveProfile, `layout workspace chrome save current settings profile reusable toolbar tabs sidebar panes palette command placement ${savedSettingsProfileCountLabel()} ${savedSettingsProfilesFull() ? "limit full unavailable " : "ready "}`);
+  }
+  if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function refreshLayoutProfileSaveSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "layout") {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode === "settings" && state.settingsCategory === "layout") refreshLayoutProfileSaveControls();
+    });
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
 }
 
 function browserHomeKey(value) {
@@ -34836,13 +34857,16 @@ function saveCurrentLookProfile(options = {}) {
   });
 }
 
-function saveCurrentLayoutProfile(options = {}) {
-  return saveCurrentSettingsProfile({
+async function saveCurrentLayoutProfile(options = {}) {
+  const saved = await saveCurrentSettingsProfile({
     title: "Save layout profile",
     message: "Save this layout and workspace chrome together with the current look, terminal, browser, and performance settings.",
     baseName: "Layout profile",
-    ...options
+    ...options,
+    render: false
   });
+  if (saved) refreshLayoutProfileSaveSettings(options);
+  return saved;
 }
 
 function saveCurrentBackgroundProfile(options = {}) {
