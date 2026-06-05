@@ -7705,6 +7705,7 @@ const commands = [
   { id: "settings.copyTerminalSetup", label: "Copy Terminal Setup", shortcut: "", run: () => copyTerminalSetup() },
   { id: "settings.pasteTerminalSetup", label: "Paste Terminal Setup", shortcut: "", run: () => pasteTerminalSetup() },
   { id: "settings.resetTerminalSetup", label: "Reset Terminal Setup", shortcut: "", run: () => resetTerminalSetupSettings() },
+  { id: "settings.cycleTerminalReadability", label: "Cycle Terminal Readability", shortcut: "", run: () => cycleTerminalReadabilityPreset() },
   { id: "settings.terminalColors", label: "Reset Terminal Colors", shortcut: "", run: () => applyTerminalColorPresetById("cmux") },
   { id: "settings.saveTerminalProfile", label: "Save Terminal Profile", shortcut: "", run: () => saveCurrentTerminalProfile() },
   { id: "settings.colors", label: "Open Color Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "color", focusSearch: true }) },
@@ -7821,6 +7822,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.copyTerminalSetup",
   "settings.pasteTerminalSetup",
   "settings.resetTerminalSetup",
+  "settings.cycleTerminalReadability",
   "settings.terminalColors",
   "settings.resetCommandPalette",
   "settings.resetLayoutMode",
@@ -7879,6 +7881,10 @@ function customizationCommandPaletteSignature() {
   appendSignatureValue(parts, state.colorApplyTarget);
   appendSignatureValue(parts, settingsKeysSignature(appearanceResetSettings));
   appendSignatureValue(parts, settingsKeysSignature(terminalSetupSettings));
+  const terminalReadabilityCycle = terminalReadabilityCycleModel();
+  appendSignatureValue(parts, terminalReadabilityCycle.preset?.id || "");
+  appendSignatureValue(parts, Boolean(terminalReadabilityCycle.disabled));
+  appendSignatureValue(parts, terminalReadabilityCycle.title || "");
   appendSignatureValue(parts, settingsKeysSignature(commandPaletteSettings));
   appendSignatureValue(parts, settingsKeysSignature(layoutModeSettings));
   appendSignatureValue(parts, settingsKeysSignature(tabStripSettings));
@@ -8358,6 +8364,17 @@ function customizationCommandPaletteState(commandId) {
       icon: "speed",
       title: "Copy performance diagnostics, render stats, output stats, pane startup stats, and relevant settings as JSON.",
       search: normalizeSettingsQuery(`${search} diagnostics report stats render output pane startup shell connect debug copy clipboard`)
+    };
+  }
+  if (commandId === "settings.cycleTerminalReadability") {
+    const model = terminalReadabilityCycleModel();
+    return {
+      meta: model.meta,
+      shortcut: "Cycle",
+      disabled: model.disabled,
+      icon: "terminal",
+      title: model.title,
+      search: normalizeSettingsQuery(`terminal readability cycle next typography preset font size line height padding history cursor ${model.search}`)
     };
   }
   if (commandId === "settings.copyTerminalSetup" || commandId === "settings.pasteTerminalSetup" || commandId === "settings.resetTerminalSetup") {
@@ -16331,6 +16348,10 @@ function renderSettingsInspector(options = {}) {
     copyTerminalColors.title = "Copy the current terminal background, text, and cursor color setup.";
     const pasteTerminalColors = settingsActionButton("Paste colors", pasteTerminalColorPalette, "", "terminal color paste palette json clipboard background foreground cursor");
     pasteTerminalColors.title = "Apply terminal colors copied from cmux.";
+    const readabilityCycle = terminalReadabilityCycleModel();
+    const cycleReadability = settingsActionButton("Cycle readability", cycleTerminalReadabilityPreset, "", `terminal readability cycle next preset typography font size line height padding history cursor ${readabilityCycle.search}`);
+    cycleReadability.disabled = readabilityCycle.disabled;
+    cycleReadability.title = readabilityCycle.title;
     const resetTerminalText = settingsActionButton("Reset text", resetTerminalTextSettings, "", `terminal text typography font size line height padding cursor blink shape reset default ${terminalTextDefault ? "active current " : ""}`);
     resetTerminalText.disabled = terminalTextDefault;
     resetTerminalText.title = terminalTextDefault
@@ -16351,6 +16372,7 @@ function renderSettingsInspector(options = {}) {
         settingsActionButton("Save terminal profile", saveCurrentTerminalProfile, "primary", "terminal save profile setup font color cursor shell reusable"),
         "Save this terminal setup as a reusable Settings profile."
       ),
+      cycleReadability,
       copyTerminalSetupAction,
       pasteTerminalSetupAction,
       copyTerminalColors,
@@ -25136,6 +25158,7 @@ function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount
         ? commandSnippetLimitTitle()
         : "Save the latest recent terminal command as a reusable snippet.";
   const setupDefault = terminalSetupSettingsAreDefault();
+  const readabilityCycle = terminalReadabilityCycleModel();
   const actions = [
     quickOverviewControlButton("New terminal", () => createTerminalPanel(newPaneDirection(), { workspaceId: workspace?.id }), {
       disabled: !hasWorkspace || creationDisabled,
@@ -25187,6 +25210,11 @@ function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save this terminal setup as a reusable Settings profile.",
       search: "quick setup terminal save profile reusable settings font color shell"
+    }),
+    quickOverviewControlButton("Cycle text", cycleTerminalReadabilityPreset, {
+      disabled: readabilityCycle.disabled,
+      title: readabilityCycle.title,
+      search: `quick setup terminal readability cycle next preset typography font size line height ${readabilityCycle.search}`
     }),
     quickOverviewControlButton("Terminal", () => openSettingsCategory("terminal"), {
       title: "Open full terminal settings.",
@@ -31396,6 +31424,43 @@ function applyTerminalReadabilityPreset(presetId) {
     toastText: `${preset.label} terminal readability applied.`,
     alreadyText: `${preset.label} terminal readability already active.`
   });
+}
+
+function terminalReadabilityCycleModel() {
+  const presets = terminalReadabilityPresets
+    .map((preset) => ({ preset, settings: terminalReadabilityPresetSettings(preset) }))
+    .filter((entry) => entry.settings);
+  const activeIndex = presets.findIndex(({ preset }) => isActiveTerminalReadabilityPreset(preset));
+  let nextIndex = -1;
+  if (activeIndex >= 0) {
+    nextIndex = (activeIndex + 1) % presets.length;
+  } else {
+    const currentSize = normalizeTerminalFontSize(state.settings.terminalFontSize);
+    nextIndex = presets.findIndex(({ settings }) => Number(settings.terminalFontSize) > currentSize);
+    if (nextIndex < 0) nextIndex = 0;
+  }
+  const entry = presets[nextIndex] || null;
+  const summary = terminalSetupSummaryForSettings(entry?.settings || state.settings);
+  const current = terminalSetupSummaryForSettings(state.settings);
+  return {
+    preset: entry?.preset || null,
+    settings: entry?.settings || null,
+    disabled: !entry || (presets.length === 1 && activeIndex === 0),
+    meta: entry ? `${entry.preset.label} / ${summary.font}` : "No readability presets",
+    title: entry
+      ? `Cycle terminal readability to ${entry.preset.label}.`
+      : "No terminal readability presets are available.",
+    search: normalizeSettingsQuery(`terminal readability cycle next typography preset font size line height padding history cursor current ${current.font} ${current.lineHeight} ${current.padding} ${current.history} next ${entry?.preset?.label || ""} ${entry?.preset?.body || ""} ${summary.font} ${summary.lineHeight} ${summary.padding} ${summary.history} ${summary.cursor}`)
+  };
+}
+
+function cycleTerminalReadabilityPreset() {
+  const model = terminalReadabilityCycleModel();
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applyTerminalReadabilityPreset(model.preset.id);
 }
 
 function saveTerminalReadabilityPresetProfile(presetId) {
