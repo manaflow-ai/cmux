@@ -4295,7 +4295,7 @@ function layoutSetupChromeUpdatesFromPayload(payload) {
   return workspaceChromeUpdatesFromPayload(source || parsed);
 }
 
-function applyLayoutSetupPayload(payload) {
+function applyLayoutSetupPayload(payload, options = {}) {
   const chromeUpdates = layoutSetupChromeUpdatesFromPayload(payload);
   const blueprint = workspaceBlueprintFromPayload(payload);
   if (!chromeUpdates && !blueprint) {
@@ -4304,10 +4304,12 @@ function applyLayoutSetupPayload(payload) {
   }
   const chromeChanged = chromeUpdates ? updateSettings(chromeUpdates, { immediate: true }) : false;
   const savedBlueprint = blueprint ? upsertWorkspaceBlueprint(blueprint) : null;
-  if (state.inspectorMode === "settings" && (chromeChanged || savedBlueprint)) {
-    renderSettingsInspector();
-  } else if (chromeChanged) {
-    refreshLayoutSettings();
+  if (options.render !== false) {
+    if (state.inspectorMode === "settings" && (chromeChanged || savedBlueprint)) {
+      renderSettingsInspector();
+    } else if (chromeChanged) {
+      refreshLayoutSettings();
+    }
   }
   if (chromeChanged && savedBlueprint) {
     toast("Layout setup applied and blueprint saved.");
@@ -4323,14 +4325,14 @@ function applyLayoutSetupPayload(payload) {
   return Boolean(chromeChanged || savedBlueprint);
 }
 
-async function pasteLayoutSetup() {
+async function pasteLayoutSetup(options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
     return false;
   }
   try {
-    return applyLayoutSetupPayload(JSON.parse(clipboard));
+    return applyLayoutSetupPayload(JSON.parse(clipboard), options);
   } catch {
     toast("Clipboard does not contain a layout setup.");
     return false;
@@ -25389,7 +25391,7 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
         : "Copy workspace chrome as JSON. Open panes to include a pane layout.",
       search: "quick setup layout copy setup workspace chrome pane split blueprint toolbar top bar style button style ghost filled tab bar quiet banded sidebar rail tools home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud workspace row size density compact roomy active row selected color marker dot edge tint tab active selected underline status style quiet subtle solid corner radius divider grip line minimal new pane placement split direction right below down pane surface spacing gap gutter active pane highlight clipboard json"
     }),
-    quickOverviewControlButton("Paste setup", pasteLayoutSetup, {
+    quickOverviewControlButton("Paste setup", () => refreshQuick(pasteLayoutSetup({ render: false })), {
       title: "Apply copied layout setup and save any included pane blueprint.",
       search: "quick setup layout paste setup workspace chrome pane split blueprint toolbar top bar style button style ghost filled tab bar quiet banded sidebar rail tools home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud workspace row size density compact roomy active row selected color marker dot edge tint tab active selected underline status style quiet subtle solid corner radius divider grip line minimal new pane placement split direction right below down pane surface spacing gap gutter active pane highlight clipboard json"
     }),
