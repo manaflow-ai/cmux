@@ -284,10 +284,10 @@ function continueWindowResize(point) {
 function initialWindowBounds() {
   const fallbackWorkArea = { x: 0, y: 0, width: 1280, height: 720 };
   const workArea = screen.getPrimaryDisplay?.()?.workArea || fallbackWorkArea;
-  const availableWidth = Math.max(480, Math.round(workArea.width) - 32);
-  const availableHeight = Math.max(400, Math.round(workArea.height) - 32);
-  const width = Math.min(1320, availableWidth);
-  const height = Math.min(860, availableHeight);
+  const availableWidth = Math.max(480, Math.round(workArea.width) - 96);
+  const availableHeight = Math.max(400, Math.round(workArea.height) - 48);
+  const width = Math.min(1120, availableWidth);
+  const height = Math.min(820, availableHeight);
   return {
     width,
     height,
