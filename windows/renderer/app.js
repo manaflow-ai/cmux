@@ -5088,7 +5088,7 @@ function mergeSavedLibrary(payload, options = {}) {
     toast("Customization library already matches.");
     return false;
   }
-  if (options.render !== false) renderSettingsInspector();
+  refreshSavedLibrarySettings(options);
   toast("Customization library updated.");
   return true;
 }
@@ -5128,7 +5128,7 @@ async function clearSavedLibrary(options = {}) {
   saveWorkspaceBlueprints();
   saveCustomColorPalette();
   saveSavedBackgroundImages();
-  if (options.render !== false) renderSettingsInspector();
+  refreshSavedLibrarySettings(options);
   toast("Customization library cleared.");
   return true;
 }
@@ -33804,6 +33804,29 @@ function refreshBrowserTabSessionDisclosureSummaries() {
   }
 }
 
+function refreshSavedColorDisclosureSummaries() {
+  for (const disclosure of elements.inspectorBody.querySelectorAll(".appearance-saved-colors-disclosure")) {
+    const meta = disclosure.querySelector(".settings-disclosure-meta");
+    if (meta) {
+      setTextIfChanged(meta, formatMessage("appearance.savedColorCount", {
+        count: state.customColorPalette.length,
+        limit: customColorPaletteLimit
+      }));
+    }
+  }
+}
+
+function refreshSavedBackgroundDisclosureSummaries() {
+  for (const disclosure of elements.inspectorBody.querySelectorAll(".appearance-saved-background-disclosure")) {
+    const meta = disclosure.querySelector(".settings-disclosure-meta");
+    if (meta) {
+      setTextIfChanged(meta, formatMessage("appearance.savedBackgroundCount", {
+        count: state.savedBackgroundImages.length
+      }));
+    }
+  }
+}
+
 function refreshRecentFolderPanels() {
   let changed = false;
   for (const panel of elements.inspectorBody.querySelectorAll(".recent-folder-history-list")) {
@@ -33862,6 +33885,12 @@ function refreshDataRecentActivityPanels() {
   }
   refreshRecentCommandDisclosureSummaries();
   return changed;
+}
+
+function refreshAppearanceSavedLibraryPanels() {
+  refreshAppearancePreview();
+  refreshSavedColorDisclosureSummaries();
+  refreshSavedBackgroundDisclosureSummaries();
 }
 
 function refreshRecentFolderSettings(options = {}) {
@@ -33926,6 +33955,33 @@ function refreshRecentActivitySettings(options = {}) {
     return;
   }
   scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
+function refreshSavedLibrarySettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (normalizeSettingsQuery(state.settingsQuery)) {
+    scheduleSettingsInspectorRender({ ifChanged: true });
+    return;
+  }
+  const category = state.settingsCategory;
+  const targeted = ["appearance", "blueprints", "browser", "commands", "data", "layout", "performance", "profiles"].includes(category);
+  if (!targeted) {
+    scheduleSettingsInspectorRender({ ifChanged: true });
+    return;
+  }
+  requestAnimationFrame(() => {
+    if (state.inspectorMode !== "settings" || normalizeSettingsQuery(state.settingsQuery)) return;
+    if (state.settingsCategory === "data") refreshDataRecentActivityPanels();
+    else if (state.settingsCategory === "commands") refreshCommandSnippetPanels();
+    else if (state.settingsCategory === "profiles") refreshSettingsProfilePanels();
+    else if (state.settingsCategory === "blueprints") refreshWorkspaceBlueprintPanels();
+    else if (state.settingsCategory === "appearance") refreshAppearanceSavedLibraryPanels();
+    else if (state.settingsCategory === "layout") {
+      refreshLayoutProfileSaveControls();
+      refreshLayoutBlueprintControls();
+    } else if (state.settingsCategory === "browser") refreshBrowserProfileSaveControls();
+    else if (state.settingsCategory === "performance") refreshPerformanceProfileSaveControls();
+  });
 }
 
 function recentFoldersSettings() {
