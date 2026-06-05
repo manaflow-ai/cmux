@@ -3157,6 +3157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
+        seedWindowHomesFromRestoredWindows()
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.
@@ -3594,7 +3595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return Self.displaySnapshot(for: screen)
     }
 
-    private nonisolated static func displaySnapshot(for screen: NSScreen?) -> SessionDisplaySnapshot? {
+    private static func displaySnapshot(for screen: NSScreen?) -> SessionDisplaySnapshot? {
         guard let screen else { return nil }
         return SessionDisplaySnapshot(
             displayID: screen.cmuxDisplayID,
@@ -3611,6 +3612,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// (within a single session) does not need cross-launch persistence, which
     /// the existing startup restore already handles.
     private func handleMainWindowGeometryChanged(_ window: NSWindow, userInitiated: Bool) {
+        recordWindowHome(for: window, isUserInitiated: userInitiated)
+    }
+
+    /// Seeds each restored window's home from its placed frame + display so the
+    /// reconnect path works on the common case: launch the app, session restore
+    /// drops the window on the external monitor, the user steps away without ever
+    /// touching it, the monitor sleeps and wakes. Without this seed the tracker
+    /// would be empty and nothing would restore until the first manual move.
+    /// `isUserInitiated: true` here treats the restored placement as the intended
+    /// home (the user chose it last session); `isApplyingSessionRestore` is
+    /// already cleared by the time this runs.
+    private func seedWindowHomesFromRestoredWindows() {
+        for context in mainWindowContexts.values {
+            guard let window = context.window ?? windowForMainWindowId(context.windowId) else {
+                continue
+            }
+            recordWindowHome(for: window, isUserInitiated: true)
+        }
+    }
+
+    /// Records `window`'s current frame + display as its home when the placement
+    /// should count (see ``WindowHomeTracker/shouldRecordHome(isUserInitiated:isReconciling:isApplyingSessionRestore:isFullScreen:isZoomed:isMiniaturized:screenPresent:)``).
+    private func recordWindowHome(for window: NSWindow, isUserInitiated: Bool) {
         guard let windowId = mainWindowId(for: window) else { return }
         let screen = window.screen
             ?? NSScreen.screens.first(where: { $0.frame.intersects(window.frame) })
@@ -3619,7 +3643,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } ?? false
 
         guard WindowHomeTracker.shouldRecordHome(
-            isUserInitiated: userInitiated,
+            isUserInitiated: isUserInitiated,
             isReconciling: isReconcilingWindowHome,
             isApplyingSessionRestore: isApplyingSessionRestore,
             isFullScreen: window.styleMask.contains(.fullScreen),
