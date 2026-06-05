@@ -247,8 +247,11 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             tmuxStartCommand: placeholderCommand
         ))
         let originalPanelId = placeholderPanel.id
-        let originalPaneId = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelId)?.id)
+        let originalPane = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelId))
+        let originalPaneId = originalPane.id
         let originalTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(originalPanelId))
+        let originalPaneCount = workspace.bonsplitController.allPaneIds.count
+        let originalTabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
 
         let respawnedPanel = try XCTUnwrap(workspace.respawnTerminalSurface(
             panelId: originalPanelId,
@@ -261,6 +264,10 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertTrue(workspace.terminalPanel(for: originalPanelId) === respawnedPanel)
         XCTAssertEqual(workspace.paneId(forPanelId: originalPanelId)?.id, originalPaneId)
         XCTAssertEqual(workspace.surfaceIdFromPanelId(originalPanelId), originalTabId)
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, originalPaneCount)
+        XCTAssertTrue(workspace.bonsplitController.allPaneIds.contains(where: { $0.id == originalPaneId }))
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: originalPane).count, originalTabCount)
+        XCTAssertTrue(workspace.bonsplitController.tabs(inPane: originalPane).contains(where: { $0.id == originalTabId }))
         XCTAssertEqual(respawnedPanel.requestedWorkingDirectory, requestedDirectory)
         XCTAssertEqual(respawnedPanel.surface.debugInitialCommand(), attachCommand)
         XCTAssertEqual(respawnedPanel.surface.debugTmuxStartCommand(), attachCommand)

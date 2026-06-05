@@ -14679,19 +14679,25 @@ final class Workspace: Identifiable, ObservableObject {
         template.waitAfterCommand = true
         inheritedConfig = template
 
+        oldPanel.unfocus()
+        oldPanel.hostedView.setVisibleInUI(false)
+        TerminalWindowPortalRegistry.detach(hostedView: oldPanel.hostedView)
+        oldPanel.surface.beginPortalCloseLifecycle(reason: "terminal.respawn")
+
         discardClosedPanelLifecycleState(
             panelId: panelId,
             tabId: tabId,
             paneId: paneId,
             panel: oldPanel,
             origin: "terminal_respawn",
-            closePanel: true,
+            closePanel: false,
             publishSurfaceClosedEvent: false,
             clearSurfaceNotifications: true,
             requestTransferredRemoteCleanup: true,
             cleanupControllerSurfaceState: true
         )
         TerminalSurfaceRegistry.shared.unregister(oldPanel.surface)
+        oldPanel.surface.teardownSurface()
 
         let replacementPanel = TerminalPanel(
             id: panelId,

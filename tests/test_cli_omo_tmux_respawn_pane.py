@@ -308,6 +308,7 @@ def assert_omo_split_is_listed_and_respawned(
     if empty_respawn_params.get("tmux_start_command") != PLACEHOLDER_COMMAND:
         raise AssertionError(f"empty respawn did not preserve tmux start metadata: {empty_respawn_params!r}")
     state.respawn_params.clear()
+    state.sent_text.clear()
 
     respawn = run_cli(
         cli_path,
