@@ -113,7 +113,24 @@ Global hooks from `~/.config/cmux/cmux.json` run first. Project hooks from paren
 
 ### Claude Code
 
-See the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code) for hook configuration.
+When you run `claude` inside a cmux terminal, cmux automatically intercepts the invocation via a PATH wrapper (`Resources/bin/claude`). The wrapper injects `--settings` with hooks for session lifecycle and notification events, and generates a `--session-id` so cmux can track and resume the session.
+
+Hooks injected automatically:
+- `SessionStart`, `Stop`, `SessionEnd` — lifecycle tracking
+- `Notification` — forward Claude notifications to cmux
+- `UserPromptSubmit` — update sidebar status to "Running"
+- `PreToolUse` — guard unsupported cron requests and capture status
+- `PermissionRequest` — Feed approval bridge
+
+To disable the wrapper and run the real `claude` binary directly:
+
+```bash
+CMUX_CLAUDE_HOOKS_DISABLED=1 claude
+```
+
+Outside cmux terminals, the wrapper passes through to the real binary unchanged.
+
+See the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code) for additional hook configuration.
 
 ### GitHub Copilot CLI
 
