@@ -86,6 +86,15 @@ struct ControlResponseEncoderTests {
             "ok": false,
             "error": ["code": "invalid_request", "message": "Missing method"],
         ] as NSDictionary)
+
+        // Requests that omit "id" entirely still echo "id": null, exactly as
+        // the legacy dispatcher did (v2Error always emitted v2OrNull(id)).
+        let missingNilId = try decode(encoder.response(for: .missingMethod(id: nil)))
+        #expect(missingNilId == [
+            "id": NSNull(),
+            "ok": false,
+            "error": ["code": "invalid_request", "message": "Missing method"],
+        ] as NSDictionary)
     }
 
     @Test func encodeFailureResponseIsTheLegacyConstant() {
