@@ -25,8 +25,8 @@ final class PostHogAnalytics {
     private var didStart = false
     private var activeCheckTimer: Timer?
 
-    private init() {
-        workQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility)
+    init(workQueue: DispatchQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility)) {
+        self.workQueue = workQueue
         utcHourFormatter = Self.makeUTCFormatter("yyyy-MM-dd'T'HH")
         utcDayFormatter = Self.makeUTCFormatter("yyyy-MM-dd")
         workQueue.setSpecific(key: workQueueSpecificKey, value: ())
@@ -74,9 +74,16 @@ final class PostHogAnalytics {
     }
 
     func flush() {
-        dispatchSyncOnWorkQueue {
-            guard didStart else { return }
-            PostHogSDK.shared.flush()
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.flushOnWorkQueue()
+        }
+    }
+
+    func flushForTermination(maximumQueueDrainDuration: DispatchTimeInterval = .milliseconds(150)) {
+        dispatchBoundedOnWorkQueue(timeout: maximumQueueDrainDuration) { [weak self] in
+            guard let self else { return }
+            self.flushOnWorkQueue()
         }
     }
 
@@ -190,12 +197,21 @@ final class PostHogAnalytics {
         workQueue.async(execute: block)
     }
 
-    private func dispatchSyncOnWorkQueue(_ block: () -> Void) {
+    private func dispatchBoundedOnWorkQueue(timeout: DispatchTimeInterval, _ block: @escaping () -> Void) {
         if DispatchQueue.getSpecific(key: workQueueSpecificKey) != nil {
             block()
             return
         }
-        workQueue.sync(execute: block)
+        let item = DispatchWorkItem {
+            block()
+        }
+        workQueue.async(execute: item)
+        _ = item.wait(timeout: .now() + timeout)
+    }
+
+    private func flushOnWorkQueue() {
+        guard didStart else { return }
+        PostHogSDK.shared.flush()
     }
 
     private func utcHourString(_ date: Date) -> String {

@@ -665,11 +665,17 @@ final class CmuxMainThreadTurnProfiler {
 }
 #endif
 
+// Safety: `nonisolated(unsafe)` inside AppDelegate is limited to the legacy
+// process-wide delegate pointer assigned on the main actor during launch.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate {
+    /// Assigned during app launch and read by legacy static routes that cannot
+    /// yet receive the delegate through dependency injection.
     nonisolated(unsafe) static var shared: AppDelegate?
+
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
+
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -678,6 +684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var cmuxThemePreviewReloadGeneration = 0
     private var cmuxThemePreviewReloadWorkItem: DispatchWorkItem?
+    private var didPersistFullUpdateRelaunchSessionSnapshot = false
 
     private static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
         if env["XCTestConfigurationFilePath"] != nil { return true }
@@ -1047,6 +1054,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
     )
+    private let sessionPersistenceWriteGate = SessionPersistenceWriteGate()
     private nonisolated static let launchServicesRegistrationQueue = DispatchQueue(
         label: "com.cmuxterm.app.launchServicesRegistration",
         qos: .utility
@@ -1744,8 +1752,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        ClosedItemHistoryStore.shared.flushPendingSaves()
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
         // or policy skips the warning, avoid a second alert.
@@ -1837,8 +1843,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        ClosedItemHistoryStore.shared.flushPendingSaves()
+        persistSessionForTermination(reason: .applicationWillTerminate)
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
@@ -1847,7 +1852,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
-            PostHogAnalytics.shared.flush()
+            PostHogAnalytics.shared.flushForTermination()
         }
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
@@ -1867,8 +1872,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        ClosedItemHistoryStore.shared.flushPendingSaves()
+        persistSessionForTermination(reason: .updateRelaunch)
     }
 
     func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState, settingsRuntime: SettingsRuntime) {
@@ -3592,8 +3596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
-                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-                ClosedItemHistoryStore.shared.flushPendingSaves()
+                self.persistSessionForTermination(reason: .workspaceWillPowerOff)
             }
         }
         lifecycleSnapshotObservers.append(powerOffObserver)
@@ -3606,8 +3609,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.isTerminatingApp {
-                    _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-                    ClosedItemHistoryStore.shared.flushPendingSaves()
+                    self.persistSessionForTermination(reason: .sessionDidResignWhileTerminating)
                 } else {
                     self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
                 }
@@ -3787,7 +3789,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
         ) else {
-            persistSessionSnapshot(
+            _ = persistSessionSnapshot(
                 nil,
                 removeWhenEmpty: removeWhenEmpty,
                 persistedGeometryData: nil,
@@ -3806,13 +3808,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         debugLogSessionSaveSnapshot(snapshot, includeScrollback: includeScrollback)
 #endif
-        persistSessionSnapshot(
+        return persistSessionSnapshot(
             snapshot,
             removeWhenEmpty: false,
             persistedGeometryData: persistedGeometryData,
             synchronously: writeSynchronously
         )
-        return true
     }
 
 #if DEBUG
@@ -3835,7 +3836,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
             },
             persistSnapshot: { [self] snapshot, persistedGeometryData in
-                persistSessionSnapshot(
+                _ = persistSessionSnapshot(
                     snapshot,
                     removeWhenEmpty: false,
                     persistedGeometryData: persistedGeometryData,
@@ -3887,6 +3888,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool) -> Bool {
         !isTerminatingApp
+    }
+
+    nonisolated static func terminationSessionPersistencePlan(
+        reason: TerminationSessionPersistenceReason,
+        hasFullUpdateRelaunchSnapshot: Bool = false
+    ) -> TerminationSessionPersistencePlan {
+        if hasFullUpdateRelaunchSnapshot, reason != .updateRelaunch {
+            return .init(
+                saveSnapshot: false,
+                includeScrollback: false,
+                flushClosedItemHistory: false
+            )
+        }
+
+        switch reason {
+        case .applicationWillTerminate, .workspaceWillPowerOff, .sessionDidResignWhileTerminating:
+            return .init(
+                saveSnapshot: true,
+                includeScrollback: true,
+                flushClosedItemHistory: true
+            )
+        case .updateRelaunch:
+            return .init(
+                saveSnapshot: true,
+                includeScrollback: true,
+                flushClosedItemHistory: true
+            )
+        }
     }
 
     nonisolated static func shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp _: Bool) -> Bool {
@@ -4054,6 +4083,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func persistSessionForTermination(reason: TerminationSessionPersistenceReason) {
+        let plan = Self.terminationSessionPersistencePlan(
+            reason: reason,
+            hasFullUpdateRelaunchSnapshot: didPersistFullUpdateRelaunchSessionSnapshot
+        )
+        var didSaveSnapshot = false
+        if plan.saveSnapshot {
+            didSaveSnapshot = saveSessionSnapshotIncludingProcessDetectedIndexes(
+                includeScrollback: plan.includeScrollback,
+                removeWhenEmpty: false
+            )
+        }
+        if reason == .updateRelaunch, plan.includeScrollback, didSaveSnapshot {
+            didPersistFullUpdateRelaunchSessionSnapshot = true
+        }
+        if plan.flushClosedItemHistory {
+            ClosedItemHistoryStore.shared.flushPendingSaves()
+        }
+    }
+
     @discardableResult
     private func nextProcessDetectedSessionSaveGeneration() -> UInt64 {
         processDetectedSessionSaveGeneration &+= 1
@@ -4072,7 +4121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp: Bool,
         includeScrollback: Bool
     ) -> Bool {
-        isTerminatingApp && includeScrollback
+        isTerminatingApp
     }
 
     nonisolated static func shouldSkipSessionAutosaveForUnchangedFingerprint(
@@ -4116,34 +4165,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         quantized.forEach { hasher.combine($0) }
     }
 
+    @discardableResult
     private func persistSessionSnapshot(
         _ snapshot: AppSessionSnapshot?,
         removeWhenEmpty: Bool,
         persistedGeometryData: Data?,
         synchronously: Bool
-    ) {
-        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
+    ) -> Bool {
+        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return false }
 
-        let writeBlock = {
-            Self.removeLegacyPersistedWindowGeometry()
-            if let persistedGeometryData {
-                UserDefaults.standard.set(
-                    persistedGeometryData,
-                    forKey: Self.persistedWindowGeometryDefaultsKey
-                )
-            }
-            if let snapshot {
-                _ = SessionPersistenceStore.save(snapshot)
-            } else if removeWhenEmpty {
-                SessionPersistenceStore.removeSnapshot()
-            }
+        let writeGate = sessionPersistenceWriteGate
+        let writeGeneration = synchronously
+            ? writeGate.invalidateQueuedWrites()
+            : writeGate.currentGeneration()
+        let writeBlock: @Sendable () -> Bool = {
+            guard writeGate.isCurrent(writeGeneration) else { return false }
+            return Self.performSessionPersistenceWrite(
+                snapshot,
+                removeWhenEmpty: removeWhenEmpty,
+                persistedGeometryData: persistedGeometryData,
+                removeLegacyGeometry: {
+                    Self.removeLegacyPersistedWindowGeometry()
+                },
+                persistGeometryData: { geometryData in
+                    UserDefaults.standard.set(
+                        geometryData,
+                        forKey: Self.persistedWindowGeometryDefaultsKey
+                    )
+                },
+                saveSnapshot: { snapshot in
+                    SessionPersistenceStore.save(snapshot)
+                },
+                removeSnapshot: {
+                    SessionPersistenceStore.removeSnapshot()
+                }
+            )
         }
 
         if synchronously {
-            writeBlock()
+            return sessionPersistenceQueue.sync(execute: writeBlock)
         } else {
-            sessionPersistenceQueue.async(execute: writeBlock)
+            sessionPersistenceQueue.async {
+                _ = writeBlock()
+            }
+            return false
         }
+    }
+
+    nonisolated static func performSessionPersistenceWrite(
+        _ snapshot: AppSessionSnapshot?,
+        removeWhenEmpty: Bool,
+        persistedGeometryData: Data?,
+        removeLegacyGeometry: () -> Void,
+        persistGeometryData: (Data) -> Void,
+        saveSnapshot: (AppSessionSnapshot) -> Bool,
+        removeSnapshot: () -> Void
+    ) -> Bool {
+        removeLegacyGeometry()
+        if let persistedGeometryData {
+            persistGeometryData(persistedGeometryData)
+        }
+        if let snapshot {
+            return saveSnapshot(snapshot)
+        } else if removeWhenEmpty {
+            removeSnapshot()
+            return true
+        }
+        return persistedGeometryData != nil
     }
 
     private func sortedMainWindowContextsForSessionSnapshot() -> [MainWindowContext] {
@@ -15785,9 +15873,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             activateMainWindowContext(nextContext)
         }
 
-        // During app termination we already persisted a full snapshot (with scrollback)
-        // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
-        // overwrite it as windows tear down one-by-one, dropping closed windows and replay.
+        // During app termination we already persisted a final snapshot in
+        // applicationWillTerminate. Saving again here would overwrite it as
+        // windows tear down one-by-one, dropping closed windows and replay.
         if Self.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false, removeWhenEmpty: false)
         }

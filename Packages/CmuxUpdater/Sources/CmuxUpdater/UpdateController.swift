@@ -17,6 +17,14 @@ public import Foundation
 /// concrete ``UpdateLogging`` and ``UpdateActionDelegate``.
 @MainActor
 public final class UpdateController {
+    /// Describes which passive update checks should run after updater startup.
+    nonisolated public struct LaunchProbePlan: Equatable, Sendable {
+        /// Whether startup should immediately fetch update metadata.
+        public let probesImmediately: Bool
+        /// Whether startup should schedule later passive metadata checks.
+        public let schedulesPeriodicProbes: Bool
+    }
+
     private let updater: SPUUpdater
     private let driver: UpdateDriver
     private let log: any UpdateLogging
@@ -321,7 +329,7 @@ public final class UpdateController {
             log.append(
                 "updater started (autoChecks=\(updater.automaticallyChecksForUpdates), interval=\(interval)s, autoDownloads=\(updater.automaticallyDownloadsUpdates))"
             )
-            startLaunchUpdateProbeIfNeeded()
+            startBackgroundUpdateProbeIfNeeded()
         } catch {
             model.setState(.error(.init(
                 error: error,
@@ -337,16 +345,30 @@ public final class UpdateController {
         }
     }
 
-    private func startLaunchUpdateProbeIfNeeded() {
-        guard updater.automaticallyChecksForUpdates else {
-            log.append("launch update probe skipped (automatic checks disabled)")
+    /// Returns the passive update-probe plan for the updater's automatic-check setting.
+    ///
+    /// - Parameter automaticallyChecksForUpdates: Whether Sparkle automatic update checks are enabled.
+    /// - Returns: A plan describing immediate and periodic passive update metadata checks.
+    nonisolated public static func launchProbePlan(automaticallyChecksForUpdates: Bool) -> LaunchProbePlan {
+        LaunchProbePlan(
+            probesImmediately: false,
+            schedulesPeriodicProbes: automaticallyChecksForUpdates
+        )
+    }
+
+    private func startBackgroundUpdateProbeIfNeeded() {
+        let plan = Self.launchProbePlan(automaticallyChecksForUpdates: updater.automaticallyChecksForUpdates)
+        guard plan.schedulesPeriodicProbes else {
+            log.append("background update probe skipped (automatic checks disabled)")
             return
         }
 
-        // Probe immediately on launch so the sidebar can surface a passive update indicator
-        // without waiting for Sparkle's scheduled check or opening interactive update UI.
-        log.append("starting launch update probe")
-        updater.checkForUpdateInformation()
+        if plan.probesImmediately {
+            log.append("starting launch update probe")
+            updater.checkForUpdateInformation()
+        } else {
+            log.append("launch update probe skipped (deferred to periodic/user checks)")
+        }
 
         // Re-probe periodically so the banner appears even if the app has been running for a
         // while when a new version is published. Genuine periodic schedule via the clock.
