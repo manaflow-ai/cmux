@@ -3913,6 +3913,7 @@ final class OmnibarNativeTextField: NSTextField {
         let anchor: Int
         let initialWindowLocation: NSPoint
         var didDrag: Bool
+        var focusGained: Bool
     }
 
     override init(frame frameRect: NSRect) {
@@ -3972,7 +3973,8 @@ final class OmnibarNativeTextField: NSTextField {
         mouseSelectionState = MouseSelectionState(
             anchor: anchor,
             initialWindowLocation: event.locationInWindow,
-            didDrag: false
+            didDrag: false,
+            focusGained: !hadEditor
         )
     }
 
@@ -3994,15 +3996,20 @@ final class OmnibarNativeTextField: NSTextField {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard mouseSelectionState != nil else {
+        guard let state = mouseSelectionState else {
             super.mouseUp(with: event)
             return
         }
 
-        // A single click leaves the caret placed in `mouseDown`; a drag leaves the
-        // range built up in `mouseDragged`. Focus-via-click never selects all — that
-        // is reserved for the keyboard path (Cmd+L), which selects the whole URL via
-        // the `selectAllRequestId` flow, independent of mouse handling.
+        if state.focusGained,
+           !state.didDrag,
+           let editor = currentEditor() as? NSTextView {
+            editor.selectAll(nil)
+            shiftClickAnchor = nil
+        }
+
+        // A click into an already-focused field leaves the caret placed in `mouseDown`;
+        // a drag leaves the range built up in `mouseDragged`.
         mouseSelectionState = nil
     }
 

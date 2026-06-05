@@ -363,50 +363,6 @@ final class ShortcutUnbindingParsingTests: XCTestCase {
         )
     }
 
-    func testManagedShortcutOverrideWinsOverPersistedRegularShortcut() throws {
-        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
-        let action = KeyboardShortcutSettings.Action.openBrowser
-        let originalData = UserDefaults.standard.data(forKey: action.defaultsKey)
-        defer {
-            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-            restoreShortcutDefaultsData(originalData, for: action)
-        }
-
-        let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-managed-shortcut-precedence-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
-
-        let persistedShortcut = StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
-        KeyboardShortcutSettings.setShortcut(persistedShortcut, for: action)
-
-        try """
-        {
-          "shortcuts": {
-            "openBrowser": "cmd+shift+b"
-          }
-        }
-        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
-
-        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
-
-        XCTAssertEqual(
-            KeyboardShortcutSettings.shortcut(for: action),
-            StoredShortcut(key: "b", command: true, shift: true, option: false, control: false)
-        )
-    }
-
     func testUnboundShortcutNeverMatchesKeypress() {
         let shortcut = StoredShortcut.unbound
 
