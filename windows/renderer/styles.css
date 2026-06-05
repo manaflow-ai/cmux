@@ -1423,6 +1423,17 @@ body.reduce-motion *::after {
   min-width: 0;
 }
 
+.workspace-row:not(.is-active) .workspace-close {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.workspace-row:not(.is-active):hover .workspace-close,
+.workspace-row:not(.is-active):focus-within .workspace-close {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .workspace-color {
   width: 8px;
   height: 8px;
@@ -17479,4 +17490,20 @@ textarea.dialog-input {
     transition-duration: 1ms !important;
     animation-duration: 1ms !important;
   }
+}
+
+.workspace-list .workspace-row .workspace-close {
+  pointer-events: auto;
+}
+
+.workspace-list .workspace-row:not(.is-active) .workspace-close {
+  opacity: .52;
+  pointer-events: auto;
+}
+
+.workspace-list .workspace-row:hover .workspace-close,
+.workspace-list .workspace-row:focus-within .workspace-close,
+.workspace-list .workspace-row.is-active .workspace-close {
+  opacity: 1;
+  pointer-events: auto;
 }
