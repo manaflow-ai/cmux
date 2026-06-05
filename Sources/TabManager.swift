@@ -4998,10 +4998,10 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
+        guard let closingIndex = tabs.firstIndex(where: { $0 === workspace }) else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         if recordHistory,
-           workspace.isRestorableInSessionSnapshot,
-           let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
+           workspace.isRestorableInSessionSnapshot {
             let snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
                 restorableAgentIndex: RestorableAgentSessionIndex.load()
@@ -5009,7 +5009,7 @@ class TabManager: ObservableObject {
             ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,
                 windowId: AppDelegate.shared?.windowId(for: self),
-                workspaceIndex: index,
+                workspaceIndex: closingIndex,
                 snapshot: snapshot
             )))
         }
@@ -5027,22 +5027,20 @@ class TabManager: ObservableObject {
         recentlyClosedBrowsers.removeSnapshots(forWorkspaceId: workspace.id)
         workspace.owningTabManager = nil
 
-        if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            tabs.remove(at: index)
-            // Real-close path: if the closed workspace anchored a group, the
-            // group dissolves now and its remaining members survive as
-            // ungrouped workspaces. This lives at the explicit close site (not
-            // in the tabs didSet) so transient remove/insert reorders never
-            // trigger dissolve.
-            dissolveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
+        tabs.remove(at: closingIndex)
+        // Real-close path: if the closed workspace anchored a group, the
+        // group dissolves now and its remaining members survive as
+        // ungrouped workspaces. This lives at the explicit close site (not
+        // in the tabs didSet) so transient remove/insert reorders never
+        // trigger dissolve.
+        dissolveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
-            if selectedTabId == workspace.id {
-                // Keep the "focused index" stable when possible:
-                // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
-                // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
-                let newIndex = min(index, max(0, tabs.count - 1))
-                selectedTabId = tabs[newIndex].id
-            }
+        if selectedTabId == workspace.id {
+            // Keep the "focused index" stable when possible:
+            // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
+            // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
+            let newIndex = min(closingIndex, max(0, tabs.count - 1))
+            selectedTabId = tabs[newIndex].id
         }
         publishCmuxWorkspaceClosed(workspace)
     }
