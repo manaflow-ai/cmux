@@ -7730,6 +7730,7 @@ const commands = [
   { id: "settings.copyTerminalSetup", label: "Copy Terminal Setup", shortcut: "", run: () => copyTerminalSetup() },
   { id: "settings.pasteTerminalSetup", label: "Paste Terminal Setup", shortcut: "", run: () => pasteTerminalSetup() },
   { id: "settings.resetTerminalSetup", label: "Reset Terminal Setup", shortcut: "", run: () => resetTerminalSetupSettings() },
+  { id: "settings.cycleTerminalFont", label: "Cycle Terminal Font", shortcut: "", run: () => cycleTerminalFont() },
   { id: "settings.cycleTerminalReadability", label: "Cycle Terminal Readability", shortcut: "", run: () => cycleTerminalReadabilityPreset() },
   { id: "settings.cycleTerminalColors", label: "Cycle Terminal Colors", shortcut: "", run: () => cycleTerminalColorPreset() },
   { id: "settings.terminalColors", label: "Reset Terminal Colors", shortcut: "", run: () => applyTerminalColorPresetById("cmux") },
@@ -7854,6 +7855,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.copyTerminalSetup",
   "settings.pasteTerminalSetup",
   "settings.resetTerminalSetup",
+  "settings.cycleTerminalFont",
   "settings.cycleTerminalReadability",
   "settings.cycleTerminalColors",
   "settings.terminalColors",
@@ -8441,6 +8443,17 @@ function customizationCommandPaletteState(commandId) {
       icon: "terminal",
       title: model.title,
       search: normalizeSettingsQuery(`terminal readability cycle next typography preset font size line height padding history cursor ${model.search}`)
+    };
+  }
+  if (commandId === "settings.cycleTerminalFont") {
+    const model = terminalFontCycleModel();
+    return {
+      meta: model.meta,
+      shortcut: "Cycle",
+      disabled: model.disabled,
+      icon: "terminal",
+      title: model.title,
+      search: normalizeSettingsQuery(`terminal font cycle next typography preview monospace ${model.search}`)
     };
   }
   if (commandId === "settings.cycleTerminalColors") {
@@ -16468,6 +16481,10 @@ function renderSettingsInspector(options = {}) {
     copyTerminalColors.title = "Copy the current terminal background, text, and cursor color setup.";
     const pasteTerminalColors = settingsActionButton("Paste colors", pasteTerminalColorPalette, "", "terminal color paste palette json clipboard background foreground cursor");
     pasteTerminalColors.title = "Apply terminal colors copied from cmux.";
+    const fontCycle = terminalFontCycleModel();
+    const cycleTerminalFontAction = settingsActionButton("Cycle font", cycleTerminalFont, "", `terminal font cycle next typography gallery preview monospace ${fontCycle.search}`);
+    cycleTerminalFontAction.disabled = fontCycle.disabled;
+    cycleTerminalFontAction.title = fontCycle.title;
     const readabilityCycle = terminalReadabilityCycleModel();
     const cycleReadability = settingsActionButton("Cycle readability", cycleTerminalReadabilityPreset, "", `terminal readability cycle next preset typography font size line height padding history cursor ${readabilityCycle.search}`);
     cycleReadability.disabled = readabilityCycle.disabled;
@@ -16496,6 +16513,7 @@ function renderSettingsInspector(options = {}) {
         settingsActionButton("Save terminal profile", saveCurrentTerminalProfile, "primary", "terminal save profile setup font color cursor shell reusable"),
         "Save this terminal setup as a reusable Settings profile."
       ),
+      cycleTerminalFontAction,
       cycleReadability,
       cycleTerminalColors,
       copyTerminalSetupAction,
@@ -25471,6 +25489,7 @@ function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount
         ? commandSnippetLimitTitle()
         : "Save the latest recent terminal command as a reusable snippet.";
   const setupDefault = terminalSetupSettingsAreDefault();
+  const fontCycle = terminalFontCycleModel();
   const readabilityCycle = terminalReadabilityCycleModel();
   const colorCycle = terminalColorPresetCycleModel();
   const actions = [
@@ -25524,6 +25543,11 @@ function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save this terminal setup as a reusable Settings profile.",
       search: "quick setup terminal save profile reusable settings font color shell"
+    }),
+    quickOverviewControlButton("Cycle font", () => refreshQuickSettingsAfterAction(cycleTerminalFont({ render: false })), {
+      disabled: fontCycle.disabled,
+      title: fontCycle.title,
+      search: `quick setup terminal font cycle next typography gallery preview monospace ${fontCycle.search}`
     }),
     quickOverviewControlButton("Cycle text", () => refreshQuickSettingsAfterAction(cycleTerminalReadabilityPreset({ render: false })), {
       disabled: readabilityCycle.disabled,
@@ -29698,6 +29722,55 @@ function swatchGrid(colors, activeColor, onPick) {
   return grid;
 }
 
+function terminalFontOptionById(fontId) {
+  return terminalFontOptions.find(([id]) => id === fontId) || null;
+}
+
+function terminalFontCycleModel() {
+  const options = terminalFontOptions.filter(([id]) => id);
+  const activeIndex = options.findIndex(([id]) => id === state.settings.terminalFontFamily);
+  const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % options.length : 0;
+  const option = options[nextIndex] || null;
+  const currentLabel = optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono");
+  const label = option?.[1] || "";
+  return {
+    fontId: option?.[0] || "",
+    label,
+    disabled: !option || (options.length === 1 && activeIndex === 0),
+    meta: option ? `${label} / ${state.settings.terminalFontSize}px` : "No terminal fonts",
+    title: option
+      ? `Cycle terminal font to ${label}.`
+      : "No terminal fonts are available.",
+    search: normalizeSettingsQuery(`terminal font cycle next typography gallery preview monospace current ${currentLabel} ${state.settings.terminalFontSize}px next ${label} ${option?.[0] || ""}`)
+  };
+}
+
+function applyTerminalFont(fontId, options = {}) {
+  const option = terminalFontOptionById(fontId);
+  if (!option) {
+    toast("Terminal font not found.");
+    return false;
+  }
+  const [value, label] = option;
+  const changed = updateSettings({ terminalFontFamily: value });
+  if (!changed) {
+    if (options.toast !== false) toast(`${label} font already active.`);
+    return false;
+  }
+  if (options.render !== false) refreshTerminalFontChoices();
+  if (options.toast !== false) toast(`${label} font applied.`);
+  return true;
+}
+
+function cycleTerminalFont(options = {}) {
+  const model = terminalFontCycleModel();
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applyTerminalFont(model.fontId, options);
+}
+
 function terminalFontChoiceGrid() {
   const grid = document.createElement("div");
   grid.className = "terminal-font-choice-grid";
@@ -29721,9 +29794,7 @@ function terminalFontChoiceGrid() {
     `;
     button.querySelector(".terminal-font-choice-label").textContent = label;
     button.onclick = () => {
-      const changed = updateSettings({ terminalFontFamily: value });
-      if (!changed) toast(`${label} font already active.`);
-      refreshTerminalFontChoices();
+      applyTerminalFont(value);
     };
     grid.append(button);
   }
