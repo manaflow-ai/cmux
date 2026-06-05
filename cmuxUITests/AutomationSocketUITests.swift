@@ -10,6 +10,7 @@ final class AutomationSocketUITests: XCTestCase {
     private let legacyKey = "socketControlEnabled"
     private var launchTag = ""
     private var temporaryRoots: [URL] = []
+    private var lastTextBoxFixtureResponse = ""
 
     override func setUp() {
         super.setUp()
@@ -18,6 +19,7 @@ final class AutomationSocketUITests: XCTestCase {
         diagnosticsPath = "/tmp/cmux-ui-test-automation-socket-\(UUID().uuidString).json"
         launchTag = "ui-tests-automation-\(UUID().uuidString.prefix(8))"
         temporaryRoots = []
+        lastTextBoxFixtureResponse = ""
         resetSocketDefaults()
         removeSocketFile()
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
@@ -120,7 +122,7 @@ final class AutomationSocketUITests: XCTestCase {
                 completionRootDirectory: skillRoot.path,
                 timeout: 8.0
             ),
-            "Expected text box fixture to mount with a bare $ trigger"
+            "Expected text box fixture to mount with a bare $ trigger. last=\(lastTextBoxFixtureResponse) diagnostics=\(loadDiagnostics())"
         )
         let surfaceID = try XCTUnwrap(fixture["surface_id"] as? String, "Expected fixture surface id")
         _ = try XCTUnwrap(
@@ -331,10 +333,13 @@ final class AutomationSocketUITests: XCTestCase {
             if let completionRootDirectory {
                 params["completion_root_directory"] = completionRootDirectory
             }
-            guard let result = self.socketResult(
-                method: "debug.textbox.inline_fixture",
-                params: params
-            ) else {
+            guard let envelope = self.socketJSON(method: "debug.textbox.inline_fixture", params: params) else {
+                self.lastTextBoxFixtureResponse = "nil envelope"
+                return nil
+            }
+            self.lastTextBoxFixtureResponse = Self.debugDescription(envelope)
+            guard envelope["ok"] as? Bool == true,
+                  let result = envelope["result"] as? [String: Any] else {
                 return nil
             }
             guard result["text_view_has_window"] as? Bool == true,
@@ -343,6 +348,15 @@ final class AutomationSocketUITests: XCTestCase {
             }
             return result
         }
+    }
+
+    private static func debugDescription(_ value: Any) -> String {
+        guard JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return String(describing: value)
+        }
+        return text
     }
 
     private func waitForMentionState(
