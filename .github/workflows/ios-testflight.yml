@@ -34,6 +34,7 @@ permissions:
 
 jobs:
   decide:
+    name: Decide whether a TestFlight upload is needed
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -86,6 +87,7 @@ jobs:
               .write();
 
   upload:
+    name: Upload to TestFlight
     needs: decide
     if: needs.decide.outputs.should_build == 'true'
     runs-on: macos-26
