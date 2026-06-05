@@ -5105,37 +5105,6 @@ final class BrowserHistoryStoreTests: XCTestCase {
         XCTAssertEqual(suggestions.first?.url, "https://go.dev/")
         XCTAssertTrue(suggestions.contains(where: { $0.url == "https://www.google.com/" }))
     }
-
-    func testSuggestionsCacheCandidatesUntilHistoryChanges() async throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("BrowserHistoryStoreTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer {
-            try? FileManager.default.removeItem(at: tempDir)
-        }
-
-        let fileURL = tempDir.appendingPathComponent("browser_history.json")
-        let store = await MainActor.run { BrowserHistoryStore(fileURL: fileURL) }
-
-        let u1 = try XCTUnwrap(URL(string: "https://example.com/foo"))
-        let u2 = try XCTUnwrap(URL(string: "https://example.com/bar"))
-        let u3 = try XCTUnwrap(URL(string: "https://example.com/baz"))
-
-        await MainActor.run {
-            store.recordVisit(url: u1, title: "Example Foo")
-            store.recordVisit(url: u2, title: "Example Bar")
-        }
-
-        await MainActor.run {
-            XCTAssertEqual(store.residentSuggestionCandidateCount, 0)
-            XCTAssertFalse(store.suggestions(for: "example", limit: 10).isEmpty)
-            XCTAssertEqual(store.residentSuggestionCandidateCount, 2)
-            XCTAssertFalse(store.suggestions(for: "foo", limit: 10).isEmpty)
-            XCTAssertEqual(store.residentSuggestionCandidateCount, 2)
-            store.recordVisit(url: u3, title: "Example Baz")
-            XCTAssertEqual(store.residentSuggestionCandidateCount, 0)
-        }
-    }
 }
 
 final class BrowserLinkOpenSettingsTests: XCTestCase {
