@@ -1646,7 +1646,7 @@ body.reduce-motion *::after {
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  padding: 0 146px 0 var(--space-2);
+  padding: 0 0 0 var(--space-2);
   border-bottom: 1px solid var(--color-line);
   background: var(--color-chrome-surface);
   box-shadow: var(--depth-topbar-shadow);
@@ -2115,16 +2115,16 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
 }
 
 .native-window-controls {
-  position: fixed;
-  top: 0;
-  right: 0;
-  z-index: 90;
+  position: static;
+  z-index: 2;
   height: 44px;
   display: flex;
+  align-self: stretch;
   align-items: stretch;
   justify-content: flex-end;
+  width: 138px;
   min-width: 138px;
-  margin: 0;
+  margin: 0 0 0 var(--space-1);
   flex: 0 0 138px;
   border-left: 1px solid color-mix(in oklch, var(--color-line) 64%, transparent);
   background: color-mix(in oklch, var(--color-chrome-surface) 88%, var(--color-pane) 12%);
