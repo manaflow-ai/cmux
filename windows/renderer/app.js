@@ -307,6 +307,7 @@ const performanceGuardSlowPaneCreateMs = 2000;
 const performanceGuardSlowTerminalConnectMs = 1500;
 const performanceHealthBackgroundOpacityLimit = 16;
 const performanceHealthScrollbackLimit = 10000;
+const browserViewBoundsSyncFrames = 3;
 const settingsDisclosureSearchMountBatchSize = 3;
 const settingsDisclosureSearchMountSlowBatchSize = 1;
 const settingsSearchInteractiveFilterDelayMs = 90;
@@ -12846,6 +12847,7 @@ function finishWindowResize(event) {
   elements.shell.classList.remove("window-resizing", resize.cursorClass);
   state.windowResizing = null;
   scheduleDeferredTerminalFitFlush();
+  scheduleVisibleBrowserViewBoundsSync(browserViewBoundsSyncFrames);
 }
 
 function startPaneResize(event, splitter) {
@@ -12998,6 +13000,7 @@ function finishPaneResize(event) {
       clearVisiblePaneInlineFlex();
     }
     fitWorkspaceTerminals(workspaceId);
+    scheduleVisibleBrowserViewBoundsSync(browserViewBoundsSyncFrames);
   });
 }
 
@@ -13038,6 +13041,7 @@ function finishSidebarResize(event) {
   saveSettings();
   applySettings();
   refreshLayoutSettings();
+  scheduleVisibleBrowserViewBoundsSync(browserViewBoundsSyncFrames);
 }
 
 function startInspectorResize(event) {
@@ -13077,6 +13081,7 @@ function finishInspectorResize(event) {
   saveSettings();
   applySettings();
   refreshLayoutSettings();
+  scheduleVisibleBrowserViewBoundsSync(browserViewBoundsSyncFrames);
 }
 
 function createPane(panel) {
@@ -13424,11 +13429,13 @@ function cleanupPanel(panelId) {
   }
   const browserSession = state.browserViews.get(panelId);
   if (browserSession?.initialLoadFrame) cancelAnimationFrame(browserSession.initialLoadFrame);
+  if (browserSession?.browserViewBoundsFrame) cancelAnimationFrame(browserSession.browserViewBoundsFrame);
   clearBrowserSuspendStop(browserSession);
   if (browserSession?.tabRenderFrame) cancelAnimationFrame(browserSession.tabRenderFrame);
   if (browserSession?.tabScrollFrame) cancelAnimationFrame(browserSession.tabScrollFrame);
   if (browserSession?.tabScrollStateFrame) cancelAnimationFrame(browserSession.tabScrollStateFrame);
   if (browserSession?.tabOverflowFrame) cancelAnimationFrame(browserSession.tabOverflowFrame);
+  browserSession?.browserViewResizeObserver?.disconnect?.();
   browserSession?.tabResizeObserver?.disconnect?.();
   browserSession?.detachTabWheelScroll?.();
   const pane = state.paneCache.get(panelId);
@@ -14241,7 +14248,55 @@ function applyBrowserChromeModeToShell(shell, value = state.settings.browserChro
 }
 
 function applyBrowserChromeModeToSessions() {
-  for (const session of state.browserViews.values()) applyBrowserChromeModeToShell(session.shell);
+  for (const session of state.browserViews.values()) {
+    applyBrowserChromeModeToShell(session.shell);
+    scheduleBrowserViewBoundsSync(session, browserViewBoundsSyncFrames);
+  }
+}
+
+function browserViewBounds(session) {
+  const content = session?.content;
+  if (!content?.isConnected) return null;
+  const rect = content.getBoundingClientRect();
+  const width = Math.round(content.clientWidth || rect.width || 0);
+  const height = Math.round(content.clientHeight || rect.height || 0);
+  if (width <= 0 || height <= 0) return null;
+  return { width, height };
+}
+
+function syncBrowserViewBounds(session) {
+  const view = session?.view;
+  if (!view?.isConnected) return false;
+  const bounds = browserViewBounds(session);
+  if (!bounds) return false;
+  const signature = `${bounds.width}x${bounds.height}`;
+  if (session.browserViewBoundsSignature === signature) return false;
+  session.browserViewBoundsSignature = signature;
+  view.style.width = `${bounds.width}px`;
+  view.style.height = `${bounds.height}px`;
+  return true;
+}
+
+function scheduleBrowserViewBoundsSync(session, frames = 1) {
+  if (!session?.view || !session.content) return;
+  session.browserViewBoundsFrames = Math.max(session.browserViewBoundsFrames || 0, frames);
+  if (session.browserViewBoundsFrame) return;
+  const run = () => {
+    session.browserViewBoundsFrame = 0;
+    if (state.browserViews.get(session.panelId) !== session) return;
+    syncBrowserViewBounds(session);
+    session.browserViewBoundsFrames = Math.max(0, (session.browserViewBoundsFrames || 1) - 1);
+    if (session.browserViewBoundsFrames > 0) {
+      session.browserViewBoundsFrame = requestAnimationFrame(run);
+    }
+  };
+  session.browserViewBoundsFrame = requestAnimationFrame(run);
+}
+
+function scheduleVisibleBrowserViewBoundsSync(frames = 1) {
+  for (const session of state.browserViews.values()) {
+    if (session.visible || session.active) scheduleBrowserViewBoundsSync(session, frames);
+  }
 }
 
 function lockBrowserViewZoom(view, options = {}) {
@@ -14451,6 +14506,7 @@ function updateBrowserPaneActivity(visiblePanelIds = new Set()) {
     if (active || (visible && !state.settings.browserSuspendInactive)) {
       loadDeferredBrowserSession(session);
     }
+    if (visible) scheduleBrowserViewBoundsSync(session, browserViewBoundsSyncFrames);
     const hasStalePausedStatus = session.statusText === browserPausedStatusText && !suspended;
     const isMissingPausedStatus = session.statusText !== browserPausedStatusText && suspended;
     if (
@@ -15528,6 +15584,7 @@ function ensureBrowser(panel, body) {
     if (session?.initialLoadFrame) cancelAnimationFrame(session.initialLoadFrame);
     const load = () => {
       if (!session || state.browserViews.get(panel.id) !== session || session.loadDeferred) return;
+      scheduleBrowserViewBoundsSync(session, browserViewBoundsSyncFrames);
       const targetUrl = normalizeUrl(address.value || initialBrowserUrl, state.settings.browserHomeUrl);
       browserLoadFailed = false;
       hideBrowserError();
@@ -15570,6 +15627,7 @@ function ensureBrowser(panel, body) {
     clearDeferredBrowserSession(session);
     const sourceUrl = browserViewSourceUrl(next, state.settings.browserHomeUrl);
     if (view.src !== sourceUrl) content.classList.remove("has-loaded");
+    scheduleBrowserViewBoundsSync(session, browserViewBoundsSyncFrames);
     view.src = sourceUrl;
     browserLoadFailed = false;
     hideBrowserError();
@@ -15669,13 +15727,17 @@ function ensureBrowser(panel, body) {
   });
   view.addEventListener("new-window", openPopupExternally);
   view.addEventListener("did-create-window", openPopupExternally);
-  view.addEventListener("did-attach", () => lockBrowserViewZoom(view, { force: true }));
+  view.addEventListener("did-attach", () => {
+    lockBrowserViewZoom(view, { force: true });
+    scheduleBrowserViewBoundsSync(session, browserViewBoundsSyncFrames);
+  });
   view.addEventListener("zoom-changed", (event) => {
     event.preventDefault?.();
     lockBrowserViewZoom(view, { force: true });
   });
   view.addEventListener("dom-ready", () => {
     webviewReady = true;
+    scheduleBrowserViewBoundsSync(session, browserViewBoundsSyncFrames);
     if (!browserLoadFailed) {
       markBrowserContentLoaded();
       hideBrowserError();
@@ -15703,12 +15765,14 @@ function ensureBrowser(panel, body) {
   });
   view.addEventListener("did-stop-loading", () => {
     if (!browserLoadFailed) markBrowserContentLoaded();
+    scheduleBrowserViewBoundsSync(session, 1);
     setLoading(false);
     setStatus("");
     updateNavState();
   });
   view.addEventListener("did-finish-load", () => {
     markBrowserContentLoaded();
+    scheduleBrowserViewBoundsSync(session, 1);
     scheduleEmbeddedGoogleHomePolish(view, address.value || view.src);
     if (!browserLoadFailed) hideBrowserError();
     setLoading(false);
@@ -15736,6 +15800,7 @@ function ensureBrowser(panel, body) {
   });
   view.addEventListener("load", () => {
     markBrowserContentLoaded();
+    scheduleBrowserViewBoundsSync(session, 1);
     if (!browserLoadFailed) hideBrowserError();
     setLoading(false);
     setStatus("");
@@ -15782,6 +15847,13 @@ function ensureBrowser(panel, body) {
     initialLoadFrame: 0,
     suspendStopTimer: 0
   };
+  if (typeof ResizeObserver === "function") {
+    session.browserViewResizeObserver = new ResizeObserver(() => {
+      scheduleBrowserViewBoundsSync(session, browserViewBoundsSyncFrames);
+    });
+    session.browserViewResizeObserver.observe(content);
+    session.browserViewResizeObserver.observe(shell);
+  }
   session.detachTabWheelScroll = attachHorizontalWheelScroll(tabList);
   tabList.addEventListener("scroll", () => scheduleBrowserTabScrollStateRefresh(session), { passive: true });
   if (typeof ResizeObserver === "function") {
@@ -15794,6 +15866,7 @@ function ensureBrowser(panel, body) {
     session.tabResizeObserver.observe(shell);
   }
   state.browserViews.set(panel.id, session);
+  scheduleBrowserViewBoundsSync(session, browserViewBoundsSyncFrames);
   renderBrowserTabs(session);
   const activeUrl = activeBrowserTab(session)?.url;
   if (activeUrl && activeUrl !== panel.url) queueBrowserUrlSync(panel.id, activeUrl);
@@ -45194,15 +45267,20 @@ window.addEventListener("keydown", (event) => {
 }, true);
 
 window.addEventListener("wheel", handleWindowWheelZoom, { passive: false, capture: true });
+window.addEventListener("resize", () => scheduleVisibleBrowserViewBoundsSync(browserViewBoundsSyncFrames), { passive: true });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     flushTerminalFontSizeSync({ keepalive: true });
     flushBrowserUrlSync({ keepalive: true });
   } else {
     scheduleDeferredTerminalFitFlush();
+    scheduleVisibleBrowserViewBoundsSync(browserViewBoundsSyncFrames);
   }
 });
-window.addEventListener("focus", scheduleDeferredTerminalFitFlush);
+window.addEventListener("focus", () => {
+  scheduleDeferredTerminalFitFlush();
+  scheduleVisibleBrowserViewBoundsSync(browserViewBoundsSyncFrames);
+});
 window.addEventListener("pagehide", () => {
   flushTerminalFontSizeSync({ keepalive: true });
   flushBrowserUrlSync({ keepalive: true });
