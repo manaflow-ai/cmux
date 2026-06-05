@@ -1,10 +1,10 @@
 import Foundation
 
+private let browserFaviconStoreDefaultMaxIconCacheEntries = 512
+private let browserFaviconStoreDefaultMaxOriginCacheEntries = 1_024
+
 actor BrowserFaviconStore {
     typealias Fetch = @Sendable () async -> Data?
-
-    private static let defaultMaxIconCacheEntries = 512
-    private static let defaultMaxOriginCacheEntries = 1_024
 
     private struct InFlightResolution {
         let id: UUID
@@ -20,8 +20,8 @@ actor BrowserFaviconStore {
     private var inFlightByIconCacheKey: [String: InFlightResolution] = [:]
 
     init(
-        maxIconCacheEntries: Int = Self.defaultMaxIconCacheEntries,
-        maxOriginCacheEntries: Int = Self.defaultMaxOriginCacheEntries
+        maxIconCacheEntries: Int = browserFaviconStoreDefaultMaxIconCacheEntries,
+        maxOriginCacheEntries: Int = browserFaviconStoreDefaultMaxOriginCacheEntries
     ) {
         self.maxIconCacheEntries = max(1, maxIconCacheEntries)
         self.maxOriginCacheEntries = max(1, maxOriginCacheEntries)
