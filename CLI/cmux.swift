@@ -601,6 +601,14 @@ private final class ClaudeHookSessionStore {
                 var turnStack = activePromptTurnStack(from: record)
                 let legacyDepth = max(0, record.activePromptDepth ?? 0)
                 if turnStack.isEmpty, legacyDepth > 0 {
+                    if let previousTurnId = normalizeOptional(record.lastPromptTurnId),
+                       previousTurnId != normalizedTurnId {
+                        turnStack = [previousTurnId, normalizedTurnId]
+                        setActivePromptTurnStack(turnStack, totalDepth: legacyDepth + 1, on: &record)
+                        record.lastPromptTurnId = normalizedTurnId
+                        state.sessions[normalized] = record
+                        return true
+                    }
                     record.activePromptDepth = legacyDepth + 1
                     record.activePromptTurnId = nil
                     record.activePromptTurnIds = nil
