@@ -600,6 +600,16 @@ private final class ClaudeHookSessionStore {
                 markPromptTurnActive(normalizedTurnId, on: &record)
                 var turnStack = activePromptTurnStack(from: record)
                 let legacyDepth = max(0, record.activePromptDepth ?? 0)
+                if turnStack.isEmpty,
+                   let previousTurnId = normalizeOptional(record.lastPromptTurnId),
+                   previousTurnId != normalizedTurnId,
+                   !terminalPromptTurnSet(from: record).contains(previousTurnId) {
+                    turnStack = [previousTurnId, normalizedTurnId]
+                    setActivePromptTurnStack(turnStack, totalDepth: max(2, legacyDepth + 1), on: &record)
+                    record.lastPromptTurnId = normalizedTurnId
+                    state.sessions[normalized] = record
+                    return true
+                }
                 if turnStack.isEmpty, legacyDepth > 0 {
                     if let previousTurnId = normalizeOptional(record.lastPromptTurnId),
                        previousTurnId != normalizedTurnId {
