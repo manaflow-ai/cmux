@@ -709,7 +709,7 @@ final class MobileHostService {
         guard let trimmed,
               !trimmed.isEmpty,
               trimmed.count <= maximumViewportClientIDLength,
-              trimmed.unicodeScalars.allSatisfy({ !$0.properties.isControl }) else {
+              trimmed.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) else {
             return nil
         }
         return trimmed

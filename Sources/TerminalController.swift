@@ -21509,7 +21509,7 @@ class TerminalController {
         let clientID = rawClientID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clientID.isEmpty,
               clientID.count <= mobileViewportClientIDMaxLength,
-              clientID.unicodeScalars.allSatisfy({ !$0.properties.isControl }) else {
+              clientID.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) else {
             return nil
         }
         return clientID
