@@ -108,20 +108,12 @@ public actor SecretFileStore {
     /// The first element is the current value; subsequent elements arrive when
     /// ``didChangeNotification`` fires for this key. Buffering is
     /// `.bufferingNewest(1)`. Cancelling the consuming `Task` removes the
-    /// observer token and ends the stream.
+    /// observer token, cancels the bounded drain task, and ends the stream.
     public nonisolated func values(for key: SecretFileKey) -> AsyncStream<String> {
         AsyncStream<String>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let state = SettingObservationState<String>()
-            let initialTask = Task { [weak self] in
-                guard let self else {
-                    continuation.finish()
-                    return
-                }
-                await state.refresh(
-                    read: { (try? await self.value(for: key)) ?? key.defaultValue },
-                    to: continuation
-                )
-            }
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
 
             let observer = NotificationObserverToken(
                 NotificationCenter.default.addObserver(
@@ -133,20 +125,33 @@ public actor SecretFileStore {
                        changedID != key.id {
                         return
                     }
-                    Task { [weak self] in
-                        guard let self else {
-                            continuation.finish()
-                            return
-                        }
-                        await state.refresh(
-                            read: { (try? await self.value(for: key)) ?? key.defaultValue },
-                            to: continuation
-                        )
-                    }
+                    guard self != nil else { return }
+                    signalContinuation.yield(())
                 }
             )
+
+            let drainTask = Task { [weak self] in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+                var lastYielded = (try? await self.value(for: key)) ?? key.defaultValue
+                continuation.yield(lastYielded)
+
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    let current = (try? await self.value(for: key)) ?? key.defaultValue
+                    if current != lastYielded {
+                        lastYielded = current
+                        continuation.yield(current)
+                    }
+                }
+                continuation.finish()
+            }
+
             continuation.onTermination = { _ in
-                initialTask.cancel()
+                drainTask.cancel()
+                signalContinuation.finish()
                 observer.remove()
             }
         }
