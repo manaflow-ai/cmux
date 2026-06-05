@@ -450,6 +450,49 @@ final class OmnibarStateMachineTests: XCTestCase {
         )
     }
 
+    // State 1 (issue #5459): the single click that moves first responder into the
+    // omnibar selects the whole URL so the next keystroke replaces it (Chrome parity).
+    func testFocusGainingClickSelectsAll() throws {
+        XCTAssertTrue(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: true,
+                isShiftClick: false,
+                didDrag: false
+            )
+        )
+    }
+
+    // State 2 (issue #5268 must not regress): a click while the omnibar is already
+    // first responder keeps the caret placed at the click point — no select-all.
+    func testAlreadyFocusedClickPlacesCaret() throws {
+        XCTAssertFalse(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: false,
+                isShiftClick: false,
+                didDrag: false
+            )
+        )
+    }
+
+    // A Shift-click or a drag expresses an explicit range, so the focus-gaining
+    // select-all defers to it even on the click that gains focus.
+    func testFocusGainingClickDefersToExplicitSelection() throws {
+        XCTAssertFalse(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: true,
+                isShiftClick: true,
+                didDrag: false
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: true,
+                isShiftClick: false,
+                didDrag: true
+            )
+        )
+    }
+
     func testEscapeRevertsWhenEditingThenBlursOnSecondEscape() throws {
         var state = OmnibarState()
 
