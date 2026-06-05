@@ -16393,15 +16393,19 @@ function renderSettingsInspector(options = {}) {
     const cycleTuningAction = settingsActionButton("Cycle speed", cyclePerformanceTuningPreset, "", `performance speed lag tuning preset cycle next balanced lag fix terminal heavy browser heavy ${tuningCycle.search}`);
     cycleTuningAction.disabled = tuningCycle.disabled;
     cycleTuningAction.title = tuningCycle.title;
+    const saveCleanFast = applySettingsProfileSaveLimit(
+      settingsActionButton("Save clean + fast", applyAndSaveCleanFastProfile, "primary", "performance clean fast simple speed preset save settings profile reusable"),
+      "Apply Clean + Fast and save it as a reusable profile."
+    );
+    saveCleanFast.dataset.performanceAction = "save-clean-fast";
+    const saveCurrentSpeed = applySettingsProfileSaveLimit(
+      settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
+      "Save current performance settings as a reusable profile."
+    );
+    saveCurrentSpeed.dataset.performanceAction = "save-current-speed";
     performanceActions.append(
-      applySettingsProfileSaveLimit(
-        settingsActionButton("Save clean + fast", applyAndSaveCleanFastProfile, "primary", "performance clean fast simple speed preset save settings profile reusable"),
-        "Apply Clean + Fast and save it as a reusable profile."
-      ),
-      applySettingsProfileSaveLimit(
-        settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
-        "Save current performance settings as a reusable profile."
-      ),
+      saveCleanFast,
+      saveCurrentSpeed,
       cycleTuningAction,
       settingsActionButton("Copy setup", copyPerformanceSetup, "", "performance setup copy speed lag motion speed snappy balanced calm workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface split dividers resize grip line minimal active pane emphasis spacing gap gutter padding background opacity effects chrome readable soft immersive terminal startup inactive browser suspend pane chrome compact content full controls tabs address clipboard json"),
       settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion speed snappy balanced calm workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface split dividers resize grip line minimal active pane emphasis spacing gap gutter padding background opacity effects chrome readable soft immersive terminal startup inactive browser suspend pane chrome compact content full controls tabs address clipboard json"),
@@ -25084,6 +25088,30 @@ function refreshPerformanceTuningPresetGrid(root = elements.inspectorBody) {
   return changed;
 }
 
+function refreshPerformanceProfileSaveControls() {
+  const saveCleanFast = elements.inspectorBody.querySelector('[data-performance-action="save-clean-fast"]');
+  if (saveCleanFast) {
+    applySettingsProfileSaveLimit(saveCleanFast, "Apply Clean + Fast and save it as a reusable profile.");
+    setSettingsSearchIfChanged(saveCleanFast, `performance clean fast simple speed preset save settings profile reusable ${savedSettingsProfileCountLabel()} ${savedSettingsProfilesFull() ? "limit full unavailable " : "ready "}`);
+  }
+  const saveCurrentSpeed = elements.inspectorBody.querySelector('[data-performance-action="save-current-speed"]');
+  if (saveCurrentSpeed) {
+    applySettingsProfileSaveLimit(saveCurrentSpeed, "Save current performance settings as a reusable profile.");
+    setSettingsSearchIfChanged(saveCurrentSpeed, `performance save current speed lag settings profile reusable ${savedSettingsProfileCountLabel()} ${savedSettingsProfilesFull() ? "limit full unavailable " : "ready "}`);
+  }
+  refreshPerformanceTuningPresetGrid();
+  if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function refreshPerformanceProfileSaveSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "performance") {
+    refreshPerformanceProfileSaveControls();
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 function applyPerformanceTuningPreset(presetId, options = {}) {
   const preset = performanceTuningPresetById(presetId);
   const settings = performanceTuningPresetSettings(preset);
@@ -25127,7 +25155,7 @@ function cyclePerformanceTuningPreset(options = {}) {
   return applyPerformanceTuningPreset(model.preset.id, options);
 }
 
-function savePerformanceTuningPresetProfile(presetId) {
+function savePerformanceTuningPresetProfile(presetId, options = {}) {
   const preset = performanceTuningPresetById(presetId);
   if (!preset) {
     toast("Performance tuning preset not found.");
@@ -25149,7 +25177,7 @@ function savePerformanceTuningPresetProfile(presetId) {
     createdAt: Date.now()
   });
   if (!saved) return null;
-  renderSettingsInspector();
+  refreshPerformanceProfileSaveSettings(options);
   toast(`${saved.label} profile saved.`);
   return saved;
 }
@@ -35018,13 +35046,16 @@ function copyBrowserHomePresetProfile(presetId) {
   }, `${preset.label} browser profile copied.`);
 }
 
-function saveCurrentPerformanceProfile(options = {}) {
-  return saveCurrentSettingsProfile({
+async function saveCurrentPerformanceProfile(options = {}) {
+  const saved = await saveCurrentSettingsProfile({
     title: "Save performance profile",
     message: "Save the current speed, rendering, terminal output, browser pane chrome, and supporting app settings.",
     baseName: "Performance profile",
-    ...options
+    ...options,
+    render: false
   });
+  if (saved) refreshPerformanceProfileSaveSettings(options);
+  return saved;
 }
 
 function saveSettingsPresetProfile(presetId) {
