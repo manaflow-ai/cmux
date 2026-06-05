@@ -43712,7 +43712,7 @@ async function runTerminalCommand(command, panel = activePanel(), options = {}) 
     return false;
   }
   rememberRecentCommand(normalized);
-  if (options.renderSettings) renderSettingsInspector();
+  if (options.renderSettings) refreshRecentCommandSettings();
   focusPanel(terminalPanel.id);
   focusTerminalSession(terminalPanel.id);
   return true;
