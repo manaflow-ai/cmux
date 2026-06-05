@@ -14650,7 +14650,7 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return nil }
 
-        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let requestedWorkingDirectory: String? = {
             if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !workingDirectory.isEmpty {
