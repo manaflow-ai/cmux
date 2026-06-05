@@ -7574,6 +7574,7 @@ const commands = [
   { id: "settings.saveWorkspaceColor", label: "Save Current Workspace Color", shortcut: "", run: () => saveCurrentColorToPalette("workspace") },
   { id: "settings.savePaneColor", label: "Save Active Pane Color", shortcut: "", run: () => saveCurrentColorToPalette("pane") },
   { id: "settings.saveAllPaneColors", label: "Save All Pane Color", shortcut: "", run: () => saveCurrentColorToPalette("all") },
+  { id: "settings.saveColorProfile", label: "Save Color Profile", shortcut: "", run: () => saveCurrentColorProfile() },
   { id: "settings.saveCurrentColorSet", label: "Save Current Color Set", shortcut: "", run: () => saveCurrentColorSetToPalette() },
   { id: "settings.backgrounds", label: "Open Background Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "background", focusSearch: true }) },
   { id: "settings.saveBackground", label: "Save Current Background", shortcut: "", run: () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }) },
@@ -7693,6 +7694,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.saveWorkspaceColor",
   "settings.savePaneColor",
   "settings.saveAllPaneColors",
+  "settings.saveColorProfile",
   "settings.saveCurrentColorSet",
   "settings.saveBackgroundProfile",
   "settings.saveBackground",
@@ -7775,6 +7777,19 @@ function customizationCommandPaletteSignature() {
 }
 
 function customizationColorCommandPaletteState(commandId) {
+  if (commandId === "settings.saveColorProfile") {
+    const profilesFull = savedSettingsProfilesFull();
+    const profileCount = savedSettingsProfileCountLabel();
+    const targetOption = colorApplyTargetOption(state.colorApplyTarget);
+    return {
+      meta: `${targetOption.label}: ${targetOption.status} / ${profileCount}`,
+      shortcut: "Save",
+      disabled: profilesFull,
+      icon: "profiles",
+      title: profilesFull ? settingsProfileLimitTitle() : "Save the current accent, workspace, pane, and terminal colors as a reusable Settings profile.",
+      search: normalizeSettingsQuery(`saved color palette save profile reusable settings accent workspace pane terminal current target ${profilesFull ? "limit full " : ""}${targetOption.label} ${targetOption.status} ${targetOption.meta} ${profileCount}`)
+    };
+  }
   if (commandId === "settings.saveCurrentColorSet") {
     const model = currentColorSetSaveModel();
     return {
@@ -25011,6 +25026,7 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
   const paneSave = currentColorSaveModel("pane", workspace);
   const colorSetSave = currentColorSetSaveModel(workspace);
   const hasSavedColors = state.customColorPalette.length > 0;
+  const profilesFull = savedSettingsProfilesFull();
   const targetLabel = targetOption.label.toLowerCase();
   const targetHasMultipleColors = targetOption.id === "all" && /\d+\s+colors/.test(targetOption.status);
   const copyTargetDisabled = targetOption.disabled || targetHasMultipleColors || !canCopyColorValue(targetOption.color, defaultSettings.accent);
@@ -25054,6 +25070,11 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
       title: variantTargetTitle,
       search: `quick setup color save variants generated current target ${targetOption.label} ${targetOption.status} ${targetOption.meta} ${targetVariantModel.search}`
     }),
+    quickOverviewControlButton("Save profile", saveCurrentColorProfile, {
+      disabled: profilesFull,
+      title: profilesFull ? settingsProfileLimitTitle() : "Save the current accent, workspace, pane, and terminal colors as a reusable Settings profile.",
+      search: "quick setup color save profile reusable settings accent workspace pane terminal palette"
+    }),
     quickOverviewControlButton("Copy target", () => copyColorValue(targetOption.color, defaultSettings.accent, `${targetOption.label} color copied.`), {
       disabled: copyTargetDisabled,
       title: copyTargetTitle,
@@ -25096,7 +25117,7 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
     className: "quick-overview-colors",
     title: "Color controls",
     meta: `${targetOption.label}: ${targetOption.status} / ${state.customColorPalette.length}/${customColorPaletteLimit} saved`,
-    search: `quick setup color controls accent workspace pane all everywhere saved palette copy paste reset target ${targetOption.label} ${targetOption.status} ${targetOption.meta} ${everywhereModel.search}`,
+    search: `quick setup color controls accent workspace pane all everywhere saved palette profile copy paste reset target ${targetOption.label} ${targetOption.status} ${targetOption.meta} ${everywhereModel.search}`,
     actions
   });
 }
@@ -26608,7 +26629,7 @@ function savedColorsDisclosurePanel() {
   return settingsDisclosurePanel({
     className: "appearance-saved-colors-disclosure",
     content: "appearance-saved-colors",
-    searchTerms: "appearance saved color palette custom accent workspace tab pane color",
+    searchTerms: "appearance saved color palette custom accent workspace tab pane color profile",
     title: t("appearance.savedColors"),
     body: t("appearance.savedColors.body"),
     meta: formatMessage("appearance.savedColorCount", {
@@ -28791,7 +28812,7 @@ function savedColorPalettePanel() {
   const targetLabel = colorApplyTargetActionLabel(colorTarget, workspace);
   const savedCountLabel = `${state.customColorPalette.length}/${customColorPaletteLimit} saved colors`;
   const paletteFull = customColorPaletteFull();
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette custom accent workspace tab pane all color apply save copy paste delete ${targetOption.disabled ? "unavailable " : "ready "}${targetLabel} ${targetOption.status} ${savedCountLabel}`);
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette custom accent workspace tab pane all color apply save profile copy paste delete ${targetOption.disabled ? "unavailable " : "ready "}${targetLabel} ${targetOption.status} ${savedCountLabel}`);
 
   const addRow = document.createElement("div");
   addRow.className = "saved-color-add";
@@ -28826,7 +28847,7 @@ function savedColorPalettePanel() {
 
   const actions = document.createElement("div");
   actions.className = "settings-actions saved-color-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette copy paste clipboard apply save current accent workspace reusable colors json ${targetLabel} ${targetOption.status} ${savedCountLabel}`);
+  actions.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette copy paste clipboard apply save profile current accent workspace reusable colors json ${targetLabel} ${targetOption.status} ${savedCountLabel}`);
   const copyPalette = settingsActionButton("Copy palette", copySavedColorPalette, "", `saved color palette copy reusable colors clipboard json ${savedCountLabel}`);
   copyPalette.disabled = state.customColorPalette.length === 0;
   copyPalette.title = copyPalette.disabled ? "Save a color before copying the palette." : "Copy the saved color palette as JSON.";
@@ -28876,6 +28897,10 @@ function savedColorPalettePanel() {
   const saveColorSet = settingsActionButton("Save current set", () => saveCurrentColorSetToPalette(workspace), "", `saved color save current set accent workspace pane terminal reusable palette ${colorSetModel.search}`);
   saveColorSet.disabled = colorSetModel.disabled;
   saveColorSet.title = colorSetModel.title;
+  const saveColorProfile = applySettingsProfileSaveLimit(
+    settingsActionButton("Save profile", saveCurrentColorProfile, "", "saved color palette save settings profile reusable accent workspace pane terminal"),
+    "Save the current accent, workspace, pane, and terminal colors as a reusable Settings profile."
+  );
   const saveVariants = settingsActionButton("Save variants", () => saveColorVariantsToPalette(colorInput.value), "", "saved color save variants generated palette");
   const refreshSaveVariantsState = () => {
     const model = colorVariantSaveModel(colorInput.value);
@@ -28904,7 +28929,7 @@ function savedColorPalettePanel() {
     : clearPanes.disabled
       ? "Pane colors are already default."
       : "Clear pane colors in the active workspace.";
-  actions.append(copyPalette, pastePalette, copyTarget, pasteColor, applyEverywhere, resetTarget, saveAccent, saveWorkspace, savePane, saveColorSet, saveVariants, clearWorkspace, clearPanes);
+  actions.append(copyPalette, pastePalette, copyTarget, pasteColor, applyEverywhere, resetTarget, saveAccent, saveWorkspace, savePane, saveColorSet, saveColorProfile, saveVariants, clearWorkspace, clearPanes);
   panel.append(actions);
 
   if (state.customColorPalette.length === 0) {
@@ -32173,6 +32198,14 @@ function saveCurrentBackgroundProfile() {
     title: "Save background profile",
     message: "Save the current app background image and tuning together with the current look, layout, terminal, browser, and performance settings.",
     baseName: "Background profile"
+  });
+}
+
+function saveCurrentColorProfile() {
+  return saveCurrentSettingsProfile({
+    title: "Save color profile",
+    message: "Save the current accent, workspace, pane, and terminal colors together with the current layout, browser, and performance settings.",
+    baseName: "Color profile"
   });
 }
 
