@@ -3199,7 +3199,7 @@ function settingsProfileFromPayload(payload) {
   });
 }
 
-async function pasteSettingsProfile() {
+async function pasteSettingsProfile(options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
@@ -3214,7 +3214,7 @@ async function pasteSettingsProfile() {
     }
     const saved = upsertSavedSettingsProfile(profile);
     if (!saved) return null;
-    renderSettingsInspector();
+    refreshSettingsProfileSettings(options);
     toast(`${saved.label} profile saved.`);
     return saved;
   } catch {
@@ -25321,6 +25321,19 @@ function saveQuickSetupProfile(options = {}) {
   });
 }
 
+async function saveCurrentSettingsProfileFromProfiles(options = {}) {
+  const setup = activeSettingsSetupModel();
+  const saved = await saveCurrentSettingsProfile({
+    title: "Save current setup",
+    message: "Save the current colors, layout, terminal, browser, and performance settings as a reusable profile.",
+    baseName: setup.baseName,
+    ...options,
+    render: false
+  });
+  if (saved) refreshSettingsProfileSettings(options);
+  return saved;
+}
+
 async function applyAndSaveCleanFastProfile() {
   if (savedSettingsProfilesFull()) {
     toast(settingsProfileLimitTitle());
@@ -34722,7 +34735,7 @@ function settingsProfilesPanel() {
   header.className = "recent-folder-header";
   const title = document.createElement("span");
   title.textContent = "Saved profiles";
-  const save = settingsActionButton("Save", saveCurrentSettingsProfile, "", `save current settings profile preset reusable ${profilesFull ? "limit full " : ""}${setup.kind} ${setup.label} ${currentSummary}`);
+  const save = settingsActionButton("Save", saveCurrentSettingsProfileFromProfiles, "", `save current settings profile preset reusable ${profilesFull ? "limit full " : ""}${setup.kind} ${setup.label} ${currentSummary}`);
   applySettingsProfileSaveLimit(save, "Save the current colors, layout, terminal, browser, and performance settings as a reusable profile.");
   const copyCurrent = settingsActionButton("Copy", copyCurrentSettingsProfile, "", `copy current settings profile setup preset clipboard json ${setup.kind} ${setup.label} ${currentSummary}`);
   copyCurrent.title = "Copy the current setup as a Settings profile JSON.";
@@ -34750,6 +34763,41 @@ function settingsProfilesPanel() {
   builtInTitle.textContent = "Built-in profiles";
   wrapper.append(builtInTitle, settingsPresetGrid());
   return wrapper;
+}
+
+function refreshSettingsProfileDisclosureSummaries() {
+  for (const disclosure of elements.inspectorBody.querySelectorAll(".settings-profiles-disclosure")) {
+    const meta = disclosure.querySelector(".settings-disclosure-meta");
+    if (meta) {
+      setTextIfChanged(meta, formatMessage("profiles.savedProfileCount", {
+        count: state.savedSettingsProfiles.length,
+        limit: savedSettingsProfilesLimit
+      }));
+    }
+  }
+}
+
+function refreshSettingsProfilePanels() {
+  let changed = false;
+  for (const panel of elements.inspectorBody.querySelectorAll(".settings-profile-list")) {
+    panel.replaceWith(settingsProfilesPanel());
+    changed = true;
+  }
+  refreshSettingsProfileDisclosureSummaries();
+  return changed;
+}
+
+function refreshSettingsProfileSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "profiles" && !normalizeSettingsQuery(state.settingsQuery)) {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode === "settings" && state.settingsCategory === "profiles" && !normalizeSettingsQuery(state.settingsQuery)) {
+        refreshSettingsProfilePanels();
+      }
+    });
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
 }
 
 function settingsProfileCurrentSetupPanel() {
@@ -35101,7 +35149,7 @@ async function saveCurrentPerformanceProfile(options = {}) {
   return saved;
 }
 
-function saveSettingsPresetProfile(presetId) {
+function saveSettingsPresetProfile(presetId, options = {}) {
   const preset = settingsPresetById(presetId);
   if (!preset) {
     toast("Settings preset not found.");
@@ -35123,7 +35171,7 @@ function saveSettingsPresetProfile(presetId) {
     createdAt: Date.now()
   });
   if (!saved) return null;
-  renderSettingsInspector();
+  refreshSettingsProfileSettings(options);
   toast(`${saved.label} profile saved.`);
   return saved;
 }
@@ -35150,7 +35198,7 @@ function applySavedSettingsProfile(profileId, options = {}) {
     toast(`${profile.label} profile already active.`);
     return false;
   }
-  if (options.render !== false) renderSettingsInspector();
+  refreshSettingsProfileSettings(options);
   toast(`${profile.label} profile applied.`);
   return true;
 }
@@ -35169,7 +35217,7 @@ async function updateSavedSettingsProfile(profileId) {
     createdAt: profile.createdAt
   });
   if (!updated) return;
-  renderSettingsInspector();
+  refreshSettingsProfileSettings();
   toast(`${profile.label} profile updated.`);
 }
 
@@ -35189,7 +35237,7 @@ async function renameSavedSettingsProfile(profileId) {
     createdAt: profile.createdAt
   });
   if (!renamed) return;
-  renderSettingsInspector();
+  refreshSettingsProfileSettings();
   toast("Settings profile renamed.");
 }
 
@@ -35204,7 +35252,7 @@ async function deleteSavedSettingsProfile(profileId) {
   })) return;
   state.savedSettingsProfiles = state.savedSettingsProfiles.filter((candidate) => candidate.id !== profileId);
   saveSavedSettingsProfiles();
-  renderSettingsInspector();
+  refreshSettingsProfileSettings();
   toast("Settings profile deleted.");
 }
 
