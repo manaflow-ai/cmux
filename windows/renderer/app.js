@@ -28535,6 +28535,17 @@ async function runQuickActionButton(button, action, options = {}) {
 function quickSetupActionDefinitions() {
   return [
     {
+      id: "new-workspace",
+      icon: "workspace",
+      label: "New workspace",
+      body: "Create a workspace before adding terminals or browsers.",
+      meta: workspaceCountLabel,
+      cta: "New",
+      search: "new workspace create empty setup terminal browser panes quick setup",
+      title: () => "Create an empty workspace, then add terminal or browser panes.",
+      run: () => refreshQuickSettingsAfterAction(createWorkspace())
+    },
+    {
       id: "new-terminal",
       icon: "terminalPlus",
       label: "New terminal",
@@ -28785,7 +28796,8 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
   const ids = [];
 
-  if (!workspace || terminalCount === 0) ids.push("new-terminal");
+  if (!workspace) ids.push("new-workspace");
+  else if (terminalCount === 0) ids.push("new-terminal");
   if (workspace && browserCount === 0) ids.push("new-browser");
   if (!isSettingsPresetIdActive("simpleFast")) {
     ids.push(state.savedSettingsProfiles.length === 0 ? "save-clean-fast-profile" : "clean-fast");
@@ -28887,7 +28899,7 @@ function quickSetupActionGrid() {
   const actions = quickSetupActionDefinitions();
   const grid = document.createElement("div");
   grid.className = "quick-settings-shortcut-grid quick-action-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new terminal browser add pane clean ui speed tune focus mode background image wallpaper save accent color saved library pane shape resize split rows columns");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new workspace terminal browser add pane clean ui speed tune focus mode background image wallpaper save accent color saved library pane shape resize split rows columns");
   for (const action of actions) {
     const active = Boolean(action.active?.());
     const disabled = Boolean(action.disabled?.()) || (active && action.activeDisabled !== false);
