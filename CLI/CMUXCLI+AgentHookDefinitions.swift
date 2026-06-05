@@ -13,7 +13,7 @@ extension CMUXCLI {
         let configDirEnvOverride: String? // e.g. "CODEX_HOME" overrides configDir
         let configDirEnvOverrideSubpath: String? // e.g. "GROK_HOME" + "hooks"
         let createConfigDirIfMissing: Bool // for agents whose hook dir is created lazily
-        let configDirResolver: (() -> String)?
+        let configDirResolver: (@Sendable () -> String)?
         let sessionStoreSuffix: String // e.g. "cursor" -> ~/.cmuxterm/cursor-hook-sessions.json
         let disableEnvVar: String   // e.g. "CMUX_CURSOR_HOOKS_DISABLED"
         let hookMarker: String      // Marker in commands: "cmux hooks cursor"
@@ -102,7 +102,7 @@ extension CMUXCLI {
              configDir: String, configFile: String, configDirEnvOverride: String? = nil,
              configDirEnvOverrideSubpath: String? = nil,
              createConfigDirIfMissing: Bool = false,
-             configDirResolver: (() -> String)? = nil,
+             configDirResolver: (@Sendable () -> String)? = nil,
              binaryName: String? = nil,
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],

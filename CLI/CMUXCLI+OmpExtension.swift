@@ -208,10 +208,9 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
             throw CLIError(message: String.localizedStringWithFormat(
                 String(
                     localized: "cli.hooks.omp.error.readFailed",
-                    defaultValue: "Failed to read %@: %@"
+                    defaultValue: "Failed to read %@"
                 ),
-                url.path,
-                String(describing: error)
+                url.path
             ))
         }
     }

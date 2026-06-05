@@ -439,9 +439,10 @@ if (elapsed > 800) throw new Error(`handlers blocked for ${elapsed}ms`);
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = wait_for_text(fake_args_log, 3)
-        stdin_log = wait_for_text(fake_stdin_log, 3)
-        env_log = wait_for_text(fake_env_log, 12)
+        expected_invocations = 3
+        args_log = wait_for_text(fake_args_log, expected_invocations)
+        stdin_log = wait_for_text(fake_stdin_log, expected_invocations * 2)
+        env_log = wait_for_text(fake_env_log, expected_invocations * 4)
         for expected in [
             "hooks omp session-start",
             "hooks omp prompt-submit",
