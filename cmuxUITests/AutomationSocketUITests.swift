@@ -112,15 +112,17 @@ final class AutomationSocketUITests: XCTestCase {
             waitForSocketPong(timeout: 12.0),
             "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
         )
-        _ = try XCTUnwrap(
-            waitForSocketResult(method: "workspace.list", params: [:], timeout: 8.0),
-            "Expected workspace API to be ready before creating textbox fixture workspace"
+        let window = try XCTUnwrap(
+            waitForSocketResult(method: "window.create", params: [:], timeout: 8.0),
+            "Expected window.create to succeed before creating textbox fixture workspace"
         )
+        let windowID = try XCTUnwrap(window["window_id"] as? String, "Expected created window id")
 
         let workspace = try XCTUnwrap(
             socketResult(
                 method: "workspace.create",
                 params: [
+                    "window_id": windowID,
                     "title": "Textbox mention XCUITest",
                     "working_directory": skillRoot.path,
                     "focus": true,
