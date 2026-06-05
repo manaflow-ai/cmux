@@ -2,7 +2,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
-const outDir = process.env.CMUX_DIFF_VIEWER_OUT_DIR ?? "../Resources/markdown-viewer/diff-viewer-app";
+const outDir = process.env.CMUX_WEBVIEWS_OUT_DIR ?? "../Resources/markdown-viewer/webviews-app";
 
 export default defineConfig({
   define: {

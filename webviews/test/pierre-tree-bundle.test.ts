@@ -21,14 +21,14 @@ describe("vendored Pierre tree bundle", () => {
 
       expect(tree.getItem("src/viewer-controller.ts")?.getPath()).toBe("src/viewer-controller.ts");
 
-      const nextPaths = ["README.md", "diff-viewer/src/App.tsx"];
+      const nextPaths = ["README.md", "webviews/src/App.tsx"];
       tree.resetPaths(nextPaths, {
         preparedInput: preparePresortedFileTreeInput(nextPaths),
       });
 
       expect(tree.getItem("src/App.tsx")).toBeNull();
       expect(tree.getItem("README.md")?.getPath()).toBe("README.md");
-      expect(tree.getItem("diff-viewer/src/App.tsx")?.getPath()).toBe("diff-viewer/src/App.tsx");
+      expect(tree.getItem("webviews/src/App.tsx")?.getPath()).toBe("webviews/src/App.tsx");
     } finally {
       tree.cleanUp();
     }
