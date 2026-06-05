@@ -18,6 +18,11 @@ final class FakeKeyValueStore: CMUXAuthKeyValueStore, @unchecked Sendable {
 actor FakeAuthClient: AuthClient {
     var access: String?
     var refresh: String?
+    /// Result of ``forceRefreshAccessToken()``. When `nil` (the default), the
+    /// fake returns the current ``access`` to preserve the original behavior;
+    /// set it explicitly to script a force-refresh outcome independent of the
+    /// normal access token.
+    var forceRefreshResult: String??
     var user: CMUXAuthUser?
     var throwOnCurrentUser: (any Error)?
     var nonce = "nonce-123"
@@ -37,11 +42,17 @@ actor FakeAuthClient: AuthClient {
         self.access = access
         self.refresh = refresh
     }
+    func setForceRefreshResult(_ result: String?) { forceRefreshResult = .some(result) }
     func setThrowOnCurrentUser(_ error: (any Error)?) { throwOnCurrentUser = error }
 
     func accessToken() async -> String? { access }
     func refreshToken() async -> String? { refresh }
-    func forceRefreshAccessToken() async -> String? { access }
+    func forceRefreshAccessToken() async -> String? {
+        if case let .some(scripted) = forceRefreshResult {
+            return scripted
+        }
+        return access
+    }
 
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
         if let throwOnCurrentUser { throw throwOnCurrentUser }

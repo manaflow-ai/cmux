@@ -51,6 +51,7 @@ public final class AuthCoordinator {
 
     private var pendingNonce: String?
     private var debugCredentials: CMUXAuthAutoLoginCredentials?
+    private var isRevalidatingSession = false
 
     /// Creates an auth coordinator.
     ///
@@ -91,6 +92,21 @@ public final class AuthCoordinator {
     /// composition root. Idempotent priming already ran in `init`.
     public func start() {
         Task { await checkExistingSession() }
+    }
+
+    /// Re-validate the persisted session against the live token store.
+    ///
+    /// Call this when the app returns to the foreground so a session that died
+    /// while backgrounded (the SDK definitively rejected the refresh token, or
+    /// the keychain was cleared) routes to the sign-in page on resume instead of
+    /// surfacing a stale signed-in shell that fails at connect time. Reuses the
+    /// same live-store probe as launch restore, which ends in
+    /// ``clearAuthState()`` when no usable token remains and otherwise preserves
+    /// the cached session on transient failures. Re-entrant calls (e.g. two
+    /// rapid foreground transitions) coalesce: a second call while one is in
+    /// flight returns immediately.
+    public func revalidateSession() async {
+        await checkExistingSession()
     }
 
     // MARK: - Priming
@@ -158,6 +174,12 @@ public final class AuthCoordinator {
 
     private func checkExistingSession() async {
         if launch.clearAuthRequested { return }
+        // Coalesce overlapping runs (rapid foreground transitions): a second
+        // call while one is in flight would race coordinator-state writes
+        // (one run clearing while another re-validates the same stale token).
+        if isRevalidatingSession { return }
+        isRevalidatingSession = true
+        defer { isRevalidatingSession = false }
 
         let cachedUser = loadCachedUser()
         let hasAccessToken = await client.accessToken() != nil
@@ -230,6 +252,26 @@ public final class AuthCoordinator {
             await clearPersistedStackSession()
             clearAuthState()
         } catch {
+            // Drive the clear-vs-preserve decision from LIVE session validity, not
+            // the error code alone. The SDK throws the same `UserNotSignedInError`
+            // ("USER_NOT_SIGNED_IN") for two opposite situations: a genuine
+            // definitive rejection (the refresh token was 400/401'd and the SDK
+            // deleted it from the store) and a transient `/users/me` failure (the
+            // SDK's getUser swallows network/server errors into the same "no user"
+            // path). The error code cannot tell them apart, so the mapper's
+            // code-based decision would preserve a session whose tokens are already
+            // gone — exactly the stale "signed in" shell that then fails at connect
+            // time with a confusing host-side message. The live token store is the
+            // ground truth: if no refresh token survives, the session is genuinely
+            // gone and the user must see the sign-in page.
+            if await client.refreshToken() == nil {
+                authLog.error(
+                    "Session validation failed and no refresh token survives; routing to login error=\(error.localizedDescription, privacy: .private)"
+                )
+                await clearPersistedStackSession()
+                clearAuthState()
+                return
+            }
             let action = errorMapper.cachedSessionValidationFailureAction(for: error)
             authLog.error(
                 "Session validation failed action=\(action.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
@@ -351,7 +393,21 @@ public final class AuthCoordinator {
 
     // MARK: - Tokens
 
-    /// The current access token, or throw ``AuthError/unauthorized`` if none.
+    /// The current access token.
+    ///
+    /// Classifies a missing token the same way ``forceRefreshAccessToken()``
+    /// does, so the connection layer can tell a recoverable session from a dead
+    /// one: when the SDK could not hand back an access token but a refresh token
+    /// is still stored, the failure was transient (network/server) and this
+    /// throws ``AuthError/networkError`` so the caller retries without signing
+    /// out. When neither token survives, the session is genuinely gone, so this
+    /// calls ``clearAuthState()`` (flipping ``isAuthenticated`` to `false`, which
+    /// routes the root scene to the sign-in page) and throws
+    /// ``AuthError/unauthorized``.
+    /// - Returns: A current access token.
+    /// - Throws: ``AuthError/networkError`` on a transient failure with a
+    ///   surviving refresh token (retryable); ``AuthError/unauthorized`` once the
+    ///   session is definitively gone (also clears local auth state).
     public func accessToken() async throws -> String {
         if let token = await client.accessToken() {
             return token
@@ -371,6 +427,13 @@ public final class AuthCoordinator {
                 return token
             }
         }
+        // A surviving refresh token means the failure was transient
+        // (network/server), so stay retryable; a missing one means the SDK
+        // definitively cleared the session and the user must sign in again.
+        if await client.refreshToken() != nil {
+            throw AuthError.networkError
+        }
+        clearAuthState()
         throw AuthError.unauthorized
     }
 
@@ -389,7 +452,9 @@ public final class AuthCoordinator {
     ///   but the session is intact (a refresh token is still stored), so the
     ///   caller should retry rather than sign out; ``AuthError/unauthorized``
     ///   only when the session is genuinely gone (the refresh token was
-    ///   definitively rejected and cleared).
+    ///   definitively rejected and cleared). The definitive case also calls
+    ///   ``clearAuthState()`` so ``isAuthenticated`` flips to `false` and the
+    ///   root scene routes to the sign-in page instead of showing a stale shell.
     public func forceRefreshAccessToken() async throws -> String {
         if let token = await client.forceRefreshAccessToken() {
             return token
@@ -400,6 +465,7 @@ public final class AuthCoordinator {
         if await client.refreshToken() != nil {
             throw AuthError.networkError
         }
+        clearAuthState()
         throw AuthError.unauthorized
     }
 
