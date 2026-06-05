@@ -104,6 +104,9 @@ export const themeOptions = [
   ["orchid", label("theme.orchid", "Orchid")],
   ["ruby", label("theme.ruby", "Ruby")],
   ["ember", label("theme.ember", "Ember")],
+  ["lagoon", label("theme.lagoon", "Lagoon")],
+  ["plum", label("theme.plum", "Plum")],
+  ["copper", label("theme.copper", "Copper")],
   ["contrast", label("theme.contrast", "High Contrast")],
   ["paper", label("theme.paper", "Paper Dark")]
 ];
@@ -174,6 +177,30 @@ export const themePreviewOptions = [
     accent: "oklch(64% 0.17 28)"
   },
   {
+    id: "lagoon",
+    canvas: "oklch(12% 0.022 190)",
+    pane: "oklch(17% 0.022 190)",
+    rail: "oklch(15% 0.024 190)",
+    line: "oklch(34% 0.035 190)",
+    accent: "oklch(76% 0.13 185)"
+  },
+  {
+    id: "plum",
+    canvas: "oklch(12% 0.022 330)",
+    pane: "oklch(17% 0.022 330)",
+    rail: "oklch(15% 0.024 330)",
+    line: "oklch(34% 0.035 330)",
+    accent: "oklch(72% 0.17 335)"
+  },
+  {
+    id: "copper",
+    canvas: "oklch(13% 0.02 55)",
+    pane: "oklch(17% 0.021 55)",
+    rail: "oklch(16% 0.022 55)",
+    line: "oklch(35% 0.032 55)",
+    accent: "oklch(82% 0.13 55)"
+  },
+  {
     id: "contrast",
     canvas: "oklch(7% 0.004 255)",
     pane: "oklch(12% 0.006 255)",
@@ -216,7 +243,10 @@ export const accentOptions = [
   "oklch(74% 0.15 18)",
   "oklch(70% 0.17 8)",
   "oklch(72% 0.17 335)",
-  "oklch(70% 0.17 290)"
+  "oklch(70% 0.17 290)",
+  "oklch(78% 0.13 200)",
+  "oklch(76% 0.14 320)",
+  "oklch(80% 0.12 45)"
 ];
 
 export const accentIntensityOptions = [
@@ -274,6 +304,12 @@ export const backgroundPresets = [
     label: label("background.dotMatrix", "Dot matrix"),
     preview: "radial-gradient(circle at 1px 1px, color-mix(in oklch, var(--color-accent) 30%, transparent) 1.5px, transparent 2px), linear-gradient(135deg, color-mix(in oklch, var(--color-pane) 86%, var(--color-accent) 14%), var(--color-canvas))",
     css: "radial-gradient(circle at 1px 1px, color-mix(in oklch, var(--color-accent) 16%, transparent) 1px, transparent 1.5px), linear-gradient(135deg, color-mix(in oklch, var(--color-pane) 92%, var(--color-accent) 8%), var(--color-canvas))"
+  },
+  {
+    value: "preset:circuit-trace",
+    label: label("background.circuitTrace", "Circuit trace"),
+    preview: "linear-gradient(90deg, color-mix(in oklch, var(--color-accent) 24%, transparent) 1px, transparent 1px), linear-gradient(0deg, color-mix(in oklch, var(--color-line) 28%, transparent) 1px, transparent 1px), radial-gradient(circle at 68% 28%, color-mix(in oklch, var(--color-accent) 24%, transparent) 0 2px, transparent 3px), linear-gradient(135deg, var(--color-pane), var(--color-canvas))",
+    css: "linear-gradient(90deg, color-mix(in oklch, var(--color-accent) 12%, transparent) 1px, transparent 1px), linear-gradient(0deg, color-mix(in oklch, var(--color-line) 14%, transparent) 1px, transparent 1px), radial-gradient(circle at 68% 28%, color-mix(in oklch, var(--color-accent) 16%, transparent) 0 1.5px, transparent 2px), linear-gradient(135deg, var(--color-pane), var(--color-canvas))"
   }
 ];
 
@@ -745,6 +781,30 @@ export const terminalColorPresets = [
     background: "#1c1714",
     foreground: "#eadfce",
     cursor: "#f6bd60"
+  },
+  {
+    id: "lagoon",
+    label: label("terminalColor.lagoon", "Lagoon"),
+    body: label("terminalColor.lagoon.body", "Aqua text on a deep blue-green shell."),
+    background: "#071b1f",
+    foreground: "#c9f4ee",
+    cursor: "#66e2d2"
+  },
+  {
+    id: "plum",
+    label: label("terminalColor.plum", "Plum"),
+    body: label("terminalColor.plum.body", "Soft rose text with a violet cursor."),
+    background: "#1b101d",
+    foreground: "#f0d8ec",
+    cursor: "#d58cff"
+  },
+  {
+    id: "copper",
+    label: label("terminalColor.copper", "Copper"),
+    body: label("terminalColor.copper.body", "Warm amber text for late-night logs."),
+    background: "#1b130d",
+    foreground: "#f1dcc2",
+    cursor: "#f1a35c"
   },
   {
     id: "light",

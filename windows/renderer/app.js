@@ -1015,6 +1015,78 @@ const lookPackDefinitions = [
       terminalForeground: "#f4f7fb",
       terminalCursorColor: "#f6d36b"
     }
+  },
+  {
+    id: "lagoonConsole",
+    label: "Lagoon console",
+    body: "Aqua-tinted chrome, circuit background, and readable blue-green terminal colors.",
+    settings: {
+      theme: "lagoon",
+      accent: "oklch(76% 0.13 185)",
+      accentIntensity: "balanced",
+      surfaceTint: "cool",
+      interfaceDepth: "soft",
+      backgroundImage: "preset:circuit-trace",
+      backgroundOpacity: 16,
+      backgroundBlur: 0,
+      backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
+      backgroundPosition: "center",
+      backgroundEffects: "flat",
+      backgroundChromeMode: "soft",
+      backgroundReadability: "balanced",
+      terminalBackground: "#071b1f",
+      terminalForeground: "#c9f4ee",
+      terminalCursorColor: "#66e2d2"
+    }
+  },
+  {
+    id: "plumNight",
+    label: "Plum night",
+    body: "Quiet rose-violet workspace for long sessions without bright blue chrome.",
+    settings: {
+      theme: "plum",
+      accent: "oklch(72% 0.17 335)",
+      accentIntensity: "subtle",
+      surfaceTint: "neutral",
+      interfaceDepth: "flat",
+      backgroundImage: "preset:focus-weave",
+      backgroundOpacity: 12,
+      backgroundBlur: 0,
+      backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
+      backgroundPosition: "center",
+      backgroundEffects: "flat",
+      backgroundChromeMode: "readable",
+      backgroundReadability: "readable",
+      terminalBackground: "#1b101d",
+      terminalForeground: "#f0d8ec",
+      terminalCursorColor: "#d58cff"
+    }
+  },
+  {
+    id: "copperShell",
+    label: "Copper shell",
+    body: "Warm log-reading palette with flat chrome and an amber terminal cursor.",
+    settings: {
+      theme: "copper",
+      accent: "oklch(82% 0.13 55)",
+      accentIntensity: "balanced",
+      surfaceTint: "warm",
+      interfaceDepth: "flat",
+      backgroundImage: "",
+      backgroundOpacity: 0,
+      backgroundBlur: 0,
+      backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
+      backgroundPosition: "center",
+      backgroundEffects: "flat",
+      backgroundChromeMode: "readable",
+      backgroundReadability: "readable",
+      terminalBackground: "#1b130d",
+      terminalForeground: "#f1dcc2",
+      terminalCursorColor: "#f1a35c"
+    }
   }
 ];
 

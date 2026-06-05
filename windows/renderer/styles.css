@@ -179,6 +179,39 @@ body.theme-ember {
   --color-line: oklch(34% 0.035 35);
 }
 
+body.theme-lagoon {
+  --color-canvas: oklch(12% 0.022 190);
+  --color-chrome: oklch(17% 0.026 190);
+  --color-rail: oklch(15% 0.024 190);
+  --color-pane: oklch(17% 0.022 190);
+  --color-pane-warm: oklch(21% 0.028 190);
+  --color-pane-active: oklch(25% 0.034 190);
+  --color-line: oklch(34% 0.035 190);
+  --color-muted: oklch(74% 0.02 190);
+}
+
+body.theme-plum {
+  --color-canvas: oklch(12% 0.022 330);
+  --color-chrome: oklch(17% 0.027 330);
+  --color-rail: oklch(15% 0.024 330);
+  --color-pane: oklch(17% 0.022 330);
+  --color-pane-warm: oklch(21% 0.03 330);
+  --color-pane-active: oklch(25% 0.036 330);
+  --color-line: oklch(34% 0.035 330);
+  --color-muted: oklch(74% 0.018 330);
+}
+
+body.theme-copper {
+  --color-canvas: oklch(13% 0.02 55);
+  --color-chrome: oklch(18% 0.024 55);
+  --color-rail: oklch(16% 0.022 55);
+  --color-pane: oklch(17% 0.021 55);
+  --color-pane-warm: oklch(22% 0.026 55);
+  --color-pane-active: oklch(26% 0.032 55);
+  --color-line: oklch(35% 0.032 55);
+  --color-muted: oklch(75% 0.018 55);
+}
+
 body.theme-contrast {
   --color-canvas: oklch(7% 0.004 255);
   --color-chrome: oklch(12% 0.006 255);
