@@ -1883,6 +1883,28 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
   max-width: 112px;
 }
 
+.shell.toolbar-labels-auto .command-strip.is-crowded .tool-button:not(.add-tool) {
+  width: 32px;
+  min-width: 32px;
+  max-width: 32px;
+  padding: 0;
+  gap: 0;
+}
+
+.shell.toolbar-labels-auto .command-strip.is-crowded .tool-button.add-tool {
+  min-width: 96px;
+  padding-inline: 7px;
+}
+
+.shell.toolbar-labels-auto .command-strip.is-crowded .tool-button:not(.add-tool) .tool-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
 .shell.toolbar-labels-icons .tool-button,
 .shell.toolbar-labels-icons .tool-button.add-tool,
 .shell.toolbar-labels-icons #newTerminalButton,

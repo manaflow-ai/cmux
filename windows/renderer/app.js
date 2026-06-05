@@ -11328,17 +11328,23 @@ function updateSurfaceTabsOverflow() {
   state.surfaceTabOverflowSignature = tabOverflowStateSignature(strip, tabCount);
 }
 
-function commandStripContentWidth() {
-  if (!elements.commandStrip) return 0;
-  const style = getComputedStyle(elements.commandStrip);
+function commandStripContentWidth(strip = elements.commandStrip) {
+  if (!strip) return 0;
+  const style = getComputedStyle(strip);
   const gap = parseFloat(style.columnGap || style.gap) || 0;
   const padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
-  const visibleChildren = Array.from(elements.commandStrip.children).filter((child) => {
+  const visibleChildren = Array.from(strip.children).filter((child) => {
     const childStyle = getComputedStyle(child);
     return childStyle.display !== "none" && childStyle.visibility !== "hidden";
   });
   const childWidth = visibleChildren.reduce((total, child) => total + child.getBoundingClientRect().width, 0);
   return childWidth + Math.max(0, visibleChildren.length - 1) * gap + padding;
+}
+
+function commandStripOverflowing(strip = elements.commandStrip) {
+  if (!strip) return false;
+  return commandStripContentWidth(strip) > strip.clientWidth + 1
+    || strip.scrollWidth > strip.clientWidth + 1;
 }
 
 function scheduleCommandStripOverflowRefresh() {
@@ -11368,8 +11374,10 @@ function scheduleCommandStripScrollStateRefresh() {
 function updateCommandStripOverflow() {
   if (!elements.commandStrip) return;
   const strip = elements.commandStrip;
-  const overflowing = commandStripContentWidth() > elements.commandStrip.clientWidth + 1
-    || elements.commandStrip.scrollWidth > elements.commandStrip.clientWidth + 1;
+  strip.classList.remove("is-crowded");
+  const crowded = commandStripOverflowing(strip);
+  toggleClassIfChanged(strip, "is-crowded", crowded);
+  const overflowing = commandStripOverflowing(strip);
   toggleClassIfChanged(strip, "has-overflow", overflowing);
   updateCommandStripScrollState(strip, overflowing);
   if (!overflowing && strip.scrollLeft) {
