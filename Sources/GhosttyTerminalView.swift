@@ -5361,6 +5361,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     var requestedWorkingDirectory: String? { workingDirectory }
     let focusPlacement: TerminalSurfaceFocusPlacement
     private var additionalEnvironment: [String: String]
+    var respawnInitialEnvironmentOverrides: [String: String] {
+        initialEnvironmentOverrides
+    }
+    var respawnAdditionalEnvironment: [String: String] {
+        var environment = additionalEnvironment
+        environment.removeValue(forKey: SessionScrollbackReplayStore.environmentKey)
+        return environment
+    }
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
     private var lastPixelWidth: UInt32 = 0

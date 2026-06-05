@@ -14676,6 +14676,8 @@ final class Workspace: Identifiable, ObservableObject {
         let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
         let focusPlacement = oldPanel.surface.focusPlacement
         let launchContext = oldPanel.surface.launchContext
+        let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
+        let additionalEnvironment = oldPanel.surface.respawnAdditionalEnvironment
 
         oldPanel.unfocus()
         oldPanel.hostedView.setVisibleInUI(false)
@@ -14706,6 +14708,8 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal,
             initialCommand: trimmedCommand,
             tmuxStartCommand: replacementTmuxStartCommand,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
+            additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement
         )
         configureNewTerminalPanel(replacementPanel)

@@ -238,13 +238,18 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         let placeholderCommand = "/bin/sh -c 'printf placeholder; while :; do sleep 86400; done'"
         let attachCommand = "/bin/sh -c 'opencode attach http://127.0.0.1:4096 --session subagent --dir /tmp/omo'"
         let requestedDirectory = "/tmp/cmux-respawn-\(UUID().uuidString)"
+        let startupEnvironment = [
+            "CMUX_OMO_SUBAGENT": "1",
+            "OMO_SUBAGENT_DESC": "test"
+        ]
 
         let placeholderPanel = try XCTUnwrap(workspace.newTerminalSplit(
             from: sourcePanelId,
             orientation: .horizontal,
             focus: true,
             initialCommand: placeholderCommand,
-            tmuxStartCommand: placeholderCommand
+            tmuxStartCommand: placeholderCommand,
+            startupEnvironment: startupEnvironment
         ))
         let originalPanelId = placeholderPanel.id
         let originalPane = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelId))
@@ -274,6 +279,9 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(respawnedPanel.surface.debugInitialCommand(), attachCommand)
         XCTAssertEqual(respawnedPanel.surface.debugTmuxStartCommand(), attachCommand)
         XCTAssertEqual(respawnedPanel.surface.debugWaitAfterCommand(), originalWaitAfterCommand)
+        for (key, value) in startupEnvironment {
+            XCTAssertEqual(respawnedPanel.surface.startupEnvironmentValue(key), value)
+        }
         XCTAssertTrue(
             TerminalSurfaceRegistry.shared.surface(id: originalPanelId) === respawnedPanel.surface,
             "Respawn should replace the registered terminal surface for the existing cmux surface id"
