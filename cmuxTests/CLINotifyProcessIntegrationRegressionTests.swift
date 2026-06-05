@@ -2506,6 +2506,23 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
     }
 
+    func testSSHPersistentPTYRollsBackWhenInitialSurfaceCannotBeResolved() throws {
+        let run = try runMockedSSH(
+            arguments: [],
+            jsonOutput: true,
+            omitWorkspaceCreateSurfaceID: true,
+            failSurfaceList: true,
+            expectConfigureRequest: false,
+            expectedStatus: 1,
+            expectedStderrContains: "workspace.create did not return surface_id"
+        )
+
+        XCTAssertNil(params(for: "workspace.remote.configure", in: run.requests))
+        XCTAssertNotNil(params(for: "workspace.close", in: run.requests))
+        XCTAssertTrue(run.stdout.isEmpty, run.stdout)
+        XCTAssertEqual(run.status, 1)
+    }
+
     func testSSHForwardAgentFlagPropagatesCallerAgentSocket() throws {
         let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(
@@ -8249,6 +8266,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     private struct MockedSSHRun {
         let requests: [[String: Any]]
         let stdout: String
+        let stderr: String
+        let status: Int32
         let workspaceId: String
         let surfaceId: String
     }
@@ -8257,6 +8276,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         arguments sshArguments: [String],
         jsonOutput: Bool = false,
         omitWorkspaceCreateSurfaceID: Bool = false,
+        failSurfaceList: Bool = false,
+        expectConfigureRequest: Bool = true,
+        expectedStatus: Int32 = 0,
+        expectedStderrContains: String? = nil,
         environmentOverrides: [String: String] = [:],
         file: StaticString = #filePath,
         line: UInt = #line
@@ -8297,6 +8320,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     result: result
                 )
             case "surface.list":
+                if failSurfaceList {
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "not_found", "message": "workspace not found"]
+                    )
+                }
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -8349,18 +8379,31 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             timeout: 5
         )
 
-        let sawConfigureRequest = waitForMockSocketCommand(in: state) { line in
-            line.contains(#""method":"workspace.remote.configure""#)
+        if expectConfigureRequest {
+            let sawConfigureRequest = waitForMockSocketCommand(in: state) { line in
+                line.contains(#""method":"workspace.remote.configure""#)
+            }
+            XCTAssertTrue(
+                sawConfigureRequest,
+                "Expected workspace.remote.configure, saw \(state.snapshot())",
+                file: file,
+                line: line
+            )
         }
-        XCTAssertTrue(sawConfigureRequest, "Expected workspace.remote.configure, saw \(state.snapshot())", file: file, line: line)
         XCTAssertFalse(result.timedOut, result.stderr, file: file, line: line)
-        XCTAssertEqual(result.status, 0, result.stderr, file: file, line: line)
-        XCTAssertTrue(result.stderr.isEmpty, result.stderr, file: file, line: line)
+        XCTAssertEqual(result.status, expectedStatus, result.stderr, file: file, line: line)
+        if let expectedStderrContains {
+            XCTAssertTrue(result.stderr.contains(expectedStderrContains), result.stderr, file: file, line: line)
+        } else {
+            XCTAssertTrue(result.stderr.isEmpty, result.stderr, file: file, line: line)
+        }
 
         let requests = state.snapshot().compactMap { jsonObject($0) }
         return MockedSSHRun(
             requests: requests,
             stdout: result.stdout,
+            stderr: result.stderr,
+            status: result.status,
             workspaceId: workspaceId,
             surfaceId: surfaceId
         )
