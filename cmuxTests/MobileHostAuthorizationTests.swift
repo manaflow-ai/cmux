@@ -739,7 +739,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
         let connectionID = UUID()
 
         service.debugResetMobileLifecycleStateForTesting()
-        service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
+        service.debugRecordStickyViewportClientIDForTesting("ios-client", connectionID: connectionID)
 
         XCTAssertEqual(service.debugTrackedClientIDsForTesting(connectionID: connectionID), Set(["ios-client"]))
 
@@ -789,6 +789,41 @@ final class MobileHostAuthorizationTests: XCTestCase {
             terminalController.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID),
             Set(["ios-client", "ipad-client"]),
             "Mobile RPC connections are short lived, so socket close must not clear viewport reports before their TTL expires."
+        )
+
+        terminalController.debugResetMobileViewportReportsForTesting()
+    }
+
+    func testMobileHostConnectionCloseClearsStickyViewportReports() {
+        let service = MobileHostService.shared
+        let terminalController = TerminalController.shared
+        let connectionID = UUID()
+        let surfaceID = UUID()
+
+        service.debugResetMobileLifecycleStateForTesting()
+        terminalController.debugResetMobileViewportReportsForTesting()
+        terminalController.debugSetMobileViewportReportForTesting(
+            surfaceID: surfaceID,
+            clientID: "ios-client",
+            columns: 54,
+            rows: 42,
+            sticky: true
+        )
+        terminalController.debugSetMobileViewportReportForTesting(
+            surfaceID: surfaceID,
+            clientID: "ipad-client",
+            columns: 84,
+            rows: 15,
+            sticky: true
+        )
+        service.debugRecordStickyViewportClientIDForTesting("ios-client", connectionID: connectionID)
+
+        service.debugRemoveConnectionForTesting(id: connectionID)
+
+        XCTAssertEqual(
+            terminalController.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID),
+            Set(["ipad-client"]),
+            "Dedicated viewport connections are sticky, so socket close must clear the disconnected client's report."
         )
 
         terminalController.debugResetMobileViewportReportsForTesting()

@@ -64,20 +64,21 @@ kill_stale_ci_apps() {
   pids="$(pgrep -x "cmux DEV" 2>/dev/null || true)"
   [ -n "$pids" ] || return 0
 
-  local pid args
+  local pid args target_pids
+  target_pids=""
   for pid in $pids; do
     args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
-    case "$args" in
-      *"/Contents/MacOS/cmux DEV"*)
-        kill "$pid" >/dev/null 2>&1 || true
-        ;;
-    esac
+    if [[ "$args" == *"$BINARY"* ]]; then
+      target_pids="${target_pids}${pid}"$'\n'
+      kill "$pid" >/dev/null 2>&1 || true
+    fi
   done
+  [ -n "$target_pids" ] || return 0
 
   local deadline=$((SECONDS + 5))
   while [ "$SECONDS" -lt "$deadline" ]; do
     local any_alive=0
-    for pid in $pids; do
+    for pid in $target_pids; do
       if kill -0 "$pid" >/dev/null 2>&1; then
         any_alive=1
       fi
@@ -86,13 +87,11 @@ kill_stale_ci_apps() {
     sleep 0.25
   done
 
-  for pid in $pids; do
+  for pid in $target_pids; do
     args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
-    case "$args" in
-      *"/Contents/MacOS/cmux DEV"*)
-        kill -KILL "$pid" >/dev/null 2>&1 || true
-        ;;
-    esac
+    if [[ "$args" == *"$BINARY"* ]]; then
+      kill -KILL "$pid" >/dev/null 2>&1 || true
+    fi
   done
 }
 

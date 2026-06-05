@@ -21935,13 +21935,15 @@ class TerminalController {
         clientID: String,
         columns: Int,
         rows: Int,
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        sticky: Bool = false
     ) {
         var reports = mobileViewportReportsBySurfaceID[surfaceID] ?? [:]
         reports[clientID] = MobileViewportReport(
             columns: columns,
             rows: rows,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            sticky: sticky
         )
         mobileViewportReportsBySurfaceID[surfaceID] = reports
     }
