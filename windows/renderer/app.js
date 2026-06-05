@@ -25084,6 +25084,21 @@ function performanceHealthIssueCountLabel(count = performanceHealthIssueCount())
   return `${count} fix${count === 1 ? "" : "es"}`;
 }
 
+function performanceHealthPendingChecks() {
+  return performanceHealthCheckDefinitions.filter(performanceHealthCheckNeedsFix);
+}
+
+function performanceHealthCheckListLabel(checks = performanceHealthPendingChecks()) {
+  const labels = checks.map((check) => check.label).filter(Boolean);
+  if (labels.length <= 3) return labels.join(", ");
+  return `${labels.slice(0, 3).join(", ")} and ${labels.length - 3} more`;
+}
+
+function performanceHealthApplyAllTitle(checks = performanceHealthPendingChecks()) {
+  if (!checks.length) return "Performance health is already tuned.";
+  return `Apply ${performanceHealthIssueCountLabel(checks.length).toLowerCase()}: ${performanceHealthCheckListLabel(checks)}.`;
+}
+
 function performanceHealthPaletteSignature() {
   const parts = [];
   appendSignatureValue(parts, performanceHealthIssueCount());
@@ -25095,9 +25110,9 @@ function performanceHealthPaletteSignature() {
   return parts.join("");
 }
 
-function performanceHealthCombinedUpdates() {
+function performanceHealthCombinedUpdates(checks = performanceHealthPendingChecks()) {
   const updates = {};
-  for (const check of performanceHealthCheckDefinitions) {
+  for (const check of checks) {
     Object.assign(updates, performanceHealthCheckUpdates(check) || {});
   }
   return Object.keys(updates).length ? updates : null;
@@ -25121,7 +25136,8 @@ function applyPerformanceHealthFix(checkId, options = {}) {
 }
 
 function applyPerformanceHealthFixes(options = {}) {
-  const updates = performanceHealthCombinedUpdates();
+  const checks = performanceHealthPendingChecks();
+  const updates = performanceHealthCombinedUpdates(checks);
   if (!updates) {
     toast("Performance health is already tuned.");
     return false;
@@ -25132,7 +25148,7 @@ function applyPerformanceHealthFixes(options = {}) {
     return false;
   }
   refreshPerformanceSettings(options);
-  toast("Performance health fixes applied.");
+  toast(`Applied ${performanceHealthIssueCountLabel(checks.length).toLowerCase()}: ${performanceHealthCheckListLabel(checks)}.`);
   return true;
 }
 
@@ -26878,9 +26894,7 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
     }),
     quickOverviewControlButton(healthIssueCount === 0 ? "Health ready" : "Fix health", () => refreshQuickSettingsAfterAction(applyPerformanceHealthFixes({ render: false })), {
       disabled: healthIssueCount === 0,
-      title: healthIssueCount === 0
-        ? "Performance health is already tuned."
-        : `Apply ${performanceHealthIssueCountLabel(healthIssueCount).toLowerCase()} for a lighter workspace.`,
+      title: performanceHealthApplyAllTitle(),
       search: `quick setup performance health checklist fixes speed lag smooth tune ${performanceHealthAllSearchText(healthIssueCount)}`
     }),
     quickOverviewControlButton("Save profile", () => refreshQuickSettingsAfterAction(saveCurrentPerformanceProfile({ render: false })), {
@@ -29248,7 +29262,7 @@ function refreshPerformanceHealthPanel(panel = elements.inspectorBody.querySelec
   const applyAll = panel.querySelector("[data-performance-health-apply-all]");
   if (applyAll) {
     setDisabledIfChanged(applyAll, issueCount === 0);
-    setTitleIfChanged(applyAll, issueCount === 0 ? "Performance health is already tuned." : "Apply all recommended performance fixes.");
+    setTitleIfChanged(applyAll, performanceHealthApplyAllTitle());
     setSettingsActionLabel(applyAll, issueCount === 0 ? "Ready" : "Apply fixes");
     const allSearch = performanceHealthAllSearchText(issueCount);
     if (applyAll.dataset.settingsSearch !== allSearch) {
@@ -29441,9 +29455,7 @@ function refreshPerformanceOverviewHealthAction(panel = elements.inspectorBody.q
   if (!action) return false;
   const issueCount = performanceHealthIssueCount();
   const label = issueCount === 0 ? "Health ready" : "Fix health";
-  const title = issueCount === 0
-    ? "Performance health is already tuned."
-    : `Apply ${performanceHealthIssueCountLabel(issueCount).toLowerCase()} for a lighter workspace.`;
+  const title = performanceHealthApplyAllTitle();
   let changed = false;
   changed = setTextIfChanged(action.querySelector(".settings-action-label") || action, label) || changed;
   changed = setDisabledIfChanged(action, issueCount === 0) || changed;
@@ -38453,7 +38465,7 @@ function performanceHealthPaletteEntries() {
     active: issueCount === 0,
     disabled: issueCount === 0,
     icon: "speed",
-    title: issueCount === 0 ? "Performance health is already tuned." : "Apply all recommended performance health fixes.",
+    title: performanceHealthApplyAllTitle(),
     search: performanceHealthAllSearchText(issueCount),
     run: applyPerformanceHealthFixes
   }];
