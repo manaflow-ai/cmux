@@ -7049,6 +7049,9 @@ function applySettings() {
   setStylePropertyIfChanged(elements.shell, "--background-readability-opacity", backgroundVisible ? readability.base : "0");
   setStylePropertyIfChanged(elements.shell, "--background-tinted-opacity", backgroundVisible ? readability.tinted : "0");
   setStylePropertyIfChanged(elements.shell, "--background-vignette-opacity", backgroundVisible ? readability.vignette : "0");
+  setStylePropertyIfChanged(elements.shell, "--pane-background-readability-opacity", readability.base);
+  setStylePropertyIfChanged(elements.shell, "--pane-background-tinted-opacity", readability.tinted);
+  setStylePropertyIfChanged(elements.shell, "--pane-background-vignette-opacity", readability.vignette);
   scheduleCommandStripOverflowRefresh();
   return true;
 }
