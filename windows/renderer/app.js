@@ -122,6 +122,7 @@ import {
   insertPanelAtLeaf,
   loadPaneTreeLayouts,
   normalizePaneTree,
+  paneTreeContainsPanel,
   paneTreeDirection,
   paneTreeEqual,
   paneTreeLeaf,
@@ -725,17 +726,24 @@ const panePointerDragThreshold = 6;
 const settingsWorkspaceSwitchRenderDelayMs = 90;
 const closedPanelLimit = 12;
 const maxConcurrentPaneCreations = 8;
+const newBrowserPaneRightRatio = 0.6;
 const visibleBackgroundOpacity = 24;
 const terminalCursorMigrationStorageKey = "cmux.terminalCursorBarMigration";
 const browserHomeMigrationStorageKey = "cmux.browserHomeGoogleMigration";
+const browserReadableChromeMigrationStorageKey = "cmux.browserReadableChromeMigration";
+const browserPaneReadableSplitMigrationStoragePrefix = "cmux.browserPaneReadableSplitMigration.";
 const sidebarBranchMigrationStorageKey = "cmux.sidebarBranchQuietMigration";
 const settingsPanelWidthMigrationStorageKey = "cmux.settingsPanelReadableWidthMigration";
 const settingsPanelLaptopWidthMigrationStorageKey = "cmux.settingsPanelLaptopWidthMigration";
+const settingsPanelWideWidthMigrationStorageKey = "cmux.settingsPanelWideWidthMigration";
+const inspectorWidthMin = 520;
+const inspectorWidthMax = 720;
 const launchToken = new URLSearchParams(location.search).get("token") || "";
 const eventReconnectMinDelayMs = 250;
 const eventReconnectMaxDelayMs = 5000;
 const embeddedGooglePolishState = new WeakMap();
 const browserViewZoomFactors = new WeakMap();
+const ignoredRendererErrorPattern = /ResizeObserver loop (?:completed with undelivered notifications|limit exceeded)/i;
 
 const workspaceStarters = [
   {
@@ -1321,6 +1329,10 @@ const state = {
 };
 
 window.addEventListener("error", (event) => {
+  if (ignoredRendererErrorPattern.test(String(event.message || ""))) {
+    event.preventDefault();
+    return;
+  }
   console.error(`renderer error: ${event.message} at ${event.filename}:${event.lineno}:${event.colno}`);
 });
 
@@ -1595,7 +1607,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.terminalForeground = normalizeTerminalColor(next.terminalForeground);
   next.terminalCursorColor = normalizeTerminalColor(next.terminalCursorColor);
   next.sidebarWidth = clamp(next.sidebarWidth, 188, 304);
-  next.inspectorWidth = clamp(next.inspectorWidth, 360, 640);
+  next.inspectorWidth = clamp(next.inspectorWidth, inspectorWidthMin, inspectorWidthMax);
   next.terminalScrollback = clamp(next.terminalScrollback, 2000, 50000);
   next.terminalPadding = clamp(next.terminalPadding, 0, 16);
   return next;
@@ -1748,6 +1760,17 @@ function loadSettings() {
     migrated = true;
   }
   if (
+    localStorage.getItem(browserReadableChromeMigrationStorageKey) !== "1"
+    && parsed
+    && typeof parsed === "object"
+    && !Array.isArray(parsed)
+    && parsed.browserChromeMode === "content"
+  ) {
+    parsed.browserChromeMode = defaultSettings.browserChromeMode;
+    localStorage.setItem(browserReadableChromeMigrationStorageKey, "1");
+    migrated = true;
+  }
+  if (
     localStorage.getItem(sidebarBranchMigrationStorageKey) !== "1"
     && parsed
     && typeof parsed === "object"
@@ -1789,6 +1812,18 @@ function loadSettings() {
   ) {
     parsed.inspectorWidth = defaultSettings.inspectorWidth;
     localStorage.setItem(settingsPanelLaptopWidthMigrationStorageKey, "2");
+    migrated = true;
+  }
+  if (
+    localStorage.getItem(settingsPanelWideWidthMigrationStorageKey) !== "1"
+    && parsed
+    && typeof parsed === "object"
+    && !Array.isArray(parsed)
+    && Number(parsed.inspectorWidth) > 0
+    && Number(parsed.inspectorWidth) < inspectorWidthMin
+  ) {
+    parsed.inspectorWidth = defaultSettings.inspectorWidth;
+    localStorage.setItem(settingsPanelWideWidthMigrationStorageKey, "1");
     migrated = true;
   }
   const legacyFontSize = Number(localStorage.getItem("cmux.terminalFontSize") || 0);
@@ -7102,7 +7137,20 @@ function settingsRenderSignature(settings = state.settings) {
     settings.sidebarWidth,
     settings.inspectorWidth,
     settings.terminalFontFamily,
-    settings.terminalPadding
+    settings.terminalFontSize,
+    settings.terminalLineHeight,
+    settings.terminalPadding,
+    settings.terminalScrollback,
+    settings.terminalStartupMode,
+    settings.terminalPauseInactiveOutput,
+    settings.terminalSmoothResumedOutput,
+    settings.terminalCursorStyle,
+    settings.terminalCursorBlink,
+    settings.terminalBackground,
+    settings.terminalForeground,
+    settings.terminalCursorColor,
+    settings.terminalProfile,
+    settings.terminalCustomShell
   ].join("\u001f");
 }
 
@@ -7307,6 +7355,9 @@ function updateSettings(updates, options = {}) {
   if (options.immediate) saveSettings();
   else scheduleSettingsSave();
   applySettings();
+  if (changedKeys.some((key) => backgroundTuningSettings.includes(key))) {
+    refreshVisiblePaneChromeState();
+  }
   const terminalAppearanceChanged = changedKeys.filter((key) => terminalAppearanceKeys.has(key));
   if (terminalAppearanceChanged.length === 1 && terminalAppearanceChanged[0] === "terminalScrollback") {
     applyTerminalScrollback();
@@ -7477,6 +7528,7 @@ function paneTreeForWorkspace(workspace, panels = workspace?.panels || []) {
     }
   }
   if (!tree) tree = buildPaneTreeFromPanelIds(panelIds, paneLayoutDirection(workspace));
+  tree = migrateReadableBrowserPaneTree(workspace, tree);
   if (!paneTreeEqual(tree, existing)) {
     state.paneTrees.set(workspace.id, tree);
     savePaneTreeLayouts(state.paneTrees);
@@ -7484,15 +7536,54 @@ function paneTreeForWorkspace(workspace, panels = workspace?.panels || []) {
   return tree;
 }
 
-function insertPanelInPaneTree(workspaceId, anchorPanelId, panelId, direction, placement = "after") {
+function paneTreeContainsAnyPanel(node, panelIds) {
+  for (const panelId of panelIds) {
+    if (paneTreeContainsPanel(node, panelId)) return true;
+  }
+  return false;
+}
+
+function readableBrowserPaneTreeNode(node, browserPanelIds) {
+  if (!node || node.type !== "split") return node;
+  const first = readableBrowserPaneTreeNode(node.first, browserPanelIds);
+  const second = readableBrowserPaneTreeNode(node.second, browserPanelIds);
+  let ratio = paneTreeRatio(node.ratio);
+  if (paneTreeDirection(node.direction) === "right" && Math.abs(ratio - 0.5) <= 0.08) {
+    const firstHasBrowser = paneTreeContainsAnyPanel(first, browserPanelIds);
+    const secondHasBrowser = paneTreeContainsAnyPanel(second, browserPanelIds);
+    if (firstHasBrowser !== secondHasBrowser) {
+      ratio = firstHasBrowser ? newBrowserPaneRightRatio : 1 - newBrowserPaneRightRatio;
+    }
+  }
+  return paneTreeSplit(node.direction, first, second, ratio, node.id);
+}
+
+function migrateReadableBrowserPaneTree(workspace, tree) {
+  if (!workspace?.id || !tree) return tree;
+  const migrationKey = `${browserPaneReadableSplitMigrationStoragePrefix}${workspace.id}`;
+  if (localStorage.getItem(migrationKey) === "1") return tree;
+  const browserPanelIds = new Set((workspace.panels || [])
+    .filter((panel) => panel.type === "browser")
+    .map((panel) => panel.id));
+  if (browserPanelIds.size === 0) {
+    localStorage.setItem(migrationKey, "1");
+    return tree;
+  }
+  const nextTree = readableBrowserPaneTreeNode(tree, browserPanelIds);
+  localStorage.setItem(migrationKey, "1");
+  return nextTree;
+}
+
+function insertPanelInPaneTree(workspaceId, anchorPanelId, panelId, direction, placement = "after", options = {}) {
   if (!workspaceId || !panelId) return;
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   const sourceTree = workspace ? paneTreeForWorkspace(workspace) : state.paneTrees.get(workspaceId);
   let tree = removePanelFromPaneTree(sourceTree, panelId);
+  const insertOptions = options.ratio == null ? {} : { ratio: options.ratio };
   const inserted = anchorPanelId
-    ? insertPanelAtLeaf(tree, anchorPanelId, panelId, direction, placement)
-    : { node: appendPaneTreeLeaf(tree, panelId, direction), inserted: true };
-  tree = inserted.inserted ? inserted.node : appendPaneTreeLeaf(tree, panelId, direction);
+    ? insertPanelAtLeaf(tree, anchorPanelId, panelId, direction, placement, insertOptions)
+    : { node: appendPaneTreeLeaf(tree, panelId, direction, insertOptions), inserted: true };
+  tree = inserted.inserted ? inserted.node : appendPaneTreeLeaf(tree, panelId, direction, insertOptions);
   state.paneTrees.set(workspaceId, tree);
   savePaneTreeLayouts(state.paneTrees);
 }
@@ -10732,6 +10823,11 @@ function newPaneDirection(direction = state.settings.newPanePlacement) {
   return direction === "down" ? "down" : "right";
 }
 
+function newPanelInsertRatio(type, direction, placement = "after") {
+  if (type !== "browser" || newPaneDirection(direction) !== "right") return null;
+  return placement === "before" ? newBrowserPaneRightRatio : 1 - newBrowserPaneRightRatio;
+}
+
 function newPanePlacementLabel(value = state.settings.newPanePlacement) {
   return optionLabel(newPanePlacementOptions, newPaneDirection(value), "Right");
 }
@@ -12238,6 +12334,20 @@ function refreshVisiblePaneSignatures(workspaceId = activeWorkspace()?.id) {
   return true;
 }
 
+function refreshVisiblePaneChromeState(workspace = activeWorkspace()) {
+  if (!workspace || workspace.id !== state.data?.activeWorkspaceId) return false;
+  const zoomedPanel = zoomedPanelForWorkspace(workspace);
+  const visiblePanels = zoomedPanel ? [zoomedPanel] : (workspace.panels || []);
+  let refreshed = false;
+  for (const panel of visiblePanels) {
+    const pane = state.paneCache.get(panel.id);
+    if (!pane?.isConnected) continue;
+    updatePaneChromeState(pane, panel, workspace);
+    refreshed = true;
+  }
+  return refreshed;
+}
+
 function renderPaneTreeNode(node, workspace, panelById, visibleCount) {
   if (!node) return null;
   if (node.type === "pane") {
@@ -13179,8 +13289,8 @@ function continueInspectorResize(event) {
   if (!state.inspectorResizing) return;
   const nextWidth = Math.round(clamp(
     state.inspectorResizing.startWidth + state.inspectorResizing.startX - event.clientX,
-    360,
-    640
+    inspectorWidthMin,
+    inspectorWidthMax
   ));
   state.inspectorResizing.width = nextWidth;
   state.settings.inspectorWidth = nextWidth;
@@ -19509,8 +19619,8 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
   const inspectorWidthRange = document.createElement("input");
   inspectorWidthRange.className = "setting-control";
   inspectorWidthRange.type = "range";
-  inspectorWidthRange.min = "360";
-  inspectorWidthRange.max = "640";
+  inspectorWidthRange.min = String(inspectorWidthMin);
+  inspectorWidthRange.max = String(inspectorWidthMax);
   inspectorWidthRange.step = "4";
   inspectorWidthRange.value = String(state.settings.inspectorWidth);
   const inspectorWidthRow = settingRow(`Settings panel ${state.settings.inspectorWidth}px`, inspectorWidthRange, false, "settings inspector right panel width preferences customization");
@@ -19699,7 +19809,7 @@ function layoutSettingsPreviewPanel() {
   ].filter(Boolean).join(" ");
   panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar rail tools primary hidden home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet subtle solid overlay style command palette menus dialogs toast feedback placement position switcher style workspace pane keyboard hud command palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide row size density compact roomy active row selected current subtle filled line workspace color marker dot edge tint top bar style toolbar label mode icons labels button style ghost filled tab bar quiet banded tabs close active selected underline status style quiet subtle solid performance diagnostics render output pane header surface density new pane placement split direction right below down settings panel inactive pane percent resize focus highlight edge mode simple clean panes split shape corner radius rounded divider style spacing gap gutter grip line minimal marker color dot tint preset current");
   panel.style.setProperty("--layout-preview-sidebar", `${Math.max(24, Math.round((settings.sidebarWidth / 304) * 72))}px`);
-  panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / 640) * 76))}px`);
+  panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / inspectorWidthMax) * 76))}px`);
   panel.innerHTML = `
     <div class="layout-preview-frame" aria-hidden="true">
       <div class="layout-preview-sidebar">
@@ -26757,7 +26867,7 @@ function quickOverviewControlsPanel(options = {}) {
   const actions = options.actions || [];
   panel.className = [
     "quick-overview-controls",
-    actions.length > 5 ? "has-scroll-actions" : "",
+    actions.length > 4 ? "has-scroll-actions" : "",
     options.className || ""
   ].filter(Boolean).join(" ");
   panel.dataset.settingsSearch = normalizeSettingsQuery(options.search || "");
@@ -41932,7 +42042,9 @@ function createPendingPanel(type, workspace, options = {}) {
 function addPendingPanel(workspace, panel, anchorPanelId, direction, options = {}) {
   if (!workspace || !panel?.id) return false;
   state.pendingPanels.set(panel.id, panel);
-  insertPanelInPaneTree(workspace.id, anchorPanelId, panel.id, direction);
+  insertPanelInPaneTree(workspace.id, anchorPanelId, panel.id, direction, options.placement || "after", {
+    ratio: options.insertRatio
+  });
   const added = optimisticAddPanel(panel, workspace.id, {
     direction,
     focus: options.focus,
@@ -42144,6 +42256,7 @@ async function createPanel(type, direction = newPaneDirection(), options = {}) {
       ? normalizeUrl(options.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl)
       : undefined;
     const anchorPanelId = options.anchorPanelId || "";
+    const insertRatio = options.insertRatio ?? newPanelInsertRatio(type, direction, options.placement || "after");
     const pendingPanel = options.pending === false
       ? null
       : createPendingPanel(type, workspace, {
@@ -42152,7 +42265,10 @@ async function createPanel(type, direction = newPaneDirection(), options = {}) {
         shellPath: shellProfile === "custom" ? shellPath : "",
         url
       });
-    if (pendingPanel) addPendingPanel(workspace, pendingPanel, anchorPanelId, direction, options);
+    if (pendingPanel) addPendingPanel(workspace, pendingPanel, anchorPanelId, direction, {
+      ...options,
+      insertRatio
+    });
     let createdPanel = null;
     try {
       createdPanel = await api("/api/panels", {
@@ -42185,10 +42301,13 @@ async function createPanel(type, direction = newPaneDirection(), options = {}) {
     }
     if (pendingPanel) await replacePendingPanel(pendingPanel.id, createdPanel, workspace.id, {
       ...options,
+      insertRatio,
       scheduleRender: true
     });
     else {
-      insertPanelInPaneTree(workspace.id, anchorPanelId, createdPanel?.id, direction);
+      insertPanelInPaneTree(workspace.id, anchorPanelId, createdPanel?.id, direction, options.placement || "after", {
+        ratio: insertRatio
+      });
       optimisticAddPanel(createdPanel, workspace.id, { direction, focus: options.focus });
     }
     if (type === "browser" && createdPanel?.url) rememberRecentBrowserPage(createdPanel.url);
@@ -43364,7 +43483,9 @@ function toggleSidebar() {
 }
 
 function openInspector(mode) {
-  state.inspectorMode = state.inspectorMode === mode ? null : mode;
+  const opening = state.inspectorMode !== mode;
+  state.inspectorMode = opening ? mode : null;
+  if (opening && mode === "settings") state.settingsScrollResetPending = true;
   if (state.inspectorMode !== "settings") state.settingsSearchFocusPending = false;
   updateRailButtons();
   render();
@@ -43578,7 +43699,7 @@ const workspaceChromeBooleanSettings = new Set([
 
 const workspaceChromeWidthSettings = {
   sidebarWidth: [188, 304],
-  inspectorWidth: [360, 640]
+  inspectorWidth: [inspectorWidthMin, inspectorWidthMax]
 };
 
 const workspaceChromePresets = [
@@ -43691,7 +43812,7 @@ const workspaceChromePresets = [
       statusDetailMode: "compact",
       statusbarStyle: "quiet",
       sidebarWidth: 212,
-      inspectorWidth: 340
+      inspectorWidth: inspectorWidthMin
     }
   },
   {
@@ -43747,7 +43868,7 @@ const workspaceChromePresets = [
       statusDetailMode: "compact",
       statusbarStyle: "quiet",
       sidebarWidth: 204,
-      inspectorWidth: 320
+      inspectorWidth: inspectorWidthMin
     }
   },
   {
@@ -43859,7 +43980,7 @@ const workspaceChromePresets = [
       statusDetailMode: "compact",
       statusbarStyle: "quiet",
       sidebarWidth: 216,
-      inspectorWidth: 328
+      inspectorWidth: inspectorWidthMin
     }
   }
 ];
@@ -45333,13 +45454,17 @@ function announceNewAttention(previous, next) {
 document.getElementById("newWorkspaceButton").onclick = () => createWorkspace();
 document.getElementById("resetSessionButton").onclick = () => resetSession();
 const newTerminalButton = document.getElementById("newTerminalButton");
-newTerminalButton.onclick = () => createTerminalPanel();
-newTerminalButton.oncontextmenu = showNewTerminalMenu;
+if (newTerminalButton) {
+  newTerminalButton.onclick = () => createTerminalPanel();
+  newTerminalButton.oncontextmenu = showNewTerminalMenu;
+}
 document.getElementById("splitRightButton").onclick = () => splitActivePanel("right");
 document.getElementById("splitDownButton").onclick = () => splitActivePanel("down");
 const newBrowserButton = document.getElementById("newBrowserButton");
-newBrowserButton.onclick = () => openBrowserHome();
-newBrowserButton.oncontextmenu = (event) => showExternalBrowserProfileMenu(event, state.settings.browserHomeUrl);
+if (newBrowserButton) {
+  newBrowserButton.onclick = () => openBrowserHome();
+  newBrowserButton.oncontextmenu = (event) => showExternalBrowserProfileMenu(event, state.settings.browserHomeUrl);
+}
 document.getElementById("toolsMenuButton").onclick = showToolbarMenu;
 document.getElementById("settingsButton").onclick = () => openInspector("settings");
 document.getElementById("renameWorkspaceButton").onclick = () => renameActiveWorkspace();

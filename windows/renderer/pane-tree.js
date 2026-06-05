@@ -127,16 +127,17 @@ export function paneTreeLeafCount(node) {
   return paneTreeLeafCount(node.first) + paneTreeLeafCount(node.second);
 }
 
-export function appendPaneTreeLeaf(tree, panelId, direction) {
-  return appendPaneTreeLeafWithCount(tree, panelId, direction, paneTreeLeafCount(tree)).tree;
+export function appendPaneTreeLeaf(tree, panelId, direction, options = {}) {
+  return appendPaneTreeLeafWithCount(tree, panelId, direction, paneTreeLeafCount(tree), options).tree;
 }
 
-function appendPaneTreeLeafWithCount(tree, panelId, direction, existingCount = 0) {
+function appendPaneTreeLeafWithCount(tree, panelId, direction, existingCount = 0, options = {}) {
   const leaf = paneTreeLeaf(panelId);
   if (!tree) return { tree: leaf, count: 1 };
   const count = Math.max(1, Math.round(Number(existingCount) || 1));
+  const ratio = options.ratio == null ? count / (count + 1) : paneTreeRatio(options.ratio);
   return {
-    tree: paneTreeSplit(direction, tree, leaf, count / (count + 1)),
+    tree: paneTreeSplit(direction, tree, leaf, ratio),
     count: count + 1
   };
 }
@@ -187,27 +188,28 @@ export function removePanelFromPaneTree(tree, panelId) {
   return normalizePaneTree(tree, remaining);
 }
 
-export function insertPanelAtLeaf(node, anchorPanelId, panelId, direction, placement = "after") {
+export function insertPanelAtLeaf(node, anchorPanelId, panelId, direction, placement = "after", options = {}) {
   if (!node) return { node: paneTreeLeaf(panelId), inserted: true };
   if (node.type === "pane") {
     if (node.panelId !== anchorPanelId) return { node, inserted: false };
     const anchor = paneTreeLeaf(anchorPanelId);
     const inserted = paneTreeLeaf(panelId);
+    const ratio = options.ratio == null ? 0.5 : paneTreeRatio(options.ratio);
     return {
       node: placement === "before"
-        ? paneTreeSplit(direction, inserted, anchor)
-        : paneTreeSplit(direction, anchor, inserted),
+        ? paneTreeSplit(direction, inserted, anchor, ratio)
+        : paneTreeSplit(direction, anchor, inserted, ratio),
       inserted: true
     };
   }
-  const first = insertPanelAtLeaf(node.first, anchorPanelId, panelId, direction, placement);
+  const first = insertPanelAtLeaf(node.first, anchorPanelId, panelId, direction, placement, options);
   if (first.inserted) {
     return {
       node: paneTreeSplit(node.direction, first.node, node.second, node.ratio, node.id),
       inserted: true
     };
   }
-  const second = insertPanelAtLeaf(node.second, anchorPanelId, panelId, direction, placement);
+  const second = insertPanelAtLeaf(node.second, anchorPanelId, panelId, direction, placement, options);
   if (second.inserted) {
     return {
       node: paneTreeSplit(node.direction, node.first, second.node, node.ratio, node.id),
