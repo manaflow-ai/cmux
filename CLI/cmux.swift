@@ -17288,6 +17288,25 @@ struct CMUXCLI {
         throw CLIError(message: "Pane has no surface to target")
     }
 
+    private func tmuxStoredStartCommand(
+        workspaceId: String,
+        surfaceId: String,
+        client: SocketClient
+    ) throws -> String? {
+        let payload = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
+        guard let surface = surfaces.first(where: { ($0["id"] as? String) == surfaceId }) else {
+            return nil
+        }
+        return [
+            surface["tmux_start_command"],
+            surface["pane_start_command"],
+            surface["initial_command"]
+        ]
+            .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+    }
+
     private func tmuxResolveSurfaceTarget(
         _ raw: String?,
         client: SocketClient
@@ -20193,17 +20212,17 @@ struct CMUXCLI {
                 valueFlags: ["-c", "-t"],
                 boolFlags: ["-k"]
             )
-            let target = try tmuxResolvePaneTarget(parsed.value("-t"), client: client)
-            let surfaceId = try tmuxSelectedSurfaceId(
-                workspaceId: target.workspaceId,
-                paneId: target.paneId,
-                client: client
-            )
+            let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
             let commandText = tmuxStartCommand(commandTokens: parsed.positional)
+                ?? (try? tmuxStoredStartCommand(
+                    workspaceId: target.workspaceId,
+                    surfaceId: target.surfaceId,
+                    client: client
+                ))
                 ?? "exec ${SHELL:-/bin/sh} -l"
             var params: [String: Any] = [
                 "workspace_id": target.workspaceId,
-                "surface_id": surfaceId,
+                "surface_id": target.surfaceId,
                 "command": commandText,
                 "tmux_start_command": commandText
             ]

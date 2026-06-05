@@ -19,6 +19,7 @@ WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 WINDOW_ID = "22222222-2222-4222-8222-222222222222"
 PANE_ID = "33333333-3333-4333-8333-333333333333"
 SURFACE_ID = "44444444-4444-4444-8444-444444444444"
+SELECTED_SOURCE_SURFACE_ID = "55555555-5555-4555-8555-555555555555"
 SUBAGENT_PANE_ID = "66666666-6666-4666-8666-666666666666"
 SUBAGENT_SURFACE_ID = "77777777-7777-4777-8777-777777777777"
 
@@ -72,6 +73,17 @@ class FakeCmuxState:
                     "pane_ref": "pane:1",
                     "title": "leader",
                     "type": "terminal",
+                    "tmux_start_command": "echo CALLER_STORED",
+                },
+                {
+                    "id": SELECTED_SOURCE_SURFACE_ID,
+                    "ref": "surface:3",
+                    "focused": False,
+                    "pane_id": PANE_ID,
+                    "pane_ref": "pane:1",
+                    "title": "selected source tab",
+                    "type": "terminal",
+                    "tmux_start_command": "echo SELECTED_STORED",
                 }
             ]
             if self.split_created:
@@ -130,7 +142,12 @@ class FakeCmuxState:
         if method == "pane.surfaces":
             pane_id = str(params.get("pane_id") or "")
             if pane_id == PANE_ID:
-                return {"surfaces": [{"id": SURFACE_ID, "selected": True}]}
+                return {
+                    "surfaces": [
+                        {"id": SELECTED_SOURCE_SURFACE_ID, "selected": True},
+                        {"id": SURFACE_ID, "selected": False},
+                    ]
+                }
             if pane_id == SUBAGENT_PANE_ID:
                 return {"surfaces": [{"id": SUBAGENT_SURFACE_ID, "selected": True}]}
             raise RuntimeError(f"unknown pane: {pane_id}")
@@ -268,6 +285,30 @@ def assert_omo_split_is_listed_and_respawned(
     if f"{subagent_pane_token},1,1" not in lines:
         raise AssertionError(f"expected active subagent pane in list-panes, got {lines!r}")
 
+    empty_respawn = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "respawn-pane",
+            "-k",
+            "-t",
+            subagent_pane_token,
+        ],
+    )
+    assert_success(empty_respawn, "OMO empty respawn-pane")
+    if len(state.respawn_params) != 1:
+        raise AssertionError(f"expected empty respawn to call surface.respawn: {state.respawn_params!r}")
+    empty_respawn_params = state.respawn_params[0]
+    if empty_respawn_params.get("surface_id") != SUBAGENT_SURFACE_ID:
+        raise AssertionError(f"empty respawn targeted wrong surface: {empty_respawn_params!r}")
+    if empty_respawn_params.get("command") != PLACEHOLDER_COMMAND:
+        raise AssertionError(f"empty respawn did not reuse stored command: {empty_respawn_params!r}")
+    if empty_respawn_params.get("tmux_start_command") != PLACEHOLDER_COMMAND:
+        raise AssertionError(f"empty respawn did not preserve tmux start metadata: {empty_respawn_params!r}")
+    state.respawn_params.clear()
+
     respawn = run_cli(
         cli_path,
         socket_path,
@@ -295,6 +336,37 @@ def assert_omo_split_is_listed_and_respawned(
         raise AssertionError(f"respawn did not update tmux start metadata: {respawn_params!r}")
     if state.sent_text:
         raise AssertionError(f"respawn must replace the pane, not send text: {state.sent_text!r}")
+
+
+def assert_caller_pane_respawn_uses_caller_surface(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+    state: FakeCmuxState,
+) -> None:
+    respawn = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "respawn-pane",
+            "-k",
+            "-t",
+            f"%{PANE_ID}",
+            ATTACH_COMMAND,
+        ],
+    )
+    assert_success(respawn, "caller pane respawn-pane")
+    if len(state.respawn_params) != 1:
+        raise AssertionError(f"expected caller pane respawn to call surface.respawn: {state.respawn_params!r}")
+    respawn_params = state.respawn_params[0]
+    if respawn_params.get("surface_id") != SURFACE_ID:
+        raise AssertionError(
+            "caller pane respawn should prefer CMUX_SURFACE_ID over the pane's selected tab: "
+            f"{respawn_params!r}"
+        )
+    state.respawn_params.clear()
 
 
 def assert_public_respawn_uses_same_surface_lifecycle(
@@ -348,6 +420,12 @@ def main() -> int:
             fake_home.mkdir(parents=True, exist_ok=True)
 
             try:
+                assert_caller_pane_respawn_uses_caller_surface(
+                    cli_path,
+                    socket_path,
+                    fake_home,
+                    state,
+                )
                 assert_omo_split_is_listed_and_respawned(
                     cli_path,
                     socket_path,
