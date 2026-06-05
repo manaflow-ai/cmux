@@ -5957,9 +5957,7 @@ function pastedColorSourceFromPayload(payload) {
 }
 
 function refreshAppearanceSettingsForColorChange(options = {}) {
-  if (options.render !== false && state.inspectorMode === "settings" && state.settingsCategory === "appearance") {
-    scheduleAppearancePreviewRefresh();
-  }
+  refreshColorApplicationSettings(options);
 }
 
 async function applySavedColorToTarget(color, target = state.colorApplyTarget, options = {}) {
@@ -5989,7 +5987,7 @@ async function applySavedColorToTarget(color, target = state.colorApplyTarget, o
       toast("Workspace already uses this color.");
       return false;
     }
-    await setWorkspaceColor(normalized, workspace.id);
+    await setWorkspaceColor(normalized, workspace.id, { render: false });
     refreshAppearanceSettingsForColorChange(options);
     toast("Workspace color updated.");
     return true;
@@ -6031,7 +6029,7 @@ async function applySavedColorEverywhere(color, workspace = activeWorkspace(), o
     changed.push("accent");
   }
   if (!model.workspaceActive) {
-    await setWorkspaceColor(model.normalized, workspace.id);
+    await setWorkspaceColor(model.normalized, workspace.id, { render: false });
     changed.push("workspace");
   }
   const paneUpdates = (workspace.panels || [])
@@ -6163,7 +6161,7 @@ async function resetColorTarget(target = state.colorApplyTarget, options = {}) {
     return true;
   }
   if (scope === "workspace") {
-    const ok = await setWorkspaceColor("", workspace.id);
+    const ok = await setWorkspaceColor("", workspace.id, { render: false });
     if (!ok) {
       toast("Workspace color could not be reset.");
       return false;
@@ -15791,7 +15789,7 @@ function renderSettingsInspector(options = {}) {
     const workspaceSection = settingsSection("Workspace");
     workspaceSection.append(workspaceSettingsPreviewPanel(workspace));
     workspaceSection.append(workspaceNamingPanel(workspace));
-    workspaceSection.append(settingRow("Active pane", activePaneSettingsPanel(workspace), true, "active pane tab terminal browser rename color text split duplicate"));
+    workspaceSection.append(workspaceActivePaneSettingRow(workspace));
     const titleInput = document.createElement("input");
     titleInput.className = "setting-control";
     titleInput.value = workspace?.title || "";
@@ -15983,51 +15981,8 @@ function renderSettingsInspector(options = {}) {
     workspaceSection.append(folderActions);
     workspaceSection.append(recentFoldersDisclosurePanel());
     workspaceSection.append(workspaceStartersDisclosurePanel());
-    workspaceSection.append(settingRow(
-      "Color",
-      colorControlPanel({
-        colors: workspaceColorPalette(),
-        activeColor: workspace?.color,
-        fallbackColor: state.settings.accent,
-        onPick: (color) => setWorkspaceColor(color),
-        onClear: () => clearWorkspaceColor(workspace),
-        clearLabel: "Default",
-        clearDisabled: !workspace?.color,
-        copyLabel: "Copy",
-        copyTitle: colorCopyTitle(workspace?.color, state.settings.accent, "Copy this workspace color value."),
-        copyToast: "Workspace color copied.",
-        saveLabel: "Save",
-        targetLabel: "Workspace",
-        targetMeta: workspace ? workspaceDisplayTitle(workspace) : "No workspace selected",
-        searchTerms: "workspace custom color hex picker copy clipboard reset default clear"
-      }),
-      true,
-      "workspace color custom hex picker palette swatch copy clipboard reset default clear"
-    ));
-    const paneColorSuggestion = workspacePaneColorSuggestion(workspace);
-    const workspaceHasPaneColors = workspacePaneColorsDirty(workspace);
-    const workspaceColorSyncActions = document.createElement("div");
-    workspaceColorSyncActions.className = "settings-actions";
-    workspaceColorSyncActions.dataset.settingsSearch = workspacePaneColorSyncActionSearchText("actions", workspace);
-    const usePaneColor = settingsActionButton("Use pane color", () => setWorkspaceColorFromActivePane(workspace), "", workspacePaneColorSyncActionSearchText("usePane", workspace));
-    usePaneColor.disabled = !workspace || !paneColorSuggestion || paneColorSuggestion === workspace.color;
-    usePaneColor.title = workspacePaneColorSyncActionTitle("usePane", workspace);
-    const useAppAccentColor = settingsActionButton("Use app accent", () => setWorkspaceColorFromAppAccent(workspace), "", workspacePaneColorSyncActionSearchText("useAccent", workspace));
-    useAppAccentColor.disabled = !workspace || colorKey(workspace.color) === colorKey(state.settings.accent);
-    useAppAccentColor.title = workspacePaneColorSyncActionTitle("useAccent", workspace);
-    const useWorkspaceColor = settingsActionButton("Use workspace color", () => setWorkspacePaneColorsFromWorkspace(workspace), "", workspacePaneColorSyncActionSearchText("useWorkspace", workspace));
-    useWorkspaceColor.disabled = !workspace || !workspace.panels.length || workspacePaneColorsMatchWorkspace(workspace);
-    useWorkspaceColor.title = workspacePaneColorSyncActionTitle("useWorkspace", workspace);
-    const resetPaneColors = settingsActionButton("Reset pane colors", () => clearWorkspacePaneColors(workspace), "", workspacePaneColorSyncActionSearchText("resetPanes", workspace));
-    resetPaneColors.disabled = !workspace || !workspaceHasPaneColors;
-    resetPaneColors.title = workspacePaneColorSyncActionTitle("resetPanes", workspace);
-    workspaceColorSyncActions.append(usePaneColor, useAppAccentColor, useWorkspaceColor, resetPaneColors);
-    workspaceSection.append(settingRow(
-      "Color sync",
-      workspaceColorSyncActions,
-      true,
-      workspacePaneColorSyncActionSearchText("actions", workspace, "settings row controls use app accent use workspace color")
-    ));
+    workspaceSection.append(workspaceColorSettingRow(workspace));
+    workspaceSection.append(workspaceColorSyncSettingRow(workspace));
     workspaceSection.append(settingRow(
       "Terminal backgrounds",
       workspaceTerminalBackgroundSettingsPanel(workspace),
@@ -21066,6 +21021,110 @@ function workspaceSettingsPreviewPanel(workspace) {
   preview.querySelector("[data-workspace-preview-panes]").textContent = panelSummary;
   preview.querySelector("[data-workspace-preview-active]").textContent = active ? `${panelType} / ${panelPath}` : "None";
   return preview;
+}
+
+function workspaceActivePaneSettingRow(workspace = activeWorkspace()) {
+  const row = settingRow("Active pane", activePaneSettingsPanel(workspace), true, "active pane tab terminal browser rename color text split duplicate");
+  row.dataset.workspaceActivePaneSettings = "true";
+  return row;
+}
+
+function workspaceColorSettingRow(workspace = activeWorkspace()) {
+  const row = settingRow(
+    "Color",
+    colorControlPanel({
+      colors: workspaceColorPalette(),
+      activeColor: workspace?.color,
+      fallbackColor: state.settings.accent,
+      onPick: (color) => setWorkspaceColor(color),
+      onClear: () => clearWorkspaceColor(workspace),
+      clearLabel: "Default",
+      clearDisabled: !workspace?.color,
+      copyLabel: "Copy",
+      copyTitle: colorCopyTitle(workspace?.color, state.settings.accent, "Copy this workspace color value."),
+      copyToast: "Workspace color copied.",
+      saveLabel: "Save",
+      targetLabel: "Workspace",
+      targetMeta: workspace ? workspaceDisplayTitle(workspace) : "No workspace selected",
+      searchTerms: "workspace custom color hex picker copy clipboard reset default clear"
+    }),
+    true,
+    "workspace color custom hex picker palette swatch copy clipboard reset default clear"
+  );
+  row.dataset.workspaceColorSettings = "true";
+  return row;
+}
+
+function workspaceColorSyncSettingRow(workspace = activeWorkspace()) {
+  const paneColorSuggestion = workspacePaneColorSuggestion(workspace);
+  const workspaceHasPaneColors = workspacePaneColorsDirty(workspace);
+  const actions = document.createElement("div");
+  actions.className = "settings-actions";
+  actions.dataset.settingsSearch = workspacePaneColorSyncActionSearchText("actions", workspace);
+  const usePaneColor = settingsActionButton("Use pane color", () => setWorkspaceColorFromActivePane(workspace), "", workspacePaneColorSyncActionSearchText("usePane", workspace));
+  usePaneColor.disabled = !workspace || !paneColorSuggestion || paneColorSuggestion === workspace.color;
+  usePaneColor.title = workspacePaneColorSyncActionTitle("usePane", workspace);
+  const useAppAccentColor = settingsActionButton("Use app accent", () => setWorkspaceColorFromAppAccent(workspace), "", workspacePaneColorSyncActionSearchText("useAccent", workspace));
+  useAppAccentColor.disabled = !workspace || colorKey(workspace.color) === colorKey(state.settings.accent);
+  useAppAccentColor.title = workspacePaneColorSyncActionTitle("useAccent", workspace);
+  const useWorkspaceColor = settingsActionButton("Use workspace color", () => setWorkspacePaneColorsFromWorkspace(workspace), "", workspacePaneColorSyncActionSearchText("useWorkspace", workspace));
+  useWorkspaceColor.disabled = !workspace || !workspace.panels.length || workspacePaneColorsMatchWorkspace(workspace);
+  useWorkspaceColor.title = workspacePaneColorSyncActionTitle("useWorkspace", workspace);
+  const resetPaneColors = settingsActionButton("Reset pane colors", () => clearWorkspacePaneColors(workspace), "", workspacePaneColorSyncActionSearchText("resetPanes", workspace));
+  resetPaneColors.disabled = !workspace || !workspaceHasPaneColors;
+  resetPaneColors.title = workspacePaneColorSyncActionTitle("resetPanes", workspace);
+  actions.append(usePaneColor, useAppAccentColor, useWorkspaceColor, resetPaneColors);
+  const row = settingRow(
+    "Color sync",
+    actions,
+    true,
+    workspacePaneColorSyncActionSearchText("actions", workspace, "settings row controls use app accent use workspace color")
+  );
+  row.dataset.workspaceColorSyncSettings = "true";
+  return row;
+}
+
+function refreshWorkspaceColorSettingsControls() {
+  const workspace = activeWorkspace();
+  let changed = false;
+  for (const preview of elements.inspectorBody.querySelectorAll(".workspace-settings-preview")) {
+    preview.replaceWith(workspaceSettingsPreviewPanel(workspace));
+    changed = true;
+  }
+  for (const row of elements.inspectorBody.querySelectorAll("[data-workspace-active-pane-settings]")) {
+    row.replaceWith(workspaceActivePaneSettingRow(workspace));
+    changed = true;
+  }
+  for (const row of elements.inspectorBody.querySelectorAll("[data-workspace-color-settings]")) {
+    row.replaceWith(workspaceColorSettingRow(workspace));
+    changed = true;
+  }
+  for (const row of elements.inspectorBody.querySelectorAll("[data-workspace-color-sync-settings]")) {
+    row.replaceWith(workspaceColorSyncSettingRow(workspace));
+    changed = true;
+  }
+  return changed;
+}
+
+function refreshColorApplicationSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  if (state.settingsCategory === "appearance") {
+    scheduleAppearancePreviewRefresh();
+    return;
+  }
+  if (state.settingsCategory === "workspace" && !searching) {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode !== "settings" || state.settingsCategory !== "workspace" || normalizeSettingsQuery(state.settingsQuery)) return;
+      refreshWorkspaceColorSettingsControls();
+    });
+    return;
+  }
+  if (state.settingsCategory === "quick" && !searching) {
+    scheduleQuickSettingsRefresh();
+    return;
+  }
+  if (searching) scheduleSettingsInspectorRender({ ifChanged: true });
 }
 
 function workspaceNamingPanel(workspace) {
@@ -31608,12 +31667,12 @@ async function setWorkspacePaneColors(color, workspace = activeWorkspace(), opti
     panelId: panel.id,
     updates: { color: targetColor }
   })));
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshColorApplicationSettings(options);
   toast(`${panels.length} pane${panels.length === 1 ? "" : "s"} updated.`);
   return true;
 }
 
-async function clearWorkspacePaneColors(workspace = activeWorkspace()) {
+async function clearWorkspacePaneColors(workspace = activeWorkspace(), options = {}) {
   if (!workspace || workspace.panels.length === 0) {
     toast("Open a pane before clearing pane colors.");
     return false;
@@ -31627,7 +31686,7 @@ async function clearWorkspacePaneColors(workspace = activeWorkspace()) {
     panelId: panel.id,
     updates: { color: "" }
   })));
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  refreshColorApplicationSettings(options);
   toast(`${panels.length} pane${panels.length === 1 ? "" : "s"} cleared.`);
   return true;
 }
@@ -40240,10 +40299,12 @@ async function createWorkspaceFromStarter(starterId) {
   }
 }
 
-async function setWorkspaceColor(color, workspaceId = activeWorkspace()?.id) {
+async function setWorkspaceColor(color, workspaceId = activeWorkspace()?.id, options = {}) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return;
-  return await updateWorkspace(workspace.id, { color });
+  const ok = await updateWorkspace(workspace.id, { color });
+  if (ok) refreshColorApplicationSettings(options);
+  return ok;
 }
 
 function workspaceColorSourcePane(workspace = activeWorkspace()) {
