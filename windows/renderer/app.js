@@ -10288,7 +10288,7 @@ function scheduleRender(previousState = null) {
   });
 }
 
-function render(previousState) {
+function render(previousState, options = {}) {
   if (!state.data) return;
   state.dataSignature = appStateSignature(state.data);
   if (state.resizing) {
@@ -10331,7 +10331,9 @@ function render(previousState) {
     && state.inspectorMode === "settings"
   );
   state.deferSettingsInspectorForWorkspaceSwitch = false;
-  renderInspector({ deferSettings: deferSettingsInspector });
+  if (!(options.skipSettingsInspector && state.inspectorMode === "settings")) {
+    renderInspector({ deferSettings: deferSettingsInspector });
+  }
   bumpPaletteEntriesCacheRevision();
   renderPalette();
   announceNewAttention(previousState, state.data);
@@ -21084,7 +21086,7 @@ function workspaceColorSyncSettingRow(workspace = activeWorkspace()) {
   return row;
 }
 
-function refreshWorkspaceColorSettingsControls() {
+function refreshWorkspaceActivePaneSettingsControls() {
   const workspace = activeWorkspace();
   let changed = false;
   for (const preview of elements.inspectorBody.querySelectorAll(".workspace-settings-preview")) {
@@ -21095,15 +21097,38 @@ function refreshWorkspaceColorSettingsControls() {
     row.replaceWith(workspaceActivePaneSettingRow(workspace));
     changed = true;
   }
-  for (const row of elements.inspectorBody.querySelectorAll("[data-workspace-color-settings]")) {
-    row.replaceWith(workspaceColorSettingRow(workspace));
-    changed = true;
-  }
   for (const row of elements.inspectorBody.querySelectorAll("[data-workspace-color-sync-settings]")) {
     row.replaceWith(workspaceColorSyncSettingRow(workspace));
     changed = true;
   }
   return changed;
+}
+
+function refreshWorkspaceColorSettingsControls() {
+  const workspace = activeWorkspace();
+  let changed = refreshWorkspaceActivePaneSettingsControls();
+  for (const row of elements.inspectorBody.querySelectorAll("[data-workspace-color-settings]")) {
+    row.replaceWith(workspaceColorSettingRow(workspace));
+    changed = true;
+  }
+  return changed;
+}
+
+function refreshActivePaneSetupSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  if (state.settingsCategory === "workspace" && !searching) {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode !== "settings" || state.settingsCategory !== "workspace" || normalizeSettingsQuery(state.settingsQuery)) return;
+      refreshWorkspaceActivePaneSettingsControls();
+    });
+    return;
+  }
+  if (state.settingsCategory === "quick" && !searching) {
+    scheduleQuickSettingsRefresh();
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
 }
 
 function refreshColorApplicationSettings(options = {}) {
@@ -21675,8 +21700,12 @@ async function applyPaneSetupUpdates(updates, panel = focusedPanel() || activePa
     toast(options.alreadyText || "Pane setup already matches.");
     return false;
   }
-  if (needsRender) render();
-  else if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  if (needsRender) {
+    render(undefined, {
+      skipSettingsInspector: state.inspectorMode === "settings"
+    });
+  }
+  refreshActivePaneSetupSettings(options);
   toast(options.toastText || "Pane setup applied.");
   return true;
 }
