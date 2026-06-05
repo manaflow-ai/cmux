@@ -18349,7 +18349,7 @@ function applyLookPack(packId, options = {}) {
     toast(`${pack.label} look already active.`);
     return false;
   }
-  if (options.render !== false) renderSettingsInspector();
+  refreshAppearanceLookSettings(options);
   toast(`${pack.label} look applied.`);
   return true;
 }
@@ -18468,6 +18468,21 @@ function refreshAccentColorControls() {
   }
 }
 
+function refreshAppearanceSettingControls() {
+  for (const key of ["accentIntensity", "surfaceTint", "interfaceContrast", "interfaceDepth"]) {
+    refreshSettingSegmentedControl(key);
+  }
+}
+
+function refreshAppearanceLookSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "appearance") {
+    scheduleAppearancePreviewRefresh();
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 function refreshAppearanceActions() {
   const cycleLook = elements.inspectorBody.querySelector('[data-appearance-action="cycle-look"]');
   if (cycleLook) {
@@ -18506,6 +18521,7 @@ function refreshAppearancePreview() {
   if (themeSelect && themeSelect.value !== state.settings.theme) themeSelect.value = state.settings.theme;
   refreshThemeAccentControl();
   refreshAccentColorControls();
+  refreshAppearanceSettingControls();
   for (const card of elements.inspectorBody.querySelectorAll("[data-theme-choice-card]")) {
     const theme = themeChoiceById(card.dataset.themeChoiceCard);
     updateThemeChoiceCard(card, theme);
@@ -20766,12 +20782,12 @@ function refreshBrowserSettingsPreview() {
 }
 
 function refreshSettingSegmentedControl(settingKey) {
-  const control = elements.inspectorBody.querySelector(`[data-setting-control="${settingKey}"]`);
-  if (!control) return;
-  for (const button of control.querySelectorAll("[data-setting-value]")) {
-    const active = button.dataset.settingValue === state.settings[settingKey];
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-checked", active ? "true" : "false");
+  for (const control of elements.inspectorBody.querySelectorAll(`.setting-segmented[data-setting-control="${settingKey}"]`)) {
+    for (const button of control.querySelectorAll("[data-setting-value]")) {
+      const active = button.dataset.settingValue === String(state.settings[settingKey]);
+      setClassNameIfChanged(button, `setting-segmented-option${active ? " is-active" : ""}`);
+      setAttributeIfChanged(button, "aria-checked", active ? "true" : "false");
+    }
   }
 }
 
@@ -42037,7 +42053,7 @@ function applyLookSettingsUpdates(updates, options = {}) {
     toast("Look settings already match.");
     return false;
   }
-  if (options.render !== false) renderSettingsInspector();
+  refreshAppearanceLookSettings(options);
   toast(options.toastText || "Look settings applied.");
   return true;
 }
@@ -42117,7 +42133,7 @@ function resetAppearanceSettings(options = {}) {
     toast("Look settings already reset.");
     return false;
   }
-  if (options.render !== false) renderSettingsInspector();
+  refreshAppearanceLookSettings(options);
   toast("Look settings reset.");
   return true;
 }
