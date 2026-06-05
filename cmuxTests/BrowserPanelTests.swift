@@ -665,6 +665,9 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         let assetURL = rootURL
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent("mod.mjs", isDirectory: false)
+        let workerAssetURL = rootURL
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent("worker.js", isDirectory: false)
         let indexURL = rootURL.appendingPathComponent("index.html", isDirectory: false)
         try FileManager.default.createDirectory(at: assetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -673,14 +676,18 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         export const marker = "module-ok";
         """.write(to: assetURL, atomically: true, encoding: .utf8)
         try """
+        export const workerMarker = "js-ok";
+        """.write(to: workerAssetURL, atomically: true, encoding: .utf8)
+        try """
         <!doctype html>
         <html>
         <body>
         <script type="module">
           import { marker } from "./assets/mod.mjs";
+          import { workerMarker } from "./assets/worker.js";
           WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))
             .then(() => {
-              const result = `${marker}:wasm-ok`;
+              const result = `${marker}:${workerMarker}:wasm-ok`;
               document.body.dataset.loaded = result;
               window.webkit.messageHandlers.moduleLoaded.postMessage(result);
             })
@@ -701,6 +708,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
             files: [
                 .init(requestPath: "/index.html", fileURL: indexURL, mimeType: "text/html"),
                 .init(requestPath: "/assets/mod.mjs", fileURL: assetURL, mimeType: "text/javascript"),
+                .init(requestPath: "/assets/worker.js", fileURL: workerAssetURL, mimeType: "text/javascript"),
                 .init(requestPath: "/index.patch", fileURL: patchURL, mimeType: "text/x-diff"),
             ]
         )
@@ -735,12 +743,12 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         wait(for: [loaded], timeout: 3)
         XCTAssertNil(delegate.error)
         wait(for: [moduleLoaded], timeout: 3)
-        XCTAssertEqual(moduleHandler.body as? String, "module-ok:wasm-ok")
+        XCTAssertEqual(moduleHandler.body as? String, "module-ok:js-ok:wasm-ok")
 
         let evaluated = expectation(description: "module evaluated")
         webView.evaluateJavaScript("document.body.dataset.loaded || ''") { value, error in
             XCTAssertNil(error)
-            XCTAssertEqual(value as? String, "module-ok:wasm-ok")
+            XCTAssertEqual(value as? String, "module-ok:js-ok:wasm-ok")
             evaluated.fulfill()
         }
         wait(for: [evaluated], timeout: 3)

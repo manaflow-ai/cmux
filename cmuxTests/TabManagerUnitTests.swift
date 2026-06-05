@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import CmuxGit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -59,6 +60,75 @@ private func waitForCondition(
         return false
     }
     return true
+}
+
+private func restoreUserDefaultForTabManagerTests(_ value: Any?, key: String) {
+    let defaults = UserDefaults.standard
+    if let value {
+        defaults.set(value, forKey: key)
+    } else {
+        defaults.removeObject(forKey: key)
+    }
+}
+
+private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
+    private let metadata: GitWorkspaceMetadata
+    private var callCount = 0
+    private var maxActiveCallCount = 0
+    private var activeCallCount = 0
+    private var callCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    init(metadata: GitWorkspaceMetadata) {
+        self.metadata = metadata
+    }
+
+    func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        callCount += 1
+        activeCallCount += 1
+        maxActiveCallCount = max(maxActiveCallCount, activeCallCount)
+        resumeSatisfiedCallCountWaiters()
+        await withCheckedContinuation { continuation in
+            releaseContinuations.append(continuation)
+        }
+        activeCallCount -= 1
+        return metadata
+    }
+
+    func waitForCallCount(_ expected: Int) async {
+        guard callCount < expected else { return }
+        await withCheckedContinuation { continuation in
+            callCountWaiters.append((expected, continuation))
+        }
+    }
+
+    func releaseAll() {
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
+    var observedCallCount: Int {
+        callCount
+    }
+
+    var observedMaxActiveCallCount: Int {
+        maxActiveCallCount
+    }
+
+    private func resumeSatisfiedCallCountWaiters() {
+        var remaining: [(Int, CheckedContinuation<Void, Never>)] = []
+        for waiter in callCountWaiters {
+            if callCount >= waiter.0 {
+                waiter.1.resume()
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        callCountWaiters = remaining
+    }
 }
 
 private struct ProcessRunResult {
@@ -671,6 +741,95 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id),
             Set([panelId])
         )
+    }
+
+    func testSameDirectoryInitialGitMetadataProbesShareOneSnapshotRead() async throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefaultForTabManagerTests(
+                previousWatchGitStatus,
+                key: SidebarWorkspaceDetailDefaults.watchGitStatusKey
+            )
+        }
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-git-coalesced-probes-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        let reader = BlockingWorkspaceGitMetadataReader(
+            metadata: GitWorkspaceMetadata(
+                isRepository: true,
+                branch: "main",
+                isDirty: false,
+                indexSignature: "index",
+                indexContentSignature: "content",
+                headSignature: "head"
+            )
+        )
+        defer {
+            Task {
+                await reader.releaseAll()
+            }
+        }
+
+        let manager = TabManager(workspaceGitMetadataReader: reader)
+        guard let workspace = manager.selectedWorkspace,
+              let mainPanelId = workspace.focusedPanelId,
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let splitPanel = workspace.newTerminalSplit(from: mainPanelId, orientation: .horizontal, focus: false),
+              let tabPanel = workspace.newTerminalSurface(inPane: paneId) else {
+            XCTFail("Expected selected workspace with three terminal panels")
+            return
+        }
+
+        let panelIds = [mainPanelId, splitPanel.id, tabPanel.id]
+        for panelId in panelIds {
+            manager.updateSurfaceDirectory(
+                tabId: workspace.id,
+                surfaceId: panelId,
+                directory: directoryURL.path
+            )
+        }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+
+        let firstRead = expectation(description: "first git snapshot read started")
+        Task {
+            await reader.waitForCallCount(1)
+            firstRead.fulfill()
+        }
+        await fulfillment(of: [firstRead], timeout: 1.0)
+
+        let uncoalescedSecondRead = expectation(description: "uncoalesced second git snapshot read")
+        uncoalescedSecondRead.isInverted = true
+        Task {
+            await reader.waitForCallCount(2)
+            uncoalescedSecondRead.fulfill()
+        }
+        await fulfillment(of: [uncoalescedSecondRead], timeout: 0.2)
+
+        let observedCallCount = await reader.observedCallCount
+        let observedMaxActiveCallCount = await reader.observedMaxActiveCallCount
+        XCTAssertEqual(observedCallCount, 1)
+        XCTAssertEqual(observedMaxActiveCallCount, 1)
+
+        await reader.releaseAll()
+        XCTAssertTrue(
+            waitForCondition {
+                panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" }
+            },
+            "One same-directory snapshot should update every queued panel."
+        )
+        let finalObservedCallCount = await reader.observedCallCount
+        XCTAssertEqual(finalObservedCallCount, 1)
     }
 
     func testTrackedWorkspaceGitMetadataPollCandidatesExcludeDirectoriesWithoutResolvedGitMetadata() throws {
