@@ -16236,11 +16236,13 @@ function renderSettingsInspector(options = {}) {
     resetBrowserSetupAction.title = browserSetupDefault
       ? "Browser setup already uses defaults."
       : "Reset browser home, launch mode, external profile, inactive-pane suspension, pane chrome, and zoom to defaults.";
+    const saveBrowserProfile = applySettingsProfileSaveLimit(
+      settingsActionButton("Save browser profile", saveCurrentBrowserProfile, "primary", "browser save profile home page launch external chrome edge brave pane chrome tabs address controls full compact content zoom scale reusable"),
+      "Save this browser setup as a reusable Settings profile."
+    );
+    saveBrowserProfile.dataset.browserAction = "save-profile";
     homeActions.append(
-      applySettingsProfileSaveLimit(
-        settingsActionButton("Save browser profile", saveCurrentBrowserProfile, "primary", "browser save profile home page launch external chrome edge brave pane chrome tabs address controls full compact content zoom scale reusable"),
-        "Save this browser setup as a reusable Settings profile."
-      ),
+      saveBrowserProfile,
       cycleBrowserHome,
       cycleBrowserPaneView,
       cycleBrowserWorkflow,
@@ -20810,6 +20812,27 @@ function refreshBrowserSettingsPreview() {
   refreshBrowserWorkflowPresetGrid();
   refreshRecentBrowserHomeActions();
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function refreshBrowserProfileSaveControls() {
+  const saveProfile = elements.inspectorBody.querySelector('[data-browser-action="save-profile"]');
+  if (saveProfile) {
+    applySettingsProfileSaveLimit(saveProfile, "Save this browser setup as a reusable Settings profile.");
+    setSettingsSearchIfChanged(saveProfile, `browser save profile home page launch external chrome edge brave pane chrome tabs address controls full compact content zoom scale reusable ${savedSettingsProfileCountLabel()} ${savedSettingsProfilesFull() ? "limit full unavailable " : "ready "}`);
+  }
+  refreshBrowserHomePresetGrid();
+  refreshBrowserWorkflowPresetGrid();
+  refreshRecentBrowserHomeActions();
+  if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function refreshBrowserProfileSaveSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "browser") {
+    refreshBrowserProfileSaveControls();
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
 }
 
 function refreshSettingSegmentedControl(settingKey) {
@@ -34868,23 +34891,26 @@ function saveTerminalColorPresetProfile(presetId) {
   return saved;
 }
 
-function saveCurrentBrowserProfile(options = {}) {
-  return saveCurrentSettingsProfile({
+async function saveCurrentBrowserProfile(options = {}) {
+  const saved = await saveCurrentSettingsProfile({
     title: "Save browser profile",
     message: "Save the current browser home page, launch mode, external profile, suspend setting, pane chrome, and pane zoom.",
     baseName: "Browser profile",
-    ...options
+    ...options,
+    render: false
   });
+  if (saved) refreshBrowserProfileSaveSettings(options);
+  return saved;
 }
 
-function saveBrowserProfileForHome(url = state.recentBrowserPages[0], options = {}) {
+async function saveBrowserProfileForHome(url = state.recentBrowserPages[0], options = {}) {
   const homeUrl = normalizeBrowserPageUrl(url);
   if (!homeUrl) {
     toast("Choose a browser page first.");
     return null;
   }
   const host = hostnameOf(homeUrl) || "Browser";
-  return saveCurrentSettingsProfile({
+  const saved = await saveCurrentSettingsProfile({
     title: "Save browser profile",
     message: `Save ${host} as a browser setup with the current launch mode, external profile, suspend setting, pane chrome, and pane zoom.`,
     value: defaultSettingsProfileName(`Browser: ${host}`),
@@ -34893,11 +34919,14 @@ function saveBrowserProfileForHome(url = state.recentBrowserPages[0], options = 
       browserHomeUrl: homeUrl
     },
     toastText: "Browser profile saved.",
-    ...options
+    ...options,
+    render: false
   });
+  if (saved) refreshBrowserProfileSaveSettings(options);
+  return saved;
 }
 
-function saveBrowserHomePresetProfile(presetId) {
+function saveBrowserHomePresetProfile(presetId, options = {}) {
   const preset = browserHomePresetById(presetId);
   if (!preset) {
     toast("Browser home preset not found.");
@@ -34919,12 +34948,12 @@ function saveBrowserHomePresetProfile(presetId) {
     createdAt: Date.now()
   });
   if (!saved) return null;
-  renderSettingsInspector();
+  refreshBrowserProfileSaveSettings(options);
   toast(`${saved.label} profile saved.`);
   return saved;
 }
 
-function saveBrowserWorkflowPresetProfile(presetId) {
+function saveBrowserWorkflowPresetProfile(presetId, options = {}) {
   const preset = browserWorkflowPresetById(presetId);
   if (!preset) {
     toast("Browser workflow preset not found.");
@@ -34946,7 +34975,7 @@ function saveBrowserWorkflowPresetProfile(presetId) {
     createdAt: Date.now()
   });
   if (!saved) return null;
-  renderSettingsInspector();
+  refreshBrowserProfileSaveSettings(options);
   toast(`${saved.label} profile saved.`);
   return saved;
 }
