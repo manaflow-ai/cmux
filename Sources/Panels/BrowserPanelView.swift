@@ -4052,7 +4052,7 @@ final class OmnibarNativeTextField: NSTextField {
         ), let editor = currentEditor() as? NSTextView else {
             return
         }
-        editor.setSelectedRange(NSRange(location: 0, length: (editor.string as NSString).length))
+        editor.setSelectedRange(NSRange(location: 0, length: editor.string.utf16.count))
     }
 
     private func insertionIndex(for event: NSEvent, in editor: NSTextView) -> Int {
