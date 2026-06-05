@@ -4611,7 +4611,7 @@ async function saveCurrentBackgroundSetToLibrary(workspace = activeWorkspace(), 
     toast(failedCount ? "Current backgrounds could not be saved." : "Current background set is already saved.");
     return false;
   }
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshSavedBackgroundLibrarySettings(options);
   if (failedCount) {
     toast(`${savedCount} background${savedCount === 1 ? "" : "s"} saved. ${failedCount} could not be loaded.`);
   } else {
@@ -4642,6 +4642,15 @@ function applySavedBackgroundImageCapacityLimit(button, availableTitle = "Save a
   return button;
 }
 
+function refreshSavedBackgroundLibrarySettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "appearance") {
+    refreshBackgroundLibraryPanels();
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 function upsertSavedBackgroundImage(background, options = {}) {
   const normalized = normalizeSavedBackgroundImage(background);
   if (!normalized) {
@@ -4663,7 +4672,7 @@ function upsertSavedBackgroundImage(background, options = {}) {
     ))
   ];
   saveSavedBackgroundImages();
-  if (options.render !== false) renderSettingsInspector();
+  refreshSavedBackgroundLibrarySettings(options);
   if (options.toast !== false) toast(replacing ? "Saved background updated." : "Background saved.");
   return state.savedBackgroundImages[0];
 }
@@ -4858,7 +4867,7 @@ function applySavedBackgroundImageImports(backgrounds, options = {}) {
     if (upsertSavedBackgroundImage(background, { render: false, toast: false })) savedCount += 1;
   }
   if (savedCount > 0) {
-    if (options.render !== false) renderSettingsInspector();
+    refreshSavedBackgroundLibrarySettings(options);
     toast(skippedCount
       ? `Saved ${savedCount} background${savedCount === 1 ? "" : "s"}; ${skippedCount} skipped by limit.`
       : `${savedCount} background${savedCount === 1 ? "" : "s"} saved.`);
@@ -6701,7 +6710,7 @@ async function renameSavedBackgroundImage(backgroundId) {
   upsertSavedBackgroundImage({ ...background, label, createdAt: background.createdAt });
 }
 
-async function deleteSavedBackgroundImage(backgroundId) {
+async function deleteSavedBackgroundImage(backgroundId, options = {}) {
   const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
   if (!background) return;
   if (!await showConfirmDialog({
@@ -6712,7 +6721,7 @@ async function deleteSavedBackgroundImage(backgroundId) {
   })) return;
   state.savedBackgroundImages = state.savedBackgroundImages.filter((candidate) => candidate.id !== backgroundId);
   saveSavedBackgroundImages();
-  renderSettingsInspector();
+  refreshSavedBackgroundLibrarySettings(options);
   toast("Saved background deleted.");
 }
 
