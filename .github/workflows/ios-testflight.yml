@@ -16,8 +16,10 @@ on:
         default: false
         type: boolean
   schedule:
-    # Nightly at 09:10 UTC. The decide job skips the run when main has had no
-    # new commits in the last 24h so we don't re-upload an unchanged build.
+    # Nightly at 09:10 UTC. The decide job skips the run only when the current
+    # main HEAD was already uploaded by a prior successful run (SHA compare, not
+    # a wall-clock window), so a failed or missed nightly retries the
+    # not-yet-uploaded commit instead of permanently stranding it.
     - cron: "10 9 * * *"
 
 concurrency:
@@ -27,6 +29,8 @@ concurrency:
 
 permissions:
   contents: read
+  # decide reads this workflow's prior run history to find the last uploaded SHA.
+  actions: read
 
 jobs:
   decide:
@@ -46,31 +50,37 @@ jobs:
             const { owner, repo } = context.repo;
 
             // workflow_dispatch always builds (the operator asked for it).
-            // Scheduled runs build only when the default branch has had at least
-            // one new commit in the last ~24h, unless force is set.
-            let hasRecentCommits = true;
-            let recentCount = 0;
+            // Scheduled runs build unless the current commit has ALREADY been
+            // uploaded by a prior successful run. We compare HEAD to the head_sha
+            // of the most recent successful run of this workflow, not a wall-clock
+            // window: a failed or missed nightly leaves the last success on an
+            // older SHA, so the next run retries the un-uploaded commit instead of
+            // stranding it. A successful run either uploaded HEAD or correctly
+            // skipped an already-uploaded HEAD, so its head_sha is always an
+            // uploaded commit.
+            let needsBuild = true;
+            let lastUploadedSha = null;
             if (!forceBuild && context.eventName === 'schedule') {
-              const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-              const commits = await github.rest.repos.listCommits({
+              const runs = await github.rest.actions.listWorkflowRuns({
                 owner,
                 repo,
-                sha: 'main',
-                since,
+                workflow_id: 'ios-testflight.yml',
+                status: 'success',
                 per_page: 1,
               });
-              recentCount = commits.data.length;
-              hasRecentCommits = recentCount > 0;
+              lastUploadedSha = runs.data.workflow_runs[0]?.head_sha ?? null;
+              needsBuild = lastUploadedSha !== context.sha;
             }
 
-            const shouldBuild = forceBuild || context.eventName === 'workflow_dispatch' || hasRecentCommits;
+            const shouldBuild = forceBuild || context.eventName === 'workflow_dispatch' || needsBuild;
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
             core.summary
               .addHeading('iOS TestFlight upload decision')
               .addTable([
                 [{ data: 'event', header: true }, context.eventName],
                 [{ data: 'force', header: true }, String(forceBuild)],
-                [{ data: 'commits in last 24h (schedule only)', header: true }, String(recentCount)],
+                [{ data: 'head sha', header: true }, context.sha],
+                [{ data: 'last uploaded sha (schedule only)', header: true }, String(lastUploadedSha)],
                 [{ data: 'should build', header: true }, String(shouldBuild)],
               ])
               .write();
