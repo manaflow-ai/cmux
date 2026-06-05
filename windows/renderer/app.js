@@ -18179,13 +18179,13 @@ function lookPackCycleModel() {
   };
 }
 
-function cycleLookPack() {
+function cycleLookPack(options = {}) {
   const model = lookPackCycleModel();
   if (model.disabled) {
     toast(model.title);
     return false;
   }
-  return applyLookPack(model.pack.id);
+  return applyLookPack(model.pack.id, options);
 }
 
 function savedSettingsProfileForLookPack(pack) {
@@ -18201,7 +18201,7 @@ function lookPackProfileSaveTitle(pack, savedProfile = savedSettingsProfileForLo
   return "Save this look pack as a reusable Settings profile.";
 }
 
-function applyLookPack(packId) {
+function applyLookPack(packId, options = {}) {
   const pack = lookPackById(packId);
   if (!pack) {
     toast("Look pack not found.");
@@ -18212,7 +18212,7 @@ function applyLookPack(packId) {
     toast(`${pack.label} look already active.`);
     return false;
   }
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast(`${pack.label} look applied.`);
   return true;
 }
@@ -25153,7 +25153,7 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
     const preset = workspaceChromePresetById(presetId);
     const settings = workspaceChromePresetSettings(preset);
     const active = Boolean(preset && isActiveWorkspaceChromePreset(preset));
-    return quickOverviewControlButton(label || preset?.label || presetId, () => refreshQuick(applyWorkspaceChromePreset(presetId)), {
+    return quickOverviewControlButton(label || preset?.label || presetId, () => refreshQuick(applyWorkspaceChromePreset(presetId, { render: false })), {
       disabled: !preset || active,
       title: preset ? workspaceChromePresetTitle(preset, active) : "Workspace chrome preset not found.",
       search: preset ? workspaceChromePresetSearchText(preset, settings) : `quick setup layout chrome preset ${presetId}`
@@ -25173,7 +25173,7 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
     presetAction("focus", "Focus"),
     presetAction("control", "Control room"),
     presetAction("default", "Default"),
-    quickOverviewControlButton("Cycle chrome", () => refreshQuick(cycleWorkspaceChromePreset()), {
+    quickOverviewControlButton("Cycle chrome", () => refreshQuick(cycleWorkspaceChromePreset({ render: false })), {
       disabled: chromeCycle.disabled,
       title: chromeCycle.title,
       search: `quick setup layout workspace chrome cycle next preset simple compact minimal focus control ${chromeCycle.search}`
@@ -25188,7 +25188,7 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
       title: "Apply copied layout setup and save any included pane blueprint.",
       search: "quick setup layout paste setup workspace chrome pane split blueprint toolbar top bar style button style ghost filled tab bar quiet banded sidebar rail tools home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud workspace row size density compact roomy active row selected color marker dot edge tint tab active selected underline status style quiet subtle solid corner radius divider grip line minimal new pane placement split direction right below down pane surface spacing gap gutter active pane highlight clipboard json"
     }),
-    quickOverviewControlButton("Reset chrome", () => refreshQuick(resetWorkspaceChrome()), {
+    quickOverviewControlButton("Reset chrome", () => refreshQuick(resetWorkspaceChrome({ render: false })), {
       disabled: workspaceChromeDefault,
       title: workspaceChromeDefault
         ? "Workspace chrome already matches the default setup."
@@ -25506,7 +25506,7 @@ function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount
       title: profilesFull ? settingsProfileLimitTitle() : "Save this terminal setup as a reusable Settings profile.",
       search: "quick setup terminal save profile reusable settings font color shell"
     }),
-    quickOverviewControlButton("Cycle text", cycleTerminalReadabilityPreset, {
+    quickOverviewControlButton("Cycle text", () => refreshQuickSettingsAfterAction(cycleTerminalReadabilityPreset({ render: false })), {
       disabled: readabilityCycle.disabled,
       title: readabilityCycle.title,
       search: `quick setup terminal readability cycle next preset typography font size line height ${readabilityCycle.search}`
@@ -25731,7 +25731,7 @@ function quickLookControlsPanel() {
       title: profilesFull ? settingsProfileLimitTitle() : "Save this look as a reusable Settings profile.",
       search: "quick setup look appearance save profile theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors reusable"
     }),
-    quickOverviewControlButton("Cycle look", () => refreshQuickSettingsAfterAction(cycleLookPack()), {
+    quickOverviewControlButton("Cycle look", () => refreshQuickSettingsAfterAction(cycleLookPack({ render: false })), {
       disabled: lookCycle.disabled,
       title: lookCycle.title,
       search: `quick setup look appearance cycle pack preset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors ${lookCycle.search}`
@@ -25780,7 +25780,7 @@ function quickLookPackControlsPanel() {
   const actions = lookPackDefinitions.map((pack) => {
     const active = pack === activePack || isActiveLookPack(pack);
     const summary = lookPackSummary(pack);
-    return quickOverviewControlButton(active ? "Active" : pack.label, () => applyLookPack(pack.id), {
+    return quickOverviewControlButton(active ? "Active" : pack.label, () => refreshQuickSettingsAfterAction(applyLookPack(pack.id, { render: false })), {
       disabled: active,
       title: active ? `${pack.label} look already active.` : `Apply ${pack.label} look.`,
       search: normalizeSettingsQuery(`quick setup look packs appearance theme accent intensity surface tint background chrome terminal apply ${active ? "active current " : ""}${pack.label} ${pack.body} ${summary}`)
@@ -31529,7 +31529,7 @@ function applyTerminalSetupUpdates(updates, options = {}) {
     toast(options.alreadyText || "Terminal setup already matches.");
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
   toast(options.toastText || "Terminal setup applied.");
   return true;
 }
@@ -31740,7 +31740,7 @@ function refreshTerminalReadabilityPresetGrid(root = elements.inspectorBody) {
   return changed;
 }
 
-function applyTerminalReadabilityPreset(presetId) {
+function applyTerminalReadabilityPreset(presetId, options = {}) {
   const preset = terminalReadabilityPresetById(presetId);
   const settings = terminalReadabilityPresetSettings(preset);
   if (!preset || !settings) {
@@ -31749,7 +31749,8 @@ function applyTerminalReadabilityPreset(presetId) {
   }
   return applyTerminalSetupUpdates(settings, {
     toastText: `${preset.label} terminal readability applied.`,
-    alreadyText: `${preset.label} terminal readability already active.`
+    alreadyText: `${preset.label} terminal readability already active.`,
+    ...options
   });
 }
 
@@ -31781,13 +31782,13 @@ function terminalReadabilityCycleModel() {
   };
 }
 
-function cycleTerminalReadabilityPreset() {
+function cycleTerminalReadabilityPreset(options = {}) {
   const model = terminalReadabilityCycleModel();
   if (model.disabled) {
     toast(model.title);
     return false;
   }
-  return applyTerminalReadabilityPreset(model.preset.id);
+  return applyTerminalReadabilityPreset(model.preset.id, options);
 }
 
 function saveTerminalReadabilityPresetProfile(presetId) {
@@ -40522,7 +40523,7 @@ function applyWorkspaceChromeUpdates(updates, options = {}) {
     toast(options.alreadyText || "Workspace chrome already matches.");
     return false;
   }
-  refreshLayoutSettings();
+  if (options.render !== false) refreshLayoutSettings();
   toast(options.toastText || "Workspace chrome applied.");
   return true;
 }
@@ -40631,13 +40632,13 @@ function workspaceChromePresetCycleModel() {
   };
 }
 
-function cycleWorkspaceChromePreset() {
+function cycleWorkspaceChromePreset(options = {}) {
   const model = workspaceChromePresetCycleModel();
   if (model.disabled) {
     toast(model.title);
     return false;
   }
-  return applyWorkspaceChromePreset(model.preset.id);
+  return applyWorkspaceChromePreset(model.preset.id, options);
 }
 
 function updateWorkspaceChromePresetButton(button, preset) {
@@ -40662,7 +40663,7 @@ function updateWorkspaceChromePresetButton(button, preset) {
   }
 }
 
-function applyWorkspaceChromePreset(presetId) {
+function applyWorkspaceChromePreset(presetId, options = {}) {
   const preset = workspaceChromePresetById(presetId);
   const settings = workspaceChromePresetSettings(preset);
   if (!preset || !settings) {
@@ -40671,7 +40672,8 @@ function applyWorkspaceChromePreset(presetId) {
   }
   return applyWorkspaceChromeUpdates(settings, {
     toastText: `${preset.label} chrome applied.`,
-    alreadyText: `${preset.label} chrome already active.`
+    alreadyText: `${preset.label} chrome already active.`,
+    ...options
   });
 }
 
@@ -40834,16 +40836,17 @@ function resetAppearanceSettings() {
   return true;
 }
 
-function resetWorkspaceChrome() {
+function resetWorkspaceChrome(options = {}) {
   const updates = {};
   for (const key of workspaceChromeSettings) updates[key] = defaultSettings[key];
   const changed = updateSettings(updates, { immediate: true });
   if (!changed) {
     toast("Workspace chrome already reset.");
-    return;
+    return false;
   }
-  refreshLayoutSettings();
+  if (options.render !== false) refreshLayoutSettings();
   toast("Workspace chrome reset.");
+  return true;
 }
 
 function resetCommandPaletteSettings() {
