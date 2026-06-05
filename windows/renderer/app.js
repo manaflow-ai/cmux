@@ -18001,11 +18001,22 @@ function refreshBackgroundLibraryPanels() {
     if (!refreshBackgroundPresetGrid(grid)) grid.replaceWith(backgroundPresetGrid());
   }
   for (const panel of elements.inspectorBody.querySelectorAll(".saved-background-panel")) {
-    const draft = panel.querySelector(".saved-background-input")?.value || "";
+    const previousInput = panel.querySelector(".saved-background-input");
+    const draft = previousInput?.value || "";
+    const restoreInputFocus = previousInput && document.activeElement === previousInput;
+    const selectionStart = restoreInputFocus ? previousInput.selectionStart : null;
+    const selectionEnd = restoreInputFocus ? previousInput.selectionEnd : null;
     const replacement = savedBackgroundImagesPanel();
     const input = replacement.querySelector(".saved-background-input");
     if (input && draft) input.value = draft;
     panel.replaceWith(replacement);
+    if (input && restoreInputFocus) {
+      input.focus({ preventScroll: true });
+      if (selectionStart !== null && selectionEnd !== null && typeof input.setSelectionRange === "function") {
+        const length = input.value.length;
+        input.setSelectionRange(Math.min(selectionStart, length), Math.min(selectionEnd, length));
+      }
+    }
   }
 }
 
