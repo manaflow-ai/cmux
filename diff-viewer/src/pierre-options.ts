@@ -140,12 +140,14 @@ export function fileTreeUnsafeCSS(): string {
       min-width: 0;
     }
     [data-item-section='decoration'] {
-      flex: 0 0 56px;
-      width: 56px;
-      min-width: 56px;
-      margin-inline-start: 4px;
+      flex: 0 0 auto;
+      min-width: 44px;
+      margin-inline-start: 2px;
+      justify-content: flex-end;
+      text-align: right;
     }
     [data-item-section='decoration'] > span {
+      display: inline-block;
       font-variant-numeric: tabular-nums;
     }
     [data-item-section='git'] {
