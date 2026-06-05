@@ -1273,7 +1273,7 @@ class TabManager: ObservableObject {
     // Runs external commands (currently the `gh auth token` probe). Injected so
     // tests can supply a fake without spawning a real process.
     private let commandRunner: any CommandRunning
-    private let browserFaviconStore: BrowserFaviconStore
+    let browserFaviconStore: BrowserFaviconStore
 
     // Reads on-disk git metadata (branch, dirty state, watched paths, remote
     // slugs) off the main actor. Stateless; the reads are pure functions of the
