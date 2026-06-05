@@ -7359,17 +7359,11 @@ extension BrowserPanel {
     }
 
     func captureAutomationVisibleViewportSnapshot() async throws -> NSImage {
-        guard let image = try await visualAutomationCaptureGate.run({
-            try await withVisualAutomationRenderLease(reason: "browser.screenshot") { webView, afterScreenUpdates in
-                try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
-                    from: webView,
-                    afterScreenUpdates: afterScreenUpdates
-                )
+        try await withCheckedThrowingContinuation { continuation in
+            captureAutomationVisibleViewportSnapshot { result in
+                continuation.resume(with: result)
             }
-        }) else {
-            throw BrowserScreenshotError.emptySnapshot
         }
-        return image
     }
 
     func captureAutomationVisibleViewportSnapshot(
@@ -7395,47 +7389,6 @@ extension BrowserPanel {
                 completion(result)
             }
         )
-    }
-
-    private func withVisualAutomationRenderLease<T>(
-        reason: String,
-        operation: (_ webView: WKWebView, _ afterScreenUpdates: Bool) async throws -> T
-    ) async throws -> T {
-        activeVisualAutomationCaptureCount += 1
-        cancelHiddenWebViewDiscard()
-
-        let expectedURLForRestoredWebView = restoredHistoryCurrentURL ?? currentURL
-        let restoredDiscardedWebView = restoreDiscardedWebViewIfNeeded(reason: "\(reason).restore")
-
-        defer {
-            activeVisualAutomationCaptureCount = max(0, activeVisualAutomationCaptureCount - 1)
-            refreshWebViewLifecycleState()
-            if activeVisualAutomationCaptureCount == 0, !isWebViewVisibleInUI {
-                scheduleHiddenWebViewDiscardIfNeeded(reason: "\(reason).finished")
-            }
-        }
-
-        let viewportSize = visualAutomationViewportSize()
-        let captureWebView = webView
-        if shouldUseOffscreenRenderHostForVisualAutomation {
-            return try await BrowserScreenshotWebViewSnapshotter.withOffscreenRenderHost(
-                captureWebView,
-                viewportSize: viewportSize,
-                expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil,
-                operation: {
-                    try await operation(captureWebView, false)
-                }
-            )
-        }
-
-        try await BrowserScreenshotWebViewSnapshotter.prepareForVisualCapture(
-            captureWebView,
-            expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil
-        )
-        // Automation snapshots should observe the frame that WebKit has already
-        // laid out and painted, not wait on an AppKit screen update that may
-        // never arrive while the app/window is not actively being displayed.
-        return try await operation(captureWebView, false)
     }
 
     private func withVisualAutomationRenderLease<T>(
