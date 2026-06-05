@@ -100,8 +100,7 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
 private func makeHiddenWebViewDiscardBlockerSnapshot(
     hasActiveMainFrameProvisionalNavigation: Bool = false,
     isVisualAutomationCaptureActive: Bool = false,
-    isCapturingMedia: Bool = false,
-    isPlayingMedia: Bool = false
+    isCapturingMedia: Bool = false
 ) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
     BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
         isClosing: false,
@@ -120,8 +119,7 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
         isReactGrabActive: false,
         isVisualAutomationCaptureActive: isVisualAutomationCaptureActive,
         hasPopups: false,
-        isCapturingMedia: isCapturingMedia,
-        isPlayingMedia: isPlayingMedia
+        isCapturingMedia: isCapturingMedia
     )
 }
 
@@ -173,41 +171,6 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
 
         XCTAssertFalse(manager.hasScheduledDiscard)
         XCTAssertEqual(delegate.discardRequestCount, 0)
-    }
-
-    // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5409:
-    // a hidden pane that is actively playing media (e.g. a backgrounded YouTube
-    // video) must be exempted from memory discard so switching workspaces does
-    // not stop playback or reload the page. The media_capture blocker only
-    // covers camera/mic capture, not <video>/<audio> playback.
-    func testActiveMediaPlaybackBlocksHiddenWebViewDiscardScheduling() {
-        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isPlayingMedia: true)
-        let manager = BrowserHiddenWebViewDiscardManager()
-        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
-        manager.delegate = delegate
-
-        XCTAssertEqual(manager.blockers(for: snapshot), ["media_playback"])
-
-        manager.scheduleIfNeeded(reason: "test.hidden")
-
-        XCTAssertFalse(manager.hasScheduledDiscard)
-        XCTAssertEqual(delegate.discardRequestCount, 0)
-    }
-
-    // An idle hidden pane (no playing media) must still be eligible for discard
-    // so the memory bound from https://github.com/manaflow-ai/cmux/issues/4539
-    // is preserved.
-    func testIdlePaneWithoutMediaPlaybackStillSchedulesHiddenWebViewDiscard() {
-        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isPlayingMedia: false)
-        let manager = BrowserHiddenWebViewDiscardManager()
-        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
-        manager.delegate = delegate
-
-        XCTAssertEqual(manager.blockers(for: snapshot), [])
-
-        manager.scheduleIfNeeded(reason: "test.hidden")
-
-        XCTAssertTrue(manager.hasScheduledDiscard)
     }
 
     // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5261:
