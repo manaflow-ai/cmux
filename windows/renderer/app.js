@@ -24591,6 +24591,35 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
   });
 }
 
+function quickRecentFolderControlsPanel() {
+  if (state.recentFolders.length === 0) return null;
+  const previewLimit = 4;
+  const visibleFolders = state.recentFolders.slice(0, previewLimit);
+  const hiddenFolderCount = Math.max(0, state.recentFolders.length - visibleFolders.length);
+  const actions = visibleFolders.map((folder) => {
+    const name = folderName(folder);
+    const shortPath = shortFolderPath(folder);
+    return quickOverviewControlButton(name, () => createWorkspaceFromFolderPath(folder), {
+      disabled: !folder,
+      title: folder ? `Open ${name} as a new workspace.` : "Choose a recent folder first.",
+      search: normalizeSettingsQuery(`quick setup recent folder workspace open new reopen directory cwd ${name} ${shortPath} ${folder}`)
+    });
+  });
+  if (hiddenFolderCount > 0) {
+    actions.push(quickOverviewControlButton("More", () => openSettingsCategory("workspace", { query: "recent folders", focusSearch: false }), {
+      title: `Open all ${state.recentFolders.length} recent workspace folders.`,
+      search: normalizeSettingsQuery(`quick setup recent folders more full workspace settings manage directory cwd ${state.recentFolders.join(" ")}`)
+    }));
+  }
+  return quickOverviewControlsPanel({
+    className: "quick-overview-workspace",
+    title: "Recent folders",
+    meta: `${state.recentFolders.length}/${recentFoldersLimit} recent${hiddenFolderCount ? ` / ${hiddenFolderCount} more` : ""}`,
+    search: `quick setup recent folders workspace open new directory cwd history ${visibleFolders.map((folder) => `${folderName(folder)} ${shortFolderPath(folder)} ${folder}`).join(" ")}`,
+    actions
+  });
+}
+
 function quickLayoutControlsPanel(workspace = activeWorkspace()) {
   const summary = workspaceChromeSummaryForSettings();
   const activePreset = activeWorkspaceChromePresetLabel();
@@ -26011,6 +26040,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-saved-profile-controls></div>
     <div data-quick-data-maintenance-controls></div>
     <div data-quick-workspace-controls></div>
+    <div data-quick-recent-folder-controls></div>
     <div data-quick-layout-controls></div>
     <div data-quick-blueprint-controls></div>
     <div data-quick-saved-blueprint-controls></div>
@@ -26112,6 +26142,10 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   else savedProfileSlot.remove();
   panel.querySelector("[data-quick-data-maintenance-controls]").replaceWith(quickDataMaintenanceControlsPanel(storageBytes));
   panel.querySelector("[data-quick-workspace-controls]").replaceWith(quickWorkspaceControlsPanel(workspace, terminalCount, browserCount));
+  const recentFolderControls = quickRecentFolderControlsPanel();
+  const recentFolderSlot = panel.querySelector("[data-quick-recent-folder-controls]");
+  if (recentFolderControls) recentFolderSlot.replaceWith(recentFolderControls);
+  else recentFolderSlot.remove();
   panel.querySelector("[data-quick-layout-controls]").replaceWith(quickLayoutControlsPanel(workspace));
   panel.querySelector("[data-quick-blueprint-controls]").replaceWith(quickBlueprintControlsPanel(workspace));
   const savedBlueprintControls = quickSavedBlueprintControlsPanel(workspace);
