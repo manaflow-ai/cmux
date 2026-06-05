@@ -28762,6 +28762,17 @@ function quickSetupActionDefinitions() {
       run: () => refreshQuickSettingsAfterAction(createWorkspace())
     },
     {
+      id: "new-folder-workspace",
+      icon: "workspace",
+      label: "Folder workspace",
+      body: "Choose a project folder and create a named workspace.",
+      meta: () => "Folder picker",
+      cta: "Choose",
+      search: "new folder workspace project directory cwd choose picker create named quick setup",
+      title: () => "Choose a folder and create a workspace named from that folder.",
+      run: () => refreshQuickSettingsAfterAction(createWorkspaceFromFolder())
+    },
+    {
       id: "new-terminal",
       icon: "terminalPlus",
       label: "New terminal",
@@ -29173,7 +29184,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   const backgroundEverywhere = currentBackgroundEverywhereModel(backgroundTargetStatus.scope, workspace);
   const ids = [];
 
-  if (!workspace) ids.push("new-workspace");
+  if (!workspace) ids.push("new-folder-workspace", "new-workspace");
   else if (terminalCount === 0) ids.push("new-terminal");
   if (workspaceNeedsQuickRename(workspace)) ids.push("rename");
   if (workspace && !workspace.cwd) ids.push("workspace-folder");
@@ -29212,7 +29223,7 @@ function quickSetupGuidePanel() {
     .filter(Boolean);
   const panel = document.createElement("div");
   panel.className = "quick-setup-guide";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup recommended simple speed lag performance health fixes background terminal browser rename folder directory cwd project path layout profile save");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup recommended simple speed lag performance health fixes background terminal browser rename folder workspace directory cwd project path layout profile save");
   panel.innerHTML = `
     <div class="quick-guide-heading">
       <span class="quick-guide-title"></span>
@@ -29288,7 +29299,7 @@ function quickSetupActionGrid() {
   const actions = quickSetupActionDefinitions();
   const grid = document.createElement("div");
   grid.className = "quick-settings-shortcut-grid quick-action-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new workspace terminal browser add pane folder directory cwd project path clean ui speed lag performance health fixes tune focus mode background image wallpaper save accent color saved library pane shape resize split rows columns");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new workspace folder workspace project terminal browser add pane folder directory cwd project path clean ui speed lag performance health fixes tune focus mode background image wallpaper save accent color saved library pane shape resize split rows columns");
   for (const action of actions) {
     const active = Boolean(action.active?.());
     const disabled = Boolean(action.disabled?.()) || (active && action.activeDisabled !== false);
