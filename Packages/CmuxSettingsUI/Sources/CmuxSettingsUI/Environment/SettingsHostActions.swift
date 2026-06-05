@@ -55,7 +55,7 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Plays the currently configured notification sound so the user
     /// can preview it from the Settings UI.
-    func previewNotificationSound()
+    func previewNotificationSound(value: String, customFilePath: String)
 
     /// Returns the current number of saved browser-history entries, or
     /// `nil` if the host hasn't loaded the history store yet. The
@@ -141,6 +141,8 @@ public final class NoopSettingsHostActions: SettingsHostActions {
     public func openBrowserImportFlow() {}
     public func requestNotificationAuthorization() {}
     public func openTerminalConfigWindow() {}
-    public func previewNotificationSound() {}
+    /// No-op notification sound preview used by tests, previews, and
+    /// package-only settings hosts.
+    public func previewNotificationSound(value: String, customFilePath: String) {}
     public func browserHistoryEntryCount() -> Int? { nil }
 }
