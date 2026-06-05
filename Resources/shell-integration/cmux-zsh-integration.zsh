@@ -545,9 +545,19 @@ _cmux_install_winch_guard() {
         [[ -n "$CMUX_TAB_ID" ]] || return 0
         [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
-        # Ghostty already marks prompt redraws on SIGWINCH. Writing to the PTY
-        # here grows the screen and makes resize look like a fresh prompt.
-        return 0
+        # Update $COLUMNS/$LINES after resize so the shell and any foreground
+        # program see the correct dimensions. Use zle reset-prompt instead of
+        # writing to the PTY directly to avoid making the resize look like a
+        # fresh prompt (the original concern in the comment below).
+        COLUMNS=$(tput cols 2>/dev/null || echo "$COLUMNS")
+        LINES=$(tput lines 2>/dev/null || echo "$LINES")
+        if [[ -o zle ]] && zle -l reset-prompt &>/dev/null; then
+            zle reset-prompt
+        fi
+        # Return non-zero so zsh propagates SIGWINCH to the foreground process
+        # group — this lets TUI programs (vim, htop, less, etc.) redraw to fit
+        # the new window size.
+        return 1
     }
 
     _CMUX_WINCH_GUARD_INSTALLED=1
