@@ -7,7 +7,6 @@ import Testing
 @testable import cmux
 #endif
 
-@MainActor
 @Suite
 struct BrowserFaviconStoreTests {
     @Test
@@ -27,7 +26,8 @@ struct BrowserFaviconStoreTests {
         }
 
         #expect(second == expectedPNG)
-        #expect(probe.attemptCount == 2)
+        let attemptCount = await probe.attemptCount
+        #expect(attemptCount == 2)
     }
 
     @Test
@@ -54,30 +54,33 @@ struct BrowserFaviconStoreTests {
         let probe = BrowserFaviconSuspendedFetchProbe()
         let expectedPNG = Data([4, 3, 2, 1])
 
-        let first = Task { @MainActor in
+        let first = Task {
             await store.resolve(request) {
                 await probe.fetch()
             }
         }
-        while probe.pendingCount == 0 {
+        while await probe.pendingCount == 0 {
             await Task.yield()
         }
 
-        let second = Task { @MainActor in
+        let second = Task {
             await store.resolve(request) {
                 await probe.fetch()
             }
         }
         await Task.yield()
 
-        #expect(probe.attemptCount == 1)
-        #expect(probe.pendingCount == 1)
+        var attemptCount = await probe.attemptCount
+        #expect(attemptCount == 1)
+        let pendingCount = await probe.pendingCount
+        #expect(pendingCount == 1)
 
-        probe.resume(with: expectedPNG)
+        await probe.resume(with: expectedPNG)
 
         #expect(await first.value == expectedPNG)
         #expect(await second.value == expectedPNG)
-        #expect(probe.attemptCount == 1)
+        attemptCount = await probe.attemptCount
+        #expect(attemptCount == 1)
     }
 
     @Test
@@ -97,8 +100,7 @@ struct BrowserFaviconStoreTests {
     }
 }
 
-@MainActor
-private final class BrowserFaviconFetchProbe {
+private actor BrowserFaviconFetchProbe {
     private(set) var attemptCount = 0
 
     func fetch(_ result: Data?) async -> Data? {
@@ -107,8 +109,7 @@ private final class BrowserFaviconFetchProbe {
     }
 }
 
-@MainActor
-private final class BrowserFaviconSuspendedFetchProbe {
+private actor BrowserFaviconSuspendedFetchProbe {
     private(set) var attemptCount = 0
     private var continuations: [CheckedContinuation<Data?, Never>] = []
 

@@ -4230,6 +4230,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.isMainFrameProvisionalNavigationActive = false
                 self.navigationDelegate?.lastAttemptedURL = nil
                 self.refreshBackgroundAppearance()
+                self.refreshFavicon(
+                    from: webView,
+                    pageURLOverride: webView.backForwardList.currentItem?.url
+                )
             }
         }
     }
@@ -4662,9 +4666,14 @@ final class BrowserPanel: Panel, ObservableObject {
     func setRemoteProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
         guard !bypassesRemoteWorkspaceProxy else { return }
         guard remoteProxyEndpoint != endpoint else { return }
+        let previousFaviconCachePartition = faviconCachePartition
         remoteProxyEndpoint = endpoint
         applyRemoteProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
+        invalidateFaviconIfCachePartitionChanged(
+            from: previousFaviconCachePartition,
+            refreshCurrentPage: true
+        )
     }
 
     func setRemoteWorkspaceStatus(_ status: BrowserRemoteWorkspaceStatus?) {
@@ -4729,6 +4738,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         let previousFaviconCachePartition = faviconCachePartition
         workspaceId = newWorkspaceId
+        pickerMessageHandler?.updateWorkspaceId(newWorkspaceId)
         invalidateFaviconIfCachePartitionChanged(
             from: previousFaviconCachePartition,
             refreshCurrentPage: true
@@ -4744,6 +4754,7 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         let previousFaviconCachePartition = faviconCachePartition
         workspaceId = newWorkspaceId
+        pickerMessageHandler?.updateWorkspaceId(newWorkspaceId)
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
         let targetStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
@@ -5690,11 +5701,11 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func refreshFavicon(from webView: WKWebView) {
+    private func refreshFavicon(from webView: WKWebView, pageURLOverride: URL? = nil) {
         faviconTask?.cancel()
         faviconTask = nil
 
-        guard let pageURL = webView.url else { return }
+        guard let pageURL = pageURLOverride ?? webView.url else { return }
         guard let scheme = pageURL.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
         faviconRefreshGeneration &+= 1
         let refreshGeneration = faviconRefreshGeneration
