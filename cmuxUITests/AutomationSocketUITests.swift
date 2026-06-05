@@ -298,7 +298,7 @@ final class AutomationSocketUITests: XCTestCase {
            !expectedPath.isEmpty,
            FileManager.default.fileExists(atPath: expectedPath) {
             socketPath = expectedPath
-            return true
+            return socketCommand("ping") == "PONG"
         }
         return completed
     }
@@ -681,24 +681,29 @@ final class AutomationSocketUITests: XCTestCase {
             guard fd >= 0 else { return nil }
             defer { close(fd) }
 
-            var timeout = timeval(
-                tv_sec: Int(responseTimeout),
-                tv_usec: Int32((responseTimeout - floor(responseTimeout)) * 1_000_000)
-            )
-            withUnsafePointer(to: &timeout) { ptr in
-                _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
-                _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
+#if os(macOS)
+            var noSigPipe: Int32 = 1
+            _ = withUnsafePointer(to: &noSigPipe) { ptr in
+                setsockopt(
+                    fd,
+                    SOL_SOCKET,
+                    SO_NOSIGPIPE,
+                    ptr,
+                    socklen_t(MemoryLayout<Int32>.size)
+                )
             }
+#endif
 
             var addr = sockaddr_un()
             memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
             addr.sun_family = sa_family_t(AF_UNIX)
 
-            let pathBytes = Array(path.utf8CString)
             let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+            let pathBytes = Array(path.utf8CString)
             guard pathBytes.count <= maxLen else { return nil }
             withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
                 let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+                memset(raw, 0, maxLen)
                 for index in 0..<pathBytes.count {
                     raw[index] = pathBytes[index]
                 }
@@ -706,33 +711,49 @@ final class AutomationSocketUITests: XCTestCase {
 
             let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
             let addrLen = socklen_t(pathOffset + pathBytes.count)
+#if os(macOS)
+            addr.sun_len = UInt8(min(Int(addrLen), 255))
+#endif
             let connected = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.connect(fd, sockaddrPtr, addrLen)
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    Darwin.connect(fd, sa, addrLen)
                 }
             }
             guard connected == 0 else { return nil }
 
-            let payload = Array((line + "\n").utf8)
-            let wrote = payload.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress else { return true }
-                return Darwin.write(fd, baseAddress, rawBuffer.count) == rawBuffer.count
+            let payload = line + "\n"
+            let wrote: Bool = payload.withCString { cString in
+                var remaining = strlen(cString)
+                var pointer = UnsafeRawPointer(cString)
+                while remaining > 0 {
+                    let written = Darwin.write(fd, pointer, remaining)
+                    if written <= 0 { return false }
+                    remaining -= written
+                    pointer = pointer.advanced(by: written)
+                }
+                return true
             }
             guard wrote else { return nil }
 
+            let deadline = Date().addingTimeInterval(responseTimeout)
             var buffer = [UInt8](repeating: 0, count: 4096)
             var accumulator = ""
-            let deadline = Date().addingTimeInterval(responseTimeout)
             while Date() < deadline {
+                var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                let ready = Darwin.poll(&descriptor, 1, 100)
+                if ready < 0 {
+                    return nil
+                }
+                if ready == 0 {
+                    continue
+                }
+
                 let count = Darwin.read(fd, &buffer, buffer.count)
-                guard count > 0 else { break }
+                if count <= 0 { break }
                 if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
                     accumulator.append(chunk)
                     if let newline = accumulator.firstIndex(of: "\n") {
                         return String(accumulator[..<newline])
-                    }
-                    if count < buffer.count {
-                        break
                     }
                 }
             }
