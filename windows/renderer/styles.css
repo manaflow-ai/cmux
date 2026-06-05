@@ -6927,7 +6927,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .settings-page-tabs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
   gap: var(--space-1);
   min-width: 0;
   overflow: visible;
@@ -6957,9 +6957,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .settings-page-tab {
   height: 30px;
   display: inline-grid;
-  grid-template-columns: 14px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 5px;
+  justify-items: center;
+  gap: 0;
   padding: 0 7px;
   border-color: color-mix(in oklch, var(--color-line) 54%, transparent);
   background: color-mix(in oklch, var(--color-pane) 52%, transparent);
@@ -6970,11 +6971,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .settings-page-tab-icon {
-  width: 14px;
-  height: 14px;
-  display: grid;
-  place-items: center;
-  color: color-mix(in oklch, var(--color-muted) 84%, var(--color-text) 16%);
+  display: none;
 }
 
 .settings-page-tab-icon svg {
@@ -6991,6 +6988,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.settings-page-tab-icon {
+  display: none;
 }
 
 .settings-page-tab:hover {
