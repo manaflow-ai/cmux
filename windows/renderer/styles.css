@@ -13167,7 +13167,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .settings-action.has-icon {
-  grid-template-columns: 16px minmax(0, auto);
+  grid-template-columns: 16px minmax(0, 1fr);
 }
 
 .settings-action-icon,
