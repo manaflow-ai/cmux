@@ -539,6 +539,12 @@ if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
             print(f"stdout={install_invalid.stdout.strip()}")
             print(f"stderr={install_invalid.stderr.strip()}")
             return 1
+        install_invalid_output = install_invalid.stdout + install_invalid.stderr
+        if "Failed to read" not in install_invalid_output or "not a cmux extension" in install_invalid_output:
+            print("FAIL: omp extension install did not report unreadable file distinctly")
+            print(f"stdout={install_invalid.stdout.strip()}")
+            print(f"stderr={install_invalid.stderr.strip()}")
+            return 1
         uninstall_invalid = subprocess.run(
             [cli_path, "hooks", "omp", "uninstall", "--yes"],
             capture_output=True,
@@ -550,6 +556,12 @@ if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
         if uninstall_invalid.returncode == 0 or foreign_path.read_bytes() != invalid_extension_bytes:
             print("FAIL: omp extension uninstall removed unreadable existing file")
             print(f"exit={uninstall_invalid.returncode}")
+            print(f"stdout={uninstall_invalid.stdout.strip()}")
+            print(f"stderr={uninstall_invalid.stderr.strip()}")
+            return 1
+        uninstall_invalid_output = uninstall_invalid.stdout + uninstall_invalid.stderr
+        if "Failed to read" not in uninstall_invalid_output or "not a cmux extension" in uninstall_invalid_output:
+            print("FAIL: omp extension uninstall did not report unreadable file distinctly")
             print(f"stdout={uninstall_invalid.stdout.strip()}")
             print(f"stderr={uninstall_invalid.stderr.strip()}")
             return 1

@@ -248,13 +248,14 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
         do {
             return try String(contentsOf: url, encoding: .utf8)
         } catch {
-            throw CLIError(message: String.localizedStringWithFormat(
+            let message = String.localizedStringWithFormat(
                 String(
                     localized: "cli.hooks.omp.error.readFailed",
                     defaultValue: "Failed to read %@"
                 ),
                 url.path
-            ))
+            )
+            throw CLIError(message: "\(message): \(String(describing: error))")
         }
     }
 
