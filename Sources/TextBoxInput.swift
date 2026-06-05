@@ -4600,13 +4600,13 @@ final class TextBoxInputTextView: NSTextView {
                 dismissMentionCompletions()
                 return false
             }
-            return acceptMentionCompletion()
+            return acceptMentionCompletionOrConsumeRefreshingRows()
         case kVK_Tab:
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
                 dismissMentionCompletions()
                 return false
             }
-            return acceptMentionCompletion()
+            return acceptMentionCompletionOrConsumeRefreshingRows()
         case kVK_Escape:
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
                 dismissMentionCompletions()
@@ -4649,13 +4649,13 @@ final class TextBoxInputTextView: NSTextView {
                 dismissMentionCompletions()
                 return false
             }
-            return acceptMentionCompletion()
+            return acceptMentionCompletionOrConsumeRefreshingRows()
         case #selector(NSResponder.insertTab(_:)):
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
                 dismissMentionCompletions()
                 return false
             }
-            return acceptMentionCompletion()
+            return acceptMentionCompletionOrConsumeRefreshingRows()
         case #selector(NSResponder.cancelOperation(_:)):
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
                 dismissMentionCompletions()
@@ -4717,6 +4717,17 @@ final class TextBoxInputTextView: NSTextView {
         didChangeText()
         scrollRangeToVisible(NSRange(location: insertionLocation, length: 0))
         return true
+    }
+
+    private func acceptMentionCompletionOrConsumeRefreshingRows() -> Bool {
+        if acceptMentionCompletion() {
+            return true
+        }
+
+        // Locally filtered rows are visible while an exact query lookup is loading,
+        // but accepting them is blocked until the current lookup resolves.
+        return mentionCompletionController.hasVisibleSuggestions &&
+            !mentionCompletionController.hasAcceptableSuggestions
     }
 
     private func mentionCompletionReplacementText(

@@ -1486,6 +1486,55 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionAcceptanceKeysDoNotFallThroughWhileFilteredRowsRefresh() {
+        let scenarios: [(key: String, keyCode: UInt16)] = [
+            ("\r", UInt16(kVK_Return)),
+            ("\t", UInt16(kVK_Tab))
+        ]
+
+        for scenario in scenarios {
+            let textView = makeTextViewWithRefreshingAutoreMention()
+            var submitCount = 0
+            textView.onSubmit = { submitCount += 1 }
+            guard let event = makeKeyDownEvent(
+                key: scenario.key,
+                modifiers: [],
+                keyCode: scenario.keyCode,
+                windowNumber: 0
+            ) else {
+                #expect(Bool(false), "Failed to construct mention acceptance event")
+                continue
+            }
+
+            textView.keyDown(with: event)
+
+            #expect(submitCount == 0)
+            #expect(textView.string == "$autore")
+            #expect(textView.debugMentionSuggestionTitles() == ["$autoreview"])
+        }
+    }
+
+    @Test
+    func testTextBoxMentionAcceptanceCommandsDoNotFallThroughWhileFilteredRowsRefresh() {
+        let scenarios: [Selector] = [
+            #selector(NSResponder.insertNewline(_:)),
+            #selector(NSResponder.insertTab(_:))
+        ]
+
+        for commandSelector in scenarios {
+            let textView = makeTextViewWithRefreshingAutoreMention()
+            var submitCount = 0
+            textView.onSubmit = { submitCount += 1 }
+
+            textView.doCommand(by: commandSelector)
+
+            #expect(submitCount == 0)
+            #expect(textView.string == "$autore")
+            #expect(textView.debugMentionSuggestionTitles() == ["$autoreview"])
+        }
+    }
+
+    @Test
     func testTextBoxMentionRootDirectoryChangeClearsActiveFileSuggestions() throws {
         let fileManager = FileManager.default
         let oldRoot = fileManager.temporaryDirectory.appendingPathComponent(
@@ -1694,6 +1743,35 @@ struct TextBoxMentionCompletionTests {
             #expect(textView.string == scenario.expected)
             #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         }
+    }
+
+    private func makeTextViewWithRefreshingAutoreMention() -> TextBoxInputTextView {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$auto"
+        textView.setSelectedRange(NSRange(location: 5, length: 0))
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 5),
+                query: "auto",
+                trigger: "$"
+            ),
+            suggestions: [
+                TextBoxMentionSuggestion(
+                    id: "$:/tmp/autoreview/SKILL.md",
+                    title: "$autoreview",
+                    subtitle: "/tmp/autoreview/SKILL.md",
+                    insertionText: "$autoreview",
+                    systemImageName: "sparkle.magnifyingglass"
+                )
+            ]
+        )
+        textView.string = "$autore"
+        textView.setSelectedRange(NSRange(location: 6, length: 0))
+        textView.refreshMentionCompletions()
+        #expect(textView.debugMentionSuggestionTitles() == ["$autoreview"])
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
+        return textView
     }
 
     private func makeKeyDownEvent(
