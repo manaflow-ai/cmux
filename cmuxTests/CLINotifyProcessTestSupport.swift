@@ -510,6 +510,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func systemTopResponse(id: String) -> String {
+        v2Response(
+            id: id,
+            ok: true,
+            result: [
+                "active": NSNull(),
+                "caller": NSNull(),
+                "include_processes": true,
+                "windows": [],
+            ]
+        )
+    }
+
     func jsonObject(_ line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]

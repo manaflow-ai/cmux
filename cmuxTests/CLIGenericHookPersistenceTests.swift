@@ -325,6 +325,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -593,6 +595,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -758,6 +762,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -1400,6 +1406,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -1991,6 +1999,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             },
                         ]
                     )
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2154,6 +2164,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2256,6 +2268,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return stallFeedTelemetry ? nil : self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2360,6 +2374,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2551,6 +2567,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             ],
                         ]
                     )
+                case "system.top":
+                    return self.systemTopResponse(id: id)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2702,6 +2720,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         ],
                     ]
                 )
+            case "system.top":
+                return self.systemTopResponse(id: id)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -3208,6 +3228,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
             case "surface.resume.set":
                 return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "system.top":
+                return self.systemTopResponse(id: id)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:

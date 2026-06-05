@@ -6983,6 +6983,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             case "surface.resume.set":
                 XCTFail("Non-resumable launcher should not publish a resume binding")
                 return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "system.top":
+                return self.systemTopResponse(id: id)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -7071,6 +7073,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             switch method {
             case "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            case "system.top":
+                return self.systemTopResponse(id: id)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -7791,6 +7795,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         switch method {
         case "surface.list":
             return surfaceListResponse(id: id, surfaceId: context.surfaceId)
+        case "system.top":
+            return self.systemTopResponse(id: id)
         case "feed.push":
             return v2Response(id: id, ok: true, result: [:])
         case "surface.resume.set":
@@ -7834,6 +7840,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             switch method {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "system.top":
+                return self.systemTopResponse(id: id)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             case "surface.resume.set":
