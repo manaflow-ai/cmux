@@ -24562,6 +24562,14 @@ function browserPaneActivityNeedsSuspension() {
   return activity.inactiveLive > 0 || activity.open > 1;
 }
 
+function currentTerminalOutputBacklogBytes() {
+  return Math.max(state.terminalOutputStats.currentQueued || 0, totalTerminalOutputQueue());
+}
+
+function terminalOutputBacklogNeedsStabilizing() {
+  return currentTerminalOutputBacklogBytes() >= terminalOutputBacklogThreshold;
+}
+
 const performanceHealthCheckDefinitions = [
   {
     id: "adaptiveGuard",
@@ -24584,6 +24592,28 @@ const performanceHealthCheckDefinitions = [
     meta: () => state.settings.performanceMode || state.settings.reduceMotion ? "Reduced" : "Full motion",
     updates: () => ({ reduceMotion: true }),
     search: "reduce motion animation smooth scrolling transition"
+  },
+  {
+    id: "outputBacklog",
+    label: "Output backlog",
+    body: "Applies speed tuning when queued terminal output is already building up.",
+    actionLabel: "Stabilize",
+    readyLabel: "Clean",
+    issue: () => terminalOutputBacklogNeedsStabilizing(),
+    meta: () => {
+      const queuedBytes = currentTerminalOutputBacklogBytes();
+      return queuedBytes ? `${formatBytes(queuedBytes)} queued` : "Clean";
+    },
+    updates: () => ({
+      performanceMode: true,
+      reduceMotion: true,
+      chromeMotionMode: "snappy",
+      terminalPauseInactiveOutput: true,
+      terminalSmoothResumedOutput: true,
+      terminalCursorBlink: false,
+      terminalScrollback: Math.min(state.settings.terminalScrollback, performanceHealthScrollbackLimit)
+    }),
+    search: "terminal output backlog queued bytes storm stabilize performance mode pause hidden output reduce motion scrollback lag"
   },
   {
     id: "cursorBlink",
