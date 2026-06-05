@@ -45,7 +45,7 @@ function IconPaths({ name }: { name: IconName }) {
   case "document":
     return <><path d="M6 3h6l4 4v10H6z" /><path d="M12 3v5h5" /></>;
   case "dots":
-    return <><path d="M5 10h.01" /><path d="M10 10h.01" /><path d="M15 10h.01" /></>;
+    return <><path d="M5 10h.01" data-precision-dot="true" /><path d="M10 10h.01" data-precision-dot="true" /><path d="M15 10h.01" data-precision-dot="true" /></>;
   case "expand":
     return <path d="M6.5 8 10 11.5 13.5 8" />;
   case "external":
@@ -53,7 +53,7 @@ function IconPaths({ name }: { name: IconName }) {
   case "eye":
     return <><path d="M2.5 10s2.75-5 7.5-5 7.5 5 7.5 5-2.75 5-7.5 5-7.5-5-7.5-5z" /><circle cx="10" cy="10" r="2.4" /></>;
   case "files":
-    return <><path d="M3 5h5l1.5 2H17v9.5H3z" /><path d="M3 7h14" /></>;
+    return <><rect x="3.5" y="4" width="13" height="12" rx="2" /><path d="M7.5 4v12" /><path d="M5.2 7h1.1" /><path d="M5.2 10h1.1" /><path d="M5.2 13h1.1" /><path d="M10 7h3.8" /><path d="M10 10h4.5" /><path d="M10 13h3.2" /></>;
   case "numbers":
     return <><path d="M5 5h2v10" /><path d="M4 15h4" /><path d="M11 6.5a2 2 0 1 1 3.2 1.6L11 12h4" /><path d="M11 15h4" /></>;
   case "refresh":

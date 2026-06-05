@@ -247,6 +247,10 @@ body {
 #layout-toggle svg [data-diff-addition] {
   fill: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
 }
+.toolbar-icon svg [data-precision-dot],
+.menu-item svg [data-precision-dot] {
+  stroke-width: 2;
+}
 #options-menu {
   position: absolute;
   top: calc(100% + 7px);
