@@ -28809,18 +28809,21 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   const activeTerminalBackground = activeTerminal ? normalizeBackgroundValue(activeTerminal.backgroundImage) : "";
   const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
   const healthIssueCount = performanceHealthIssueCount();
+  const setup = activeSettingsSetupModel();
+  const profilesFull = savedSettingsProfilesFull();
   const ids = [];
 
   if (!workspace) ids.push("new-workspace");
   else if (terminalCount === 0) ids.push("new-terminal");
   if (healthIssueCount > 0) ids.push("fix-lag");
   if (workspace && browserCount === 0) ids.push("new-browser");
+  if (setup.kind === "Unsaved setup" && !profilesFull) ids.push("save-profile");
   if (!isSettingsPresetIdActive("simpleFast")) {
     ids.push(state.savedSettingsProfiles.length === 0 ? "save-clean-fast-profile" : "clean-fast");
   }
   if (!state.settings.backgroundImage) ids.push("background");
   else if (activeTerminal && !normalizeBackgroundValue(activeTerminal.backgroundImage)) ids.push("pane-background");
-  if (state.savedSettingsProfiles.length === 0 && !ids.includes("save-clean-fast-profile") && ids.length < 4) ids.push("save-profile");
+  if (state.savedSettingsProfiles.length === 0 && !ids.includes("save-clean-fast-profile") && !ids.includes("save-profile") && ids.length < 4) ids.push("save-profile");
   if (canSaveCustomColor(state.settings.accent) && !customColorPaletteHasColor(state.settings.accent) && ids.length < 4) ids.push("save-accent-color");
   if (appBackground && canSaveBackgroundImage(appBackground) && !savedBackgroundImageExists(appBackground) && ids.length < 4) ids.push("save-background-image");
   if (activeTerminalBackground && canSaveBackgroundImage(activeTerminalBackground) && !savedBackgroundImageExists(activeTerminalBackground) && ids.length < 4) ids.push("save-terminal-image");
