@@ -1979,7 +1979,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             eventType: "turn_aborted"
         )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 96)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -2043,7 +2043,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 96)
 
         let oldPrompt = runCodexHook(
             context: context,
