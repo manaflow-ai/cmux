@@ -502,21 +502,18 @@ final class cmuxUITests: XCTestCase {
     ) {
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
-        let labelExpectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                self.terminalRows(in: app).dropFirst(index).first == expectedLabel
-            },
-            object: app
-        )
-        let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
-        XCTAssertEqual(
-            result,
-            .completed,
-            "Expected terminal row \(index) to equal \(expectedLabel). Rows: \(terminalRowLabels(in: app))",
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
+        let rows = waitForTerminalRows(in: app, timeout: 12) { rows in
+            rows.dropFirst(index).first == expectedLabel
+        }
+        guard rows.dropFirst(index).first == expectedLabel else {
+            XCTFail(
+                "Expected terminal row \(index) to equal \(expectedLabel). Rows: \(terminalRowLabels(rows))",
+                file: file,
+                line: line
+            )
+            return
+        }
+        XCTAssertEqual(rows.dropFirst(index).first, expectedLabel, file: file, line: line)
     }
 
     @MainActor
@@ -528,25 +525,21 @@ final class cmuxUITests: XCTestCase {
     ) {
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
-        let labelExpectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                expectedLabels.allSatisfy { index, expectedLabel in
-                    self.terminalRows(in: app).dropFirst(index).first == expectedLabel
-                }
-            },
-            object: app
-        )
-        let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
-        if result != .completed {
+        let rows = waitForTerminalRows(in: app, timeout: 12) { rows in
+            expectedLabels.allSatisfy { index, expectedLabel in
+                rows.dropFirst(index).first == expectedLabel
+            }
+        }
+        if !expectedLabels.allSatisfy({ index, expectedLabel in rows.dropFirst(index).first == expectedLabel }) {
             XCTFail(
-                "Expected terminal rows \(expectedLabels). Rows: \(terminalRowLabels(in: app))",
+                "Expected terminal rows \(expectedLabels). Rows: \(terminalRowLabels(rows))",
                 file: file,
                 line: line
             )
             return
         }
         for (index, expectedLabel) in expectedLabels.sorted(by: { $0.key < $1.key }) {
-            XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
+            XCTAssertEqual(rows.dropFirst(index).first, expectedLabel, file: file, line: line)
         }
     }
 
@@ -707,7 +700,11 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func terminalRowLabels(in app: XCUIApplication) -> [String] {
-        terminalRows(in: app).enumerated().map { index, row in
+        terminalRowLabels(terminalRows(in: app))
+    }
+
+    private func terminalRowLabels(_ rows: [String]) -> [String] {
+        rows.enumerated().map { index, row in
             "\(index):\(row)"
         }
     }
@@ -719,6 +716,21 @@ final class cmuxUITests: XCTestCase {
         return surface.label
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { String($0).trimmingCharacters(in: .whitespaces) }
+    }
+
+    @MainActor
+    private func waitForTerminalRows(
+        in app: XCUIApplication,
+        timeout: TimeInterval,
+        matching predicate: ([String]) -> Bool
+    ) -> [String] {
+        let deadline = Date().addingTimeInterval(timeout)
+        var rows = terminalRows(in: app)
+        while !predicate(rows), Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.1))
+            rows = terminalRows(in: app)
+        }
+        return rows
     }
 
     @MainActor
