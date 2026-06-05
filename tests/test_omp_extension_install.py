@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regression test: the generated OMP extension is importable and emits cmux hook calls without blocking OMP handlers.
+Regression test: the generated OMP extension is importable and emits cmux hook calls with complete payloads.
 """
 
 from __future__ import annotations
@@ -421,7 +421,7 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, ctx);
 const elapsed = Date.now() - start;
-if (elapsed > 800) throw new Error(`handlers blocked for ${elapsed}ms`);
+if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -453,6 +453,12 @@ if (elapsed > 800) throw new Error(`handlers blocked for ${elapsed}ms`);
                 return 1
         if '"session_id":"omp-session-test"' not in stdin_log:
             print(f"FAIL: extension did not pass session id, got {stdin_log!r}")
+            return 1
+        if stdin_log.count('"session_id":"omp-session-test"') != 3:
+            print(f"FAIL: expected 3 hook payloads carrying the session id, got {stdin_log!r}")
+            return 1
+        if '"hook_event_name":"Stop"' not in stdin_log:
+            print(f"FAIL: stop hook payload was missing: {stdin_log!r}")
             return 1
         if '"prompt":"hello omp"' not in stdin_log or '"last_assistant_message":"done"' not in stdin_log:
             print(f"FAIL: extension did not pass prompt/assistant payload, got {stdin_log!r}")
@@ -583,7 +589,7 @@ if (elapsed > 800) throw new Error(`handlers blocked for ${elapsed}ms`);
             print(f"stdout={config_uninstall.stdout.strip()}")
             print(f"stderr={config_uninstall.stderr.strip()}")
             return 1
-    print("PASS: generated OMP extension installs, emits non-blocking cmux hooks, and persists hook sessions")
+    print("PASS: generated OMP extension installs, emits complete cmux hook payloads, and persists hook sessions")
     return 0
 
 

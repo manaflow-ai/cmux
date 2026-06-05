@@ -9,7 +9,7 @@ extension CMUXCLI {
 // Installed by `cmux hooks omp install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
@@ -84,6 +84,13 @@ function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
   return env;
 }
 
+interface HookInvocation {
+  cmux: string;
+  cwd: string;
+  payload: string;
+  env: NodeJS.ProcessEnv;
+}
+
 function eventName(subcommand: string): string {
   switch (subcommand) {
     case "session-start":
@@ -121,12 +128,12 @@ function lastAssistantMessage(event: AgentEndEvent): string | undefined {
   return undefined;
 }
 
-function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): void {
-  if (process.env.CMUX_OMP_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
+function hookInvocation(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): HookInvocation | null {
+  if (process.env.CMUX_OMP_HOOKS_DISABLED === "1") return null;
+  if (!process.env.CMUX_SURFACE_ID) return null;
 
   const sessionId = firstString(ctx.sessionManager.getSessionId());
-  if (!sessionId) return;
+  if (!sessionId) return null;
 
   const cwd = firstString(ctx.cwd, process.cwd()) || process.cwd();
   const payload: Record<string, unknown> = {
@@ -137,30 +144,66 @@ function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<strin
     ...extra,
   };
   const cmux = process.env.CMUX_OMP_CMUX_BIN || "cmux";
+  return {
+    cmux,
+    cwd,
+    payload: JSON.stringify(payload),
+    env: hookEnvironment(cwd),
+  };
+}
+
+async function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): Promise<void> {
+  const invocation = hookInvocation(subcommand, ctx, extra);
+  if (!invocation) return;
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    try {
+      const child = spawn(invocation.cmux, ["hooks", "omp", subcommand], {
+        env: invocation.env,
+        stdio: ["pipe", "ignore", "ignore"],
+        detached: true,
+      });
+      child.on("error", settle);
+      child.stdin.on("error", settle);
+      child.stdin.on("finish", settle);
+      child.unref();
+      child.stdin.end(invocation.payload);
+    } catch (_) {
+      settle();
+    }
+  });
+}
+
+function sendHookSync(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): void {
+  const invocation = hookInvocation(subcommand, ctx, extra);
+  if (!invocation) return;
   try {
-    const child = spawn(cmux, ["hooks", "omp", subcommand], {
-      env: hookEnvironment(cwd),
+    spawnSync(invocation.cmux, ["hooks", "omp", subcommand], {
+      input: invocation.payload,
+      encoding: "utf8",
+      env: invocation.env,
       stdio: ["pipe", "ignore", "ignore"],
-      detached: true,
+      timeout: 5000,
     });
-    child.on("error", () => {});
-    child.stdin.on("error", () => {});
-    child.stdin.end(JSON.stringify(payload));
-    child.unref();
   } catch (_) {}
 }
 
 export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
   api.on("session_start", async (_event, ctx) => {
-    sendHook("session-start", ctx);
+    await sendHook("session-start", ctx);
   });
 
   api.on("before_agent_start", async (event, ctx) => {
-    sendHook("prompt-submit", ctx, { prompt: event.prompt });
+    await sendHook("prompt-submit", ctx, { prompt: event.prompt });
   });
 
   api.on("agent_end", async (event, ctx) => {
-    sendHook("stop", ctx, { last_assistant_message: lastAssistantMessage(event) });
+    sendHookSync("stop", ctx, { last_assistant_message: lastAssistantMessage(event) });
   });
 }
 """#
