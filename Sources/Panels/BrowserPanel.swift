@@ -3570,6 +3570,39 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     var reactGrabMessageHandler: ReactGrabMessageHandler?
+    /// Whether the live page currently has any actively-playing `<video>` or
+    /// `<audio>` element, in the main frame or any iframe, reported by the
+    /// injected media-playback hook. Keeps an actively-playing pane alive in the
+    /// background instead of being discarded after the hidden delay
+    /// (https://github.com/manaflow-ai/cmux/issues/5409).
+    private(set) var isPlayingMedia: Bool = false {
+        didSet {
+            guard oldValue != isPlayingMedia else { return }
+            reevaluateHiddenWebViewDiscardScheduling(reason: "media_playback_changed")
+        }
+    }
+    /// Document ids of the frames currently reporting playing media. The pane is
+    /// kept alive while this is non-empty.
+    private var playingMediaFrameIDs: Set<String> = []
+    var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
+
+    /// Folds a per-frame playback report into ``isPlayingMedia``. Lives here so
+    /// the `private(set)` setter stays confined to this file.
+    func applyMediaPlaybackReport(frameID: String, isPlaying: Bool) {
+        if isPlaying {
+            playingMediaFrameIDs.insert(frameID)
+        } else {
+            playingMediaFrameIDs.remove(frameID)
+        }
+        isPlayingMedia = !playingMediaFrameIDs.isEmpty
+    }
+
+    /// Clears all tracked playing frames (new webview bind or main-frame
+    /// navigation, where the prior frame hooks are gone).
+    func resetMediaPlaybackTracking() {
+        playingMediaFrameIDs.removeAll()
+        isPlayingMedia = false
+    }
     var pendingReactGrabReturnTargetPanelId: UUID?
     var pendingReactGrabRoundTripToken: String?
     let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -4144,6 +4177,22 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: true
             )
         )
+        // Report <video>/<audio> playback so a hidden pane with actively-playing
+        // media is exempted from memory discard
+        // (https://github.com/manaflow-ai/cmux/issues/5409). Injected into every
+        // frame so embedded players in cross-origin iframes keep the pane alive
+        // too. Runs in an isolated content world (shared DOM, separate JS scope)
+        // so the handler is hidden from page JavaScript that could otherwise post
+        // a fake playing report; this also keeps it clear of CAPTCHA fingerprint
+        // checks in those iframes.
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.mediaPlaybackTrackingBootstrapScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false,
+                in: Self.mediaPlaybackContentWorld
+            )
+        )
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
@@ -4168,6 +4217,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
+        setupMediaPlaybackMessageHandler(for: webView)
         applyMuteState(to: webView, reason: "bindWebView")
     }
 
@@ -4188,6 +4238,13 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
+                // Reset playback tracking only once the new top-level document has
+                // actually replaced the old one. Resetting earlier (on provisional
+                // start) would drop a still-playing page's frames if the
+                // navigation then fails or is canceled, letting a playing pane be
+                // discarded. didCommit does not fire for same-document (pushState)
+                // navigations, so a persisting SPA video keeps its frame id.
+                self.resetMediaPlaybackTracking()
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
             }
@@ -6263,7 +6320,8 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isElementFullscreenActive: isElementFullscreenActive,
             isReactGrabActive: isReactGrabActive,
             hasPopups: !popupControllers.isEmpty,
-            isCapturingMedia: webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none
+            isCapturingMedia: webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none,
+            isPlayingMedia: isPlayingMedia
         )
     }
 
