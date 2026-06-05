@@ -36,6 +36,7 @@ final class BrowserHiddenWebViewDiscardManager {
         let isReactGrabActive: Bool
         let hasPopups: Bool
         let isCapturingMedia: Bool
+        let isPlayingMedia: Bool
     }
 
     weak var delegate: BrowserHiddenWebViewDiscardManagerDelegate?

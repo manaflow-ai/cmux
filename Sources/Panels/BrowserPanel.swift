@@ -3560,6 +3560,24 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     var reactGrabMessageHandler: ReactGrabMessageHandler?
+    /// Whether the live page currently has any audible/active `<video>` or
+    /// `<audio>` element playing, reported by the injected media-playback hook.
+    /// Keeps an actively-playing pane alive in the background instead of being
+    /// discarded after the hidden delay
+    /// (https://github.com/manaflow-ai/cmux/issues/5409).
+    private(set) var isPlayingMedia: Bool = false {
+        didSet {
+            guard oldValue != isPlayingMedia else { return }
+            reevaluateHiddenWebViewDiscardScheduling(reason: "media_playback_changed")
+        }
+    }
+    var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
+
+    /// Updates ``isPlayingMedia`` from the media-playback bridge. Lives here so the
+    /// `private(set)` setter stays confined to this file.
+    func setIsPlayingMedia(_ playing: Bool) {
+        isPlayingMedia = playing
+    }
     var pendingReactGrabReturnTargetPanelId: UUID?
     var pendingReactGrabRoundTripToken: String?
     let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -4134,6 +4152,17 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: true
             )
         )
+        // Report main-frame <video>/<audio> playback so a hidden pane with
+        // actively-playing media is exempted from memory discard
+        // (https://github.com/manaflow-ai/cmux/issues/5409). Main frame only —
+        // same CAPTCHA-tampering concern as the telemetry hooks above.
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.mediaPlaybackTrackingBootstrapScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
@@ -4158,6 +4187,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
+        setupMediaPlaybackMessageHandler(for: webView)
         applyMuteState(to: webView, reason: "bindWebView")
     }
 
@@ -4170,6 +4200,10 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = true
+                // The document is being replaced; the old media-playback hook is
+                // gone. Reset so a stale "playing" never pins a discarded-eligible
+                // pane. The new page's hook re-reports if it plays.
+                self.isPlayingMedia = false
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
             }
@@ -6253,7 +6287,8 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isElementFullscreenActive: isElementFullscreenActive,
             isReactGrabActive: isReactGrabActive,
             hasPopups: !popupControllers.isEmpty,
-            isCapturingMedia: webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none
+            isCapturingMedia: webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none,
+            isPlayingMedia: isPlayingMedia
         )
     }
 
