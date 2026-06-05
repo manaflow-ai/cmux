@@ -17088,8 +17088,37 @@ function appearanceBackgroundLabel(value, settingsSource = state.settings) {
   return [label, fit, settingsSource?.backgroundRepeatMode === "auto" ? "" : repeat, effects, `${chrome} chrome`, readability, blur ? `${blur}px soften` : ""].filter(Boolean).join(" / ");
 }
 
+function appearanceSpeedModel(settings = state.settings) {
+  const hasBackground = Boolean(normalizeBackgroundValue(settings.backgroundImage) && Number(settings.backgroundOpacity) > 0);
+  let weight = 0;
+  if (hasBackground) weight += 1;
+  if ((Number(settings.backgroundBlur) || 0) > 0) weight += 1;
+  if (settings.backgroundEffects === "glass") weight += 2;
+  if (settings.backgroundEffects === "tinted" || settings.backgroundEffects === "vignette") weight += 1;
+  if (settings.backgroundChromeMode === "immersive") weight += 1;
+  if (settings.interfaceDepth === "layered") weight += 1;
+  if (settings.performanceMode || settings.reduceMotion) weight -= 1;
+  if (weight <= 0) {
+    return {
+      tone: "fast",
+      label: t("appearance.speedFast", "Fast / fewer effects")
+    };
+  }
+  if (weight <= 2) {
+    return {
+      tone: "balanced",
+      label: t("appearance.speedBalanced", "Balanced / readable")
+    };
+  }
+  return {
+    tone: "heavy",
+    label: t("appearance.speedHeavy", "Heavier / image effects")
+  };
+}
+
 function appearancePreviewPanel() {
   const readability = backgroundReadabilityCssVars();
+  const speed = appearanceSpeedModel();
   const preview = createAppearancePreview({
     settings: state.settings,
     themeLabel: `${optionLabel(themeOptions, state.settings.theme, "cmux")} / ${optionLabel(surfaceTintOptions, state.settings.surfaceTint, state.settings.surfaceTint)}`,
@@ -17097,6 +17126,8 @@ function appearancePreviewPanel() {
     contrastLabel: optionLabel(interfaceContrastOptions, state.settings.interfaceContrast, state.settings.interfaceContrast),
     depthLabel: optionLabel(interfaceDepthOptions, state.settings.interfaceDepth, state.settings.interfaceDepth),
     backgroundLabel: appearanceBackgroundLabel(state.settings.backgroundImage),
+    speedLabel: speed.label,
+    speedTone: speed.tone,
     terminalFontLabel: optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono"),
     terminalFontStack: terminalFontStack(),
     terminalTheme: terminalTheme(),
@@ -17109,7 +17140,7 @@ function appearancePreviewPanel() {
   });
   preview.style.setProperty("--preview-background-blur", `${state.settings.backgroundBlur}px`);
   preview.style.setProperty("--preview-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
-  preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent intensity surface tint contrast depth shadow background image strength soften blur readability chrome readable soft immersive terminal colors font");
+  preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent intensity surface tint contrast depth shadow background image strength soften blur readability chrome readable soft immersive terminal colors font speed performance lag heavy fast effects");
   return preview;
 }
 

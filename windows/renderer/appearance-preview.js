@@ -7,6 +7,8 @@ export function createAppearancePreview({
   contrastLabel,
   depthLabel,
   backgroundLabel,
+  speedLabel,
+  speedTone,
   terminalFontLabel,
   terminalFontStack,
   terminalTheme,
@@ -18,7 +20,7 @@ export function createAppearancePreview({
 }) {
   const panel = document.createElement("div");
   const hasVisibleBackground = Boolean(backgroundImage && backgroundImage !== "none" && Number(settings.backgroundOpacity) > 0);
-  panel.className = `appearance-preview appearance-depth-${settings.interfaceDepth || "soft"} appearance-background-${settings.backgroundChromeMode || "soft"} appearance-effect-${settings.backgroundEffects || "flat"}`;
+  panel.className = `appearance-preview appearance-depth-${settings.interfaceDepth || "soft"} appearance-background-${settings.backgroundChromeMode || "soft"} appearance-effect-${settings.backgroundEffects || "flat"} appearance-speed-${speedTone || "balanced"}`;
   panel.style.setProperty("--preview-background-image", backgroundImage || "none");
   panel.style.setProperty("--preview-background-opacity", String(Math.max(0, Math.min(0.42, Number(settings.backgroundOpacity) / 100 || 0))));
   panel.style.setProperty("--preview-background-readability-opacity", hasVisibleBackground ? backgroundReadability?.base || "0.16" : "0");
@@ -65,6 +67,7 @@ export function createAppearancePreview({
       <span><b data-preview-label-contrast></b><em data-preview-contrast></em></span>
       <span><b data-preview-label-depth></b><em data-preview-depth></em></span>
       <span><b data-preview-label-background></b><em data-preview-background></em></span>
+      <span><b data-preview-label-speed></b><em data-preview-speed></em></span>
       <span><b data-preview-label-terminal></b><em data-preview-terminal></em></span>
     </div>
   `;
@@ -74,12 +77,14 @@ export function createAppearancePreview({
   panel.querySelector("[data-preview-label-contrast]").textContent = t("appearance.contrast", "Contrast");
   panel.querySelector("[data-preview-label-depth]").textContent = t("appearance.depth", "Depth");
   panel.querySelector("[data-preview-label-background]").textContent = t("appearance.background");
+  panel.querySelector("[data-preview-label-speed]").textContent = t("appearance.speed", "Speed");
   panel.querySelector("[data-preview-label-terminal]").textContent = t("appearance.terminal");
   panel.querySelector("[data-preview-theme]").textContent = themeLabel;
   panel.querySelector("[data-preview-accent]").textContent = accentLabel;
   panel.querySelector("[data-preview-contrast]").textContent = contrastLabel;
   panel.querySelector("[data-preview-depth]").textContent = depthLabel;
   panel.querySelector("[data-preview-background]").textContent = backgroundLabel;
+  panel.querySelector("[data-preview-speed]").textContent = speedLabel || t("appearance.speedBalanced", "Balanced / readable");
   panel.querySelector("[data-preview-terminal]").textContent = terminalFontLabel;
   return panel;
 }
