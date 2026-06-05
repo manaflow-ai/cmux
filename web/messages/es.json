@@ -1071,6 +1071,8 @@
       "tabsAndLogs": "Pestañas y registros",
       "targetingSurface": "Seleccionar una superficie de navegador",
       "targetingDesc": "La mayoría de los subcomandos requieren una superficie objetivo. Puede pasarla posicionalmente o con --surface.",
+      "mcpRegisterComment": "Registra las herramientas MCP del navegador de cmux una vez",
+      "mcpPrereq": "Las llamadas reales a herramientas MCP del navegador solo funcionan desde una sesión de Codex o Claude que se ejecuta dentro de cmux, donde se inyecta CMUX_SOCKET_PATH.",
       "navigation": "Navegación",
       "waitingSection": "Espera",
       "waitingDesc": "Use wait para bloquear hasta que se satisfagan selectores, texto, fragmentos de URL, estado de carga o una condición JavaScript.",

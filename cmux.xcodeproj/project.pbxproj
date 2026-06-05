@@ -109,6 +109,11 @@
 		D35110010000000000000001 /* CmuxApplicationSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */; };
 		D35110010000000000000003 /* CmuxApplicationSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
+		B9000080A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+Arguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000084A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+Arguments.swift */; };
+		B9000081A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+BrowserTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000085A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+BrowserTools.swift */; };
+		B9000082A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+Responses.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000086A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+Responses.swift */; };
+		B9000083A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+ToolSchemas.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000087A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+ToolSchemas.swift */; };
+		B9000072A1B2C3D4E5F60719 /* CMUXBrowserMCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000073A1B2C3D4E5F60719 /* CMUXBrowserMCPServer.swift */; };
 		B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */; };
 		B9000068A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */; };
 		B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */; };
@@ -791,6 +796,11 @@
 		C4160A010000000000000002 /* cmuxApp+HistoryMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxApp+HistoryMenu.swift"; sourceTree = "<group>"; };
 		A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
 		D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxApplicationSupportDirectories.swift; sourceTree = "<group>"; };
+		B9000084A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+Arguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXBrowserMCPServer+Arguments.swift"; sourceTree = "<group>"; };
+		B9000085A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+BrowserTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXBrowserMCPServer+BrowserTools.swift"; sourceTree = "<group>"; };
+		B9000086A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+Responses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXBrowserMCPServer+Responses.swift"; sourceTree = "<group>"; };
+		B9000087A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+ToolSchemas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXBrowserMCPServer+ToolSchemas.swift"; sourceTree = "<group>"; };
+		B9000073A1B2C3D4E5F60719 /* CMUXBrowserMCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXBrowserMCPServer.swift; sourceTree = "<group>"; };
 		B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookDefinitions.swift"; sourceTree = "<group>"; };
 		B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AmpExtension.swift"; sourceTree = "<group>"; };
 		B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Config.swift"; sourceTree = "<group>"; };
@@ -1816,9 +1826,14 @@
 		};
 		B9000003A1B2C3D4E5F60719 /* CLI */ = {
 			isa = PBXGroup;
-			children = (
-				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
-				FEEDC1A50000000000000002 /* FeedEventClassifier.swift */,
+				children = (
+					B9000001A1B2C3D4E5F60719 /* cmux.swift */,
+					B9000073A1B2C3D4E5F60719 /* CMUXBrowserMCPServer.swift */,
+					B9000084A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+Arguments.swift */,
+					B9000085A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+BrowserTools.swift */,
+					B9000086A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+Responses.swift */,
+					B9000087A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+ToolSchemas.swift */,
+					FEEDC1A50000000000000002 /* FeedEventClassifier.swift */,
 				B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
 				B9000030A1B2C3D4E5F60719 /* cmux_open.swift */,
@@ -2708,12 +2723,17 @@
 		B9000006A1B2C3D4E5F60719 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (
-				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
-				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
-					B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
-				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
+				files = (
+					D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
+					B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
+						B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
+					B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
 				D35110010000000000000003 /* CmuxApplicationSupportDirectories.swift in Sources */,
+					B9000080A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+Arguments.swift in Sources */,
+					B9000081A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+BrowserTools.swift in Sources */,
+					B9000082A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+Responses.swift in Sources */,
+					B9000083A1B2C3D4E5F60719 /* CMUXBrowserMCPServer+ToolSchemas.swift in Sources */,
+					B9000072A1B2C3D4E5F60719 /* CMUXBrowserMCPServer.swift in Sources */,
 					B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */,
 					B9000068A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift in Sources */,
 					B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */,

@@ -1071,6 +1071,8 @@
       "tabsAndLogs": "Sekmeler ve günlükler",
       "targetingSurface": "Tarayıcı yüzeyini hedefleme",
       "targetingDesc": "Çoğu alt komut bir hedef yüzey gerektirir. Konumsal olarak veya --surface ile geçirebilirsiniz.",
+      "mcpRegisterComment": "cmux tarayıcı MCP araçlarını bir kez kaydet",
+      "mcpPrereq": "Gerçek tarayıcı MCP araç çağrıları yalnızca CMUX_SOCKET_PATH enjekte edilen cmux içindeki bir Codex veya Claude oturumundan çalışır.",
       "navigation": "Gezinme",
       "waitingSection": "Bekleme",
       "waitingDesc": "Seçiciler, metin, URL parçaları, yükleme durumu veya bir JavaScript koşulu karşılanana kadar engellemek için wait kullanın.",

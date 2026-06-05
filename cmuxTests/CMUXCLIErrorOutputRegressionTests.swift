@@ -13,7 +13,33 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String
+        let stderr: String
         let timedOut: Bool
+
+        var output: String {
+            [stdout, stderr]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        }
+    }
+
+    private enum JSONResponseLineError: Error, CustomStringConvertible {
+        case unexpectedStdoutLine(String)
+        case unexpectedJSONValue(Any)
+
+        var description: String {
+            switch self {
+            case let .unexpectedStdoutLine(line):
+                return "Unexpected non-JSON stdout line: \(line)"
+            case let .unexpectedJSONValue(value):
+                return "Unexpected JSON stdout value: \(value)"
+            }
+        }
+    }
+
+    private struct BrowserMCPTestEnvironment {
+        let environment: [String: String]
+        let homeURL: URL
     }
 
     func testCLIErrorPathDoesNotCrashWhenStderrIsClosed() throws {
@@ -50,6 +76,74 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             XCTAssertTrue(result.stdout.contains("Usage: cmux \(command)"), result.stdout)
             XCTAssertFalse(result.stdout.contains("Failed to launch"), result.stdout)
         }
+    }
+
+    func testBrowserHelpDoesNotRequireSocket() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "--help"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Usage: cmux browser"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("mcp-server"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("Socket not found"), result.stdout)
+    }
+
+    func testBrowserMCPServerHelpDoesNotRequireSocket() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server", "--help"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Usage: cmux browser mcp-server"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("codex mcp add cmux-browser"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("Usage: cmux browser [--surface"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("Socket not found"), result.stdout)
+    }
+
+    func testBrowserMCPServerHelpAllowsJSONFlagBeforeSubcommand() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "--json", "mcp-server", "--help"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Usage: cmux browser mcp-server"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("codex mcp add cmux-browser"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("does not accept arguments"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("Socket not found"), result.stdout)
     }
 
     func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
@@ -183,10 +277,10 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stdout.contains(taggedSocketPath), result.stdout)
-        XCTAssertFalse(result.stdout.contains("OK STABLE"), result.stdout)
+        XCTAssertFalse(result.timedOut, result.output)
+        XCTAssertNotEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.output.contains(taggedSocketPath), result.output)
+        XCTAssertFalse(result.output.contains("OK STABLE"), result.output)
         XCTAssertEqual(stableResponder.receivedRequests, [])
     }
 
@@ -997,6 +1091,893 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK")
     }
 
+    func testBrowserMCPServerListsToolsWithoutSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test","version":"1"}}}"#,
+            #"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        XCTAssertEqual(responses[0]["id"] as? Int, 1)
+        let initializeResult = try XCTUnwrap(responses[0]["result"] as? [String: Any])
+        XCTAssertEqual(initializeResult["protocolVersion"] as? String, "2025-06-18")
+        let listResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        let tools = try XCTUnwrap(listResult["tools"] as? [[String: Any]])
+        XCTAssertTrue(
+            tools.contains { $0["name"] as? String == "cmux_browser_snapshot" },
+            result.stdout
+        )
+        XCTAssertTrue(
+            tools.contains { $0["name"] as? String == "cmux_browser_rpc" },
+            result.stdout
+        )
+        let screenshotTool = try XCTUnwrap(
+            tools.first { $0["name"] as? String == "cmux_browser_screenshot" },
+            result.stdout
+        )
+        let screenshotSchema = try XCTUnwrap(screenshotTool["inputSchema"] as? [String: Any])
+        let screenshotProperties = try XCTUnwrap(screenshotSchema["properties"] as? [String: Any])
+        XCTAssertNotNil(screenshotProperties["path"], result.stdout)
+        XCTAssertNotNil(screenshotProperties["out"], result.stdout)
+    }
+
+    func testBrowserMCPServerRejectsInvalidJSONRPCVersion() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"id":1,"method":"tools/list","params":{}}"#,
+            #"{"jsonrpc":"1.0","id":2,"method":"tools/list","params":{}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        for response in responses {
+            XCTAssertNil(response["result"], result.stdout)
+            let error = try XCTUnwrap(response["error"] as? [String: Any])
+            XCTAssertEqual(error["code"] as? Int, -32600)
+            XCTAssertTrue((error["message"] as? String)?.contains("jsonrpc") == true, result.stdout)
+        }
+    }
+
+    func testBrowserMCPServerDoesNotReplyToMalformedNotifications() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"1.0","method":"notifications/initialized","params":{}}"#,
+            #"{"jsonrpc":"2.0","params":{}}"#,
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 1, result.stdout)
+        XCTAssertEqual(responses[0]["id"] as? Int, 1)
+        XCTAssertNotNil(responses[0]["result"], result.stdout)
+    }
+
+    func testBrowserMCPServerReturnsErrorsForInvalidTopLevelMessages() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"#,
+            #"[1]"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let outputs = try jsonValueLines(from: result.stdout)
+        XCTAssertEqual(outputs.count, 2, result.stdout)
+        let parseErrorResponse = try XCTUnwrap(outputs[0] as? [String: Any])
+        let parseError = try XCTUnwrap(parseErrorResponse["error"] as? [String: Any])
+        XCTAssertEqual(parseError["code"] as? Int, -32700)
+        XCTAssertTrue(parseErrorResponse["id"] is NSNull, result.stdout)
+        let batchResponses = try XCTUnwrap(outputs[1] as? [[String: Any]])
+        XCTAssertEqual(batchResponses.count, 1, result.stdout)
+        let invalidRequestError = try XCTUnwrap(batchResponses[0]["error"] as? [String: Any])
+        XCTAssertEqual(invalidRequestError["code"] as? Int, -32600)
+        XCTAssertTrue(batchResponses[0]["id"] is NSNull, result.stdout)
+    }
+
+    func testBrowserMCPResponseParserRejectsNonJSONStdoutLines() {
+        let output = [
+            "debug log line",
+            #"{"jsonrpc":"2.0","id":1,"result":{}}"#,
+        ].joined(separator: "\n")
+
+        XCTAssertThrowsError(try jsonResponseLines(from: output)) { error in
+            XCTAssertTrue(String(describing: error).contains("Unexpected non-JSON stdout line"))
+        }
+    }
+
+    func testBrowserMCPServerHandlesBatchElementsIndividually() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"[1,{"jsonrpc":"2.0","id":2,"method":"ping"},{"jsonrpc":"2.0","method":"notifications/initialized"}]"#,
+            #"[]"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let outputs = try jsonValueLines(from: result.stdout)
+        XCTAssertEqual(outputs.count, 2, result.stdout)
+
+        let batchResponses = try XCTUnwrap(outputs[0] as? [[String: Any]])
+        XCTAssertEqual(batchResponses.count, 2, result.stdout)
+        let invalidElementError = try XCTUnwrap(batchResponses[0]["error"] as? [String: Any])
+        XCTAssertEqual(invalidElementError["code"] as? Int, -32600)
+        XCTAssertTrue(batchResponses[0]["id"] is NSNull, result.stdout)
+        XCTAssertEqual(batchResponses[1]["id"] as? Int, 2)
+        XCTAssertNotNil(batchResponses[1]["result"], result.stdout)
+        let emptyBatchResponse = try XCTUnwrap(outputs[1] as? [String: Any])
+        let emptyBatchError = try XCTUnwrap(emptyBatchResponse["error"] as? [String: Any])
+        XCTAssertEqual(emptyBatchError["code"] as? Int, -32600)
+        XCTAssertTrue(emptyBatchResponse["id"] is NSNull, result.stdout)
+    }
+
+    func testBrowserMCPServerSuppressesNotificationOnlyBatchResponses() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"[{"jsonrpc":"2.0","method":"notifications/initialized"}]"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, result.stdout)
+    }
+
+    func testBrowserMCPServerRejectsNonScalarJSONRPCIDs() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":{},"method":"ping"}"#,
+            #"{"jsonrpc":"2.0","id":true,"method":"ping"}"#,
+            #"[{"jsonrpc":"2.0","id":[],"method":"ping"},{"jsonrpc":"2.0","id":false,"method":"ping"},{"jsonrpc":"2.0","id":3,"method":"ping"}]"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let outputs = try jsonValueLines(from: result.stdout)
+        XCTAssertEqual(outputs.count, 3, result.stdout)
+
+        let objectResponse = try XCTUnwrap(outputs[0] as? [String: Any])
+        let objectError = try XCTUnwrap(objectResponse["error"] as? [String: Any])
+        XCTAssertEqual(objectError["code"] as? Int, -32600)
+        XCTAssertTrue(objectResponse["id"] is NSNull, result.stdout)
+
+        let booleanResponse = try XCTUnwrap(outputs[1] as? [String: Any])
+        let booleanError = try XCTUnwrap(booleanResponse["error"] as? [String: Any])
+        XCTAssertEqual(booleanError["code"] as? Int, -32600)
+        XCTAssertTrue(booleanResponse["id"] is NSNull, result.stdout)
+
+        let batchResponses = try XCTUnwrap(outputs[2] as? [[String: Any]])
+        XCTAssertEqual(batchResponses.count, 3, result.stdout)
+        let arrayIDError = try XCTUnwrap(batchResponses[0]["error"] as? [String: Any])
+        XCTAssertEqual(arrayIDError["code"] as? Int, -32600)
+        XCTAssertTrue(batchResponses[0]["id"] is NSNull, result.stdout)
+        let booleanIDError = try XCTUnwrap(batchResponses[1]["error"] as? [String: Any])
+        XCTAssertEqual(booleanIDError["code"] as? Int, -32600)
+        XCTAssertTrue(batchResponses[1]["id"] is NSNull, result.stdout)
+        XCTAssertEqual(batchResponses[2]["id"] as? Int, 3)
+        XCTAssertNotNil(batchResponses[2]["result"], result.stdout)
+    }
+
+    func testBrowserMCPServerReturnsInvalidParamsForMalformedToolCall() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 1, result.stdout)
+        let error = try XCTUnwrap(responses[0]["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? Int, -32602)
+        XCTAssertTrue((error["message"] as? String)?.contains("tools/call requires a tool name") == true, result.stdout)
+    }
+
+    func testBrowserMCPServerReturnsInvalidParamsForMalformedToolArgumentsEnvelope() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cmux_browser_open","arguments":"oops"}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 1, result.stdout)
+        let error = try XCTUnwrap(responses[0]["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? Int, -32602)
+        XCTAssertTrue((error["message"] as? String)?.contains("Invalid Request") == true, result.stdout)
+    }
+
+    func testBrowserMCPServerRejectsExplicitEmptyBrowserHandles() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: #"{"ok":true,"result":{}}"#)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_identify","arguments":{"surface":""}}}"#,
+            #"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cmux_browser_open","arguments":{"workspace":""}}}"#,
+            #"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"cmux_browser_open","arguments":{"window":""}}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 4, result.stdout)
+        XCTAssertNil(responses[0]["error"], result.stdout)
+
+        let expectedMessages = [
+            "Invalid browser surface handle",
+            "Invalid workspace handle",
+            "Invalid window handle",
+        ]
+        for (index, expectedMessage) in expectedMessages.enumerated() {
+            let callResult = try XCTUnwrap(responses[index + 1]["result"] as? [String: Any])
+            XCTAssertEqual(callResult["isError"] as? Bool, true, result.stdout)
+            let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+            XCTAssertTrue((content.first?["text"] as? String)?.contains(expectedMessage) == true, result.stdout)
+        }
+        XCTAssertEqual(responder.receivedRequests, [])
+    }
+
+    func testBrowserMCPServerRejectsExplicitEmptySurfaceBeforeDefaultFallback() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let surfaceID = UUID().uuidString
+        let response = ##"{"ok":true,"result":{"surface_id":"\##(surfaceID)"}}"##
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_open","arguments":{"url":"https://example.com"}}}"#,
+            #"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cmux_browser_snapshot","arguments":{"surface":""}}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 3, result.stdout)
+        XCTAssertNil(responses[0]["error"], result.stdout)
+        let openResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        XCTAssertNil(openResult["isError"], result.stdout)
+        let snapshotResult = try XCTUnwrap(responses[2]["result"] as? [String: Any])
+        XCTAssertEqual(snapshotResult["isError"] as? Bool, true, result.stdout)
+        let content = try XCTUnwrap(snapshotResult["content"] as? [[String: Any]])
+        XCTAssertTrue((content.first?["text"] as? String)?.contains("Invalid browser surface handle") == true, result.stdout)
+
+        XCTAssertEqual(responder.receivedRequests.count, 1, responder.receivedRequests.joined(separator: "\n"))
+        let requestObject = try jsonObject(fromLine: try XCTUnwrap(responder.receivedRequests.first))
+        XCTAssertEqual(requestObject["method"] as? String, "browser.open_split")
+    }
+
+    func testBrowserMCPServerUsesOpenedSurfaceAsDefaultForSubsequentTools() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let surfaceID = UUID().uuidString
+        let response = ##"{"ok":true,"result":{"surface_id":"\##(surfaceID)"}}"##
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_open","arguments":{"url":"https://example.com"}}}"#,
+            #"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cmux_browser_snapshot","arguments":{}}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 3, result.stdout)
+        XCTAssertNil(responses[0]["error"], result.stdout)
+        XCTAssertNil((responses[1]["result"] as? [String: Any])?["isError"], result.stdout)
+        XCTAssertNil((responses[2]["result"] as? [String: Any])?["isError"], result.stdout)
+
+        XCTAssertEqual(responder.receivedRequests.count, 2, responder.receivedRequests.joined(separator: "\n"))
+        let openRequest = try jsonObject(fromLine: responder.receivedRequests[0])
+        XCTAssertEqual(openRequest["method"] as? String, "browser.open_split")
+        let snapshotRequest = try jsonObject(fromLine: responder.receivedRequests[1])
+        XCTAssertEqual(snapshotRequest["method"] as? String, "browser.snapshot")
+        let snapshotParams = try XCTUnwrap(snapshotRequest["params"] as? [String: Any])
+        XCTAssertEqual(snapshotParams["surface_id"] as? String, surfaceID)
+    }
+
+    func testBrowserMCPServerPropagatesEnvironmentWorkspaceResolutionErrors() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: #"{"ok":true,"result":{"workspaces":[]}}"#)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+        var environment = testEnvironment.environment
+        environment["CMUX_WORKSPACE_ID"] = "99"
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_open","arguments":{"url":"https://example.com"}}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        XCTAssertEqual(callResult["isError"] as? Bool, true, result.stdout)
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        XCTAssertTrue((content.first?["text"] as? String)?.contains("Workspace index not found") == true, result.stdout)
+
+        XCTAssertEqual(responder.receivedRequests.count, 1, responder.receivedRequests.joined(separator: "\n"))
+        let requestObject = try jsonObject(fromLine: try XCTUnwrap(responder.receivedRequests.first))
+        XCTAssertEqual(requestObject["method"] as? String, "workspace.list")
+    }
+
+    func testBrowserMCPServerRejectsBooleanStringArguments() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: #"{"ok":true,"result":{"clicked":true}}"#)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_click","arguments":{"surface":"surface:1","selector":false}}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        XCTAssertEqual(callResult["isError"] as? Bool, true, result.stdout)
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        XCTAssertTrue((content.first?["text"] as? String)?.contains("requires selector") == true, result.stdout)
+        XCTAssertEqual(responder.receivedRequests, [])
+    }
+
+    func testBrowserMCPServerRejectsMalformedRawRPCParamsWithoutSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_rpc","arguments":{"method":"system.identify","params":"oops"}}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        XCTAssertEqual(callResult["isError"] as? Bool, true, result.stdout)
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        XCTAssertTrue((content.first?["text"] as? String)?.contains("Invalid Request") == true, result.stdout)
+    }
+
+    func testBrowserMCPServerRejectsInvalidRawRPCSurfaceBeforeForwarding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: #"{"ok":true,"result":{}}"#)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_rpc","arguments":{"method":"browser.get.title","params":{"surface":""}}}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        XCTAssertEqual(callResult["isError"] as? Bool, true, result.stdout)
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        XCTAssertTrue((content.first?["text"] as? String)?.contains("Invalid browser surface handle") == true, result.stdout)
+        XCTAssertEqual(responder.receivedRequests, [])
+    }
+
+    func testBrowserMCPServerRejectsUnsafeRawRPCMethodsBeforeForwarding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: #"{"ok":true,"result":{}}"#)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_rpc","arguments":{"method":"browser.cookies.get","params":{}}}}"#,
+            #"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cmux_browser_rpc","arguments":{"method":"browser.storage.get","params":{}}}}"#,
+            #"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"cmux_browser_rpc","arguments":{"method":"browser.profiles.clear","params":{}}}}"#,
+            #"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"cmux_browser_rpc","arguments":{"method":"browser.import.cookies","params":{}}}}"#,
+            #"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"cmux_browser_rpc","arguments":{"method":"browser.open_split","params":{}}}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 6, result.stdout)
+        XCTAssertNil(responses[0]["error"], result.stdout)
+        for response in responses.dropFirst() {
+            let callResult = try XCTUnwrap(response["result"] as? [String: Any])
+            XCTAssertEqual(callResult["isError"] as? Bool, true, result.stdout)
+            let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+            XCTAssertTrue((content.first?["text"] as? String)?.contains("method is not allowed") == true, result.stdout)
+        }
+        XCTAssertEqual(responder.receivedRequests, [])
+    }
+
+    func testBrowserMCPServerAllowsSafeRawRPCMethod() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let surfaceID = UUID().uuidString
+        let response = #"{"ok":true,"result":{"title":"Example"}}"#
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            ##"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_rpc","arguments":{"method":"browser.get.title","params":{"surface":"\##(surfaceID)"}}}}"##,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        XCTAssertNil(callResult["isError"], result.stdout)
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        XCTAssertTrue((content.first?["text"] as? String)?.contains(#""title":"Example""#) == true, result.stdout)
+
+        let request = try XCTUnwrap(responder.receivedRequests.first)
+        let requestObject = try jsonObject(fromLine: request)
+        XCTAssertEqual(requestObject["method"] as? String, "browser.get.title")
+        let params = try XCTUnwrap(requestObject["params"] as? [String: Any])
+        XCTAssertEqual(params["surface_id"] as? String, surfaceID)
+        XCTAssertNil(params["surface"])
+    }
+
+    func testBrowserMCPServerSnapshotDoesNotForceInteractiveMode() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let surfaceID = UUID().uuidString
+        let response = ##"{"ok":true,"result":{"surface_id":"\##(surfaceID)","snapshot":"snapshot ok"}}"##
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            ##"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_snapshot","arguments":{"surface":"\##(surfaceID)"}}}"##,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        XCTAssertEqual(content.first?["text"] as? String, "snapshot ok")
+
+        let request = try XCTUnwrap(responder.receivedRequests.first)
+        let requestObject = try jsonObject(fromLine: request)
+        XCTAssertEqual(requestObject["method"] as? String, "browser.snapshot")
+        let params = try XCTUnwrap(requestObject["params"] as? [String: Any])
+        XCTAssertEqual(params["surface_id"] as? String, surfaceID)
+        XCTAssertNil(params["interactive"])
+    }
+
+    func testBrowserMCPServerRoutesClickToolToBrowserSocketRPC() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let surfaceID = UUID().uuidString
+        let response = ##"{"ok":true,"result":{"surface_id":"\##(surfaceID)","clicked":true,"post_action_snapshot":"snapshot ok"}}"##
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            ##"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_click","arguments":{"surface":"\##(surfaceID)","selector":"#save","snapshot_after":true}}}"##,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        XCTAssertTrue((content.first?["text"] as? String)?.contains(#""clicked":true"#) == true, result.stdout)
+
+        let request = try XCTUnwrap(responder.receivedRequests.first)
+        let requestObject = try jsonObject(fromLine: request)
+        XCTAssertEqual(requestObject["method"] as? String, "browser.click")
+        let params = try XCTUnwrap(requestObject["params"] as? [String: Any])
+        XCTAssertEqual(params["surface_id"] as? String, surfaceID)
+        XCTAssertEqual(params["selector"] as? String, "#save")
+        XCTAssertEqual(params["snapshot_after"] as? Bool, true)
+    }
+
+    func testBrowserMCPServerRoutesErrorsClearThroughErrorsListRPC() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let surfaceID = UUID().uuidString
+        let response = ##"{"ok":true,"result":{"surface_id":"\##(surfaceID)","errors":[],"cleared":true}}"##
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            ##"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_errors","arguments":{"surface":"\##(surfaceID)","action":"clear"}}}"##,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        XCTAssertTrue((content.first?["text"] as? String)?.contains(#""cleared":true"#) == true, result.stdout)
+
+        let request = try XCTUnwrap(responder.receivedRequests.first)
+        let requestObject = try jsonObject(fromLine: request)
+        XCTAssertEqual(requestObject["method"] as? String, "browser.errors.list")
+        let params = try XCTUnwrap(requestObject["params"] as? [String: Any])
+        XCTAssertEqual(params["surface_id"] as? String, surfaceID)
+        XCTAssertEqual(params["clear"] as? Bool, true)
+    }
+
+    func testBrowserMCPServerRedactsSocketPathFromToolErrors() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-private-\(UUID().uuidString.prefix(8)).sock"
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_identify","arguments":{}}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        XCTAssertEqual(callResult["isError"] as? Bool, true)
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        let text = try XCTUnwrap(content.first?["text"] as? String)
+        XCTAssertFalse(text.contains(socketPath), result.stdout)
+        XCTAssertTrue(text.contains("<cmux socket>"), result.stdout)
+    }
+
+    func testBrowserMCPServerWritesRequestedScreenshotPath() throws {
+        try assertBrowserMCPServerWritesRequestedScreenshot(argumentName: "path")
+    }
+
+    func testBrowserMCPServerWritesRequestedScreenshotOutAlias() throws {
+        try assertBrowserMCPServerWritesRequestedScreenshot(argumentName: "out")
+    }
+
+    func testBrowserMCPServerStripsScreenshotBase64WhenSocketReturnsPath() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let surfaceID = UUID().uuidString
+        let screenshotData = Data("mcp screenshot bytes".utf8)
+        let screenshotURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mcp-screenshot-\(UUID().uuidString).png", isDirectory: false)
+        let response = ##"{"ok":true,"result":{"surface_id":"\##(surfaceID)","path":"\##(screenshotURL.path)","url":"\##(screenshotURL.absoluteString)","png_base64":"\##(screenshotData.base64EncodedString())"}}"##
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            ##"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_screenshot","arguments":{"surface":"\##(surfaceID)"}}}"##,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        let text = try XCTUnwrap(content.first?["text"] as? String)
+        XCTAssertTrue(text.contains(screenshotURL.path), result.stdout)
+        XCTAssertFalse(text.contains(screenshotData.base64EncodedString()), result.stdout)
+
+        let request = try XCTUnwrap(responder.receivedRequests.first)
+        let requestObject = try jsonObject(fromLine: request)
+        XCTAssertEqual(requestObject["method"] as? String, "browser.screenshot")
+        let params = try XCTUnwrap(requestObject["params"] as? [String: Any])
+        XCTAssertEqual(params["surface_id"] as? String, surfaceID)
+        XCTAssertNil(params["path"])
+        XCTAssertNil(params["out"])
+    }
+
+    private func assertBrowserMCPServerWritesRequestedScreenshot(argumentName: String) throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let surfaceID = UUID().uuidString
+        let screenshotData = Data("mcp screenshot bytes".utf8)
+        let response = ##"{"ok":true,"result":{"surface_id":"\##(surfaceID)","png_base64":"\##(screenshotData.base64EncodedString())"}}"##
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mcp-screenshot-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("capture.png", isDirectory: false)
+        defer { try? FileManager.default.removeItem(at: outputURL.deletingLastPathComponent()) }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            ##"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_screenshot","arguments":{"surface":"\##(surfaceID)","\##(argumentName)":"\##(outputURL.path)"}}}"##,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(try Data(contentsOf: outputURL), screenshotData)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        let text = try XCTUnwrap(content.first?["text"] as? String)
+        XCTAssertTrue(text.contains(outputURL.path), result.stdout)
+        XCTAssertFalse(text.contains(screenshotData.base64EncodedString()), result.stdout)
+
+        let request = try XCTUnwrap(responder.receivedRequests.first)
+        let requestObject = try jsonObject(fromLine: request)
+        XCTAssertEqual(requestObject["method"] as? String, "browser.screenshot")
+        let params = try XCTUnwrap(requestObject["params"] as? [String: Any])
+        XCTAssertEqual(params["surface_id"] as? String, surfaceID)
+        XCTAssertNil(params["path"])
+        XCTAssertNil(params["out"])
+    }
+
     func testDotPathOpenBypassesProtectedSocketForExternalCLI() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -1265,6 +2246,25 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertFalse(openArguments.contains(workingDirectory.standardizedFileURL.path), openArguments.joined(separator: " "))
     }
 
+    private func browserMCPTestEnvironment(socketPath: String? = nil) throws -> BrowserMCPTestEnvironment {
+        let homeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mcp-home-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CFFIXED_USER_HOME"] = homeURL.path
+        environment["HOME"] = homeURL.path
+        if let socketPath {
+            environment["CMUX_SOCKET_PATH"] = socketPath
+        }
+
+        return BrowserMCPTestEnvironment(environment: environment, homeURL: homeURL)
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
@@ -1404,15 +2404,17 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     private func runShell(_ command: String, timeout: TimeInterval) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", command]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
 
         do {
             try process.run()
         } catch {
-            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
+            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
@@ -1434,6 +2436,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         return ProcessRunResult(
             status: process.terminationStatus,
             stdout: String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stderr: String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
             timedOut: timedOut
         )
     }
@@ -1443,22 +2446,34 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         arguments: [String],
         environment: [String: String],
         currentDirectoryURL: URL? = nil,
+        stdinText: String? = nil,
         timeout: TimeInterval
     ) -> ProcessRunResult {
         let process = Process()
         let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        let inputPipe = stdinText.map { _ in Pipe() }
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
         process.currentDirectoryURL = currentDirectoryURL
-        process.standardInput = FileHandle.nullDevice
+        if let inputPipe {
+            process.standardInput = inputPipe
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
         process.standardOutput = outputPipe
-        process.standardError = outputPipe
+        process.standardError = errorPipe
 
         do {
             try process.run()
         } catch {
-            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
+            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
+        }
+        if let stdinText,
+           let inputPipe {
+            inputPipe.fileHandleForWriting.write(Data(stdinText.utf8))
+            try? inputPipe.fileHandleForWriting.close()
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
@@ -1480,8 +2495,43 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         return ProcessRunResult(
             status: process.terminationStatus,
             stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stderr: String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
             timedOut: timedOut
         )
+    }
+
+    private func jsonResponseLines(from output: String) throws -> [[String: Any]] {
+        try jsonValueLines(from: output)
+            .map { value -> [String: Any] in
+                guard let object = value as? [String: Any] else {
+                    throw JSONResponseLineError.unexpectedJSONValue(value)
+                }
+                return object
+            }
+    }
+
+    private func jsonValueLines(from output: String) throws -> [Any] {
+        try output
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .compactMap { rawLine -> Any? in
+                let line = String(rawLine)
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+                guard trimmed.hasPrefix("{") || trimmed.hasPrefix("[") else {
+                    throw JSONResponseLineError.unexpectedStdoutLine(line)
+                }
+                return try jsonValue(fromLine: line)
+            }
+    }
+
+    private func jsonObject(fromLine line: String) throws -> [String: Any] {
+        let data = try XCTUnwrap(line.data(using: .utf8))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+    }
+
+    private func jsonValue(fromLine line: String) throws -> Any {
+        let data = try XCTUnwrap(line.data(using: .utf8))
+        return try JSONSerialization.jsonObject(with: data, options: [])
     }
 
     private func fakeOpenScript() -> String {

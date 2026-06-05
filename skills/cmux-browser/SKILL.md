@@ -28,6 +28,17 @@ cmux --json browser surface:7 click e2 --snapshot-after
 cmux browser surface:7 snapshot --interactive
 ```
 
+## MCP Tools for Codex and Claude
+
+To let agent sessions use cmux's in-app browser through MCP instead of launching an external Chrome instance, register the bundled stdio server once:
+
+```bash
+codex mcp add cmux-browser -- cmux browser mcp-server
+claude mcp add cmux-browser -- cmux browser mcp-server
+```
+
+The MCP server exposes tools such as `cmux_browser_open`, `cmux_browser_snapshot`, `cmux_browser_click`, `cmux_browser_fill`, `cmux_browser_wait`, `cmux_browser_get`, `cmux_browser_eval`, `cmux_browser_console`, and `cmux_browser_errors`.
+
 ## Surface Targeting
 
 ```bash

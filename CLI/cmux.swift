@@ -2973,9 +2973,8 @@ struct CMUXCLI {
 
         // Check for --help/-h on subcommands before resolving sockets,
         // so help text is available even when cmux is not running.
-        let preSeparatorArgs = commandArgs.firstIndex(of: "--").map { commandArgs[..<$0] } ?? commandArgs[...]
         if command != "__tmux-compat",
-           preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
+           containsHelpFlag(beforeArgumentTerminator: commandArgs) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
             }
@@ -3250,6 +3249,17 @@ struct CMUXCLI {
         if command == "events" {
             try runEventsCommand(
                 commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
+        let browserNoSocketArgs = commandArgs.filter { $0 != "--json" }
+        if command == "browser",
+           ["mcp-server", "mcp"].contains(browserNoSocketArgs.first?.lowercased() ?? "") {
+            try runBrowserMCPServer(
+                commandArgs: Array(browserNoSocketArgs.dropFirst()),
                 socketPath: resolvedSocketPath,
                 explicitPassword: socketPasswordArg
             )
@@ -10941,6 +10951,22 @@ struct CMUXCLI {
         return (result.status, result.stdout, result.stderr)
     }
 
+    private func runBrowserMCPServer(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
+        guard commandArgs.isEmpty else {
+            throw CLIError(message: "browser mcp-server does not accept arguments")
+        }
+
+        try CMUXBrowserMCPServer(
+            cli: self,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword
+        ).run()
+    }
+
     private func runBrowserCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -14620,6 +14646,7 @@ struct CMUXCLI {
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
               download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              mcp-server
               profiles <list|add|rename|clear|delete> [...]
               import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
               cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--all]
@@ -14647,6 +14674,7 @@ struct CMUXCLI {
               cmux browser open https://example.com
               cmux browser surface:1 navigate https://google.com
               cmux browser --surface surface:1 snapshot --interactive
+              cmux browser mcp-server
             """
         // Legacy browser aliases — point users to `cmux browser --help`
         case "open-browser":
@@ -14694,14 +14722,43 @@ struct CMUXCLI {
         }
     }
 
+    private func browserMCPServerUsage() -> String {
+        """
+        Usage: cmux browser mcp-server
+
+        Start a stdio MCP server that exposes cmux in-app browser automation tools.
+
+        Register it with agents:
+          codex mcp add cmux-browser -- cmux browser mcp-server
+          claude mcp add cmux-browser -- cmux browser mcp-server
+        """
+    }
+
     /// Dispatch help for a subcommand. Returns true if help was printed.
     private func dispatchSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
-        guard commandArgs.contains("--help") || commandArgs.contains("-h") else { return false }
+        guard containsHelpFlag(beforeArgumentTerminator: commandArgs) else { return false }
+        let preTerminatorArgs = commandArgs
+            .prefix(while: { $0 != "--" })
+            .filter { $0 != "--json" }
+        if command == "browser",
+           let browserSubcommand = preTerminatorArgs.first?.lowercased(),
+           browserSubcommand == "mcp-server" || browserSubcommand == "mcp" {
+            print("cmux browser mcp-server")
+            print("")
+            print(browserMCPServerUsage())
+            return true
+        }
         guard let text = subcommandUsage(command) else { return false }
         print("cmux \(command)")
         print("")
         print(text)
         return true
+    }
+
+    private func containsHelpFlag(beforeArgumentTerminator args: [String]) -> Bool {
+        args
+            .prefix(while: { $0 != "--" })
+            .contains(where: { $0 == "--help" || $0 == "-h" })
     }
 
     /// Escape and quote a string for safe embedding in a v1 socket command.
@@ -32009,6 +32066,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 #endif
 }
+
 
 private enum CMUXCLIOutput {
     static func writeStandardError(_ message: String) {

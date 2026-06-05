@@ -17,6 +17,19 @@ This maps common `agent-browser` usage to `cmux browser` usage.
 
 ## Core Command Groups
 
+### MCP Server
+
+```bash
+# Register once so Codex and Claude can use cmux browser panes as MCP tools.
+codex mcp add cmux-browser -- cmux browser mcp-server
+claude mcp add cmux-browser -- cmux browser mcp-server
+
+# Run the stdio server directly when an MCP client launches it.
+cmux browser mcp-server
+```
+
+The server exposes focused/open/navigate/snapshot/click/fill/type/wait/get/eval/screenshot/console/errors tools plus a restricted `cmux_browser_rpc` fallback for reviewed browser automation socket methods. Use `cmux_browser_open` for opening new browser surfaces so workspace scoping is applied.
+
 ### Navigation
 
 ```bash
