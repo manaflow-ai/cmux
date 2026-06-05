@@ -13,10 +13,10 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `9f014e98b`, based on `176bd550f`, adding the
+Current cmux pinned fork head: `df789cd4b`, based on `176bd550f`, adding the
 cmd-click link refresh under mouse reporting (manaflow-ai/ghostty#71) plus the
 click/drag mouse-report suppression and hover-state follow-ups
-(manaflow-ai/ghostty#74, #75, #76, #77, #78) for
+(manaflow-ai/ghostty#74, #75, #76, #77, #78, #79) for
 https://github.com/manaflow-ai/cmux/issues/5128 on top of the previous head's
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
 the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
@@ -28,7 +28,7 @@ and lets Cmd-click open links even while a mouse-reporting alt-screen TUI
 (Claude Code, Codex) has grabbed the mouse.
 It also supports Ctrl-N and Ctrl-P in the cmux theme picker.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-9f014e98b7154405d8ba406e19f0f9b8529cdc8b-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-df789cd4ba1419ffb3c1c39865ad0400b2676e10-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -235,6 +235,8 @@ tend to conflict together during rebases.
   - `59fb750c0` (fix: clear link-click latch unconditionally on left release)
 - Follow-up commit (manaflow-ai/ghostty#78):
   - `9f014e98b` (fix: open latched link on release with press-time chord; defer-clear latch)
+- Follow-up commit (manaflow-ai/ghostty#79):
+  - `df789cd4b` (fix: only open a latched link click that started on a link)
 - Files:
   - `src/Surface.zig`
 - Summary:
@@ -279,6 +281,9 @@ tend to conflict together during rebases.
     `processLinks` whenever latched, so releasing the modifier before the button
     still opens the link (instead of swallowing the click); the latch is cleared
     via a function-level `defer` so the early-return link-open path resets it.
+  - Follow-up (#79): only opens the latched click when it started on a link
+    (`link_press_over_link`), so a chord drag that began off a link and released
+    over one is swallowed rather than opening a link the press never targeted.
   - Known limitation (noted by review): the bypass matches the default
     `ctrlOrSuper` chord, which is exactly what both link kinds already require to
     activate (OSC 8 `linkAtPos` and the default url `hover_mods = ctrlOrSuper`); a
@@ -287,10 +292,10 @@ tend to conflict together during rebases.
 
 The current cmux pin is the head listed above. It is reachable from
 `manaflow-ai/ghostty` through the
-`xcframework-9f014e98b7154405d8ba406e19f0f9b8529cdc8b-crashsubdir-cmux-crash-v1`
+`xcframework-df789cd4ba1419ffb3c1c39865ad0400b2676e10-crashsubdir-cmux-crash-v1`
 release tag and is an ancestor of `manaflow-ai/ghostty` `main` (PR #71, #74,
-#75, #76, #77, and #78 are merged into fork `main`, keeping `9f014e98b` an ancestor).
-Published `xcframework-9f014e98b7154405d8ba406e19f0f9b8529cdc8b-crashsubdir-cmux-crash-v1` and pinned its
+#75, #76, #77, #78, and #79 are merged into fork `main`, keeping `df789cd4b` an ancestor).
+Published `xcframework-df789cd4ba1419ffb3c1c39865ad0400b2676e10-crashsubdir-cmux-crash-v1` and pinned its
 archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
 pin must be regenerated whenever this commit changes, even for comment-only
 amends, because the release tag is keyed by the Ghostty commit SHA.
