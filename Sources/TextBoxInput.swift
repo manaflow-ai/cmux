@@ -4374,6 +4374,9 @@ final class TextBoxInputTextView: NSTextView {
            let key = controlKey(for: event) {
             if Self.localControlKeys.contains(key) {
                 super.keyDown(with: event)
+                if !hasMarkedText() {
+                    refreshMentionCompletions()
+                }
             } else {
                 onForwardControl(key)
             }
@@ -4396,6 +4399,9 @@ final class TextBoxInputTextView: NSTextView {
         }
 
         super.keyDown(with: event)
+        if !hasMarkedText() {
+            refreshMentionCompletions()
+        }
     }
 
     override func doCommand(by commandSelector: Selector) {
@@ -4720,7 +4726,9 @@ final class TextBoxInputTextView: NSTextView {
 
     private func syncMentionCompletionPopover() {
         syncMentionCompletionQueryWithTextViewState()
-        guard mentionCompletionController.shouldShowPopover else {
+        let renderState = mentionCompletionController.renderState
+        guard mentionCompletionController.isActive,
+              renderState.shouldShowPopover else {
             dismissMentionCompletionPopoverOnly()
             return
         }
@@ -4734,10 +4742,8 @@ final class TextBoxInputTextView: NSTextView {
         }
         updateMentionCompletionWindowObservers(for: parentWindow)
 
-        let visibleSuggestions = mentionCompletionController.visibleSuggestions
-        let showsLoadingRow = visibleSuggestions.isEmpty &&
-            mentionCompletionController.isLoadingSuggestions
-        let rowCount = showsLoadingRow ? 1 : visibleSuggestions.count
+        let showsLoadingRow = renderState.suggestions.isEmpty && renderState.isLoading
+        let rowCount = showsLoadingRow ? 1 : renderState.suggestions.count
         let maxVisibleRows = 12
         let visibleRows = min(rowCount, maxVisibleRows)
         let rowHeight: CGFloat = 25
@@ -4747,10 +4753,10 @@ final class TextBoxInputTextView: NSTextView {
         )
         let host: NSHostingView<TextBoxMentionCompletionPopoverView>
         if let existingHost = mentionCompletionPanelHost {
-            existingHost.rootView = mentionCompletionPopoverView()
+            existingHost.rootView = mentionCompletionPopoverView(renderState: renderState)
             host = existingHost
         } else {
-            host = NSHostingView(rootView: mentionCompletionPopoverView())
+            host = NSHostingView(rootView: mentionCompletionPopoverView(renderState: renderState))
             host.translatesAutoresizingMaskIntoConstraints = true
             host.autoresizingMask = []
             mentionCompletionPanelHost = host
@@ -4927,12 +4933,14 @@ final class TextBoxInputTextView: NSTextView {
         return NSPoint(x: x, y: y)
     }
 
-    private func mentionCompletionPopoverView() -> TextBoxMentionCompletionPopoverView {
+    private func mentionCompletionPopoverView(
+        renderState: TextBoxMentionCompletionRenderState
+    ) -> TextBoxMentionCompletionPopoverView {
         TextBoxMentionCompletionPopoverView(
-            suggestions: mentionCompletionController.visibleSuggestions,
-            selectionIndex: mentionCompletionController.selectionIndex,
-            searchTerm: mentionCompletionController.activeQuery?.query ?? "",
-            isLoading: mentionCompletionController.isLoadingSuggestions,
+            suggestions: renderState.suggestions,
+            selectionIndex: renderState.selectionIndex,
+            searchTerm: renderState.searchTerm,
+            isLoading: renderState.isLoading,
             onSelect: { [weak self] suggestion in
                 self?.window?.makeFirstResponder(self)
                 self?.acceptMentionCompletion(suggestion)

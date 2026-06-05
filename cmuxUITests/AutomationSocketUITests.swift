@@ -161,6 +161,26 @@ final class AutomationSocketUITests: XCTestCase {
             """
         )
         XCTAssertTrue(typedRows.first?.contains("$autoreview") == true)
+
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        textBox.typeText("$iterate")
+
+        let iterateRows = try XCTUnwrap(
+            waitForMentionRows(
+                in: app,
+                fallbackTitles: ["$iterate-pr", "$agent-browser"],
+                timeout: 8.0
+            ) { rows in
+                rows.first?.contains("$iterate-pr") == true &&
+                    !rows.contains { $0.contains("$agent-browser") }
+            },
+            """
+            Expected visible popover rows for $iterate to show $iterate-pr and hide stale $agent-browser.
+            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoots: fixtureRoots.skillRoots))
+            """
+        )
+        XCTAssertTrue(iterateRows.first?.contains("$iterate-pr") == true)
     }
 
     private func configuredApp(mode: String) -> XCUIApplication {
