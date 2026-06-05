@@ -79,6 +79,20 @@ struct AmpSessionIndexTests {
         #expect(entry.title == "Ship Amp Session Index")
     }
 
+    @Test func skipsTypeDriftedRecordsWithoutBlankingListing() throws {
+        // One record has a type-drifted field (`cwd` as a number). The whole
+        // listing must survive — only the bad record is dropped.
+        let storeURL = try writeStore([
+            "T-bad": ["sessionId": "T-bad", "cwd": 12345, "updatedAt": 300.0],
+            "T-good": ["sessionId": "T-good", "cwd": "/tmp/good", "updatedAt": 200.0],
+        ])
+        defer { try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent()) }
+
+        let outcome = SessionIndexStore.loadAmpEntriesForTesting(storeURL: storeURL)
+        #expect(outcome.errors == [])
+        #expect(outcome.entries.map(\.sessionId) == ["T-good"])
+    }
+
     @Test func malformedStoreReportsErrorWithoutCrashing() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-amp-index-\(UUID().uuidString)", isDirectory: true)

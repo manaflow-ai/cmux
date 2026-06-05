@@ -28,12 +28,35 @@ private struct AmpHookSessionStoreFile: Decodable {
 
     private enum CodingKeys: String, CodingKey { case sessions }
 
+    private struct SessionKey: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        sessions = try container.decodeIfPresent(
-            [String: AmpHookSessionRecord].self,
+        guard container.contains(.sessions) else {
+            sessions = [:]
+            return
+        }
+        // Decode entry-by-entry so one type-drifted record (this is persisted
+        // cross-version state) can't blank the whole listing.
+        let sessionsContainer = try container.nestedContainer(
+            keyedBy: SessionKey.self,
             forKey: .sessions
-        ) ?? [:]
+        )
+        var decoded: [String: AmpHookSessionRecord] = [:]
+        decoded.reserveCapacity(sessionsContainer.allKeys.count)
+        for key in sessionsContainer.allKeys {
+            guard let record = try? sessionsContainer.decode(
+                AmpHookSessionRecord.self,
+                forKey: key
+            ) else { continue }
+            decoded[key.stringValue] = record
+        }
+        sessions = decoded
     }
 }
 
