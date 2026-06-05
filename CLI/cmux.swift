@@ -21390,7 +21390,12 @@ struct CMUXCLI {
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
                     )
-                    let payload = notificationPayload(title: title, subtitle: completion.subtitle, body: completion.body)
+                    let payload = notificationPayload(
+                        title: title,
+                        subtitle: completion.subtitle,
+                        body: completion.body,
+                        bodyFormat: "markdown"
+                    )
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
                 print("OK")
@@ -21535,7 +21540,12 @@ struct CMUXCLI {
                 localized: "cli.claude-hook.notification.title",
                 defaultValue: "Claude Code"
             )
-            let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
+            let payload = notificationPayload(
+                title: title,
+                subtitle: summary.subtitle,
+                body: summary.body,
+                bodyFormat: "markdown"
+            )
 
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
@@ -22435,7 +22445,25 @@ struct CMUXCLI {
         case "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails":
             return compactClaudeHookCodexFailureValue(rawValue, key: key)
         default:
-            return compactClaudeHookStringValue(rawValue, maxLength: claudeHookCompactFieldLimit(for: key))
+            return compactClaudeHookStringValue(
+                rawValue,
+                maxLength: claudeHookCompactFieldLimit(for: key),
+                preserveWhitespace: claudeHookCompactFieldPreservesRichText(key)
+            )
+        }
+    }
+
+    private func claudeHookCompactFieldPreservesRichText(_ key: String) -> Bool {
+        switch key {
+        case "last_assistant_message", "lastAssistantMessage",
+             "assistantPreamble", "assistant_preamble",
+             "assistant_response", "assistantResponse",
+             "summary", "message", "body", "text", "prompt",
+             "description", "user_message", "userMessage",
+             "command", "plan":
+            return true
+        default:
+            return false
         }
     }
 
@@ -22475,14 +22503,17 @@ struct CMUXCLI {
     private func compactClaudeHookStringValue(
         _ rawValue: Any?,
         maxLength: Int,
-        keepSuffix: Bool = false
+        keepSuffix: Bool = false,
+        preserveWhitespace: Bool = false
     ) -> String? {
         guard let rawString = rawValue as? String else { return nil }
         let previewLength = max(maxLength, min(maxLength * 4, 1024))
         let preview = keepSuffix
             ? String(rawString.suffix(previewLength))
             : String(rawString.prefix(previewLength))
-        let normalized = normalizedSingleLine(preview)
+        let normalized = preserveWhitespace
+            ? redactClaudeSensitiveSpans(preview).trimmingCharacters(in: .whitespacesAndNewlines)
+            : normalizedSingleLine(redactClaudeSensitiveSpans(preview))
         guard !normalized.isEmpty else { return nil }
         if keepSuffix, normalized.count > maxLength {
             return "…" + String(normalized.suffix(maxLength - 1))
@@ -23931,9 +23962,8 @@ struct CMUXCLI {
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description"])
         ]
         let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
-        let normalizedMessage = normalizedSingleLine(message)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
-        var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
+        var classified = classifyClaudeNotification(signal: signal, message: message)
 
         classified.body = truncate(classified.body, maxLength: 180)
         return classified
@@ -23970,9 +24000,9 @@ struct CMUXCLI {
             firstString(in: nested, keys: ["type", "kind", "reason"]),
         ]
         let messageCandidates = [
-            firstString(in: object, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
-            firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
-            firstString(in: extra, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+            firstString(in: object, keys: ["last_assistant_message", "lastAssistantMessage", "assistant_response", "assistantResponse", "message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+            firstString(in: nested, keys: ["last_assistant_message", "lastAssistantMessage", "assistant_response", "assistantResponse", "message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+            firstString(in: extra, keys: ["last_assistant_message", "lastAssistantMessage", "assistant_response", "assistantResponse", "message", "body", "text", "prompt", "summary", "description", "error", "title"]),
         ]
         let fallbackBody = String.localizedStringWithFormat(
             String(localized: "agent.generic.notification.body.sentNotification", defaultValue: "%@ sent a notification"),
@@ -24010,7 +24040,7 @@ struct CMUXCLI {
         return classifyAgentHookNotification(
             def: def,
             signal: signal,
-            message: normalizedMessage,
+            message: message,
             isFallback: message == fallbackBody
         )
     }
@@ -24034,7 +24064,7 @@ struct CMUXCLI {
         }
         return AgentHookNotificationSummary(
             subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
-            body: truncate(normalizedSingleLine(body), maxLength: 180),
+            body: truncate(body, maxLength: 180),
             status: .idle,
             isFallback: false
         )
@@ -24074,9 +24104,9 @@ struct CMUXCLI {
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
         let extra = (object["extra"] as? [String: Any]) ?? [:]
         let messageCandidates = [
-            firstString(in: object, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
-            firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
-            firstString(in: extra, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+            firstString(in: object, keys: ["last_assistant_message", "lastAssistantMessage", "assistant_response", "assistantResponse", "message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+            firstString(in: nested, keys: ["last_assistant_message", "lastAssistantMessage", "assistant_response", "assistantResponse", "message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+            firstString(in: extra, keys: ["last_assistant_message", "lastAssistantMessage", "assistant_response", "assistantResponse", "message", "body", "text", "prompt", "summary", "description", "error", "title"]),
         ]
         return messageCandidates.compactMap { $0 }.first.map(normalizedSingleLine)
     }
@@ -24116,9 +24146,9 @@ struct CMUXCLI {
                   let text = extractMessageText(from: object) else {
                 continue
             }
-            let normalized = normalizedSingleLine(text)
-            if !normalized.isEmpty {
-                return normalized
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalizedSingleLine(trimmed).isEmpty {
+                return trimmed
             }
         }
         return nil
@@ -24409,8 +24439,35 @@ struct CMUXCLI {
             .replacingOccurrences(of: "|", with: "¦")
     }
 
-    private func notificationPayload(title: String, subtitle: String, body: String) -> String {
-        "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+    private func notificationPayload(
+        title: String,
+        subtitle: String,
+        body: String,
+        bodyFormat: String = "plain"
+    ) -> String {
+        guard bodyFormat != "plain" else {
+            return "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+        }
+        let object: [String: Any] = [
+            "title": sanitizeNotificationField(title),
+            "subtitle": sanitizeNotificationField(subtitle),
+            "body": body.trimmingCharacters(in: .whitespacesAndNewlines),
+            "body_format": bodyFormat,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: []) else {
+            return "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+        }
+        return "json64:\(data.base64EncodedString())"
+    }
+
+    private func notificationBodyNeedsRichFormat(_ body: String) -> Bool {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        if trimmed.contains("\n") || trimmed.contains("\r") {
+            return true
+        }
+        let markdownMarkers = ["**", "__", "`", "](", "# ", "- ", "* ", "> "]
+        return markdownMarkers.contains { trimmed.contains($0) }
     }
 
     private func redactClaudeSensitiveSpans(_ value: String) -> String {
@@ -24943,7 +25000,15 @@ struct CMUXCLI {
         environment: [String: String]?
     ) -> String {
         var commandParts: [String] = []
-        commandParts.append(contentsOf: argv)
+        let wrapped = claudeWrapperResumeCommandPartsIfNeeded(argv: argv, kind: kind)
+        if !wrapped.additionalEnvironment.isEmpty {
+            commandParts.append("env")
+            for key in wrapped.additionalEnvironment.keys.sorted() {
+                guard let value = wrapped.additionalEnvironment[key] else { continue }
+                commandParts.append("\(key)=\(value)")
+            }
+        }
+        commandParts.append(contentsOf: wrapped.argv)
 
         let cwd = normalizedHookValue(workingDirectory)
         let sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
@@ -24966,6 +25031,44 @@ struct CMUXCLI {
             return "{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } && \(command)"
         }
         return command
+    }
+
+    private func claudeWrapperResumeCommandPartsIfNeeded(
+        argv: [String],
+        kind: String
+    ) -> (argv: [String], additionalEnvironment: [String: String]) {
+        guard kind == "claude",
+              !argv.isEmpty,
+              !isClaudeTeamsCommand(argv),
+              let wrapperPath = currentBundledClaudeWrapperPath(),
+              let claudeExecutable = normalizedHookValue(argv.first),
+              claudeExecutable != wrapperPath else {
+            return (argv, [:])
+        }
+        return (
+            [wrapperPath] + Array(argv.dropFirst()),
+            ["CMUX_CUSTOM_CLAUDE_PATH": claudeExecutable]
+        )
+    }
+
+    private func isClaudeTeamsCommand(_ argv: [String]) -> Bool {
+        guard argv.count >= 2 else { return false }
+        return argv[1] == "claude-teams"
+    }
+
+    private func currentBundledClaudeWrapperPath() -> String? {
+        guard let cmuxPath = normalizedHookValue(ProcessInfo.processInfo.environment["CMUX_BUNDLED_CLI_PATH"]),
+              (cmuxPath as NSString).lastPathComponent == "cmux" else {
+            return nil
+        }
+        let wrapperPath = URL(fileURLWithPath: cmuxPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("claude", isDirectory: false)
+            .path
+        guard FileManager.default.isExecutableFile(atPath: wrapperPath) else {
+            return nil
+        }
+        return wrapperPath
     }
 
     private func hermesAgentSubrouterResumeCommand(
@@ -25411,6 +25514,95 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   } catch (_) {}
 }
 
+function normalizeSDKResponse(response, fallback) {
+  if (response == null) return fallback;
+  if (Array.isArray(response)) return response;
+  if (typeof response === "object" && "data" in response && response.data != null) {
+    return response.data;
+  }
+  return fallback;
+}
+
+function textFromMessage(message) {
+  const parts = Array.isArray(message && message.parts) ? message.parts : [];
+  return parts
+    .filter((part) => part && part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function latestAssistantMessageText(messages) {
+  if (!Array.isArray(messages)) return null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || message.info?.role !== "assistant") continue;
+    if (message.info?.error) continue;
+    const text = firstString(textFromMessage(message));
+    if (text) return text;
+  }
+  return null;
+}
+
+async function latestAssistantMessage(ctx, event) {
+  const sessionId = sessionIdFor(event);
+  if (!sessionId || typeof ctx?.client?.session?.messages !== "function") return null;
+  try {
+    const response = await ctx.client.session.messages({
+      path: { id: sessionId },
+      query: { directory: cwdFor(ctx, event) },
+    });
+    return latestAssistantMessageText(normalizeSDKResponse(response, []));
+  } catch (_) {
+    return null;
+  }
+}
+
+const CMUX_STOP_SENT_KEY = Symbol.for("cmux.opencode.stopSent");
+const CMUX_SESSION_ENDED_KEY = Symbol.for("cmux.opencode.sessionEnded");
+
+function stopSentSet() {
+  if (!globalThis[CMUX_STOP_SENT_KEY]) {
+    globalThis[CMUX_STOP_SENT_KEY] = new Set();
+  }
+  return globalThis[CMUX_STOP_SENT_KEY];
+}
+
+function endedSessionSet() {
+  if (!globalThis[CMUX_SESSION_ENDED_KEY]) {
+    globalThis[CMUX_SESSION_ENDED_KEY] = new Set();
+  }
+  return globalThis[CMUX_SESSION_ENDED_KEY];
+}
+
+function markSessionActive(event) {
+  const sessionId = sessionIdFor(event);
+  if (!sessionId) return;
+  const key = String(sessionId);
+  stopSentSet().delete(key);
+  endedSessionSet().delete(key);
+}
+
+function markSessionEnded(event) {
+  const sessionId = sessionIdFor(event);
+  if (!sessionId) return;
+  const key = String(sessionId);
+  stopSentSet().delete(key);
+  endedSessionSet().add(key);
+}
+
+async function sendStopOnce(ctx, event) {
+  const sessionId = sessionIdFor(event);
+  if (!sessionId) return;
+  const key = String(sessionId);
+  if (endedSessionSet().has(key)) return;
+  const sent = stopSentSet();
+  if (sent.has(key)) return;
+  sent.add(key);
+  const message = await latestAssistantMessage(ctx, event);
+  sendHook("stop", ctx, event, { last_assistant_message: message || undefined });
+}
+
 const CMUXSessionRestore = async (ctx) => {
   if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
   globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
@@ -25419,25 +25611,30 @@ const CMUXSessionRestore = async (ctx) => {
       const props = eventProperties(event);
       switch (event && event.type) {
         case "session.created":
+          markSessionActive(event);
           sendHook("session-start", ctx, event);
           break;
         case "session.updated":
           if (props.info && props.info.time && props.info.time.archived) {
             sendHook("session-end", ctx, event);
+            markSessionEnded(event);
           } else {
-            sendHook("session-start", ctx, event);
+            markSessionActive(event);
           }
           break;
         case "session.status":
           if (props.status && props.status.type === "idle") {
-            sendHook("stop", ctx, event);
+            await sendStopOnce(ctx, event);
+          } else if (props.status && props.status.type) {
+            markSessionActive(event);
           }
           break;
         case "session.idle":
-          sendHook("stop", ctx, event);
+          await sendStopOnce(ctx, event);
           break;
         case "session.deleted":
           sendHook("session-end", ctx, event);
+          markSessionEnded(event);
           break;
         default:
           break;
@@ -28068,8 +28265,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let body = codexFailure?.body
                 ?? antigravityFailure?.body
-                ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
-                ?? grokAssistantMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
+                ?? lastMsg.map { truncate($0, maxLength: 200) }
+                ?? grokAssistantMessage.map { truncate($0, maxLength: 200) }
                 ?? String.localizedStringWithFormat(
                     String(
                         localized: "agent.codex.completion.body.sessionCompleted",
@@ -28193,7 +28390,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
             }
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
-                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
+                let payload = notificationPayload(
+                    title: def.displayName,
+                    subtitle: subtitle,
+                    body: body,
+                    bodyFormat: "markdown"
+                )
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(
@@ -28505,7 +28707,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
             if shouldSendNotification(fingerprint: notificationFingerprint) {
-                let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
+                let payload = notificationPayload(
+                    title: def.displayName,
+                    subtitle: summary.subtitle,
+                    body: summary.body,
+                    bodyFormat: "markdown"
+                )
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(

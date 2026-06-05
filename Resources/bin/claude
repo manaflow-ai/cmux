@@ -479,10 +479,188 @@ fi
 # - SubagentStop: feed telemetry only. It must not run the visible Stop
 #   hook because a subagent finishing should not notify like the parent.
 HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+MERGED_USER_SETTINGS=false
+
+merge_user_claude_settings_if_present() {
+    local user_settings=""
+    local consumed_by_option=""
+    local arg
+    for arg in "$@"; do
+        if [[ -n "$consumed_by_option" ]]; then
+            if [[ "$consumed_by_option" == "--settings" && -z "$user_settings" ]]; then
+                user_settings="$arg"
+            fi
+            consumed_by_option=""
+            continue
+        fi
+        [[ "$arg" == "--" ]] && break
+        case "$arg" in
+            --settings=*)
+                if [[ -z "$user_settings" ]]; then
+                    user_settings="${arg#--settings=}"
+                fi
+                ;;
+            --settings)
+                consumed_by_option="--settings"
+                ;;
+            --*=*)
+                ;;
+            -*)
+                if claude_option_consumes_value "$arg"; then
+                    consumed_by_option="$arg"
+                fi
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+    [[ -n "$user_settings" ]] || return 0
+    command -v node >/dev/null 2>&1 || return 0
+
+    local merged
+    merged="$(CMUX_CLAUDE_WRAPPER_SETTINGS="$HOOKS_JSON" CMUX_CLAUDE_USER_SETTINGS="$user_settings" node <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+function expandPath(value) {
+  if (value === "~") return process.env.HOME || value;
+  if (value.startsWith("~/")) return path.join(process.env.HOME || "", value.slice(2));
+  return value;
+}
+
+function parseSettings(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) throw new Error("empty settings");
+  try {
+    return JSON.parse(trimmed);
+  } catch (_) {
+    const data = fs.readFileSync(expandPath(trimmed), "utf8");
+    return JSON.parse(data);
+  }
+}
+
+function isObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeHooks(cmuxHooks, userHooks) {
+  if (!isObject(cmuxHooks)) return isObject(userHooks) ? userHooks : cmuxHooks;
+  if (!isObject(userHooks)) return cmuxHooks;
+  const merged = { ...cmuxHooks };
+  for (const [event, userGroups] of Object.entries(userHooks)) {
+    const cmuxGroups = merged[event];
+    if (Array.isArray(cmuxGroups) && Array.isArray(userGroups)) {
+      merged[event] = [...cmuxGroups, ...userGroups];
+    } else {
+      merged[event] = userGroups;
+    }
+  }
+  return merged;
+}
+
+const cmuxSettings = JSON.parse(process.env.CMUX_CLAUDE_WRAPPER_SETTINGS || "{}");
+const userSettings = parseSettings(process.env.CMUX_CLAUDE_USER_SETTINGS || "");
+if (!isObject(userSettings)) throw new Error("settings must be an object");
+const merged = { ...userSettings, ...cmuxSettings };
+merged.hooks = mergeHooks(cmuxSettings.hooks, userSettings.hooks);
+process.stdout.write(JSON.stringify(merged));
+NODE
+)" || return 0
+    [[ -n "$merged" ]] || return 0
+    HOOKS_JSON="$merged"
+    MERGED_USER_SETTINGS=true
+}
+
+merge_user_claude_settings_if_present "$@"
+
+CLAUDE_ARGS=("$@")
+if [[ "$MERGED_USER_SETTINGS" == true ]]; then
+    stripped_settings=false
+    consumed_by_option=""
+    scan_options=true
+    rewritten_args=()
+    for arg in "$@"; do
+        if [[ -n "$consumed_by_option" ]]; then
+            if [[ "$consumed_by_option" == "--settings" && "$stripped_settings" == true ]]; then
+                consumed_by_option=""
+                continue
+            fi
+            rewritten_args+=("$arg")
+            consumed_by_option=""
+            continue
+        fi
+        if [[ "$scan_options" == true && "$stripped_settings" == false ]]; then
+            case "$arg" in
+                --settings=*)
+                    stripped_settings=true
+                    continue
+                    ;;
+                --settings)
+                    stripped_settings=true
+                    consumed_by_option="--settings"
+                    continue
+                    ;;
+            esac
+        fi
+        rewritten_args+=("$arg")
+        if [[ "$scan_options" == true ]]; then
+            if [[ "$arg" == "--" ]]; then
+                scan_options=false
+                continue
+            fi
+            case "$arg" in
+                --*=*)
+                    ;;
+                -*)
+                    if claude_option_consumes_value "$arg"; then
+                        consumed_by_option="$arg"
+                    fi
+                    ;;
+                *)
+                    scan_options=false
+                    ;;
+            esac
+        fi
+    done
+    CLAUDE_ARGS=("${rewritten_args[@]}")
+fi
+
+SETTINGS_ARG="$HOOKS_JSON"
+if [[ "$MERGED_USER_SETTINGS" == true ]]; then
+    settings_file="$(mktemp "${TMPDIR:-/tmp}/cmux-claude-settings.XXXXXX")" || {
+        echo "cmux claude wrapper: failed to create merged settings file" >&2
+        exec "$REAL_CLAUDE" "${CLAUDE_ARGS[@]}"
+    }
+    chmod 600 "$settings_file" 2>/dev/null || true
+    if ! printf '%s' "$HOOKS_JSON" > "$settings_file"; then
+        rm -f "$settings_file"
+        echo "cmux claude wrapper: failed to write merged settings file" >&2
+        exec "$REAL_CLAUDE" "${CLAUDE_ARGS[@]}"
+    fi
+    SETTINGS_ARG="$settings_file"
+fi
+
+if [[ "$MERGED_USER_SETTINGS" == true ]]; then
+    cleanup_merged_settings() {
+        rm -f "$SETTINGS_ARG"
+    }
+    trap cleanup_merged_settings EXIT INT TERM
+    if [[ "$SKIP_SESSION_ID" == true ]]; then
+        "$REAL_CLAUDE" --settings "$SETTINGS_ARG" "${CLAUDE_ARGS[@]}"
+    else
+        SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+        "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$SETTINGS_ARG" "${CLAUDE_ARGS[@]}"
+    fi
+    exit_code=$?
+    cleanup_merged_settings
+    trap - EXIT INT TERM
+    exit "$exit_code"
+fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
-    exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
+    exec "$REAL_CLAUDE" --settings "$SETTINGS_ARG" "${CLAUDE_ARGS[@]}"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-    exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+    exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$SETTINGS_ARG" "${CLAUDE_ARGS[@]}"
 fi

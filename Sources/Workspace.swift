@@ -42,7 +42,7 @@ private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
     var observer: NSObjectProtocol?
 }
 
-struct SidebarStatusEntry: Equatable {
+struct SidebarStatusEntry: Equatable, Sendable {
     let key: String
     let value: String
     let icon: String?
@@ -80,7 +80,7 @@ struct SidebarMetadataBlock: Equatable {
     let timestamp: Date
 }
 
-enum SidebarMetadataFormat: String {
+enum SidebarMetadataFormat: String, Sendable {
     case plain
     case markdown
 }
@@ -1006,6 +1006,7 @@ extension Workspace {
             signingSecret: approvalSigningSecret
         )
         effectiveBinding = hermesAgentSubrouterBindingForStartup(effectiveBinding)
+        effectiveBinding = effectiveBinding.replacingDirectClaudeResumeWithBundledWrapperIfNeeded()
         if effectiveBinding.source == "agent-hook", !autoResumeAgentSessions {
             return nil
         }
@@ -12255,6 +12256,13 @@ final class Workspace: Identifiable, ObservableObject {
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         recordAgentLifecycleChange(panelId: targetPanelId)
+    }
+
+    func agentLifecycle(
+        key: String,
+        panelId: UUID
+    ) -> AgentHibernationLifecycleState? {
+        agentLifecycleStatesByPanelId[panelId]?[key]
     }
 
     @discardableResult

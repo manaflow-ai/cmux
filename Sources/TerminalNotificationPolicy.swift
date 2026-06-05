@@ -8,6 +8,33 @@ struct TerminalNotificationPolicyPayload: Codable, Sendable, Equatable {
     var title: String
     var subtitle: String
     var body: String
+    var bodyFormat: TerminalNotificationBodyFormat = .plain
+
+    init(
+        workspaceId: String,
+        surfaceId: String?,
+        title: String,
+        subtitle: String,
+        body: String,
+        bodyFormat: TerminalNotificationBodyFormat = .plain
+    ) {
+        self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
+        self.title = title
+        self.subtitle = subtitle
+        self.body = body
+        self.bodyFormat = bodyFormat
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workspaceId = try container.decode(String.self, forKey: .workspaceId)
+        surfaceId = try container.decodeIfPresent(String.self, forKey: .surfaceId)
+        title = try container.decode(String.self, forKey: .title)
+        subtitle = try container.decode(String.self, forKey: .subtitle)
+        body = try container.decode(String.self, forKey: .body)
+        bodyFormat = try container.decodeIfPresent(TerminalNotificationBodyFormat.self, forKey: .bodyFormat) ?? .plain
+    }
 }
 
 struct TerminalNotificationPolicyContext: Codable, Sendable, Equatable {
@@ -93,6 +120,7 @@ private struct TerminalNotificationPolicyPayloadPatch: Decodable {
     var title: String?
     var subtitle: String?
     var body: String?
+    var bodyFormat: TerminalNotificationBodyFormat?
 
     private enum CodingKeys: String, CodingKey {
         case workspaceId
@@ -100,6 +128,7 @@ private struct TerminalNotificationPolicyPayloadPatch: Decodable {
         case title
         case subtitle
         case body
+        case bodyFormat
     }
 
     init(from decoder: Decoder) throws {
@@ -109,6 +138,7 @@ private struct TerminalNotificationPolicyPayloadPatch: Decodable {
         title = try container.decodeIfNonNullValuePresent(String.self, forKey: .title)
         subtitle = try container.decodeIfNonNullValuePresent(String.self, forKey: .subtitle)
         body = try container.decodeIfNonNullValuePresent(String.self, forKey: .body)
+        bodyFormat = try container.decodeIfNonNullValuePresent(TerminalNotificationBodyFormat.self, forKey: .bodyFormat)
     }
 
     func merged(into payload: TerminalNotificationPolicyPayload) -> TerminalNotificationPolicyPayload {
@@ -127,6 +157,9 @@ private struct TerminalNotificationPolicyPayloadPatch: Decodable {
         }
         if let body {
             merged.body = body
+        }
+        if let bodyFormat {
+            merged.bodyFormat = bodyFormat
         }
         return merged
     }
@@ -192,6 +225,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
     let title: String
     let subtitle: String
     let body: String
+    let bodyFormat: TerminalNotificationBodyFormat
     let cwd: String?
     let isAppFocused: Bool
     let isFocusedPanel: Bool
@@ -203,6 +237,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
         title: String,
         subtitle: String,
         body: String,
+        bodyFormat: TerminalNotificationBodyFormat = .plain,
         cwd: String?,
         isAppFocused: Bool,
         isFocusedPanel: Bool
@@ -213,6 +248,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.title = title
         self.subtitle = subtitle
         self.body = body
+        self.bodyFormat = bodyFormat
         self.cwd = cwd
         self.isAppFocused = isAppFocused
         self.isFocusedPanel = isFocusedPanel
@@ -238,7 +274,8 @@ enum TerminalNotificationPolicyEngine {
                 surfaceId: request.surfaceId?.uuidString,
                 title: request.title,
                 subtitle: request.subtitle,
-                body: request.body
+                body: request.body,
+                bodyFormat: request.bodyFormat
             ),
             context: TerminalNotificationPolicyContext(
                 cwd: request.cwd,
