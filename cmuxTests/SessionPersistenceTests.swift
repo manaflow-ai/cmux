@@ -1809,6 +1809,41 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testClaudeForkCommandDropsStaleHookSettingsAndReappliesCurrentHooks() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-123",
+            workingDirectory: "/tmp/cmux project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/Claude Code/bin/claude",
+                arguments: [
+                    "/opt/Claude Code/bin/claude",
+                    "--model",
+                    "sonnet",
+                    "--settings",
+                    #"{"hooks":{"SessionStart":[{"hooks":[{"command":"cmux claude-hook session-start"}]}]}}"#,
+                    "--session-id",
+                    "old-session"
+                ],
+                workingDirectory: "/tmp/cmux project",
+                environment: ["CLAUDE_CONFIG_DIR": "/tmp/claude config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        // Fork mirrors resume: the captured stale hook --settings is dropped and
+        // cmux's current hooks are re-applied so the forked session keeps them.
+        // https://github.com/manaflow-ai/cmux/issues/5427
+        let command = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertTrue(command.contains("'--fork-session'"), command)
+        XCTAssertTrue(command.contains("'--settings' '\(ClaudeHookSettings.settingsJSON)'"), command)
+        XCTAssertTrue(command.contains("hooks claude session-start"), command)
+        XCTAssertFalse(command.contains("cmux claude-hook session-start"), command)
+        XCTAssertFalse(command.contains("old-session"), command)
+    }
+
     func testRestorableAgentResumeStartupInputEscapesNonAsciiWorkingDirectoryAsAsciiShellInput() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-resume-\(UUID().uuidString)", isDirectory: true)

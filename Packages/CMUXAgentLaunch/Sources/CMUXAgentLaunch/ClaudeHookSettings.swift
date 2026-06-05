@@ -23,6 +23,17 @@ import Foundation
 /// command runs the real `claude` binary directly and bypasses the wrapper). cmux
 /// terminals prepend the bundled `bin` directory to `PATH`, so the bare `cmux`
 /// fallback resolves to the same CLI either way.
+///
+/// ## Example
+///
+/// Re-apply cmux's hooks when resuming a captured `claude` launch:
+///
+/// ```swift
+/// var argv = ["claude", "--resume", sessionId]
+/// if AgentLaunchSanitizer.containsClaudeHookSettingsOption(capturedTail) {
+///     argv += ["--settings", ClaudeHookSettings.settingsJSON]
+/// }
+/// ```
 public struct ClaudeHookSettings: Sendable, Equatable {
     /// Creates a value. The type holds no state; it namespaces the canonical
     /// settings document and is a value so it composes with dependency injection

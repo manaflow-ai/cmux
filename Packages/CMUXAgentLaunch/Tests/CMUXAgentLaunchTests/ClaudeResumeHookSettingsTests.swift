@@ -56,6 +56,35 @@ struct ClaudeResumeHookSettingsTests {
         #expect(argv.contains("opus"))
     }
 
+    @Test("Claude resume re-applies hooks for the --settings=<value> equals form")
+    func claudeResumeReinjectsHookSettingsEqualsForm() throws {
+        let argv = try #require(
+            AgentResumeArgv().builtInKind(
+                kind: "claude",
+                sessionId: "s",
+                executablePath: nil,
+                arguments: [
+                    "claude",
+                    "--model",
+                    "opus",
+                    "--settings=/tmp/cmux-claude-hook-x/settings.json"
+                ]
+            )
+        )
+
+        let settings = try #require(
+            settingsValue(in: argv),
+            "Claude resume argv must carry a --settings option re-applying cmux hooks"
+        )
+        #expect(settings.contains("hooks claude session-start"))
+        #expect(settings.contains("hooks claude stop"))
+        #expect(settings.contains("hooks claude notification"))
+
+        #expect(!argv.contains("--settings=/tmp/cmux-claude-hook-x/settings.json"))
+        #expect(argv.contains("--model"))
+        #expect(argv.contains("opus"))
+    }
+
     @Test("A non-hook --settings is preserved and does not trigger re-injection")
     func nonHookSettingsPreservedWithoutInjection() {
         let argv = AgentResumeArgv().builtInKind(

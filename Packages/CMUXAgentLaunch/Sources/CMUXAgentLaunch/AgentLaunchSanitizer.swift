@@ -163,6 +163,12 @@ public enum AgentLaunchSanitizer {
     /// were disabled, so the wrapper passed through without injecting), resume
     /// stays hookless. This keeps resume faithful to the launch's hook intent
     /// without the pure value layer needing to read settings or the environment.
+    ///
+    /// - Parameter args: The captured launch argument tail (without the
+    ///   executable), in either `--settings <value>` or `--settings=<value>`
+    ///   form. Scanning stops at a `--` end-of-options separator.
+    /// - Returns: `true` when a cmux Claude hook `--settings` option is present,
+    ///   `false` otherwise.
     public static func containsClaudeHookSettingsOption(_ args: [String]) -> Bool {
         var index = 0
         while index < args.count {
