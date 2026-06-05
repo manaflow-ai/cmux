@@ -13,13 +13,7 @@ struct BrowserFaviconStoreTests {
     @Test
     func nilResolutionDoesNotPoisonSameIconURL() async throws {
         let store = BrowserFaviconStore()
-        let request = try #require(
-            BrowserFaviconRequest(
-                pageURL: try #require(URL(string: "https://github.com/manaflow-ai/cmux")),
-                iconURL: try #require(URL(string: "https://github.githubassets.com/favicons/favicon.svg")),
-                cachePartition: "profile:test"
-            )
-        )
+        let request = makeGitHubFaviconRequest()
         let probe = BrowserFaviconFetchProbe()
 
         let first = await store.resolve(request) {
@@ -39,15 +33,8 @@ struct BrowserFaviconStoreTests {
     @Test
     func sameOriginPageUsesResolvedIcon() async throws {
         let store = BrowserFaviconStore()
-        let firstPage = try #require(URL(string: "https://github.com/manaflow-ai/cmux"))
-        let secondPage = try #require(URL(string: "https://github.com/can1357/oh-my-pi"))
-        let request = try #require(
-            BrowserFaviconRequest(
-                pageURL: firstPage,
-                iconURL: try #require(URL(string: "https://github.githubassets.com/favicons/favicon.svg")),
-                cachePartition: "profile:test"
-            )
-        )
+        let secondPage = URL(string: "https://github.com/can1357/oh-my-pi")!
+        let request = makeGitHubFaviconRequest()
         let expectedPNG = Data([1, 2, 3, 4])
 
         let resolved = await store.resolve(request) {
@@ -63,13 +50,7 @@ struct BrowserFaviconStoreTests {
     @Test
     func concurrentSameIconRequestsShareInFlightFetch() async throws {
         let store = BrowserFaviconStore()
-        let request = try #require(
-            BrowserFaviconRequest(
-                pageURL: try #require(URL(string: "https://github.com/manaflow-ai/cmux")),
-                iconURL: try #require(URL(string: "https://github.githubassets.com/favicons/favicon.svg")),
-                cachePartition: "profile:test"
-            )
-        )
+        let request = makeGitHubFaviconRequest()
         let probe = BrowserFaviconSuspendedFetchProbe()
         let expectedPNG = Data([4, 3, 2, 1])
 
@@ -101,16 +82,18 @@ struct BrowserFaviconStoreTests {
 
     @Test
     func resolvingSameRequestStartsResolution() async throws {
-        let request = try #require(
-            BrowserFaviconRequest(
-                pageURL: try #require(URL(string: "https://github.com/manaflow-ai/cmux")),
-                iconURL: try #require(URL(string: "https://github.githubassets.com/favicons/favicon.svg")),
-                cachePartition: "profile:test"
-            )
-        )
+        let request = makeGitHubFaviconRequest()
 
         #expect(BrowserFaviconPanelState.resolving(request).shouldStartResolution(for: request))
         #expect(!BrowserFaviconPanelState.resolved(request, pngData: Data([1])).shouldStartResolution(for: request))
+    }
+
+    private func makeGitHubFaviconRequest() -> BrowserFaviconRequest {
+        BrowserFaviconRequest(
+            pageURL: URL(string: "https://github.com/manaflow-ai/cmux")!,
+            iconURL: URL(string: "https://github.githubassets.com/favicons/favicon.svg")!,
+            cachePartition: "profile:test"
+        )!
     }
 }
 

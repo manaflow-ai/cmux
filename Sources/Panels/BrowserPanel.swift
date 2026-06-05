@@ -5951,7 +5951,7 @@ final class BrowserPanel: Panel, ObservableObject {
 #endif
 
         // Use >= 2x the rendered point size so we don't upscale (blurry) on Retina.
-        guard let png = await Self.makeFaviconPNGData(from: data, targetPx: 32) else {
+        guard let png = Self.makeFaviconPNGData(from: data, targetPx: 32) else {
 #if DEBUG
             cmuxDebugLog(
                 "browser.favicon.decodeFailed " +
