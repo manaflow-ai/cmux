@@ -13672,13 +13672,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func focusBrowserAddressBar(in panel: BrowserPanel) {
 #if DEBUG
-        let requestId = panel.requestAddressBarFocus()
+        let requestId = panel.requestAddressBarFocus(selectionIntent: .selectAll)
         cmuxDebugLog(
             "browser.focus.addressBar.request panel=\(panel.id.uuidString.prefix(5)) " +
             "request=\(requestId.uuidString.prefix(8)) \(browserFocusStateSnapshot())"
         )
 #else
-        _ = panel.requestAddressBarFocus()
+        _ = panel.requestAddressBarFocus(selectionIntent: .selectAll)
 #endif
         browserAddressBarFocusedPanelId = panel.id
 #if DEBUG
