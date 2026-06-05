@@ -543,6 +543,7 @@
 		C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE53360000000000000002 /* TerminalSearchOverlayMouseReleaseTests.swift */; };
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
 		C13519000000000000000001 /* TerminalStartupEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000002 /* TerminalStartupEnvironment.swift */; };
+		D53910010000000000000001 /* TerminalStartupReturnShellScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53910010000000000000002 /* TerminalStartupReturnShellScriptTests.swift */; };
 		A5001532 /* TerminalWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001531 /* TerminalWindowPortal.swift */; };
 		D0B10006A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */; };
 		C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000002 /* TextBoxInput.swift */; };
@@ -1084,7 +1085,7 @@
 			B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexRegisteredAgents.swift; sourceTree = "<group>"; };
 		FE003004 /* SessionIndexStore+CodexSQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CodexSQL.swift"; sourceTree = "<group>"; };
 			FE003001 /* SessionIndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexStore.swift; sourceTree = "<group>"; };
-			FE003002 /* SessionIndexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexView.swift; sourceTree = "<group>"; };
+		FE003002 /* SessionIndexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexView.swift; sourceTree = "<group>"; };
 		42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexViewTests.swift; sourceTree = "<group>"; };
 		A5001611 /* SessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistence.swift; sourceTree = "<group>"; };
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
@@ -1190,6 +1191,7 @@
 		C0DE53360000000000000002 /* TerminalSearchOverlayMouseReleaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSearchOverlayMouseReleaseTests.swift; sourceTree = "<group>"; };
 		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
 		C13519000000000000000002 /* TerminalStartupEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupEnvironment.swift; sourceTree = "<group>"; };
+		D53910010000000000000002 /* TerminalStartupReturnShellScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupReturnShellScriptTests.swift; sourceTree = "<group>"; };
 		A5001531 /* TerminalWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortal.swift; sourceTree = "<group>"; };
 		D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortalDebug.swift; sourceTree = "<group>"; };
 		C0DE7B100000000000000002 /* TextBoxInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInput.swift; sourceTree = "<group>"; };
@@ -1875,14 +1877,15 @@
 					F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */,
 					F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */,
 					F5410003A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift */,
-					F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */,
-					F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */,
-				3865B0043865B0043865B004 /* SearchIndexTests.swift */,
-				F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */,
-				F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */,
-				FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
-				F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */,
-				C0DE7B300000000000000002 /* TextBoxMentionCompletionTests.swift */,
+						F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */,
+						F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */,
+					3865B0043865B0043865B004 /* SearchIndexTests.swift */,
+					F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */,
+					F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */,
+					D53910010000000000000002 /* TerminalStartupReturnShellScriptTests.swift */,
+					FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
+					F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */,
+					C0DE7B300000000000000002 /* TextBoxMentionCompletionTests.swift */,
 					C1713005C1713005C1713005 /* CommandPaletteShortcutCustomizationTests.swift */,
 					17FCD4CC61D54A2F8F2F463D /* AppDelegateBareSpaceShortcutRoutingTests.swift */,
 				C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */,
@@ -2906,11 +2909,11 @@
 					F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */,
 				F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */,
 				3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */,
-				8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */,
-					F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
-				A50019B2 /* SettingsSearchIndexTests.swift in Sources */,
-				D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */,
-				1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */,
+					8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */,
+						F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
+					A50019B2 /* SettingsSearchIndexTests.swift in Sources */,
+					D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */,
+					1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */,
 				F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */,
 				51D800000000000000000001 /* SidebarIdentifierFormattingTests.swift in Sources */,
 				385C6BA7E78DB87460E5D930 /* SidebarMarkdownRendererTests.swift in Sources */,
@@ -2937,6 +2940,7 @@
 				A5A5A503A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift in Sources */,
 					A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
 				C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */,
+					D53910010000000000000001 /* TerminalStartupReturnShellScriptTests.swift in Sources */,
 				C0DE7B300000000000000001 /* TextBoxMentionCompletionTests.swift in Sources */,
 				F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */,
 				D3284001A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift in Sources */,
