@@ -612,6 +612,13 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(TerminalController.normalizedExportedScreenPath(nil))
     }
 
+    func testNormalizedMobileVTExportTextSplitsGhosttyCRLFRows() {
+        let normalized = TerminalController.normalizedMobileVTExportText("first\r\nsecond\r\nthird")
+        let rows = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+        XCTAssertEqual(rows, ["first", "second", "third"])
+    }
+
     func testShouldRemoveExportedScreenDirectoryOnlyWithinTemporaryRoot() {
         let tempRoot = URL(fileURLWithPath: "/tmp")
             .appendingPathComponent("cmux-export-tests-\(UUID().uuidString)", isDirectory: true)
