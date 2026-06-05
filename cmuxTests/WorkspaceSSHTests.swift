@@ -306,6 +306,9 @@ final class WorkspaceSSHTests: XCTestCase {
                 "CMUX_SURFACE_ID": surfaceID,
                 "CMUX_PANEL_ID": surfaceID,
                 "CMUX_TAB_ID": workspaceID,
+                "CMUX_PANE_ID": surfaceID,
+                "CMUX_RELAY_ID": "relay-id-abc",
+                "CMUX_RELAY_TOKEN": "relay-token-xyz",
             ]
         )
         let initialEnv = try XCTUnwrap(captured["initial_env"] as? [String: String])
@@ -318,6 +321,9 @@ final class WorkspaceSSHTests: XCTestCase {
         XCTAssertNil(initialEnv["CMUX_SURFACE_ID"])
         XCTAssertNil(initialEnv["CMUX_PANEL_ID"])
         XCTAssertNil(initialEnv["CMUX_TAB_ID"])
+        XCTAssertNil(initialEnv["CMUX_PANE_ID"])
+        XCTAssertNil(initialEnv["CMUX_RELAY_ID"])
+        XCTAssertNil(initialEnv["CMUX_RELAY_TOKEN"])
     }
 
     private func captureSSHWorkspaceCreateParams(

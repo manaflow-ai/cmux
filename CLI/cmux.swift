@@ -8014,8 +8014,11 @@ struct CMUXCLI {
         "CMUX_SURFACE_ID",
         "CMUX_PANEL_ID",
         "CMUX_TAB_ID",
+        "CMUX_PANE_ID",
         "CMUXD_UNIX_PATH",
         "CMUX_DEBUG_LOG",
+        "CMUX_RELAY_ID",
+        "CMUX_RELAY_TOKEN",
     ]
 
     private func sshStartupEnvironment(for options: SSHCommandOptions) -> [String: String] {
