@@ -647,6 +647,63 @@ def test_live_socket_merges_inline_settings_form(failures: list[str]) -> None:
     expect(real_argv[-1] == "hello", f"inline settings: positional arg dropped, got {real_argv}", failures)
 
 
+def test_live_socket_repeated_settings_preserve_first_wins(failures: list[str]) -> None:
+    # Claude Code resolves repeated --settings with first-wins precedence. When
+    # the wrapper folds them into the hook settings it must keep that ordering:
+    # the FIRST user --settings wins a scalar conflict over later ones.
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=[
+            "--settings", '{"effortLevel": "high", "a": 1}',
+            "--settings", '{"effortLevel": "low", "b": 2}',
+            "hi",
+        ],
+    )
+    expect(code == 0, f"first-wins: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv.count("--settings") == 1,
+        f"first-wins: expected one merged --settings, got {real_argv}",
+        failures,
+    )
+    settings = parse_settings_arg(real_argv)
+    expect(
+        settings.get("effortLevel") == "high",
+        f"first-wins: first --settings should win the conflict, got {settings}",
+        failures,
+    )
+    expect(
+        settings.get("a") == 1 and settings.get("b") == 2,
+        f"first-wins: non-conflicting user keys should all survive, got {settings}",
+        failures,
+    )
+    expect(
+        settings.get("preferredNotifChannel") == "notifications_disabled",
+        f"first-wins: cmux hook settings lost, got {settings}",
+        failures,
+    )
+
+
+def test_live_socket_invalid_settings_warns_and_falls_back(failures: list[str]) -> None:
+    # A malformed --settings must not be dropped in silence: the wrapper surfaces
+    # a stderr warning instead of quietly reverting to the dual --settings
+    # behavior that #2816 fixes.
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--settings", "{not valid json", "hi"],
+    )
+    expect(code == 0, f"invalid settings: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "merge failed" in stderr,
+        f"invalid settings: expected a stderr warning, got {stderr!r}",
+        failures,
+    )
+    expect(
+        "{not valid json" in real_argv,
+        f"invalid settings: expected fallback to forward original args, got {real_argv}",
+        failures,
+    )
+
+
 def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> None:
     code, _, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
         socket_state="live",
@@ -1237,6 +1294,8 @@ def main() -> int:
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)
     test_live_socket_merges_inline_settings_form(failures)
+    test_live_socket_repeated_settings_preserve_first_wins(failures)
+    test_live_socket_invalid_settings_warns_and_falls_back(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)

@@ -553,15 +553,25 @@ const expand=p=>p.indexOf("~/")===0?path.join(os.homedir(),p.slice(2)):p;
 const load=v=>{const t=String(v).trim();return (t[0]==="{"||t[0]==="[")?JSON.parse(t):JSON.parse(fs.readFileSync(expand(t),"utf8"));};
 let acc=JSON.parse(process.env.CMUX_BASE_SETTINGS);
 const raw=Buffer.from(process.env.CMUX_USER_SETTINGS_B64||"","base64").toString("utf8");
-for(const it of raw.split("\0").filter(s=>s.length))acc=merge(acc,load(it));
+// Apply user --settings in reverse so the FIRST --settings wins a scalar
+// conflict, matching Claude Code first-wins CLI precedence (issue #2816).
+try{for(const it of raw.split("\0").filter(s=>s.length).reverse())acc=merge(acc,load(it));}
+catch(e){process.stderr.write("cmux: --settings merge error: "+((e&&e.message)||e)+"\n");process.exit(1);}
 process.stdout.write(JSON.stringify(acc));
-' 2>/dev/null
+'
     )"
-    if [[ $? -eq 0 && -n "$CMUX_MERGED_SETTINGS" ]]; then
+    cmux_merge_status=$?
+    if [[ $cmux_merge_status -eq 0 && -n "$CMUX_MERGED_SETTINGS" ]]; then
         HOOKS_JSON="$CMUX_MERGED_SETTINGS"
         set -- "${CMUX_FILTERED_ARGS[@]}"
+    else
+        # Merge failed: malformed JSON, an unreadable --settings file, or a node
+        # error. node has already written the specific cause to stderr; add a
+        # one-line summary so the user knows their --settings was dropped instead
+        # of silently falling back to the dual-flag behavior that #2816 fixes.
+        printf 'cmux: warning: --settings merge failed; your --settings was ignored\n' >&2
     fi
-    unset CMUX_MERGED_SETTINGS
+    unset CMUX_MERGED_SETTINGS cmux_merge_status
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
