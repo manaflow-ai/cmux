@@ -28452,6 +28452,37 @@ function quickAppBackgroundSaveModel() {
   };
 }
 
+function quickColorVariantSaveModel(workspace = activeWorkspace()) {
+  const targetOption = colorApplyTargetOption(state.colorApplyTarget, workspace);
+  const targetHasMultipleColors = targetOption.id === "all" && /\d+\s+colors/.test(targetOption.status);
+  const color = targetHasMultipleColors ? "" : normalizeCustomPaletteColor(targetOption.color);
+  const model = colorVariantSaveModel(color);
+  const disabled = targetOption.disabled || targetHasMultipleColors || model.disabled;
+  const title = targetOption.disabled
+    ? `${targetOption.label}: ${targetOption.meta}.`
+    : targetHasMultipleColors
+      ? "All panes use multiple colors. Choose a single pane, workspace, or accent target first."
+      : model.title;
+  const saved = model.colors.length > 0 && model.newColors.length === 0;
+  return {
+    ...model,
+    color,
+    disabled,
+    title,
+    saved,
+    meta: targetOption.disabled
+      ? targetOption.meta
+      : targetHasMultipleColors
+        ? "Mixed colors"
+        : saved
+          ? `${model.colors.length} saved`
+          : model.savableColors.length
+            ? `${model.savableColors.length} new`
+            : targetOption.status,
+    search: normalizeSettingsQuery(`save color variants current target generated palette accent workspace pane all ${targetOption.label} ${targetOption.status} ${targetOption.meta} ${model.search}`)
+  };
+}
+
 function quickTerminalBackgroundSaveModel() {
   const panel = activeTerminalPanelForSettings();
   const background = normalizeBackgroundValue(panel?.backgroundImage);
@@ -28657,6 +28688,23 @@ function quickSetupActionDefinitions() {
       disabled: () => currentColorSetSaveModel().disabled,
       title: () => currentColorSetSaveModel().title,
       run: () => refreshQuickSettingsAfterAction(saveCurrentColorSetToPalette(activeWorkspace(), { render: false }))
+    },
+    {
+      id: "save-color-variants",
+      icon: "appearance",
+      label: "Save variants",
+      body: "Add lighter, darker, and companion colors to the palette.",
+      meta: () => quickColorVariantSaveModel().meta,
+      cta: "Save",
+      active: () => quickColorVariantSaveModel().saved,
+      activeCta: "Saved",
+      search: () => quickColorVariantSaveModel().search,
+      disabled: () => quickColorVariantSaveModel().disabled,
+      title: () => quickColorVariantSaveModel().title,
+      run: () => {
+        const model = quickColorVariantSaveModel();
+        return refreshQuickSettingsAfterAction(saveColorVariantsToPalette(model.color, { render: false }));
+      }
     },
     {
       id: "color-everywhere",
@@ -28873,6 +28921,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   const profilesFull = savedSettingsProfilesFull();
   const colorSetSave = currentColorSetSaveModel(workspace);
   const colorEverywhere = currentColorEverywhereModel(state.colorApplyTarget, workspace);
+  const colorVariants = quickColorVariantSaveModel(workspace);
   const backgroundSetSave = currentBackgroundSetSaveModel(workspace);
   const backgroundTargetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
   const backgroundEverywhere = currentBackgroundEverywhereModel(backgroundTargetStatus.scope, workspace);
@@ -28892,6 +28941,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   if (!backgroundSetSave.disabled && backgroundSetSave.newBackgrounds.length > 1 && ids.length < 4) ids.push("save-background-set");
   if (state.savedSettingsProfiles.length === 0 && !ids.includes("save-clean-fast-profile") && !ids.includes("save-profile") && ids.length < 4) ids.push("save-profile");
   if (!colorEverywhere.disabled && ids.length < 4) ids.push("color-everywhere");
+  if (!colorVariants.disabled && ids.length < 4) ids.push("save-color-variants");
   if (!colorSetSave.disabled && colorSetSave.newColors.length > 1 && ids.length < 4) ids.push("save-color-set");
   if (!ids.includes("save-color-set") && canSaveCustomColor(state.settings.accent) && !customColorPaletteHasColor(state.settings.accent) && ids.length < 4) ids.push("save-accent-color");
   if (!ids.includes("save-background-set") && appBackground && canSaveBackgroundImage(appBackground) && !savedBackgroundImageExists(appBackground) && ids.length < 4) ids.push("save-background-image");
