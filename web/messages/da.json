@@ -741,18 +741,18 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "window": {
-          "openAtFixedSize": "Open new windows at the fixed width and height below instead of restoring the last-used window size. Windows restored from a saved session keep their own size.",
-          "width": "Fixed window width, in points, applied when openAtFixedSize is true.",
-          "height": "Fixed window height, in points, applied when openAtFixedSize is true."
+          "openAtFixedSize": "Åbner nye vinduer med den faste bredde og højde nedenfor i stedet for at gendanne den senest brugte vinduesstørrelse. Vinduer der gendannes fra en gemt session, beholder deres egen størrelse.",
+          "width": "Fast vinduesbredde i punkter, anvendes når openAtFixedSize er aktiveret.",
+          "height": "Fast vindueshøjde i punkter, anvendes når openAtFixedSize er aktiveret."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
-      "exampleWindowOpenAtFixedSize": "Open new windows at the fixed size below instead of restoring the last-used window size.",
-      "exampleWindowWidth": "Fixed window width, in points.",
-      "exampleWindowHeight": "Fixed window height, in points."
+      "exampleWindowOpenAtFixedSize": "Åbner nye vinduer med den faste størrelse nedenfor i stedet for at gendanne den senest brugte vinduesstørrelse.",
+      "exampleWindowWidth": "Fast vinduesbredde i punkter.",
+      "exampleWindowHeight": "Fast vindueshøjde i punkter."
     },
     "customCommands": {
       "title": "Brugerdefinerede kommandoer",

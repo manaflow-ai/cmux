@@ -3076,7 +3076,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 to: primaryContext,
                 window: primaryWindow
             )
-        } else {
+        } else if WindowOpenSizeSettings.read(from: .standard).fixedContentSize() == nil {
+            // Restore the persisted last-window geometry onto the primary window
+            // only when the fixed-size option is off. With it on, createMainWindow
+            // already sized this window to the configured dimensions, and
+            // reapplying the persisted frame here would clobber it on launch.
             let displays = currentDisplayGeometries()
             let fallbackGeometry = persistedWindowGeometry()
             if let restoredFrame = Self.resolvedStartupPrimaryWindowFrame(

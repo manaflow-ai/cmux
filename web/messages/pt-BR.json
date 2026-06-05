@@ -741,18 +741,18 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "window": {
-          "openAtFixedSize": "Open new windows at the fixed width and height below instead of restoring the last-used window size. Windows restored from a saved session keep their own size.",
-          "width": "Fixed window width, in points, applied when openAtFixedSize is true.",
-          "height": "Fixed window height, in points, applied when openAtFixedSize is true."
+          "openAtFixedSize": "Abre novas janelas com a largura e a altura fixas definidas abaixo em vez de restaurar o último tamanho de janela usado. Janelas restauradas de uma sessão salva mantêm o próprio tamanho.",
+          "width": "Largura fixa da janela, em pontos, aplicada quando openAtFixedSize está ativado.",
+          "height": "Altura fixa da janela, em pontos, aplicada quando openAtFixedSize está ativado."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
-      "exampleWindowOpenAtFixedSize": "Open new windows at the fixed size below instead of restoring the last-used window size.",
-      "exampleWindowWidth": "Fixed window width, in points.",
-      "exampleWindowHeight": "Fixed window height, in points."
+      "exampleWindowOpenAtFixedSize": "Abre novas janelas com o tamanho fixo definido abaixo em vez de restaurar o último tamanho de janela usado.",
+      "exampleWindowWidth": "Largura fixa da janela, em pontos.",
+      "exampleWindowHeight": "Altura fixa da janela, em pontos."
     },
     "customCommands": {
       "title": "Comandos personalizados",

@@ -741,18 +741,18 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "window": {
-          "openAtFixedSize": "Open new windows at the fixed width and height below instead of restoring the last-used window size. Windows restored from a saved session keep their own size.",
-          "width": "Fixed window width, in points, applied when openAtFixedSize is true.",
-          "height": "Fixed window height, in points, applied when openAtFixedSize is true."
+          "openAtFixedSize": "마지막으로 사용한 창 크기를 복원하는 대신 새 창을 아래에 지정한 고정 너비와 높이로 엽니다. 저장된 세션에서 복원된 창은 자체 크기를 유지합니다.",
+          "width": "openAtFixedSize가 켜져 있을 때 적용되는 고정 창 너비(포인트 단위)입니다.",
+          "height": "openAtFixedSize가 켜져 있을 때 적용되는 고정 창 높이(포인트 단위)입니다."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
-      "exampleWindowOpenAtFixedSize": "Open new windows at the fixed size below instead of restoring the last-used window size.",
-      "exampleWindowWidth": "Fixed window width, in points.",
-      "exampleWindowHeight": "Fixed window height, in points."
+      "exampleWindowOpenAtFixedSize": "마지막으로 사용한 창 크기를 복원하는 대신 새 창을 아래에 지정한 고정 크기로 엽니다.",
+      "exampleWindowWidth": "고정 창 너비(포인트 단위)입니다.",
+      "exampleWindowHeight": "고정 창 높이(포인트 단위)입니다."
     },
     "customCommands": {
       "title": "사용자 정의 명령어",

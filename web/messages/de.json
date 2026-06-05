@@ -741,18 +741,18 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "window": {
-          "openAtFixedSize": "Open new windows at the fixed width and height below instead of restoring the last-used window size. Windows restored from a saved session keep their own size.",
-          "width": "Fixed window width, in points, applied when openAtFixedSize is true.",
-          "height": "Fixed window height, in points, applied when openAtFixedSize is true."
+          "openAtFixedSize": "Öffnet neue Fenster mit der unten angegebenen festen Breite und Höhe, anstatt die zuletzt verwendete Fenstergröße wiederherzustellen. Aus einer gespeicherten Sitzung wiederhergestellte Fenster behalten ihre eigene Größe.",
+          "width": "Feste Fensterbreite in Punkten, angewendet wenn openAtFixedSize aktiviert ist.",
+          "height": "Feste Fensterhöhe in Punkten, angewendet wenn openAtFixedSize aktiviert ist."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
-      "exampleWindowOpenAtFixedSize": "Open new windows at the fixed size below instead of restoring the last-used window size.",
-      "exampleWindowWidth": "Fixed window width, in points.",
-      "exampleWindowHeight": "Fixed window height, in points."
+      "exampleWindowOpenAtFixedSize": "Öffnet neue Fenster mit der unten angegebenen festen Größe, anstatt die zuletzt verwendete Fenstergröße wiederherzustellen.",
+      "exampleWindowWidth": "Feste Fensterbreite in Punkten.",
+      "exampleWindowHeight": "Feste Fensterhöhe in Punkten."
     },
     "customCommands": {
       "title": "Benutzerdefinierte Befehle",

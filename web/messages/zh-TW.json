@@ -741,18 +741,18 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "window": {
-          "openAtFixedSize": "Open new windows at the fixed width and height below instead of restoring the last-used window size. Windows restored from a saved session keep their own size.",
-          "width": "Fixed window width, in points, applied when openAtFixedSize is true.",
-          "height": "Fixed window height, in points, applied when openAtFixedSize is true."
+          "openAtFixedSize": "以下方指定的固定寬度和高度開啟新視窗，而不是還原上次使用的視窗大小。從已儲存工作階段還原的視窗會保留各自的大小。",
+          "width": "啟用 openAtFixedSize 時套用的固定視窗寬度（單位：點）。",
+          "height": "啟用 openAtFixedSize 時套用的固定視窗高度（單位：點）。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
-      "exampleWindowOpenAtFixedSize": "Open new windows at the fixed size below instead of restoring the last-used window size.",
-      "exampleWindowWidth": "Fixed window width, in points.",
-      "exampleWindowHeight": "Fixed window height, in points."
+      "exampleWindowOpenAtFixedSize": "以下方指定的固定大小開啟新視窗，而不是還原上次使用的視窗大小。",
+      "exampleWindowWidth": "固定視窗寬度（單位：點）。",
+      "exampleWindowHeight": "固定視窗高度（單位：點）。"
     },
     "customCommands": {
       "title": "自訂指令",
