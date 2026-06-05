@@ -43,7 +43,10 @@
     "executableName": "cmux",
     "artifactName": "cmux-${version}-setup.${ext}",
     "copyright": "Copyright © 2026 Nikku",
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/node-pty/**"
+    ],
     "npmRebuild": false,
     "directories": {
       "output": "release"

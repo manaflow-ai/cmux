@@ -11,7 +11,9 @@ const { t } = require("./i18n.cjs");
 
 let pty = null;
 try {
-  pty = require("node-pty");
+  if (process.env.CMUX_WINDOWS_DISABLE_PTY !== "1") {
+    pty = require("node-pty");
+  }
 } catch {
   pty = null;
 }
@@ -736,6 +738,7 @@ class CmuxWindowsRuntime {
     this.persistBroadcastTimer = null;
     this.persistSessionTimer = null;
     this.launchToken = String(options.launchToken || crypto.randomBytes(32).toString("base64url"));
+    this.logPipeErrors = options.logPipeErrors !== false;
     this.closed = false;
     this.sessionRepaired = false;
     this.state = this.loadSession();
@@ -1607,7 +1610,7 @@ class CmuxWindowsRuntime {
             this.handlePipeLine(line, authContext).then((reply) => {
               writePipeSocketLine(socket, reply);
             }).catch((error) => {
-              console.error(error);
+              if (this.logPipeErrors) console.error(error);
               writePipeSocketLine(socket, pipeErrorResponse(line, error));
             });
             index = buffer.indexOf("\n");

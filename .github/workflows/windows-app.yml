@@ -1,0 +1,55 @@
+name: Windows App
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-app.yml"
+      - "windows/**"
+  push:
+    branches:
+      - main
+      - codex/windows-cmux-port
+    paths:
+      - ".github/workflows/windows-app.yml"
+      - "windows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-app-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-smoke-pack:
+    name: Build, Smoke, Pack
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: windows
+    env:
+      CMUX_WINDOWS_DISABLE_PTY: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer
+        run: npm run build:renderer
+
+      - name: Run smoke test
+        run: npm run smoke
+
+      - name: Pack Windows app
+        run: npm run pack:win

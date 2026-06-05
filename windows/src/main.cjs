@@ -31,11 +31,17 @@ const windowResizeEdges = new Set([
   "bottom-right",
   "bottom-left"
 ]);
+function redactLogMessage(message) {
+  return String(message || "")
+    .replace(/([?&](?:token|panelToken|launchToken)=)[^&\s)]+/gi, "$1[redacted]")
+    .replace(/("(?:token|panelToken|launchToken)"\s*:\s*")[^"]+/gi, "$1[redacted]");
+}
+
 function log(message) {
   try {
     const logPath = path.join(app.getPath("userData"), "cmux-windows.log");
     fs.mkdirSync(path.dirname(logPath), { recursive: true });
-    fs.appendFileSync(logPath, `${new Date().toISOString()} ${message}\n`);
+    fs.appendFileSync(logPath, `${new Date().toISOString()} ${redactLogMessage(message)}\n`);
   } catch {
     // Best-effort debug logging.
   }
@@ -380,6 +386,15 @@ async function openUrlInBrowserProfile(url, profileId = "system") {
   }
 }
 
+async function startInProcessRuntime(reason) {
+  if (reason) log(reason);
+  const { createCmuxWindowsRuntime } = require("./server.cjs");
+  inProcessRuntime = createCmuxWindowsRuntime({
+    staticDir: path.join(appRoot, "renderer")
+  });
+  return await inProcessRuntime.listen();
+}
+
 function spawnRuntimeProcess() {
   return new Promise((resolve, reject) => {
     const configuredStartupTimeoutMs = process.env.CMUX_RUNTIME_STARTUP_TIMEOUT
@@ -459,16 +474,15 @@ function spawnRuntimeProcess() {
 }
 
 async function startRuntime() {
+  if (app.isPackaged && !process.env.CMUX_WINDOWS_NODE) {
+    return await startInProcessRuntime("using in-process runtime for packaged app");
+  }
   try {
     return await spawnRuntimeProcess();
   } catch (error) {
     log(`runtime process unavailable: ${error?.message || error}`);
     console.warn("Falling back to in-process runtime.");
-    const { createCmuxWindowsRuntime } = require("./server.cjs");
-    inProcessRuntime = createCmuxWindowsRuntime({
-      staticDir: path.join(appRoot, "renderer")
-    });
-    return await inProcessRuntime.listen();
+    return await startInProcessRuntime();
   }
 }
 

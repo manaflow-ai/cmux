@@ -4,6 +4,11 @@ const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { WebSocket } = require("ws");
+
+if (!Object.hasOwn(process.env, "CMUX_WINDOWS_DISABLE_PTY")) {
+  process.env.CMUX_WINDOWS_DISABLE_PTY = "1";
+}
+
 const { createCmuxWindowsRuntime } = require("./server.cjs");
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), `cmux-windows-smoke-${process.pid}-`));
@@ -118,7 +123,8 @@ async function waitForCondition(label, probe, timeoutMs = 3000) {
   }));
   const repairRuntime = createCmuxWindowsRuntime({
     dataDir: repairDataDir,
-    pipeName: repairPipeName
+    pipeName: repairPipeName,
+    logPipeErrors: false
   });
   const repairedTitles = repairRuntime.serializedState().workspaces.map((workspace) => workspace.title);
   assert(repairedTitles[0] === "Workspace 4", "first generated workspace title should be preserved");
@@ -132,7 +138,8 @@ async function waitForCondition(label, probe, timeoutMs = 3000) {
 
   const runtime = createCmuxWindowsRuntime({
     dataDir,
-    pipeName
+    pipeName,
+    logPipeErrors: false
   });
   const info = await runtime.listen();
   const rawFetch = global.fetch;
