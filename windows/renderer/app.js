@@ -5906,7 +5906,7 @@ function pastedColorSourceFromPayload(payload) {
 
 function refreshAppearanceSettingsForColorChange(options = {}) {
   if (options.render !== false && state.inspectorMode === "settings" && state.settingsCategory === "appearance") {
-    renderSettingsInspector();
+    scheduleSettingsInspectorRender({ ifChanged: true });
   }
 }
 
