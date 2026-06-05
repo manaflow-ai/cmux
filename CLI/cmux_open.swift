@@ -199,7 +199,7 @@ extension CMUXCLI {
         var pages: [DiffViewerDeferredSourcePage]
         var layout: String
         var appearance: DiffViewerAppearance
-        var runtime: DiffViewerRuntime
+        var runtime: URL?
     }
 
     private struct DiffViewerDeferredSourcePage {
@@ -245,13 +245,7 @@ extension CMUXCLI {
         var directory: URL
         var mapper: DiffViewerURLMapper
         var groupID: String
-        var runtime: DiffViewerRuntime
-    }
-
-    private struct DiffViewerRuntime {
-        var executableURL: URL?
-
-        static let current = DiffViewerRuntime(executableURL: nil)
+        var runtime: URL?
     }
 
     private struct DiffViewerSourceOption {
@@ -907,15 +901,15 @@ extension CMUXCLI {
         print("OK surface=\(surfaceText) pane=\(paneText) path=\(completedViewer.fileURL.path)")
     }
 
-    private func diffViewerRuntime(socketPath: String) -> DiffViewerRuntime {
+    private func diffViewerRuntime(socketPath: String) -> URL? {
         if let taggedExecutableURL = taggedDiffViewerExecutableURL(socketPath: socketPath) {
-            return DiffViewerRuntime(executableURL: taggedExecutableURL)
+            return taggedExecutableURL
         }
-        return .current
+        return nil
     }
 
-    private func diffViewerExecutableURL(for runtime: DiffViewerRuntime) -> URL? {
-        runtime.executableURL ?? resolvedExecutableURL()
+    private func diffViewerExecutableURL(for runtime: URL?) -> URL? {
+        runtime ?? resolvedExecutableURL()
     }
 
     private func taggedDiffViewerExecutableURL(socketPath: String) -> URL? {
@@ -2992,7 +2986,7 @@ extension CMUXCLI {
         layout: String,
         appearance: DiffViewerAppearance,
         context: DiffSourceContext,
-        runtime: DiffViewerRuntime
+        runtime: URL?
     ) throws -> DiffViewerWriteResult {
         if let source {
             return try writeGitDiffViewerHTMLSet(
@@ -3063,7 +3057,7 @@ extension CMUXCLI {
         layout: String,
         appearance: DiffViewerAppearance,
         context: DiffSourceContext,
-        runtime: DiffViewerRuntime
+        runtime: URL?
     ) throws -> DiffViewerWriteResult {
         let target = try makeDiffViewerGitHTMLSetTarget(runtime: runtime)
         if selectedSource != .lastTurn {
@@ -3086,7 +3080,7 @@ extension CMUXCLI {
         )
     }
 
-    private func makeDiffViewerGitHTMLSetTarget(runtime: DiffViewerRuntime) throws -> DiffViewerGitHTMLSetTarget {
+    private func makeDiffViewerGitHTMLSetTarget(runtime: URL?) throws -> DiffViewerGitHTMLSetTarget {
         let directory = try diffViewerDirectory()
         let origin = try diffViewerHTTPServerOrigin(rootDirectory: directory, runtime: runtime)
         let mapper = DiffViewerURLMapper(
@@ -4179,7 +4173,7 @@ extension CMUXCLI {
         try runDiffViewerHTTPServer(rootDirectory: rootDirectory)
     }
 
-    private func diffViewerHTTPServerOrigin(rootDirectory: URL, runtime: DiffViewerRuntime = .current) throws -> URL {
+    private func diffViewerHTTPServerOrigin(rootDirectory: URL, runtime: URL? = nil) throws -> URL {
         let rootDirectory = rootDirectory.standardizedFileURL.resolvingSymlinksInPath()
         try validateSecureDiffViewerDirectory(rootDirectory, repairPermissions: false)
 
@@ -4211,7 +4205,7 @@ extension CMUXCLI {
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private func diffViewerHTTPServerStateMatchesRuntimeExecutable(_ state: DiffViewerHTTPServerState, runtime: DiffViewerRuntime) -> Bool {
+    private func diffViewerHTTPServerStateMatchesRuntimeExecutable(_ state: DiffViewerHTTPServerState, runtime: URL?) -> Bool {
         guard state.pid > 0,
               let currentExecutablePath = diffViewerExecutableURL(for: runtime)?.path,
               let serverExecutablePath = diffViewerHTTPServerExecutablePath(pid: state.pid),
@@ -4243,7 +4237,7 @@ extension CMUXCLI {
         return URL(fileURLWithPath: rawPath).standardizedFileURL.path
     }
 
-    private func startDiffViewerHTTPServer(rootDirectory: URL, runtime: DiffViewerRuntime = .current) throws -> URL {
+    private func startDiffViewerHTTPServer(rootDirectory: URL, runtime: URL? = nil) throws -> URL {
         guard let executableURL = diffViewerExecutableURL(for: runtime) else {
             throw CLIError(message: "Failed to resolve cmux executable for diff viewer server")
         }
@@ -5446,7 +5440,7 @@ extension CMUXCLI {
         baseOptions: [DiffViewerSourceOption] = [],
         repoRoot: String? = nil,
         branchBaseRef: String? = nil,
-        runtime: DiffViewerRuntime = .current
+        runtime: URL? = nil
     ) throws {
         try writeDiffViewerHTML(
             to: viewerURL,
@@ -5472,7 +5466,7 @@ extension CMUXCLI {
         to viewerURL: URL,
         title: String,
         targetURL: URL,
-        runtime: DiffViewerRuntime = .current
+        runtime: URL? = nil
     ) throws {
         try writeDiffViewerPatchSidecar("", for: viewerURL)
         _ = try ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtime)
@@ -5516,7 +5510,7 @@ extension CMUXCLI {
         statusMessage: String? = nil,
         statusIsError: Bool = false,
         pollForReplacement: Bool = false,
-        runtime: DiffViewerRuntime = .current
+        runtime: URL? = nil
     ) throws {
         if remotePatchURL == nil {
             try writeDiffViewerPatchSidecar(patch, for: viewerURL)
@@ -5584,7 +5578,7 @@ extension CMUXCLI {
         try html.write(to: viewerURL, atomically: true, encoding: .utf8)
     }
 
-    private func ensureDiffViewerAssets(nextTo viewerURL: URL, runtime: DiffViewerRuntime = .current) throws -> DiffViewerAssets {
+    private func ensureDiffViewerAssets(nextTo viewerURL: URL, runtime: URL? = nil) throws -> DiffViewerAssets {
         let sourceDirectory = try diffViewerBundledAssetDirectory(runtime: runtime)
         let assetDirectoryName = "pierre-diffs-1.2.7-trees-1.0.0-beta.4"
         let targetDirectory = viewerURL.deletingLastPathComponent()
@@ -5717,7 +5711,7 @@ extension CMUXCLI {
         return targetDate >= sourceDate
     }
 
-    private func diffViewerBundledAssetDirectory(runtime: DiffViewerRuntime = .current) throws -> URL {
+    private func diffViewerBundledAssetDirectory(runtime: URL? = nil) throws -> URL {
         let candidates = diffViewerBundledAssetDirectoryCandidates(runtime: runtime)
         if let directory = candidates.first {
             return directory
@@ -5725,7 +5719,7 @@ extension CMUXCLI {
         throw CLIError(message: "Bundled diff viewer assets not found")
     }
 
-    private func diffViewerBundledAssetDirectoryCandidates(runtime: DiffViewerRuntime = .current) -> [URL] {
+    private func diffViewerBundledAssetDirectoryCandidates(runtime: URL? = nil) -> [URL] {
         let fileManager = FileManager.default
         var candidates: [URL] = []
         var seen: Set<String> = []
