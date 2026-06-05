@@ -24970,6 +24970,7 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
   const accentSave = currentColorSaveModel("accent", workspace);
   const workspaceSave = currentColorSaveModel("workspace", workspace);
   const paneSave = currentColorSaveModel("pane", workspace);
+  const colorSetSave = currentColorSetSaveModel(workspace);
   const hasSavedColors = state.customColorPalette.length > 0;
   const targetLabel = targetOption.label.toLowerCase();
   const targetHasMultipleColors = targetOption.id === "all" && /\d+\s+colors/.test(targetOption.status);
@@ -24996,6 +24997,11 @@ function quickColorControlsPanel(workspace = activeWorkspace()) {
       disabled: paneSave.disabled,
       title: paneSave.title,
       search: "quick setup color save active pane custom reusable palette"
+    }),
+    quickOverviewControlButton("Save set", () => saveCurrentColorSetToPalette(workspace), {
+      disabled: colorSetSave.disabled,
+      title: colorSetSave.title,
+      search: `quick setup color save current set accent workspace pane terminal reusable palette ${colorSetSave.search}`
     }),
     quickOverviewControlButton("Copy target", () => copyColorValue(targetOption.color, defaultSettings.accent, `${targetOption.label} color copied.`), {
       disabled: copyTargetDisabled,
@@ -25115,6 +25121,7 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
   const scope = activeBackgroundScopeModel(state.settings.backgroundImage, workspace);
   const appSave = quickAppBackgroundSaveModel();
   const terminalSave = quickTerminalBackgroundSaveModel();
+  const backgroundSetSave = currentBackgroundSetSaveModel(workspace);
   const paneOption = backgroundApplyTargetOption("pane", workspace);
   const allOption = backgroundApplyTargetOption("all", workspace);
   const targetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
@@ -25165,6 +25172,11 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
       disabled: terminalSave.disabled,
       title: terminalSave.title,
       search: "quick setup background active terminal image save saved library reusable wallpaper"
+    }),
+    quickOverviewControlButton("Save set", () => saveCurrentBackgroundSetToLibrary(workspace), {
+      disabled: backgroundSetSave.disabled,
+      title: backgroundSetSave.title,
+      search: `quick setup background save current set app terminal panes reusable library ${backgroundSetSave.search}`
     }),
     quickOverviewControlButton("Copy setup", () => copyBackgroundSetup(targetStatus.scope), {
       disabled: !targetStatus.canTarget || targetModel.mixed,
