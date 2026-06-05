@@ -24678,12 +24678,12 @@ function applyPerformanceSetupUpdates(updates, options = {}) {
     toast(options.alreadyText || "Performance setup already matches.");
     return false;
   }
-  if (state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
+  if (options.render !== false && state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
   toast(options.toastText || "Performance setup applied.");
   return true;
 }
 
-function resetPerformanceSetupSettings() {
+function resetPerformanceSetupSettings(options = {}) {
   const updates = {};
   for (const key of performanceSetupSettings) updates[key] = defaultSettings[key];
   const changed = updateSettings(updates, { immediate: true });
@@ -24691,12 +24691,12 @@ function resetPerformanceSetupSettings() {
     toast("Performance setup already uses defaults.");
     return false;
   }
-  if (state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
+  if (options.render !== false && state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
   toast("Performance setup reset.");
   return true;
 }
 
-async function pastePerformanceSetup() {
+async function pastePerformanceSetup(options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
@@ -24704,7 +24704,7 @@ async function pastePerformanceSetup() {
   }
   try {
     const parsed = JSON.parse(clipboard);
-    return applyPerformanceSetupUpdates(performanceSetupUpdatesFromPayload(parsed));
+    return applyPerformanceSetupUpdates(performanceSetupUpdatesFromPayload(parsed), options);
   } catch {
     toast("Clipboard does not contain performance setup.");
     return false;
@@ -24870,7 +24870,7 @@ function refreshPerformanceTuningPresetGrid(root = elements.inspectorBody) {
   return changed;
 }
 
-function applyPerformanceTuningPreset(presetId) {
+function applyPerformanceTuningPreset(presetId, options = {}) {
   const preset = performanceTuningPresetById(presetId);
   const settings = performanceTuningPresetSettings(preset);
   if (!preset || !settings) {
@@ -24878,6 +24878,7 @@ function applyPerformanceTuningPreset(presetId) {
     return false;
   }
   return applyPerformanceSetupUpdates(settings, {
+    ...options,
     toastText: `${preset.label} tuning applied.`,
     alreadyText: `${preset.label} tuning already active.`
   });
@@ -24903,13 +24904,13 @@ function performanceTuningCycleModel() {
   };
 }
 
-function cyclePerformanceTuningPreset() {
+function cyclePerformanceTuningPreset(options = {}) {
   const model = performanceTuningCycleModel();
   if (model.disabled) {
     toast(model.title);
     return false;
   }
-  return applyPerformanceTuningPreset(model.preset.id);
+  return applyPerformanceTuningPreset(model.preset.id, options);
 }
 
 function savePerformanceTuningPresetProfile(presetId) {
@@ -26257,7 +26258,7 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
       title: profilesFull ? settingsProfileLimitTitle() : "Save the current performance setup as a reusable profile.",
       search: "quick setup performance save speed profile reusable settings"
     }),
-    quickOverviewControlButton("Cycle speed", () => refreshQuickSettingsAfterAction(cyclePerformanceTuningPreset()), {
+    quickOverviewControlButton("Cycle speed", () => refreshQuickSettingsAfterAction(cyclePerformanceTuningPreset({ render: false })), {
       disabled: tuningCycle.disabled,
       title: tuningCycle.title,
       search: `quick setup performance cycle speed tuning preset lag smooth ${tuningCycle.search}`
@@ -26270,11 +26271,11 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
       title: "Copy performance setup as JSON.",
       search: "quick setup performance copy setup toast feedback placement bottom right left top background opacity effects chrome readable soft immersive export clipboard json"
     }),
-    quickOverviewControlButton("Paste setup", pastePerformanceSetup, {
+    quickOverviewControlButton("Paste setup", () => refreshQuickSettingsAfterAction(pastePerformanceSetup({ render: false })), {
       title: "Paste copied performance setup.",
       search: "quick setup performance paste setup toast feedback placement bottom right left top background opacity effects chrome readable soft immersive import clipboard json"
     }),
-    quickOverviewControlButton("Reset setup", resetPerformanceSetupSettings, {
+    quickOverviewControlButton("Reset setup", () => refreshQuickSettingsAfterAction(resetPerformanceSetupSettings({ render: false })), {
       disabled: setupDefault,
       title: setupDefault
         ? "Performance setup already uses defaults."
@@ -26334,7 +26335,7 @@ function quickPerformancePresetControlsPanel() {
   const actions = presets.map(({ preset, settings }) => {
     const active = isActivePerformanceTuningPreset(preset);
     const savedProfile = savedSettingsProfileForPerformanceTuningPreset(preset);
-    return quickOverviewControlButton(active ? "Active" : `Use ${preset.label}`, () => applyPerformanceTuningPreset(preset.id), {
+    return quickOverviewControlButton(active ? "Active" : `Use ${preset.label}`, () => refreshQuickSettingsAfterAction(applyPerformanceTuningPreset(preset.id, { render: false })), {
       disabled: active,
       title: performanceTuningPresetTitle(preset, active),
       search: normalizeSettingsQuery(`quick setup ${performanceTuningPresetSearchText(preset, settings, savedProfile)}`)
