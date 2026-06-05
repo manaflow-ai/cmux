@@ -135,6 +135,9 @@ jobs:
       - name: Verify generated diff viewer assets
         run: ./scripts/build-diff-viewer-app.sh --check
 
+      - name: Verify React Compiler for diff viewer
+        run: ./scripts/check-diff-viewer-react-compiler.mjs
+
       - name: Typecheck diff viewer
         working-directory: diff-viewer
         run: bun run typecheck
@@ -406,10 +409,15 @@ jobs:
           # app-target dependency). Add a package here once its `swift test`
           # is confirmed to resolve standalone.
           PACKAGES=(
+            CmuxControlSocket
+            CmuxFileWatch
             CmuxFoundation
+            CmuxGit
+            CmuxProcess
             CmuxSettings
             CmuxSettingsUI
             CmuxSocketControl
+            CMUXAgentLaunch
           )
           # Pre-existing failure unrelated to package correctness: the catalog
           # intentionally reuses some UserDefaults keys across sections (e.g. a
@@ -450,6 +458,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
           python3 tests/test_claude_wrapper_hooks.py
+          python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
