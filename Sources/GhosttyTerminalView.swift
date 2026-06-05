@@ -2186,6 +2186,23 @@ class GhosttyApp {
 
             DispatchQueue.main.async {
                 guard let app = AppDelegate.shared else { return }
+                guard let callbackSurface = callbackContext.terminalSurface else {
+#if DEBUG
+                    cmuxDebugLog(
+                        "surface.closeCallback.ignore surface=\(callbackSurfaceId.uuidString.prefix(5)) reason=missingCallbackSurface"
+                    )
+#endif
+                    return
+                }
+                if let registeredSurface = TerminalSurfaceRegistry.shared.surface(id: callbackSurfaceId),
+                   registeredSurface !== callbackSurface {
+#if DEBUG
+                    cmuxDebugLog(
+                        "surface.closeCallback.ignore surface=\(callbackSurfaceId.uuidString.prefix(5)) reason=staleCallbackSurface"
+                    )
+#endif
+                    return
+                }
                 // Close requests must be resolved by the callback's workspace/surface IDs only.
                 // If the mapping is already gone (duplicate/stale callback), ignore it.
                 if let callbackTabId,
@@ -5127,8 +5144,14 @@ final class TerminalSurfaceRegistry {
 
     func unregister(_ surface: TerminalSurface) {
         lock.lock()
+        let surfaceId = surface.id
         surfaces.remove(surface)
-        surfaceFocusPlacements.removeValue(forKey: surface.id)
+        let stillRegistered = surfaces.allObjects
+            .compactMap { $0 as? TerminalSurface }
+            .contains { $0 !== surface && $0.id == surfaceId }
+        if !stillRegistered {
+            surfaceFocusPlacements.removeValue(forKey: surfaceId)
+        }
         lock.unlock()
 
         Task { @MainActor in
@@ -5338,6 +5361,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     var requestedWorkingDirectory: String? { workingDirectory }
     let focusPlacement: TerminalSurfaceFocusPlacement
     private var additionalEnvironment: [String: String]
+    var respawnInitialEnvironmentOverrides: [String: String] {
+        initialEnvironmentOverrides
+    }
+    var respawnAdditionalEnvironment: [String: String] {
+        var environment = additionalEnvironment
+        environment.removeValue(forKey: SessionScrollbackReplayStore.environmentKey)
+        return environment
+    }
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
     private var lastPixelWidth: UInt32 = 0
@@ -5483,6 +5514,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     init(
+        id: UUID = UUID(),
         tabId: UUID,
         context: ghostty_surface_context_e,
         configTemplate: CmuxSurfaceConfigTemplate?,
@@ -5499,7 +5531,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         dispatchPrecondition(condition: .onQueue(.main))
         #endif
 
-        self.id = UUID()
+        self.id = id
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
@@ -5539,6 +5571,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 scheduleHeadlessRuntimeStartIfNeeded(reason: "startup")
             }
         }
+    }
+
+    func debugWaitAfterCommand() -> Bool {
+        configTemplate?.waitAfterCommand ?? false
+    }
+
+    var launchContext: ghostty_surface_context_e {
+        surfaceContext
     }
 
     func updateWorkspaceId(_ newTabId: UUID) {
