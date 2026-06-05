@@ -7682,6 +7682,7 @@ const commands = [
   { id: "settings.syncPaneLook", label: "Sync Active Pane Look", shortcut: "", run: () => syncActivePaneLook() },
   { id: "settings.resetAppearance", label: "Reset Look Settings", shortcut: "", run: () => resetAppearanceSettings() },
   { id: "settings.cycleLookPack", label: "Cycle Look Pack", shortcut: "", run: () => cycleLookPack() },
+  { id: "settings.cycleThemeChoice", label: "Cycle Theme Choice", shortcut: "", run: () => cycleThemeChoice() },
   { id: "settings.copyLook", label: "Copy Look Settings", shortcut: "", run: () => copyLookSettings() },
   { id: "settings.pasteLook", label: "Paste Look Settings", shortcut: "", run: () => pasteLookSettings() },
   { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
@@ -7846,6 +7847,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.backgrounds",
   "settings.resetAppearance",
   "settings.cycleLookPack",
+  "settings.cycleThemeChoice",
   "settings.copyLook",
   "settings.pasteLook",
   "settings.copyTerminalSetup",
@@ -8283,6 +8285,17 @@ function customizationCommandPaletteState(commandId) {
       icon: "appearance",
       title: model.title,
       search: normalizeSettingsQuery(`appearance look pack cycle next preset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors ${model.search}`)
+    };
+  }
+  if (commandId === "settings.cycleThemeChoice") {
+    const model = themeChoiceCycleModel();
+    return {
+      meta: model.meta,
+      shortcut: "Cycle",
+      disabled: model.disabled,
+      icon: "appearance",
+      title: model.title,
+      search: normalizeSettingsQuery(`appearance theme gallery cycle next accent visual preview color ${model.search}`)
     };
   }
   if (commandId === "settings.copyLook" || commandId === "settings.pasteLook" || commandId === "settings.resetAppearance") {
@@ -15984,6 +15997,10 @@ function renderSettingsInspector(options = {}) {
     const cycleLook = settingsActionButton("Cycle look", cycleLookPack, "", `appearance look cycle pack preset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors ${lookCycle.search}`);
     cycleLook.disabled = lookCycle.disabled;
     cycleLook.title = lookCycle.title;
+    const themeCycle = themeChoiceCycleModel();
+    const cycleTheme = settingsActionButton("Cycle theme", cycleThemeChoice, "", `appearance theme gallery cycle next accent visual preview color ${themeCycle.search}`);
+    cycleTheme.disabled = themeCycle.disabled;
+    cycleTheme.title = themeCycle.title;
     const lookReset = settingsActionButton("Reset look", resetAppearanceSettings, "", `appearance look reset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors default ${lookSettingsDefault ? "active current " : ""}`);
     lookReset.disabled = lookSettingsDefault;
     lookReset.title = lookReset.disabled
@@ -15999,6 +16016,7 @@ function renderSettingsInspector(options = {}) {
         "Save this look as a reusable Settings profile."
       ),
       cycleLook,
+      cycleTheme,
       copyLook,
       pasteLook,
       settingsActionButton("Profiles", () => openSettingsCategory("profiles"), "", "appearance look settings profiles saved apply update"),
@@ -18001,8 +18019,36 @@ function applyThemeChoice(theme, options = {}) {
     if (options.toast !== false) toast(`${label} theme already active.`);
     return false;
   }
+  if (options.render !== false) refreshAppearanceSettingsForColorChange();
   if (options.toast) toast(`${label} theme applied.`);
   return true;
+}
+
+function themeChoiceCycleModel() {
+  const themes = themePreviewOptions.filter((theme) => themeChoiceSettings(theme));
+  const activeIndex = themes.findIndex((theme) => isActiveThemeChoice(theme));
+  const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % themes.length : 0;
+  const theme = themes[nextIndex] || null;
+  const label = themeChoiceLabel(theme);
+  const accent = theme ? themeChoiceAccent(theme) : "";
+  return {
+    theme,
+    disabled: !theme || (themes.length === 1 && activeIndex === 0),
+    meta: theme ? `${label} / ${accent}` : "No themes",
+    title: theme
+      ? `Cycle theme to ${label}.`
+      : "No theme choices are available.",
+    search: normalizeSettingsQuery(`theme choice cycle next visual gallery appearance look accent color current ${themeChoiceLabel(themeChoiceById(state.settings.theme))} next ${label} ${theme?.id || ""} ${accent}`)
+  };
+}
+
+function cycleThemeChoice(options = {}) {
+  const model = themeChoiceCycleModel();
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applyThemeChoice(model.theme, { toast: true, ...options });
 }
 
 function currentThemeAccentModel() {
@@ -25678,6 +25724,7 @@ function quickLookControlsPanel() {
   const accentLabel = accentModeLabel();
   const backgroundLabel = appearanceBackgroundLabel(state.settings.backgroundImage);
   const lookCycle = lookPackCycleModel();
+  const themeCycle = themeChoiceCycleModel();
   const actions = [
     quickOverviewControlButton("Save profile", saveCurrentLookProfile, {
       disabled: profilesFull,
@@ -25688,6 +25735,11 @@ function quickLookControlsPanel() {
       disabled: lookCycle.disabled,
       title: lookCycle.title,
       search: `quick setup look appearance cycle pack preset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors ${lookCycle.search}`
+    }),
+    quickOverviewControlButton("Cycle theme", () => refreshQuickSettingsAfterAction(cycleThemeChoice({ render: false })), {
+      disabled: themeCycle.disabled,
+      title: themeCycle.title,
+      search: `quick setup look appearance theme gallery cycle next accent visual preview color ${themeCycle.search}`
     }),
     quickOverviewControlButton("Copy look", copyLookSettings, {
       title: "Copy theme, accent intensity, surface tint, interface contrast, surface depth, app background, background chrome, and terminal colors as JSON.",
