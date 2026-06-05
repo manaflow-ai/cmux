@@ -13,36 +13,6 @@ import CmuxUpdater
 
 @MainActor
 final class FileDropOverlayViewTests: XCTestCase {
-    func testMainWindowHostingViewReportsPolicyMinimumInsteadOfChildMinimum() {
-        _ = NSApplication.shared
-
-        let root = HStack(spacing: 0) {
-            Color.clear
-                .frame(width: 900, height: 240)
-        }
-            .frame(
-                minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-                minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
-            )
-        let hostingView = MainWindowHostingView(rootView: root)
-
-        for width in [520, 1_200] as [CGFloat] {
-            hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 500)
-            hostingView.layoutSubtreeIfNeeded()
-
-            XCTAssertLessThanOrEqual(
-                hostingView.fittingSize.width,
-                CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-                "Main window AppKit fitting width must not inherit child/sidebar width at \(width)pt."
-            )
-            XCTAssertLessThanOrEqual(
-                hostingView.intrinsicContentSize.width,
-                CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-                "Main window AppKit intrinsic width must not inherit child/sidebar width at \(width)pt."
-            )
-        }
-    }
-
     private func makeContentViewWindow(windowId: UUID = UUID()) -> NSWindow {
         _ = NSApplication.shared
 

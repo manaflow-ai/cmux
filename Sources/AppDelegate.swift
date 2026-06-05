@@ -795,6 +795,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return shouldClose
         }
+
+        func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {
+            guard window is CmuxMainWindow else { return newFrame }
+            return CmuxMainWindow.standardFrame(forDefaultFrame: newFrame)
+        }
     }
 
     struct ScriptableMainWindowState {
@@ -8061,10 +8066,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             backing: .buffered,
             defer: false
         )
-        let minimumWindowSize = NSSize(
-            width: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-            height: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
-        )
+        let minimumWindowSize = CmuxMainWindow.minimumContentSize
         window.minSize = minimumWindowSize
         window.contentMinSize = minimumWindowSize
         window.animationBehavior = .none
