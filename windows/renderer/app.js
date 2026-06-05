@@ -7652,6 +7652,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.actions",
   "settings.commands",
   "settings.profiles",
+  "settings.blueprints",
   "settings.terminal",
   "settings.colors",
   "settings.backgrounds",
@@ -7689,6 +7690,7 @@ const settingsCategoryCommandTargets = new Map([
   ["settings.actions", { category: "actions", label: "Actions" }],
   ["settings.commands", { category: "commands", label: "Commands" }],
   ["settings.profiles", { category: "profiles", label: "Profiles" }],
+  ["settings.blueprints", { category: "blueprints", label: "Blueprints" }],
   ["settings.terminal", { category: "terminal", label: "Terminal" }]
 ]);
 
@@ -34484,7 +34486,7 @@ function settingsCategoryPaletteState(id, label) {
     blueprints: {
       meta: `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} blueprints`,
       icon: "blueprints",
-      search: "workspace blueprints saved layout starter template panes terminal browser save apply copy paste import export"
+      search: "workspace blueprints saved layout starter template panes terminal browser save new add apply update copy paste rename delete import export"
     },
     workspace: {
       meta: `${workspaceCountLabel()} / ${workspaceTitle}`,
