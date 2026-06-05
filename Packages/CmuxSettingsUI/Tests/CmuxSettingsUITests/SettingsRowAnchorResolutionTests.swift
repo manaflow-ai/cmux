@@ -69,6 +69,7 @@ struct SettingsRowAnchorResolutionTests {
         "browser.hiddenWebViewDiscardDelaySeconds",
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
+        "browser.omnibarFontSize",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.reactGrabVersion",
         "browser.showSearchSuggestions",
