@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/windows-app.yml"
+      - ".github/workflows/windows-release.yml"
       - "windows/**"
   push:
     branches:
@@ -11,6 +12,7 @@ on:
       - codex/windows-cmux-port
     paths:
       - ".github/workflows/windows-app.yml"
+      - ".github/workflows/windows-release.yml"
       - "windows/**"
   workflow_dispatch:
 
