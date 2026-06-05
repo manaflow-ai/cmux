@@ -153,6 +153,26 @@ public enum AgentLaunchSanitizer {
         }
     }
 
+    /// Reports whether `args` contains cmux's Claude hook `--settings` option
+    /// (the one ``preserveOptions(_:policy:)`` strips when ``Policy/skipClaudeHookSettings``
+    /// is set for the claude policy).
+    ///
+    /// The resume builder uses this to decide whether a captured claude launch
+    /// originally carried cmux hooks: if it did, the launch had hooks enabled, so
+    /// the resume re-applies cmux's *current* hook settings; if it did not (hooks
+    /// were disabled, so the wrapper passed through without injecting), resume
+    /// stays hookless. This keeps resume faithful to the launch's hook intent
+    /// without the pure value layer needing to read settings or the environment.
+    public static func containsClaudeHookSettingsOption(_ args: [String]) -> Bool {
+        var index = 0
+        while index < args.count {
+            if args[index] == "--" { return false }
+            if isClaudeHookSettingsOption(args, index: index) { return true }
+            index += 1
+        }
+        return false
+    }
+
     public static func preservedCodexForkArguments(args: [String]) -> [String]? {
         var tail = args
         if let forkCommand = codexForkCommand(in: tail) {

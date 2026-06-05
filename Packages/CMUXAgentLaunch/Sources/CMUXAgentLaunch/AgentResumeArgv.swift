@@ -90,7 +90,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ) -> [String]? {
         switch kind {
         case "claude":
-            return withOption("claude", executable: "claude", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+            return claudeResumeArgv(sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "codex":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
             guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: parts.tail) else { return nil }
@@ -136,6 +136,33 @@ public struct AgentResumeArgv: Sendable, Equatable {
         default:
             return nil
         }
+    }
+
+    /// Builds the claude resume argv, re-applying cmux's current hook `--settings`.
+    ///
+    /// The resume sanitizer strips the captured hook `--settings` because the
+    /// captured path/JSON can be stale (a different app build, a moved bundle).
+    /// Stripping alone drops every cmux hook from resumed sessions
+    /// (https://github.com/manaflow-ai/cmux/issues/5427), so when the captured
+    /// launch carried cmux's hook settings (i.e. hooks were enabled at launch)
+    /// this re-injects ``ClaudeHookSettings/settingsJSON`` right after the resume
+    /// verb, mirroring how `Resources/bin/claude` injects `--settings` ahead of
+    /// the user's own arguments on a fresh launch. A launch with no hook
+    /// `--settings` (hooks disabled) stays hookless.
+    private func claudeResumeArgv(
+        sessionId: String,
+        executablePath: String?,
+        arguments: [String]
+    ) -> [String]? {
+        let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "claude")
+        guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: parts.tail) else {
+            return nil
+        }
+        var argv = [parts.executable, "--resume", sessionId]
+        if AgentLaunchSanitizer.containsClaudeHookSettingsOption(parts.tail) {
+            argv += ["--settings", ClaudeHookSettings.settingsJSON]
+        }
+        return argv + preserved
     }
 
     private func withOption(

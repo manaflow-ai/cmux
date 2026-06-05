@@ -511,7 +511,14 @@ enum AgentResumeCommandBuilder {
         case .claude:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: original.tail) else { return nil }
-            return [original.executable, "--resume", sessionId, "--fork-session"] + preserved
+            var argv = [original.executable, "--resume", sessionId, "--fork-session"]
+            // Mirror the resume path: the captured hook --settings is stripped by
+            // the sanitizer, so re-apply cmux's current hooks when the launch had
+            // them. See https://github.com/manaflow-ai/cmux/issues/5427.
+            if AgentLaunchSanitizer.containsClaudeHookSettingsOption(original.tail) {
+                argv += ["--settings", ClaudeHookSettings.settingsJSON]
+            }
+            return argv + preserved
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
             guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }

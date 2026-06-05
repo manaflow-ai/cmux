@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Darwin
 import XCTest
 
@@ -1772,7 +1773,7 @@ final class SessionPersistenceTests: XCTestCase {
 }
 
 final class SocketListenerAcceptPolicyTests: XCTestCase {
-    func testClaudeResumeCommandPreservesLaunchFlagsAndDropsInjectedHookSettings() {
+    func testClaudeResumeCommandDropsStaleHookSettingsAndReappliesCurrentHooks() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: "claude-session-123",
@@ -1799,9 +1800,12 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
+        // The captured (stale) hook --settings is dropped, but cmux's current
+        // hook settings are re-applied so SessionStart/Stop/Notification still
+        // fire on the resumed session. https://github.com/manaflow-ai/cmux/issues/5427
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/cmux project' 2>/dev/null || [ ! -d '/tmp/cmux project' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/opt/Claude Code/bin/claude' '--resume' 'claude-session-123' '--model' 'sonnet' '--permission-mode' 'auto'"
+            "{ cd -- '/tmp/cmux project' 2>/dev/null || [ ! -d '/tmp/cmux project' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/opt/Claude Code/bin/claude' '--resume' 'claude-session-123' '--settings' '\(ClaudeHookSettings.settingsJSON)' '--model' 'sonnet' '--permission-mode' 'auto'"
         )
     }
 
