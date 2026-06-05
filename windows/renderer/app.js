@@ -5630,6 +5630,19 @@ function colorTargetIconMarkup(target = state.colorApplyTarget) {
   return quickActionIconMarkup("appearance");
 }
 
+function selectColorApplyTarget(target = state.colorApplyTarget) {
+  const nextTarget = normalizeColorApplyTarget(target);
+  const option = colorApplyTargetOption(nextTarget);
+  if (option.disabled) {
+    toast(`${option.label}: ${option.meta}.`);
+    return false;
+  }
+  if (state.colorApplyTarget === nextTarget) return false;
+  state.colorApplyTarget = nextTarget;
+  renderSettingsInspector();
+  return true;
+}
+
 function activePaneForColorTarget() {
   return focusedPanel() || activePanel();
 }
@@ -25065,6 +25078,30 @@ function quickLookControlsPanel() {
   });
 }
 
+function quickColorTargetControlsPanel(workspace = activeWorkspace()) {
+  const options = colorApplyTargetOptions(workspace);
+  const selected = colorApplyTargetOption(state.colorApplyTarget, workspace);
+  const actions = options.map((option) => {
+    const active = option.id === selected.id;
+    return quickOverviewControlButton(active ? "Active" : option.label, () => selectColorApplyTarget(option.id), {
+      disabled: option.disabled || active,
+      title: option.disabled
+        ? `${option.label}: ${option.meta}.`
+        : active
+          ? `${option.label} is the active color target.`
+          : `Use ${option.label.toLowerCase()} as the color target.`,
+      search: normalizeSettingsQuery(`quick setup color target apply select accent workspace pane all ${active ? "active current " : ""}${option.label} ${option.meta} ${option.status}`)
+    });
+  });
+  return quickOverviewControlsPanel({
+    className: "quick-overview-colors",
+    title: "Color target",
+    meta: `${selected.label}: ${selected.status} / ${selected.meta}`,
+    search: `quick setup color target controls select apply accent workspace active pane all panes ${selected.label} ${selected.status} ${selected.meta}`,
+    actions
+  });
+}
+
 function quickColorControlsPanel(workspace = activeWorkspace()) {
   const targetOption = colorApplyTargetOption(state.colorApplyTarget, workspace);
   const accentSave = currentColorSaveModel("accent", workspace);
@@ -25597,7 +25634,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   const librarySummary = quickCustomizationLibrarySummary(libraryEntries);
   const panel = document.createElement("div");
   panel.className = "quick-setup-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls presets theme look appearance layout terminal browser commands actions workflows shortcuts palette performance speed presets lag ${performance.status} ${performance.title} ${performance.reason} background image tuning app pane all terminal scope saved customization library profiles blueprints starter layouts reusable colors backgrounds snippets packs data maintenance backup restore cleanup privacy storage`);
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls presets theme look appearance layout terminal browser commands actions workflows shortcuts palette performance speed presets lag ${performance.status} ${performance.title} ${performance.reason} color target background image tuning app pane all terminal scope saved customization library profiles blueprints starter layouts reusable colors backgrounds snippets packs data maintenance backup restore cleanup privacy storage`);
   panel.innerHTML = `
     <div class="quick-overview-heading">
       <span class="quick-overview-copy">
@@ -25647,6 +25684,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-command-controls></div>
     <div data-quick-browser-controls></div>
     <div data-quick-look-controls></div>
+    <div data-quick-color-target-controls></div>
     <div data-quick-color-controls></div>
     <button class="quick-overview-speed" type="button" data-performance-status>
       <span class="quick-overview-speed-icon" aria-hidden="true"></span>
@@ -25737,6 +25775,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   panel.querySelector("[data-quick-command-controls]").replaceWith(quickCommandActionControlsPanel());
   panel.querySelector("[data-quick-browser-controls]").replaceWith(quickBrowserControlsPanel(workspace, browserCount));
   panel.querySelector("[data-quick-look-controls]").replaceWith(quickLookControlsPanel());
+  panel.querySelector("[data-quick-color-target-controls]").replaceWith(quickColorTargetControlsPanel(workspace));
   panel.querySelector("[data-quick-color-controls]").replaceWith(quickColorControlsPanel(workspace));
   const speed = panel.querySelector(".quick-overview-speed");
   speed.className = `quick-overview-speed is-${performance.status}`;
@@ -29173,10 +29212,7 @@ function activeColorTargetControl() {
       </span>
     `;
     button.onclick = () => {
-      const nextTarget = normalizeColorApplyTarget(button.dataset.colorTarget);
-      if (state.colorApplyTarget === nextTarget) return;
-      state.colorApplyTarget = nextTarget;
-      renderSettingsInspector();
+      selectColorApplyTarget(button.dataset.colorTarget);
     };
     options.append(button);
   }
