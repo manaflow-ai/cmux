@@ -85,6 +85,30 @@ final class CmuxMainWindow: NSWindow {
 extension CmuxMainWindow {
     private static let defaultContentSize = NSSize(width: 1_000, height: 700)
 
+    /// Returns an unpositioned content rect for a user-configured fixed window
+    /// size, clamped only so the window fits within the visible display.
+    ///
+    /// Unlike ``defaultContentRect(styleMask:)`` this honors the requested size
+    /// down to ``CmuxSettings``' own minimum (no 1000×700 floor), so a smaller
+    /// configured `window.width`/`window.height` is respected. The origin is
+    /// `.zero`; callers own final placement (center + cascade).
+    static func fixedSizeContentRect(contentSize: NSSize, styleMask: NSWindow.StyleMask) -> NSRect {
+        let unpositionedContentRect = NSRect(origin: .zero, size: contentSize)
+        guard let visibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame,
+              visibleFrame.width > 0, visibleFrame.height > 0 else {
+            return unpositionedContentRect
+        }
+
+        let frameRect = NSWindow.frameRect(forContentRect: unpositionedContentRect, styleMask: styleMask)
+        let fittedFrameRect = NSRect(
+            x: 0,
+            y: 0,
+            width: min(frameRect.width, visibleFrame.width),
+            height: min(frameRect.height, visibleFrame.height)
+        )
+        return NSWindow.contentRect(forFrameRect: fittedFrameRect, styleMask: styleMask)
+    }
+
     /// Returns an unpositioned content rect clamped to the visible display; callers own final placement.
     static func defaultContentRect(styleMask: NSWindow.StyleMask) -> NSRect {
         let unpositionedContentRect = NSRect(origin: .zero, size: defaultContentSize)

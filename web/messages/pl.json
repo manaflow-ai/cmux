@@ -739,12 +739,20 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "window": {
+          "openAtFixedSize": "Otwiera nowe okna o stałej szerokości i wysokości podanych poniżej zamiast przywracać ostatnio używany rozmiar okna. Okna przywrócone z zapisanej sesji zachowują własny rozmiar.",
+          "width": "Stała szerokość okna w punktach, stosowana gdy openAtFixedSize jest włączone.",
+          "height": "Stała wysokość okna w punktach, stosowana gdy openAtFixedSize jest włączone."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleWindowOpenAtFixedSize": "Otwiera nowe okna o stałym rozmiarze podanym poniżej zamiast przywracać ostatnio używany rozmiar okna.",
+      "exampleWindowWidth": "Stała szerokość okna w punktach.",
+      "exampleWindowHeight": "Stała wysokość okna w punktach."
     },
     "customCommands": {
       "title": "Niestandardowe polecenia",

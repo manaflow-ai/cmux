@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 import CmuxSocketControl
 
 extension CmuxSettingsFileStore {
@@ -196,6 +197,13 @@ extension CmuxSettingsFileStore {
                     "fontSize": Int(MarkdownFontSizeSettings.defaultPointSize),
                     "fontFamily": "",
                     "maxWidth": Int(MarkdownMaxWidthSettings.defaultCSSPixels),
+                ],
+            ],
+            [
+                "window": [
+                    "openAtFixedSize": WindowOpenSizeSettings.defaultOpenAtFixedSize,
+                    "width": Int(WindowOpenSizeSettings.defaultWidth),
+                    "height": Int(WindowOpenSizeSettings.defaultHeight),
                 ],
             ],
             [

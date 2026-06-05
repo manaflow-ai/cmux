@@ -739,12 +739,20 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "window": {
+          "openAtFixedSize": "Ouvre les nouvelles fenêtres à la largeur et à la hauteur fixes indiquées ci-dessous au lieu de restaurer la dernière taille de fenêtre utilisée. Les fenêtres restaurées depuis une session enregistrée conservent leur propre taille.",
+          "width": "Largeur de fenêtre fixe, en points, appliquée lorsque openAtFixedSize est activé.",
+          "height": "Hauteur de fenêtre fixe, en points, appliquée lorsque openAtFixedSize est activé."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleWindowOpenAtFixedSize": "Ouvre les nouvelles fenêtres à la taille fixe indiquée ci-dessous au lieu de restaurer la dernière taille de fenêtre utilisée.",
+      "exampleWindowWidth": "Largeur de fenêtre fixe, en points.",
+      "exampleWindowHeight": "Hauteur de fenêtre fixe, en points."
     },
     "customCommands": {
       "title": "Commandes personnalisées",

@@ -1047,6 +1047,36 @@
         }
       }
     },
+    "window": {
+      "title": "window",
+      "description": "New main window sizing.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "openAtFixedSize": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open new windows at the fixed width and height below instead of restoring the last-used window size. Windows restored from a saved session keep their own size.",
+          "descriptionKey": "schemaDescriptions.window.openAtFixedSize"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 300,
+          "maximum": 10000,
+          "default": 1000,
+          "description": "Fixed window width, in points, applied when openAtFixedSize is true.",
+          "descriptionKey": "schemaDescriptions.window.width"
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 300,
+          "maximum": 10000,
+          "default": 700,
+          "description": "Fixed window height, in points, applied when openAtFixedSize is true.",
+          "descriptionKey": "schemaDescriptions.window.height"
+        }
+      }
+    },
     "fileEditor": {
       "title": "fileEditor",
       "description": "Built-in plain-text file editor settings.",

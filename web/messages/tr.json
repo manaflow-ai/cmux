@@ -739,12 +739,20 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "window": {
+          "openAtFixedSize": "Son kullanılan pencere boyutunu geri yüklemek yerine yeni pencereleri aşağıdaki sabit genişlik ve yükseklikte açar. Kaydedilmiş bir oturumdan geri yüklenen pencereler kendi boyutlarını korur.",
+          "width": "openAtFixedSize etkinken uygulanan, nokta cinsinden sabit pencere genişliği.",
+          "height": "openAtFixedSize etkinken uygulanan, nokta cinsinden sabit pencere yüksekliği."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleWindowOpenAtFixedSize": "Son kullanılan pencere boyutunu geri yüklemek yerine yeni pencereleri aşağıdaki sabit boyutta açar.",
+      "exampleWindowWidth": "Nokta cinsinden sabit pencere genişliği.",
+      "exampleWindowHeight": "Nokta cinsinden sabit pencere yüksekliği."
     },
     "customCommands": {
       "title": "Özel Komutlar",

@@ -739,12 +739,20 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "window": {
+          "openAtFixedSize": "يفتح النوافذ الجديدة بالعرض والارتفاع الثابتين المحددين أدناه بدلاً من استعادة آخر حجم نافذة مُستخدَم. تحتفظ النوافذ المستعادة من جلسة محفوظة بحجمها الخاص.",
+          "width": "عرض النافذة الثابت بالنقاط، يُطبَّق عند تفعيل openAtFixedSize.",
+          "height": "ارتفاع النافذة الثابت بالنقاط، يُطبَّق عند تفعيل openAtFixedSize."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleWindowOpenAtFixedSize": "يفتح النوافذ الجديدة بالحجم الثابت المحدد أدناه بدلاً من استعادة آخر حجم نافذة مُستخدَم.",
+      "exampleWindowWidth": "عرض النافذة الثابت بالنقاط.",
+      "exampleWindowHeight": "ارتفاع النافذة الثابت بالنقاط."
     },
     "customCommands": {
       "title": "أوامر مخصصة",

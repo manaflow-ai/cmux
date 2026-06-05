@@ -739,12 +739,20 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "window": {
+          "openAtFixedSize": "마지막으로 사용한 창 크기를 복원하는 대신 새 창을 아래에 지정한 고정 너비와 높이로 엽니다. 저장된 세션에서 복원된 창은 자체 크기를 유지합니다.",
+          "width": "openAtFixedSize가 켜져 있을 때 적용되는 고정 창 너비(포인트 단위)입니다.",
+          "height": "openAtFixedSize가 켜져 있을 때 적용되는 고정 창 높이(포인트 단위)입니다."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleWindowOpenAtFixedSize": "마지막으로 사용한 창 크기를 복원하는 대신 새 창을 아래에 지정한 고정 크기로 엽니다.",
+      "exampleWindowWidth": "고정 창 너비(포인트 단위)입니다.",
+      "exampleWindowHeight": "고정 창 높이(포인트 단위)입니다."
     },
     "customCommands": {
       "title": "사용자 정의 명령어",

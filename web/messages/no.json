@@ -739,12 +739,20 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "window": {
+          "openAtFixedSize": "Åpner nye vinduer med den faste bredden og høyden nedenfor i stedet for å gjenopprette sist brukte vindusstørrelse. Vinduer som gjenopprettes fra en lagret økt, beholder sin egen størrelse.",
+          "width": "Fast vindusbredde i punkter, brukes når openAtFixedSize er aktivert.",
+          "height": "Fast vindushøyde i punkter, brukes når openAtFixedSize er aktivert."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleWindowOpenAtFixedSize": "Åpner nye vinduer med den faste størrelsen nedenfor i stedet for å gjenopprette sist brukte vindusstørrelse.",
+      "exampleWindowWidth": "Fast vindusbredde i punkter.",
+      "exampleWindowHeight": "Fast vindushøyde i punkter."
     },
     "customCommands": {
       "title": "Egendefinerte kommandoer",

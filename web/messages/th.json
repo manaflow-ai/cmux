@@ -739,12 +739,20 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "window": {
+          "openAtFixedSize": "เปิดหน้าต่างใหม่ด้วยความกว้างและความสูงคงที่ตามที่กำหนดด้านล่าง แทนการคืนค่าขนาดหน้าต่างที่ใช้ล่าสุด หน้าต่างที่คืนค่าจากเซสชันที่บันทึกไว้จะคงขนาดของตัวเองไว้",
+          "width": "ความกว้างหน้าต่างคงที่ หน่วยเป็นพอยต์ ใช้เมื่อเปิด openAtFixedSize",
+          "height": "ความสูงหน้าต่างคงที่ หน่วยเป็นพอยต์ ใช้เมื่อเปิด openAtFixedSize"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleWindowOpenAtFixedSize": "เปิดหน้าต่างใหม่ด้วยขนาดคงที่ตามที่กำหนดด้านล่าง แทนการคืนค่าขนาดหน้าต่างที่ใช้ล่าสุด",
+      "exampleWindowWidth": "ความกว้างหน้าต่างคงที่ หน่วยเป็นพอยต์",
+      "exampleWindowHeight": "ความสูงหน้าต่างคงที่ หน่วยเป็นพอยต์"
     },
     "customCommands": {
       "title": "คำสั่งที่กำหนดเอง",

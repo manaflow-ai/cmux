@@ -39,6 +39,9 @@ public struct AppSection: View {
     @State private var markdownFontFamily: DefaultsValueModel<String>
     @State private var markdownMaxWidth: DefaultsValueModel<Int>
     @State private var fileEditorWordWrap: DefaultsValueModel<Bool>
+    @State private var windowOpenAtFixedSize: DefaultsValueModel<Bool>
+    @State private var windowWidth: DefaultsValueModel<Int>
+    @State private var windowHeight: DefaultsValueModel<Int>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
     @State private var dockBadge: DefaultsValueModel<Bool>
@@ -83,6 +86,9 @@ public struct AppSection: View {
         _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
         _markdownMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
         _fileEditorWordWrap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.wordWrap))
+        _windowOpenAtFixedSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.window.openAtFixedSize))
+        _windowWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.window.width))
+        _windowHeight = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.window.height))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
         _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
@@ -392,6 +398,69 @@ public struct AppSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsFileEditorWordWrapToggle")
+            }
+            SettingsCardDivider()
+
+            // Open Windows at a Fixed Size
+            SettingsCardRow(
+                configurationReview: .json("window.openAtFixedSize"),
+                String(localized: "settings.app.windowOpenAtFixedSize", defaultValue: "Open Windows at a Fixed Size"),
+                subtitle: String(localized: "settings.app.windowOpenAtFixedSize.subtitle", defaultValue: "Open new windows at the width and height below instead of restoring the last-used window size. Windows restored from a saved session keep their own size.")
+            ) {
+                Toggle("", isOn: Binding(get: { windowOpenAtFixedSize.current }, set: { windowOpenAtFixedSize.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsWindowOpenAtFixedSizeToggle")
+            }
+            SettingsCardDivider()
+
+            // Fixed Window Width
+            SettingsCardRow(
+                configurationReview: .json("window.width"),
+                String(localized: "settings.app.windowWidth", defaultValue: "Fixed Window Width"),
+                subtitle: String(localized: "settings.app.windowWidth.subtitle", defaultValue: "Width, in points, for new windows when Open Windows at a Fixed Size is on."),
+                controlWidth: Self.columnWidth
+            ) {
+                Stepper(
+                    value: Binding(get: { windowWidth.current }, set: { windowWidth.set($0) }),
+                    in: 300...10_000,
+                    step: 50
+                ) {
+                    Text(verbatim: "\(windowWidth.current)")
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+                .controlSize(.small)
+                .disabled(!windowOpenAtFixedSize.current)
+                .accessibilityIdentifier("SettingsWindowWidthStepper")
+                .accessibilityLabel(
+                    String(localized: "settings.app.windowWidth", defaultValue: "Fixed Window Width")
+                )
+            }
+            SettingsCardDivider()
+
+            // Fixed Window Height
+            SettingsCardRow(
+                configurationReview: .json("window.height"),
+                String(localized: "settings.app.windowHeight", defaultValue: "Fixed Window Height"),
+                subtitle: String(localized: "settings.app.windowHeight.subtitle", defaultValue: "Height, in points, for new windows when Open Windows at a Fixed Size is on."),
+                controlWidth: Self.columnWidth
+            ) {
+                Stepper(
+                    value: Binding(get: { windowHeight.current }, set: { windowHeight.set($0) }),
+                    in: 300...10_000,
+                    step: 50
+                ) {
+                    Text(verbatim: "\(windowHeight.current)")
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+                .controlSize(.small)
+                .disabled(!windowOpenAtFixedSize.current)
+                .accessibilityIdentifier("SettingsWindowHeightStepper")
+                .accessibilityLabel(
+                    String(localized: "settings.app.windowHeight", defaultValue: "Fixed Window Height")
+                )
             }
             SettingsCardDivider()
 

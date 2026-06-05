@@ -30,6 +30,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let workspaceColors = WorkspaceColorsCatalogSection()
     public let automation = AutomationCatalogSection()
     public let browser = BrowserCatalogSection()
+    /// Settings for new main window sizing (the `window.*` keys).
+    public let window = WindowCatalogSection()
     /// Settings for the built-in markdown viewer (the `markdown.*` keys).
     public let markdown = MarkdownCatalogSection()
     /// Settings for the built-in plain-text file editor (the `fileEditor.*` keys).

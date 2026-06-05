@@ -3076,7 +3076,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 to: primaryContext,
                 window: primaryWindow
             )
-        } else {
+        } else if WindowOpenSizeSettings.read(from: .standard).shouldRestorePersistedStartupGeometry() {
+            // Restore the persisted last-window geometry onto the primary window
+            // only when the fixed-size option is off. With it on, createMainWindow
+            // already sized this window to the configured dimensions, and
+            // reapplying the persisted frame here would clobber it on launch.
             let displays = currentDisplayGeometries()
             let fallbackGeometry = persistedWindowGeometry()
             if let restoredFrame = Self.resolvedStartupPrimaryWindowFrame(
@@ -8041,18 +8045,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let shouldTemporarilyDisallowFullScreenTiling =
             sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
-        let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
+        // Highest precedence (below full session restore): a configured
+        // `window.openAtFixedSize` size makes every freshly created window open
+        // at the same dimensions, overriding the source-window match and the
+        // persisted last-window geometry. Session-restored frames still win so a
+        // saved multi-window layout keeps each window's exact geometry.
+        let fixedContentSize = (restoredFrame == nil)
+            ? WindowOpenSizeSettings.read(from: .standard).fixedContentSize()
+            : nil
+        // Only fall back to the persisted single-window geometry when there is
+        // no session-restored frame, no fixed-size override, and no source
+        // window to match.
+        let persistedGeometryFrame = (restoredFrame == nil && fixedContentSize == nil && sourceWindow == nil)
             ? resolvedPersistedWindowGeometryFrame()
             : nil
+        let frameSource = WindowOpenSizeSettings.resolveInitialFrameSource(
+            fixedContentSize: fixedContentSize,
+            restoredFrame: restoredFrame,
+            sourceWindowFrame: (restoredFrame == nil) ? existingFrame : nil,
+            persistedGeometryFrame: persistedGeometryFrame
+        )
         let initialRect: NSRect
-        if restoredFrame == nil, let existingFrame {
+        let explicitInitialFrame: NSRect?
+        switch frameSource {
+        case .restored(let frame), .persistedGeometry(let frame):
+            // Convert frame rect to content rect so the window matches the saved size.
+            initialRect = NSWindow.contentRect(forFrameRect: frame, styleMask: styleMask)
+            explicitInitialFrame = frame
+        case .sourceWindow(let frame):
             // Convert frame rect to content rect so the new window matches the
             // source window's actual size (frame includes titlebar insets).
-            initialRect = NSWindow.contentRect(forFrameRect: existingFrame, styleMask: styleMask)
-        } else if let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame {
-            initialRect = NSWindow.contentRect(forFrameRect: explicitInitialFrame, styleMask: styleMask)
-        } else {
+            initialRect = NSWindow.contentRect(forFrameRect: frame, styleMask: styleMask)
+            explicitInitialFrame = nil
+        case .fixedSize(let size):
+            initialRect = CmuxMainWindow.fixedSizeContentRect(contentSize: size, styleMask: styleMask)
+            explicitInitialFrame = nil
+        case .fallbackDefault:
             initialRect = CmuxMainWindow.defaultContentRect(styleMask: styleMask)
+            explicitInitialFrame = nil
         }
 
         let window = CmuxMainWindow(
@@ -8075,10 +8105,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // restoration so the OS cannot resurrect stale duplicate main windows.
         window.isRestorable = false
         configureCmuxMainWindowDragBehavior(window)
-        let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: false)
-        } else if let sourceWindow {
+        } else if case .sourceWindow = frameSource, let sourceWindow {
             positionNewMainWindow(window, relativeTo: sourceWindow)
         } else {
             window.center()

@@ -739,12 +739,20 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "window": {
+          "openAtFixedSize": "បើកបង្អួចថ្មីតាមទទឹង និងកម្ពស់ថេរដែលបានកំណត់ខាងក្រោម ជំនួសឱ្យការស្ដារទំហំបង្អួចដែលបានប្រើចុងក្រោយ។ បង្អួចដែលបានស្ដារពីសម័យដែលបានរក្សាទុក នឹងរក្សាទំហំរបស់វាផ្ទាល់។",
+          "width": "ទទឹងបង្អួចថេរ គិតជាចំណុច (points) អនុវត្តនៅពេល openAtFixedSize ត្រូវបានបើក។",
+          "height": "កម្ពស់បង្អួចថេរ គិតជាចំណុច (points) អនុវត្តនៅពេល openAtFixedSize ត្រូវបានបើក។"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleWindowOpenAtFixedSize": "បើកបង្អួចថ្មីតាមទំហំថេរដែលបានកំណត់ខាងក្រោម ជំនួសឱ្យការស្ដារទំហំបង្អួចដែលបានប្រើចុងក្រោយ។",
+      "exampleWindowWidth": "ទទឹងបង្អួចថេរ គិតជាចំណុច (points)។",
+      "exampleWindowHeight": "កម្ពស់បង្អួចថេរ គិតជាចំណុច (points)។"
     },
     "customCommands": {
       "title": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន",
