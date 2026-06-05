@@ -21281,12 +21281,12 @@ async function applyPaneSetupUpdates(updates, panel = focusedPanel() || activePa
     return false;
   }
   if (needsRender) render();
-  else if (state.inspectorMode === "settings") renderSettingsInspector();
+  else if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
   toast(options.toastText || "Pane setup applied.");
   return true;
 }
 
-async function pasteActivePaneSetup(panel = focusedPanel() || activePanel()) {
+async function pasteActivePaneSetup(panel = focusedPanel() || activePanel(), options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
@@ -21294,7 +21294,7 @@ async function pasteActivePaneSetup(panel = focusedPanel() || activePanel()) {
   }
   try {
     const parsed = JSON.parse(clipboard);
-    return applyPaneSetupUpdates(paneSetupUpdatesFromPayload(parsed, panel), panel);
+    return applyPaneSetupUpdates(paneSetupUpdatesFromPayload(parsed, panel), panel, options);
   } catch {
     toast("Clipboard does not contain pane setup.");
     return false;
@@ -21369,7 +21369,7 @@ function paneLookUpdatesFromPayload(payload, panel = focusedPanel() || activePan
   return Object.keys(updates).length ? updates : null;
 }
 
-async function pasteActivePaneLook(panel = focusedPanel() || activePanel()) {
+async function pasteActivePaneLook(panel = focusedPanel() || activePanel(), options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
@@ -21381,7 +21381,8 @@ async function pasteActivePaneLook(panel = focusedPanel() || activePanel()) {
       toastText: "Pane look applied.",
       alreadyText: "Pane look already matches.",
       invalidText: "Clipboard does not contain pane look.",
-      unavailableText: "Open a pane to paste look."
+      unavailableText: "Open a pane to paste look.",
+      ...options
     });
   } catch {
     toast("Clipboard does not contain pane look.");
@@ -21449,7 +21450,7 @@ function paneLookSaveModel(panel = focusedPanel() || activePanel()) {
   };
 }
 
-async function saveActivePaneLook(panel = focusedPanel() || activePanel()) {
+async function saveActivePaneLook(panel = focusedPanel() || activePanel(), options = {}) {
   const model = paneLookSaveModel(panel);
   if (!model.target) {
     toast(model.title);
@@ -21471,7 +21472,7 @@ async function saveActivePaneLook(panel = focusedPanel() || activePanel()) {
     toast("Pane look is already saved.");
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
   if (savedColor && savedBackground) toast("Pane color and background saved.");
   else if (savedColor) toast("Pane color saved.");
   else toast("Pane background saved.");
@@ -21507,7 +21508,7 @@ function paneSetupResetTitle(panel = focusedPanel() || activePanel()) {
     : "Reset the pane name and marker color without changing the current page.";
 }
 
-async function resetActivePaneSetup(panel = focusedPanel() || activePanel()) {
+async function resetActivePaneSetup(panel = focusedPanel() || activePanel(), options = {}) {
   const target = paneSetupTarget(panel);
   const updates = paneSetupResetUpdates(target);
   if (!target || !updates) {
@@ -21518,7 +21519,8 @@ async function resetActivePaneSetup(panel = focusedPanel() || activePanel()) {
     toastText: "Pane setup reset.",
     alreadyText: "Pane setup already uses defaults.",
     unavailableText: "Open a pane before resetting setup.",
-    invalidText: "Pane setup could not be reset."
+    invalidText: "Pane setup could not be reset.",
+    ...options
   });
 }
 
@@ -21565,7 +21567,7 @@ function paneLookSyncTitle(panel = focusedPanel() || activePanel(), workspace = 
     : "Apply this pane's marker color to other browser panes.";
 }
 
-async function syncActivePaneLook(panel = focusedPanel() || activePanel(), workspace = activeWorkspace()) {
+async function syncActivePaneLook(panel = focusedPanel() || activePanel(), workspace = activeWorkspace(), options = {}) {
   const target = paneSetupTarget(panel);
   const updates = paneLookSyncUpdates(target);
   if (!target || !updates) {
@@ -21587,7 +21589,7 @@ async function syncActivePaneLook(panel = focusedPanel() || activePanel(), works
     panelId: candidate.id,
     updates
   })));
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
   toast(`Pane look synced to ${targets.length} ${kind} pane${targets.length === 1 ? "" : "s"}.`);
   return true;
 }
@@ -22309,7 +22311,7 @@ function paneSetupPresetCopySearchText(preset, panel = activePaneActionTargetPan
   ].join(" "));
 }
 
-async function applyPaneSetupPreset(presetId, panel = focusedPanel() || activePanel()) {
+async function applyPaneSetupPreset(presetId, panel = focusedPanel() || activePanel(), options = {}) {
   const target = paneSetupTarget(panel);
   const preset = paneSetupPresetById(presetId, target);
   const updates = paneSetupPresetUpdates(preset, target);
@@ -22321,7 +22323,8 @@ async function applyPaneSetupPreset(presetId, panel = focusedPanel() || activePa
     toastText: `${preset.label} pane preset applied.`,
     alreadyText: `${preset.label} pane preset already active.`,
     unavailableText: "Open a pane before applying a pane preset.",
-    invalidText: "Pane preset could not be applied."
+    invalidText: "Pane preset could not be applied.",
+    ...options
   });
 }
 
@@ -25556,7 +25559,7 @@ function quickPaneControlsPanel(panel) {
       title: ready ? activePaneSettingsActionTitle("settings.copyPaneSetup", panel) : unavailableTitle,
       search: normalizeSettingsQuery(`quick setup ${activePaneSettingsActionSearchText("settings.copyPaneSetup", panel)}`)
     }),
-    quickOverviewControlButton("Paste setup", () => pasteActivePaneSetup(panel), {
+    quickOverviewControlButton("Paste setup", () => refreshQuickSettingsAfterAction(pasteActivePaneSetup(panel, { render: false })), {
       disabled: !ready,
       title: ready ? activePaneSettingsActionTitle("settings.pastePaneSetup", panel) : unavailableTitle,
       search: normalizeSettingsQuery(`quick setup ${activePaneSettingsActionSearchText("settings.pastePaneSetup", panel)}`)
@@ -25566,22 +25569,22 @@ function quickPaneControlsPanel(panel) {
       title: ready ? activePaneSettingsActionTitle("settings.copyPaneLook", panel) : unavailableTitle,
       search: normalizeSettingsQuery(`quick setup ${activePaneSettingsActionSearchText("settings.copyPaneLook", panel)}`)
     }),
-    quickOverviewControlButton("Paste look", () => pasteActivePaneLook(panel), {
+    quickOverviewControlButton("Paste look", () => refreshQuickSettingsAfterAction(pasteActivePaneLook(panel, { render: false })), {
       disabled: !ready,
       title: ready ? activePaneSettingsActionTitle("settings.pastePaneLook", panel) : unavailableTitle,
       search: normalizeSettingsQuery(`quick setup ${activePaneSettingsActionSearchText("settings.pastePaneLook", panel)}`)
     }),
-    quickOverviewControlButton("Reset", () => resetActivePaneSetup(panel), {
+    quickOverviewControlButton("Reset", () => refreshQuickSettingsAfterAction(resetActivePaneSetup(panel, { render: false })), {
       disabled: !ready || paneSetupDefault,
       title: ready ? activePaneSettingsActionTitle("settings.resetPaneSetup", panel, activeWorkspace(), { paneSetupDefault }) : unavailableTitle,
       search: normalizeSettingsQuery(`quick setup ${activePaneSettingsActionSearchText("settings.resetPaneSetup", panel, activeWorkspace(), { paneSetupDefault })}`)
     }),
-    quickOverviewControlButton("Save look", () => saveActivePaneLook(panel), {
+    quickOverviewControlButton("Save look", () => refreshQuickSettingsAfterAction(saveActivePaneLook(panel, { render: false })), {
       disabled: !ready || saveLook.disabled,
       title: ready ? activePaneSettingsActionTitle("settings.savePaneLook", panel, activeWorkspace(), { saveLook }) : unavailableTitle,
       search: normalizeSettingsQuery(`quick setup ${activePaneSettingsActionSearchText("settings.savePaneLook", panel, activeWorkspace(), { saveLook })}`)
     }),
-    quickOverviewControlButton("Sync look", () => syncActivePaneLook(panel), {
+    quickOverviewControlButton("Sync look", () => refreshQuickSettingsAfterAction(syncActivePaneLook(panel, activeWorkspace(), { render: false })), {
       disabled: !ready || syncLookTargets === 0,
       title: ready ? activePaneSettingsActionTitle("settings.syncPaneLook", panel, activeWorkspace(), { syncTargetCount: syncLookTargets }) : unavailableTitle,
       search: normalizeSettingsQuery(`quick setup ${activePaneSettingsActionSearchText("settings.syncPaneLook", panel, activeWorkspace(), { syncTargetCount: syncLookTargets })}`)
@@ -25617,7 +25620,7 @@ function quickPanePresetControlsPanel(panel) {
     : "Open a terminal or browser pane first.";
   const actions = presets.map((preset) => {
     const active = ready && paneSetupPresetActive(preset, target);
-    return quickOverviewControlButton(active ? "Active" : `Use ${preset.label}`, () => applyPaneSetupPreset(preset.id, target), {
+    return quickOverviewControlButton(active ? "Active" : `Use ${preset.label}`, () => refreshQuickSettingsAfterAction(applyPaneSetupPreset(preset.id, target, { render: false })), {
       disabled: !ready || active,
       title: ready ? paneSetupPresetTitle(preset, active, target) : unavailableTitle,
       search: normalizeSettingsQuery(`quick setup ${paneSetupPresetSearchText(preset, active, target)}`)
