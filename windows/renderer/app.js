@@ -6997,6 +6997,7 @@ function applySettings() {
   toggleClassIfChanged(document.body, "interface-depth-layered", state.settings.interfaceDepth === "layered");
   toggleClassIfChanged(elements.shell, "background-effects-flat", state.settings.backgroundEffects === "flat");
   toggleClassIfChanged(elements.shell, "background-effects-tinted", state.settings.backgroundEffects === "tinted");
+  toggleClassIfChanged(elements.shell, "background-effects-vignette", state.settings.backgroundEffects === "vignette");
   toggleClassIfChanged(elements.shell, "background-effects-glass", state.settings.backgroundEffects === "glass");
   toggleClassIfChanged(elements.shell, "background-chrome-readable", state.settings.backgroundChromeMode === "readable");
   toggleClassIfChanged(elements.shell, "background-chrome-soft", state.settings.backgroundChromeMode === "soft");
@@ -17069,6 +17070,17 @@ const backgroundTuningPresets = [
     }
   },
   {
+    id: "focus",
+    label: "Focus",
+    body: "Vignette edges with soft chrome for readable wallpapers.",
+    settings: {
+      backgroundOpacity: 20,
+      backgroundBlur: 0,
+      backgroundEffects: "vignette",
+      backgroundChromeMode: "soft"
+    }
+  },
+  {
     id: "showcase",
     label: "Showcase",
     body: "Richer glass treatment for screenshots and demos.",
@@ -17121,7 +17133,7 @@ function backgroundTuningPresetTitle(preset, active = backgroundTuningPresetActi
 
 function backgroundTuningPresetSearchText(preset, active = backgroundTuningPresetActive(preset)) {
   const settings = backgroundTuningPresetSettings(preset);
-  return normalizeSettingsQuery(`background tune preset wallpaper opacity strength soften blur chrome glass tinted flat readable soft immersive performance ${active ? "active current unavailable " : "ready "}${preset?.label || ""} ${preset?.body || ""} ${backgroundTuningPresetSummary(settings || state.settings)}`);
+  return normalizeSettingsQuery(`background tune preset wallpaper opacity strength soften blur chrome glass tinted vignette flat readable soft immersive performance ${active ? "active current unavailable " : "ready "}${preset?.label || ""} ${preset?.body || ""} ${backgroundTuningPresetSummary(settings || state.settings)}`);
 }
 
 function backgroundTuningCycleModel() {
@@ -17139,7 +17151,7 @@ function backgroundTuningCycleModel() {
     title: preset
       ? `Cycle background tuning to ${preset.label}.`
       : "No background tuning presets are available.",
-    search: normalizeSettingsQuery(`background tune cycle next preset wallpaper performance readability opacity strength soften blur chrome glass tinted flat current ${backgroundTuningPresetSummary(state.settings)} next ${preset?.label || ""} ${preset?.body || ""} ${summary}`)
+    search: normalizeSettingsQuery(`background tune cycle next preset wallpaper performance readability opacity strength soften blur chrome glass tinted vignette flat current ${backgroundTuningPresetSummary(state.settings)} next ${preset?.label || ""} ${preset?.body || ""} ${summary}`)
   };
 }
 
@@ -17204,7 +17216,7 @@ function resetBackgroundTuningSettings(options = {}) {
 function backgroundTuningPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "background-tune-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("background tune preset readable soft showcase fast wallpaper opacity blur chrome glass tinted flat performance");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("background tune preset readable soft focus showcase fast wallpaper opacity blur chrome glass tinted vignette flat performance");
   for (const preset of backgroundTuningPresets) {
     const active = backgroundTuningPresetActive(preset);
     const button = document.createElement("button");
@@ -17230,7 +17242,7 @@ function backgroundTuningPresetGrid() {
 function backgroundTuningPanel(onCommit = null) {
   const panel = document.createElement("div");
   panel.className = "background-tuning-panel";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("background image fit repeat tile position effects opacity strength soften blur wallpaper transparency tune chrome readable soft immersive");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("background image fit repeat tile position effects opacity strength soften blur wallpaper transparency tune chrome readable soft immersive vignette");
 
   const controls = document.createElement("div");
   controls.className = "background-tuning-grid";

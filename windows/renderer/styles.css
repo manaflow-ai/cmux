@@ -431,6 +431,13 @@ button {
   opacity: .64;
 }
 
+.shell.background-effects-vignette.has-background::after {
+  opacity: .78;
+  background:
+    radial-gradient(ellipse at center, transparent 0 42%, color-mix(in oklch, var(--color-canvas-surface) 54%, transparent) 78%, color-mix(in oklch, var(--color-canvas-surface) 82%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in oklch, var(--color-canvas-surface) 26%, transparent), transparent 38%, color-mix(in oklch, var(--color-canvas-surface) 34%, transparent));
+}
+
 .shell.has-background .sidebar,
 .shell.has-background .topbar,
 .shell.has-background .surface-tabs,

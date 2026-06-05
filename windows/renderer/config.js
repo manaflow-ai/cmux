@@ -303,6 +303,7 @@ export const backgroundPositionOptions = [
 export const backgroundEffectsOptions = [
   ["flat", label("backgroundEffects.flat", "Flat")],
   ["tinted", label("backgroundEffects.tinted", "Tinted")],
+  ["vignette", label("backgroundEffects.vignette", "Vignette")],
   ["glass", label("backgroundEffects.glass", "Glass")]
 ];
 
