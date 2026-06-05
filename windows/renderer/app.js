@@ -25665,6 +25665,37 @@ function quickProfileDataControlsPanel(storageBytes = totalDataStorageBytes()) {
   });
 }
 
+function quickSavedProfileControlsPanel() {
+  if (state.savedSettingsProfiles.length === 0) return null;
+  const setup = activeSettingsSetupModel();
+  const activeProfile = activeSavedSettingsProfile();
+  const previewLimit = 6;
+  const visibleProfiles = state.savedSettingsProfiles.slice(0, previewLimit);
+  const hiddenProfileCount = Math.max(0, state.savedSettingsProfiles.length - visibleProfiles.length);
+  const actions = visibleProfiles.map((profile) => {
+    const active = isActiveSettingsProfile(profile);
+    const summary = settingsProfileSummary(profile.settings);
+    return quickOverviewControlButton(active ? "Active" : profile.label, () => applySavedSettingsProfile(profile.id), {
+      disabled: active,
+      title: active ? `${profile.label} profile already active.` : `Apply ${profile.label} settings profile.`,
+      search: normalizeSettingsQuery(`quick setup saved settings profile apply reusable ${active ? "active current " : ""}${profile.label} ${summary}`)
+    });
+  });
+  if (hiddenProfileCount > 0) {
+    actions.push(quickOverviewControlButton("More", () => openSettingsCategory("profiles"), {
+      title: `Open all ${state.savedSettingsProfiles.length} saved Settings profiles.`,
+      search: normalizeSettingsQuery(`quick setup saved settings profiles more full profiles manage apply ${state.savedSettingsProfiles.map((profile) => profile.label).join(" ")}`)
+    }));
+  }
+  return quickOverviewControlsPanel({
+    className: "quick-overview-profile-data",
+    title: "Saved profiles",
+    meta: `${activeProfile?.label || setup.label} / ${state.savedSettingsProfiles.length}/${savedSettingsProfilesLimit} saved${hiddenProfileCount ? ` / ${hiddenProfileCount} more` : ""}`,
+    search: `quick setup saved settings profiles reusable apply current setup ${setup.kind} ${setup.label} ${settingsProfileSummary(state.settings)} ${visibleProfiles.map((profile) => profile.label).join(" ")}`,
+    actions
+  });
+}
+
 function quickDataMaintenanceControlsPanel(storageBytes = totalDataStorageBytes()) {
   const savedItems = savedDataItemCount();
   const recentItems = recentDataItemCount();
@@ -25838,6 +25869,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
       <span><b>Performance</b><em data-quick-performance></em></span>
     </div>
     <div data-quick-profile-data-controls></div>
+    <div data-quick-saved-profile-controls></div>
     <div data-quick-data-maintenance-controls></div>
     <div data-quick-workspace-controls></div>
     <div data-quick-layout-controls></div>
@@ -25931,6 +25963,10 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   panel.querySelector("[data-quick-terminal]").textContent = `${optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono")} ${state.settings.terminalFontSize}px`;
   panel.querySelector("[data-quick-performance]").textContent = performanceModeLabel();
   panel.querySelector("[data-quick-profile-data-controls]").replaceWith(quickProfileDataControlsPanel(storageBytes));
+  const savedProfileControls = quickSavedProfileControlsPanel();
+  const savedProfileSlot = panel.querySelector("[data-quick-saved-profile-controls]");
+  if (savedProfileControls) savedProfileSlot.replaceWith(savedProfileControls);
+  else savedProfileSlot.remove();
   panel.querySelector("[data-quick-data-maintenance-controls]").replaceWith(quickDataMaintenanceControlsPanel(storageBytes));
   panel.querySelector("[data-quick-workspace-controls]").replaceWith(quickWorkspaceControlsPanel(workspace, terminalCount, browserCount));
   panel.querySelector("[data-quick-layout-controls]").replaceWith(quickLayoutControlsPanel(workspace));
