@@ -838,6 +838,127 @@ final class SidebarDropPlannerTests: XCTestCase {
         XCTAssertEqual(targetIndex, 2)
     }
 
+    // MARK: - Cross-window insertion (drag a workspace into another window)
+
+    func testCrossWindowInsertionAppendsWhenDroppingOnEmptyArea() {
+        let a = UUID()
+        let b = UUID()
+        let result = SidebarDropPlanner.crossWindowInsertion(
+            targetTabId: nil,
+            draggedIsPinned: false,
+            indicator: nil,
+            tabIds: [a, b],
+            pinnedTabIds: []
+        )
+
+        XCTAssertEqual(result.insertionIndex, 2)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: nil, edge: .bottom))
+    }
+
+    func testCrossWindowInsertionTopEdgeInsertsBeforeTarget() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let result = SidebarDropPlanner.crossWindowInsertion(
+            targetTabId: b,
+            draggedIsPinned: false,
+            indicator: nil,
+            tabIds: [a, b, c],
+            pinnedTabIds: [],
+            pointerY: 2,
+            targetHeight: 40
+        )
+
+        XCTAssertEqual(result.insertionIndex, 1)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: b, edge: .top))
+    }
+
+    func testCrossWindowInsertionBottomEdgeInsertsAfterTarget() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let result = SidebarDropPlanner.crossWindowInsertion(
+            targetTabId: b,
+            draggedIsPinned: false,
+            indicator: nil,
+            tabIds: [a, b, c],
+            pinnedTabIds: [],
+            pointerY: 38,
+            targetHeight: 40
+        )
+
+        XCTAssertEqual(result.insertionIndex, 2)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: c, edge: .top))
+    }
+
+    func testCrossWindowInsertionClampsUnpinnedWorkspaceBelowPinnedRegion() {
+        let pinnedA = UUID()
+        let pinnedB = UUID()
+        let unpinned = UUID()
+        let result = SidebarDropPlanner.crossWindowInsertion(
+            targetTabId: pinnedA,
+            draggedIsPinned: false,
+            indicator: SidebarDropIndicator(tabId: pinnedA, edge: .top),
+            tabIds: [pinnedA, pinnedB, unpinned],
+            pinnedTabIds: [pinnedA, pinnedB]
+        )
+
+        // An unpinned workspace cannot land above the two pinned rows.
+        XCTAssertEqual(result.insertionIndex, 2)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: unpinned, edge: .top))
+    }
+
+    func testCrossWindowInsertionClampsPinnedWorkspaceToFrontWhenNoExistingPins() {
+        let a = UUID()
+        let b = UUID()
+        // Drop a pinned workspace into the empty area of a window with no pins.
+        let result = SidebarDropPlanner.crossWindowInsertion(
+            targetTabId: nil,
+            draggedIsPinned: true,
+            indicator: nil,
+            tabIds: [a, b],
+            pinnedTabIds: []
+        )
+
+        // It cannot sit below the unpinned rows — clamp to the front.
+        XCTAssertEqual(result.insertionIndex, 0)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: a, edge: .top))
+    }
+
+    func testCrossWindowInsertionClampsPinnedWorkspaceIntoPinnedRegion() {
+        let pinnedA = UUID()
+        let unpinnedA = UUID()
+        let unpinnedB = UUID()
+        let result = SidebarDropPlanner.crossWindowInsertion(
+            targetTabId: unpinnedB,
+            draggedIsPinned: true,
+            indicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
+            tabIds: [pinnedA, unpinnedA, unpinnedB],
+            pinnedTabIds: [pinnedA]
+        )
+
+        // A pinned workspace cannot land below the single pinned row.
+        XCTAssertEqual(result.insertionIndex, 1)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: unpinnedA, edge: .top))
+    }
+
+    func testCrossWindowInsertionRecoversIndicatorPositionAtDropTime() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        // At drop time the delegate replays the indicator it already showed.
+        let result = SidebarDropPlanner.crossWindowInsertion(
+            targetTabId: b,
+            draggedIsPinned: false,
+            indicator: SidebarDropIndicator(tabId: c, edge: .top),
+            tabIds: [a, b, c],
+            pinnedTabIds: []
+        )
+
+        XCTAssertEqual(result.insertionIndex, 2)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: c, edge: .top))
+    }
+
 }
 
 

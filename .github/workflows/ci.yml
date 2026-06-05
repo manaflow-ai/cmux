@@ -135,6 +135,9 @@ jobs:
       - name: Verify generated diff viewer assets
         run: ./scripts/build-diff-viewer-app.sh --check
 
+      - name: Verify React Compiler for diff viewer
+        run: ./scripts/check-diff-viewer-react-compiler.mjs
+
       - name: Typecheck diff viewer
         working-directory: diff-viewer
         run: bun run typecheck
@@ -406,6 +409,7 @@ jobs:
           # app-target dependency). Add a package here once its `swift test`
           # is confirmed to resolve standalone.
           PACKAGES=(
+            CmuxControlSocket
             CmuxFileWatch
             CmuxFoundation
             CmuxGit
@@ -413,6 +417,7 @@ jobs:
             CmuxSettings
             CmuxSettingsUI
             CmuxSocketControl
+            CMUXAgentLaunch
           )
           # Pre-existing failure unrelated to package correctness: the catalog
           # intentionally reuses some UserDefaults keys across sections (e.g. a
