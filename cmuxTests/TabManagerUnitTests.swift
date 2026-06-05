@@ -743,7 +743,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
-    func testSameDirectoryInitialGitMetadataProbesShareOneSnapshotRead() async throws {
+    func testManySameDirectoryInitialGitMetadataProbesShareOneSnapshotRead() async throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -789,7 +789,15 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             return
         }
 
-        let panelIds = [mainPanelId, splitPanel.id, tabPanel.id]
+        var panelIds = [mainPanelId, splitPanel.id, tabPanel.id]
+        for _ in 0..<7 {
+            guard let extraPanel = workspace.newTerminalSurface(inPane: paneId) else {
+                XCTFail("Expected additional terminal panels for coalescing load")
+                return
+            }
+            panelIds.append(extraPanel.id)
+        }
+
         for panelId in panelIds {
             manager.updateSurfaceDirectory(
                 tabId: workspace.id,
@@ -826,7 +834,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             waitForCondition {
                 panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" }
             },
-            "One same-directory snapshot should update every queued panel."
+            "One same-directory snapshot should update every queued panel under load."
         )
         let finalObservedCallCount = await reader.observedCallCount
         XCTAssertEqual(finalObservedCallCount, 1)
