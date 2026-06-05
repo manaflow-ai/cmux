@@ -1201,6 +1201,39 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionVisibleRowsHideNonCurrentMatchesWhileQueryRefreshes() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$auto"
+        textView.setSelectedRange(NSRange(location: 5, length: 0))
+        let previousSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/autoreview/SKILL.md",
+            title: "$autoreview",
+            subtitle: "/tmp/autoreview/SKILL.md",
+            insertionText: "$autoreview",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 5),
+                query: "auto",
+                trigger: "$"
+            ),
+            suggestions: [previousSuggestion]
+        )
+
+        textView.string = "$autore"
+        textView.setSelectedRange(NSRange(location: 6, length: 0))
+        textView.refreshMentionCompletions()
+
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
+        #expect(textView.debugMentionSuggestionTitles().isEmpty)
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(!textView.debugAcceptMentionCompletion())
+    }
+
+    @Test
     func testTextBoxMentionRefreshFiltersStaleRowsWhenSameTriggerQueryNarrows() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
