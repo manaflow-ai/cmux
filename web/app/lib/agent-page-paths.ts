@@ -87,6 +87,7 @@ export const agentReadablePages = [
   { path: "/community", title: "Community" },
   { path: "/wall-of-love", title: "Wall of Love" },
   { path: "/nightly", title: "Nightly" },
+  { path: "/assets", title: "Brand Assets" },
   { path: "/privacy-policy", title: "Privacy Policy" },
   { path: "/terms-of-service", title: "Terms of Service" },
   { path: "/eula", title: "EULA" },
