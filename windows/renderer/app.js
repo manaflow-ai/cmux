@@ -16591,11 +16591,13 @@ function renderSettingsInspector(options = {}) {
     resetTerminalSetupAction.title = terminalSetupDefault
       ? "Terminal setup already uses defaults."
       : "Reset terminal font, spacing, history, colors, cursor, and default shell.";
+    const saveTerminalProfile = applySettingsProfileSaveLimit(
+      settingsActionButton("Save terminal profile", saveCurrentTerminalProfile, "primary", "terminal save profile setup font color cursor shell reusable"),
+      "Save this terminal setup as a reusable Settings profile."
+    );
+    saveTerminalProfile.dataset.terminalAction = "save-profile";
     colorActions.append(
-      applySettingsProfileSaveLimit(
-        settingsActionButton("Save terminal profile", saveCurrentTerminalProfile, "primary", "terminal save profile setup font color cursor shell reusable"),
-        "Save this terminal setup as a reusable Settings profile."
-      ),
+      saveTerminalProfile,
       cycleTerminalFontAction,
       cycleReadability,
       cycleTerminalColors,
@@ -30396,6 +30398,26 @@ function refreshTerminalSettingsPreview() {
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
 
+function refreshTerminalProfileSaveControls() {
+  const saveProfile = elements.inspectorBody.querySelector('[data-terminal-action="save-profile"]');
+  if (saveProfile) {
+    applySettingsProfileSaveLimit(saveProfile, "Save this terminal setup as a reusable Settings profile.");
+    setSettingsSearchIfChanged(saveProfile, `terminal save profile setup font color cursor shell reusable ${savedSettingsProfileCountLabel()} ${savedSettingsProfilesFull() ? "limit full unavailable " : "ready "}`);
+  }
+  refreshTerminalReadabilityPresetGrid();
+  refreshTerminalColorPresetGrid();
+  if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function refreshTerminalProfileSaveSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "terminal") {
+    refreshTerminalProfileSaveControls();
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 function colorPicker(activeColor, onPick, fallback = "#5d8cff", options = {}) {
   const wrapper = document.createElement("div");
   wrapper.className = "color-picker";
@@ -33130,7 +33152,7 @@ function cycleTerminalReadabilityPreset(options = {}) {
   return applyTerminalReadabilityPreset(model.preset.id, options);
 }
 
-function saveTerminalReadabilityPresetProfile(presetId) {
+function saveTerminalReadabilityPresetProfile(presetId, options = {}) {
   const preset = terminalReadabilityPresetById(presetId);
   if (!preset) {
     toast("Terminal readability preset not found.");
@@ -33152,7 +33174,7 @@ function saveTerminalReadabilityPresetProfile(presetId) {
     createdAt: Date.now()
   });
   if (!saved) return null;
-  renderSettingsInspector();
+  refreshTerminalProfileSaveSettings(options);
   toast(`${saved.label} profile saved.`);
   return saved;
 }
@@ -34855,16 +34877,19 @@ function copyThemeChoiceProfile(themeId) {
   }, `${label} theme profile copied.`);
 }
 
-function saveCurrentTerminalProfile(options = {}) {
-  return saveCurrentSettingsProfile({
+async function saveCurrentTerminalProfile(options = {}) {
+  const saved = await saveCurrentSettingsProfile({
     title: "Save terminal profile",
     message: "Save the current terminal font, colors, cursor, shell, and supporting app settings.",
     baseName: "Terminal profile",
-    ...options
+    ...options,
+    render: false
   });
+  if (saved) refreshTerminalProfileSaveSettings(options);
+  return saved;
 }
 
-function saveTerminalColorPresetProfile(presetId) {
+function saveTerminalColorPresetProfile(presetId, options = {}) {
   const preset = terminalColorPresetById(presetId);
   if (!preset) {
     toast("Terminal color preset not found.");
@@ -34886,7 +34911,7 @@ function saveTerminalColorPresetProfile(presetId) {
     createdAt: Date.now()
   });
   if (!saved) return null;
-  renderSettingsInspector();
+  refreshTerminalProfileSaveSettings(options);
   toast(`${saved.label} profile saved.`);
   return saved;
 }
