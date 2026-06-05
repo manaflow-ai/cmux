@@ -8,13 +8,24 @@ final class AutomationSocketUITests: XCTestCase {
     private let modeKey = "socketControlMode"
     private let legacyKey = "socketControlEnabled"
     private let launchTag = "ui-tests-automation-socket"
+    private var temporaryRoots: [URL] = []
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
         socketPath = "/tmp/cmux-debug-\(UUID().uuidString).sock"
+        temporaryRoots = []
         resetSocketDefaults()
         removeSocketFile()
+    }
+
+    override func tearDown() {
+        removeSocketFile()
+        for root in temporaryRoots {
+            try? FileManager.default.removeItem(at: root)
+        }
+        temporaryRoots = []
+        super.tearDown()
     }
 
     func testSocketToggleDisablesAndEnables() {
@@ -70,6 +81,92 @@ final class AutomationSocketUITests: XCTestCase {
         app.terminate()
     }
 
+    func testTextBoxSkillMentionFiltersWhenTypingAfterBareDollarTrigger() throws {
+        let skillRoot = try makeSkillFixtureRoot(
+            skillNames: [
+                "agent-browser",
+                "agent-cli-integration",
+                "iterate-pr",
+            ]
+        )
+        let app = configuredApp(mode: "automation")
+        defer { app.terminate() }
+        app.launchArguments += [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+        ]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launch()
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for textbox mention test. state=\(app.state.rawValue)"
+        )
+        guard let resolvedPath = resolveSocketPath(timeout: 5.0, allowTmpFallback: false) else {
+            XCTFail("Expected control socket to exist")
+            return
+        }
+        socketPath = resolvedPath
+        XCTAssertTrue(waitForSocketPong(timeout: 8.0), "Expected socket ping at \(socketPath)")
+
+        let workspace = try XCTUnwrap(
+            socketResult(
+                method: "workspace.create",
+                params: [
+                    "title": "Textbox mention XCUITest",
+                    "working_directory": skillRoot.path,
+                    "focus": true,
+                ]
+            ),
+            "Expected workspace.create to succeed"
+        )
+        let surfaceID = try XCTUnwrap(workspace["surface_id"] as? String, "Expected created surface id")
+
+        _ = try XCTUnwrap(
+            waitForTextBoxFixture(surfaceID: surfaceID, beforeText: "$", timeout: 8.0),
+            "Expected text box fixture to mount with a bare $ trigger"
+        )
+        _ = try XCTUnwrap(
+            socketResult(
+                method: "debug.textbox.interact",
+                params: ["surface_id": surfaceID, "action": "focus"]
+            ),
+            "Expected text box focus to succeed"
+        )
+
+        let bareState = try XCTUnwrap(
+            waitForMentionState(surfaceID: surfaceID, timeout: 8.0) { state in
+                let titles = state["mention_titles"] as? [String] ?? []
+                return state["mention_trigger"] as? String == "$" &&
+                    state["mention_query"] as? String == "" &&
+                    titles.contains("$agent-browser")
+            },
+            "Expected bare $ suggestions to include $agent-browser"
+        )
+        XCTAssertEqual(bareState["plain_text"] as? String, "$")
+
+        app.typeText("iterate")
+
+        let typedState = try XCTUnwrap(
+            waitForMentionState(surfaceID: surfaceID, timeout: 8.0) { state in
+                let titles = state["mention_titles"] as? [String] ?? []
+                return state["plain_text"] as? String == "$iterate" &&
+                    state["mention_trigger"] as? String == "$" &&
+                    state["mention_query"] as? String == "iterate" &&
+                    state["mention_current"] as? Bool == true &&
+                    titles.contains("$iterate-pr") &&
+                    !titles.contains("$agent-browser")
+            },
+            "Expected typing iterate after bare $ to filter stale $agent-browser and show $iterate-pr"
+        )
+
+        let typedTitles = typedState["mention_titles"] as? [String] ?? []
+        XCTAssertEqual(typedTitles.first, "$iterate-pr")
+    }
+
     private func configuredApp(mode: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-\(modeKey)", mode]
@@ -116,6 +213,104 @@ final class AutomationSocketUITests: XCTestCase {
 
     private func socketCommand(_ command: String) -> String? {
         ControlSocketClient(path: socketPath, responseTimeout: 1.0).sendLine(command)
+    }
+
+    private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
+        let request: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": method,
+            "params": params,
+        ]
+        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+    }
+
+    private func socketResult(method: String, params: [String: Any]) -> [String: Any]? {
+        guard let envelope = socketJSON(method: method, params: params),
+              envelope["ok"] as? Bool == true else {
+            return nil
+        }
+        return envelope["result"] as? [String: Any]
+    }
+
+    private func waitForTextBoxFixture(
+        surfaceID: String,
+        beforeText: String,
+        timeout: TimeInterval
+    ) -> [String: Any]? {
+        waitForJSON(timeout: timeout) {
+            guard let result = self.socketResult(
+                method: "debug.textbox.inline_fixture",
+                params: [
+                    "surface_id": surfaceID,
+                    "before_text": beforeText,
+                    "after_text": "",
+                ]
+            ) else {
+                return nil
+            }
+            guard result["text_view_has_window"] as? Bool == true,
+                  result["text_view_text"] as? String == beforeText else {
+                return nil
+            }
+            return result
+        }
+    }
+
+    private func waitForMentionState(
+        surfaceID: String,
+        timeout: TimeInterval,
+        predicate: @escaping ([String: Any]) -> Bool
+    ) -> [String: Any]? {
+        waitForJSON(timeout: timeout) {
+            guard let result = self.socketResult(
+                method: "debug.textbox.interact",
+                params: ["surface_id": surfaceID, "action": "focus"]
+            ),
+                  let state = result["state"] as? [String: Any] else {
+                return nil
+            }
+            return predicate(state) ? state : nil
+        }
+    }
+
+    private func waitForJSON(
+        timeout: TimeInterval,
+        pollInterval: TimeInterval = 0.05,
+        producer: () -> [String: Any]?
+    ) -> [String: Any]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let value = producer() {
+                return value
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+        return producer()
+    }
+
+    private func makeSkillFixtureRoot(skillNames: [String]) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-textbox-skills-\(UUID().uuidString)", isDirectory: true)
+        let skills = root.appendingPathComponent("skills", isDirectory: true)
+        try FileManager.default.createDirectory(at: skills, withIntermediateDirectories: true)
+        for skillName in skillNames {
+            let skillDirectory = skills.appendingPathComponent(skillName, isDirectory: true)
+            try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+            let contents = """
+            ---
+            name: \(skillName)
+            ---
+
+            Test skill fixture for \(skillName).
+            """
+            try contents.write(
+                to: skillDirectory.appendingPathComponent("SKILL.md", isDirectory: false),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        temporaryRoots.append(root)
+        return root
     }
 
     private func resolveSocketPath(timeout: TimeInterval, allowTmpFallback: Bool = true) -> String? {
@@ -190,6 +385,17 @@ final class AutomationSocketUITests: XCTestCase {
             self.responseTimeout = responseTimeout
         }
 
+        func sendJSON(_ object: [String: Any]) -> [String: Any]? {
+            guard JSONSerialization.isValidJSONObject(object),
+                  let data = try? JSONSerialization.data(withJSONObject: object),
+                  let line = String(data: data, encoding: .utf8),
+                  let response = sendLine(line),
+                  let responseData = response.data(using: .utf8) else {
+                return nil
+            }
+            return (try? JSONSerialization.jsonObject(with: responseData)) as? [String: Any]
+        }
+
         func sendLine(_ line: String) -> String? {
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
             guard fd >= 0 else { return nil }
@@ -235,10 +441,22 @@ final class AutomationSocketUITests: XCTestCase {
             guard wrote else { return nil }
 
             var buffer = [UInt8](repeating: 0, count: 4096)
-            let count = Darwin.read(fd, &buffer, buffer.count)
-            guard count > 0 else { return nil }
-            return String(bytes: buffer[0..<count], encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            var accumulator = ""
+            let deadline = Date().addingTimeInterval(responseTimeout)
+            while Date() < deadline {
+                let count = Darwin.read(fd, &buffer, buffer.count)
+                guard count > 0 else { break }
+                if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
+                    accumulator.append(chunk)
+                    if let newline = accumulator.firstIndex(of: "\n") {
+                        return String(accumulator[..<newline])
+                    }
+                    if count < buffer.count {
+                        break
+                    }
+                }
+            }
+            return accumulator.isEmpty ? nil : accumulator.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 }

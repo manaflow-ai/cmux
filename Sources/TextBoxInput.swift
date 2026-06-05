@@ -3547,6 +3547,8 @@ final class TextBoxInputTextView: NSTextView {
     private var mentionCompletionWindowObserverTokens: [NSObjectProtocol] = []
     private weak var mentionCompletionObservedWindow: NSWindow?
     private var mentionCompletionRepositionIsScheduled = false
+    private var activeInsertTextDepth = 0
+    private var didChangeTextDuringActiveInsertText = false
     private var pendingUndoableAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var pendingAutomaticAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var suppressAutomaticAttachmentFileCleanup = false
@@ -3643,8 +3645,22 @@ final class TextBoxInputTextView: NSTextView {
 
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
         queueAutomaticAttachmentFileCleanup(in: replacementRange)
+        let isOuterInsertText = activeInsertTextDepth == 0
+        if isOuterInsertText {
+            didChangeTextDuringActiveInsertText = false
+        }
+        activeInsertTextDepth += 1
         super.insertText(insertString, replacementRange: replacementRange)
-        flushAutomaticAttachmentFileCleanup()
+        activeInsertTextDepth = max(0, activeInsertTextDepth - 1)
+        let didChangeTextWasHandled = didChangeTextDuringActiveInsertText
+        if isOuterInsertText {
+            didChangeTextDuringActiveInsertText = false
+        }
+        if didChangeTextWasHandled {
+            flushAutomaticAttachmentFileCleanup()
+        } else {
+            didChangeText()
+        }
         onMarkedTextStateChanged(hasMarkedText())
     }
 
@@ -3659,6 +3675,9 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     override func didChangeText() {
+        if activeInsertTextDepth > 0 {
+            didChangeTextDuringActiveInsertText = true
+        }
         isHandlingDidChangeText = true
         defer { isHandlingDidChangeText = false }
         super.didChangeText()
