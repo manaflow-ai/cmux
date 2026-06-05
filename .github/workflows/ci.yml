@@ -1341,6 +1341,18 @@ jobs:
           }
           trap cleanup EXIT
 
+          run_xctest_managed_display_regression() {
+            cleanup 2>/dev/null || true
+            echo "Running display resolution UI regression with XCTest-managed display harness"
+            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -derivedDataPath "$DERIVED_DATA_PATH" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
+              test-without-building
+          }
+
           # Build display helper
           clang -framework Foundation -framework CoreGraphics \
             -o "$HELPER_PATH" scripts/create-virtual-display.m
@@ -1493,8 +1505,9 @@ jobs:
               stop_pid "$APP_PID" "cmux DEV"
               stop_pid "$HELPER_PID" "virtual display helper"
               if [ "$attempt" -eq "$DISPLAY_ATTEMPTS" ]; then
-                echo "Display resolution UI regression failed after $DISPLAY_ATTEMPTS attempts" >&2
-                exit 1
+                echo "Shell-prelaunched app could not observe the helper display after $DISPLAY_ATTEMPTS attempts" >&2
+                run_xctest_managed_display_regression
+                exit $?
               fi
               cleanup
               continue
