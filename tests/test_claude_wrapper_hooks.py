@@ -735,7 +735,7 @@ def test_live_socket_empty_settings_warns_instead_of_silent_drop(failures: list[
     # An explicit empty --settings= must not be swallowed in silence: the wrapper
     # surfaces the merge-failure warning instead of dropping the flag with no
     # signal (CodeRabbit review on #5388).
-    code, _real_argv, _cmux_log, stderr, *_ = run_wrapper(
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
         socket_state="live",
         argv=["--settings=", "hi"],
     )
@@ -743,6 +743,11 @@ def test_live_socket_empty_settings_warns_instead_of_silent_drop(failures: list[
     expect(
         "merge failed" in stderr,
         f"empty settings: expected a stderr warning, got {stderr!r}",
+        failures,
+    )
+    expect(
+        "--settings=" in real_argv and "hi" in real_argv,
+        f"empty settings: expected fallback to forward original args, got {real_argv}",
         failures,
     )
 
