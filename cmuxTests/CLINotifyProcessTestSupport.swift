@@ -511,6 +511,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func systemTopResponse(id: String) -> String {
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let paneId = "33333333-3333-3333-3333-333333333333"
+        let windowId = "44444444-4444-4444-4444-444444444444"
         v2Response(
             id: id,
             ok: true,
@@ -518,7 +522,67 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "active": NSNull(),
                 "caller": NSNull(),
                 "include_processes": true,
-                "windows": [],
+                "windows": [
+                    [
+                        "kind": "window",
+                        "id": windowId,
+                        "ref": "window:\(windowId)",
+                        "index": 0,
+                        "key": true,
+                        "visible": true,
+                        "workspace_count": 1,
+                        "selected_workspace_id": workspaceId,
+                        "selected_workspace_ref": "workspace:\(workspaceId)",
+                        "workspaces": [
+                            [
+                                "kind": "workspace",
+                                "id": workspaceId,
+                                "ref": "workspace:\(workspaceId)",
+                                "index": 0,
+                                "title": "Test Workspace",
+                                "description": NSNull(),
+                                "selected": true,
+                                "pinned": false,
+                                "panes": [
+                                    [
+                                        "kind": "pane",
+                                        "id": paneId,
+                                        "ref": "pane:\(paneId)",
+                                        "index": 0,
+                                        "focused": true,
+                                        "surface_ids": [surfaceId],
+                                        "surface_refs": ["surface:\(surfaceId)"],
+                                        "selected_surface_id": surfaceId,
+                                        "selected_surface_ref": "surface:\(surfaceId)",
+                                        "surface_count": 1,
+                                        "surfaces": [
+                                            [
+                                                "kind": "surface",
+                                                "id": surfaceId,
+                                                "ref": "surface:\(surfaceId)",
+                                                "index": 0,
+                                                "type": "terminal",
+                                                "title": "Terminal",
+                                                "focused": true,
+                                                "selected": true,
+                                                "selected_in_pane": true,
+                                                "pane_id": paneId,
+                                                "pane_ref": "pane:\(paneId)",
+                                                "index_in_pane": 0,
+                                                "tty": NSNull(),
+                                                "webviews": [],
+                                                "url": NSNull(),
+                                                "browser_web_content_pid": NSNull(),
+                                                "processes": [],
+                                            ] as [String: Any],
+                                        ],
+                                    ] as [String: Any],
+                                ],
+                                "tags": [],
+                            ] as [String: Any],
+                        ],
+                    ] as [String: Any],
+                ],
             ]
         )
     }
