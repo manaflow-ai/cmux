@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, shell, clipboard, dialog } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, shell, clipboard, dialog, screen } = require("electron");
 const { pathToFileURL } = require("node:url");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -256,6 +256,21 @@ function continueWindowResize(point) {
   const bounds = windowResizeBoundsForPoint(point);
   if (!bounds) return;
   mainWindow.setBounds(bounds, false);
+}
+
+function initialWindowBounds() {
+  const fallbackWorkArea = { x: 0, y: 0, width: 1280, height: 720 };
+  const workArea = screen.getPrimaryDisplay?.()?.workArea || fallbackWorkArea;
+  const availableWidth = Math.max(480, Math.round(workArea.width) - 32);
+  const availableHeight = Math.max(400, Math.round(workArea.height) - 32);
+  const width = Math.min(1320, availableWidth);
+  const height = Math.min(860, availableHeight);
+  return {
+    width,
+    height,
+    x: Math.round(workArea.x + Math.max(0, (workArea.width - width) / 2)),
+    y: Math.round(workArea.y + Math.max(0, (workArea.height - height) / 2))
+  };
 }
 
 function firstExistingPath(paths) {
@@ -554,10 +569,10 @@ function buildMenu() {
 async function createWindow() {
   const runtime = await startRuntime();
   Menu.setApplicationMenu(buildMenu());
+  const bounds = initialWindowBounds();
 
   mainWindow = new BrowserWindow({
-    width: 1320,
-    height: 860,
+    ...bounds,
     minWidth: 480,
     minHeight: 400,
     title: appName,

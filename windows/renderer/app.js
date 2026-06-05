@@ -730,6 +730,7 @@ const terminalCursorMigrationStorageKey = "cmux.terminalCursorBarMigration";
 const browserHomeMigrationStorageKey = "cmux.browserHomeGoogleMigration";
 const sidebarBranchMigrationStorageKey = "cmux.sidebarBranchQuietMigration";
 const settingsPanelWidthMigrationStorageKey = "cmux.settingsPanelReadableWidthMigration";
+const settingsPanelLaptopWidthMigrationStorageKey = "cmux.settingsPanelLaptopWidthMigration";
 const launchToken = new URLSearchParams(location.search).get("token") || "";
 const eventReconnectMinDelayMs = 250;
 const eventReconnectMaxDelayMs = 5000;
@@ -1594,7 +1595,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.terminalForeground = normalizeTerminalColor(next.terminalForeground);
   next.terminalCursorColor = normalizeTerminalColor(next.terminalCursorColor);
   next.sidebarWidth = clamp(next.sidebarWidth, 188, 304);
-  next.inspectorWidth = clamp(next.inspectorWidth, 300, 480);
+  next.inspectorWidth = clamp(next.inspectorWidth, 360, 640);
   next.terminalScrollback = clamp(next.terminalScrollback, 2000, 50000);
   next.terminalPadding = clamp(next.terminalPadding, 0, 16);
   return next;
@@ -1766,6 +1767,28 @@ function loadSettings() {
   ) {
     parsed.inspectorWidth = defaultSettings.inspectorWidth;
     localStorage.setItem(settingsPanelWidthMigrationStorageKey, "1");
+    migrated = true;
+  }
+  if (
+    localStorage.getItem(settingsPanelLaptopWidthMigrationStorageKey) !== "1"
+    && parsed
+    && typeof parsed === "object"
+    && !Array.isArray(parsed)
+    && parsed.inspectorWidth === 376
+  ) {
+    parsed.inspectorWidth = defaultSettings.inspectorWidth;
+    localStorage.setItem(settingsPanelLaptopWidthMigrationStorageKey, "1");
+    migrated = true;
+  }
+  if (
+    localStorage.getItem(settingsPanelLaptopWidthMigrationStorageKey) !== "2"
+    && parsed
+    && typeof parsed === "object"
+    && !Array.isArray(parsed)
+    && parsed.inspectorWidth === 408
+  ) {
+    parsed.inspectorWidth = defaultSettings.inspectorWidth;
+    localStorage.setItem(settingsPanelLaptopWidthMigrationStorageKey, "2");
     migrated = true;
   }
   const legacyFontSize = Number(localStorage.getItem("cmux.terminalFontSize") || 0);
@@ -13156,8 +13179,8 @@ function continueInspectorResize(event) {
   if (!state.inspectorResizing) return;
   const nextWidth = Math.round(clamp(
     state.inspectorResizing.startWidth + state.inspectorResizing.startX - event.clientX,
-    300,
-    480
+    360,
+    640
   ));
   state.inspectorResizing.width = nextWidth;
   state.settings.inspectorWidth = nextWidth;
@@ -19486,8 +19509,8 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
   const inspectorWidthRange = document.createElement("input");
   inspectorWidthRange.className = "setting-control";
   inspectorWidthRange.type = "range";
-  inspectorWidthRange.min = "300";
-  inspectorWidthRange.max = "480";
+  inspectorWidthRange.min = "360";
+  inspectorWidthRange.max = "640";
   inspectorWidthRange.step = "4";
   inspectorWidthRange.value = String(state.settings.inspectorWidth);
   const inspectorWidthRow = settingRow(`Settings panel ${state.settings.inspectorWidth}px`, inspectorWidthRange, false, "settings inspector right panel width preferences customization");
@@ -19676,7 +19699,7 @@ function layoutSettingsPreviewPanel() {
   ].filter(Boolean).join(" ");
   panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar rail tools primary hidden home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet subtle solid overlay style command palette menus dialogs toast feedback placement position switcher style workspace pane keyboard hud command palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide row size density compact roomy active row selected current subtle filled line workspace color marker dot edge tint top bar style toolbar label mode icons labels button style ghost filled tab bar quiet banded tabs close active selected underline status style quiet subtle solid performance diagnostics render output pane header surface density new pane placement split direction right below down settings panel inactive pane percent resize focus highlight edge mode simple clean panes split shape corner radius rounded divider style spacing gap gutter grip line minimal marker color dot tint preset current");
   panel.style.setProperty("--layout-preview-sidebar", `${Math.max(24, Math.round((settings.sidebarWidth / 304) * 72))}px`);
-  panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / 480) * 76))}px`);
+  panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / 640) * 76))}px`);
   panel.innerHTML = `
     <div class="layout-preview-frame" aria-hidden="true">
       <div class="layout-preview-sidebar">
@@ -43554,7 +43577,7 @@ const workspaceChromeBooleanSettings = new Set([
 
 const workspaceChromeWidthSettings = {
   sidebarWidth: [188, 304],
-  inspectorWidth: [300, 480]
+  inspectorWidth: [360, 640]
 };
 
 const workspaceChromePresets = [
