@@ -135,9 +135,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
-        return URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
-            .path
+        return "/tmp/cx-\(name.prefix(3))-\(shortID).sock"
     }
 
     func bindUnixSocket(at path: String) throws -> Int32 {
@@ -149,7 +147,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         addr.sun_family = sa_family_t(AF_UNIX)
         let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
         let utf8 = Array(path.utf8)
-        XCTAssertLessThan(utf8.count, maxPathLength)
+        guard utf8.count < maxPathLength else {
+            close(fd)
+            throw NSError(domain: "cmux.tests", code: Int(ENAMETOOLONG), userInfo: [
+                NSLocalizedDescriptionKey: "Unix socket path is too long for sockaddr_un: \(path)",
+            ])
+        }
         _ = withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
             pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
                 for index in 0..<utf8.count {
