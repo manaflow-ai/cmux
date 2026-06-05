@@ -8272,6 +8272,21 @@ class TabManager: ObservableObject {
         targetWindow.title = title
     }
 
+    /// The name to display for `tab` across window chrome — the custom title
+    /// bar, `NSWindow.title`, and the toolbar command label.
+    ///
+    /// A workspace group's anchor is represented everywhere by the group itself
+    /// (the sidebar draws only the group header, never a separate anchor row,
+    /// per `SidebarWorkspaceRenderItem`), so for an anchor the single source of
+    /// truth for the displayed name is the group's `name`. The anchor's own
+    /// `title` is merely seeded equal to the group name at creation and would
+    /// otherwise drift when the group is renamed.
+    func resolvedWorkspaceDisplayTitle(for tab: Workspace) -> String {
+        // NOTE: stubbed at current (buggy) behavior; the rename fix in the
+        // following commit makes this derive an anchor's title from its group.
+        return tab.title
+    }
+
     private func windowTitle(for tab: Workspace?) -> String {
         guard let tab else { return "cmux" }
         let trimmedTitle = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
