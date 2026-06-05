@@ -224,6 +224,7 @@ const windowsMessages = {
     "config.backgroundPosition.bottomRight": "Bottom right",
     "config.backgroundEffects.flat": "Flat",
     "config.backgroundEffects.tinted": "Tinted",
+    "config.backgroundEffects.vignette": "Vignette",
     "config.backgroundEffects.glass": "Glass",
     "config.browserHome.google": "Google",
     "config.browserHome.google.body": "Default search home.",
