@@ -3903,7 +3903,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         switch reason {
-        case .applicationWillTerminate, .workspaceWillPowerOff, .sessionDidResignWhileTerminating:
+        case .applicationWillTerminate:
+            return .init(
+                saveSnapshot: true,
+                includeScrollback: true,
+                flushClosedItemHistory: true
+            )
+        case .workspaceWillPowerOff, .sessionDidResignWhileTerminating:
             return .init(
                 saveSnapshot: true,
                 includeScrollback: false,

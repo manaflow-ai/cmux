@@ -731,10 +731,16 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    func testTerminationSessionPersistencePolicyKeepsNormalQuitLightweight() {
+    func testTerminationSessionPersistencePolicyKeepsUserQuitFull() {
+        let plan = AppDelegate.terminationSessionPersistencePlan(reason: .applicationWillTerminate)
+        XCTAssertTrue(plan.saveSnapshot)
+        XCTAssertTrue(plan.includeScrollback)
+        XCTAssertTrue(plan.flushClosedItemHistory)
+    }
+
+    func testTerminationSessionPersistencePolicyKeepsTerminationFollowUpsLightweight() {
         for reason in [
-            TerminationSessionPersistenceReason.applicationWillTerminate,
-            .workspaceWillPowerOff,
+            TerminationSessionPersistenceReason.workspaceWillPowerOff,
             .sessionDidResignWhileTerminating,
         ] {
             let plan = AppDelegate.terminationSessionPersistencePlan(reason: reason)
