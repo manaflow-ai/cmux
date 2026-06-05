@@ -373,6 +373,13 @@
 		E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
 		C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */; };
 		B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */; };
+		CAFE000000000000000000B4 /* NotesTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A4 /* NotesTreeCellView.swift */; };
+		CAFE000000000000000000B6 /* NotesTreeContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A6 /* NotesTreeContainerView.swift */; };
+		CAFE000000000000000000B1 /* NotesTreeNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A1 /* NotesTreeNode.swift */; };
+		CAFE000000000000000000B5 /* NotesTreePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A5 /* NotesTreePanelView.swift */; };
+		CAFE000000000000000000B2 /* NotesTreeStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A2 /* NotesTreeStorage.swift */; };
+		CAFE000000000000000000B7 /* NotesTreeStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A7 /* NotesTreeStorageTests.swift */; };
+		CAFE000000000000000000B3 /* NotesTreeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A3 /* NotesTreeStore.swift */; };
 		EF1062F821F44048A0FC119E /* NoteSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86D8BE9B5C29429F8AF0D2D4 /* NoteSupport.swift */; };
 		734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
 		A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
@@ -1045,6 +1052,13 @@
 		E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
 		C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/MinimalModeSidebarControls.swift; sourceTree = "<group>"; };
 		B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsUITests.swift; sourceTree = "<group>"; };
+		CAFE000000000000000000A4 /* NotesTreeCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeCellView.swift; sourceTree = "<group>"; };
+		CAFE000000000000000000A6 /* NotesTreeContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeContainerView.swift; sourceTree = "<group>"; };
+		CAFE000000000000000000A1 /* NotesTreeNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeNode.swift; sourceTree = "<group>"; };
+		CAFE000000000000000000A5 /* NotesTreePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreePanelView.swift; sourceTree = "<group>"; };
+		CAFE000000000000000000A2 /* NotesTreeStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeStorage.swift; sourceTree = "<group>"; };
+		CAFE000000000000000000A7 /* NotesTreeStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeStorageTests.swift; sourceTree = "<group>"; };
+		CAFE000000000000000000A3 /* NotesTreeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeStore.swift; sourceTree = "<group>"; };
 		86D8BE9B5C29429F8AF0D2D4 /* NoteSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteSupport.swift; sourceTree = "<group>"; };
 		D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
@@ -1818,6 +1832,12 @@
 				A5001653 /* CmuxConfigExecutor.swift */,
 				A5001655 /* CmuxActionTrust.swift */,
 				FE001001 /* FileExplorerStore.swift */,
+				CAFE000000000000000000A1 /* NotesTreeNode.swift */,
+				CAFE000000000000000000A2 /* NotesTreeStorage.swift */,
+				CAFE000000000000000000A3 /* NotesTreeStore.swift */,
+				CAFE000000000000000000A4 /* NotesTreeCellView.swift */,
+				CAFE000000000000000000A5 /* NotesTreePanelView.swift */,
+				CAFE000000000000000000A6 /* NotesTreeContainerView.swift */,
 				B37A0000000000000000000A /* FileExplorerState.swift */,
 				FE001003 /* FileExplorerSearchController.swift */,
 				FE001004 /* FileExplorerTerminalPathInsertion.swift */,
@@ -2012,6 +2032,7 @@
 				B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */,
 				D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
+				CAFE000000000000000000A7 /* NotesTreeStorageTests.swift */,
 				C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */,
 				FEED49850000000000000002 /* FeedEventClassificationTests.swift */,
 				42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */,
@@ -2602,6 +2623,12 @@
 				1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */,
 				3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */,
 				C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */,
+				CAFE000000000000000000B4 /* NotesTreeCellView.swift in Sources */,
+				CAFE000000000000000000B6 /* NotesTreeContainerView.swift in Sources */,
+				CAFE000000000000000000B1 /* NotesTreeNode.swift in Sources */,
+				CAFE000000000000000000B5 /* NotesTreePanelView.swift in Sources */,
+				CAFE000000000000000000B2 /* NotesTreeStorage.swift in Sources */,
+				CAFE000000000000000000B3 /* NotesTreeStore.swift in Sources */,
 				EF1062F821F44048A0FC119E /* NoteSupport.swift in Sources */,
 					A5001094 /* NotificationsPage.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
@@ -2949,6 +2976,7 @@
 				C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */,
 				17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */,
 				D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */,
+				CAFE000000000000000000B7 /* NotesTreeStorageTests.swift in Sources */,
 					734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
 					4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */,
 					A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */,

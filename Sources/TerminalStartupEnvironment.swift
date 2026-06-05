@@ -6,7 +6,17 @@ extension TerminalSurface {
         let workspaceId: UUID
         let surfaceId: UUID
         let socketPath: String
+        /// Absolute path to this workspace's Notes tree root (resolved, not
+        /// necessarily created), exported as `CMUX_WORKSPACE_NOTES_DIR` so the
+        /// `cmux-notes` skill can target it. `nil` when unresolved (e.g. remote).
+        var workspaceNotesDir: String?
     }
+
+    /// Resolves a workspace UUID to its Notes tree root. Injected once by the
+    /// composition root (`ContentView`), which owns the `TabManager` needed to
+    /// map the ephemeral workspace id to its stable note anchor. App-target DI
+    /// seam — set on the main actor, read at PTY-spawn time.
+    @MainActor static var workspaceNotesDirectoryResolver: ((UUID) -> String?)?
 
     static let managedTerminalType = "xterm-256color"
     static let managedTerminalProgram = "ghostty"
@@ -37,13 +47,16 @@ extension TerminalSurface {
         to environment: inout [String: String],
         protectedKeys: inout Set<String>
     ) {
-        let values = [
+        var values = [
             "CMUX_SURFACE_ID": context.surfaceId.uuidString,
             "CMUX_WORKSPACE_ID": context.workspaceId.uuidString,
             "CMUX_PANEL_ID": context.surfaceId.uuidString,
             "CMUX_TAB_ID": context.workspaceId.uuidString,
             "CMUX_SOCKET_PATH": context.socketPath
         ]
+        if let notesDir = context.workspaceNotesDir, !notesDir.isEmpty {
+            values["CMUX_WORKSPACE_NOTES_DIR"] = notesDir
+        }
 
         for (key, value) in values {
             environment[key] = value

@@ -36,7 +36,9 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            XCTAssertEqual(contributions.count, 3)
+            // files, notes, find, sessions are always available; feed/dock are off by default.
+            XCTAssertEqual(contributions.count, 4)
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.notes)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
         }

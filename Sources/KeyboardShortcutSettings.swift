@@ -84,6 +84,7 @@ enum KeyboardShortcutSettings {
         case markOldestUnreadAndJumpNext
         case focusRightSidebar
         case switchRightSidebarToFiles
+        case switchRightSidebarToNotes
         case switchRightSidebarToFind
         case switchRightSidebarToSessions
         case switchRightSidebarToFeed
@@ -186,6 +187,7 @@ enum KeyboardShortcutSettings {
                 return String(localized: "shortcut.markOldestUnreadAndJumpNext.label", defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread")
             case .focusRightSidebar: return String(localized: "shortcut.focusRightSidebar.label", defaultValue: "Toggle Right Sidebar Focus")
             case .switchRightSidebarToFiles: return String(localized: "shortcut.switchRightSidebarToFiles.label", defaultValue: "Show Sidebar Files")
+            case .switchRightSidebarToNotes: return String(localized: "shortcut.switchRightSidebarToNotes.label", defaultValue: "Show Sidebar Notes")
             case .switchRightSidebarToFind: return String(localized: "shortcut.switchRightSidebarToFind.label", defaultValue: "Show Sidebar Find")
             case .switchRightSidebarToSessions: return String(localized: "shortcut.switchRightSidebarToSessions.label", defaultValue: "Show Sidebar Vault")
             case .switchRightSidebarToFeed: return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
@@ -260,6 +262,7 @@ enum KeyboardShortcutSettings {
         var isPublicShortcutAction: Bool {
             switch self {
             case .switchRightSidebarToFiles,
+                 .switchRightSidebarToNotes,
                  .switchRightSidebarToFind,
                  .switchRightSidebarToSessions,
                  .switchRightSidebarToFeed,
@@ -322,6 +325,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
             case .switchRightSidebarToFiles:
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToNotes:
+                return StoredShortcut(key: "6", command: false, shift: false, option: false, control: true)
             case .switchRightSidebarToFind:
                 return StoredShortcut(key: "2", command: false, shift: false, option: false, control: true)
             case .switchRightSidebarToSessions:

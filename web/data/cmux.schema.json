@@ -1096,6 +1096,7 @@
               "markOldestUnreadAndJumpNext",
               "focusRightSidebar",
               "switchRightSidebarToFiles",
+              "switchRightSidebarToNotes",
               "switchRightSidebarToFind",
               "switchRightSidebarToSessions",
               "switchRightSidebarToFeed",

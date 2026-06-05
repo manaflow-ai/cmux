@@ -5364,12 +5364,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private static func cmuxContextEnvironment(
         workspaceId: UUID,
         surfaceId: UUID,
-        socketPath: String
+        socketPath: String,
+        workspaceNotesDir: String?
     ) -> CmuxContextEnvironment {
         CmuxContextEnvironment(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            socketPath: socketPath
+            socketPath: socketPath,
+            workspaceNotesDir: workspaceNotesDir
         )
     }
 
@@ -5387,7 +5389,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             Self.cmuxContextEnvironment(
                 workspaceId: tabId,
                 surfaceId: id,
-                socketPath: socketPath
+                socketPath: socketPath,
+                workspaceNotesDir: Self.workspaceNotesDirectoryResolver?(tabId)
             ),
             to: &environment,
             protectedKeys: &protectedKeys
@@ -6226,7 +6229,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             Self.cmuxContextEnvironment(
                 workspaceId: tabId,
                 surfaceId: id,
-                socketPath: socketPath
+                socketPath: socketPath,
+                workspaceNotesDir: Self.workspaceNotesDirectoryResolver?(tabId)
             ),
             to: &env,
             protectedKeys: &protectedStartupEnvironmentKeys

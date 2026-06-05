@@ -1824,10 +1824,13 @@ final class WindowDragHandleHitTests: XCTestCase {
             fileExplorerStore: FileExplorerStore(),
             fileExplorerState: FileExplorerState(),
             sessionIndexStore: SessionIndexStore(),
+            notesTreeStore: NotesTreeStore(),
             titlebarHeight: 36,
             workspaceId: nil,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
+            onOpenNote: { _ in },
+            onResumeNoteSession: { _ in },
             onOpenAsPane: { _ in },
             onClose: {}
         )

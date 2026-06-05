@@ -1085,6 +1085,7 @@ struct ContentView: View {
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
+    @StateObject private var notesTreeStore = NotesTreeStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
@@ -2224,6 +2225,7 @@ struct ContentView: View {
             fileExplorerStore: fileExplorerStore,
             fileExplorerState: fileExplorerState,
             sessionIndexStore: sessionIndexStore,
+            notesTreeStore: notesTreeStore,
             titlebarHeight: RightSidebarChromeMetrics.titlebarHeight,
             workspaceId: tabManager.selectedTabId,
             onResumeSession: { entry in
@@ -2231,6 +2233,12 @@ struct ContentView: View {
             },
             onOpenFilePreview: { filePath in
                 openFilePreviewFromSidebar(filePath: filePath)
+            },
+            onOpenNote: { node in
+                openNoteFromSidebar(node: node)
+            },
+            onResumeNoteSession: { marker in
+                resumeNoteSession(marker: marker)
             },
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)
@@ -2255,6 +2263,7 @@ struct ContentView: View {
                     fileExplorerState.width = sanitized
                 }
             }
+            installNotesSessionLoaderIfNeeded()
         }
         .onChange(of: fileExplorerState.width) { newValue in
             if fileExplorerDragStartWidth == nil {
@@ -2562,6 +2571,67 @@ struct ContentView: View {
         SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
     }
 
+    /// Wire the Notes tree's Claude-session source to the shared session index
+    /// (keyed by cwd), and expose this window's per-workspace notes root to
+    /// spawned terminals via `CMUX_WORKSPACE_NOTES_DIR` (for the cmux-notes skill).
+    private func installNotesSessionLoaderIfNeeded() {
+        TerminalSurface.workspaceNotesDirectoryResolver = { [weak tabManager] id in
+            guard let tabManager,
+                  let workspace = tabManager.tabs.first(where: { $0.id == id }) else { return nil }
+            let cwd = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cwd.isEmpty else { return nil }
+            return NotesTreeStorage.resolveWorkspaceRoot(
+                projectRoot: NoteSupport.projectRoot(forCwd: cwd),
+                anchorId: workspace.noteAnchorId,
+                title: workspace.title
+            )
+        }
+        guard notesTreeStore.loadClaudeSessions == nil else { return }
+        notesTreeStore.loadClaudeSessions = { [weak sessionIndexStore] cwd in
+            guard let sessionIndexStore else { return [] }
+            let snapshot = await sessionIndexStore.loadDirectorySnapshot(cwd: cwd)
+            return snapshot.entries.compactMap { entry in
+                guard entry.agent == .claude else { return nil }
+                let resolvedCwd = (entry.cwd?.isEmpty == false) ? entry.cwd! : cwd
+                return NotesSessionDescriptor(
+                    agent: "claude",
+                    sessionId: entry.sessionId,
+                    title: entry.title,
+                    cwd: resolvedCwd
+                )
+            }
+        }
+    }
+
+    /// Open a note file from the Notes tree as a markdown surface in the focused pane.
+    private func openNoteFromSidebar(node: NotesTreeNode) {
+        guard case .note = node.kind else { return }
+        guard let workspace = tabManager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return
+        }
+        sidebarSelectionState.selection = .tabs
+        _ = workspace.openOrFocusMarkdownSurface(inPane: paneId, filePath: node.path, focus: true)
+    }
+
+    /// Resume the Claude session backing a Notes session folder by reusing the
+    /// shared resume coordinator (reconstructs a minimal ``SessionEntry``).
+    private func resumeNoteSession(marker: NotesSessionMarker) {
+        let entry = SessionEntry(
+            id: marker.sessionId,
+            agent: .claude,
+            sessionId: marker.sessionId,
+            title: marker.title,
+            cwd: marker.cwd.isEmpty ? nil : marker.cwd,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(),
+            fileURL: nil,
+            specifics: .claude(model: nil, permissionMode: nil, configDirectoryForResume: nil)
+        )
+        SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+    }
+
     func openRightSidebarToolPane(_ mode: RightSidebarMode) {
         guard mode.canOpenAsPane,
               let workspace = tabManager.selectedWorkspace,
@@ -2614,6 +2684,7 @@ struct ContentView: View {
             // sessions panel doesn't keep filtering by a stale previous tab.
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             fileExplorerStore.applyWorkspaceRoot(.none)
+            notesTreeStore.clear()
             return
         }
 
@@ -2621,6 +2692,7 @@ struct ContentView: View {
 
         if tab.isRemoteWorkspace {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            notesTreeStore.clear()  // Notes is local-only in v1.
             guard shouldSyncFileExplorerStore else {
                 fileExplorerStore.applyWorkspaceRoot(.none)
                 return
@@ -2664,7 +2736,21 @@ struct ContentView: View {
         guard !dir.isEmpty else {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             fileExplorerStore.applyWorkspaceRoot(.none)
+            notesTreeStore.clear()
             return
+        }
+
+        // Notes is local-only and independent of the file-explorer sync gate
+        // below, so bind it before that early-returns for non-Files/Find modes.
+        if let workspace = tabManager.selectedWorkspace {
+            notesTreeStore.setWorkspace(
+                anchorId: workspace.noteAnchorId,
+                title: workspace.title,
+                projectRoot: NoteSupport.projectRoot(forCwd: dir),
+                currentDirectory: dir
+            )
+        } else {
+            notesTreeStore.clear()
         }
 
         sessionIndexStore.setCurrentDirectoryIfChanged(dir)
