@@ -242,6 +242,46 @@ func cmuxGhosttyModifierActionForFlagsChanged(
 
     return sidePressed ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE
 }
+
+private enum GhosttyTextInputCommand {
+    case deleteBackward
+
+    init?(selector: Selector) {
+        switch selector {
+        case #selector(NSResponder.deleteBackward(_:)):
+            self = .deleteBackward
+        default:
+            return nil
+        }
+    }
+
+    var keycode: UInt32 {
+        switch self {
+        case .deleteBackward:
+            return UInt32(kVK_Delete)
+        }
+    }
+
+    var text: String? {
+        switch self {
+        case .deleteBackward:
+            return "\u{7F}"
+        }
+    }
+
+    var unshiftedCodepoint: UInt32 {
+        text?.unicodeScalars.first?.value ?? 0
+    }
+
+#if DEBUG
+    var debugName: String {
+        switch self {
+        case .deleteBackward:
+            return "deleteBackward"
+        }
+    }
+#endif
+}
 #endif
 
 private func cmuxRuntimeReadClipboardCallback(
@@ -8130,6 +8170,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
+    private var textInputCommandReleaseKeyCodes: [UInt16: UInt32] = [:]
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModePendingViewportJumpSync = false
@@ -9597,6 +9638,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // For NSTextInputClient - accumulates text during key events
     private(set) var keyTextAccumulator: [String]? = nil
+    private var keyCommandAccumulator: [GhosttyTextInputCommand]? = nil
     private var markedText = NSMutableAttributedString()
     private var markedSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var lastPerformKeyEvent: TimeInterval?
@@ -9634,7 +9676,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // Prevents NSBeep for unimplemented actions from interpretKeyEvents
     override func doCommand(by selector: Selector) {
-        // Intentionally empty - prevents system beep on unhandled key commands
+        if let command = GhosttyTextInputCommand(selector: selector),
+           keyCommandAccumulator != nil {
+            keyCommandAccumulator?.append(command)
+            return
+        }
+        // Otherwise intentionally empty - prevents system beep on unhandled key commands
     }
 
     /// Some third-party voice input apps inject committed text by sending the
@@ -10012,9 +10059,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             translated: translationEvent
         )
 
-        // Set up text accumulator for interpretKeyEvents
+        // Set up text/command accumulators for interpretKeyEvents
         keyTextAccumulator = []
-        defer { keyTextAccumulator = nil }
+        keyCommandAccumulator = []
+        defer {
+            keyTextAccumulator = nil
+            keyCommandAccumulator = nil
+        }
 
         let markedTextBefore = markedText.length > 0
         let markedStateBefore = (markedText.string, markedSelectedRange)
@@ -10073,6 +10124,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         let accumulatedText = keyTextAccumulator ?? []
+        let accumulatedCommands = keyCommandAccumulator ?? []
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
             before: markedStateBefore,
             after: (markedText.string, markedSelectedRange),
@@ -10173,6 +10225,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 _ = ghostty_surface_key(surface, keyEvent)
 #endif
             }
+        } else if !accumulatedCommands.isEmpty {
+            for command in accumulatedCommands {
+                keyEvent.keycode = command.keycode
+                keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+                keyEvent.composing = false
+                keyEvent.unshifted_codepoint = command.unshiftedCodepoint
+                textInputCommandReleaseKeyCodes[event.keyCode] = command.keycode
+
+#if DEBUG
+                let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+                _ = sendTextInputCommand(
+                    command,
+                    surface: surface,
+                    keyEvent: keyEvent,
+                    path: "terminal.keyDown.commandGhosttySend",
+                    event: event
+                )
+                ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+#else
+                _ = sendTextInputCommand(command, surface: surface, keyEvent: keyEvent)
+#endif
+            }
         } else {
             // Get the appropriate text for this key event
             // For control characters, this returns the unmodified character
@@ -10263,7 +10337,44 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return ghostty_surface_key(surface, keyEvent)
     }
 
+    @discardableResult
+    private func sendTextInputCommand(
+        _ command: GhosttyTextInputCommand,
+        surface: ghostty_surface_t,
+        keyEvent: ghostty_input_key_s
+    ) -> Bool {
+        var keyEvent = keyEvent
+        guard let text = command.text else {
+            keyEvent.text = nil
+            return sendGhosttyKey(surface, keyEvent)
+        }
+
+        return text.withCString { ptr in
+            keyEvent.text = ptr
+            return sendGhosttyKey(surface, keyEvent)
+        }
+    }
+
 #if DEBUG
+    @discardableResult
+    private func sendTextInputCommand(
+        _ command: GhosttyTextInputCommand,
+        surface: ghostty_surface_t,
+        keyEvent: ghostty_input_key_s,
+        path: String,
+        event: NSEvent? = nil
+    ) -> Bool {
+        let timingStart = CmuxTypingTiming.start()
+        let handled = sendTextInputCommand(command, surface: surface, keyEvent: keyEvent)
+        CmuxTypingTiming.logDuration(
+            path: path,
+            startedAt: timingStart,
+            event: event,
+            extra: "handled=\(handled ? 1 : 0) command=\(command.debugName)"
+        )
+        return handled
+    }
+
     @discardableResult
     private func sendTimedGhosttyKey(
         _ surface: ghostty_surface_t,
@@ -10306,6 +10417,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         if imeConsumedKeyUps.remove(event.keyCode) != nil {
+            return
+        }
+        if let releaseKeyCode = textInputCommandReleaseKeyCodes.removeValue(forKey: event.keyCode) {
+            var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
+            keyEvent.action = GHOSTTY_ACTION_RELEASE
+            keyEvent.keycode = releaseKeyCode
+            keyEvent.text = nil
+            keyEvent.composing = false
+            _ = sendGhosttyKey(surface, keyEvent)
             return
         }
 
