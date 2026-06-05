@@ -331,46 +331,113 @@ type focusedContext struct {
 	workspaceId string
 	windowId    string
 	paneHandle  string
+	paneId      string
 	surfaceId   string
 }
 
 func getFocusedContext(rc *rpcContext) *focusedContext {
+	return getFocusedContextWithTimeout(rc, 5*time.Second)
+}
+
+func getFocusedContextWithTimeout(rc *rpcContext, timeout time.Duration) *focusedContext {
 	// Use a goroutine with timeout so a slow/stale relay doesn't block agent launch.
 	type result struct {
 		payload map[string]any
-		err     error
 	}
 	ch := make(chan result, 1)
+	started := time.Now()
 	go func() {
-		p, e := rc.call("system.identify", nil)
-		ch <- result{p, e}
+		payload, err := rc.call("system.identify", nil)
+		if err != nil {
+			ch <- result{}
+			return
+		}
+		ch <- result{payload: payload}
 	}()
+
 	var payload map[string]any
 	select {
 	case r := <-ch:
-		if r.err != nil {
-			return nil
-		}
 		payload = r.payload
-	case <-time.After(5 * time.Second):
+	case <-time.After(timeout):
 		return nil
 	}
+
 	focused, _ := payload["focused"].(map[string]any)
 	if focused == nil {
 		return nil
 	}
-
-	wsId := stringFromAny(focused["workspace_id"], focused["workspace_ref"])
-	paneId := stringFromAny(focused["pane_id"], focused["pane_ref"])
-	if wsId == "" || paneId == "" {
+	ctx := focusedContextFromIdentify(focused)
+	if ctx == nil {
 		return nil
 	}
 
+	remaining := timeout - time.Since(started)
+	if remaining <= 0 {
+		return ctx
+	}
+	return canonicalizeFocusedContextWithTimeout(rc, focused, ctx, remaining)
+}
+
+func focusedContextFromIdentify(focused map[string]any) *focusedContext {
+	wsId := stringFromAny(focused["workspace_id"], focused["workspace_ref"])
+	paneHandle := stringFromAny(focused["pane_id"], focused["pane_ref"])
+	if wsId == "" || paneHandle == "" {
+		return nil
+	}
 	return &focusedContext{
 		workspaceId: wsId,
 		windowId:    stringFromAny(focused["window_id"], focused["window_ref"]),
-		paneHandle:  strings.TrimSpace(paneId),
+		paneHandle:  strings.TrimSpace(paneHandle),
+		paneId:      strings.TrimSpace(stringFromAny(focused["pane_uuid"], focused["pane_id"])),
 		surfaceId:   stringFromAny(focused["surface_id"], focused["surface_ref"]),
+	}
+}
+
+func canonicalizeFocusedContextWithTimeout(
+	rc *rpcContext,
+	focused map[string]any,
+	base *focusedContext,
+	timeout time.Duration,
+) *focusedContext {
+	type result struct {
+		focused *focusedContext
+	}
+	ch := make(chan result, 1)
+	go func() {
+		enriched := *base
+		canonicalizeFocusedContext(rc, focused, &enriched)
+		ch <- result{focused: &enriched}
+	}()
+	select {
+	case r := <-ch:
+		return r.focused
+	case <-time.After(timeout):
+		return base
+	}
+}
+
+func canonicalizeFocusedContext(rc *rpcContext, focused map[string]any, ctx *focusedContext) {
+	canonicalPaneId := strings.TrimSpace(stringFromAny(focused["pane_uuid"]))
+	if canonicalWsId, err := tmuxResolveWorkspaceId(rc, ctx.workspaceId); err == nil {
+		if canonicalPaneId == "" {
+			if pid := strings.TrimSpace(stringFromAny(focused["pane_id"])); pid != "" {
+				if resolved, err := tmuxCanonicalPaneId(rc, pid, canonicalWsId); err == nil {
+					canonicalPaneId = resolved
+				}
+			}
+		}
+		if canonicalPaneId == "" {
+			if pid, err := tmuxCanonicalPaneId(rc, ctx.paneHandle, canonicalWsId); err == nil {
+				canonicalPaneId = pid
+			}
+		}
+	}
+	if canonicalPaneId == "" {
+		canonicalPaneId = strings.TrimSpace(stringFromAny(focused["pane_id"]))
+	}
+	if canonicalPaneId != "" {
+		ctx.paneId = strings.TrimSpace(canonicalPaneId)
 	}
 }
 
@@ -460,9 +527,14 @@ func configureAgentEnvironment(cfg agentConfig) {
 		if windowToken == "" {
 			windowToken = cfg.focused.workspaceId
 		}
+		paneIdForToken := cfg.focused.paneId
+		if paneIdForToken == "" {
+			paneIdForToken = cfg.focused.paneHandle
+		}
+		paneToken := tmuxStableNumericId(paneIdForToken)
 		fakeTmux = fmt.Sprintf("/tmp/%s/%s,%s,%s",
-			cfg.tmuxPathPrefix, cfg.focused.workspaceId, windowToken, cfg.focused.paneHandle)
-		fakeTmuxPane = "%" + cfg.focused.paneHandle
+			cfg.tmuxPathPrefix, cfg.focused.workspaceId, windowToken, paneToken)
+		fakeTmuxPane = "%" + paneToken
 	}
 	os.Setenv("TMUX", fakeTmux)
 	os.Setenv("TMUX_PANE", fakeTmuxPane)
@@ -534,7 +606,7 @@ func omoEnsurePlugin(searchPath string) error {
 	var config map[string]any
 	if data, err := os.ReadFile(userJsonPath); err == nil {
 		if err := json.Unmarshal(data, &config); err != nil {
-			return fmt.Errorf("failed to parse %s: fix the JSON syntax and retry", userJsonPath)
+			return fmt.Errorf("invalid opencode.json: fix the JSON syntax and retry")
 		}
 	} else {
 		config = map[string]any{}

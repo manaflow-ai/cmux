@@ -127,11 +127,11 @@ final class KeyboardShortcutContextTests: XCTestCase {
         let context = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext
 
         XCTAssertEqual(context, .rightSidebarFocus)
-        XCTAssertFalse(context.isAvailable(focusedBrowserPanel: false, rightSidebarFocused: false))
-        XCTAssertTrue(context.isAvailable(focusedBrowserPanel: false, rightSidebarFocused: true))
+        XCTAssertFalse(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false))
+        XCTAssertTrue(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: true))
         XCTAssertFalse(
             KeyboardShortcutSettings.Action.renameTab.shortcutContext
-                .isAvailable(focusedBrowserPanel: false, rightSidebarFocused: true)
+                .isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: true)
         )
         XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.commandPalette.shortcutContext))
         XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
@@ -139,6 +139,62 @@ final class KeyboardShortcutContextTests: XCTestCase {
 
     func testReactGrabStaysApplicationScopedForTerminalPastebackRouting() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
+    }
+
+    func testBrowserFocusModeToggleIsBrowserScopedAndDoesNotCollideWithSplitZoom() {
+        let focusMode = KeyboardShortcutSettings.Action.toggleBrowserFocusMode
+
+        // Scoped to browser panels so it only claims the key when a browser is focused.
+        XCTAssertEqual(focusMode.shortcutContext, .browserPanel)
+
+        // Default is Option+Cmd+Return: a modifier tier web pages rarely bind,
+        // distinct from the other Return-based shortcut (Cmd+Shift+Return = toggle
+        // split zoom), and clear of the Ctrl+Cmd+Return some screen recorders use.
+        let focusModeShortcut = focusMode.defaultShortcut
+        XCTAssertEqual(
+            focusModeShortcut,
+            StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
+        )
+        XCTAssertNotEqual(
+            focusModeShortcut,
+            KeyboardShortcutSettings.Action.toggleSplitZoom.defaultShortcut
+        )
+        XCTAssertFalse(
+            focusMode.conflicts(
+                with: KeyboardShortcutSettings.Action.toggleSplitZoom.defaultShortcut,
+                proposedAction: .toggleSplitZoom,
+                configuredShortcut: focusModeShortcut
+            )
+        )
+    }
+
+    func testMarkdownZoomIsScopedToFocusedMarkdownPanelAndDoesNotCollideWithBrowserZoom() {
+        for action in [
+            KeyboardShortcutSettings.Action.markdownZoomIn,
+            .markdownZoomOut,
+            .markdownZoomReset,
+        ] {
+            XCTAssertEqual(action.shortcutContext, .markdownPanel)
+        }
+
+        let markdown = KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext
+        XCTAssertTrue(markdown.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: true, rightSidebarFocused: false))
+        XCTAssertFalse(markdown.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false))
+        XCTAssertFalse(markdown.isAvailable(focusedBrowserPanel: true, focusedMarkdownPanel: false, rightSidebarFocused: false))
+
+        // Markdown zoom and browser zoom share Cmd-=/-/0 but are mutually
+        // exclusive (a panel can't be both), so they must NOT be treated as
+        // conflicting bindings.
+        let browser = KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext
+        XCTAssertFalse(markdown.overlaps(browser))
+        XCTAssertTrue(markdown.overlaps(markdown))
+
+        // A focused markdown viewer is also a non-browser panel, so those two
+        // contexts CAN be active together and must be treated as overlapping.
+        let nonBrowser = KeyboardShortcutSettings.Action.renameTab.shortcutContext
+        XCTAssertEqual(nonBrowser, .nonBrowserPanel)
+        XCTAssertTrue(markdown.overlaps(nonBrowser))
+        XCTAssertTrue(nonBrowser.overlaps(markdown))
     }
 
     func testFocusHistoryMenuShortcutsSuppressDuplicateBrowserHistoryKeys() throws {

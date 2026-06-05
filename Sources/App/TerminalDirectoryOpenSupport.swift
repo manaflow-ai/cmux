@@ -65,6 +65,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     case androidStudio
     case antigravity
     case cursor
+    case devin
     case finder
     case ghostty
     case intellij
@@ -112,6 +113,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return String(localized: "menu.openInAntigravity", defaultValue: "Open Current Directory in Antigravity")
         case .cursor:
             return String(localized: "menu.openInCursor", defaultValue: "Open Current Directory in Cursor")
+        case .devin:
+            return String(localized: "menu.openInDevin", defaultValue: "Open Current Directory in Devin")
         case .finder:
             return String(localized: "menu.openInFinder", defaultValue: "Open Current Directory in Finder")
         case .ghostty:
@@ -148,6 +151,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return common + ["antigravity"]
         case .cursor:
             return common + ["cursor"]
+        case .devin:
+            return common + ["devin", "cognition"]
         case .finder:
             return common + ["finder", "file", "manager", "reveal"]
         case .ghostty:
@@ -243,6 +248,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
                 "/Applications/Cursor Preview.app",
                 "/Applications/Cursor Nightly.app",
             ]
+        case .devin:
+            return ["/Applications/Devin.app"]
         case .finder:
             return ["/System/Library/CoreServices/Finder.app"]
         case .ghostty:

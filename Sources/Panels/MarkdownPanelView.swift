@@ -28,6 +28,7 @@ struct MarkdownPanelView: View {
     @State private var focusFlashAnimationGeneration: Int = 0
     @State private var copyConfirmation: CopyConfirmation? = nil
     @State private var copyConfirmationGeneration: Int = 0
+    @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
 
     private enum CopyConfirmation: Equatable {
         case markdown
@@ -56,7 +57,7 @@ struct MarkdownPanelView: View {
         .overlay {
             WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
         }
-        .onChange(of: panel.focusFlashToken) { _ in
+        .onChange(of: panel.focusFlashToken) {
             triggerFocusFlashAnimation()
         }
         .environment(\.colorScheme, themeColorScheme)
@@ -84,6 +85,9 @@ struct MarkdownPanelView: View {
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
+                fontSize: panel.fontSize,
+                fontFamily: panel.fontFamily,
+                maxContentWidth: panel.maxContentWidth,
                 session: panel.rendererSession,
                 onRequestPanelFocus: onRequestPanelFocus
             )
@@ -98,7 +102,8 @@ struct MarkdownPanelView: View {
                     isVisibleInUI: isVisibleInUI,
                     themeBackgroundColor: appearance.contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
-                    drawsBackground: appearance.drawsContentBackground
+                    drawsBackground: appearance.drawsContentBackground,
+                    wordWrap: fileEditorWordWrap
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -125,6 +130,9 @@ struct MarkdownPanelView: View {
                     isDisabled: !panel.isDirty || panel.isSaving,
                     action: { panel.saveTextContent() }
                 )
+            }
+            if panel.displayMode == .preview {
+                MarkdownTypographyControl(panel: panel)
             }
             markdownModeButton
             MarkdownPanelToolbar(

@@ -110,10 +110,28 @@ enum TerminalScrollBarSettings {
 }
 
 enum TerminalTextBoxInputSettings {
+    static let showOnNewTerminalsKey = "terminal.showTextBoxOnNewTerminals"
+    static let focusOnNewTerminalsKey = "terminal.focusTextBoxOnNewTerminals"
+    static let defaultShowOnNewTerminals = false
+    static let defaultFocusOnNewTerminals = false
     static let maxLinesKey = "terminal.textBoxMaxLines"
     static let defaultMaxLines = 10
     static let minimumMaxLines = 1
     static let maximumMaxLines = 20
+
+    static func showOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showOnNewTerminalsKey) == nil {
+            return defaultShowOnNewTerminals
+        }
+        return defaults.bool(forKey: showOnNewTerminalsKey)
+    }
+
+    static func focusOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: focusOnNewTerminalsKey) == nil {
+            return defaultFocusOnNewTerminals
+        }
+        return defaults.bool(forKey: focusOnNewTerminalsKey)
+    }
 
     static func resolvedMaxLines(_ value: Int) -> Int {
         min(max(value, minimumMaxLines), maximumMaxLines)
@@ -358,9 +376,16 @@ enum AgentHibernationTrackingGate {
 }
 
 enum RightSidebarBetaFeatureSettings {
+    static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
 
+    static let defaultFeedEnabled = false
     static let defaultDockEnabled = false
+
+    nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: feedEnabledKey) != nil else { return defaultFeedEnabled }
+        return defaults.bool(forKey: feedEnabledKey)
+    }
 
     nonisolated static func isDockEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: dockEnabledKey) != nil else { return defaultDockEnabled }

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import CmuxSocketControl
 import os
 import UserNotifications
 import Bonsplit

@@ -53,3 +53,7 @@ web/public/pagefind/
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
+.iter-logs/*.png
+
+# Local dogfood scratch (screenshots, recordings) — never commit
+artifacts/

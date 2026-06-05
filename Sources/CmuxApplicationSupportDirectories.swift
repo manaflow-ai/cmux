@@ -175,3 +175,156 @@ enum CmuxGhosttyConfigPathResolver {
             || bundleIdentifier.hasPrefix("\(channelBundleIdentifier).")
     }
 }
+
+enum CmuxGhosttyConfigSettingEditor {
+    static let sidebarFontSizeKey = "sidebar-font-size"
+    static let defaultSidebarFontSize = 12.5
+    static let minSidebarFontSize = 10.0
+    static let maxSidebarFontSize = 20.0
+
+    static let surfaceTabBarFontSizeKey = "surface-tab-bar-font-size"
+    static let defaultSurfaceTabBarFontSize = 11.0
+    static let minSurfaceTabBarFontSize = 8.0
+    static let maxSurfaceTabBarFontSize = 14.0
+
+    static func clampedSidebarFontSize(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultSidebarFontSize }
+        return min(max(value, minSidebarFontSize), maxSidebarFontSize)
+    }
+
+    static func formattedSidebarFontSize(_ value: Double) -> String {
+        formattedFontSize(clampedSidebarFontSize(value))
+    }
+
+    static func parsedSidebarFontSize(in contents: String) -> Double? {
+        parsedFontSize(in: contents, key: sidebarFontSizeKey, clamp: clampedSidebarFontSize)
+    }
+
+    static func clampedSurfaceTabBarFontSize(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultSurfaceTabBarFontSize }
+        return min(max(value, minSurfaceTabBarFontSize), maxSurfaceTabBarFontSize)
+    }
+
+    static func formattedSurfaceTabBarFontSize(_ value: Double) -> String {
+        formattedFontSize(clampedSurfaceTabBarFontSize(value))
+    }
+
+    static func parsedSurfaceTabBarFontSize(in contents: String) -> Double? {
+        parsedFontSize(in: contents, key: surfaceTabBarFontSizeKey, clamp: clampedSurfaceTabBarFontSize)
+    }
+
+    /// Formats a point size for display, trimming trailing zeros (`12`, `13.5`, `13.75`).
+    static func formattedFontSize(_ value: Double) -> String {
+        let scaled = Int((value * 100).rounded())
+        let whole = scaled / 100
+        let fraction = abs(scaled % 100)
+        if fraction == 0 {
+            return "\(whole)"
+        }
+        if fraction % 10 == 0 {
+            return "\(whole).\(fraction / 10)"
+        }
+        return "\(whole).\(fraction < 10 ? "0" : "")\(fraction)"
+    }
+
+    /// Reads the last occurrence of `key` from a Ghostty config body and clamps it to the setting's range.
+    private static func parsedFontSize(
+        in contents: String,
+        key: String,
+        clamp: (Double) -> Double
+    ) -> Double? {
+        guard let rawValue = parsedValue(for: key, in: contents) else {
+            return nil
+        }
+        let unquoted = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        guard let value = Double(unquoted), value.isFinite else {
+            return nil
+        }
+        return clamp(value)
+    }
+
+    static func parsedValue(for key: String, in contents: String) -> String? {
+        var latestValue: String?
+        for line in contents.components(separatedBy: .newlines) {
+            guard let setting = parsedSetting(in: line), setting.key == key else {
+                continue
+            }
+            latestValue = setting.value
+        }
+        return latestValue
+    }
+
+    static func updatedContents(_ contents: String, setting key: String, value: String) -> String {
+        var lines = contents.components(separatedBy: "\n")
+        if contents.hasSuffix("\n") {
+            lines.removeLast()
+        }
+        if lines.count == 1, lines[0].isEmpty {
+            lines = []
+        }
+
+        var didReplace = false
+        for index in lines.indices {
+            guard parsedSetting(in: lines[index])?.key == key else {
+                continue
+            }
+            lines[index] = "\(key) = \(value)"
+            didReplace = true
+        }
+
+        if !didReplace {
+            lines.append("\(key) = \(value)")
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func writeSetting(
+        key: String,
+        value: String,
+        to url: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        let writeURL = configWriteURL(for: url, fileManager: fileManager)
+        let contents = (try? String(contentsOf: writeURL, encoding: .utf8))
+            ?? (try? String(contentsOf: url, encoding: .utf8))
+            ?? ""
+        let updated = updatedContents(contents, setting: key, value: value)
+        try fileManager.createDirectory(
+            at: writeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try updated.write(to: writeURL, atomically: true, encoding: .utf8)
+    }
+
+    private static func parsedSetting(in line: String) -> (key: String, value: String)? {
+        var trimmed = line.trimmingCharacters(in: .whitespaces)
+        // Strip a leading UTF-8 BOM so a BOM-encoded first line still matches its
+        // key (otherwise the setting reads as absent and a duplicate is appended).
+        if trimmed.hasPrefix("\u{FEFF}") {
+            trimmed.removeFirst()
+            trimmed = trimmed.trimmingCharacters(in: .whitespaces)
+        }
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("#"), let separator = trimmed.firstIndex(of: "=") else {
+            return nil
+        }
+        let key = trimmed[..<separator].trimmingCharacters(in: .whitespaces)
+        let valueStart = trimmed.index(after: separator)
+        let value = trimmed[valueStart...].trimmingCharacters(in: .whitespaces)
+        guard !key.isEmpty else { return nil }
+        return (key, value)
+    }
+
+    private static func configWriteURL(for url: URL, fileManager: FileManager) -> URL {
+        guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
+            return url
+        }
+        let destinationURL: URL
+        if destination.hasPrefix("/") {
+            destinationURL = URL(fileURLWithPath: destination)
+        } else {
+            destinationURL = url.deletingLastPathComponent().appendingPathComponent(destination)
+        }
+        return destinationURL.standardizedFileURL.resolvingSymlinksInPath()
+    }
+}

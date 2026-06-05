@@ -1,722 +1,580 @@
-import XCTest
-@testable import CmuxExtensionKit
+import Foundation
+import Testing
+@_spi(CmuxHostTransport) @testable import CmuxExtensionKit
 
-final class CmuxExtensionKitTests: XCTestCase {
-    func testDefaultProviderDescriptorIsStable() {
-        XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.defaultWorkspaces.id, "cmux.sidebar.default")
-        XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.defaultWorkspaces.isHostProvided, true)
-    }
-
-    func testPresentationRequestCodableRoundTrips() throws {
-        let workspaceId = UUID()
-        let request = CmuxExtensionSidebarPresentationRequest.openWorkspaceWindow(
-            workspaceId: workspaceId,
-            preferredTab: .browser
+@Suite
+struct CMUXExtensionKitTests {
+    @Test
+    func testSidebarSnapshotRoundTripsStableContract() throws {
+        let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let snapshot = CmuxSidebarSnapshot(
+            sequence: 42,
+            windowID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+            selectedWorkspaceID: workspaceID,
+            grantedReadScopes: [.workspaceMetadata, .workspacePaths, .notifications, .networkPorts, .pullRequests],
+            grantedActionScopes: [.selectWorkspace],
+            workspaces: [
+                CmuxSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Build",
+                    detail: "main",
+                    isPinned: true,
+                    rootPath: "/repo",
+                    projectRootPath: "/repo",
+                    gitBranch: "main",
+                    unreadCount: 2,
+                    latestNotification: "Tests passed",
+                    listeningPorts: [3000],
+                    pullRequestURLs: ["https://github.com/manaflow-ai/cmux/pull/1"]
+                ),
+            ]
         )
 
-        let data = try JSONEncoder().encode(request)
-        let decoded = try JSONDecoder().decode(CmuxExtensionSidebarPresentationRequest.self, from: data)
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(CmuxSidebarSnapshot.self, from: encoded)
 
-        XCTAssertEqual(decoded, request)
+        #expect(decoded == snapshot)
+        #expect(decoded.apiVersion == CmuxExtensionAPIVersion.sidebarV2)
+        #expect(decoded.grantedReadScopes.contains(.workspaceMetadata))
+        #expect(decoded.grantedActionScopes == [.selectWorkspace])
     }
 
-    func testWorkspacePopoverTabRoundTripsActiveCases() throws {
-        for tab in [CmuxExtensionWorkspacePopoverTab.notes, .browser] {
-            let data = try JSONEncoder().encode(tab)
-            let decoded = try JSONDecoder().decode(CmuxExtensionWorkspacePopoverTab.self, from: data)
+    @Test
+    func testManifestValidationAcceptsSidebarV2() throws {
+        let manifest = CmuxExtensionManifest(
+            id: "dev.example.sidebar",
+            displayName: "Example Sidebar",
+            readScopes: [.workspaceMetadata, .workspacePaths],
+            actionScopes: [.selectWorkspace, .openURL]
+        )
 
-            XCTAssertEqual(decoded, tab)
-        }
+        try validateSidebarManifest(manifest)
     }
 
-    func testJSONValueIntValueReturnsNilForOutOfRangeNumber() {
-        XCTAssertEqual(CmuxExtensionJSONValue.number(42).intValue, 42)
-        XCTAssertNil(CmuxExtensionJSONValue.number(1.5).intValue)
-        XCTAssertNil(CmuxExtensionJSONValue.number(Double(Int.max)).intValue)
-        XCTAssertNil(CmuxExtensionJSONValue.number(Double.greatestFiniteMagnitude).intValue)
-    }
-
-    func testEventFrameDecodesSocketTimestamp() throws {
-        let workspaceId = UUID()
-        let data = Data("""
+    @Test
+    func testManifestDecodingDefaultsMissingActionScopesToNone() throws {
+        let payload = Data("""
         {
-          "seq": 12,
-          "name": "workspace.selected",
-          "category": "workspace",
-          "source": "workspace.lifecycle",
-          "occurred_at": "2026-05-21T10:00:00.123Z",
-          "workspace_id": "\(workspaceId.uuidString)",
-          "payload": {"workspace_id": "\(workspaceId.uuidString)"}
+          "id": "dev.example.sidebar",
+          "displayName": "Example Sidebar",
+          "minimumAPIVersion": { "major": 2, "minor": 0 },
+          "readScopes": ["workspaceMetadata"]
         }
         """.utf8)
 
-        let event = try JSONDecoder().decode(CmuxExtensionEventFrame.self, from: data)
+        let manifest = try JSONDecoder().decode(CmuxExtensionManifest.self, from: payload)
 
-        XCTAssertEqual(event.sequence, 12)
-        XCTAssertEqual(event.workspaceId, workspaceId)
-        XCTAssertEqual(event.payload["workspace_id"]?.stringValue, workspaceId.uuidString)
-        XCTAssertEqual(event.occurredAt.timeIntervalSince1970, 1_779_357_600.123, accuracy: 0.001)
+        #expect(manifest.readScopes == [.workspaceMetadata])
+        #expect(manifest.actionScopes.isEmpty)
+        try validateSidebarManifest(manifest)
     }
 
-    func testSidebarSnapshotDecodesSocketShape() throws {
-        let windowId = UUID()
-        let workspaceId = UUID()
-        let selectedId = workspaceId.uuidString
-        let data = Data("""
+    @Test
+    func testManifestInitializerDefaultsActionScopesToNone() throws {
+        let manifest = CmuxExtensionManifest(
+            id: "dev.example.sidebar",
+            displayName: "Example Sidebar"
+        )
+
+        #expect(manifest.readScopes.isEmpty)
+        #expect(manifest.actionScopes.isEmpty)
+        try validateSidebarManifest(manifest)
+    }
+
+    @Test
+    func testSidebarSnapshotFilteringRemovesUngrantedScopeData() throws {
+        let workspaceID = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
+        let snapshot = CmuxSidebarSnapshot(
+            sequence: 44,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CmuxSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Build",
+                    detail: "Running tests",
+                    isPinned: true,
+                    rootPath: "/Users/example/secret",
+                    projectRootPath: "/Users/example/secret",
+                    gitBranch: "feature/sidebar",
+                    unreadCount: 2,
+                    latestNotification: "Private notification",
+                    listeningPorts: [3000, 5173],
+                    pullRequestURLs: ["https://github.com/manaflow-ai/cmux/pull/4994"]
+                ),
+            ]
+        )
+
+        let filtered = snapshot.filtered(for: [CmuxExtensionScope.workspaceMetadata])
+        let workspace = try #require(filtered.workspaces.first)
+
+        #expect(filtered.grantedReadScopes == [.workspaceMetadata])
+        #expect(filtered.grantedActionScopes.isEmpty)
+        #expect(workspace.id == workspaceID)
+        #expect(workspace.title == "Build")
+        #expect(workspace.detail == "Running tests")
+        #expect(workspace.gitBranch == "feature/sidebar")
+        #expect(workspace.unreadCount == 2)
+        #expect(workspace.rootPath == nil)
+        #expect(workspace.projectRootPath == nil)
+        #expect(workspace.latestNotification == nil)
+        #expect(workspace.listeningPorts.isEmpty)
+        #expect(workspace.pullRequestURLs.isEmpty)
+    }
+
+    @Test
+    func testSidebarSnapshotFilteringWithNoScopesRemovesWorkspaceMetadata() {
+        let workspaceID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
+        let windowID = UUID(uuidString: "66666666-6666-6666-6666-666666666666")!
+        let snapshot = CmuxSidebarSnapshot(
+            sequence: 45,
+            windowID: windowID,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CmuxSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Private Workspace",
+                    detail: "Sensitive detail",
+                    isPinned: true,
+                    rootPath: "/Users/example/private",
+                    projectRootPath: "/Users/example/private",
+                    gitBranch: "secret",
+                    unreadCount: 9,
+                    latestNotification: "Sensitive notification",
+                    listeningPorts: [8080],
+                    pullRequestURLs: ["https://github.com/manaflow-ai/cmux/pull/4994"]
+                ),
+            ]
+        )
+
+        let filtered = snapshot.filtered(for: [CmuxExtensionScope]())
+
+        #expect(filtered.apiVersion == .sidebarV2)
+        #expect(filtered.sequence == 45)
+        #expect(filtered.windowID == nil)
+        #expect(filtered.selectedWorkspaceID == nil)
+        #expect(filtered.grantedReadScopes.isEmpty)
+        #expect(filtered.grantedActionScopes.isEmpty)
+        #expect(filtered.workspaces.isEmpty)
+    }
+
+    @Test
+    func testSidebarSnapshotDecodingDefaultsMissingGrantedScopes() throws {
+        let payload = Data("""
         {
-          "seq": 7,
-          "window_id": "\(windowId.uuidString)",
-          "selected_workspace_id": "\(selectedId)",
-          "workspaces": [
-            {
-              "id": "\(workspaceId.uuidString)",
-              "title": "API",
-              "description": "Backend workspace",
-              "pinned": true,
-              "root_path": "/tmp/cmux/api",
-              "project_root_path": "/tmp/cmux",
-              "branch_summary": "main",
-              "remote_display_target": "devbox",
-              "remote_connection_state": "connected",
-              "unread_count": 3,
-              "latest_notification_text": "done",
-              "latest_submitted_message": "ship",
-              "latest_submitted_at": "2026-05-21T10:00:00.000Z",
-              "listening_ports": [3000],
-              "pull_request_urls": ["https://github.com/manaflow-ai/cmux/pull/4309"],
-              "panel_directories": ["/tmp/cmux/api", "/tmp/cmux/web"],
-              "git_branches": [
-                {"branch": "main", "dirty": true},
-                {"branch": "feature", "dirty": false}
-              ]
+          "apiVersion": { "major": 2, "minor": 0 },
+          "sequence": 50,
+          "selectedWorkspaceID": null,
+          "workspaces": []
+        }
+        """.utf8)
+
+        let snapshot = try JSONDecoder().decode(CmuxSidebarSnapshot.self, from: payload)
+
+        #expect(snapshot.sequence == 50)
+        #expect(snapshot.grantedReadScopes.isEmpty)
+        #expect(snapshot.grantedActionScopes.isEmpty)
+    }
+
+    @Test
+    func testSidebarXPCCodecRoundTripsSnapshotActionAndResult() throws {
+        let workspaceID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let snapshot = CmuxSidebarSnapshot(
+            sequence: 43,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CmuxSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Build",
+                    detail: "Running tests",
+                    isPinned: true,
+                    rootPath: "/tmp/cmux",
+                    projectRootPath: "/tmp/cmux",
+                    gitBranch: "feature/sidebar",
+                    unreadCount: 2,
+                    latestNotification: "Tests failed",
+                    listeningPorts: [3000],
+                    pullRequestURLs: ["https://github.com/manaflow-ai/cmux/pull/4994"]
+                ),
+            ]
+        )
+        let decodedSnapshot = try CmuxSidebarXPCCodec.decodeSnapshot(
+            try CmuxSidebarXPCCodec.encodeSnapshot(snapshot)
+        )
+        #expect(decodedSnapshot == snapshot)
+
+        let actionScopedSnapshot = snapshot.filtered(
+            for: [CmuxExtensionScope.workspaceMetadata],
+            actionScopes: [CmuxExtensionActionScope.selectWorkspace]
+        )
+        #expect(actionScopedSnapshot.grantedActionScopes == [.selectWorkspace])
+
+        let manifest = CmuxExtensionManifest(
+            id: "dev.example.sidebar",
+            displayName: "Example Sidebar",
+            readScopes: [.workspaceMetadata, .networkPorts],
+            actionScopes: [.selectWorkspace, .closeWorkspace]
+        )
+        let decodedManifest = try CmuxSidebarXPCCodec.decodeManifest(
+            try CmuxSidebarXPCCodec.encodeManifest(manifest)
+        )
+        #expect(decodedManifest == manifest)
+
+        let action = CmuxSidebarAction.selectWorkspace(workspaceID)
+        #expect(action.requiredScopes == [.selectWorkspace])
+        let decodedAction = try CmuxSidebarXPCCodec.decodeAction(
+            try CmuxSidebarXPCCodec.encodeAction(action)
+        )
+        #expect(decodedAction == action)
+
+        let result = CmuxSidebarActionResult.rejected("Not found")
+        let decodedResult = try CmuxSidebarXPCCodec.decodeActionResult(
+            try CmuxSidebarXPCCodec.encodeActionResult(result)
+        )
+        #expect(decodedResult == result)
+
+        let cancelledResult = CmuxSidebarActionResult.cancelled
+        let decodedCancelledResult = try CmuxSidebarXPCCodec.decodeActionResult(
+            try CmuxSidebarXPCCodec.encodeActionResult(cancelledResult)
+        )
+        #expect(decodedCancelledResult.rejectionReason == .cancelled)
+    }
+
+    @Test
+    @MainActor
+    func testSidebarHostTypedHelpersSendExpectedActions() async throws {
+        var actions = [CmuxSidebarAction]()
+        var refreshCount = 0
+        let workspaceID = UUID(uuidString: "77777777-7777-7777-7777-777777777777")!
+        let url = URL(string: "https://example.com/pr/1")!
+        let host = CmuxSidebarHost(
+            performAction: { action, reply in
+                actions.append(action)
+                reply(CmuxSidebarActionResult(accepted: true))
+            },
+            refreshSnapshot: {
+                refreshCount += 1
             }
-          ]
-        }
-        """.utf8)
+        )
 
-        let snapshot = try JSONDecoder().decode(CmuxExtensionSidebarSnapshot.self, from: data)
-        let workspace = try XCTUnwrap(snapshot.workspaces.first)
+        host.refresh()
+        try await host.selectWorkspace(workspaceID)
+        try await host.closeWorkspace(workspaceID)
+        try await host.createWorkspace(title: "Scratch", select: false)
+        try await host.createWorkspace(title: "Path Scratch", at: "/tmp/scratch", select: false)
+        try await host.selectNextWorkspace()
+        try await host.selectPreviousWorkspace()
+        try await host.createTerminalSurface(in: workspaceID)
+        try await host.createBrowserSurface(in: workspaceID, url: url)
+        try await host.openURL(url)
 
-        XCTAssertEqual(snapshot.sequence, 7)
-        XCTAssertEqual(snapshot.windowId, windowId)
-        XCTAssertEqual(snapshot.selectedWorkspaceId, workspaceId)
-        XCTAssertEqual(workspace.id, workspaceId)
-        XCTAssertEqual(workspace.title, "API")
-        XCTAssertEqual(workspace.customDescription, "Backend workspace")
-        XCTAssertEqual(workspace.isPinned, true)
-        XCTAssertEqual(workspace.rootPath, "/tmp/cmux/api")
-        XCTAssertEqual(workspace.projectRootPath, "/tmp/cmux")
-        XCTAssertEqual(workspace.branchSummary, "main")
-        XCTAssertEqual(workspace.remoteDisplayTarget, "devbox")
-        XCTAssertEqual(workspace.remoteConnectionState, "connected")
-        XCTAssertEqual(workspace.unreadCount, 3)
-        XCTAssertEqual(workspace.latestNotificationText, "done")
-        XCTAssertEqual(workspace.latestSubmittedMessage, "ship")
-        XCTAssertNotNil(workspace.latestSubmittedAt)
-        XCTAssertEqual(workspace.listeningPorts, [3000])
-        XCTAssertEqual(workspace.pullRequestURLs, ["https://github.com/manaflow-ai/cmux/pull/4309"])
-        XCTAssertEqual(workspace.panelDirectories, ["/tmp/cmux/api", "/tmp/cmux/web"])
-        XCTAssertEqual(workspace.gitBranches, [
-            CmuxExtensionGitBranchSnapshot(branch: "main", isDirty: true),
-            CmuxExtensionGitBranchSnapshot(branch: "feature", isDirty: false)
+        #expect(refreshCount == 1)
+        #expect(actions == [
+            .selectWorkspace(workspaceID),
+            .closeWorkspace(workspaceID),
+            .createWorkspace(title: "Scratch", workingDirectory: nil, select: false),
+            .createWorkspace(title: "Path Scratch", workingDirectory: "/tmp/scratch", select: false),
+            .selectNextWorkspace,
+            .selectPreviousWorkspace,
+            .createTerminalSurface(workspaceID: workspaceID),
+            .createBrowserSurface(workspaceID: workspaceID, url: "https://example.com/pr/1"),
+            .openURL("https://example.com/pr/1"),
         ])
     }
 
-    func testWorkspaceSnapshotDecodesSocketShapeDefaults() throws {
-        let workspaceId = UUID()
-        let data = Data("""
-        {"id":"\(workspaceId.uuidString)","title":"API"}
+    @Test
+    func testWorkspaceListScopeDoesNotExposeMetadata() throws {
+        let workspaceID = UUID(uuidString: "99999999-9999-9999-9999-999999999999")!
+        let snapshot = CmuxSidebarSnapshot(
+            sequence: 47,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CmuxSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Private Workspace",
+                    detail: "Sensitive detail",
+                    isPinned: true,
+                    rootPath: "/Users/example/private",
+                    projectRootPath: "/Users/example/private",
+                    gitBranch: "secret",
+                    unreadCount: 9,
+                    latestNotification: "Sensitive notification",
+                    listeningPorts: [8080],
+                    pullRequestURLs: ["https://github.com/manaflow-ai/cmux/pull/4994"],
+                    surfaces: [
+                        CmuxSidebarSurface(id: UUID(), title: "Private Surface", kind: .terminal),
+                    ]
+                ),
+            ]
+        )
+
+        let filtered = snapshot.filtered(for: [CmuxExtensionScope.workspaceList])
+        let workspace = try #require(filtered.workspaces.first)
+
+        #expect(filtered.grantedReadScopes == [.workspaceList])
+        #expect(filtered.windowID == nil)
+        #expect(filtered.selectedWorkspaceID == nil)
+        #expect(workspace.id == workspaceID)
+        #expect(workspace.title.isEmpty)
+        #expect(workspace.detail == nil)
+        #expect(!workspace.isPinned)
+        #expect(workspace.rootPath == nil)
+        #expect(workspace.projectRootPath == nil)
+        #expect(workspace.gitBranch == nil)
+        #expect(workspace.unreadCount == 0)
+        #expect(workspace.latestNotification == nil)
+        #expect(workspace.listeningPorts.isEmpty)
+        #expect(workspace.pullRequestURLs.isEmpty)
+        #expect(workspace.surfaces.isEmpty)
+    }
+
+    @Test
+    func testURLBearingBrowserActionsRequireOpenURLScope() {
+        let workspaceID = UUID(uuidString: "77777777-7777-7777-7777-777777777777")!
+        let surfaceID = UUID(uuidString: "88888888-8888-8888-8888-888888888888")!
+
+        #expect(CmuxSidebarAction.createBrowserSurface(workspaceID: workspaceID, url: nil).requiredScopes == [.createSurface])
+        #expect(CmuxSidebarAction.createBrowserSurface(workspaceID: workspaceID, url: "https://example.com").requiredScopes == [.createSurface, .openURL])
+        #expect(CmuxSidebarAction.splitBrowser(workspaceID: workspaceID, surfaceID: surfaceID, direction: .right, url: nil).requiredScopes == [.splitSurface])
+        #expect(CmuxSidebarAction.splitBrowser(workspaceID: workspaceID, surfaceID: surfaceID, direction: .right, url: "https://example.com").requiredScopes == [.splitSurface, .openURL])
+    }
+
+    @Test
+    func testWorkspaceCreationWithPathRequiresWorkspacePathScope() {
+        #expect(CmuxSidebarAction.createWorkspace(title: nil, workingDirectory: nil, select: true).requiredScopes == [.createWorkspace])
+        #expect(CmuxSidebarAction.createWorkspace(title: nil, workingDirectory: "/tmp/project", select: true).requiredScopes == [.createWorkspace, .createWorkspaceWithPath])
+    }
+
+    @Test
+    @MainActor
+    func testSidebarHostCancelsPendingAsyncAction() async {
+        let cancellationBox = CancellationBox()
+        let startBox = ActionStartBox()
+        let workspaceID = UUID(uuidString: "88888888-8888-8888-8888-888888888888")!
+        let host = CmuxSidebarHost(
+            performCancellableAction: { _, _ in
+                startBox.markStarted()
+                return CmuxSidebarActionCancellation {
+                    cancellationBox.cancel()
+                }
+            }
+        )
+
+        let task = Task { @MainActor in
+            try await host.selectWorkspace(workspaceID)
+        }
+        await startBox.waitUntilStarted()
+        task.cancel()
+        do {
+            try await task.value
+            Issue.record("Expected cancellation to throw")
+        } catch {
+            #expect(error as? CmuxSidebarActionError == .cancelled)
+        }
+        #expect(cancellationBox.didCancel)
+    }
+
+    @Test
+    func testSidebarXPCCodecRejectsOversizedManifestPayload() {
+        let payload = Data(repeating: 0x20, count: CmuxSidebarXPCCodec.maximumManifestPayloadBytes + 1) as NSData
+
+        do {
+            _ = try CmuxSidebarXPCCodec.decodeManifest(payload)
+            Issue.record("Expected oversized manifest payload to be rejected")
+        } catch {
+            #expect(
+                error as? CmuxExtensionValidationError == .payloadTooLarge(
+                    kind: "manifest",
+                    actualBytes: payload.length,
+                    maximumBytes: CmuxSidebarXPCCodec.maximumManifestPayloadBytes
+                )
+            )
+        }
+    }
+
+    @Test
+    func testSidebarXPCCodecRejectsOversizedActionPayload() {
+        let payload = Data(repeating: 0x20, count: CmuxSidebarXPCCodec.maximumActionPayloadBytes + 1) as NSData
+
+        do {
+            _ = try CmuxSidebarXPCCodec.decodeAction(payload)
+            Issue.record("Expected oversized action payload to be rejected")
+        } catch {
+            #expect(
+                error as? CmuxExtensionValidationError == .payloadTooLarge(
+                    kind: "action",
+                    actualBytes: payload.length,
+                    maximumBytes: CmuxSidebarXPCCodec.maximumActionPayloadBytes
+                )
+            )
+        }
+    }
+
+    @Test
+    func testSidebarXPCCodecRejectsOversizedSnapshotOnEncodeAndDecode() {
+        let oversizedTitle = String(repeating: "x", count: CmuxSidebarXPCCodec.maximumSnapshotPayloadBytes)
+        let snapshot = CmuxSidebarSnapshot(
+            sequence: 46,
+            selectedWorkspaceID: nil,
+            workspaces: [
+                CmuxSidebarWorkspace(id: UUID(), title: oversizedTitle),
+            ]
+        )
+
+        do {
+            _ = try CmuxSidebarXPCCodec.encodeSnapshot(snapshot)
+            Issue.record("Expected oversized snapshot payload to be rejected on encode")
+        } catch {
+            if case let CmuxExtensionValidationError.payloadTooLarge(kind, actualBytes, maximumBytes) = error {
+                #expect(kind == "snapshot")
+                #expect(actualBytes > maximumBytes)
+                #expect(maximumBytes == CmuxSidebarXPCCodec.maximumSnapshotPayloadBytes)
+            } else {
+                Issue.record("Unexpected error: \(error)")
+            }
+        }
+
+        let payload = Data(repeating: 0x20, count: CmuxSidebarXPCCodec.maximumSnapshotPayloadBytes + 1) as NSData
+        do {
+            _ = try CmuxSidebarXPCCodec.decodeSnapshot(payload)
+            Issue.record("Expected oversized snapshot payload to be rejected on decode")
+        } catch {
+            #expect(
+                error as? CmuxExtensionValidationError == .payloadTooLarge(
+                    kind: "snapshot",
+                    actualBytes: payload.length,
+                    maximumBytes: CmuxSidebarXPCCodec.maximumSnapshotPayloadBytes
+                )
+            )
+        }
+    }
+
+    @Test
+    func testSidebarXPCCodecRejectsOversizedActionResultOnEncodeAndDecode() {
+        let result = CmuxSidebarActionResult(
+            accepted: false,
+            message: String(repeating: "x", count: CmuxSidebarXPCCodec.maximumActionResultPayloadBytes)
+        )
+
+        do {
+            _ = try CmuxSidebarXPCCodec.encodeActionResult(result)
+            Issue.record("Expected oversized action result payload to be rejected on encode")
+        } catch {
+            if case let CmuxExtensionValidationError.payloadTooLarge(kind, actualBytes, maximumBytes) = error {
+                #expect(kind == "actionResult")
+                #expect(actualBytes > maximumBytes)
+                #expect(maximumBytes == CmuxSidebarXPCCodec.maximumActionResultPayloadBytes)
+            } else {
+                Issue.record("Unexpected error: \(error)")
+            }
+        }
+
+        let payload = Data(repeating: 0x20, count: CmuxSidebarXPCCodec.maximumActionResultPayloadBytes + 1) as NSData
+        do {
+            _ = try CmuxSidebarXPCCodec.decodeActionResult(payload)
+            Issue.record("Expected oversized action result payload to be rejected on decode")
+        } catch {
+            #expect(
+                error as? CmuxExtensionValidationError == .payloadTooLarge(
+                    kind: "actionResult",
+                    actualBytes: payload.length,
+                    maximumBytes: CmuxSidebarXPCCodec.maximumActionResultPayloadBytes
+                )
+            )
+        }
+    }
+
+    @Test
+    func testManifestValidationRejectsUnsupportedAPIVersion() throws {
+        let payload = Data("""
+        {
+          "id": "dev.example.sidebar",
+          "displayName": "Example Sidebar",
+          "minimumAPIVersion": { "major": 2, "minor": 1 },
+          "readScopes": []
+        }
         """.utf8)
+        let manifest = try JSONDecoder().decode(CmuxExtensionManifest.self, from: payload)
 
-        let workspace = try JSONDecoder().decode(CmuxExtensionWorkspaceSnapshot.self, from: data)
-
-        XCTAssertEqual(workspace.id, workspaceId)
-        XCTAssertEqual(workspace.title, "API")
-        XCTAssertFalse(workspace.isPinned)
-        XCTAssertEqual(workspace.unreadCount, 0)
-        XCTAssertEqual(workspace.listeningPorts, [])
-        XCTAssertEqual(workspace.pullRequestURLs, [])
-        XCTAssertEqual(workspace.panelDirectories, [])
-        XCTAssertEqual(workspace.gitBranches, [])
+        do {
+            try validateSidebarManifest(manifest)
+            Issue.record("Expected unsupported API version error")
+        } catch {
+            #expect(
+                error as? CmuxExtensionValidationError == .unsupportedAPIVersion(
+                    requested: CmuxExtensionAPIVersion(major: 2, minor: 1),
+                    supported: .sidebarV2
+                )
+            )
+        }
     }
 
-    func testLegacyPullRequestTabDecodesAsBrowser() throws {
-        let data = try JSONEncoder().encode("pullRequest")
-        let decoded = try JSONDecoder().decode(CmuxExtensionWorkspacePopoverTab.self, from: data)
-
-        XCTAssertEqual(decoded, .browser)
-    }
-
-    func testLegacyRenderModelDecodesWithTreePresentation() throws {
-        let data = Data("""
-        {"providerId":"legacy","snapshotSequence":1,"sections":[]}
+    @Test
+    func testManifestValidationRejectsOldMajorVersion() throws {
+        let payload = Data("""
+        {
+          "id": "dev.example.sidebar",
+          "displayName": "Example Sidebar",
+          "minimumAPIVersion": { "major": 1, "minor": 0 },
+          "readScopes": []
+        }
         """.utf8)
+        let manifest = try JSONDecoder().decode(CmuxExtensionManifest.self, from: payload)
 
-        let decoded = try JSONDecoder().decode(CmuxExtensionSidebarRenderModel.self, from: data)
+        do {
+            try validateSidebarManifest(manifest)
+            Issue.record("Expected unsupported API version error")
+        } catch {
+            #expect(
+                error as? CmuxExtensionValidationError == .unsupportedAPIVersion(
+                    requested: CmuxExtensionAPIVersion(major: 1, minor: 0),
+                    supported: .sidebarV2
+                )
+            )
+        }
+    }
+}
 
-        XCTAssertEqual(decoded.presentation, .tree)
+private final class CancellationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = false
+
+    var didCancel: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
     }
 
-    func testMoveWorkspaceMutationCodableRoundTrips() throws {
-        let move = CmuxExtensionSidebarWorkspaceMove(
-            workspaceId: UUID(),
-            sourceSectionId: "loose",
-            targetSectionId: "group:research",
-            targetIndex: 2
-        )
-        let mutation = CmuxExtensionSidebarMutation.moveWorkspace(move)
+    func cancel() {
+        lock.lock()
+        storage = true
+        lock.unlock()
+    }
+}
 
-        let data = try JSONEncoder().encode(mutation)
-        let decoded = try JSONDecoder().decode(CmuxExtensionSidebarMutation.self, from: data)
+private final class ActionStartBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var started = false
 
-        XCTAssertEqual(decoded, mutation)
+    func waitUntilStarted() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if started {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            self.continuation = continuation
+            lock.unlock()
+        }
     }
 
-    func testPromptSubmittedEventUpdatesLastMessageProjection() {
-        let workspace = workspace(title: "API", rootPath: "/tmp/cmux/api", projectRootPath: "/tmp/cmux")
-        let date = Date(timeIntervalSinceReferenceDate: 300)
-        let event = CmuxExtensionEventFrame(
-            sequence: 11,
-            name: "workspace.prompt.submitted",
-            category: "workspace",
-            source: "workspace.prompt_submit",
-            occurredAt: date,
-            workspaceId: workspace.id,
-            payload: [
-                "message": .null,
-                "message_preview": .string("  ship   the   events  "),
-                "redacted_fields": .array([.string("message")])
-            ]
-        )
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 10,
-            selectedWorkspaceId: nil,
-            workspaces: [workspace]
-        )
-
-        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
-
-        XCTAssertEqual(updated.sequence, 11)
-        XCTAssertEqual(updated.workspaces[0].latestSubmittedMessage, "ship the events")
-        XCTAssertEqual(updated.workspaces[0].latestSubmittedAt, date)
-    }
-
-    func testBlankPromptSubmittedEventDoesNotAdvanceLastMessageProjection() {
-        let existingDate = Date(timeIntervalSinceReferenceDate: 100)
-        let workspace = workspace(
-            title: "API",
-            rootPath: "/tmp/cmux/api",
-            projectRootPath: "/tmp/cmux",
-            latestSubmittedMessage: "existing",
-            latestSubmittedAt: existingDate
-        )
-        let event = CmuxExtensionEventFrame(
-            sequence: 11,
-            name: "workspace.prompt.submitted",
-            category: "workspace",
-            source: "workspace.prompt_submit",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 300),
-            workspaceId: workspace.id,
-            payload: [
-                "message": .null,
-                "message_preview": .null,
-                "redacted_fields": .array([.string("message")])
-            ]
-        )
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 10,
-            selectedWorkspaceId: nil,
-            workspaces: [workspace]
-        )
-
-        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
-
-        XCTAssertEqual(updated.sequence, 11)
-        XCTAssertEqual(updated.workspaces[0].latestSubmittedMessage, "existing")
-        XCTAssertEqual(updated.workspaces[0].latestSubmittedAt, existingDate)
-    }
-
-    func testStaleEventFrameDoesNotMutateFreshSnapshot() {
-        let existingDate = Date(timeIntervalSinceReferenceDate: 200)
-        var workspace = workspace(
-            title: "API",
-            rootPath: "/tmp/cmux/api",
-            projectRootPath: "/tmp/cmux",
-            latestSubmittedMessage: "newer",
-            latestSubmittedAt: existingDate
-        )
-        workspace.unreadCount = 1
-        workspace.latestNotificationText = "fresh"
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 20,
-            selectedWorkspaceId: workspace.id,
-            workspaces: [workspace]
-        )
-        let staleNotification = CmuxExtensionEventFrame(
-            sequence: 20,
-            name: "notification.created",
-            category: "notification",
-            source: "notification.store",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 100),
-            workspaceId: workspace.id,
-            payload: [
-                "body": .string("old notification"),
-                "is_read": .bool(false)
-            ]
-        )
-        let stalePrompt = CmuxExtensionEventFrame(
-            sequence: 19,
-            name: "workspace.prompt.submitted",
-            category: "workspace",
-            source: "workspace.prompt_submit",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 100),
-            workspaceId: workspace.id,
-            payload: [
-                "message_preview": .string("older prompt")
-            ]
-        )
-
-        let afterNotification = CmuxExtensionSidebarReducer.reduce(snapshot, event: staleNotification)
-        let afterPrompt = CmuxExtensionSidebarReducer.reduce(snapshot, event: stalePrompt)
-
-        XCTAssertEqual(afterNotification, snapshot)
-        XCTAssertEqual(afterPrompt, snapshot)
-    }
-
-    func testWorkspacesReorderedHandlesDuplicatesAndPartialPayload() {
-        let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
-        let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
-        let third = workspace(title: "Third", rootPath: nil, projectRootPath: nil)
-        let windowId = UUID()
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 5,
-            selectedWorkspaceId: second.id,
-            workspaces: [first, second, third],
-            windowId: windowId
-        )
-
-        let updated = CmuxExtensionSidebarReducer.reduce(
-            snapshot,
-            event: .workspacesReordered([third.id, first.id, third.id])
-        )
-
-        XCTAssertEqual(updated.sequence, 6)
-        XCTAssertEqual(updated.windowId, windowId)
-        XCTAssertEqual(updated.selectedWorkspaceId, second.id)
-        XCTAssertEqual(updated.workspaces.map(\.id), [third.id, first.id, second.id])
-    }
-
-    func testWorkspacesReorderedToleratesDuplicateWorkspaceSnapshots() {
-        let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
-        var replacement = workspace(title: "Replacement", rootPath: nil, projectRootPath: nil)
-        replacement.id = first.id
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 5,
-            selectedWorkspaceId: first.id,
-            workspaces: [first, replacement]
-        )
-
-        let direct = CmuxExtensionSidebarReducer.reduce(
-            snapshot,
-            event: .workspacesReordered([first.id])
-        )
-        let frame = CmuxExtensionEventFrame(
-            sequence: 8,
-            name: "workspace.reordered",
-            category: "workspace",
-            source: "workspace.lifecycle",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 1),
-            workspaceId: first.id,
-            payload: [
-                "workspace_ids": .array([.string(first.id.uuidString)])
-            ]
-        )
-        let eventReduced = CmuxExtensionSidebarReducer.reduce(snapshot, event: frame)
-
-        XCTAssertEqual(direct.workspaces.map(\.title), ["Replacement"])
-        XCTAssertEqual(eventReduced.workspaces.map(\.title), ["Replacement"])
-    }
-
-    func testSidebarEventReducerPreservesWindowIdAcrossFreshSnapshots() {
-        let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
-        let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
-        let windowId = UUID()
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 1,
-            selectedWorkspaceId: first.id,
-            workspaces: [first],
-            windowId: windowId
-        )
-
-        let upserted = CmuxExtensionSidebarReducer.reduce(snapshot, event: .workspaceUpserted(second))
-        let selected = CmuxExtensionSidebarReducer.reduce(upserted, event: .workspaceSelected(second.id))
-        let reordered = CmuxExtensionSidebarReducer.reduce(selected, event: .workspacesReordered([second.id, first.id]))
-        let removed = CmuxExtensionSidebarReducer.reduce(reordered, event: .workspaceRemoved(first.id))
-
-        XCTAssertEqual(upserted.windowId, windowId)
-        XCTAssertEqual(selected.windowId, windowId)
-        XCTAssertEqual(reordered.windowId, windowId)
-        XCTAssertEqual(removed.windowId, windowId)
-        XCTAssertEqual(removed.workspaces.map(\.id), [second.id])
-    }
-
-    func testWorkspaceReorderedEventPreservesFrameSequence() {
-        let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
-        var second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
-        second.isPinned = true
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 10,
-            selectedWorkspaceId: first.id,
-            workspaces: [first, second]
-        )
-        let event = CmuxExtensionEventFrame(
-            sequence: 12,
-            name: "workspace.reordered",
-            category: "workspace",
-            source: "socket.v2",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 4),
-            workspaceId: second.id,
-            payload: [
-                "workspace_ids": .array([.string(second.id.uuidString), .string(first.id.uuidString)]),
-                "pinned_workspace_ids": .array([.string(first.id.uuidString)])
-            ]
-        )
-
-        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
-
-        XCTAssertEqual(updated.sequence, 12)
-        XCTAssertEqual(updated.workspaces.map(\.id), [second.id, first.id])
-        XCTAssertEqual(updated.workspaces.map(\.isPinned), [false, true])
-    }
-
-    func testWorkspaceReorderedEventWithoutLocalOverlapPreservesPinnedState() {
-        var first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
-        first.isPinned = true
-        let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
-        let foreign = UUID()
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 10,
-            selectedWorkspaceId: first.id,
-            workspaces: [first, second],
-            windowId: UUID()
-        )
-        let event = CmuxExtensionEventFrame(
-            sequence: 12,
-            name: "workspace.reordered",
-            category: "workspace",
-            source: "workspace.lifecycle",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 4),
-            workspaceId: foreign,
-            payload: [
-                "workspace_ids": .array([.string(foreign.uuidString)]),
-                "pinned_workspace_ids": .array([.string(foreign.uuidString)])
-            ]
-        )
-
-        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
-
-        XCTAssertEqual(updated.sequence, 12)
-        XCTAssertEqual(updated.workspaces.map(\.id), [first.id, second.id])
-        XCTAssertEqual(updated.workspaces.map(\.isPinned), [true, false])
-    }
-
-    func testWorkspaceReorderedEventReadsSocketResultIndex() {
-        let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
-        let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
-        let third = workspace(title: "Third", rootPath: nil, projectRootPath: nil)
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 20,
-            selectedWorkspaceId: first.id,
-            workspaces: [first, second, third]
-        )
-        let event = CmuxExtensionEventFrame(
-            sequence: 21,
-            name: "workspace.reordered",
-            category: "workspace",
-            source: "socket.v2",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 6),
-            workspaceId: third.id,
-            payload: [
-                "method": .string("workspace.reorder"),
-                "params": .object([
-                    "workspace_id": .string(third.id.uuidString),
-                    "index": .number(0)
-                ]),
-                "result": .object([
-                    "workspace_id": .string(third.id.uuidString),
-                    "index": .number(0)
-                ])
-            ]
-        )
-
-        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
-
-        XCTAssertEqual(updated.sequence, 21)
-        XCTAssertEqual(updated.workspaces.map(\.id), [third.id, first.id, second.id])
-    }
-
-    func testWorkspaceCreatedEventAddsWorkspaceProjection() {
-        let first = workspace(title: "First", rootPath: "/tmp/cmux/first", projectRootPath: "/tmp/cmux")
-        let createdId = UUID()
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 5,
-            selectedWorkspaceId: first.id,
-            workspaces: [first]
-        )
-        let event = CmuxExtensionEventFrame(
-            sequence: 6,
-            name: "workspace.created",
-            category: "workspace",
-            source: "workspace.lifecycle",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 2),
-            workspaceId: createdId,
-            payload: [
-                "workspace_id": .string(createdId.uuidString),
-                "title": .string("Created"),
-                "cwd": .string("/tmp/cmux/created"),
-                "index": .number(0),
-                "selected": .bool(true)
-            ]
-        )
-
-        XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: event))
-
-        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
-
-        XCTAssertEqual(updated.sequence, 6)
-        XCTAssertEqual(updated.selectedWorkspaceId, createdId)
-        XCTAssertEqual(updated.workspaces.map(\.id), [createdId, first.id])
-        XCTAssertEqual(updated.workspaces[0].title, "Created")
-        XCTAssertEqual(updated.workspaces[0].rootPath, "/tmp/cmux/created")
-    }
-
-    func testWorkspaceSelectedEventIgnoresWorkspaceOutsideSnapshotWindow() {
-        let first = workspace(title: "First", rootPath: "/tmp/cmux/first", projectRootPath: "/tmp/cmux")
-        let secondWindowWorkspaceId = UUID()
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 1,
-            selectedWorkspaceId: first.id,
-            workspaces: [first],
-            windowId: UUID()
-        )
-        let event = CmuxExtensionEventFrame(
-            sequence: 2,
-            name: "workspace.selected",
-            category: "workspace",
-            source: "workspace.lifecycle",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 1),
-            workspaceId: secondWindowWorkspaceId
-        )
-
-        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
-
-        XCTAssertEqual(updated.sequence, 2)
-        XCTAssertEqual(updated.selectedWorkspaceId, first.id)
-    }
-
-    func testWorkspaceRenamedEventReadsSocketResultPayload() {
-        let first = workspace(title: "Before", rootPath: "/tmp/cmux/first", projectRootPath: "/tmp/cmux")
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 7,
-            selectedWorkspaceId: first.id,
-            workspaces: [first]
-        )
-        let event = CmuxExtensionEventFrame(
-            sequence: 8,
-            name: "workspace.renamed",
-            category: "workspace",
-            source: "socket.v2",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 5),
-            workspaceId: first.id,
-            payload: [
-                "method": .string("workspace.rename"),
-                "result": .object([
-                    "workspace_id": .string(first.id.uuidString),
-                    "title": .string("After")
-                ])
-            ]
-        )
-
-        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
-
-        XCTAssertEqual(updated.sequence, 8)
-        XCTAssertEqual(updated.workspaces[0].title, "After")
-    }
-
-    func testSelectedAndClosedWorkspaceEventsUpdateProjection() {
-        let first = workspace(title: "First", rootPath: "/tmp/cmux/first", projectRootPath: "/tmp/cmux")
-        let second = workspace(title: "Second", rootPath: "/tmp/cmux/second", projectRootPath: "/tmp/cmux")
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 1,
-            selectedWorkspaceId: nil,
-            workspaces: [first, second]
-        )
-        let selected = CmuxExtensionEventFrame(
-            sequence: 2,
-            name: "workspace.selected",
-            category: "workspace",
-            source: "workspace.lifecycle",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 1),
-            workspaceId: second.id
-        )
-        let closed = CmuxExtensionEventFrame(
-            sequence: 3,
-            name: "workspace.closed",
-            category: "workspace",
-            source: "workspace.lifecycle",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 2),
-            workspaceId: second.id
-        )
-
-        let selectedSnapshot = CmuxExtensionSidebarReducer.reduce(snapshot, event: selected)
-        let closedSnapshot = CmuxExtensionSidebarReducer.reduce(selectedSnapshot, event: closed)
-
-        XCTAssertEqual(selectedSnapshot.selectedWorkspaceId, second.id)
-        XCTAssertEqual(closedSnapshot.selectedWorkspaceId, nil)
-        XCTAssertEqual(closedSnapshot.workspaces.map(\.id), [first.id])
-    }
-
-    func testNotificationCreatedEventUpdatesUnreadProjection() {
-        let workspace = workspace(title: "API", rootPath: "/tmp/cmux/api", projectRootPath: "/tmp/cmux")
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 30,
-            selectedWorkspaceId: workspace.id,
-            workspaces: [workspace]
-        )
-        let event = CmuxExtensionEventFrame(
-            sequence: 31,
-            name: "notification.created",
-            category: "notification",
-            source: "notification.store",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 7),
-            workspaceId: workspace.id,
-            payload: [
-                "notification_id": .string(UUID().uuidString),
-                "workspace_id": .string(workspace.id.uuidString),
-                "title": .string("Done"),
-                "body": .string("  build   passed  "),
-                "is_read": .bool(false)
-            ]
-        )
-
-        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
-
-        XCTAssertFalse(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: event))
-        XCTAssertEqual(updated.sequence, 31)
-        XCTAssertEqual(updated.workspaces[0].unreadCount, 1)
-        XCTAssertEqual(updated.workspaces[0].latestNotificationText, "build passed")
-    }
-
-    func testNotificationReadEventUpdatesUnreadProjection() {
-        var workspace = workspace(title: "API", rootPath: "/tmp/cmux/api", projectRootPath: "/tmp/cmux")
-        workspace.unreadCount = 2
-        workspace.latestNotificationText = "done"
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 31,
-            selectedWorkspaceId: workspace.id,
-            workspaces: [workspace]
-        )
-        let event = CmuxExtensionEventFrame(
-            sequence: 32,
-            name: "notification.read",
-            category: "notification",
-            source: "notification.store",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 8),
-            workspaceId: workspace.id,
-            payload: [
-                "notification_ids": .array([.string(UUID().uuidString), .string(UUID().uuidString)]),
-                "count": .number(2)
-            ]
-        )
-
-        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
-
-        XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: event))
-        XCTAssertEqual(updated.sequence, 32)
-        XCTAssertEqual(updated.workspaces[0].unreadCount, 0)
-        XCTAssertNil(updated.workspaces[0].latestNotificationText)
-    }
-
-    func testRedactedNotificationAndSidebarEventsRequireSnapshotReplacement() {
-        let workspaceId = UUID()
-        let redactedNotification = CmuxExtensionEventFrame(
-            sequence: 40,
-            name: "notification.created",
-            category: "notification",
-            source: "notification.store",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 9),
-            workspaceId: workspaceId,
-            payload: [
-                "title": .null,
-                "body": .null,
-                "redacted_fields": .array([.string("title"), .string("body")])
-            ]
-        )
-        let sidebarMetadata = CmuxExtensionEventFrame(
-            sequence: 41,
-            name: "sidebar.metadata.updated",
-            category: "sidebar",
-            source: "socket.v1",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 10),
-            workspaceId: workspaceId
-        )
-        let promptSubmitted = CmuxExtensionEventFrame(
-            sequence: 42,
-            name: "workspace.prompt.submitted",
-            category: "workspace",
-            source: "workspace.prompt_submit",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 11),
-            workspaceId: workspaceId,
-            payload: ["message_preview": .string("ship")]
-        )
-        let workspaceAction = CmuxExtensionEventFrame(
-            sequence: 43,
-            name: "workspace.action",
-            category: "workspace",
-            source: "socket.v2",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 12),
-            workspaceId: workspaceId,
-            payload: ["method": .string("workspace.pin")]
-        )
-        let workspaceMoved = CmuxExtensionEventFrame(
-            sequence: 44,
-            name: "workspace.moved",
-            category: "workspace",
-            source: "socket.v2",
-            occurredAt: Date(timeIntervalSinceReferenceDate: 13),
-            workspaceId: workspaceId,
-            payload: ["method": .string("workspace.move_to_window")]
-        )
-
-        XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: redactedNotification))
-        XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: sidebarMetadata))
-        XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: workspaceAction))
-        XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: workspaceMoved))
-        XCTAssertFalse(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: promptSubmitted))
-    }
-
-    private func workspace(
-        title: String,
-        rootPath: String?,
-        projectRootPath: String?,
-        latestSubmittedMessage: String? = nil,
-        latestSubmittedAt: Date? = nil
-    ) -> CmuxExtensionWorkspaceSnapshot {
-        CmuxExtensionWorkspaceSnapshot(
-            id: UUID(),
-            title: title,
-            customDescription: nil,
-            isPinned: false,
-            rootPath: rootPath,
-            projectRootPath: projectRootPath,
-            branchSummary: nil,
-            remoteDisplayTarget: nil,
-            remoteConnectionState: nil,
-            unreadCount: 0,
-            latestNotificationText: nil,
-            latestSubmittedMessage: latestSubmittedMessage,
-            latestSubmittedAt: latestSubmittedAt,
-            listeningPorts: []
-        )
+    func markStarted() {
+        lock.lock()
+        started = true
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume()
     }
 }

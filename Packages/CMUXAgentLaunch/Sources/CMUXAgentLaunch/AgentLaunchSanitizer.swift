@@ -103,6 +103,15 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(tail, policy: cursorPolicy)
         case "gemini":
             return preserveOptions(args, policy: geminiPolicy)
+        case "kiro":
+            var tail = args
+            if tail.first == "chat" {
+                tail.removeFirst()
+            } else if let command = tail.first,
+                      !command.hasPrefix("-") {
+                return nil
+            }
+            return preserveOptions(tail, policy: kiroPolicy)
         case "antigravity":
             return preserveOptions(args, policy: antigravityPolicy)
         case "opencode":

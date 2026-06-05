@@ -19,6 +19,10 @@ const mergedMessagesCache = new Map();
 
 const searchAliases = {
   apiReference: [
+    "CLI reference",
+    "cmux CLI",
+    "command line",
+    "API reference",
     "socket API",
     "JSON RPC",
     "automation API",

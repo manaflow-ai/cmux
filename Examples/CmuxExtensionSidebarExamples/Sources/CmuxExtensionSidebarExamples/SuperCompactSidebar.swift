@@ -1,8 +1,8 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 import Foundation
 
-public struct SuperCompactSidebar: CmuxExtensionSidebarProvider {
-    public let descriptor = CmuxExtensionSidebarProviderDescriptor(
+public struct SuperCompactSidebar: CmuxSidebarProvider {
+    public let descriptor = CmuxSidebarProviderDescriptor(
         id: "com.example.cmux.sidebar.super-compact",
         title: localized("example.sidebar.superCompact.title", "Super Compact"),
         subtitle: localized("example.sidebar.superCompact.subtitle", "User extension"),
@@ -12,7 +12,7 @@ public struct SuperCompactSidebar: CmuxExtensionSidebarProvider {
 
     public init() {}
 
-    public func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
+    public func render(snapshot: CmuxSidebarProviderSnapshot) -> CmuxSidebarProviderRenderModel {
         let ordered = snapshot.workspaces.sorted { lhs, rhs in
             if lhs.isPinned != rhs.isPinned {
                 return lhs.isPinned && !rhs.isPinned
@@ -36,14 +36,14 @@ public struct SuperCompactSidebar: CmuxExtensionSidebarProvider {
         return renderModel(providerId: descriptor.id, snapshot: snapshot, sections: [section])
     }
 
-    private func compactTitle(_ workspace: CmuxExtensionWorkspaceSnapshot) -> String {
+    private func compactTitle(_ workspace: CmuxSidebarProviderWorkspace) -> String {
         if let projectRoot = projectRoot(for: workspace) {
             return displayName(for: projectRoot)
         }
         return workspace.title
     }
 
-    private func unreadTrailingText(_ workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? {
+    private func unreadTrailingText(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? {
         workspace.unreadCount > 0 ? .plain("\(workspace.unreadCount)") : nil
     }
 }

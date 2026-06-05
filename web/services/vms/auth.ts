@@ -27,7 +27,7 @@ export type AuthedTeam = {
  */
 export async function verifyRequest(
   request: Request,
-  options: { readonly requestedTeamId?: string | null } = {},
+  options: { readonly requestedTeamId?: string | null; readonly allowCookie?: boolean } = {},
 ): Promise<AuthedUser | null> {
   if (!isStackConfigured()) {
     return null;
@@ -48,6 +48,10 @@ export async function verifyRequest(
         return await authedUserFromStackUser(user, options);
       }
     }
+  }
+
+  if (options.allowCookie === false) {
+    return null;
   }
 
   // Fall back to the Next.js cookie flow (when browser hits the route).

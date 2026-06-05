@@ -89,6 +89,14 @@ enum SidebarDropPlanner {
         let frame: CGRect
     }
 
+    /// Returns whether sidebar rows should publish frame anchors for workspace drop targeting.
+    static func shouldCollectWorkspaceDropTargets(
+        draggedTabId: UUID?,
+        isBonsplitWorkspaceDropActive: Bool = false
+    ) -> Bool {
+        draggedTabId != nil || isBonsplitWorkspaceDropActive
+    }
+
     enum WorkspaceDropAction: Equatable {
         case newWorkspace(insertionIndex: Int, indicator: SidebarDropIndicator)
         case existingWorkspace(UUID)

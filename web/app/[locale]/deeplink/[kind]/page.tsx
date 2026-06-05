@@ -2,15 +2,14 @@ import { getTranslations } from "next-intl/server";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import { buildAlternates } from "../../../../i18n/seo";
+import { Link } from "../../../../i18n/navigation";
 import { SiteHeader } from "../../components/site-header";
+import { DOWNLOAD_CONFIRMATION_HREF } from "../../../lib/download";
 
 type SearchValue = string | string[] | undefined;
 type SearchParams = Record<string, SearchValue>;
 
 type LinkKind = "ssh" | "prompt" | "rules";
-
-const downloadURL =
-  "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg";
 
 const definitions: Record<
   LinkKind,
@@ -353,12 +352,12 @@ export default async function DeeplinkPage({
             >
               {t("open")}
             </a>
-            <a
-              href={downloadURL}
+            <Link
+              href={DOWNLOAD_CONFIRMATION_HREF}
               className="inline-flex items-center rounded-full border border-border px-5 py-2.5 text-[15px] font-medium transition-colors hover:bg-code-bg"
             >
               {t("download")}
-            </a>
+            </Link>
           </div>
         ) : (
           <div className="mb-6 rounded-lg border border-border bg-code-bg px-4 py-3 text-[14px] text-muted">

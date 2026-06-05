@@ -1,0 +1,54 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "tabsVisible.app.detail" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep this app installed. Enable Tabs Visible Sidebar from cmux Sidebar Extensions, then choose the extension sidebar provider from the sidebar footer puzzle button."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このアプリをインストールしたままにしてください。cmuxのサイドバー拡張機能でTabs Visible Sidebarを有効にし、サイドバーフッターのパズルボタンから拡張機能サイドバープロバイダーを選択してください。"
+          }
+        }
+      }
+    },
+    "tabsVisible.app.scopes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The extension shows workspaces as disclosure groups and lists each workspace surface underneath."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この拡張機能はワークスペースを開閉グループとして表示し、その下に各ワークスペースのサーフェスを一覧表示します。"
+          }
+        }
+      }
+    },
+    "tabsVisible.app.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tabs Visible Sidebar"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タブ表示サイドバー"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

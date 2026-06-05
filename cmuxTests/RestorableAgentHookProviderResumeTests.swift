@@ -275,6 +275,33 @@ extension SocketListenerAcceptPolicyTests {
                 source: "process"
             )
         )
+        let kiro = SessionRestorableAgentSnapshot(
+            kind: .kiro,
+            sessionId: "kiro-session-123",
+            workingDirectory: "/tmp/kiro repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "kiro",
+                executablePath: "/Users/example/.cargo/bin/kiro-cli",
+                arguments: [
+                    "/Users/example/.cargo/bin/kiro-cli",
+                    "chat",
+                    "--agent",
+                    "cmux",
+                    "--resume-id",
+                    "old-session",
+                    "--trust-tools",
+                    "fs_read,fs_write",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/kiro repo",
+                environment: [
+                    "KIRO_HOME": "/tmp/kiro home",
+                    "AWS_SECRET_ACCESS_KEY": "secret"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
         let grok = SessionRestorableAgentSnapshot(
             kind: .grok,
             sessionId: "grok-session-123",
@@ -356,6 +383,10 @@ extension SocketListenerAcceptPolicyTests {
         XCTAssertEqual(
             qoder.resumeCommand,
             "{ cd -- '/tmp/qoder repo' 2>/dev/null || [ ! -d '/tmp/qoder repo' ]; } && 'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan'"
+        )
+        XCTAssertEqual(
+            kiro.resumeCommand,
+            "cd '/tmp/kiro repo' && 'env' 'KIRO_HOME=/tmp/kiro home' '/Users/example/.cargo/bin/kiro-cli' 'chat' '--resume-id' 'kiro-session-123' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
         )
         XCTAssertEqual(
             grok.resumeCommand,
@@ -637,6 +668,30 @@ extension SocketListenerAcceptPolicyTests {
                 "plan",
                 "--workspace",
                 "/tmp/qoder repo"
+            ]
+        )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.cargo/bin/kiro-cli",
+                    "chat",
+                    "--agent",
+                    "cmux",
+                    "--resume-id",
+                    "old-session",
+                    "--trust-tools",
+                    "fs_read,fs_write",
+                    "initial prompt should not replay"
+                ],
+                launcher: "kiro",
+                fallbackKind: "kiro"
+            ),
+            [
+                "/Users/example/.cargo/bin/kiro-cli",
+                "--agent",
+                "cmux",
+                "--trust-tools",
+                "fs_read,fs_write"
             ]
         )
     }

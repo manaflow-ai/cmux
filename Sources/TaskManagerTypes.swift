@@ -612,6 +612,14 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             argumentNeedles: ["gemini"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
+            id: "kiro",
+            displayName: "Kiro",
+            assetName: nil,
+            launchKinds: ["kiro"],
+            directBasenames: ["kiro", "kiro-cli"],
+            argumentNeedles: ["kiro", "kiro-cli"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
             id: "antigravity",
             displayName: "Antigravity",
             assetName: "AgentIcons/Antigravity",

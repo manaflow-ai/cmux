@@ -12,6 +12,14 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
+    /// Body font size in points. Applied as WKWebView `pageZoom` so the whole
+    /// rendered document scales like browser zoom.
+    let fontSize: Double
+    /// Body prose font-family name (empty = System). Applied as an inline
+    /// `font-family` on the content.
+    let fontFamily: String
+    /// Maximum content column width, in CSS pixels.
+    let maxContentWidth: Double
     let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
 
@@ -29,6 +37,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             webView.uiDelegate = context.coordinator
             applyBackground(to: webView)
             applyAppearance(to: webView, isDark: theme.isDark)
+            context.coordinator.setFontSize(fontSize)
+            context.coordinator.setFontFamily(fontFamily)
+            context.coordinator.setMaxContentWidth(maxContentWidth)
             return webView
         }
 
@@ -64,6 +75,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         applyAppearance(to: webView, isDark: theme.isDark)
 
         context.coordinator.webView = webView
+        context.coordinator.setFontSize(fontSize)
+        context.coordinator.setFontFamily(fontFamily)
+        context.coordinator.setMaxContentWidth(maxContentWidth)
         context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
         return webView
     }
@@ -75,6 +89,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
         applyBackground(to: nsView)
         applyAppearance(to: nsView, isDark: theme.isDark)
+        context.coordinator.setFontSize(fontSize)
+        context.coordinator.setFontFamily(fontFamily)
+        context.coordinator.setMaxContentWidth(maxContentWidth)
         context.coordinator.update(markdown: markdown, theme: theme)
     }
 
@@ -116,6 +133,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var pendingTheme: MarkdownWebTheme = .resolve(backgroundColor: GhosttyBackgroundTheme.currentColor())
         private var lastMarkdown: String? = nil
         private var lastTheme: MarkdownWebTheme? = nil
+        private var lastFontFamily: String = ""
+        private var lastFontSize: Double = MarkdownFontSizeSettings.defaultPointSize
+        private var lastMaxContentWidth: Double = MarkdownMaxWidthSettings.defaultCSSPixels
         private var isLoaded = false
         private var isShellLoading = false
         private var webContentProcessRecoveryAttempts = 0
@@ -151,6 +171,65 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             self.panelId = panelId
             self.workspaceId = workspaceId
             self.filePath = filePath
+        }
+
+        /// Records the desired body font size and applies it as `pageZoom`.
+        /// Stored so it can be re-applied after the shell reloads (e.g. after a
+        /// web-content-process crash recovery).
+        func setFontSize(_ pointSize: Double) {
+            lastFontSize = pointSize
+            applyFontSize()
+        }
+
+        private func applyFontSize() {
+            guard let webView else { return }
+            let zoom = MarkdownFontSizeSettings.pageZoom(forPointSize: lastFontSize)
+            if abs(webView.pageZoom - zoom) > 0.0001 {
+                webView.pageZoom = zoom
+            }
+        }
+
+        /// Records the desired body prose font and applies it as an inline
+        /// `font-family` on the content element. Unlike `pageZoom`, this DOM
+        /// style is lost when the shell reloads, so it must be re-applied in
+        /// `didFinish`.
+        func setFontFamily(_ family: String) {
+            lastFontFamily = family
+            applyFontFamily()
+        }
+
+        private func applyFontFamily() {
+            guard let webView else { return }
+            // JSON-encode the CSS value (empty string clears the override).
+            let css = MarkdownFontFamily.cssValue(for: lastFontFamily) ?? ""
+            let encoded = (try? JSONSerialization.data(withJSONObject: [css]))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+            let js = """
+            (function(arr) {
+              var content = document.getElementById('content');
+              if (content) { content.style.fontFamily = arr[0]; }
+            })(\(encoded));
+            """
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
+        /// Records the desired content column max width. This DOM style is lost
+        /// when the shell reloads, so it is re-applied in `didFinish`.
+        func setMaxContentWidth(_ pixels: Double) {
+            lastMaxContentWidth = MarkdownMaxWidthSettings.clamp(pixels)
+            applyMaxContentWidth()
+        }
+
+        private func applyMaxContentWidth() {
+            guard let webView else { return }
+            let width = Int(MarkdownMaxWidthSettings.clamp(lastMaxContentWidth).rounded())
+            let js = """
+            (function(width) {
+              var content = document.getElementById('content');
+              if (content) { content.style.maxWidth = width + 'px'; }
+            })(\(width));
+            """
+            webView.evaluateJavaScript(js, completionHandler: nil)
         }
 
         func close() {
@@ -595,6 +674,14 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #endif
             isShellLoading = false
             isLoaded = true
+            // pageZoom is a WKWebView-level property that survives loadHTMLString,
+            // but re-apply defensively after a shell reload so a crash-recovery
+            // path can never drop the configured zoom.
+            applyFontSize()
+            // font-family is a DOM inline style on a freshly-created #content,
+            // so it MUST be re-applied after every shell (re)load.
+            applyFontFamily()
+            applyMaxContentWidth()
             applyTheme(lastTheme ?? pendingTheme)
             // Replay last known markdown after the shell finishes loading.
             // Keep the recovery budget scoped to the current markdown payload:

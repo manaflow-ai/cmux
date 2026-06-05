@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxSocketControl
 import SQLite3
 
 /// Tracks fingerprint of latest assistant message per (workspace, panel, session)
@@ -99,7 +100,7 @@ extension RestorableAgentSessionIndex {
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
+    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] {
         let openCodeResult = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
@@ -279,10 +280,10 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager,
         currentSocketPath: String? = nil
     ) -> (
-        resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)],
+        resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)],
         perPanelDBURLs: [PanelKey: URL]
     ) {
-        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] = [:]
         var perPanelDBURLs: [PanelKey: URL] = [:]
         var sessionByWorkingDirectoryAndParent: [String: String] = [:]
         var sessionMissesByWorkingDirectoryAndParent = Set<String>()
@@ -742,7 +743,7 @@ extension RestorableAgentSessionIndex {
     // MARK: - OpenCode completion notification
 
     private static func processOpenCodeCompletionNotifications(
-        resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)],
+        resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)],
         perPanelDBURLs: [PanelKey: URL],
         fileManager: FileManager
     ) async {

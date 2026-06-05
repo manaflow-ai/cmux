@@ -41,6 +41,54 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         XCTAssertEqual(result.paneId, destinationWorkspace.paneId(forPanelId: movedPanel.id)?.id)
     }
 
+    func testMoveSurfaceToNewWorkspacePreservesTerminalTextBoxStateWhenDefaultsEnabled() throws {
+        let defaults = UserDefaults.standard
+        let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
+        let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey
+        let previousShowValue = defaults.object(forKey: showKey)
+        let previousFocusValue = defaults.object(forKey: focusKey)
+        defer {
+            if let previousShowValue {
+                defaults.set(previousShowValue, forKey: showKey)
+            } else {
+                defaults.removeObject(forKey: showKey)
+            }
+            if let previousFocusValue {
+                defaults.set(previousFocusValue, forKey: focusKey)
+            } else {
+                defaults.removeObject(forKey: focusKey)
+            }
+        }
+
+        defaults.set(false, forKey: showKey)
+        defaults.set(false, forKey: focusKey)
+
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let movedPanel = try XCTUnwrap(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
+        XCTAssertFalse(movedPanel.isTextBoxActive)
+
+        defaults.set(true, forKey: showKey)
+        defaults.set(true, forKey: focusKey)
+
+        let result = try XCTUnwrap(app.moveSurfaceToNewWorkspace(
+            panelId: movedPanel.id,
+            focus: false,
+            focusWindow: false
+        ))
+
+        let destinationWorkspace = try XCTUnwrap(manager.tabs.first { $0.id == result.destinationWorkspaceId })
+        let destinationPanel = try XCTUnwrap(destinationWorkspace.panels[movedPanel.id] as? TerminalPanel)
+        XCTAssertFalse(destinationPanel.isTextBoxActive)
+        XCTAssertNotEqual(destinationPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
+    }
+
     func testMoveBrowserBonsplitTabToNewWorkspaceRequestsAddressBarFocus() throws {
         let app = AppDelegate()
         let windowId = UUID()

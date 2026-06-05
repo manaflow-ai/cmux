@@ -44,8 +44,10 @@ private final class MockFileExplorerProvider: FileExplorerProvider {
 private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
     var homePath: Result<String, Error>
     var listings: [String: Result<[FileExplorerEntry], Error>] = [:]
+    var downloads: [String: Result<Data, Error>] = [:]
     private(set) var resolvedHomeConnections: [SSHFileExplorerConnection] = []
     private(set) var listedPaths: [String] = []
+    private(set) var downloadedPaths: [String] = []
 
     init(homePath: Result<String, Error> = .success("/home/dev")) {
         self.homePath = homePath
@@ -66,6 +68,20 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
             return try result.get()
         }
         return []
+    }
+
+    func downloadFile(
+        path: String,
+        connection: SSHFileExplorerConnection,
+        to localURL: URL
+    ) async throws {
+        downloadedPaths.append(path)
+        let data = try downloads[path, default: .success(Data())].get()
+        try FileManager.default.createDirectory(
+            at: localURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: localURL)
     }
 }
 
@@ -187,6 +203,7 @@ final class FileExplorerStoreTests: XCTestCase {
                 workspaceId: UUID(),
                 connection: connection,
                 displayTarget: "dev@ubuntu-host:2222",
+                rootPath: nil,
                 isAvailable: true,
                 unavailableDetail: nil
             ),
@@ -233,6 +250,7 @@ final class FileExplorerStoreTests: XCTestCase {
                     sshOptions: []
                 ),
                 displayTarget: "dev@ubuntu-host",
+                rootPath: nil,
                 isAvailable: true,
                 unavailableDetail: nil
             ),
@@ -246,6 +264,74 @@ final class FileExplorerStoreTests: XCTestCase {
 
         XCTAssertTrue(store.provider is SSHFileExplorerProvider)
         XCTAssertEqual(transport.resolvedHomeConnections.map(\.destination), ["dev@ubuntu-host"])
+    }
+
+    func testRemoteWorkspaceRootTracksRequestedWorkingDirectory() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        transport.listings["/srv/app"] = .success([
+            FileExplorerEntry(name: "Package.swift", path: "/srv/app/Package.swift", isDirectory: false),
+        ])
+        let store = FileExplorerStore()
+
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: SSHFileExplorerConnection(
+                    destination: "dev@ubuntu-host",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: []
+                ),
+                displayTarget: "dev@ubuntu-host",
+                rootPath: "/srv/app",
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("remote requested cwd loaded") {
+            store.rootPath == "/srv/app" &&
+                store.rootNodes.map(\.name) == ["Package.swift"]
+        }
+
+        XCTAssertEqual(transport.resolvedHomeConnections, [])
+        XCTAssertEqual(transport.listedPaths, ["/srv/app"])
+        XCTAssertEqual(store.displayRootPath, "ssh://dev@ubuntu-host:/srv/app")
+    }
+
+    func testRemoteFilePreviewMaterializesThroughSSHProvider() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        transport.listings["/srv/app"] = .success([
+            FileExplorerEntry(name: "README.md", path: "/srv/app/README.md", isDirectory: false),
+        ])
+        transport.downloads["/srv/app/README.md"] = .success(Data("# Remote\n".utf8))
+        let store = FileExplorerStore()
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: SSHFileExplorerConnection(
+                    destination: "dev@ubuntu-host",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: []
+                ),
+                displayTarget: "dev@ubuntu-host",
+                rootPath: "/srv/app",
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("remote requested cwd loaded") {
+            store.rootNodes.map(\.name) == ["README.md"]
+        }
+        let localURL = try await store.materializeRemoteFileForPreview(path: "/srv/app/README.md")
+
+        XCTAssertEqual(transport.downloadedPaths, ["/srv/app/README.md"])
+        XCTAssertEqual(try String(contentsOf: localURL, encoding: .utf8), "# Remote\n")
+        XCTAssertTrue(localURL.path.contains("cmux-remote-file-previews"))
     }
 
     func testCancelledRootLoadDoesNotClearRemoteUnavailableStatus() async throws {
@@ -268,6 +354,7 @@ final class FileExplorerStoreTests: XCTestCase {
                     sshOptions: []
                 ),
                 displayTarget: "dev@ubuntu-host",
+                rootPath: nil,
                 isAvailable: false,
                 unavailableDetail: nil
             ),

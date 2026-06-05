@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"math"
 	"os"
 	"path/filepath"
@@ -194,13 +195,24 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 	}
 
 	ctx := map[string]string{
-		"session_name":  "cmux",
-		"session_id":    "$0",
-		"window_id":     "@" + canonicalWsId,
-		"window_uuid":   canonicalWsId,
-		"window_active": "1",
-		"window_flags":  "*",
-		"pane_active":   "1",
+		"session_name":      "cmux",
+		"session_id":        "$" + tmuxStableNumericId(canonicalWsId),
+		"session_attached":  "1",
+		"window_id":         "@" + tmuxStableNumericId(canonicalWsId),
+		"window_uuid":       canonicalWsId,
+		"window_active":     "0",
+		"window_flags":      "",
+		"window_width":      "80",
+		"window_height":     "24",
+		"pane_active":       "1",
+		"pane_width":        "80",
+		"pane_height":       "24",
+		"pane_current_path": tmuxFallbackCurrentPath(),
+	}
+	activeWorkspaceId := tmuxActiveWorkspaceId(rc)
+	activeByCaller := activeWorkspaceId == canonicalWsId
+	if activeByCaller {
+		tmuxSetWindowActive(ctx, true)
 	}
 
 	// Get workspace list for index/title
@@ -210,11 +222,21 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 			wsId, _ := ws["id"].(string)
 			wsRef, _ := ws["ref"].(string)
 			if wsId == canonicalWsId || wsRef == workspaceId {
+				if active, ok := boolFromAnyGo(ws["active"]); ok && !activeByCaller {
+					tmuxSetWindowActive(ctx, active)
+				} else if focused, ok := boolFromAnyGo(ws["focused"]); ok && !activeByCaller {
+					tmuxSetWindowActive(ctx, focused)
+				} else if selected, ok := boolFromAnyGo(ws["selected"]); ok && !activeByCaller {
+					tmuxSetWindowActive(ctx, selected)
+				}
 				if idx := intFromAnyGo(ws["index"]); idx >= 0 {
 					ctx["window_index"] = fmt.Sprintf("%d", idx)
 				}
 				if title, _ := ws["title"].(string); strings.TrimSpace(title) != "" {
 					ctx["window_name"] = strings.TrimSpace(title)
+				}
+				if path := tmuxPathFromObject(ws); path != "" {
+					ctx["pane_current_path"] = path
 				}
 				if paneCount := intFromAnyGo(ws["pane_count"]); paneCount >= 0 {
 					ctx["window_panes"] = fmt.Sprintf("%d", paneCount)
@@ -230,16 +252,34 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 		return ctx, nil
 	}
 
-	resolvedPaneId := paneId
+	resolvedPaneId := ""
+	if paneId != "" {
+		if pid, err := tmuxCanonicalPaneId(rc, paneId, canonicalWsId); err == nil {
+			resolvedPaneId = pid
+		} else {
+			resolvedPaneId = paneId
+		}
+	}
 	if resolvedPaneId == "" {
 		if pid, ok := currentPayload["pane_id"].(string); ok {
 			resolvedPaneId = pid
 		} else if pref, ok := currentPayload["pane_ref"].(string); ok {
-			resolvedPaneId = pref
+			if pid, err := tmuxCanonicalPaneId(rc, pref, canonicalWsId); err == nil {
+				resolvedPaneId = pid
+			} else {
+				resolvedPaneId = pref
+			}
 		}
 	}
 
-	resolvedSurfaceId := surfaceId
+	resolvedSurfaceId := ""
+	if surfaceId != "" {
+		if sid, err := tmuxCanonicalSurfaceId(rc, surfaceId, canonicalWsId); err == nil {
+			resolvedSurfaceId = sid
+		} else {
+			resolvedSurfaceId = surfaceId
+		}
+	}
 	if resolvedSurfaceId == "" && resolvedPaneId != "" {
 		if sid, err := tmuxSelectedSurfaceId(rc, canonicalWsId, resolvedPaneId); err == nil {
 			resolvedSurfaceId = sid
@@ -252,7 +292,7 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 	}
 
 	if resolvedPaneId != "" {
-		ctx["pane_id"] = "%" + resolvedPaneId
+		ctx["pane_id"] = "%" + tmuxStableNumericId(resolvedPaneId)
 		ctx["pane_uuid"] = resolvedPaneId
 
 		panePayload, err := rc.call("pane.list", map[string]any{"workspace_id": canonicalWsId})
@@ -266,6 +306,13 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 				if pid, _ := pane["id"].(string); pid == resolvedPaneId {
 					if idx := intFromAnyGo(pane["index"]); idx >= 0 {
 						ctx["pane_index"] = fmt.Sprintf("%d", idx)
+					}
+					if focused, ok := boolFromAnyGo(pane["focused"]); ok {
+						if focused {
+							ctx["pane_active"] = "1"
+						} else {
+							ctx["pane_active"] = "0"
+						}
 					}
 					break
 				}
@@ -290,6 +337,9 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 							ctx["window_name"] = strings.TrimSpace(title)
 						}
 					}
+					if path := tmuxPathFromObject(surface); path != "" {
+						ctx["pane_current_path"] = path
+					}
 					break
 				}
 			}
@@ -300,7 +350,7 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 }
 
 func tmuxEnrichContextWithGeometry(ctx map[string]string, pane map[string]any, containerFrame map[string]any) {
-	isFocused, _ := pane["focused"].(bool)
+	isFocused, _ := boolFromAnyGo(pane["focused"])
 	if isFocused {
 		ctx["pane_active"] = "1"
 	} else {
@@ -373,6 +423,184 @@ func intFromAnyGo(v any) int {
 	return -1
 }
 
+func boolFromAnyGo(v any) (bool, bool) {
+	switch t := v.(type) {
+	case bool:
+		return t, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(t)) {
+		case "1", "true", "yes", "on":
+			return true, true
+		case "0", "false", "no", "off":
+			return false, true
+		}
+	case float64:
+		if t == 0 {
+			return false, true
+		}
+		if t == 1 {
+			return true, true
+		}
+	case int:
+		if t == 0 {
+			return false, true
+		}
+		if t == 1 {
+			return true, true
+		}
+	case json.Number:
+		i, err := t.Int64()
+		if err == nil && (i == 0 || i == 1) {
+			return i == 1, true
+		}
+	}
+	return false, false
+}
+
+func tmuxSetWindowActive(ctx map[string]string, active bool) {
+	if active {
+		ctx["window_active"] = "1"
+		ctx["window_flags"] = "*"
+	} else {
+		ctx["window_active"] = "0"
+		ctx["window_flags"] = ""
+	}
+}
+
+func tmuxStableNumericId(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		raw = "cmux"
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(raw))
+	value := h.Sum64() & 0x7fffffffffffffff
+	if value == 0 {
+		value = 1
+	}
+	return fmt.Sprintf("%d", value)
+}
+
+func tmuxTrimIdSigil(raw string) string {
+	raw = strings.TrimSpace(raw)
+	for raw != "" {
+		switch raw[0] {
+		case '$', '@', '%':
+			raw = strings.TrimSpace(raw[1:])
+		default:
+			return raw
+		}
+	}
+	return raw
+}
+
+func tmuxSelectorToken(raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	token := tmuxTrimIdSigil(trimmed)
+	return token, token != trimmed
+}
+
+func tmuxNumericIdMatches(handle string, candidates ...string) bool {
+	token := tmuxTrimIdSigil(handle)
+	if token == "" {
+		return false
+	}
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate) == "" {
+			continue
+		}
+		if token == tmuxStableNumericId(candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func tmuxIndexMatches(handle string, index int) bool {
+	if index < 0 {
+		return false
+	}
+	return tmuxTrimIdSigil(handle) == fmt.Sprintf("%d", index)
+}
+
+func tmuxNormalizePath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "~/") || raw == "~" {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			if raw == "~" {
+				raw = home
+			} else {
+				raw = filepath.Join(home, raw[2:])
+			}
+		}
+	}
+	if !filepath.IsAbs(raw) {
+		if abs, err := filepath.Abs(raw); err == nil {
+			raw = abs
+		}
+	}
+	if filepath.IsAbs(raw) {
+		return filepath.Clean(raw)
+	}
+	return ""
+}
+
+func tmuxFirstPath(values ...string) string {
+	for _, value := range values {
+		if path := tmuxNormalizePath(value); path != "" {
+			return path
+		}
+	}
+	return ""
+}
+
+func tmuxPathFromObject(item map[string]any) string {
+	if item == nil {
+		return ""
+	}
+	path := tmuxFirstPath(
+		stringFromAnyGo(item["pane_current_path"]),
+		stringFromAnyGo(item["current_directory"]),
+		stringFromAnyGo(item["requested_working_directory"]),
+		stringFromAnyGo(item["working_directory"]),
+		stringFromAnyGo(item["cwd"]),
+	)
+	if path != "" {
+		return path
+	}
+	if binding, ok := item["resume_binding"].(map[string]any); ok {
+		return tmuxFirstPath(stringFromAnyGo(binding["cwd"]))
+	}
+	return ""
+}
+
+func tmuxFallbackCurrentPath() string {
+	if path := tmuxNormalizePath(os.Getenv("PWD")); path != "" {
+		return path
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		if path := tmuxNormalizePath(cwd); path != "" {
+			return path
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if path := tmuxNormalizePath(home); path != "" {
+			return path
+		}
+	}
+	return "/"
+}
+
+func stringFromAnyGo(value any) string {
+	if s, ok := value.(string); ok {
+		return strings.TrimSpace(s)
+	}
+	return ""
+}
+
 // --- Target resolution ---
 
 func tmuxCallerWorkspaceHandle() string {
@@ -393,6 +621,25 @@ func tmuxResolvedCallerWorkspaceId(rc *rpcContext) string {
 		return ""
 	}
 	return wsId
+}
+
+func tmuxActiveWorkspaceId(rc *rpcContext) string {
+	if callerWs := tmuxResolvedCallerWorkspaceId(rc); callerWs != "" {
+		return callerWs
+	}
+	payload, err := rc.call("workspace.current", nil)
+	if err != nil {
+		return ""
+	}
+	if wsId, _ := payload["workspace_id"].(string); wsId != "" {
+		return wsId
+	}
+	if wsRef, _ := payload["workspace_ref"].(string); wsRef != "" {
+		if wsId, err := tmuxResolveWorkspaceId(rc, wsRef); err == nil {
+			return wsId
+		}
+	}
+	return ""
 }
 
 func tmuxCallerPaneHandle() string {
@@ -438,6 +685,7 @@ func isUUIDish(s string) bool {
 }
 
 func tmuxResolveWorkspaceId(rc *rpcContext, raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
 	if raw == "" || raw == "current" {
 		if caller := tmuxCallerWorkspaceHandle(); caller != "" {
 			if isUUIDish(caller) {
@@ -460,26 +708,45 @@ func tmuxResolveWorkspaceId(rc *rpcContext, raw string) (string, error) {
 		return raw, nil
 	}
 
-	// Try to resolve as ref or index
+	token, sigiled := tmuxSelectorToken(raw)
+	if isUUIDish(token) {
+		return token, nil
+	}
+
+	// Try to resolve as ref, tmux numeric id, or workspace index.
 	items, err := tmuxWorkspaceItems(rc)
 	if err != nil {
 		return "", err
 	}
 	for _, item := range items {
-		if ref, _ := item["ref"].(string); ref == raw {
-			if id, _ := item["id"].(string); id != "" {
+		id, _ := item["id"].(string)
+		if ref, _ := item["ref"].(string); !sigiled && ref == raw {
+			if id != "" {
 				return id, nil
 			}
+		}
+		if id == raw || id == token {
+			return id, nil
+		}
+		if tmuxNumericIdMatches(token, id) || tmuxNumericIdMatches(token, stringFromAnyGo(item["ref"])) {
+			if id != "" {
+				return id, nil
+			}
+		}
+		if !sigiled && tmuxIndexMatches(token, intFromAnyGo(item["index"])) && id != "" {
+			return id, nil
 		}
 	}
 
 	// Try name match
-	needle := strings.TrimSpace(raw)
-	for _, item := range items {
-		title, _ := item["title"].(string)
-		if strings.TrimSpace(title) == needle {
-			if id, _ := item["id"].(string); id != "" {
-				return id, nil
+	if !sigiled {
+		needle := strings.TrimSpace(token)
+		for _, item := range items {
+			title, _ := item["title"].(string)
+			if strings.TrimSpace(title) == needle {
+				if id, _ := item["id"].(string); id != "" {
+					return id, nil
+				}
 			}
 		}
 	}
@@ -520,8 +787,6 @@ func tmuxResolveWorkspaceTarget(rc *rpcContext, raw string) (string, error) {
 			token = token[:colon]
 		}
 	}
-	token = strings.TrimPrefix(token, "@")
-
 	return tmuxResolveWorkspaceId(rc, token)
 }
 
@@ -531,7 +796,7 @@ func tmuxPaneSelector(raw string) string {
 		return ""
 	}
 	if strings.HasPrefix(raw, "%") {
-		return raw[1:]
+		return raw
 	}
 	if strings.HasPrefix(raw, "pane:") {
 		return raw
@@ -557,6 +822,7 @@ func tmuxWindowSelector(raw string) string {
 }
 
 func tmuxCanonicalPaneId(rc *rpcContext, handle string, workspaceId string) (string, error) {
+	handle, sigiled := tmuxSelectorToken(handle)
 	if isUUIDish(handle) {
 		return handle, nil
 	}
@@ -570,19 +836,39 @@ func tmuxCanonicalPaneId(rc *rpcContext, handle string, workspaceId string) (str
 		if pane == nil {
 			continue
 		}
-		if ref, _ := pane["ref"].(string); ref == handle {
+		id, _ := pane["id"].(string)
+		ref, _ := pane["ref"].(string)
+		if !sigiled && ref == handle {
 			if id, _ := pane["id"].(string); id != "" {
 				return id, nil
 			}
 		}
-		if id, _ := pane["id"].(string); id == handle {
+		if id == handle {
 			return id, nil
+		}
+		if tmuxNumericIdMatches(handle, id) || tmuxNumericIdMatches(handle, ref) {
+			if id != "" {
+				return id, nil
+			}
+		}
+	}
+	if !sigiled {
+		for _, p := range panes {
+			pane, _ := p.(map[string]any)
+			if pane == nil {
+				continue
+			}
+			id, _ := pane["id"].(string)
+			if tmuxIndexMatches(handle, intFromAnyGo(pane["index"])) && id != "" {
+				return id, nil
+			}
 		}
 	}
 	return "", fmt.Errorf("pane not found: %s", handle)
 }
 
 func tmuxCanonicalSurfaceId(rc *rpcContext, handle string, workspaceId string) (string, error) {
+	handle, sigiled := tmuxSelectorToken(handle)
 	payload, err := rc.call("surface.list", map[string]any{"workspace_id": workspaceId})
 	if err != nil {
 		return "", err
@@ -593,13 +879,32 @@ func tmuxCanonicalSurfaceId(rc *rpcContext, handle string, workspaceId string) (
 		if surface == nil {
 			continue
 		}
-		if ref, _ := surface["ref"].(string); ref == handle {
-			if id, _ := surface["id"].(string); id != "" {
+		id, _ := surface["id"].(string)
+		ref, _ := surface["ref"].(string)
+		if !sigiled && ref == handle {
+			if id != "" {
 				return id, nil
 			}
 		}
-		if id, _ := surface["id"].(string); id == handle {
+		if id == handle {
 			return id, nil
+		}
+		if tmuxNumericIdMatches(handle, id) || tmuxNumericIdMatches(handle, ref) {
+			if id != "" {
+				return id, nil
+			}
+		}
+	}
+	if !sigiled {
+		for _, s := range surfaces {
+			surface, _ := s.(map[string]any)
+			if surface == nil {
+				continue
+			}
+			id, _ := surface["id"].(string)
+			if tmuxIndexMatches(handle, intFromAnyGo(surface["index"])) && id != "" {
+				return id, nil
+			}
 		}
 	}
 	return "", fmt.Errorf("surface not found: %s", handle)
@@ -620,9 +925,7 @@ func tmuxFocusedPaneId(rc *rpcContext, workspaceId string) (string, error) {
 }
 
 func tmuxWorkspaceIdForPaneHandle(rc *rpcContext, handle string) (string, error) {
-	if !isUUIDish(handle) {
-		return "", fmt.Errorf("not a UUID")
-	}
+	handle, sigiled := tmuxSelectorToken(handle)
 	workspaces, err := tmuxWorkspaceItems(rc)
 	if err != nil {
 		return "", err
@@ -642,10 +945,18 @@ func tmuxWorkspaceIdForPaneHandle(rc *rpcContext, handle string) (string, error)
 			if pane == nil {
 				continue
 			}
-			if pid, _ := pane["id"].(string); pid == handle {
+			pid, _ := pane["id"].(string)
+			pref, _ := pane["ref"].(string)
+			if pid == handle {
 				return wsId, nil
 			}
-			if pref, _ := pane["ref"].(string); pref == handle {
+			if !sigiled && pref == handle {
+				return wsId, nil
+			}
+			if tmuxNumericIdMatches(handle, pid) || tmuxNumericIdMatches(handle, pref) {
+				return wsId, nil
+			}
+			if !sigiled && tmuxIndexMatches(handle, intFromAnyGo(pane["index"])) {
 				return wsId, nil
 			}
 		}
@@ -664,7 +975,14 @@ func tmuxResolvePaneTarget(rc *rpcContext, raw string) (workspaceId string, pane
 			return "", "", err
 		}
 	} else if paneSelector != "" {
-		workspaceId, err = tmuxWorkspaceIdForPaneHandle(rc, paneSelector)
+		if callerWs := tmuxResolvedCallerWorkspaceId(rc); callerWs != "" {
+			if _, err2 := tmuxCanonicalPaneId(rc, paneSelector, callerWs); err2 == nil {
+				workspaceId = callerWs
+			}
+		}
+		if workspaceId == "" {
+			workspaceId, err = tmuxWorkspaceIdForPaneHandle(rc, paneSelector)
+		}
 		if err != nil {
 			workspaceId, err = tmuxResolveWorkspaceTarget(rc, "")
 			if err != nil {
@@ -711,7 +1029,7 @@ func tmuxSelectedSurfaceId(rc *rpcContext, workspaceId string, paneId string) (s
 		if surface == nil {
 			continue
 		}
-		if sel, _ := surface["selected"].(bool); sel {
+		if sel, _ := boolFromAnyGo(surface["selected"]); sel {
 			if id, _ := surface["id"].(string); id != "" {
 				return id, nil
 			}
@@ -788,7 +1106,7 @@ func tmuxResolveSurfaceTarget(rc *rpcContext, raw string) (workspaceId string, p
 			if surf == nil {
 				continue
 			}
-			if focused, _ := surf["focused"].(bool); focused {
+			if focused, _ := boolFromAnyGo(surf["focused"]); focused {
 				if id, _ := surf["id"].(string); id != "" {
 					surfaceId = id
 					return workspaceId, "", surfaceId, nil
@@ -1406,7 +1724,7 @@ func tmuxDisplayMessage(rc *rpcContext, args []string) error {
 		if matchingPane == nil {
 			for _, p := range panes {
 				pn, _ := p.(map[string]any)
-				if focused, _ := pn["focused"].(bool); focused {
+				if focused, _ := boolFromAnyGo(pn["focused"]); focused {
 					matchingPane = pn
 					break
 				}
@@ -1763,7 +2081,7 @@ func tmuxGetFirstSurface(rc *rpcContext, workspaceId string) (string, error) {
 	// Prefer focused surface
 	for _, s := range surfaces {
 		surf, _ := s.(map[string]any)
-		if focused, _ := surf["focused"].(bool); focused {
+		if focused, _ := boolFromAnyGo(surf["focused"]); focused {
 			if id, _ := surf["id"].(string); id != "" {
 				return id, nil
 			}
