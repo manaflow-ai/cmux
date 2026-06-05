@@ -951,7 +951,8 @@ extension Workspace {
         approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
         approvalSigningSecret: Data? = nil,
         fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        returnWorkingDirectories: [String?] = []
     ) -> SurfaceResumeStartupLaunch? {
         guard let effectiveBinding = approvedSurfaceResumeBinding(
             resumeBinding,
@@ -966,7 +967,8 @@ extension Workspace {
             forApprovedBinding: effectiveBinding,
             allowLauncherScript: allowLauncherScript,
             fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory
+            temporaryDirectory: temporaryDirectory,
+            returnWorkingDirectories: returnWorkingDirectories
         )
     }
 
@@ -974,13 +976,15 @@ extension Workspace {
         forApprovedBinding effectiveBinding: SurfaceResumeBindingSnapshot,
         allowLauncherScript: Bool = true,
         fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        returnWorkingDirectories: [String?] = []
     ) -> SurfaceResumeStartupLaunch? {
         if effectiveBinding.isAgentHookBinding,
            allowLauncherScript,
            let command = effectiveBinding.startupCommandWithLauncherScript(
                fileManager: fileManager,
-               temporaryDirectory: temporaryDirectory
+               temporaryDirectory: temporaryDirectory,
+               returnWorkingDirectories: returnWorkingDirectories
            ) {
             return .command(command)
         }
@@ -1618,6 +1622,12 @@ extension Workspace {
                 autoResumeAgentSessions: shouldAutoResumeAgent,
                 promptForApproval: true
             )
+            let bindingReturnWorkingDirectories = [
+                effectiveResumeBindingForStartup?.cwd,
+                snapshot.terminal?.workingDirectory,
+                restorableAgent?.workingDirectory,
+                snapshot.directory,
+            ]
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if remoteStartupCommand != nil {
                 effectiveResumeBindingForStartup?
@@ -1627,16 +1637,23 @@ extension Workspace {
                 effectiveResumeBindingForStartup.flatMap {
                     Self.surfaceResumeStartupLaunch(
                         forApprovedBinding: $0,
-                        allowLauncherScript: true
+                        allowLauncherScript: true,
+                        returnWorkingDirectories: bindingReturnWorkingDirectories
                     )
                 }
             }
             let effectiveResumeBinding = restoredBindingLaunch == nil ? nil : resumeBinding
-            let savedWorkingDirectory =
-                effectiveResumeBinding?.cwd
-                ?? snapshot.terminal?.workingDirectory
-                ?? restorableAgent?.workingDirectory
-                ?? snapshot.directory
+            let savedWorkingDirectory = firstNormalizedTerminalWorkingDirectory([
+                effectiveResumeBinding?.cwd,
+                snapshot.terminal?.workingDirectory,
+                restorableAgent?.workingDirectory,
+                snapshot.directory,
+            ])
+            let agentReturnWorkingDirectories = [
+                snapshot.terminal?.workingDirectory,
+                restorableAgent?.workingDirectory,
+                snapshot.directory,
+            ]
             let workingDirectory = savedWorkingDirectory
                 ?? currentDirectory
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
@@ -1658,7 +1675,7 @@ extension Workspace {
                         )
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
-                        restorableAgent?.resumeStartupCommand()
+                        restorableAgent?.resumeStartupCommand(returnWorkingDirectories: agentReturnWorkingDirectories)
                             .map(SurfaceResumeStartupLaunch.command)
                     }
                 } else {

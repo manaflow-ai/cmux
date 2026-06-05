@@ -418,7 +418,8 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     func startupCommandWithLauncherScript(
         fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        returnWorkingDirectories: [String?] = []
     ) -> String? {
         guard let inlineInput = inlineStartupInput,
               let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
@@ -426,7 +427,8 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
                   binding: self,
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  returnToLoginShell: true
+                  returnToLoginShell: true,
+                  returnWorkingDirectories: returnWorkingDirectories
               ) else {
             return nil
         }
@@ -1280,7 +1282,10 @@ nonisolated enum TerminalStartupReturnShellScript {
         #"fi"#,
     ]
 
-    static func commandThenReturnLines(command: String, workingDirectory: String? = nil) -> [String] {
+    static func commandThenReturnLines(
+        command: String,
+        returnWorkingDirectories: [String?] = []
+    ) -> [String] {
         let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
         var lines = [
             shellLine,
@@ -1292,14 +1297,28 @@ nonisolated enum TerminalStartupReturnShellScript {
         ] + zshIntegrationReentryLines
         // The resume command's `cd` runs inside the child shell above, so after the resumed agent
         // exits the outer login shell would otherwise land in this script's launch cwd (the surface
-        // default), not the session's directory. Return the outer shell to the session's working
-        // directory so killing a resumed agent leaves you where the session lived.
-        if let workingDirectory, !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
-            lines.append(#"{ cd -- \#(quotedDirectory) 2>/dev/null || true; }"#)
-        }
+        // default), not the session's directory. Return the outer shell through the saved cwd
+        // candidates in order, then HOME.
+        lines.append(returnWorkingDirectoryLine(returnWorkingDirectories: returnWorkingDirectories))
         lines.append(#"exec -l "$_cmux_resume_shell""#)
         return lines
+    }
+
+    private static func returnWorkingDirectoryLine(returnWorkingDirectories: [String?]) -> String {
+        var directories: [String] = []
+        for candidate in returnWorkingDirectories.map(normalized) {
+            guard let candidate, !directories.contains(candidate) else { continue }
+            directories.append(candidate)
+        }
+
+        let commands = directories.map { directory in
+            "cd -- \(TerminalStartupShellQuoting.singleQuoted(directory)) 2>/dev/null"
+        } + [#"cd -- "${HOME}" 2>/dev/null"#]
+        return "{ \(commands.joined(separator: " || ")) || true; }"
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        normalizedTerminalWorkingDirectory(value)
     }
 }
 
@@ -1312,7 +1331,8 @@ private enum SurfaceResumeBindingScriptStore {
         binding: SurfaceResumeBindingSnapshot,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        returnToLoginShell: Bool = false
+        returnToLoginShell: Bool = false,
+        returnWorkingDirectories: [String?] = []
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -1332,7 +1352,7 @@ private enum SurfaceResumeBindingScriptStore {
             if returnToLoginShell {
                 lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
                     command: inlineInput,
-                    workingDirectory: binding.cwd
+                    returnWorkingDirectories: [binding.cwd] + returnWorkingDirectories
                 ))
             } else {
                 lines.append(inlineInput)
