@@ -95,7 +95,7 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     func testTextBoxSkillMentionFiltersWhenTypingAfterBareDollarTrigger() throws {
-        let fixtureRoot = try makeSkillFixtureRoot(
+        let fixtureRoots = try makeSkillFixtureRoots(
             skillNames: [
                 "agent-browser",
                 "agent-cli-integration",
@@ -138,7 +138,7 @@ final class AutomationSocketUITests: XCTestCase {
             },
             """
             Expected bare $ popover rows to include $agent-browser.
-            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoot: fixtureRoot))
+            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoots: fixtureRoots))
             """
         )
 
@@ -155,7 +155,7 @@ final class AutomationSocketUITests: XCTestCase {
             },
             """
             Expected visible popover rows for $autore to hide stale $agent-browser.
-            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoot: fixtureRoot))
+            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoots: fixtureRoots))
             """
         )
         XCTAssertTrue(typedRows.first?.contains("$autoreview") == true)
@@ -577,7 +577,7 @@ final class AutomationSocketUITests: XCTestCase {
     private func mentionPopoverDiagnostics(
         in app: XCUIApplication,
         textBox: XCUIElement,
-        fixtureRoot: URL
+        fixtureRoots: [URL]
     ) -> String {
         let indexedRows = (0..<12).compactMap { index -> String? in
             let row = app.descendants(matching: .any)
@@ -599,10 +599,13 @@ final class AutomationSocketUITests: XCTestCase {
         let knownTitleStates = knownTitles
             .map { "\($0)=\(mentionElementExists(in: app, title: $0))" }
             .joined(separator: ", ")
+        let fixtureRootStates = fixtureRoots
+            .map { "\($0.path)=\(FileManager.default.fileExists(atPath: $0.path))" }
+            .joined(separator: "\n")
         return """
         textBoxValue=\(String(describing: textBox.value))
-        fixtureRoot=\(fixtureRoot.path)
-        fixtureRootExists=\(FileManager.default.fileExists(atPath: fixtureRoot.path))
+        fixtureRoots=
+        \(fixtureRootStates)
         popoverExists=\(popoverExists)
         loadingExists=\(loadingExists)
         indexedRows=\(indexedRows)
@@ -626,29 +629,60 @@ final class AutomationSocketUITests: XCTestCase {
         return producer()
     }
 
-    private func makeSkillFixtureRoot(skillNames: [String]) throws -> URL {
-        let root = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".codex/skills", isDirectory: true)
-            .appendingPathComponent("cmux-ui-textbox-skills-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        for skillName in skillNames {
-            let skillDirectory = root.appendingPathComponent(skillName, isDirectory: true)
-            try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
-            let contents = """
-            ---
-            name: \(skillName)
-            ---
+    private func makeSkillFixtureRoots(skillNames: [String]) throws -> [URL] {
+        let fixtureName = "cmux-ui-textbox-skills-\(UUID().uuidString)"
+        var roots: [URL] = []
 
-            Test skill fixture for \(skillName).
-            """
-            try contents.write(
-                to: skillDirectory.appendingPathComponent("SKILL.md", isDirectory: false),
-                atomically: true,
-                encoding: .utf8
-            )
+        for home in skillFixtureHomeCandidates() {
+            let root = home
+                .appendingPathComponent(".codex/skills", isDirectory: true)
+                .appendingPathComponent(fixtureName, isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            for skillName in skillNames {
+                let skillDirectory = root.appendingPathComponent(skillName, isDirectory: true)
+                try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+                let contents = """
+                ---
+                name: \(skillName)
+                ---
+
+                Test skill fixture for \(skillName).
+                """
+                try contents.write(
+                    to: skillDirectory.appendingPathComponent("SKILL.md", isDirectory: false),
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+            roots.append(root)
+            temporaryRoots.append(root)
         }
-        temporaryRoots.append(root)
-        return root
+        return roots
+    }
+
+    private func skillFixtureHomeCandidates() -> [URL] {
+        var homes: [URL] = [FileManager.default.homeDirectoryForCurrentUser]
+        if let envHome = ProcessInfo.processInfo.environment["HOME"],
+           !envHome.isEmpty {
+            homes.append(URL(fileURLWithPath: envHome, isDirectory: true))
+        }
+        let loginHome = URL(fileURLWithPath: "/Users/\(NSUserName())", isDirectory: true)
+        homes.append(loginHome)
+
+        let runnerContainerSuffix = "/Library/Containers/com.cmuxterm.appuitests.xctrunner/Data"
+        let initialHomes = homes
+        for home in initialHomes {
+            let path = home.standardizedFileURL.path
+            guard path.hasSuffix(runnerContainerSuffix) else { continue }
+            let appHomePath = String(path.dropLast(runnerContainerSuffix.count))
+                + "/Library/Containers/com.cmuxterm.app.debug/Data"
+            homes.append(URL(fileURLWithPath: appHomePath, isDirectory: true))
+        }
+
+        var seen = Set<String>()
+        return homes
+            .map(\.standardizedFileURL)
+            .filter { seen.insert($0.path).inserted }
     }
 
     private func resolveSocketPath(timeout: TimeInterval, allowTmpFallback: Bool = true) -> String? {
