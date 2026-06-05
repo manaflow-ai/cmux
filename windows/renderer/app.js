@@ -34901,7 +34901,7 @@ async function saveCurrentSettingsProfile(options = {}) {
     createdAt: Date.now()
   });
   if (!saved) return false;
-  if (options.render !== false) renderSettingsInspector();
+  refreshSettingsProfileSettings(options);
   toast(options.toastText || "Settings profile saved.");
   return saved;
 }
