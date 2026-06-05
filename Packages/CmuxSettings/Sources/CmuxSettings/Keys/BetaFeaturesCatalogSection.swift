@@ -47,15 +47,5 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "customSidebars.beta.enabled"
     )
 
-    /// iOS pairing host: the Mac-side listener that allows the iOS app to pair
-    /// and sync terminal/workspace state over the local network. Defaults off
-    /// so macOS never asks for Local Network permission until the user opts in.
-    public let iOSPairingHost = DefaultsKey<Bool>(
-        id: "ios.beta.pairingHost.enabled",
-        defaultValue: false,
-        userDefaultsKey: "ios.beta.pairingHost.enabled",
-        legacyUserDefaultsKeys: ["cmuxMobilePairingHostEnabled"]
-    )
-
     public init() {}
 }

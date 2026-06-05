@@ -294,7 +294,7 @@ final class MobileHostService {
     }
 
     /// User-default key for the opt-in Mac-side iOS pairing listener.
-    nonisolated static let listeningEnabledDefaultsKey = SettingCatalog().betaFeatures.iOSPairingHost.userDefaultsKey
+    nonisolated static let listeningEnabledDefaultsKey = SettingCatalog().mobile.iOSPairingHost.userDefaultsKey
     nonisolated private static let legacyListeningEnabledDefaultsKey = "cmuxMobilePairingHostEnabled"
 
     /// Whether the mobile pairing host should bind a network listener at all.
@@ -312,7 +312,7 @@ final class MobileHostService {
         if let legacyOverride = defaults.object(forKey: legacyListeningEnabledDefaultsKey) as? Bool {
             return legacyOverride
         }
-        return SettingCatalog().betaFeatures.iOSPairingHost.defaultValue
+        return SettingCatalog().mobile.iOSPairingHost.defaultValue
     }
 
     func start() {
