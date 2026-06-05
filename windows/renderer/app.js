@@ -22935,9 +22935,29 @@ function syncSettingsDisclosuresForSearch(query) {
   };
 }
 
+function restoreSettingsFilterVisibility(sections) {
+  for (const { section, items, groups } of sections) {
+    for (const { item } of items) setHiddenIfChanged(item, false);
+    for (const { group } of groups) setHiddenIfChanged(group, false);
+    setHiddenIfChanged(section, false);
+  }
+}
+
+function syncSettingsSearchFilterControls(query, visibleSections) {
+  const empty = state.settingsSearchEmpty?.isConnected
+    ? state.settingsSearchEmpty
+    : elements.inspectorBody.querySelector(".settings-empty");
+  state.settingsSearchEmpty = empty || null;
+  if (empty) setHiddenIfChanged(empty, !query || visibleSections > 0);
+  const clear = state.settingsSearchClear?.isConnected
+    ? state.settingsSearchClear
+    : elements.inspectorBody.querySelector(".settings-search-clear");
+  state.settingsSearchClear = clear || null;
+  if (clear) setDisabledIfChanged(clear, !query);
+}
+
 function applySettingsFilter() {
   const query = normalizeSettingsQuery(state.settingsQuery);
-  const tokens = settingsSearchTokensNormalized(query);
   const disclosureSync = syncSettingsDisclosuresForSearch(query);
   const searchStillMounting = Boolean(query && !disclosureSync.complete);
   setSettingsSearchBusy(searchStillMounting);
@@ -22957,6 +22977,14 @@ function applySettingsFilter() {
     return;
   }
   state.settingsSearchLastFilterSignature = filterSignature;
+  if (!query) {
+    restoreSettingsFilterVisibility(sections);
+    syncSettingsSearchFilterControls(query, sections.length);
+    setSettingsSearchResultText("");
+    setSettingsSearchLayoutNeeded(false);
+    return;
+  }
+  const tokens = settingsSearchTokensNormalized(query);
   let visibleSections = 0;
   let matchingItems = 0;
   let bestTarget = null;
@@ -22992,16 +23020,7 @@ function applySettingsFilter() {
     setHiddenIfChanged(section, !sectionVisible);
     if (sectionVisible) visibleSections += 1;
   }
-  const empty = state.settingsSearchEmpty?.isConnected
-    ? state.settingsSearchEmpty
-    : elements.inspectorBody.querySelector(".settings-empty");
-  state.settingsSearchEmpty = empty || null;
-  if (empty) setHiddenIfChanged(empty, !query || visibleSections > 0);
-  const clear = state.settingsSearchClear?.isConnected
-    ? state.settingsSearchClear
-    : elements.inspectorBody.querySelector(".settings-search-clear");
-  state.settingsSearchClear = clear || null;
-  if (clear) clear.disabled = !query;
+  syncSettingsSearchFilterControls(query, visibleSections);
   setSettingsSearchResultText(query
     ? searchStillMounting
       ? t("settings.searching")
