@@ -25301,7 +25301,7 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
       title: hasWorkspace ? "Copy this workspace name, color, and folder as JSON." : disabledTitle,
       search: "quick setup workspace copy setup export name color folder clipboard json"
     }),
-    quickOverviewControlButton("Paste setup", () => pasteWorkspaceSetup(workspace), {
+    quickOverviewControlButton("Paste setup", () => refreshQuick(pasteWorkspaceSetup(workspace, { render: false })), {
       disabled: !hasWorkspace,
       title: hasWorkspace ? "Paste copied workspace setup into the active workspace." : disabledTitle,
       search: "quick setup workspace paste setup import name color folder clipboard json"
@@ -38286,7 +38286,7 @@ function workspaceSetupUpdatesChangeWorkspace(workspace, updates) {
   return false;
 }
 
-async function applyWorkspaceSetupUpdates(updates, workspace = activeWorkspace()) {
+async function applyWorkspaceSetupUpdates(updates, workspace = activeWorkspace(), options = {}) {
   const target = workspaceSetupTarget(workspace);
   if (!target) {
     toast("Open a workspace to paste setup.");
@@ -38306,12 +38306,12 @@ async function applyWorkspaceSetupUpdates(updates, workspace = activeWorkspace()
     return false;
   }
   if (updates.cwd) rememberRecentFolder(updates.cwd);
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
   toast("Workspace setup applied.");
   return true;
 }
 
-async function pasteWorkspaceSetup(workspace = activeWorkspace()) {
+async function pasteWorkspaceSetup(workspace = activeWorkspace(), options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
@@ -38319,7 +38319,7 @@ async function pasteWorkspaceSetup(workspace = activeWorkspace()) {
   }
   try {
     const parsed = JSON.parse(clipboard);
-    return applyWorkspaceSetupUpdates(workspaceSetupUpdatesFromPayload(parsed), workspace);
+    return applyWorkspaceSetupUpdates(workspaceSetupUpdatesFromPayload(parsed), workspace, options);
   } catch {
     toast("Clipboard does not contain workspace setup.");
     return false;
