@@ -13,6 +13,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case files
     case find
     case sessions
+    case history
     case feed
     case dock
 
@@ -21,6 +22,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
+        case .history: return String(localized: "rightSidebar.mode.history", defaultValue: "History")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         }
@@ -31,6 +33,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .files: return "folder"
         case .find: return "magnifyingglass"
         case .sessions: return "books.vertical"
+        case .history: return "clock.arrow.circlepath"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
         }
@@ -41,6 +44,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .files: return .switchRightSidebarToFiles
         case .find: return .switchRightSidebarToFind
         case .sessions: return .switchRightSidebarToSessions
+        case .history: return .switchRightSidebarToHistory
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         }
@@ -48,7 +52,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
 }
 
 extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
+    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions, .history]
 
     var canOpenAsPane: Bool {
         Self.paneModes.contains(self)
@@ -89,6 +93,9 @@ extension RightSidebarMode {
         }
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToSessions).matches(event: event) {
             return .sessions
+        }
+        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToHistory).matches(event: event) {
+            return .history
         }
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFeed).matches(event: event),
            RightSidebarMode.feed.isAvailable() {
@@ -429,6 +436,8 @@ struct RightSidebarPanelView: View {
                 .onAppear {
                     sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                 }
+        case .history:
+            HistoryPanelView()
         case .feed:
             FeedPanelView()
         case .dock:

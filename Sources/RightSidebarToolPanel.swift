@@ -81,7 +81,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard let store = sessionIndexStoreStorage else { return }
             syncSessionIndexRoot(from: workspace, store: store)
-        case .feed, .dock:
+        case .history, .feed, .dock:
             break
         }
     }
@@ -139,7 +139,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             guard let anchor = sessionIndexFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
-        case .feed, .dock:
+        case .history, .feed, .dock:
             break
         }
     }
@@ -161,7 +161,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .feed, .dock:
+        case .history, .feed, .dock:
             return nil
         }
     }
@@ -288,6 +288,8 @@ struct RightSidebarToolPanelView: View {
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)
             )
+        case .history:
+            HistoryPanelView()
         case .feed, .dock:
             EmptyView()
         }
