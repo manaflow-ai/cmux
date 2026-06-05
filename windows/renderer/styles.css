@@ -14132,7 +14132,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .saved-color-card-actions {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, .72fr) 58px;
+  grid-template-columns: repeat(auto-fit, minmax(min(76px, 100%), 1fr));
   gap: var(--space-1);
 }
 
