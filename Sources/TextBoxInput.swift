@@ -2690,6 +2690,14 @@ struct TextBoxInputContainer: View {
 
     private var completionRootDirectory: String? {
         guard let workspace = surface.owningWorkspace() else { return nil }
+#if DEBUG
+        if let directory = workspace.terminalPanel(for: surface.id)?
+            .debugTextBoxCompletionRootDirectoryOverride?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !directory.isEmpty {
+            return directory
+        }
+#endif
         if let directory = workspace.panelDirectories[surface.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !directory.isEmpty {
             return directory

@@ -15538,6 +15538,8 @@ class TerminalController {
         let hasAttachment = rawPath?.isEmpty == false
         let beforeText = (params["before_text"] as? String) ?? (hasAttachment ? "hello " : "")
         let afterText = (params["after_text"] as? String) ?? (hasAttachment ? "world" : "")
+        let completionRootDirectory = (params["completion_root_directory"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let rawSurfaceID = params["surface_id"] as? String
         let target = rawSurfaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let rawSurfaceID,
@@ -15562,13 +15564,15 @@ class TerminalController {
             _ = panel.installDebugTextBoxInlineFixture(
                 localURL: url,
                 beforeText: beforeText,
-                afterText: afterText
+                afterText: afterText,
+                completionRootDirectory: completionRootDirectory?.isEmpty == false ? completionRootDirectory : nil
             )
             let textView = panel.textBoxInputView
             result = .ok([
                 "surface_id": panel.id.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
                 "path": url?.path ?? "",
+                "completion_root_directory": completionRootDirectory ?? "",
                 "text_box_active": panel.isTextBoxActive,
                 "has_text_view": textView != nil,
                 "text_view_has_window": textView?.window != nil,

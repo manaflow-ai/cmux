@@ -113,23 +113,16 @@ final class AutomationSocketUITests: XCTestCase {
             "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
         )
 
-        let workspace = try XCTUnwrap(
-            socketResult(
-                method: "workspace.create",
-                params: [
-                    "title": "Textbox mention XCUITest",
-                    "working_directory": skillRoot.path,
-                    "focus": true,
-                ]
+        let fixture = try XCTUnwrap(
+            waitForTextBoxFixture(
+                surfaceID: nil,
+                beforeText: "$",
+                completionRootDirectory: skillRoot.path,
+                timeout: 8.0
             ),
-            "Expected workspace.create to succeed"
-        )
-        let surfaceID = try XCTUnwrap(workspace["surface_id"] as? String, "Expected created surface id")
-
-        _ = try XCTUnwrap(
-            waitForTextBoxFixture(surfaceID: surfaceID, beforeText: "$", timeout: 8.0),
             "Expected text box fixture to mount with a bare $ trigger"
         )
+        let surfaceID = try XCTUnwrap(fixture["surface_id"] as? String, "Expected fixture surface id")
         _ = try XCTUnwrap(
             socketResult(
                 method: "debug.textbox.interact",
@@ -322,18 +315,25 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     private func waitForTextBoxFixture(
-        surfaceID: String,
+        surfaceID: String?,
         beforeText: String,
+        completionRootDirectory: String? = nil,
         timeout: TimeInterval
     ) -> [String: Any]? {
         waitForJSON(timeout: timeout) {
+            var params: [String: Any] = [
+                "before_text": beforeText,
+                "after_text": "",
+            ]
+            if let surfaceID {
+                params["surface_id"] = surfaceID
+            }
+            if let completionRootDirectory {
+                params["completion_root_directory"] = completionRootDirectory
+            }
             guard let result = self.socketResult(
                 method: "debug.textbox.inline_fixture",
-                params: [
-                    "surface_id": surfaceID,
-                    "before_text": beforeText,
-                    "after_text": "",
-                ]
+                params: params
             ) else {
                 return nil
             }

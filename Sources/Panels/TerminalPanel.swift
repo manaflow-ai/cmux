@@ -71,9 +71,11 @@ final class TerminalPanel: Panel, ObservableObject {
         let localURL: URL?
         let beforeText: String
         let afterText: String
+        let completionRootDirectory: String?
     }
 
     private var pendingDebugTextBoxInlineFixture: DebugTextBoxInlineFixture?
+    var debugTextBoxCompletionRootDirectoryOverride: String?
 
     var debugHasPendingTextBoxFocusRequest: Bool {
         shouldFocusTextBoxWhenAvailable || shouldOpenTextBoxFilePickerWhenAvailable
@@ -478,16 +480,19 @@ final class TerminalPanel: Panel, ObservableObject {
     func installDebugTextBoxInlineFixture(
         localURL: URL?,
         beforeText: String,
-        afterText: String
+        afterText: String,
+        completionRootDirectory: String? = nil
     ) -> Bool {
         textBoxInputFocusIntent = .textBox
         isTextBoxActive = true
         shouldFocusTextBoxWhenAvailable = true
+        debugTextBoxCompletionRootDirectoryOverride = completionRootDirectory
 
         let fixture = DebugTextBoxInlineFixture(
             localURL: localURL?.standardizedFileURL,
             beforeText: beforeText,
-            afterText: afterText
+            afterText: afterText,
+            completionRootDirectory: completionRootDirectory
         )
 
         pendingDebugTextBoxInlineFixture = fixture
@@ -514,6 +519,9 @@ final class TerminalPanel: Panel, ObservableObject {
                     localURL: $0,
                     submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0)
                 )
+        }
+        if let completionRootDirectory = fixture.completionRootDirectory {
+            textBoxInputView.completionRootDirectory = completionRootDirectory
         }
         textBoxContent = fixture.beforeText + fixture.afterText
         textBoxAttachments = attachment.map { [$0] } ?? []
