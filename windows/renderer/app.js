@@ -25144,7 +25144,7 @@ function quickColorPresetControlsPanel(workspace = activeWorkspace()) {
   const targetOption = colorApplyTargetOption(state.colorApplyTarget, workspace);
   const actions = quickColorPresetDefinitions.map((preset) => {
     const active = Boolean(preset.color && !targetOption.disabled && savedColorActiveForTarget(preset.color, targetOption.id, workspace));
-    return quickOverviewControlButton(preset.label, () => applyQuickColorPreset(preset.color, state.colorApplyTarget), {
+    const button = quickOverviewControlButton(preset.label, () => applyQuickColorPreset(preset.color, state.colorApplyTarget), {
       disabled: targetOption.disabled || !preset.color || active,
       title: targetOption.disabled
         ? `${targetOption.label}: ${targetOption.meta}.`
@@ -25153,6 +25153,9 @@ function quickColorPresetControlsPanel(workspace = activeWorkspace()) {
           : `Apply ${preset.label.toLowerCase()} to ${targetOption.label.toLowerCase()}.`,
       search: normalizeSettingsQuery(`quick setup color preset apply ${targetOption.label} accent workspace pane all ${active ? "active current " : ""}${preset.label} ${preset.color} ${targetOption.status} ${targetOption.meta}`)
     });
+    button.classList.add("quick-color-preset-action");
+    button.style.setProperty("--quick-preset-color", preset.color || "var(--color-accent)");
+    return button;
   });
   return quickOverviewControlsPanel({
     className: "quick-overview-colors",
