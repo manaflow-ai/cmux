@@ -27840,6 +27840,39 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return (workspaceId, surfaceId)
             }
 
+            func processBoundCodexPromptTarget(workspaceId: String) -> (workspaceId: String, surfaceId: String)? {
+                guard hookWsFlag == nil,
+                      explicitSurfaceFlag == nil,
+                      ambientWorkspaceArg != nil,
+                      ambientSurfaceArg != nil,
+                      case .promptSubmit = action,
+                      def.name == "codex",
+                      let binding = processBinding(),
+                      nonEmptyClaudeHookIdentifier(binding.workspaceId) == workspaceId,
+                      let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
+                      let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: workspaceId) else {
+                    return nil
+                }
+
+                if hasInvalidAmbientSurfaceArg || boundSurface != resolvedDirectSurfaceArg {
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process-bound-codex workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(boundSurface)) mapped=\(mapped == nil ? 0 : 1)",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                    return (workspaceId, boundSurface)
+                }
+
+                return nil
+            }
+
+            if let workspaceId = resolvedDirectWorkspaceArg,
+               let target = processBoundCodexPromptTarget(workspaceId: workspaceId) {
+                return target
+            }
+
             if hookWsFlag == nil,
                explicitSurfaceFlag == nil,
                ambientWorkspaceArg != nil,
@@ -27862,26 +27895,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
 #endif
                 return (boundWorkspace, boundSurface)
-            }
-
-            if hookWsFlag == nil,
-               explicitSurfaceFlag == nil,
-               hasInvalidAmbientSurfaceArg,
-               case .promptSubmit = action,
-               def.name == "codex",
-               let workspaceId = resolvedDirectWorkspaceArg,
-               let binding = processBinding(),
-               nonEmptyClaudeHookIdentifier(binding.workspaceId) == workspaceId,
-               let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
-               let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: workspaceId) {
-#if DEBUG
-                agentHookDebugLog(
-                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process-invalid-ambient-surface workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(boundSurface)) mapped=\(mapped == nil ? 0 : 1)",
-                    socketPath: client.socketPath,
-                    env: env
-                )
-#endif
-                return (workspaceId, boundSurface)
             }
 
             // G3 (codex jumble defense-in-depth): the surface id can arrive from the ambient env
@@ -27939,23 +27952,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             if let workspaceId = resolvedDirectWorkspaceArg {
                 if hasInvalidAmbientSurfaceArg {
-                    if hookWsFlag == nil,
-                       case .promptSubmit = action,
-                       def.name == "codex",
-                       let binding = processBinding(),
-                       let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
-                       resolveAccessibleWorkspaceId(boundWorkspaceRaw) == workspaceId,
-                       let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
-                       let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: workspaceId) {
-#if DEBUG
-                        agentHookDebugLog(
-                            "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process-corrected workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(boundSurface)) mapped=\(mapped == nil ? 0 : 1)",
-                            socketPath: client.socketPath,
-                            env: env
-                        )
-#endif
-                        return (workspaceId, boundSurface)
-                    }
 #if DEBUG
                     agentHookDebugLog(
                         "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=invalidAmbientSurface mapped=\(mapped == nil ? 0 : 1)",
