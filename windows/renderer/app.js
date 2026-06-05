@@ -23859,7 +23859,7 @@ function applyPerformanceHealthFix(checkId) {
     toast(`${check.label} is already tuned.`);
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
   toast(`${check.label} tuned.`);
   return true;
 }
@@ -23875,7 +23875,7 @@ function applyPerformanceHealthFixes() {
     toast("Performance health is already tuned.");
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
   toast("Performance health fixes applied.");
   return true;
 }
@@ -24000,7 +24000,7 @@ function applyPerformanceSetupUpdates(updates, options = {}) {
     toast(options.alreadyText || "Performance setup already matches.");
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
   toast(options.toastText || "Performance setup applied.");
   return true;
 }
@@ -24013,7 +24013,7 @@ function resetPerformanceSetupSettings() {
     toast("Performance setup already uses defaults.");
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
   toast("Performance setup reset.");
   return true;
 }
@@ -28758,7 +28758,7 @@ function resetRenderStats() {
   state.statusbarPerformanceRefreshFrame = 0;
   state.statusbarPerformanceRefreshAt = 0;
   updateStatusbarPerformanceLabels();
-  renderSettingsInspector();
+  if (state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
   toast("Performance stats reset.");
   return true;
 }
@@ -28819,7 +28819,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     return;
   }
   if (state.inspectorMode === "settings" && state.settingsCategory === "performance") {
-    renderSettingsInspector();
+    scheduleSettingsInspectorRender({ ifChanged: true });
   }
   toast(automatic ? `Performance guard enabled: ${reason}.` : "Performance tune applied.");
 }
