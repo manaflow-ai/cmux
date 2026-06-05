@@ -944,6 +944,30 @@ const lookPackDefinitions = [
     }
   },
   {
+    id: "paperWorkbench",
+    label: "Paper workbench",
+    body: "Warm neutral chrome, no wallpaper, and low-glare terminal colors for simple daily work.",
+    settings: {
+      theme: "paper",
+      accent: "oklch(84% 0.12 95)",
+      accentIntensity: "balanced",
+      surfaceTint: "warm",
+      interfaceDepth: "flat",
+      backgroundImage: "",
+      backgroundOpacity: 0,
+      backgroundBlur: 0,
+      backgroundFit: "cover",
+      backgroundRepeatMode: "auto",
+      backgroundPosition: "center",
+      backgroundEffects: "flat",
+      backgroundChromeMode: "readable",
+      backgroundReadability: "readable",
+      terminalBackground: "#1c1714",
+      terminalForeground: "#eadfce",
+      terminalCursorColor: "#f6bd60"
+    }
+  },
+  {
     id: "warmDemo",
     label: "Warm demo",
     body: "Richer presentation look with warm terminal contrast and soft background.",
