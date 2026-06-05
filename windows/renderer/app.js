@@ -1080,8 +1080,10 @@ const state = {
   terminalFocusFrame: 0,
   terminalFocusPanelId: "",
   scheduledRenderPrevious: null,
+  scheduledRenderOptions: null,
   pendingRender: false,
   pendingRenderPrevious: null,
+  pendingRenderOptions: null,
   workspaceSwitchHudTimer: 0,
   paneSwitchHudTimer: 0,
   settingsSaveTimer: 0,
@@ -10274,8 +10276,17 @@ function refreshAppStateSignature() {
   state.dataSignature = appStateSignature(state.data);
 }
 
-function scheduleRender(previousState = null) {
+function mergeRenderOptions(current = {}, next = {}) {
+  return {
+    ...current,
+    ...next,
+    skipSettingsInspector: Boolean(current?.skipSettingsInspector || next?.skipSettingsInspector)
+  };
+}
+
+function scheduleRender(previousState = null, options = {}) {
   if (previousState && !state.scheduledRenderPrevious) state.scheduledRenderPrevious = previousState;
+  state.scheduledRenderOptions = mergeRenderOptions(state.scheduledRenderOptions || {}, options);
   if (state.renderFrame) {
     state.renderStats.coalescedRenders += 1;
     return;
@@ -10283,8 +10294,10 @@ function scheduleRender(previousState = null) {
   state.renderFrame = requestAnimationFrame(() => {
     state.renderFrame = 0;
     const previous = state.scheduledRenderPrevious;
+    const renderOptions = state.scheduledRenderOptions || {};
     state.scheduledRenderPrevious = null;
-    render(previous);
+    state.scheduledRenderOptions = null;
+    render(previous, renderOptions);
   });
 }
 
@@ -10294,6 +10307,7 @@ function render(previousState, options = {}) {
   if (state.resizing) {
     state.pendingRender = true;
     state.pendingRenderPrevious ||= previousState || null;
+    state.pendingRenderOptions = mergeRenderOptions(state.pendingRenderOptions || {}, options);
     return;
   }
   const renderStartedAt = performance.now();
@@ -10382,9 +10396,11 @@ function cleanupStalePaneCache() {
 function flushPendingRender() {
   if (!state.pendingRender) return;
   const previous = state.pendingRenderPrevious;
+  const options = state.pendingRenderOptions || {};
   state.pendingRender = false;
   state.pendingRenderPrevious = null;
-  render(previous);
+  state.pendingRenderOptions = null;
+  render(previous, options);
 }
 
 function allAttentionPanels() {
@@ -22036,8 +22052,10 @@ async function syncActivePaneLook(panel = focusedPanel() || activePanel(), works
   await updatePanels(targets.map((candidate) => ({
     panelId: candidate.id,
     updates
-  })));
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  })), {
+    skipSettingsInspector: state.inspectorMode === "settings"
+  });
+  refreshActivePaneSetupSettings(options);
   toast(`Pane look synced to ${targets.length} ${kind} pane${targets.length === 1 ? "" : "s"}.`);
   return true;
 }
@@ -41336,7 +41354,7 @@ async function updatePanel(panelId, updates, options = {}) {
   }
 }
 
-async function updatePanels(panelUpdates) {
+async function updatePanels(panelUpdates, options = {}) {
   const entries = (panelUpdates || [])
     .map((entry) => ({
       panelId: String(entry?.panelId || ""),
@@ -41348,7 +41366,11 @@ async function updatePanels(panelUpdates) {
   for (const entry of entries) {
     changed = optimisticUpdatePanel(entry.panelId, entry.updates, { render: false }) || changed;
   }
-  if (changed) scheduleRender();
+  if (changed && options.render !== false) {
+    scheduleRender(null, {
+      skipSettingsInspector: Boolean(options.skipSettingsInspector)
+    });
+  }
   try {
     const results = await Promise.all(entries.map((entry) => api(`/api/panels/${entry.panelId}`, {
       method: "PATCH",
