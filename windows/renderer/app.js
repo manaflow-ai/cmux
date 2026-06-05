@@ -36081,7 +36081,7 @@ async function saveCurrentWorkspaceBlueprint(options = {}) {
   return saved;
 }
 
-async function updateWorkspaceBlueprint(blueprintId) {
+async function updateWorkspaceBlueprint(blueprintId, options = {}) {
   const blueprint = state.workspaceBlueprints.find((candidate) => candidate.id === blueprintId);
   if (!blueprint) return;
   const workspace = activeWorkspace();
@@ -36099,7 +36099,7 @@ async function updateWorkspaceBlueprint(blueprintId) {
     createdAt: blueprint.createdAt
   }));
   if (!updated) return;
-  renderSettingsInspector();
+  refreshWorkspaceBlueprintSettings(options);
   toast(`${blueprint.label} blueprint updated.`);
 }
 
@@ -36194,7 +36194,7 @@ async function applyWorkspaceBlueprint(blueprintId, workspaceId = activeWorkspac
   }
 }
 
-async function renameWorkspaceBlueprint(blueprintId) {
+async function renameWorkspaceBlueprint(blueprintId, options = {}) {
   const blueprint = state.workspaceBlueprints.find((candidate) => candidate.id === blueprintId);
   if (!blueprint) return;
   const label = await showTextDialog({
@@ -36210,11 +36210,11 @@ async function renameWorkspaceBlueprint(blueprintId) {
     createdAt: blueprint.createdAt
   });
   if (!renamed) return;
-  renderSettingsInspector();
+  refreshWorkspaceBlueprintSettings(options);
   toast("Workspace blueprint renamed.");
 }
 
-async function deleteWorkspaceBlueprint(blueprintId) {
+async function deleteWorkspaceBlueprint(blueprintId, options = {}) {
   const blueprint = state.workspaceBlueprints.find((candidate) => candidate.id === blueprintId);
   if (!blueprint) return;
   if (!await showConfirmDialog({
@@ -36225,7 +36225,7 @@ async function deleteWorkspaceBlueprint(blueprintId) {
   })) return;
   state.workspaceBlueprints = state.workspaceBlueprints.filter((candidate) => candidate.id !== blueprintId);
   saveWorkspaceBlueprints();
-  renderSettingsInspector();
+  refreshWorkspaceBlueprintSettings(options);
   toast("Workspace blueprint deleted.");
 }
 
