@@ -29150,6 +29150,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
 
   if (!workspace) ids.push("new-workspace");
   else if (terminalCount === 0) ids.push("new-terminal");
+  if (workspaceNeedsQuickRename(workspace)) ids.push("rename");
   if (onlyDisplayCleanup) ids.push("simplify-display");
   else if (healthIssueCount > 0) ids.push("fix-lag");
   if (lagReport.warning && ids.length < 4) ids.push("copy-lag-report");
@@ -29170,7 +29171,6 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   if (!ids.includes("save-color-set") && canSaveCustomColor(state.settings.accent) && !customColorPaletteHasColor(state.settings.accent) && ids.length < 4) ids.push("save-accent-color");
   if (!ids.includes("save-background-set") && appBackground && canSaveBackgroundImage(appBackground) && !savedBackgroundImageExists(appBackground) && ids.length < 4) ids.push("save-background-image");
   if (!ids.includes("save-background-set") && activeTerminalBackground && canSaveBackgroundImage(activeTerminalBackground) && !savedBackgroundImageExists(activeTerminalBackground) && ids.length < 4) ids.push("save-terminal-image");
-  if (workspaceNeedsQuickRename(workspace)) ids.push("rename");
   if (workspace && panels.length > 1 && !workspaceBlueprintsFull()) ids.push("save-layout");
   if (!libraryBackup.disabled && !libraryBackup.backedUp && ids.length < 4) ids.push("backup-library");
   if (workspace && panels.length > 0 && ids.length < 4) ids.push("pane-settings");
