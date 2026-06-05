@@ -16925,6 +16925,13 @@ function refreshSettingsChromeRefs(root = elements.inspectorBody) {
   state.settingsSearchFeedback = root.querySelector("[data-settings-search-feedback]");
 }
 
+function clearSettingsSearch(options = {}) {
+  state.settingsQuery = "";
+  state.settingsSearchResultText = "";
+  state.settingsSearchFocusPending = options.focusSearch !== false;
+  scheduleSettingsInspectorRender({ resetScroll: true });
+}
+
 function renderSettingsChrome(host) {
   const reactSettings = window.CmuxSettingsUi;
   const focusSearchOnMount = state.settingsSearchFocusPending;
@@ -16952,6 +16959,7 @@ function renderSettingsChrome(host) {
       tabTitle: formatMessage("settings.tabTitle", { label: "{label}" })
     },
     onCategory: (category) => {
+      if (category === state.settingsCategory && !state.settingsQuery) return;
       state.settingsCategory = category;
       state.settingsQuery = "";
       state.settingsSearchResultText = "";
@@ -16971,12 +16979,7 @@ function renderSettingsChrome(host) {
         scheduleSettingsFilter();
       }
     },
-    onClear: () => {
-      state.settingsQuery = "";
-      state.settingsSearchResultText = "";
-      state.settingsSearchFocusPending = true;
-      scheduleSettingsInspectorRender({ resetScroll: true });
-    }
+    onClear: clearSettingsSearch
   });
   refreshSettingsChromeRefs(host);
 }
@@ -17006,6 +17009,12 @@ function settingsSearch() {
     }
     scheduleSettingsFilter();
   });
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !state.settingsQuery) return;
+    event.preventDefault();
+    event.stopPropagation();
+    clearSettingsSearch();
+  });
   const clear = document.createElement("button");
   clear.className = "settings-search-clear";
   clear.type = "button";
@@ -17013,12 +17022,7 @@ function settingsSearch() {
   clear.setAttribute("aria-label", t("settings.clearSearch"));
   clear.innerHTML = controlIconMarkup("close");
   clear.disabled = !state.settingsQuery;
-  clear.onclick = () => {
-    state.settingsQuery = "";
-    state.settingsSearchResultText = "";
-    state.settingsSearchFocusPending = true;
-    scheduleSettingsInspectorRender({ resetScroll: true });
-  };
+  clear.onclick = () => clearSettingsSearch();
   const feedback = document.createElement("div");
   feedback.className = "settings-search-feedback";
   feedback.dataset.settingsSearchFeedback = "true";

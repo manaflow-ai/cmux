@@ -207,12 +207,25 @@ export function SettingsShell({
     onQuery(nextQuery);
   };
 
+  const selectCategory = (categoryId) => {
+    if (categoryId === activeCategory && !draftQuery) return;
+    onCategory(categoryId);
+  };
+
   const clearSearch = () => {
     if (!draftQuery) return;
     searchWasClearedRef.current = true;
     setDraftQuery("");
     onClear();
   };
+
+  const onSearchKeyDown = (event) => {
+    if (event.key !== "Escape" || !draftQuery) return;
+    event.preventDefault();
+    event.stopPropagation();
+    clearSearch();
+  };
+
   const tabTitleTemplate = safeLabels.tabTitle;
   const feedbackText = searchFeedback || safeLabels.searchHint;
 
@@ -227,6 +240,7 @@ export function SettingsShell({
           ref={searchInputRef}
           value={draftQuery}
           onChange={(event) => changeSearch(event.target.value)}
+          onKeyDown={onSearchKeyDown}
         />
         <button
           aria-label={safeLabels.clearSearch}
@@ -275,7 +289,7 @@ export function SettingsShell({
                 className={`settings-page-tab${active ? " is-active" : ""}`}
                 data-settings-category={id}
                 key={id}
-                onClick={() => onCategory(id)}
+                onClick={() => selectCategory(id)}
                 role="tab"
                 tabIndex={active ? 0 : -1}
                 title={tabTitleTemplate.replace("{label}", label)}
