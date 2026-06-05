@@ -149,6 +149,12 @@ final class RemoteTmuxController {
             focus: focus,
             onInput: { [weak connection] data in
                 Task { @MainActor in connection?.sendKeys(paneId: paneId, data: data) }
+            },
+            // Size the remote tmux client to this display surface's rendered grid,
+            // so a single attached pane doesn't stay at ssh's default 80×24 and
+            // render TUIs mangled (matches the session-mirror display path).
+            onResize: { [weak connection] columns, rows in
+                connection?.setClientSize(columns: columns, rows: rows)
             }
         ) else { return }
         displayPanels[panelKey] = panel

@@ -116,6 +116,14 @@ final class RemoteTmuxSessionMirror {
                     focus: false,
                     onInput: { [weak connection] data in
                         Task { @MainActor in connection?.sendKeys(paneId: firstPaneId, data: data) }
+                    },
+                    // Size the remote tmux client to the rendered grid so a single-
+                    // pane window (the common case — where a claude / claude agents
+                    // TUI runs) doesn't stay at ssh's default 80×24 and render
+                    // mangled. The multi-pane path handles this via the window
+                    // mirror's own geometry.
+                    onResize: { [weak connection] columns, rows in
+                        connection?.setClientSize(columns: columns, rows: rows)
                     }
                 ) else { continue }
                 panelIdByWindow[windowId] = panel.id
@@ -169,6 +177,13 @@ final class RemoteTmuxSessionMirror {
         )
         windowMirrorByWindowId[windowId] = mirror
         workspace.setRemoteTmuxWindowMirror(mirror, forPanelId: panelId)
+        // The window mirror now owns client sizing for this window (it sends
+        // refresh-client -C for the whole multi-pane area). Clear the original
+        // single-pane display surface's resize hook so both paths don't drive the
+        // same connection with differently-computed sizes.
+        if let panel = workspace.panels[panelId] as? TerminalPanel {
+            panel.surface.onManualGridResize = nil
+        }
     }
 
     /// The tab title for a mirrored window: the tmux window name, or a localized

@@ -5344,6 +5344,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// remote-tmux pane display surfaces.
     let manualIO: Bool
     private let manualInputHandler: (@Sendable (Data) -> Void)?
+    /// For MANUAL-I/O remote tmux display surfaces: invoked on the main actor
+    /// whenever the rendered grid (columns × rows) changes, so the owner can size
+    /// the remote tmux client (`refresh-client -C`) to match. Without it a freshly
+    /// attached session stays at ssh's default 80×24 while cmux renders a much
+    /// larger surface, and TUIs (claude, claude agents) paint into the wrong grid —
+    /// doubled borders, overlapping output.
+    var onManualGridResize: (@MainActor (_ columns: Int, _ rows: Int) -> Void)?
+    /// Last grid reported through ``onManualGridResize`` (so we fire only on a real
+    /// column/row change, not on every sub-cell pixel nudge).
+    private var lastReportedManualGrid: (columns: Int, rows: Int)?
     /// Retained userdata for the MANUAL-mode `io_write_cb`; released alongside
     /// the surface (see ``teardownSurface()``).
     private var manualIOContext: Unmanaged<RemoteTmuxManualIOWriteBox>?
@@ -6834,6 +6844,22 @@ final class TerminalSurface: Identifiable, ObservableObject {
             ghostty_surface_set_size(surface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
+        }
+
+        // Remote tmux display surfaces: keep the remote tmux client sized to the
+        // rendered grid so a freshly attached session doesn't stay at ssh's
+        // default 80×24 (which mangles TUIs like claude / claude agents). Only
+        // report when actually on screen and when the cell grid — not just the
+        // pixel area — changed.
+        if manualIO, let report = onManualGridResize, attachedView?.window != nil {
+            let grid = ghostty_surface_size(surface)
+            let cols = Int(grid.columns)
+            let rows = Int(grid.rows)
+            if cols > 1, rows > 1,
+               lastReportedManualGrid?.columns != cols || lastReportedManualGrid?.rows != rows {
+                lastReportedManualGrid = (cols, rows)
+                report(cols, rows)
+            }
         }
 
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.

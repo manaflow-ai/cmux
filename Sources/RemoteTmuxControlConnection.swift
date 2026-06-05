@@ -166,6 +166,20 @@ final class RemoteTmuxControlConnection {
         sendInternal(command, kind: .other)
     }
 
+    /// Sizes the tmux control client to `columns`×`rows` cells (tmux
+    /// `refresh-client -C`) so the remote windows/panes reflow to the rendered
+    /// cmux grid. Without this a freshly attached session stays at ssh's default
+    /// 80×24 and TUIs (claude, claude agents) render mangled. No-ops once the
+    /// connection has exited or for a degenerate grid.
+    ///
+    /// This is the single sizing entrypoint every remote-tmux render path routes
+    /// through (the single-pane display surface and the multi-pane window mirror),
+    /// so client sizing stays one shared behavior rather than duplicated sends.
+    func setClientSize(columns: Int, rows: Int) {
+        guard !exited, columns > 0, rows > 0 else { return }
+        send("refresh-client -C \(columns)x\(rows)")
+    }
+
     /// Requests the current window list + layouts (used to (re)build topology).
     ///
     /// `#{window_name}` is placed last because it can contain spaces, while the

@@ -14678,7 +14678,8 @@ final class Workspace: Identifiable, ObservableObject {
         remotePaneId: Int,
         title customTitle: String? = nil,
         focus: Bool = false,
-        onInput: @escaping @Sendable (Data) -> Void
+        onInput: @escaping @Sendable (Data) -> Void,
+        onResize: (@MainActor (_ columns: Int, _ rows: Int) -> Void)? = nil
     ) -> TerminalPanel? {
         guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
         else { return nil }
@@ -14691,6 +14692,7 @@ final class Workspace: Identifiable, ObservableObject {
             manualIO: true,
             manualInputHandler: onInput
         )
+        surface.onManualGridResize = onResize
         let newPanel = TerminalPanel(workspaceId: id, surface: surface)
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel

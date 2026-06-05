@@ -110,7 +110,7 @@ final class RemoteTmuxWindowMirror {
         let rows = max(5, Int(contentSizePoints.height / cell.height))
         guard lastClientSize?.cols != cols || lastClientSize?.rows != rows else { return }
         lastClientSize = (cols, rows)
-        connection?.send("refresh-client -C \(cols)x\(rows)")
+        connection?.setClientSize(columns: cols, rows: rows)
     }
 
     /// Records the user-focused pane and asks tmux to make it active.
