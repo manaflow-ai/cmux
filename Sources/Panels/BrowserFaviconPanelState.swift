@@ -13,9 +13,9 @@ nonisolated enum BrowserFaviconPanelState: Equatable, Sendable {
 
     func shouldStartResolution(for request: BrowserFaviconRequest) -> Bool {
         switch self {
-        case .empty:
+        case .empty, .resolving:
             return true
-        case .resolving(let current), .resolved(let current, _):
+        case .resolved(let current, _):
             return current != request
         case .failed:
             return true

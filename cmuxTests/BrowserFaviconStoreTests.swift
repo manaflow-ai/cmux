@@ -98,6 +98,20 @@ struct BrowserFaviconStoreTests {
         #expect(await second.value == expectedPNG)
         #expect(probe.attemptCount == 1)
     }
+
+    @Test
+    func resolvingSameRequestStartsResolution() async throws {
+        let request = try #require(
+            BrowserFaviconRequest(
+                pageURL: try #require(URL(string: "https://github.com/manaflow-ai/cmux")),
+                iconURL: try #require(URL(string: "https://github.githubassets.com/favicons/favicon.svg")),
+                cachePartition: "profile:test"
+            )
+        )
+
+        #expect(BrowserFaviconPanelState.resolving(request).shouldStartResolution(for: request))
+        #expect(!BrowserFaviconPanelState.resolved(request, pngData: Data([1])).shouldStartResolution(for: request))
+    }
 }
 
 @MainActor
