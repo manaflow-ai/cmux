@@ -83,10 +83,10 @@ export function codeViewUnsafeCSS(): string {
       min-height: 30px;
       background-color: var(--cmux-diff-surface-bg) !important;
     }
-    [data-line-type='change-addition'] {
+    [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--diffs-addition-base);
     }
-    [data-line-type='change-deletion'] {
+    [data-line-type='change-deletion']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--diffs-deletion-base);
     }
     [data-separator='line-info'] {

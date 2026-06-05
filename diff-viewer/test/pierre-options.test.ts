@@ -21,8 +21,10 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
   expect(css).not.toContain("@container sticky-header scroll-state");
   expect(css).toContain("[data-separator='line-info'] {");
   expect(css).toContain("[data-separator='line-info'] [data-separator-wrapper]");
-  expect(css).not.toContain("[data-line-type='change-addition'] span");
-  expect(css).not.toContain("[data-line-type='change-deletion'] span");
+  expect(css).toContain("[data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer])");
+  expect(css).toContain("[data-line-type='change-deletion']:where([data-column-number], [data-gutter-buffer])");
+  expect(css).not.toContain("[data-line-type='change-addition'] {");
+  expect(css).not.toContain("[data-line-type='change-deletion'] {");
 });
 
 test("file tree sticky overlays use a non-transparent surface", () => {
