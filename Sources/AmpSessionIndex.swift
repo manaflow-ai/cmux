@@ -140,10 +140,10 @@ extension SessionIndexStore {
             let basename = (cwd as NSString).lastPathComponent
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !basename.isEmpty {
-                return String(
+                return String(format: String(
                     localized: "sessionIndex.amp.titleInDirectory",
-                    defaultValue: "Amp session in \(basename)"
-                )
+                    defaultValue: "Amp session in %@"
+                ), basename)
             }
         }
         return String(localized: "sessionIndex.amp.title", defaultValue: "Amp session")
