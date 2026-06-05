@@ -1349,6 +1349,7 @@ jobs:
               -derivedDataPath "$DERIVED_DATA_PATH" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
+              CMUX_UI_TEST_DISPLAY_HELPER_BINARY_PATH="$HELPER_PATH" \
               -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
               test-without-building
           }
