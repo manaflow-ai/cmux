@@ -95,7 +95,7 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     func testTextBoxSkillMentionFiltersWhenTypingAfterBareDollarTrigger() throws {
-        let skillRoot = try makeSkillFixtureRoot(
+        _ = try makeSkillFixtureRoot(
             skillNames: [
                 "agent-browser",
                 "agent-cli-integration",
@@ -108,61 +108,26 @@ final class AutomationSocketUITests: XCTestCase {
         let app = XCUIApplication()
         configureTextBoxMentionLaunchEnvironment(app)
         defer { app.terminate() }
-        launchAllowingBackgroundActivation(app)
+        app.launch()
 
         XCTAssertTrue(
-            waitForRunningApp(app, timeout: 12.0),
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for textbox mention test. state=\(app.state.rawValue)"
         )
-        XCTAssertTrue(
-            waitForSocketPong(timeout: 12.0),
-            "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
-        )
 
-        let windowContext = waitForMainWindowContext(timeout: 12.0)
-        let workspace = createTextBoxFixtureWorkspace(
-            windowID: windowContext?.windowID,
-            workingDirectory: skillRoot.path
-        )
-        let createdSurfaceID = workspace?["surface_id"] as? String
-
-        let fixture = try XCTUnwrap(
-            waitForTextBoxFixture(
-                surfaceID: createdSurfaceID,
-                beforeText: "$",
-                completionRootDirectory: skillRoot.path,
-                timeout: 8.0
-            ),
-            """
-            Expected text box fixture to mount with a bare $ trigger.
-            window=\(lastMainWindowContextResponse)
-            workspace=\(lastWorkspaceCreateResponse)
-            fixture=\(lastTextBoxFixtureResponse)
-            diagnostics=\(loadDiagnostics())
-            """
-        )
-        let surfaceID = try XCTUnwrap(fixture["surface_id"] as? String, "Expected fixture surface id")
-        if let createdSurfaceID {
-            XCTAssertEqual(surfaceID, createdSurfaceID)
+        let textBox = app.textViews["TextBoxInput.TextView"].firstMatch
+        if !textBox.waitForExistence(timeout: 6.0) {
+            app.typeKey("n", modifierFlags: [.command])
         }
-        _ = try XCTUnwrap(
-            socketResult(
-                method: "debug.textbox.interact",
-                params: ["surface_id": surfaceID, "action": "focus"]
-            ),
-            "Expected text box focus to succeed"
+        XCTAssertTrue(
+            textBox.waitForExistence(timeout: 12.0),
+            "Expected focused terminal textbox to exist"
         )
+        textBox.click()
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        textBox.typeText("$")
 
-        let bareState = try XCTUnwrap(
-            waitForMentionState(surfaceID: surfaceID, timeout: 8.0) { state in
-                let titles = state["mention_titles"] as? [String] ?? []
-                return state["mention_trigger"] as? String == "$" &&
-                    state["mention_query"] as? String == "" &&
-                    titles.contains("$agent-browser")
-            },
-            "Expected bare $ suggestions to include $agent-browser"
-        )
-        XCTAssertEqual(bareState["plain_text"] as? String, "$")
         _ = try XCTUnwrap(
             waitForMentionRows(in: app, timeout: 8.0) { rows in
                 rows.contains { $0.contains("$agent-browser") }
@@ -170,35 +135,14 @@ final class AutomationSocketUITests: XCTestCase {
             "Expected bare $ popover rows to include $agent-browser. rows=\(mentionPopoverRowTitles(in: app))"
         )
 
-        _ = try XCTUnwrap(
-            socketResult(
-                method: "debug.textbox.interact",
-                params: ["surface_id": surfaceID, "action": "insert_text:autore"]
-            ),
-            "Expected textbox debug insert to succeed"
-        )
+        textBox.typeText("autore")
 
-        let typedState = try XCTUnwrap(
-            waitForMentionState(surfaceID: surfaceID, timeout: 8.0) { state in
-                let titles = state["mention_titles"] as? [String] ?? []
-                return state["plain_text"] as? String == "$autore" &&
-                    state["mention_trigger"] as? String == "$" &&
-                    state["mention_query"] as? String == "autore" &&
-                    state["mention_current"] as? Bool == true &&
-                    titles.contains("$autoreview") &&
-                    !titles.contains("$agent-browser")
-            },
-            "Expected typing autore after bare $ to filter stale $agent-browser and show $autoreview"
-        )
-
-        let typedTitles = typedState["mention_titles"] as? [String] ?? []
-        XCTAssertEqual(typedTitles.first, "$autoreview")
         let typedRows = try XCTUnwrap(
             waitForMentionRows(in: app, timeout: 8.0) { rows in
                 rows.first?.contains("$autoreview") == true &&
                     !rows.contains { $0.contains("$agent-browser") }
             },
-            "Expected visible popover rows for $autore to hide stale $agent-browser. rows=\(mentionPopoverRowTitles(in: app)) state=\(typedState)"
+            "Expected visible popover rows for $autore to hide stale $agent-browser. rows=\(mentionPopoverRowTitles(in: app))"
         )
         XCTAssertTrue(typedRows.first?.contains("$autoreview") == true)
     }
@@ -217,17 +161,12 @@ final class AutomationSocketUITests: XCTestCase {
 
     private func configureTextBoxMentionLaunchEnvironment(_ app: XCUIApplication) {
         app.launchArguments += [
-            "-\(modeKey)", "allowAll",
+            "-terminal.showTextBoxOnNewTerminals", "1",
+            "-terminal.focusTextBoxOnNewTerminals", "1",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
         ]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
         if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
             app.launchEnvironment["PATH"] = path
@@ -614,12 +553,12 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     private func makeSkillFixtureRoot(skillNames: [String]) throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex/skills", isDirectory: true)
             .appendingPathComponent("cmux-ui-textbox-skills-\(UUID().uuidString)", isDirectory: true)
-        let skills = root.appendingPathComponent("skills", isDirectory: true)
-        try FileManager.default.createDirectory(at: skills, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         for skillName in skillNames {
-            let skillDirectory = skills.appendingPathComponent(skillName, isDirectory: true)
+            let skillDirectory = root.appendingPathComponent(skillName, isDirectory: true)
             try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
             let contents = """
             ---

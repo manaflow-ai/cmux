@@ -3299,6 +3299,7 @@ struct TextBoxInputView: NSViewRepresentable {
         )
         textView.textContainerInset = TextBoxLayout.textInset
         textView.textContainer?.lineFragmentPadding = 0
+        textView.setAccessibilityIdentifier("TextBoxInput.TextView")
         textView.registerForDraggedTypes([.fileURL])
 
         let scrollView = NSScrollView()
