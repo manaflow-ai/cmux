@@ -17534,6 +17534,7 @@ function activeBackgroundScopeSnapshot() {
 function updateActiveBackgroundScopeSnapshot(snapshot, workspace = activeWorkspace()) {
   if (!snapshot) return;
   const selectedTarget = normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
+  const readability = backgroundReadabilityCssVars();
   for (const button of snapshot.querySelectorAll("[data-background-snapshot-target]")) {
     const target = normalizeBackgroundApplyTarget(button.dataset.backgroundSnapshotTarget);
     const option = backgroundApplyTargetOption(target, workspace);
@@ -17556,6 +17557,9 @@ function updateActiveBackgroundScopeSnapshot(snapshot, workspace = activeWorkspa
     setStylePropertyIfChanged(button, "--snapshot-background-position", model.position);
     setStylePropertyIfChanged(button, "--snapshot-background-blur", `${state.settings.backgroundBlur}px`);
     setStylePropertyIfChanged(button, "--snapshot-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
+    setStylePropertyIfChanged(button, "--snapshot-background-readability-opacity", model.hasBackground ? readability.base : "0");
+    setStylePropertyIfChanged(button, "--snapshot-background-tinted-opacity", model.hasBackground ? readability.tinted : "0");
+    setStylePropertyIfChanged(button, "--snapshot-background-vignette-opacity", model.hasBackground ? readability.vignette : "0");
     setTextIfChanged(button.querySelector(".active-background-snapshot-label"), option.label);
     setTextIfChanged(button.querySelector(".active-background-snapshot-value"), model.label);
   }
@@ -17819,6 +17823,7 @@ function refreshBackgroundPreviewNodes() {
   for (const panel of elements.inspectorBody.querySelectorAll(".active-background-panel")) {
     const workspace = activeWorkspace();
     const model = activeBackgroundPanelViewModel(state.backgroundApplyTarget, workspace);
+    const readability = backgroundReadabilityCssVars();
     toggleClassIfChanged(panel, "has-image", model.hasBackground);
     setStylePropertyIfChanged(panel, "--active-background-image", model.image);
     setStylePropertyIfChanged(panel, "--active-background-repeat", model.repeat);
@@ -17826,6 +17831,9 @@ function refreshBackgroundPreviewNodes() {
     setStylePropertyIfChanged(panel, "--active-background-position", model.position);
     setStylePropertyIfChanged(panel, "--active-background-blur", `${state.settings.backgroundBlur}px`);
     setStylePropertyIfChanged(panel, "--active-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
+    setStylePropertyIfChanged(panel, "--active-background-readability-opacity", model.hasBackground ? readability.base : "0");
+    setStylePropertyIfChanged(panel, "--active-background-tinted-opacity", model.hasBackground ? readability.tinted : "0");
+    setStylePropertyIfChanged(panel, "--active-background-vignette-opacity", model.hasBackground ? readability.vignette : "0");
     const kicker = panel.querySelector(".active-background-kicker");
     const title = panel.querySelector(".active-background-title");
     const source = panel.querySelector(".active-background-source");
