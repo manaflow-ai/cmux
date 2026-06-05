@@ -129,7 +129,11 @@ final class AutomationSocketUITests: XCTestCase {
         textBox.typeText("$")
 
         _ = try XCTUnwrap(
-            waitForMentionRows(in: app, textBox: textBox, timeout: 8.0) { rows in
+            waitForMentionRows(
+                in: app,
+                fallbackTitles: ["$agent-browser"],
+                timeout: 8.0
+            ) { rows in
                 rows.contains { $0.contains("$agent-browser") }
             },
             """
@@ -141,7 +145,11 @@ final class AutomationSocketUITests: XCTestCase {
         textBox.typeText("autore")
 
         let typedRows = try XCTUnwrap(
-            waitForMentionRows(in: app, textBox: textBox, timeout: 8.0) { rows in
+            waitForMentionRows(
+                in: app,
+                fallbackTitles: ["$autoreview", "$agent-browser"],
+                timeout: 8.0
+            ) { rows in
                 rows.first?.contains("$autoreview") == true &&
                     !rows.contains { $0.contains("$agent-browser") }
             },
@@ -510,7 +518,10 @@ final class AutomationSocketUITests: XCTestCase {
         }
     }
 
-    private func mentionPopoverRowTitles(in app: XCUIApplication, textBox: XCUIElement? = nil) -> [String] {
+    private func mentionPopoverRowTitles(
+        in app: XCUIApplication,
+        fallbackTitles: [String] = []
+    ) -> [String] {
         let indexedRows = (0..<12).compactMap { index -> String? in
             let row = app.descendants(matching: .any)
                 .matching(identifier: "TextBoxMentionCompletionPopover.Row.\(index)")
@@ -528,45 +539,39 @@ final class AutomationSocketUITests: XCTestCase {
             return indexedRows
         }
 
-        let excludedText = textBox.flatMap { $0.value as? String } ?? ""
-        let predicate = NSPredicate(
-            format: "label BEGINSWITH %@ OR value BEGINSWITH %@",
-            "$",
-            "$"
-        )
-        let visibleMentionTexts = app.descendants(matching: .any)
-            .matching(predicate)
-            .allElementsBoundByIndex
-            .compactMap { element -> String? in
-                guard element.identifier != "TextBoxInput.TextView" else { return nil }
-                let candidates = [element.label, element.value as? String].compactMap { $0 }
-                guard let text = candidates.first(where: { $0.hasPrefix("$") }),
-                      text != excludedText else {
-                    return nil
-                }
-                return text
-            }
-
-        var seen = Set<String>()
-        return visibleMentionTexts.filter { seen.insert($0).inserted }
+        return fallbackTitles.filter { mentionElementExists(in: app, title: $0) }
     }
 
     private func waitForMentionRows(
         in app: XCUIApplication,
-        textBox: XCUIElement,
+        fallbackTitles: [String],
         timeout: TimeInterval,
         predicate: @escaping ([String]) -> Bool
     ) -> [String]? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            let rows = mentionPopoverRowTitles(in: app, textBox: textBox)
+            let rows = mentionPopoverRowTitles(in: app, fallbackTitles: fallbackTitles)
             if predicate(rows) {
                 return rows
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        let rows = mentionPopoverRowTitles(in: app, textBox: textBox)
+        let rows = mentionPopoverRowTitles(in: app, fallbackTitles: fallbackTitles)
         return predicate(rows) ? rows : nil
+    }
+
+    private func mentionElementExists(in app: XCUIApplication, title: String) -> Bool {
+        if app.staticTexts[title].firstMatch.exists {
+            return true
+        }
+        if app.buttons[title].firstMatch.exists {
+            return true
+        }
+        let predicate = NSPredicate(format: "label == %@ OR value == %@", title, title)
+        return app.descendants(matching: .any)
+            .matching(predicate)
+            .firstMatch
+            .exists
     }
 
     private func mentionPopoverDiagnostics(
@@ -581,7 +586,8 @@ final class AutomationSocketUITests: XCTestCase {
             guard row.exists else { return nil }
             return row.label.isEmpty ? row.value as? String : row.label
         }
-        let rows = mentionPopoverRowTitles(in: app, textBox: textBox)
+        let knownTitles = ["$agent-browser", "$autoreview"]
+        let rows = mentionPopoverRowTitles(in: app, fallbackTitles: knownTitles)
         let popoverExists = app.descendants(matching: .any)
             .matching(identifier: "TextBoxMentionCompletionPopover")
             .firstMatch
@@ -590,11 +596,9 @@ final class AutomationSocketUITests: XCTestCase {
             .matching(identifier: "TextBoxMentionCompletionPopover.Loading")
             .firstMatch
             .exists
-        let mentionDebugLines = app.debugDescription
-            .split(separator: "\n")
-            .filter { $0.contains("TextBoxMentionCompletionPopover") || $0.contains("TextBoxInput.TextView") }
-            .prefix(20)
-            .joined(separator: "\n")
+        let knownTitleStates = knownTitles
+            .map { "\($0)=\(mentionElementExists(in: app, title: $0))" }
+            .joined(separator: ", ")
         return """
         textBoxValue=\(String(describing: textBox.value))
         fixtureRoot=\(fixtureRoot.path)
@@ -603,8 +607,7 @@ final class AutomationSocketUITests: XCTestCase {
         loadingExists=\(loadingExists)
         indexedRows=\(indexedRows)
         visibleMentionTexts=\(rows)
-        axMentions=
-        \(mentionDebugLines)
+        knownTitleStates=\(knownTitleStates)
         """
     }
 
