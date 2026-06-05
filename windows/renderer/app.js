@@ -308,6 +308,7 @@ const performanceGuardSlowTerminalConnectMs = 1500;
 const performanceHealthBackgroundOpacityLimit = 16;
 const performanceHealthScrollbackLimit = 10000;
 const settingsDisclosureSearchMountBatchSize = 4;
+const settingsSearchInteractiveFilterDelayMs = 90;
 const toastFeedbackModeTokens = new Map([
   ["quiet", { limit: 2, duration: 2200 }],
   ["balanced", { limit: 4, duration: 3200 }],
@@ -1134,6 +1135,7 @@ const state = {
   layoutSettingsPreviewFrame: 0,
   browserSettingsPreviewFrame: 0,
   settingsFilterFrame: 0,
+  settingsFilterTimer: 0,
   performanceMetricsRefreshFrame: 0,
   performanceMetricsRefreshTimer: 0,
   performanceMetricsRefreshAt: 0,
@@ -16885,7 +16887,7 @@ function renderSettingsChrome(host) {
         scheduleSettingsInspectorRender({ resetScroll: true });
       } else {
         setSettingsSearchResultText(state.settingsSearchResultText);
-        scheduleSettingsFilter();
+        scheduleSettingsFilter({ delay: settingsSearchInteractiveFilterDelayMs });
       }
     },
     onClear: clearSettingsSearch
@@ -16916,7 +16918,7 @@ function settingsSearch() {
       scheduleSettingsInspectorRender({ resetScroll: true });
       return;
     }
-    scheduleSettingsFilter();
+    scheduleSettingsFilter({ delay: settingsSearchInteractiveFilterDelayMs });
   });
   input.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || !state.settingsQuery) return;
@@ -23434,7 +23436,20 @@ function settingSegmentedControl(settingKey, choices, searchTerms = "", options 
   return control;
 }
 
-function scheduleSettingsFilter() {
+function scheduleSettingsFilter(options = {}) {
+  const delay = Math.max(0, Number(options.delay) || 0);
+  if (delay > 0 && !state.settingsFilterFrame) {
+    if (state.settingsFilterTimer) window.clearTimeout(state.settingsFilterTimer);
+    state.settingsFilterTimer = window.setTimeout(() => {
+      state.settingsFilterTimer = 0;
+      scheduleSettingsFilter();
+    }, delay);
+    return;
+  }
+  if (state.settingsFilterTimer) {
+    window.clearTimeout(state.settingsFilterTimer);
+    state.settingsFilterTimer = 0;
+  }
   if (state.settingsFilterFrame) return;
   state.settingsFilterFrame = requestAnimationFrame(() => {
     state.settingsFilterFrame = 0;
