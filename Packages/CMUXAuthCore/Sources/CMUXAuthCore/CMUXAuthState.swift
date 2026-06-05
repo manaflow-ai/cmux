@@ -86,13 +86,13 @@ public struct CMUXAuthState: Equatable, Sendable {
         }
 
         if autoLoginCredentials != nil {
-            return Self(isAuthenticated: true, currentUser: cachedUser, isRestoringSession: false)
+            return Self(isAuthenticated: false, currentUser: cachedUser, isRestoringSession: true)
         }
 
         return Self(
-            isAuthenticated: hasTokens,
+            isAuthenticated: false,
             currentUser: cachedUser,
-            isRestoringSession: false
+            isRestoringSession: hasTokens
         )
     }
 
