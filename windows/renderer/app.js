@@ -5738,7 +5738,7 @@ function selectColorApplyTarget(target = state.colorApplyTarget, options = {}) {
   }
   if (state.colorApplyTarget === nextTarget) return false;
   state.colorApplyTarget = nextTarget;
-  if (options.render !== false && !refreshSavedColorPalettePanels()) renderSettingsInspector();
+  refreshColorTargetSettings(options);
   return true;
 }
 
@@ -21178,6 +21178,8 @@ function refreshColorApplicationSettings(options = {}) {
   const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
   if (state.settingsCategory === "appearance") {
     scheduleAppearancePreviewRefresh();
+    const refreshedSavedColors = refreshSavedColorPalettePanels();
+    if (searching && !refreshedSavedColors) scheduleSettingsInspectorRender({ ifChanged: true });
     return;
   }
   if (state.settingsCategory === "workspace" && !searching) {
@@ -21192,6 +21194,12 @@ function refreshColorApplicationSettings(options = {}) {
     return;
   }
   if (searching) scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
+function refreshColorTargetSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (refreshSavedColorPalettePanels()) return;
+  refreshColorApplicationSettings(options);
 }
 
 function workspaceNamingPanel(workspace) {
