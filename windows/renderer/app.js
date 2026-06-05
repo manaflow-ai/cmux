@@ -5682,7 +5682,7 @@ function selectColorApplyTarget(target = state.colorApplyTarget, options = {}) {
   }
   if (state.colorApplyTarget === nextTarget) return false;
   state.colorApplyTarget = nextTarget;
-  if (options.render !== false) renderSettingsInspector();
+  if (options.render !== false && !refreshSavedColorPalettePanels()) renderSettingsInspector();
   return true;
 }
 
@@ -30372,20 +30372,333 @@ function savedColorVariantStrip(colorInput) {
   return strip;
 }
 
+function savedColorPanelContext(workspace = activeWorkspace()) {
+  const colorTarget = normalizeColorApplyTarget(state.colorApplyTarget);
+  const targetOption = colorApplyTargetOption(colorTarget, workspace);
+  return {
+    workspace,
+    colorTarget,
+    targetOption,
+    targetLabel: colorApplyTargetActionLabel(colorTarget, workspace),
+    savedCountLabel: `${state.customColorPalette.length}/${customColorPaletteLimit} saved colors`,
+    paletteFull: customColorPaletteFull()
+  };
+}
+
+function savedColorPanelSearchText(context = savedColorPanelContext()) {
+  return normalizeSettingsQuery(`saved color palette custom accent workspace tab pane all color apply save profile copy paste delete ${context.targetOption.disabled ? "unavailable " : "ready "}${context.targetLabel} ${context.targetOption.status} ${context.savedCountLabel}`);
+}
+
+function savedColorAddSearchText(context = savedColorPanelContext()) {
+  return normalizeSettingsQuery(`saved color custom picker apply save selected target accent workspace pane all ${context.targetOption.disabled ? "unavailable " : "ready "}${context.targetLabel} ${context.targetOption.status} ${context.savedCountLabel}`);
+}
+
+function savedColorActionSearch(label, terms) {
+  return normalizeSettingsQuery(`${label} ${terms}`);
+}
+
+function refreshSavedColorAddRow(addRow, context = savedColorPanelContext()) {
+  const colorInput = addRow?.querySelector?.(".saved-color-input");
+  if (!colorInput) return false;
+  const { workspace, colorTarget, targetOption, targetLabel, savedCountLabel, paletteFull } = context;
+  setSettingsSearchIfChanged(addRow, savedColorAddSearchText(context));
+  if (document.activeElement !== colorInput) {
+    const nextValue = colorInputValue(targetOption.color || state.settings.accent);
+    if (colorInput.value.toLowerCase() !== nextValue.toLowerCase()) {
+      colorInput.value = nextValue;
+      colorInput.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  }
+  const applyPicked = addRow.querySelector('[data-saved-color-action="apply-picked"]');
+  if (applyPicked) {
+    const active = savedColorActiveForTarget(colorInput.value, colorTarget, workspace);
+    const label = colorApplyTargetPrimaryLabel(colorTarget);
+    setSettingsActionLabel(applyPicked, label);
+    setDisabledIfChanged(applyPicked, Boolean(targetOption.disabled) || active);
+    setTitleIfChanged(applyPicked, savedColorApplyTitle(colorInput.value, targetOption, active));
+    setSettingsSearchIfChanged(applyPicked, savedColorActionSearch(label, `saved color custom picker apply selected target accent workspace pane all ${targetOption.disabled ? "unavailable " : "ready "}${targetLabel}`));
+  }
+  const savePicked = addRow.querySelector('[data-saved-color-action="save-picked"]');
+  if (savePicked) {
+    applyCustomColorSaveLimit(savePicked, colorInput.value, "Save the picked color to the reusable palette.");
+    setSettingsSearchIfChanged(savePicked, savedColorActionSearch("Save color", `saved color custom palette add ${paletteFull ? "limit full " : ""}${savedCountLabel}`));
+  }
+  return true;
+}
+
+function refreshSavedColorActions(actions, colorInput, context = savedColorPanelContext()) {
+  if (!actions) return false;
+  const { workspace, colorTarget, targetOption, targetLabel, savedCountLabel, paletteFull } = context;
+  setSettingsSearchIfChanged(actions, `saved color palette copy paste clipboard apply save profile current accent workspace reusable colors json ${targetLabel} ${targetOption.status} ${savedCountLabel}`);
+  const action = (id) => actions.querySelector(`[data-saved-color-action="${id}"]`);
+  const copyPalette = action("copy-palette");
+  if (copyPalette) {
+    setDisabledIfChanged(copyPalette, state.customColorPalette.length === 0);
+    setTitleIfChanged(copyPalette, copyPalette.disabled ? "Save a color before copying the palette." : "Copy the saved color palette as JSON.");
+    setSettingsSearchIfChanged(copyPalette, savedColorActionSearch("Copy palette", `saved color palette copy reusable colors clipboard json ${savedCountLabel}`));
+  }
+  const pastePalette = action("paste-palette");
+  if (pastePalette) {
+    setTitleIfChanged(pastePalette, paletteFull
+      ? "Merge copied saved colors. New colors may be limited by the palette capacity."
+      : "Merge copied saved colors into the palette.");
+    setSettingsSearchIfChanged(pastePalette, savedColorActionSearch("Paste palette", `saved color palette paste reusable colors clipboard json import ${paletteFull ? "limit full " : ""}${savedCountLabel}`));
+  }
+  const targetHasMultipleColors = colorTarget === "all" && /\d+\s+colors/.test(targetOption.status);
+  const copyTarget = action("copy-target");
+  if (copyTarget) {
+    setDisabledIfChanged(copyTarget, Boolean(targetOption.disabled) || targetHasMultipleColors || !canCopyColorValue(targetOption.color, defaultSettings.accent));
+    setTitleIfChanged(copyTarget, targetOption.disabled
+      ? `${targetOption.label}: ${targetOption.meta}.`
+      : targetHasMultipleColors
+        ? "All panes use multiple colors. Choose a single pane, workspace, or accent target first."
+        : colorCopyTitle(targetOption.color, defaultSettings.accent, `Copy ${targetOption.label.toLowerCase()} color value.`));
+    setSettingsSearchIfChanged(copyTarget, savedColorActionSearch("Copy target", `saved color copy current target value clipboard accent workspace pane all ${targetOption.label} ${targetOption.meta}`));
+  }
+  const cycleTarget = action("cycle-target");
+  if (cycleTarget) {
+    const cycleModel = colorCycleTargetModel(colorTarget, workspace);
+    setDisabledIfChanged(cycleTarget, cycleModel.disabled);
+    setTitleIfChanged(cycleTarget, cycleModel.title);
+    setSettingsSearchIfChanged(cycleTarget, savedColorActionSearch("Cycle target", `saved color cycle next selected target palette accent workspace pane all ${cycleModel.search}`));
+  }
+  const pasteColor = action("paste-color");
+  if (pasteColor) {
+    setDisabledIfChanged(pasteColor, Boolean(targetOption.disabled));
+    setTitleIfChanged(pasteColor, targetOption.disabled
+      ? `${targetOption.label}: ${targetOption.meta}.`
+      : `Paste a copied color to ${targetOption.label.toLowerCase()}.`);
+    setSettingsSearchIfChanged(pasteColor, savedColorActionSearch("Paste color", `saved color paste clipboard apply selected target accent workspace pane all hex oklch ${targetOption.disabled ? "unavailable " : "ready "}${targetLabel}`));
+  }
+  const currentEverywhere = currentColorEverywhereModel(colorTarget, workspace);
+  const applyEverywhere = action("apply-everywhere");
+  if (applyEverywhere) {
+    setDisabledIfChanged(applyEverywhere, currentEverywhere.disabled);
+    setTitleIfChanged(applyEverywhere, currentEverywhere.title);
+    setSettingsSearchIfChanged(applyEverywhere, savedColorActionSearch("Apply everywhere", `saved color current target apply everywhere accent workspace pane all ${currentEverywhere.search}`));
+  }
+  const targetDefault = colorTargetDefault(colorTarget, workspace);
+  const resetTarget = action("reset-target");
+  if (resetTarget) {
+    setDisabledIfChanged(resetTarget, Boolean(targetOption.disabled) || targetDefault);
+    setTitleIfChanged(resetTarget, targetOption.disabled
+      ? `${targetOption.label}: ${targetOption.meta}.`
+      : targetDefault
+        ? `${targetOption.label} already uses the default color.`
+        : `Reset ${targetOption.label.toLowerCase()} color to default.`);
+    setSettingsSearchIfChanged(resetTarget, savedColorActionSearch("Reset target", `saved color reset selected target default accent workspace pane all ${targetDefault ? "active current " : ""}`));
+  }
+  const saveAccent = action("save-accent");
+  if (saveAccent) applyCustomColorSaveLimit(saveAccent, state.settings.accent, "Save the current accent color.");
+  const saveWorkspace = action("save-workspace");
+  if (saveWorkspace) applyCustomColorSaveLimit(saveWorkspace, workspace?.color, "Save the active workspace color.");
+  const pane = activePaneForColorTarget();
+  const savePane = action("save-pane");
+  if (savePane) {
+    if (pane) applyCustomColorSaveLimit(savePane, paneColorValue(pane, workspace), paneColorActionTitle("save", pane, workspace));
+    else {
+      setDisabledIfChanged(savePane, true);
+      setTitleIfChanged(savePane, paneColorActionTitle("save", pane, workspace));
+    }
+    setSettingsSearchIfChanged(savePane, savedColorActionSearch("Save pane", paneColorActionSearchText("save", pane, workspace)));
+  }
+  const colorSetModel = currentColorSetSaveModel(workspace);
+  const saveColorSet = action("save-set");
+  if (saveColorSet) {
+    setDisabledIfChanged(saveColorSet, colorSetModel.disabled);
+    setTitleIfChanged(saveColorSet, colorSetModel.title);
+    setSettingsSearchIfChanged(saveColorSet, savedColorActionSearch("Save current set", `saved color save current set accent workspace pane terminal reusable palette ${colorSetModel.search}`));
+  }
+  const saveProfile = action("save-profile");
+  if (saveProfile) applySettingsProfileSaveLimit(saveProfile, "Save the current accent, workspace, pane, and terminal colors as a reusable Settings profile.");
+  const saveVariants = action("save-variants");
+  if (saveVariants) {
+    const model = colorVariantSaveModel(colorInput?.value);
+    setDisabledIfChanged(saveVariants, model.disabled);
+    setTitleIfChanged(saveVariants, model.title);
+    setSettingsSearchIfChanged(saveVariants, savedColorActionSearch("Save variants", `saved color save variants generated palette picked custom hex ${model.search}`));
+  }
+  const clearWorkspaceAction = action("clear-workspace");
+  if (clearWorkspaceAction) {
+    setDisabledIfChanged(clearWorkspaceAction, !workspace?.color);
+    setTitleIfChanged(clearWorkspaceAction, !workspace
+      ? "Open a workspace before clearing workspace color."
+      : workspace.color
+        ? "Clear the active workspace color."
+        : "Workspace color is already default.");
+  }
+  const clearPanes = action("clear-panes");
+  if (clearPanes) {
+    const disabled = !workspace?.panels?.some((panel) => panel.color);
+    setDisabledIfChanged(clearPanes, disabled);
+    setTitleIfChanged(clearPanes, !workspace
+      ? "Open a workspace before clearing pane colors."
+      : disabled
+        ? "Pane colors are already default."
+        : "Clear pane colors in the active workspace.");
+  }
+  return true;
+}
+
+function savedColorTargetModel(color, context = {}) {
+  const normalized = normalizeCustomPaletteColor(color);
+  const workspace = context.workspace || activeWorkspace();
+  const activePane = context.activePane === undefined ? activePaneForColorTarget() : context.activePane;
+  const colorTarget = normalizeColorApplyTarget(context.colorTarget || state.colorApplyTarget);
+  const targetOption = context.targetOption || colorApplyTargetOption(colorTarget, workspace);
+  const colorValue = colorKey(normalized);
+  const paneCount = workspace?.panels?.length || 0;
+  const activeAccent = colorKey(state.settings.accent) === colorValue;
+  const activeWorkspace = Boolean(workspace) && colorKey(workspace.color) === colorValue;
+  const activePaneColor = Boolean(activePane) && colorKey(activePane.color) === colorValue;
+  const activeAllPanes = Boolean(paneCount) && workspace.panels.every((panel) => colorKey(panel.color) === colorValue);
+  const activeEverywhere = savedColorEverywhereModel(normalized, workspace);
+  const activeTarget = colorTarget === "workspace"
+    ? activeWorkspace
+    : colorTarget === "pane"
+      ? activePaneColor
+      : colorTarget === "all"
+        ? activeAllPanes
+        : activeAccent;
+  const targetDisabled = Boolean(targetOption.disabled) || activeTarget;
+  const activeSearch = `${activeAccent ? "accent active " : ""}${activeWorkspace ? "workspace active " : ""}${activePaneColor ? "pane active " : ""}${activeAllPanes ? "all panes active " : ""}${activeEverywhere.active ? "everywhere active " : ""}`;
+  return {
+    normalized,
+    workspace,
+    activePane,
+    colorTarget,
+    targetOption,
+    targetLabel: colorApplyTargetActionLabel(colorTarget, workspace),
+    paneCount,
+    activeAccent,
+    activeWorkspace,
+    activePaneColor,
+    activeAllPanes,
+    activeEverywhere,
+    activeTarget,
+    targetDisabled,
+    activeSearch,
+    applyTitle: savedColorApplyTitle(normalized, targetOption, activeTarget)
+  };
+}
+
+function savedColorCardSearchText(color, model) {
+  return normalizeSettingsQuery(`saved color palette custom accent workspace pane all everywhere apply copy delete ${model.activeTarget ? "active current unavailable " : model.targetDisabled ? "unavailable " : "ready "}${model.activeSearch}${model.activeEverywhere.search} ${model.targetLabel} ${color}`);
+}
+
+function updateSavedColorCard(card, color, context = {}) {
+  const model = savedColorTargetModel(color, context);
+  if (!card || !model.normalized) return false;
+  setClassNameIfChanged(card, [
+    "saved-color-card",
+    model.activeTarget ? "is-active-target" : "",
+    model.activeAccent ? "is-active-accent" : "",
+    model.activeWorkspace ? "is-active-workspace" : "",
+    model.activePaneColor ? "is-active-pane" : "",
+    model.activeAllPanes ? "is-active-all" : "",
+    model.activeEverywhere.active ? "is-active-everywhere" : ""
+  ].filter(Boolean).join(" "));
+  setSettingsSearchIfChanged(card, savedColorCardSearchText(model.normalized, model));
+
+  const swatch = card.querySelector('[data-saved-color-action="swatch"]');
+  if (swatch) {
+    setDisabledIfChanged(swatch, model.targetDisabled);
+    setTitleIfChanged(swatch, model.applyTitle);
+    setAttributeIfChanged(swatch, "aria-label", model.applyTitle);
+    setAttributeIfChanged(swatch, "aria-pressed", model.activeTarget ? "true" : "false");
+    setStylePropertyIfChanged(swatch, "--saved-color", model.normalized);
+  }
+  setTextIfChanged(card.querySelector(".saved-color-value"), model.normalized);
+
+  const scope = card.querySelector(".saved-color-scope");
+  if (scope) {
+    setSettingsSearchIfChanged(scope, `saved color scope accent workspace pane all everywhere ${model.activeSearch}${model.normalized}`);
+    replaceBackgroundScopeChips(scope, [
+      { label: "Accent", active: model.activeAccent },
+      { label: "Workspace", active: model.activeWorkspace, muted: !model.workspace },
+      { label: "Pane", active: model.activePaneColor, muted: !model.activePane },
+      { label: model.paneCount ? `All ${model.paneCount}` : "All", active: model.activeAllPanes, muted: !model.paneCount },
+      { label: "Everywhere", active: model.activeEverywhere.active, muted: !model.workspace }
+    ]);
+  }
+
+  const apply = card.querySelector('[data-saved-color-action="apply"]');
+  if (apply) {
+    const label = colorApplyTargetPrimaryLabel(model.colorTarget);
+    setSettingsActionLabel(apply, label);
+    setDisabledIfChanged(apply, model.targetDisabled);
+    setTitleIfChanged(apply, model.applyTitle);
+    setSettingsSearchIfChanged(apply, savedColorActionSearch(label, `saved color apply selected target ${model.targetDisabled ? "unavailable " : "ready "}${model.targetOption.label} ${model.normalized}`));
+  }
+  const everywhere = card.querySelector('[data-saved-color-action="everywhere"]');
+  if (everywhere) {
+    setDisabledIfChanged(everywhere, model.activeEverywhere.disabled);
+    setTitleIfChanged(everywhere, model.activeEverywhere.title);
+    setSettingsSearchIfChanged(everywhere, savedColorActionSearch("Everywhere", `saved color apply everywhere all scopes accent workspace panes ${model.activeEverywhere.search} ${model.normalized}`));
+  }
+  const copy = card.querySelector('[data-saved-color-action="copy"]');
+  if (copy) {
+    setTitleIfChanged(copy, customColorCopyTitle(model.normalized, "Copy this saved color hex value."));
+    setSettingsSearchIfChanged(copy, savedColorActionSearch("Copy", `saved color copy hex clipboard ${model.normalized}`));
+  }
+  const more = card.querySelector('[data-saved-color-action="more"]');
+  if (more) {
+    setTitleIfChanged(more, `More actions for ${model.normalized.toUpperCase()}.`);
+    setSettingsSearchIfChanged(more, savedColorActionSearch("More", `saved color more actions accent workspace pane all everywhere copy delete ${model.normalized}`));
+  }
+  return true;
+}
+
+function refreshSavedColorPalettePanel(panel) {
+  if (!panel) return false;
+  const context = savedColorPanelContext();
+  setSettingsSearchIfChanged(panel, savedColorPanelSearchText(context));
+  if (!refreshSavedColorAddRow(panel.querySelector(".saved-color-add"), context)) return false;
+  for (const control of panel.querySelectorAll(".color-target-control")) {
+    updateActiveColorTargetControl(control);
+  }
+  const colorInput = panel.querySelector(".saved-color-input");
+  if (!refreshSavedColorActions(panel.querySelector(".saved-color-actions"), colorInput, context)) return false;
+  const list = panel.querySelector(".saved-color-list");
+  if (state.customColorPalette.length === 0) return !list && Boolean(panel.querySelector(".saved-color-empty"));
+  if (!list) return false;
+  const cards = [...list.querySelectorAll("[data-saved-color-card]")];
+  if (cards.length !== state.customColorPalette.length) return false;
+  const activePane = activePaneForColorTarget();
+  for (const [index, color] of state.customColorPalette.entries()) {
+    const normalized = normalizeCustomPaletteColor(color);
+    const card = cards[index];
+    if (card.dataset.savedColorCard !== normalized) return false;
+    updateSavedColorCard(card, normalized, {
+      workspace: context.workspace,
+      activePane,
+      colorTarget: context.colorTarget,
+      targetOption: context.targetOption
+    });
+  }
+  return true;
+}
+
+function refreshSavedColorPalettePanels() {
+  const panels = [...elements.inspectorBody.querySelectorAll(".saved-color-panel")];
+  if (panels.length === 0) return false;
+  for (const panel of panels) {
+    if (!refreshSavedColorPalettePanel(panel)) panel.replaceWith(savedColorPalettePanel());
+  }
+  if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+  return true;
+}
+
 function savedColorPalettePanel() {
   const panel = document.createElement("div");
   panel.className = "saved-color-panel";
-  const workspace = activeWorkspace();
-  const colorTarget = normalizeColorApplyTarget(state.colorApplyTarget);
-  const targetOption = colorApplyTargetOption(colorTarget, workspace);
-  const targetLabel = colorApplyTargetActionLabel(colorTarget, workspace);
-  const savedCountLabel = `${state.customColorPalette.length}/${customColorPaletteLimit} saved colors`;
-  const paletteFull = customColorPaletteFull();
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette custom accent workspace tab pane all color apply save profile copy paste delete ${targetOption.disabled ? "unavailable " : "ready "}${targetLabel} ${targetOption.status} ${savedCountLabel}`);
+  const context = savedColorPanelContext();
+  const { workspace, colorTarget, targetOption, targetLabel, savedCountLabel, paletteFull } = context;
+  panel.dataset.settingsSearch = savedColorPanelSearchText(context);
 
   const addRow = document.createElement("div");
   addRow.className = "saved-color-add";
-  addRow.dataset.settingsSearch = normalizeSettingsQuery(`saved color custom picker apply save selected target accent workspace pane all ${targetOption.disabled ? "unavailable " : "ready "}${targetLabel} ${targetOption.status} ${savedCountLabel}`);
+  addRow.dataset.settingsSearch = savedColorAddSearchText(context);
   const colorInput = document.createElement("input");
   colorInput.className = "saved-color-input";
   colorInput.type = "color";
@@ -30396,11 +30709,16 @@ function savedColorPalettePanel() {
       applySavedColorToTarget(colorInput.value, state.colorApplyTarget);
     }
   }, "primary", `saved color custom picker apply selected target accent workspace pane all ${targetOption.disabled ? "unavailable " : "ready "}${targetLabel}`);
+  applyPicked.dataset.savedColorAction = "apply-picked";
   const savePicked = settingsActionButton("Save color", () => upsertCustomColorPalette(colorInput.value), "", `saved color custom palette add ${paletteFull ? "limit full " : ""}${savedCountLabel}`);
+  savePicked.dataset.savedColorAction = "save-picked";
   const refreshApplyPickedState = () => {
-    const active = savedColorActiveForTarget(colorInput.value, colorTarget, workspace);
-    applyPicked.disabled = Boolean(targetOption.disabled) || active;
-    applyPicked.title = savedColorApplyTitle(colorInput.value, targetOption, active);
+    const target = normalizeColorApplyTarget(state.colorApplyTarget);
+    const option = colorApplyTargetOption(target, activeWorkspace());
+    const active = savedColorActiveForTarget(colorInput.value, target, activeWorkspace());
+    applyPicked.disabled = Boolean(option.disabled) || active;
+    applyPicked.title = savedColorApplyTitle(colorInput.value, option, active);
+    setSettingsActionLabel(applyPicked, colorApplyTargetPrimaryLabel(target));
   };
   const refreshSavePickedState = () => applyCustomColorSaveLimit(savePicked, colorInput.value, "Save the picked color to the reusable palette.");
   refreshApplyPickedState();
@@ -30418,9 +30736,11 @@ function savedColorPalettePanel() {
   actions.className = "settings-actions saved-color-actions";
   actions.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette copy paste clipboard apply save profile current accent workspace reusable colors json ${targetLabel} ${targetOption.status} ${savedCountLabel}`);
   const copyPalette = settingsActionButton("Copy palette", copySavedColorPalette, "", `saved color palette copy reusable colors clipboard json ${savedCountLabel}`);
+  copyPalette.dataset.savedColorAction = "copy-palette";
   copyPalette.disabled = state.customColorPalette.length === 0;
   copyPalette.title = copyPalette.disabled ? "Save a color before copying the palette." : "Copy the saved color palette as JSON.";
   const pastePalette = settingsActionButton("Paste palette", pasteSavedColorPalette, "", `saved color palette paste reusable colors clipboard json import ${paletteFull ? "limit full " : ""}${savedCountLabel}`);
+  pastePalette.dataset.savedColorAction = "paste-palette";
   pastePalette.title = paletteFull
     ? "Merge copied saved colors. New colors may be limited by the palette capacity."
     : "Merge copied saved colors into the palette.";
@@ -30431,25 +30751,33 @@ function savedColorPalettePanel() {
     : targetHasMultipleColors
       ? "All panes use multiple colors. Choose a single pane, workspace, or accent target first."
       : colorCopyTitle(targetOption.color, defaultSettings.accent, `Copy ${targetOption.label.toLowerCase()} color value.`);
-  const copyTarget = settingsActionButton("Copy target", () => copyColorValue(targetOption.color, defaultSettings.accent, `${targetOption.label} color copied.`), "", `saved color copy current target value clipboard accent workspace pane all ${targetOption.label} ${targetOption.meta}`);
+  const copyTarget = settingsActionButton("Copy target", () => {
+    const option = colorApplyTargetOption(state.colorApplyTarget, activeWorkspace());
+    return copyColorValue(option.color, defaultSettings.accent, `${option.label} color copied.`);
+  }, "", `saved color copy current target value clipboard accent workspace pane all ${targetOption.label} ${targetOption.meta}`);
+  copyTarget.dataset.savedColorAction = "copy-target";
   copyTarget.disabled = copyTargetDisabled;
   copyTarget.title = copyTargetTitle;
-  const cycleTarget = settingsActionButton("Cycle target", () => cycleColorTarget(state.colorApplyTarget, workspace), "", "saved color cycle next selected target palette accent workspace pane all");
+  const cycleTarget = settingsActionButton("Cycle target", () => cycleColorTarget(state.colorApplyTarget, activeWorkspace()), "", "saved color cycle next selected target palette accent workspace pane all");
+  cycleTarget.dataset.savedColorAction = "cycle-target";
   const cycleModel = colorCycleTargetModel(colorTarget, workspace);
   cycleTarget.disabled = cycleModel.disabled;
   cycleTarget.title = cycleModel.title;
   cycleTarget.dataset.settingsSearch = normalizeSettingsQuery(`saved color cycle next selected target palette accent workspace pane all ${cycleModel.search}`);
   const pasteColor = settingsActionButton("Paste color", () => pasteColorToTarget(state.colorApplyTarget), "", `saved color paste clipboard apply selected target accent workspace pane all hex oklch ${targetOption.disabled ? "unavailable " : "ready "}${targetLabel}`);
+  pasteColor.dataset.savedColorAction = "paste-color";
   pasteColor.disabled = Boolean(targetOption.disabled);
   pasteColor.title = targetOption.disabled
     ? `${targetOption.label}: ${targetOption.meta}.`
     : `Paste a copied color to ${targetOption.label.toLowerCase()}.`;
   const currentEverywhere = currentColorEverywhereModel(colorTarget, workspace);
-  const applyEverywhere = settingsActionButton("Apply everywhere", () => applyCurrentColorEverywhere(state.colorApplyTarget, workspace), "", `saved color current target apply everywhere accent workspace pane all ${currentEverywhere.search}`);
+  const applyEverywhere = settingsActionButton("Apply everywhere", () => applyCurrentColorEverywhere(state.colorApplyTarget, activeWorkspace()), "", `saved color current target apply everywhere accent workspace pane all ${currentEverywhere.search}`);
+  applyEverywhere.dataset.savedColorAction = "apply-everywhere";
   applyEverywhere.disabled = currentEverywhere.disabled;
   applyEverywhere.title = currentEverywhere.title;
   const targetDefault = colorTargetDefault(colorTarget, workspace);
   const resetTarget = settingsActionButton("Reset target", () => resetColorTarget(state.colorApplyTarget), "", `saved color reset selected target default accent workspace pane all ${targetDefault ? "active current " : ""}`);
+  resetTarget.dataset.savedColorAction = "reset-target";
   resetTarget.disabled = Boolean(targetOption.disabled) || targetDefault;
   resetTarget.title = targetOption.disabled
     ? `${targetOption.label}: ${targetOption.meta}.`
@@ -30457,25 +30785,31 @@ function savedColorPalettePanel() {
       ? `${targetOption.label} already uses the default color.`
       : `Reset ${targetOption.label.toLowerCase()} color to default.`;
   const saveAccent = settingsActionButton("Save accent", () => upsertCustomColorPalette(state.settings.accent), "", "saved color save current accent");
+  saveAccent.dataset.savedColorAction = "save-accent";
   applyCustomColorSaveLimit(saveAccent, state.settings.accent, "Save the current accent color.");
-  const saveWorkspace = settingsActionButton("Save workspace", () => upsertCustomColorPalette(workspace?.color), "", "saved color save workspace");
+  const saveWorkspace = settingsActionButton("Save workspace", () => upsertCustomColorPalette(activeWorkspace()?.color), "", "saved color save workspace");
+  saveWorkspace.dataset.savedColorAction = "save-workspace";
   applyCustomColorSaveLimit(saveWorkspace, workspace?.color, "Save the active workspace color.");
   const pane = focusedPanel();
-  const savePane = settingsActionButton("Save pane", () => upsertCustomColorPalette(paneColorValue(pane, workspace)), "", paneColorActionSearchText("save", pane, workspace));
+  const savePane = settingsActionButton("Save pane", () => upsertCustomColorPalette(paneColorValue(activePaneForColorTarget(), activeWorkspace())), "", paneColorActionSearchText("save", pane, workspace));
+  savePane.dataset.savedColorAction = "save-pane";
   if (pane) applyCustomColorSaveLimit(savePane, paneColorValue(pane, workspace), paneColorActionTitle("save", pane, workspace));
   else {
     savePane.disabled = true;
     savePane.title = paneColorActionTitle("save", pane, workspace);
   }
   const colorSetModel = currentColorSetSaveModel(workspace);
-  const saveColorSet = settingsActionButton("Save current set", () => saveCurrentColorSetToPalette(workspace), "", `saved color save current set accent workspace pane terminal reusable palette ${colorSetModel.search}`);
+  const saveColorSet = settingsActionButton("Save current set", () => saveCurrentColorSetToPalette(activeWorkspace()), "", `saved color save current set accent workspace pane terminal reusable palette ${colorSetModel.search}`);
+  saveColorSet.dataset.savedColorAction = "save-set";
   saveColorSet.disabled = colorSetModel.disabled;
   saveColorSet.title = colorSetModel.title;
   const saveColorProfile = applySettingsProfileSaveLimit(
     settingsActionButton("Save profile", saveCurrentColorProfile, "", "saved color palette save settings profile reusable accent workspace pane terminal"),
     "Save the current accent, workspace, pane, and terminal colors as a reusable Settings profile."
   );
+  saveColorProfile.dataset.savedColorAction = "save-profile";
   const saveVariants = settingsActionButton("Save variants", () => saveColorVariantsToPalette(colorInput.value), "", "saved color save variants generated palette");
+  saveVariants.dataset.savedColorAction = "save-variants";
   const refreshSaveVariantsState = () => {
     const model = colorVariantSaveModel(colorInput.value);
     saveVariants.disabled = model.disabled;
@@ -30489,7 +30823,8 @@ function savedColorPalettePanel() {
   refreshSaveVariantsState();
   colorInput.addEventListener("input", refreshSaveVariantsState);
   colorInput.addEventListener("change", refreshSaveVariantsState);
-  const clearWorkspace = settingsActionButton("Clear workspace", () => clearWorkspaceColor(workspace), "", "saved color clear workspace color default reset");
+  const clearWorkspace = settingsActionButton("Clear workspace", () => clearWorkspaceColor(activeWorkspace()), "", "saved color clear workspace color default reset");
+  clearWorkspace.dataset.savedColorAction = "clear-workspace";
   clearWorkspace.disabled = !workspace?.color;
   clearWorkspace.title = !workspace
     ? "Open a workspace before clearing workspace color."
@@ -30497,6 +30832,7 @@ function savedColorPalettePanel() {
       ? "Clear the active workspace color."
       : "Workspace color is already default.";
   const clearPanes = settingsActionButton("Clear panes", () => clearWorkspacePaneColors(), "danger", "saved color clear pane tab colors workspace");
+  clearPanes.dataset.savedColorAction = "clear-panes";
   clearPanes.disabled = !workspace?.panels?.some((panel) => panel.color);
   clearPanes.title = !workspace
     ? "Open a workspace before clearing pane colors."
@@ -30518,49 +30854,42 @@ function savedColorPalettePanel() {
   list.className = "saved-color-list";
   const activePane = activePaneForColorTarget();
   for (const color of state.customColorPalette) {
-    const activeAccent = savedColorActiveForTarget(color, "accent", workspace);
-    const activeWorkspace = savedColorActiveForTarget(color, "workspace", workspace);
-    const activePaneColor = savedColorActiveForTarget(color, "pane", workspace);
-    const activeAllPanes = savedColorActiveForTarget(color, "all", workspace);
-    const activeEverywhere = savedColorEverywhereModel(color, workspace);
-    const activeTarget = colorTarget === "workspace"
-      ? activeWorkspace
-      : colorTarget === "pane"
-        ? activePaneColor
-        : colorTarget === "all"
-          ? activeAllPanes
-          : activeAccent;
-    const targetDisabled = Boolean(targetOption.disabled) || activeTarget;
-    const applyTitle = savedColorApplyTitle(color, targetOption, activeTarget);
-    const activeSearch = `${activeAccent ? "accent active " : ""}${activeWorkspace ? "workspace active " : ""}${activePaneColor ? "pane active " : ""}${activeAllPanes ? "all panes active " : ""}${activeEverywhere.active ? "everywhere active " : ""}`;
+    const model = savedColorTargetModel(color, {
+      workspace,
+      activePane,
+      colorTarget,
+      targetOption
+    });
     const card = document.createElement("div");
     card.className = [
       "saved-color-card",
-      activeTarget ? "is-active-target" : "",
-      activeAccent ? "is-active-accent" : "",
-      activeWorkspace ? "is-active-workspace" : "",
-      activePaneColor ? "is-active-pane" : "",
-      activeAllPanes ? "is-active-all" : "",
-      activeEverywhere.active ? "is-active-everywhere" : ""
+      model.activeTarget ? "is-active-target" : "",
+      model.activeAccent ? "is-active-accent" : "",
+      model.activeWorkspace ? "is-active-workspace" : "",
+      model.activePaneColor ? "is-active-pane" : "",
+      model.activeAllPanes ? "is-active-all" : "",
+      model.activeEverywhere.active ? "is-active-everywhere" : ""
     ].filter(Boolean).join(" ");
-    card.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette custom accent workspace pane all everywhere apply copy delete ${activeTarget ? "active current unavailable " : targetDisabled ? "unavailable " : "ready "}${activeSearch}${activeEverywhere.search} ${targetLabel} ${color}`);
+    card.dataset.savedColorCard = model.normalized;
+    card.dataset.settingsSearch = savedColorCardSearchText(model.normalized, model);
     const swatch = document.createElement("button");
     swatch.className = "saved-color-swatch";
     swatch.type = "button";
-    swatch.title = applyTitle;
-    swatch.setAttribute("aria-label", applyTitle);
-    swatch.setAttribute("aria-pressed", activeTarget ? "true" : "false");
-    swatch.disabled = targetDisabled;
-    swatch.style.setProperty("--saved-color", color);
+    swatch.dataset.savedColorAction = "swatch";
+    swatch.title = model.applyTitle;
+    swatch.setAttribute("aria-label", model.applyTitle);
+    swatch.setAttribute("aria-pressed", model.activeTarget ? "true" : "false");
+    swatch.disabled = model.targetDisabled;
+    swatch.style.setProperty("--saved-color", model.normalized);
     swatch.onclick = () => {
-      if (!savedColorActiveForTarget(color, colorTarget)) applySavedColorToTarget(color, colorTarget);
+      if (!savedColorActiveForTarget(color, state.colorApplyTarget)) applySavedColorToTarget(color, state.colorApplyTarget);
     };
     const value = document.createElement("div");
     value.className = "saved-color-value";
-    value.textContent = color;
+    value.textContent = model.normalized;
     const scope = document.createElement("div");
     scope.className = "background-preset-scope saved-color-scope";
-    scope.dataset.settingsSearch = normalizeSettingsQuery(`saved color scope accent workspace pane all everywhere ${activeSearch}${color}`);
+    scope.dataset.settingsSearch = normalizeSettingsQuery(`saved color scope accent workspace pane all everywhere ${model.activeSearch}${model.normalized}`);
     const addScopeChip = (labelText, active, muted = false) => {
       const chip = document.createElement("span");
       chip.className = [
@@ -30571,25 +30900,29 @@ function savedColorPalettePanel() {
       chip.textContent = active ? `${labelText} active` : labelText;
       scope.append(chip);
     };
-    addScopeChip("Accent", activeAccent);
-    addScopeChip("Workspace", activeWorkspace, !workspace);
-    addScopeChip("Pane", activePaneColor, !activePane);
-    addScopeChip(workspace?.panels?.length ? `All ${workspace.panels.length}` : "All", activeAllPanes, !workspace?.panels?.length);
-    addScopeChip("Everywhere", activeEverywhere.active, !workspace);
+    addScopeChip("Accent", model.activeAccent);
+    addScopeChip("Workspace", model.activeWorkspace, !workspace);
+    addScopeChip("Pane", model.activePaneColor, !activePane);
+    addScopeChip(model.paneCount ? `All ${model.paneCount}` : "All", model.activeAllPanes, !model.paneCount);
+    addScopeChip("Everywhere", model.activeEverywhere.active, !workspace);
     const cardActions = document.createElement("div");
     cardActions.className = "saved-color-card-actions";
     const apply = settingsActionButton(colorApplyTargetPrimaryLabel(colorTarget), () => {
-      if (!savedColorActiveForTarget(color, colorTarget)) applySavedColorToTarget(color, colorTarget);
-    }, "primary", `saved color apply selected target ${targetDisabled ? "unavailable " : "ready "}${targetOption.label} ${color}`);
-    apply.disabled = targetDisabled;
-    apply.title = applyTitle;
-    const everywhere = settingsActionButton("Everywhere", () => applySavedColorEverywhere(color, workspace), "", `saved color apply everywhere all scopes accent workspace panes ${activeEverywhere.search} ${color}`);
-    everywhere.disabled = activeEverywhere.disabled;
-    everywhere.title = activeEverywhere.title;
-    const copy = settingsActionButton("Copy", () => copyCustomColorValue(color, "Saved color copied."), "", `saved color copy hex clipboard ${color}`);
-    copy.title = customColorCopyTitle(color, "Copy this saved color hex value.");
-    const more = settingsActionButton("More", (event) => showSavedColorMenu(event, color), "", `saved color more actions accent workspace pane all everywhere copy delete ${color}`);
-    more.title = `More actions for ${color.toUpperCase()}.`;
+      if (!savedColorActiveForTarget(color, state.colorApplyTarget)) applySavedColorToTarget(color, state.colorApplyTarget);
+    }, "primary", `saved color apply selected target ${model.targetDisabled ? "unavailable " : "ready "}${targetOption.label} ${model.normalized}`);
+    apply.dataset.savedColorAction = "apply";
+    apply.disabled = model.targetDisabled;
+    apply.title = model.applyTitle;
+    const everywhere = settingsActionButton("Everywhere", () => applySavedColorEverywhere(color, activeWorkspace()), "", `saved color apply everywhere all scopes accent workspace panes ${model.activeEverywhere.search} ${model.normalized}`);
+    everywhere.dataset.savedColorAction = "everywhere";
+    everywhere.disabled = model.activeEverywhere.disabled;
+    everywhere.title = model.activeEverywhere.title;
+    const copy = settingsActionButton("Copy", () => copyCustomColorValue(color, "Saved color copied."), "", `saved color copy hex clipboard ${model.normalized}`);
+    copy.dataset.savedColorAction = "copy";
+    copy.title = customColorCopyTitle(model.normalized, "Copy this saved color hex value.");
+    const more = settingsActionButton("More", (event) => showSavedColorMenu(event, color), "", `saved color more actions accent workspace pane all everywhere copy delete ${model.normalized}`);
+    more.dataset.savedColorAction = "more";
+    more.title = `More actions for ${model.normalized.toUpperCase()}.`;
     cardActions.append(apply, everywhere, copy, more);
     card.append(swatch, value, scope, cardActions);
     list.append(card);
