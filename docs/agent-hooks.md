@@ -50,37 +50,53 @@ Grok uses its `Notification` hook for user-facing completion messages. cmux reco
 
 ## Agent Hibernation
 
-Agent Hibernation is opt-in. It can free old background terminals only when all of these are true:
+Agent Hibernation kills idle background agent processes to free their RAM and CPU, then resumes each one with its saved session when you return to its tab. It is opt-in and off by default. cmux knows which process belongs to which terminal because the agent hooks associate each session ID with its surface (see the session-restore section above), so it can terminate the right process and bring back the right session.
 
-- the terminal has a saved restorable agent session
-- the saved launch data can build a resume command
-- the agent lifecycle is `idle`
-- the terminal has had no output or input for the configured idle window
-- the number of live restorable agent terminals is above the configured limit
-- the panel is not currently visible
+### When a terminal hibernates
 
-cmux double-checks the terminal tail before hibernating. A hibernated terminal stays as a placeholder while it is in the background and automatically resumes when you visit its tab. The Resume button is a fallback for manual retry.
+A live terminal is only ever a candidate when all of these hold:
 
-Enable it from **Settings > Terminal > Agent Hibernation**, or from the CLI:
+- it has a saved restorable agent session, and the saved launch data can build a resume command
+- the agent lifecycle is `idle` (not running, not waiting on input)
+- the terminal is in the background (its panel is not currently visible)
+- you have more live restorable agent terminals than the live-terminal limit (`maxLiveTerminals`, default `12`)
+- the terminal has had no output, input, or lifecycle change for at least the idle window (`idleSeconds`, default `5`)
+
+The live-terminal limit is the first gate. Under the limit, nothing hibernates no matter how long it sits idle. Once you are over the limit, cmux frees only the oldest-idle background terminals, just enough to get back under the limit. Visible terminals are never touched.
+
+Before killing, cmux watches the terminal tail. It samples the last lines of output and a fingerprint of the process, and waits a short confirmation window (`confirmationSeconds`, ~60s) during which the output and process must stay unchanged. Any new output, input, lifecycle change, or PID change cancels the pending hibernation. This is why a small `idleSeconds` is safe: a freshly idle agent that resumes work on its own is never killed mid-task.
+
+So with the defaults, hibernation only affects power users running more than 12 agents at once, and even then only ~1 minute after an agent has gone quiet off-screen.
+
+### What gets killed and how it comes back
+
+cmux sends `SIGTERM` to the agent's process group (scoped to that workspace and surface), then swaps the live terminal for a lightweight placeholder, releasing the terminal's memory and CPU. When you visit the tab again, cmux runs the agent's native resume command with the saved session ID, so the session continues where it left off. The placeholder also shows a Resume button as a manual fallback.
+
+### Enable and configure
+
+Enable from the command palette (`⌘⇧P` -> **Enable Agent Hibernation**), from **Settings > Terminal > Agent Hibernation**, or from the CLI:
 
 ```bash
 cmux agent-hibernation on
 cmux agent-hibernation off
 ```
 
-Configure the idle window and live-terminal limit from Settings, or set them in `~/.config/cmux/cmux.json`:
+Tune the idle window and live-terminal limit from Settings, or set them in `~/.config/cmux/cmux.json`:
 
 ```json
 {
   "terminal": {
     "agentHibernation": {
       "enabled": true,
-      "idleSeconds": 3600,
+      "idleSeconds": 5,
       "maxLiveTerminals": 12
     }
   }
 }
 ```
+
+- `idleSeconds` (default `5`, range `5`-`604800`): how long a background idle agent terminal must be quiet before it can hibernate. Raise it to keep agents alive longer; lower it to reclaim resources sooner. The `confirmationSeconds` settle window still applies on top of this.
+- `maxLiveTerminals` (default `12`, range `1`-`256`): how many live restorable agent terminals to keep before cmux hibernates the oldest idle background ones. Lower it to hibernate more aggressively; raise it to keep more agents live.
 
 ## Custom surface resume commands
 
