@@ -15,6 +15,7 @@ export const defaultSettings = {
   backgroundPosition: "center",
   backgroundEffects: "flat",
   backgroundChromeMode: "soft",
+  backgroundReadability: "balanced",
   interfaceContrast: "balanced",
   interfaceDepth: "soft",
   browserHomeUrl: "https://www.google.com",
@@ -311,6 +312,12 @@ export const backgroundChromeOptions = [
   ["readable", label("backgroundChrome.readable", "Readable"), label("backgroundChrome.readable.body", "Keep panes and chrome opaque over images")],
   ["soft", label("backgroundChrome.soft", "Soft"), label("backgroundChrome.soft.body", "Let backgrounds show through lightly")],
   ["immersive", label("backgroundChrome.immersive", "Immersive"), label("backgroundChrome.immersive.body", "Show more of the background through app chrome")]
+];
+
+export const backgroundReadabilityOptions = [
+  ["clear", label("backgroundReadability.clear", "Clear"), label("backgroundReadability.clear.body", "Show more image detail behind the workspace")],
+  ["balanced", label("backgroundReadability.balanced", "Balanced"), label("backgroundReadability.balanced.body", "Add a light readability layer over images")],
+  ["readable", label("backgroundReadability.readable", "Readable"), label("backgroundReadability.readable.body", "Use a stronger layer for busy or bright images")]
 ];
 
 export const interfaceContrastOptions = [
@@ -775,6 +782,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "soft",
+      backgroundReadability: "balanced",
       interfaceContrast: "balanced",
       interfaceDepth: "soft",
       density: "comfortable",
@@ -863,6 +871,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "soft",
+      backgroundReadability: "balanced",
       interfaceContrast: "soft",
       interfaceDepth: "flat",
       density: "compact",
@@ -951,6 +960,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "readable",
+      backgroundReadability: "readable",
       interfaceContrast: "soft",
       interfaceDepth: "flat",
       density: "compact",
@@ -1040,6 +1050,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "soft",
+      backgroundReadability: "readable",
       interfaceContrast: "soft",
       interfaceDepth: "flat",
       density: "compact",
@@ -1128,6 +1139,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "readable",
+      backgroundReadability: "readable",
       interfaceContrast: "soft",
       interfaceDepth: "flat",
       density: "compact",
@@ -1216,6 +1228,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "flat",
       backgroundChromeMode: "readable",
+      backgroundReadability: "readable",
       interfaceContrast: "strong",
       interfaceDepth: "flat",
       density: "comfortable",
@@ -1304,6 +1317,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "glass",
       backgroundChromeMode: "immersive",
+      backgroundReadability: "clear",
       interfaceContrast: "balanced",
       interfaceDepth: "layered",
       density: "comfortable",

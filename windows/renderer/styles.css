@@ -427,12 +427,16 @@ button {
   opacity: var(--background-opacity, .16);
 }
 
+.shell.has-background::after {
+  opacity: var(--background-readability-opacity, .16);
+}
+
 .shell.background-effects-tinted.has-background::after {
-  opacity: .64;
+  opacity: var(--background-tinted-opacity, .64);
 }
 
 .shell.background-effects-vignette.has-background::after {
-  opacity: .78;
+  opacity: var(--background-vignette-opacity, .78);
   background:
     radial-gradient(ellipse at center, transparent 0 42%, color-mix(in oklch, var(--color-canvas-surface) 54%, transparent) 78%, color-mix(in oklch, var(--color-canvas-surface) 82%, transparent) 100%),
     linear-gradient(180deg, color-mix(in oklch, var(--color-canvas-surface) 26%, transparent), transparent 38%, color-mix(in oklch, var(--color-canvas-surface) 34%, transparent));
@@ -605,6 +609,10 @@ button {
 }
 
 .shell.performance-mode.has-background::before {
+  display: none;
+}
+
+.shell.performance-mode.has-background::after {
   display: none;
 }
 
@@ -7986,18 +7994,21 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0;
+  opacity: var(--preview-background-readability-opacity, .16);
+  background:
+    linear-gradient(135deg, color-mix(in oklch, var(--color-accent) 9%, transparent), transparent 44%),
+    color-mix(in oklch, var(--color-canvas-surface) 72%, transparent);
 }
 
 .appearance-preview.appearance-effect-tinted .appearance-preview-frame::after {
-  opacity: .62;
+  opacity: var(--preview-background-tinted-opacity, .64);
   background:
     linear-gradient(135deg, color-mix(in oklch, var(--color-accent) 9%, transparent), transparent 44%),
     color-mix(in oklch, var(--color-canvas-surface) 72%, transparent);
 }
 
 .appearance-preview.appearance-effect-vignette .appearance-preview-frame::after {
-  opacity: .78;
+  opacity: var(--preview-background-vignette-opacity, .78);
   background:
     radial-gradient(ellipse at center, transparent 0 42%, color-mix(in oklch, var(--color-canvas-surface) 54%, transparent) 78%, color-mix(in oklch, var(--color-canvas-surface) 82%, transparent) 100%),
     linear-gradient(180deg, color-mix(in oklch, var(--color-canvas-surface) 26%, transparent), transparent 38%, color-mix(in oklch, var(--color-canvas-surface) 34%, transparent));

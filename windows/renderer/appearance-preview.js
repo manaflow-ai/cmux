@@ -11,14 +11,19 @@ export function createAppearancePreview({
   terminalFontStack,
   terminalTheme,
   backgroundImage,
+  backgroundReadability,
   backgroundSize,
   backgroundRepeat,
   backgroundPosition
 }) {
   const panel = document.createElement("div");
+  const hasVisibleBackground = Boolean(backgroundImage && backgroundImage !== "none" && Number(settings.backgroundOpacity) > 0);
   panel.className = `appearance-preview appearance-depth-${settings.interfaceDepth || "soft"} appearance-background-${settings.backgroundChromeMode || "soft"} appearance-effect-${settings.backgroundEffects || "flat"}`;
   panel.style.setProperty("--preview-background-image", backgroundImage || "none");
   panel.style.setProperty("--preview-background-opacity", String(Math.max(0, Math.min(0.42, Number(settings.backgroundOpacity) / 100 || 0))));
+  panel.style.setProperty("--preview-background-readability-opacity", hasVisibleBackground ? backgroundReadability?.base || "0.16" : "0");
+  panel.style.setProperty("--preview-background-tinted-opacity", hasVisibleBackground ? backgroundReadability?.tinted || "0.64" : "0");
+  panel.style.setProperty("--preview-background-vignette-opacity", hasVisibleBackground ? backgroundReadability?.vignette || "0.78" : "0");
   panel.style.setProperty("--preview-background-size", backgroundSize || "cover");
   panel.style.setProperty("--preview-background-repeat", backgroundRepeat || "repeat");
   panel.style.setProperty("--preview-background-position", backgroundPosition || "center");
