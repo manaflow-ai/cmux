@@ -1,0 +1,85 @@
+{
+  "name": "cmux",
+  "version": "0.1.0",
+  "productName": "cmux",
+  "private": true,
+  "description": "cmux desktop app for Windows with terminal workspaces, browser panes, notifications, and customization.",
+  "author": {
+    "name": "Nikku"
+  },
+  "homepage": "https://github.com/imthegoodboy/cmux-window",
+  "main": "src/main.cjs",
+  "scripts": {
+    "build:renderer": "vite build --mode production --config vite.renderer.config.mjs",
+    "build:renderer:dev": "vite build --mode development --config vite.renderer.config.mjs",
+    "dist:win": "npm run build:renderer && electron-builder --win nsis --x64",
+    "pack:win": "npm run build:renderer && electron-builder --win dir --x64",
+    "start": "npm run build:renderer && electron .",
+    "dev": "npm run build:renderer:dev && electron .",
+    "cli": "node src/cli.cjs",
+    "smoke": "node src/smoke.cjs"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-search": "0.16.0",
+    "@xterm/addon-web-links": "0.12.0",
+    "@xterm/xterm": "6.0.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "ws": "8.21.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "1.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.2",
+    "electron": "42.3.0",
+    "electron-builder": "^26.8.1",
+    "vite": "^8.0.14"
+  },
+  "build": {
+    "appId": "com.cmux.windows",
+    "productName": "cmux",
+    "executableName": "cmux",
+    "artifactName": "cmux-${version}-setup.${ext}",
+    "copyright": "Copyright © 2026 Nikku",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/node-pty/**"
+    ],
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "package.json",
+      "src/**/*",
+      "renderer/**/*"
+    ],
+    "win": {
+      "icon": "src/assets/cmux.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "cmux",
+      "uninstallDisplayName": "cmux ${version}",
+      "installerIcon": "src/assets/cmux.ico",
+      "uninstallerIcon": "src/assets/cmux.ico",
+      "installerHeaderIcon": "src/assets/cmux.ico"
+    }
+  }
+}
