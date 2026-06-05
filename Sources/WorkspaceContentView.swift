@@ -237,6 +237,20 @@ struct WorkspaceContentView: View {
                     isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                     isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
                 )
+                if let windowMirror = workspace.remoteTmuxWindowMirror(forPanelId: panel.id) {
+                    // Multi-pane tmux window: render its pane layout as splits
+                    // inside this single tab. Single-pane windows keep the
+                    // standard PanelContentView path below.
+                    RemoteTmuxWindowMirrorView(
+                        mirror: windowMirror,
+                        appearance: appearance,
+                        isVisibleInUI: isVisibleInUI,
+                        portalPriority: workspacePortalPriority
+                    )
+                    .onTapGesture {
+                        workspace.bonsplitController.focusPane(paneId)
+                    }
+                } else {
                 PanelContentView(
                     panel: panel,
                     workspaceId: workspace.id,
@@ -281,6 +295,7 @@ struct WorkspaceContentView: View {
                 )
                 .onTapGesture {
                     workspace.bonsplitController.focusPane(paneId)
+                }
                 }
             } else {
                 // Fallback for tabs without panels (shouldn't happen normally)

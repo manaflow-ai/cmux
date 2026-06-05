@@ -3966,6 +3966,12 @@ class TabManager: ObservableObject {
         if selectedTabId == tabId {
             updateWindowTitle(for: tabs[index])
         }
+        // A remote tmux mirror workspace rename propagates to `rename-session`.
+        if tabs[index].isRemoteTmuxMirror {
+            AppDelegate.shared?.remoteTmuxController.handleMirrorWorkspaceRenamed(
+                workspaceId: tabId, title: title
+            )
+        }
     }
 
     func clearCustomTitle(tabId: UUID) {
@@ -5205,6 +5211,12 @@ class TabManager: ObservableObject {
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
+        // User-initiated close of a mirrored remote tmux session kills it on the
+        // remote. (App quit tears down windows without calling closeWorkspace, so
+        // quitting still leaves remote sessions alive.)
+        if workspace.isRemoteTmuxMirror {
+            AppDelegate.shared?.remoteTmuxController.handleWorkspaceClosed(workspaceId: workspace.id)
+        }
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
            let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
@@ -5734,7 +5746,14 @@ class TabManager: ObservableObject {
             return
         }
         if tabs.count <= 1 {
-            // Last workspace in this window: match Close Workspace shortcut behavior.
+            // Last workspace in this window: it closes via the window-close path.
+            // For a remote-tmux mirror we deliberately do NOT kill the session
+            // here — closing the (last) workspace closes the window, and a window
+            // close only DETACHES (the remote tmux server stays alive for resume).
+            // Killing here would be premature: the window close can still be
+            // vetoed (single-window quit warning), which would destroy the remote
+            // session on a close the user then cancelled. Non-last session
+            // workspaces still kill via the closeWorkspace path below.
             if let window {
                 window.performClose(nil)
             } else {

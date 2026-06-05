@@ -11809,6 +11809,12 @@ final class Workspace: Identifiable, ObservableObject {
             title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
+        // A remote tmux mirror tab rename propagates to `rename-window`.
+        if isRemoteTmuxMirror {
+            AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
+                workspaceId: id, panelId: panelId, title: trimmed
+            )
+        }
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {
@@ -12964,7 +12970,36 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConfiguration != nil
     }
 
+    /// True when this workspace is an ephemeral mirror of a remote tmux session
+    /// (created by ``RemoteTmuxController``). Such workspaces are rebuilt from
+    /// the remote on each launch, so they are excluded from cmux's own session
+    /// snapshot/restore to avoid resurrecting stale, disconnected copies.
+    var isRemoteTmuxMirror: Bool = false
+
+    /// Per-window multi-pane renderers, keyed by the window-tab's panel id. When
+    /// a mirrored tmux window has more than one pane, its tab renders this
+    /// in-tab split container (``RemoteTmuxWindowMirrorView``) instead of the
+    /// single-surface ``PanelContentView``. Owned by ``RemoteTmuxSessionMirror``;
+    /// the view layer only reads it.
+    @Published private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]
+
+    /// The multi-pane renderer for a window-tab's panel, if that window is
+    /// currently multi-pane.
+    func remoteTmuxWindowMirror(forPanelId panelId: UUID) -> RemoteTmuxWindowMirror? {
+        remoteTmuxWindowMirrors[panelId]
+    }
+
+    /// Registers (or replaces) a window's multi-pane renderer.
+    func setRemoteTmuxWindowMirror(_ mirror: RemoteTmuxWindowMirror?, forPanelId panelId: UUID) {
+        if let mirror {
+            remoteTmuxWindowMirrors[panelId] = mirror
+        } else {
+            remoteTmuxWindowMirrors.removeValue(forKey: panelId)
+        }
+    }
+
     var isRestorableInSessionSnapshot: Bool {
+        if isRemoteTmuxMirror { return false }
         guard let remoteConfiguration else { return true }
         return remoteConfiguration.sessionSnapshot() != nil
     }
@@ -14497,6 +14532,17 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false
     ) -> TerminalPanel? {
+        // In a remote tmux mirror workspace, a new tab means "create a tmux
+        // window" — route it to the remote and let the resulting %window-add
+        // notification add the tab (one source of truth). NEVER create a local
+        // terminal here, even when the remote route can't be taken (dead/missing
+        // connection): a local tab would be an orphan the mirror can't reconcile,
+        // breaking the 1:1 invariant (symmetric with newBrowserSurface). A dead
+        // mirror workspace is torn down separately via handleSessionEndedRemotely.
+        if isRemoteTmuxMirror {
+            _ = AppDelegate.shared?.remoteTmuxController.handleMirrorNewTabRequested(workspaceId: id)
+            return nil
+        }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
@@ -14597,6 +14643,92 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
+    /// Creates a configured MANUAL-I/O ``TerminalPanel`` for one remote tmux pane,
+    /// WITHOUT inserting it into the workspace's bonsplit/`panels` (the
+    /// ``RemoteTmuxWindowMirror`` owns it and renders it via ``TerminalPanelView``
+    /// inside a single tab, so the pane gets the full native cmux pane chrome —
+    /// background, focus overlay, dividers).
+    func makeRemoteTmuxPanePanel(onInput: @escaping @Sendable (Data) -> Void) -> TerminalPanel {
+        let surface = TerminalSurface(
+            tabId: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            manualIO: true,
+            manualInputHandler: onInput
+        )
+        let panel = TerminalPanel(workspaceId: id, surface: surface)
+        configureNewTerminalPanel(panel)
+        return panel
+    }
+
+    /// Mounts a remote tmux pane as a live display tab in this workspace.
+    ///
+    /// The tab is backed by a MANUAL-I/O ``TerminalSurface`` (no local process):
+    /// the caller feeds `%output` via ``TerminalSurface/processRemoteOutput(_:)``
+    /// and receives typed input through `onInput` (→ tmux `send-keys`). Used by
+    /// ``RemoteTmuxController`` to render a mirrored remote tmux pane.
+    ///
+    /// - Parameter focus: when `true`, selects and reasserts AppKit keyboard
+    ///   focus onto the created tab (a user-initiated attach). When `false`
+    ///   (socket/background mirroring), the tab is created and selected within
+    ///   its pane but the user's keyboard focus is left untouched, per the
+    ///   socket focus policy.
+    @discardableResult
+    func addRemoteTmuxDisplayPane(
+        remotePaneId: Int,
+        title customTitle: String? = nil,
+        focus: Bool = false,
+        onInput: @escaping @Sendable (Data) -> Void
+    ) -> TerminalPanel? {
+        guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
+        else { return nil }
+
+        let title = customTitle ?? String(localized: "remoteTmux.tab.pane", defaultValue: "tmux pane")
+        let surface = TerminalSurface(
+            tabId: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            manualIO: true,
+            manualInputHandler: onInput
+        )
+        let newPanel = TerminalPanel(workspaceId: id, surface: surface)
+        configureNewTerminalPanel(newPanel)
+        panels[newPanel.id] = newPanel
+        panelTitles[newPanel.id] = title
+
+        guard let newTabId = bonsplitController.createTab(
+            title: title,
+            icon: "rectangle.connected.to.line.below",
+            kind: SurfaceKind.terminal,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: newPanel.id)
+            panelTitles.removeValue(forKey: newPanel.id)
+            return nil
+        }
+        surfaceIdToPanelId[newTabId] = newPanel.id
+        if focus {
+            bonsplitController.focusPane(paneId)
+        }
+        bonsplitController.selectTab(newTabId)
+        if focus {
+            newPanel.focus()
+        }
+        // Reassert AppKit first-responder (keyboard focus) only on a user-initiated
+        // attach; a background/socket mirror must not steal focus.
+        applyTabSelection(tabId: newTabId, inPane: paneId, reassertAppKitFocus: focus)
+        return newPanel
+    }
+
+    /// Updates a mirrored remote tmux tab's title (e.g. after a tmux
+    /// `%window-renamed`). No-ops if the panel is no longer mounted.
+    func updateRemoteTmuxTabTitle(panelId: UUID, title: String) {
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        panelTitles[panelId] = title
+        guard let existing = bonsplitController.tab(tabId), existing.title != title else { return }
+        bonsplitController.updateTab(tabId, title: title, icon: nil, isDirty: nil)
+    }
+
     private func remoteTerminalStartupCommand() -> String? {
         guard !suppressRemoteTerminalStartupForSessionRestoreScaffold else {
             return nil
@@ -14624,6 +14756,9 @@ final class Workspace: Identifiable, ObservableObject {
         bypassRemoteProxy: Bool = false,
         initialDividerPosition: CGFloat? = nil
     ) -> BrowserPanel? {
+        // No local browser surfaces in a remote tmux mirror workspace (it is a
+        // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
+        if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
             if let url {
@@ -14734,6 +14869,11 @@ final class Workspace: Identifiable, ObservableObject {
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false
     ) -> BrowserPanel? {
+        // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
+        // has no browser concept). A local browser tab here would be an orphan
+        // that the mirror's rebuild() never reconciles, breaking the 1:1
+        // invariant — so refuse browser creation in a mirror workspace.
+        if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
             if let externalURL = url ?? initialRequest?.url {
@@ -17116,6 +17256,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
+            // Mirror-rendered window-tab panels are driven by the in-tab mirror
+            // view, not the workspace; never reattach/refresh their dismantled
+            // hostedView here (matches the visibility/follow-up skips, and avoids
+            // a non-converging layout follow-up loop during zoom).
+            if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
             guard visiblePanelIds.contains(terminalPanel.id) else { continue }
             let hostedView = terminalPanel.hostedView
             let hasUsableBounds = hostedView.bounds.width > 1 && hostedView.bounds.height > 1
@@ -17213,6 +17358,10 @@ final class Workspace: Identifiable, ObservableObject {
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
+            // A multi-pane remote-tmux window-tab is rendered by its
+            // RemoteTmuxWindowMirrorView (its own panel's surface is not mounted),
+            // so the workspace must not drive that panel's portal here.
+            if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
             let shouldBeVisible = visiblePanelIds.contains(terminalPanel.id)
             if terminalPanel.hostedView.debugPortalVisibleInUI != shouldBeVisible {
                 terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
@@ -17237,6 +17386,8 @@ final class Workspace: Identifiable, ObservableObject {
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
+            // Skip mirror-rendered window-tab panels (see reconcile above).
+            if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
             let shouldBeVisible = visiblePanelIds.contains(terminalPanel.id)
             let hostedView = terminalPanel.hostedView
 
@@ -18466,6 +18617,24 @@ extension Workspace: BonsplitDelegate {
         let tabCloseButtonClose = tabCloseButtonCloseTabIds.remove(tab.id) != nil
         let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabCloseButtonClose
 
+        // Remote tmux mirror: closing a window tab means "kill that tmux window".
+        // Route ANY non-programmatic close (close button, ⌘W, and batch closes
+        // like "close others / close to the left/right") to the remote and veto
+        // the immediate local close — the tab is removed when tmux reports
+        // %window-close, which also tears the window mirror down (so a batch
+        // close can't abandon the mirror's pane surfaces, and the window doesn't
+        // reappear on the next rebuild). Programmatic closes (forceCloseTabIds,
+        // used by the mirror's own rebuild) are excluded — they do the actual
+        // removal. Falls through to the normal local close when there is no live
+        // mirror connection.
+        if isRemoteTmuxMirror, !forceCloseTabIds.contains(tab.id),
+           let panelId = panelIdFromSurfaceId(tab.id),
+           AppDelegate.shared?.remoteTmuxController.handleMirrorTabCloseRequested(
+               workspaceId: id, panelId: panelId
+           ) == true {
+            return false
+        }
+
         if forceCloseTabIds.contains(tab.id) {
             if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
                 stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
@@ -18728,6 +18897,29 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
         applyTabSelection(tabId: tab.id, inPane: pane)
+    }
+
+    func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+        // In a remote tmux mirror, a split (button or any bonsplit-level split)
+        // becomes a tmux `split-window`; the new pane arrives via %layout-change.
+        // Veto the local split when handled. Local workspaces split normally.
+        guard isRemoteTmuxMirror,
+              let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
+              let panelId = panelIdFromSurfaceId(tabId) else { return true }
+        let handled = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
+            workspaceId: id, panelId: panelId, vertical: orientation == .vertical
+        ) ?? false
+        return !handled
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {
+        // A remote tmux mirror tab reorder propagates to tmux window order.
+        guard isRemoteTmuxMirror else { return }
+        let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
+        guard !orderedPanelIds.isEmpty else { return }
+        AppDelegate.shared?.remoteTmuxController.handleMirrorWindowsReordered(
+            workspaceId: id, orderedPanelIds: orderedPanelIds
+        )
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {

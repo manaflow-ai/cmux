@@ -691,6 +691,20 @@ struct cmuxApp: App {
                     AppDelegate.shared?.showOpenFolderInInlineVSCodePanel()
                 }
                 .disabled(!TerminalDirectoryOpenTarget.vscodeInline.isAvailable())
+
+                if RemoteTmuxController.isEnabled {
+                    Divider()
+                    Button(
+                        String(
+                            localized: "menu.file.attachRemoteTmux",
+                            defaultValue: "Attach Remote tmux…"
+                        )
+                    ) {
+                        AppDelegate.shared?.promptAttachRemoteTmuxHost(
+                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                        )
+                    }
+                }
             }
 
             // Close tab/workspace

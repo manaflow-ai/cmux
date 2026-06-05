@@ -5338,6 +5338,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
     var requestedWorkingDirectory: String? { workingDirectory }
     let focusPlacement: TerminalSurfaceFocusPlacement
     private var additionalEnvironment: [String: String]
+    /// When true, the surface is created in libghostty MANUAL I/O mode: no
+    /// process is spawned, output is injected via ``processRemoteOutput(_:)``,
+    /// and typed input is delivered to ``manualInputHandler``. Used for
+    /// remote-tmux pane display surfaces.
+    let manualIO: Bool
+    private let manualInputHandler: (@Sendable (Data) -> Void)?
+    /// Retained userdata for the MANUAL-mode `io_write_cb`; released alongside
+    /// the surface (see ``teardownSurface()``).
+    private var manualIOContext: Unmanaged<RemoteTmuxManualIOWriteBox>?
+    /// Output delivered via ``processRemoteOutput(_:)`` before the runtime
+    /// surface exists (e.g. a background remote-tmux workspace not yet hosted).
+    /// Flushed into the surface once it is created so content isn't lost.
+    private var pendingRemoteOutput = Data()
+    private let maxPendingRemoteOutputBytes = 4 * 1_048_576
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
     private var lastPixelWidth: UInt32 = 0
@@ -5493,12 +5507,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        manualIO: Bool = false,
+        manualInputHandler: (@Sendable (Data) -> Void)? = nil
     ) {
         #if DEBUG
         dispatchPrecondition(condition: .onQueue(.main))
         #endif
 
+        self.manualIO = manualIO
+        self.manualInputHandler = manualInputHandler
         self.id = UUID()
         self.tabId = tabId
         self.surfaceContext = context
@@ -5530,6 +5548,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             || trimmedInput != nil
             || inheritedCommand?.isEmpty == false
             || inheritedInput?.isEmpty == false
+            // MANUAL-I/O (remote-tmux display) surfaces have no command but must
+            // start eagerly so they can receive injected output even while their
+            // workspace is in the background (not yet hosted in a visible view).
+            || manualIO
 
         // Surfaces with startup work must spawn before the user focuses their workspace.
         // Ghostty's embedded surface creation still expects a view with a window, so use
@@ -5773,6 +5795,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
         ghostty_surface_mouse_scroll(surface, 0, deltaLines, 0)
     }
 
+    /// The current monospace cell size in points, or `nil` if the runtime
+    /// surface isn't ready. Used to derive a tmux client size from a cmux pixel
+    /// area (remote tmux mirror sizing).
+    @MainActor
+    func cellSizePoints() -> CGSize? {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "cellSize") else { return nil }
+        let size = ghostty_surface_size(surface)
+        guard size.cell_width_px > 0, size.cell_height_px > 0 else { return nil }
+        let scale = max(Double(lastXScale), 1)
+        return CGSize(
+            width: Double(size.cell_width_px) / scale,
+            height: Double(size.cell_height_px) / scale
+        )
+    }
+
     /// Forward a mobile tap to this real surface as a left mouse click at the
     /// given grid cell. libghostty does the mode-correct thing: a program with
     /// mouse reporting (alt-screen TUIs like lazygit/htop/fzf) gets an encoded
@@ -6002,6 +6039,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let teeContext = mobileByteTeeContext
         mobileByteTeeContext = nil
         MobileTerminalByteTee.shared.dropSurface(surfaceID: id)
+        // Release the MANUAL-I/O write box: input only fires this callback while
+        // the surface is focused, which a surface being torn down is not.
+        manualIOContext?.release()
+        manualIOContext = nil
 
         let surfaceToFree = surface
         if let surfaceToFree {
@@ -6060,6 +6101,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let teeContext = mobileByteTeeContext
         mobileByteTeeContext = nil
         MobileTerminalByteTee.shared.dropSurface(surfaceID: id)
+        // Release the MANUAL-I/O write box: input only fires this callback while
+        // the surface is focused, which a surface being torn down is not.
+        manualIOContext?.release()
+        manualIOContext = nil
 
         let surfaceToFree = surface
         if let surfaceToFree {
@@ -6336,6 +6381,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
+        if manualIO {
+            // MANUAL I/O: ghostty spawns no process; typed input is delivered to
+            // our callback (→ tmux send-keys) and output is injected via
+            // ghostty_surface_process_output (← tmux %output).
+            manualIOContext?.release()
+            let box = Unmanaged.passRetained(
+                RemoteTmuxManualIOWriteBox(onWrite: manualInputHandler ?? { _ in })
+            )
+            manualIOContext = box
+            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
+            surfaceConfig.io_write_cb = cmuxRemoteTmuxManualIOWriteCallback
+            surfaceConfig.io_write_userdata = box.toOpaque()
+        }
 #if DEBUG
         let templateFontText = String(format: "%.2f", surfaceConfig.font_size)
         cmuxDebugLog(
@@ -6616,6 +6674,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let createdSurface = surface else { return }
         TerminalSurfaceRegistry.shared.registerRuntimeSurface(createdSurface, ownerId: id)
         recordRuntimeSurfaceCreation()
+        // Flush any remote-tmux output that arrived before the surface existed.
+        flushPendingRemoteOutput(to: createdSurface)
         // Install the PTY tee so MobileTerminalByteTee receives every byte
         // the read thread produces, in order, before the VT parser runs.
         // Paired iPhones consume these bytes via `terminal.bytes` events
@@ -7506,6 +7566,40 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    /// Injects raw terminal output bytes into this surface's VT parser, as if
+    /// they came from a PTY. Used by MANUAL-I/O remote-tmux display surfaces to
+    /// render a remote pane's `%output`. If the runtime surface doesn't exist
+    /// yet (e.g. a background workspace not yet hosted) the bytes are buffered
+    /// and flushed on creation. Must be called on the main thread.
+    func processRemoteOutput(_ data: Data) {
+        guard !data.isEmpty else { return }
+        guard let surface, cmuxSurfacePointerAppearsLive(surface) else {
+            // Keep the NEWEST bytes (a terminal's recent output is what matters):
+            // append, then trim from the front if over the cap.
+            pendingRemoteOutput.append(data)
+            if pendingRemoteOutput.count > maxPendingRemoteOutputBytes {
+                pendingRemoteOutput.removeFirst(pendingRemoteOutput.count - maxPendingRemoteOutputBytes)
+            }
+            return
+        }
+        flushPendingRemoteOutput(to: surface)
+        writeProcessOutput(data, to: surface)
+    }
+
+    private func flushPendingRemoteOutput(to surface: ghostty_surface_t) {
+        guard !pendingRemoteOutput.isEmpty else { return }
+        let buffered = pendingRemoteOutput
+        pendingRemoteOutput = Data()
+        writeProcessOutput(buffered, to: surface)
+    }
+
+    private func writeProcessOutput(_ data: Data, to surface: ghostty_surface_t) {
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
+        }
+    }
+
     private static func readText(
         surface: ghostty_surface_t,
         pointTag: ghostty_point_tag_e
@@ -7894,6 +7988,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // mobileByteTeeContext, so teeContext is nil here and ?.release() no-ops.
         let teeContext = mobileByteTeeContext
         mobileByteTeeContext = nil
+        // Release the MANUAL-I/O write box here too — deinit may be the only
+        // teardown path for a surface never explicitly torn down, and input
+        // can't fire on a deallocating surface, so an immediate release is safe.
+        manualIOContext?.release()
+        manualIOContext = nil
         // `dropSurface` is @MainActor but `deinit` is nonisolated, so hop to the
         // main actor with the surface id captured by value (no self capture).
         // Dropping by id only clears the registry/replay state; releasing
@@ -11418,8 +11517,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func canSplitCurrentSurface() -> Bool {
+        guard let surfaceId = terminalSurface?.id else { return false }
+        // Mirror panes aren't in workspace.panels but can still split (→ tmux).
+        if AppDelegate.shared?.remoteTmuxController.isMirrorPaneSurface(surfaceId) == true {
+            return true
+        }
         guard let tabId,
-              let surfaceId = terminalSurface?.id,
               let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
               let workspace = manager.tabs.first(where: { $0.id == tabId }) else {
@@ -11438,8 +11541,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     private func splitCurrentSurface(direction: SplitDirection) -> Bool {
+        guard let surfaceId = terminalSurface?.id else { return false }
+        // Remote tmux mirror pane: route the split to tmux `split-window` and let
+        // the resulting %layout-change rebuild the in-tab splits (one source of
+        // truth). Local splits are unaffected (this returns false for them).
+        if AppDelegate.shared?.remoteTmuxController.handleMirrorSplitRequested(
+            surfaceId: surfaceId, vertical: !direction.isHorizontal
+        ) == true {
+            return true
+        }
         guard let tabId,
-              let surfaceId = terminalSurface?.id,
               let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else {
             return false

@@ -670,6 +670,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
+    /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
+    let remoteTmuxController = RemoteTmuxController()
+    /// One-shot guard so remote-tmux hosts are reconnected only once per launch.
+    private var didTriggerRemoteTmuxRestore = false
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -1708,6 +1712,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillBecomeActive(_ notification: Notification) { if !hasVisibleMainTerminalWindow() { _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(windows: mainWindowsForVisibilityController(), reason: .applicationWillBecomeActive) } }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        // One-shot per launch: reconnect to remote tmux hosts that were mirrored
+        // before quit and re-mirror their still-running sessions (remoteTmux beta).
+        if !didTriggerRemoteTmuxRestore {
+            didTriggerRemoteTmuxRestore = true
+            remoteTmuxController.restoreMirroredHostsOnLaunch()
+        }
         let activationWindows = mainWindowsForVisibilityController()
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
@@ -1842,6 +1852,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
+        // Detach remote tmux control connections (kills the local ssh clients);
+        // the remote tmux server + sessions stay alive for resume next launch.
+        remoteTmuxController.detachAll()
         closeAllWebInspectorsBeforeAppTeardown()
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -4157,7 +4170,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func sortedMainWindowContextsForSessionSnapshot() -> [MainWindowContext] {
-        mainWindowContexts.values.sorted { lhs, rhs in
+        mainWindowContexts.values
+            // Exclude dedicated remote-tmux mirror windows: their workspaces are
+            // non-restorable, so snapshotting one yields an empty window that
+            // would restore as a leftover, duplicating the window that
+            // restoreMirroredHostsOnLaunch rebuilds.
+            .filter { !remoteTmuxController.isDedicatedRemoteWindow($0.windowId) }
+            .sorted { lhs, rhs in
             let lhsWindow = lhs.window ?? windowForMainWindowId(lhs.windowId)
             let rhsWindow = rhs.window ?? windowForMainWindowId(rhs.windowId)
             let lhsIsKey = lhsWindow?.isKeyWindow ?? false
@@ -6980,6 +6999,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
+        // In a dedicated remote-tmux window, a new workspace means "create a new
+        // tmux session on that host" — route it to the remote and mirror it into
+        // this window instead of creating a local workspace.
+        if let context,
+           remoteTmuxController.handleRemoteWindowNewWorkspaceRequested(windowId: context.windowId) {
+            return true
+        }
+
         let workspaceGroupTarget = context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
         if let context,
            executeConfiguredNewWorkspaceActionIfAvailable(
@@ -7510,8 +7537,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let workspace = context.tabManager.selectedWorkspace
             ?? context.tabManager.addWorkspace(select: shouldBringToFront, autoWelcomeIfNeeded: false)
+        // In a remote tmux mirror workspace, paste targets the existing focused
+        // pane. Do NOT fall back to creating a new surface there: that would
+        // route to a remote `new-window` (a surprising side effect) yet still
+        // have no local pane to deliver the text to.
         let terminalPanel = workspace.focusedTerminalPanel
-            ?? workspace.newTerminalSurfaceInFocusedPane(focus: shouldBringToFront)
+            ?? (workspace.isRemoteTmuxMirror ? nil : workspace.newTerminalSurfaceInFocusedPane(focus: shouldBringToFront))
         guard let terminalPanel else { return false }
 
 #if DEBUG
@@ -8099,6 +8130,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let controller = MainWindowController(window: window)
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
+            // If this was a dedicated remote-tmux window, detach its host's
+            // control connections (the remote tmux server stays alive for resume;
+            // closing the window must not kill remote sessions).
+            self.remoteTmuxController.handleRemoteWindowClosed(windowId: windowId)
+            // Also detach any per-workspace mirrors in this window (covers the
+            // socket `remote.tmux.mirror` path into a non-dedicated window), so
+            // their pane surfaces / ssh connections don't leak on window close.
+            if let manager = self.tabManagerFor(windowId: windowId) {
+                self.remoteTmuxController.handleWindowWorkspacesClosed(
+                    workspaceIds: manager.tabs.map { $0.id }
+                )
+            }
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
         controller.shouldClose = { [weak self] in
