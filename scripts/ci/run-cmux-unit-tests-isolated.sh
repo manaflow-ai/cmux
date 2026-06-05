@@ -23,15 +23,40 @@ export SWIFT_COMPILER_SUPPORTS_6_2
 mkdir -p "$SOURCE_PACKAGES_DIR" "$RESULT_ROOT" "$LOG_ROOT" "$STATUS_ROOT"
 rm -rf "$RESULT_ROOT"/* "$LOG_ROOT"/* "$STATUS_ROOT"/*
 
-TEST_CLASSES=()
-while IFS= read -r class; do
-  TEST_CLASSES+=("$class")
+TEST_IDENTIFIERS=()
+while IFS= read -r test_identifier; do
+  TEST_IDENTIFIERS+=("$test_identifier")
 done < <(
   perl -ne '
     if (!defined($current_file) || $current_file ne $ARGV) {
       $current_file = $ARGV;
       @inactive_blocks = ();
+      $imports_testing = 0;
+      $pending_suite_attribute = 0;
+      $candidate_name = "";
+      $candidate_depth = 0;
+      $candidate_has_test = 0;
+      $candidate_has_suite_attribute = 0;
+      $swift_brace_depth = 0;
     }
+
+    sub brace_delta {
+      my ($line) = @_;
+      my $opens = ($line =~ tr/{/{/);
+      my $closes = ($line =~ tr/}/}/);
+      return $opens - $closes;
+    }
+
+    sub maybe_emit_candidate {
+      if ($candidate_name ne "" && ($candidate_has_test || $candidate_has_suite_attribute)) {
+        print "$candidate_name\n";
+      }
+      $candidate_name = "";
+      $candidate_depth = 0;
+      $candidate_has_test = 0;
+      $candidate_has_suite_attribute = 0;
+    }
+
     if (!$ENV{SWIFT_COMPILER_SUPPORTS_6_2} && /^\s*#if\s+compiler\(>=\s*6\.2\)/) {
       push @inactive_blocks, 1;
       next;
@@ -45,12 +70,40 @@ done < <(
       next;
     }
     next if @inactive_blocks;
+
+    $imports_testing = 1 if /^\s*import\s+Testing\b/;
     print "$1\n" if /^\s*(?:@[A-Za-z0-9_()]+\s+)*(?:final\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*XCTestCase\b/;
+
+    my $line = $_;
+    my $depth_before = $swift_brace_depth // 0;
+
+    if ($imports_testing) {
+      $pending_suite_attribute = 1 if /^\s*@Suite\b/;
+
+      if ($candidate_name eq "" && $depth_before == 0 && /^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*(?:(?:public|private|fileprivate|internal)\s+)?struct\s+([A-Za-z_][A-Za-z0-9_]*)\b/) {
+        $candidate_name = $1;
+        $candidate_depth = $depth_before;
+        $candidate_has_test = 0;
+        $candidate_has_suite_attribute = $pending_suite_attribute || /^\s*@Suite\b/;
+        $pending_suite_attribute = 0;
+      } elsif ($candidate_name ne "" && /^\s*@Test\b/) {
+        $candidate_has_test = 1;
+      }
+    }
+
+    $swift_brace_depth = $depth_before + brace_delta($line);
+    if (($swift_brace_depth // 0) < 0) {
+      $swift_brace_depth = 0;
+    }
+
+    if ($candidate_name ne "" && ($swift_brace_depth // 0) <= $candidate_depth && /}/) {
+      maybe_emit_candidate();
+    }
   ' cmuxTests/*.swift | sort -u
 )
 
-if [ "${#TEST_CLASSES[@]}" -eq 0 ]; then
-  echo "No cmuxTests XCTestCase classes were discovered" >&2
+if [ "${#TEST_IDENTIFIERS[@]}" -eq 0 ]; then
+  echo "No cmuxTests XCTestCase classes or Swift Testing suites were discovered" >&2
   exit 1
 fi
 
@@ -78,21 +131,21 @@ if [ "$SHARD_INDEX" -ge "$SHARD_COUNT" ]; then
   exit 1
 fi
 
-SELECTED_TEST_CLASSES=()
-for class in "${TEST_CLASSES[@]}"; do
-  class_hash="$(printf '%s' "$class" | cksum | awk '{print $1}')"
+SELECTED_TEST_IDENTIFIERS=()
+for test_identifier in "${TEST_IDENTIFIERS[@]}"; do
+  class_hash="$(printf '%s' "$test_identifier" | cksum | awk '{print $1}')"
   if [ $((class_hash % SHARD_COUNT)) -eq "$SHARD_INDEX" ]; then
-    SELECTED_TEST_CLASSES+=("$class")
+    SELECTED_TEST_IDENTIFIERS+=("$test_identifier")
   fi
 done
 
-if [ "${#SELECTED_TEST_CLASSES[@]}" -eq 0 ]; then
-  echo "Shard $SHARD_INDEX/$SHARD_COUNT did not select any cmuxTests XCTestCase classes" >&2
+if [ "${#SELECTED_TEST_IDENTIFIERS[@]}" -eq 0 ]; then
+  echo "Shard $SHARD_INDEX/$SHARD_COUNT did not select any cmuxTests XCTestCase classes or Swift Testing suites" >&2
   exit 1
 fi
 
-echo "Discovered ${#TEST_CLASSES[@]} cmuxTests XCTestCase classes"
-echo "Running shard $SHARD_INDEX/$SHARD_COUNT with ${#SELECTED_TEST_CLASSES[@]} classes"
+echo "Discovered ${#TEST_IDENTIFIERS[@]} cmuxTests XCTestCase classes and Swift Testing suites"
+echo "Running shard $SHARD_INDEX/$SHARD_COUNT with ${#SELECTED_TEST_IDENTIFIERS[@]} test types"
 
 case "$BATCH_SIZE" in
   ''|*[!0-9]*)
@@ -118,8 +171,8 @@ scripts/ci/xcodebuild_noninteractive.py \
 SHARD_LABEL="shard-${SHARD_INDEX}-of-${SHARD_COUNT}"
 batch_index=0
 class_offset=0
-while [ "$class_offset" -lt "${#SELECTED_TEST_CLASSES[@]}" ]; do
-  batch_classes=("${SELECTED_TEST_CLASSES[@]:$class_offset:$BATCH_SIZE}")
+while [ "$class_offset" -lt "${#SELECTED_TEST_IDENTIFIERS[@]}" ]; do
+  batch_classes=("${SELECTED_TEST_IDENTIFIERS[@]:$class_offset:$BATCH_SIZE}")
   BATCH_LABEL="${SHARD_LABEL}-batch-${batch_index}"
   BATCH_LOG="$LOG_ROOT/$BATCH_LABEL.log"
   BATCH_RESULT="$RESULT_ROOT/$BATCH_LABEL.xcresult"
@@ -282,4 +335,4 @@ while [ "$class_offset" -lt "${#SELECTED_TEST_CLASSES[@]}" ]; do
   class_offset=$((class_offset + BATCH_SIZE))
 done
 
-echo "All ${#SELECTED_TEST_CLASSES[@]} selected cmuxTests XCTestCase classes passed in $SHARD_LABEL batches"
+echo "All ${#SELECTED_TEST_IDENTIFIERS[@]} selected cmuxTests XCTestCase classes and Swift Testing suites passed in $SHARD_LABEL batches"

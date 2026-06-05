@@ -753,7 +753,8 @@ private final class ClaudeHookSessionStore {
                 }
                 if let lastTurnId = turnStack.last {
                     if lastTurnId == normalizedTurnId {
-                        let nested = turnStack.count > 1
+                        let terminalCoverageClosesDepth = terminalPromptTurnIds.count + 1 >= totalDepthBeforeStop
+                        let nested = totalDepthBeforeStop > 1 && !terminalCoverageClosesDepth
                         turnStack.removeLast()
                         setActivePromptTurnStack(
                             turnStack,
@@ -28484,6 +28485,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let activePromptTurnStack = mapped?.activePromptTurnIds?
                     .compactMap({ normalizedHookValue($0) }) ?? []
                 let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
+                let mappedPromptDepth = max(
+                    mapped?.activePromptDepth ?? 0,
+                    activePromptTurnStack.count,
+                    activePromptTurnId == nil ? 0 : 1
+                )
                 let activeTurnIds = activePromptTurnStack.isEmpty
                     ? activePromptTurnId.map { [$0] } ?? []
                     : activePromptTurnStack
@@ -28495,13 +28501,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         path: transcriptPath,
                         turnIds: Set(activeTurnIdsToCheck)
                     )
-                } else if activePromptTurnStack.isEmpty,
-                          (mapped?.activePromptDepth ?? 0) > 1,
+                } else if activePromptTurnStack.count <= 1,
+                          mappedPromptDepth > activePromptTurnStack.count,
                           let transcriptPath = normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath)
                               ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
                     let terminalTurnIds = codexTranscriptRecentTerminalTurnIds(path: transcriptPath)
                     if terminalTurnIds.last == incomingTurnId {
-                        terminalActivePromptTurnIdsForStop = Set(terminalTurnIds.dropLast().suffix(max(0, (mapped?.activePromptDepth ?? 0) - 1)))
+                        terminalActivePromptTurnIdsForStop = Set(
+                            terminalTurnIds.dropLast().suffix(max(0, mappedPromptDepth - 1))
+                        )
                     } else {
                         terminalActivePromptTurnIdsForStop = []
                     }
