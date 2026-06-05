@@ -106,10 +106,10 @@ final class AutomationSocketUITests: XCTestCase {
         let app = XCUIApplication()
         configureTextBoxMentionLaunchEnvironment(app)
         defer { app.terminate() }
-        app.launch()
+        launchAllowingBackgroundActivation(app)
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            waitForRunningApp(app, timeout: 12.0),
             "Expected app to launch for textbox mention test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(
@@ -244,6 +244,26 @@ final class AutomationSocketUITests: XCTestCase {
         if app.state == .runningBackground {
             app.activate()
             return app.wait(for: .runningForeground, timeout: 6.0)
+        }
+        return false
+    }
+
+    private func launchAllowingBackgroundActivation(_ app: XCUIApplication) {
+        // Headless cloud runners can launch the app but fail WindowServer activation.
+        // The socket and accessibility APIs used below still work in background.
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless UI runners", options: options) {
+            app.launch()
+        }
+    }
+
+    private func waitForRunningApp(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        if app.state == .runningBackground {
+            return true
         }
         return false
     }
