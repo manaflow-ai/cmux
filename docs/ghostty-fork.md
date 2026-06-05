@@ -13,10 +13,10 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `f24195271`, based on `176bd550f`, adding the
+Current cmux pinned fork head: `59fb750c0`, based on `176bd550f`, adding the
 cmd-click link refresh under mouse reporting (manaflow-ai/ghostty#71) plus the
 click/drag mouse-report suppression and hover-state follow-ups
-(manaflow-ai/ghostty#74, #75, #76) for
+(manaflow-ai/ghostty#74, #75, #76, #77) for
 https://github.com/manaflow-ai/cmux/issues/5128 on top of the previous head's
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
 the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
@@ -28,7 +28,7 @@ and lets Cmd-click open links even while a mouse-reporting alt-screen TUI
 (Claude Code, Codex) has grabbed the mouse.
 It also supports Ctrl-N and Ctrl-P in the cmux theme picker.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f2419527162185a76d49ffda911f881e2bdec95a-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-59fb750c0f21a2d0b1b61db491050360d308d3b8-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -230,6 +230,9 @@ tend to conflict together during rebases.
   - `76ead3eae` (fix: also suppress motion reports during a cmd-clicked link drag)
 - Follow-up commit (manaflow-ai/ghostty#76):
   - `f24195271` (fix: scope cmd-click link suppression to left button; clear stale hover)
+- Follow-up commits (manaflow-ai/ghostty#77):
+  - `5998abddd` (fix: latch cmd-click link suppression for the click lifecycle)
+  - `59fb750c0` (fix: clear link-click latch unconditionally on left release)
 - Files:
   - `src/Surface.zig`
 - Summary:
@@ -262,6 +265,13 @@ tend to conflict together during rebases.
     left-only), and clears a stale link highlight/cursor when the chord is
     released through `cursorPosCallback`'s mods (refresh when `over_link` is set,
     mirroring `keyCallback`'s existing reset branch).
+  - Follow-up (#77): latches the suppression decision at left-button press
+    (`mouse.link_click_active`) and applies it through the release, instead of
+    re-checking the live modifier each event — so releasing ctrl/super before the
+    mouse button can't leak the release as a half-click. Ties suppression to the
+    click lifecycle (press/drag/release), fully closing the half-click class. The
+    latch is cleared unconditionally on left release (independent of
+    mouse-reporting state) so it can't go stale.
   - Known limitation (noted by review): the bypass matches the default
     `ctrlOrSuper` chord, which is exactly what both link kinds already require to
     activate (OSC 8 `linkAtPos` and the default url `hover_mods = ctrlOrSuper`); a
@@ -270,10 +280,10 @@ tend to conflict together during rebases.
 
 The current cmux pin is the head listed above. It is reachable from
 `manaflow-ai/ghostty` through the
-`xcframework-f2419527162185a76d49ffda911f881e2bdec95a-crashsubdir-cmux-crash-v1`
+`xcframework-59fb750c0f21a2d0b1b61db491050360d308d3b8-crashsubdir-cmux-crash-v1`
 release tag and is an ancestor of `manaflow-ai/ghostty` `main` (PR #71, #74,
-#75, and #76 are merged into fork `main`, keeping `f24195271` an ancestor).
-Published `xcframework-f2419527162185a76d49ffda911f881e2bdec95a-crashsubdir-cmux-crash-v1` and pinned its
+#75, #76, and #77 are merged into fork `main`, keeping `59fb750c0` an ancestor).
+Published `xcframework-59fb750c0f21a2d0b1b61db491050360d308d3b8-crashsubdir-cmux-crash-v1` and pinned its
 archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
 pin must be regenerated whenever this commit changes, even for comment-only
 amends, because the release tag is keyed by the Ghostty commit SHA.
