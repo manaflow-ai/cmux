@@ -24783,6 +24783,44 @@ function quickPaneControlsPanel(panel) {
   });
 }
 
+function quickPanePresetControlsPanel(panel) {
+  const target = paneSetupTarget(panel);
+  const hasPane = Boolean(target);
+  const pending = isPendingPanel(target);
+  const ready = hasPane && !pending;
+  const presets = paneSetupPresetsForPanel(target);
+  if (!presets.length) return null;
+  const typeLabel = target.type === "browser" ? "Browser" : "Terminal";
+  const paneTitle = panelDisplayTitle(target, true);
+  const activePreset = presets.find((preset) => paneSetupPresetActive(preset, target));
+  const presetSearch = presets.map((preset) => `${preset.label} ${preset.body} ${paneSetupPresetMeta(preset)}`).join(" ");
+  const unavailableTitle = pending
+    ? "Wait for the pane to finish starting."
+    : "Open a terminal or browser pane first.";
+  const actions = presets.map((preset) => {
+    const active = ready && paneSetupPresetActive(preset, target);
+    return quickOverviewControlButton(active ? "Active" : `Use ${preset.label}`, () => applyPaneSetupPreset(preset.id, target), {
+      disabled: !ready || active,
+      title: ready ? paneSetupPresetTitle(preset, active, target) : unavailableTitle,
+      search: normalizeSettingsQuery(`quick setup ${paneSetupPresetSearchText(preset, active, target)}`)
+    });
+  });
+  actions.push(
+    quickOverviewControlButton("Pane presets", () => openPaneSettings(target), {
+      disabled: !ready,
+      title: ready ? "Open active pane presets and copy controls." : unavailableTitle,
+      search: normalizeSettingsQuery(`quick setup active pane preset settings full copy export ${presetSearch}`)
+    })
+  );
+  return quickOverviewControlsPanel({
+    className: "quick-overview-pane",
+    title: "Pane presets",
+    meta: activePreset ? `${activePreset.label} active / ${typeLabel}` : `${presets.length} ${typeLabel.toLowerCase()} presets / ${paneTitle}`,
+    search: `quick setup active pane presets apply role terminal browser rename color background text url ${paneTitle} ${typeLabel} ${presetSearch}`,
+    actions
+  });
+}
+
 function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount = 0) {
   const activeTerminal = activeTerminalPanelForSettings();
   const hasWorkspace = Boolean(workspace);
@@ -25499,7 +25537,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   const librarySummary = quickCustomizationLibrarySummary(libraryEntries);
   const panel = document.createElement("div");
   panel.className = "quick-setup-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls theme look appearance layout terminal browser commands actions workflows shortcuts palette performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints starter layouts reusable colors backgrounds snippets packs data maintenance backup restore cleanup privacy storage`);
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls presets theme look appearance layout terminal browser commands actions workflows shortcuts palette performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints starter layouts reusable colors backgrounds snippets packs data maintenance backup restore cleanup privacy storage`);
   panel.innerHTML = `
     <div class="quick-overview-heading">
       <span class="quick-overview-copy">
@@ -25544,6 +25582,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-layout-controls></div>
     <div data-quick-blueprint-controls></div>
     <div data-quick-pane-controls></div>
+    <div data-quick-pane-preset-controls></div>
     <div data-quick-terminal-controls></div>
     <div data-quick-command-controls></div>
     <div data-quick-browser-controls></div>
@@ -25628,6 +25667,10 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   panel.querySelector("[data-quick-layout-controls]").replaceWith(quickLayoutControlsPanel(workspace));
   panel.querySelector("[data-quick-blueprint-controls]").replaceWith(quickBlueprintControlsPanel(workspace));
   panel.querySelector("[data-quick-pane-controls]").replaceWith(quickPaneControlsPanel(activePane));
+  const panePresetControls = quickPanePresetControlsPanel(activePane);
+  const panePresetSlot = panel.querySelector("[data-quick-pane-preset-controls]");
+  if (panePresetControls) panePresetSlot.replaceWith(panePresetControls);
+  else panePresetSlot.remove();
   panel.querySelector("[data-quick-terminal-controls]").replaceWith(quickTerminalControlsPanel(workspace, terminalCount));
   panel.querySelector("[data-quick-command-controls]").replaceWith(quickCommandActionControlsPanel());
   panel.querySelector("[data-quick-browser-controls]").replaceWith(quickBrowserControlsPanel(workspace, browserCount));
