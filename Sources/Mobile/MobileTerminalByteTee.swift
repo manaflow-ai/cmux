@@ -57,6 +57,23 @@ final class MobileTerminalByteTee {
     /// Non-isolated entry point called from the C tee trampoline. Safe
     /// to invoke from any thread.
     nonisolated func append(surfaceID: UUID, bytes: UnsafeBufferPointer<UInt8>) {
+        // Hot path: this runs on the Ghostty PTY/IO read thread for *every*
+        // surface, including normal desktop use with no phone attached. Bail
+        // before any allocation or main-actor hop when no mobile client wants
+        // these bytes. The check is an O(1) dictionary read of the single
+        // subscription source of truth (`MobileHostEventSubscriptionTracker`),
+        // the same accessor `MobileTerminalRenderObserver` already uses; it is
+        // not a new lock, and its only writers are the rare subscribe /
+        // unsubscribe RPCs, so the IO thread never meaningfully contends. We
+        // gate on both topics because `publishFromMain` is load-bearing for
+        // the render-grid stream too: it advances `seq` (read as `stateSeq`)
+        // and calls `noteTerminalBytes` to schedule the post-parse tick.
+        guard
+            MobileHostService.hasEventSubscribers(topic: "terminal.bytes")
+                || MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
+        else {
+            return
+        }
         guard let base = bytes.baseAddress, bytes.count > 0 else { return }
         let copy = Data(bytes: base, count: bytes.count)
         publishQueue.async { [weak self] in
