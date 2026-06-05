@@ -352,17 +352,28 @@ final class AutomationSocketUITests: XCTestCase {
 
     private func waitForMainWindowContext(timeout: TimeInterval) -> (windowID: String, surfaceID: String?)? {
         waitForJSON(timeout: timeout) {
-            guard let result = self.socketResult(method: "system.identify", params: [:]),
-                  let focused = result["focused"] as? [String: Any],
-                  let windowID = focused["window_id"] as? String,
-                  !windowID.isEmpty else {
+            if let result = self.socketResult(method: "system.identify", params: [:]),
+               let focused = result["focused"] as? [String: Any],
+               let windowID = focused["window_id"] as? String,
+               !windowID.isEmpty {
+                var payload: [String: Any] = ["window_id": windowID]
+                if let surfaceID = focused["surface_id"] as? String, !surfaceID.isEmpty {
+                    payload["surface_id"] = surfaceID
+                }
+                return payload
+            }
+
+            guard let result = self.socketResult(method: "window.list", params: [:]),
+                  let windows = result["windows"] as? [[String: Any]] else {
                 return nil
             }
-            var payload: [String: Any] = ["window_id": windowID]
-            if let surfaceID = focused["surface_id"] as? String, !surfaceID.isEmpty {
-                payload["surface_id"] = surfaceID
+            let window = windows.first { item in
+                item["visible"] as? Bool == true
+            } ?? windows.first
+            guard let windowID = window?["id"] as? String, !windowID.isEmpty else {
+                return nil
             }
-            return payload
+            return ["window_id": windowID]
         }
         .flatMap { payload in
             guard let windowID = payload["window_id"] as? String else { return nil }
