@@ -4757,8 +4757,6 @@ final class TextBoxInputTextView: NSTextView {
         host.frame = NSRect(origin: .zero, size: contentSize)
         host.needsLayout = true
         host.needsDisplay = true
-        host.layoutSubtreeIfNeeded()
-        host.displayIfNeeded()
 
         let panel = mentionCompletionPanel ?? makeMentionCompletionPanel(host: host)
         if panel.contentView !== host {
@@ -4781,7 +4779,6 @@ final class TextBoxInputTextView: NSTextView {
             panel.orderFront(nil)
         }
         panel.contentView?.needsDisplay = true
-        panel.contentView?.displayIfNeeded()
     }
 
     private func makeMentionCompletionPanel(
