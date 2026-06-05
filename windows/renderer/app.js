@@ -27445,6 +27445,48 @@ function quickActionSearchText(action) {
   return typeof action.search === "function" ? action.search() : action.search || "";
 }
 
+function quickActionCtaNode(button) {
+  return button?.querySelector?.(".quick-action-cta")
+    || button?.querySelector?.(".quick-guide-cta")
+    || null;
+}
+
+function quickActionButtonDisabled(action, includeActive = false) {
+  const active = Boolean(action.active?.());
+  return Boolean(action.disabled?.()) || (includeActive && active && action.activeDisabled !== false);
+}
+
+async function runQuickActionButton(button, action, options = {}) {
+  if (!button || button.disabled || button.classList.contains("is-busy")) return;
+  const labelNode = quickActionCtaNode(button);
+  const previousLabel = labelNode?.textContent || "";
+  let result = null;
+  try {
+    result = action.run?.();
+  } catch (error) {
+    console.error(error);
+    toast(`${action.label} failed.`);
+    return;
+  }
+  if (!result || typeof result.then !== "function") return;
+  button.disabled = true;
+  button.classList.add("is-busy");
+  button.setAttribute("aria-busy", "true");
+  if (labelNode) labelNode.textContent = "Working";
+  try {
+    await result;
+  } catch (error) {
+    console.error(error);
+    toast(`${action.label} failed.`);
+  } finally {
+    if (!button.isConnected) return;
+    button.classList.remove("is-busy");
+    button.removeAttribute("aria-busy");
+    button.disabled = quickActionButtonDisabled(action, options.includeActiveDisabled);
+    if (labelNode) labelNode.textContent = previousLabel || action.cta || "Run";
+  }
+}
+
 function quickSetupActionDefinitions() {
   return [
     {
@@ -27789,8 +27831,7 @@ function quickSetupGuidePanel() {
     item.querySelector(".quick-guide-meta").textContent = action.meta();
     item.querySelector(".quick-guide-cta").textContent = action.cta;
     item.onclick = () => {
-      if (item.disabled) return;
-      action.run();
+      runQuickActionButton(item, action);
     };
     list.append(item);
   }
@@ -27830,8 +27871,7 @@ function quickSetupActionGrid() {
     button.querySelector(".quick-settings-shortcut-meta").textContent = action.meta();
     button.querySelector(".quick-action-cta").textContent = active ? action.activeCta || "Active" : action.cta;
     button.onclick = () => {
-      if (button.disabled) return;
-      action.run();
+      runQuickActionButton(button, action, { includeActiveDisabled: true });
     };
     grid.append(button);
   }

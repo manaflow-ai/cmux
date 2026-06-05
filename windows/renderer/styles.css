@@ -11602,6 +11602,11 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   cursor: default;
 }
 
+.quick-guide-item.is-busy {
+  opacity: .72;
+  cursor: progress;
+}
+
 .quick-guide-icon {
   width: 32px;
   height: 32px;
@@ -11623,6 +11628,11 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .quick-guide-icon svg {
   width: 17px;
   height: 17px;
+}
+
+.quick-guide-item.is-busy .quick-guide-icon,
+.quick-action.is-busy .quick-action-icon {
+  opacity: .62;
 }
 
 .quick-guide-copy {
@@ -11804,6 +11814,11 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border-color: var(--color-line);
   background: color-mix(in oklch, var(--color-pane-warm) 76%, var(--color-rail) 24%);
   color: var(--color-faint);
+}
+
+.quick-action.is-busy {
+  opacity: .72;
+  cursor: progress;
 }
 
 .quick-action-icon {
