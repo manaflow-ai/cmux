@@ -534,6 +534,10 @@ export default function (amp: PluginAPI) {
     if (!sessionId) return;
     watchThreadTitle(sessionId, ctx);
     const title = await resolveSessionTitle(sessionId, ctx);
+    // resolveSessionTitle can await the slow path; if the turn already ended
+    // (agent.end fired during that await) skip prompt-submit so a finished
+    // session isn't revived as running. Same guard as the title subscription.
+    if (!turnActive) return;
     sendHook("prompt-submit", sessionId, cwdFromEnv(), titleExtra(title));
   });
 

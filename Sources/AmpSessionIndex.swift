@@ -65,7 +65,11 @@ extension SessionIndexStore {
             let data = try Data(contentsOf: storeURL)
             store = try JSONDecoder().decode(AmpHookSessionStoreFile.self, from: data)
         } catch {
-            errorBag.add("Amp: cannot read \(storeURL.lastPathComponent)")
+            let format = String(
+                localized: "sessionIndex.error.ampStoreRead",
+                defaultValue: "Amp: cannot read %@"
+            )
+            errorBag.add(String(format: format, storeURL.lastPathComponent))
             return []
         }
 
@@ -86,7 +90,11 @@ extension SessionIndexStore {
             ))
         }
 
-        indexed.sort { $0.modified > $1.modified }
+        indexed.sort { lhs, rhs in
+            lhs.modified == rhs.modified
+                ? lhs.sessionId < rhs.sessionId
+                : lhs.modified > rhs.modified
+        }
 
         let normalizedNeedle = needle.lowercased()
         let normalizedFilter = cwdFilter.flatMap { Self.ampNormalizedCwd($0) }
