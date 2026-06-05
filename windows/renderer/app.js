@@ -18001,6 +18001,7 @@ function refreshBackgroundLibraryPanels() {
     if (!refreshBackgroundPresetGrid(grid)) grid.replaceWith(backgroundPresetGrid());
   }
   for (const panel of elements.inspectorBody.querySelectorAll(".saved-background-panel")) {
+    if (refreshSavedBackgroundImagesPanel(panel)) continue;
     const previousInput = panel.querySelector(".saved-background-input");
     const draft = previousInput?.value || "";
     const restoreInputFocus = previousInput && document.activeElement === previousInput;
@@ -22859,6 +22860,14 @@ function updateSettingsSearchIndexItemSearch(target, search) {
       return;
     }
   }
+}
+
+function setSettingsSearchIfChanged(target, search) {
+  if (!target) return;
+  const normalized = normalizeSettingsQuery(search);
+  if (target.dataset.settingsSearch === normalized) return;
+  target.dataset.settingsSearch = normalized;
+  updateSettingsSearchIndexItemSearch(target, normalized);
 }
 
 function settingsSectionTitle(section) {
@@ -31356,26 +31365,313 @@ function applyBackgroundPreset(preset, options = {}) {
   return true;
 }
 
+function savedBackgroundPanelContext(workspace = activeWorkspace()) {
+  const target = normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
+  const targetStatus = activeBackgroundTargetStatus(target, workspace);
+  const targetOption = backgroundApplyTargetOption(targetStatus.scope, workspace);
+  return {
+    workspace,
+    target,
+    targetStatus,
+    targetOption,
+    targetLabel: `${targetOption.label} - ${targetOption.meta}`,
+    savedCountLabel: `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved backgrounds`,
+    libraryFull: savedBackgroundImagesFull()
+  };
+}
+
+function savedBackgroundPanelSearchText(context = savedBackgroundPanelContext()) {
+  return normalizeSettingsQuery(`saved background image wallpaper library url file apply rename delete save profile copy paste clipboard json ${context.targetStatus.canTarget ? "ready " : "unavailable "}${context.targetLabel} ${context.savedCountLabel}`);
+}
+
+function savedBackgroundAddSearchText(context = savedBackgroundPanelContext()) {
+  return normalizeSettingsQuery(`saved background add image drop paste choose local file url selected target wallpaper ${context.targetStatus.canTarget ? "ready " : "unavailable "}${context.targetLabel} ${context.savedCountLabel}`);
+}
+
+function savedBackgroundAddActionSearch(label, terms) {
+  return normalizeSettingsQuery(`${label} ${terms}`);
+}
+
+function refreshSavedBackgroundAddCard(addCard, context = savedBackgroundPanelContext()) {
+  if (!addCard?.querySelector(".saved-background-input")) return false;
+  const { workspace, targetStatus, targetOption, targetLabel, savedCountLabel, libraryFull } = context;
+  setSettingsSearchIfChanged(addCard, savedBackgroundAddSearchText(context));
+  const addCopy = addCard.querySelector('[data-saved-background-add-action="choose-card"]');
+  const addCopyTitle = targetStatus.canTarget
+    ? `Choose and save an image for ${targetLabel}.`
+    : `${targetOption.label} cannot use a background right now.`;
+  if (addCopy) {
+    setDisabledIfChanged(addCopy, libraryFull || !targetStatus.canTarget);
+    setTitleIfChanged(addCopy, libraryFull ? savedBackgroundImageLimitTitle() : addCopyTitle);
+    setAttributeIfChanged(addCopy, "aria-label", libraryFull ? savedBackgroundImageLimitTitle() : addCopyTitle);
+  }
+  const targetIcon = addCard.querySelector(".saved-background-add-target-icon");
+  const targetIconMarkup = backgroundTargetIconMarkup(targetStatus.scope);
+  if (targetIcon && targetIcon.innerHTML !== targetIconMarkup) targetIcon.innerHTML = targetIconMarkup;
+  setTextIfChanged(addCard.querySelector(".saved-background-add-target-label"), targetLabel);
+  setTextIfChanged(addCard.querySelector(".saved-background-add-body"), `Apply to ${targetOption.label.toLowerCase()}. Drop, paste, choose, or enter an image path.`);
+
+  const input = addCard.querySelector(".saved-background-input");
+  const action = (id) => addCard.querySelector(`[data-saved-background-add-action="${id}"]`);
+  const applyUnknownBackgroundSaveLimit = (button, availableTitle) => {
+    applySavedBackgroundImageCapacityLimit(button, availableTitle);
+    if (!targetStatus.canTarget) {
+      setDisabledIfChanged(button, true);
+      setTitleIfChanged(button, `${targetOption.label} cannot use a background right now.`);
+    }
+    return button;
+  };
+
+  const saveUrl = action("save-only");
+  if (saveUrl) {
+    applySavedBackgroundImageSaveLimit(saveUrl, input.value, "Save the typed image to the reusable background library.");
+    setSettingsSearchIfChanged(saveUrl, savedBackgroundAddActionSearch("Save only", "saved background image url local path file add"));
+  }
+
+  const applyAndSave = action("apply-save");
+  if (applyAndSave) {
+    const label = backgroundApplyTargetSaveLabel(targetStatus.scope);
+    setSettingsActionLabel(applyAndSave, label);
+    applySavedBackgroundImageSaveLimit(applyAndSave, input.value, `Apply and save the typed image to ${targetLabel}`);
+    if (!targetStatus.canTarget) {
+      setDisabledIfChanged(applyAndSave, true);
+      setTitleIfChanged(applyAndSave, `${targetOption.label} cannot use a background right now.`);
+    }
+    setSettingsSearchIfChanged(applyAndSave, savedBackgroundAddActionSearch(label, "saved background image apply save selected target url local path file wallpaper"));
+  }
+
+  const currentBackground = activeBackgroundPanelViewModel(targetStatus.scope, workspace);
+  const copyTarget = action("copy-target");
+  if (copyTarget) {
+    setDisabledIfChanged(copyTarget, !targetStatus.canTarget || currentBackground.mixed || !canCopyBackgroundImageSource(currentBackground.background));
+    setTitleIfChanged(copyTarget, !targetStatus.canTarget
+      ? `${targetOption.label} cannot use a background right now.`
+      : currentBackground.mixed
+        ? "Terminal backgrounds are mixed. Choose one background first."
+        : backgroundImageCopyTitle(currentBackground.background, `Copy ${targetOption.label.toLowerCase()} background source.`));
+    setSettingsSearchIfChanged(copyTarget, savedBackgroundAddActionSearch("Copy target", `saved background copy current target source clipboard url file path ${targetLabel} ${currentBackground.label}`));
+  }
+
+  const saveCurrent = action("save-current");
+  if (saveCurrent) {
+    applySavedBackgroundImageSaveLimit(saveCurrent, currentBackground.background, "Save the currently selected background without changing the target.");
+    setSettingsSearchIfChanged(saveCurrent, savedBackgroundAddActionSearch("Save selected", "saved background image current selected target"));
+  }
+
+  const backgroundSetModel = currentBackgroundSetSaveModel(workspace);
+  const saveBackgroundSet = action("save-set");
+  if (saveBackgroundSet) {
+    setDisabledIfChanged(saveBackgroundSet, backgroundSetModel.disabled);
+    setTitleIfChanged(saveBackgroundSet, backgroundSetModel.title);
+    setSettingsSearchIfChanged(saveBackgroundSet, savedBackgroundAddActionSearch("Save current set", `saved background image current set app terminal panes reusable library ${backgroundSetModel.search}`));
+  }
+
+  const saveBackgroundProfile = action("save-profile");
+  if (saveBackgroundProfile) {
+    applySettingsProfileSaveLimit(saveBackgroundProfile, "Save the current app background and tuning as a reusable Settings profile.");
+  }
+
+  const currentEverywhere = currentBackgroundEverywhereModel(targetStatus.scope, workspace);
+  const applyEverywhere = action("apply-everywhere");
+  if (applyEverywhere) {
+    setDisabledIfChanged(applyEverywhere, currentEverywhere.disabled);
+    setTitleIfChanged(applyEverywhere, currentEverywhere.title);
+    setSettingsSearchIfChanged(applyEverywhere, savedBackgroundAddActionSearch("Apply everywhere", `saved background current target apply everywhere app whole window terminal panes all ${currentEverywhere.search}`));
+  }
+
+  const cycleTemplate = action("cycle-template");
+  if (cycleTemplate) {
+    const cycleTemplateModel = backgroundTemplateCycleModel(targetStatus.scope, workspace);
+    setDisabledIfChanged(cycleTemplate, cycleTemplateModel.disabled);
+    setTitleIfChanged(cycleTemplate, cycleTemplateModel.title);
+    setSettingsSearchIfChanged(cycleTemplate, savedBackgroundAddActionSearch("Cycle template", `saved background cycle selected target built in template wallpaper app pane all terminals ${cycleTemplateModel.search}`));
+  }
+
+  const clearTarget = action("clear-target");
+  if (clearTarget) {
+    setDisabledIfChanged(clearTarget, !targetStatus.canTarget || !targetStatus.hasValue);
+    setTitleIfChanged(clearTarget, !targetStatus.canTarget
+      ? `${targetOption.label} cannot use a background right now.`
+      : targetStatus.hasValue
+        ? `Clear ${targetLabel}.`
+        : `${targetLabel} has no background to clear.`);
+    setSettingsSearchIfChanged(clearTarget, savedBackgroundAddActionSearch("Clear target", `saved background clear current target app pane all terminals reset ${targetStatus.hasValue ? "ready " : "empty default "}${targetLabel}`));
+  }
+
+  applyUnknownBackgroundSaveLimit(action("paste-save"), `Paste, apply, and save an image to ${targetLabel}`);
+  applyUnknownBackgroundSaveLimit(action("choose-save"), `Choose, apply, and save an image to ${targetLabel}`);
+
+  const copyLibrary = action("copy-library");
+  if (copyLibrary) {
+    setDisabledIfChanged(copyLibrary, state.savedBackgroundImages.length === 0);
+    setTitleIfChanged(copyLibrary, state.savedBackgroundImages.length === 0 ? "Save a background before copying the library." : "Copy saved backgrounds as JSON.");
+    setSettingsSearchIfChanged(copyLibrary, savedBackgroundAddActionSearch("Copy library", `saved background image library copy clipboard json ${savedCountLabel}`));
+  }
+  const pasteLibrary = action("paste-library");
+  if (pasteLibrary) {
+    setTitleIfChanged(pasteLibrary, libraryFull
+      ? "Merge copied saved backgrounds. New backgrounds may be skipped by the limit."
+      : "Merge copied saved backgrounds into the library.");
+    setSettingsSearchIfChanged(pasteLibrary, savedBackgroundAddActionSearch("Paste library", `saved background image library paste clipboard json image url path import ${libraryFull ? "limit full " : ""}${savedCountLabel}`));
+  }
+  return true;
+}
+
+function savedBackgroundImageTargetModel(background, context = {}) {
+  const workspace = context.workspace || activeWorkspace();
+  const activeTerminal = context.activeTerminal === undefined
+    ? activeTerminalPanelForSettings()
+    : context.activeTerminal;
+  const terminalPanels = context.terminalPanels || workspaceTerminalPanels(workspace);
+  const hasTerminalPanes = terminalPanels.length > 0;
+  const target = normalizeBackgroundApplyTarget(context.target || state.backgroundApplyTarget);
+  const targetOption = context.targetOption || backgroundApplyTargetOption(target, workspace);
+  const activeApp = savedBackgroundImageActiveForTarget(background, "app", workspace);
+  const activePane = Boolean(activeTerminal && panelBackgroundMatches(activeTerminal, background.url));
+  const activeAll = hasTerminalPanes && terminalBackgroundsMatch(workspace, background.url);
+  const activeEverywhere = backgroundEverywhereApplyModel(background.url, background.label, workspace);
+  const activeTarget = target === "pane" ? activePane : target === "all" ? activeAll : activeApp;
+  const targetDisabled = Boolean(targetOption.disabled) || activeTarget;
+  const activeSearch = `${activeApp ? "app active " : ""}${activePane ? "pane active " : ""}${activeAll ? "all terminals active " : ""}${activeEverywhere.active ? "everywhere active " : ""}`;
+  return {
+    workspace,
+    activeTerminal,
+    terminalPanels,
+    hasTerminalPanes,
+    target,
+    targetOption,
+    activeApp,
+    activePane,
+    activeAll,
+    activeEverywhere,
+    activeTarget,
+    targetDisabled,
+    activeSearch,
+    targetLabel: `${targetOption.label} - ${targetOption.meta}`,
+    applyTitle: savedBackgroundImageApplyTitle(background, targetOption, activeTarget)
+  };
+}
+
+function savedBackgroundCardSearchText(background, model) {
+  return normalizeSettingsQuery(`saved background image wallpaper scope app pane all terminals everywhere copy clipboard json apply ${model.activeTarget ? "active current unavailable " : model.targetDisabled ? "unavailable " : "ready "}${model.activeSearch}${model.activeEverywhere.search} ${model.targetLabel} ${background.label} ${background.url}`);
+}
+
+function updateSavedBackgroundImageCard(card, background, context = {}) {
+  if (!card || !background) return false;
+  const model = savedBackgroundImageTargetModel(background, context);
+  setClassNameIfChanged(card, [
+    "saved-background-card",
+    model.activeApp ? "is-active is-active-app" : "",
+    model.activePane ? "is-active-pane" : "",
+    model.activeAll ? "is-active-all" : "",
+    model.activeEverywhere.active ? "is-active-everywhere" : "",
+    model.activeTarget ? "is-active-target" : ""
+  ].filter(Boolean).join(" "));
+  setSettingsSearchIfChanged(card, savedBackgroundCardSearchText(background, model));
+
+  const preview = card.querySelector('[data-saved-background-action="preview"]');
+  if (preview) {
+    setClassNameIfChanged(preview, `saved-background-preview${model.activeTarget ? " is-active" : ""}`);
+    setDisabledIfChanged(preview, model.targetDisabled);
+    setTitleIfChanged(preview, model.applyTitle);
+    setAttributeIfChanged(preview, "aria-label", model.applyTitle);
+    setAttributeIfChanged(preview, "aria-pressed", model.activeTarget ? "true" : "false");
+    setStylePropertyIfChanged(preview, "--saved-background-image", backgroundCss(background.url));
+    setStylePropertyIfChanged(preview, "--saved-background-repeat", backgroundRepeatCss(background.url));
+  }
+
+  setTextIfChanged(card.querySelector(".saved-background-label"), background.label);
+  setTitleIfChanged(card.querySelector(".saved-background-label"), background.label);
+  setTextIfChanged(card.querySelector(".saved-background-url"), background.url);
+  setTitleIfChanged(card.querySelector(".saved-background-url"), background.url);
+
+  const scope = card.querySelector(".saved-background-scope");
+  if (scope) {
+    setSettingsSearchIfChanged(scope, `saved background scope app pane all terminals ${model.activeSearch}${background.label}`);
+    replaceBackgroundScopeChips(scope, [
+      { label: "App", active: model.activeApp },
+      { label: "Pane", active: model.activePane, muted: !model.activeTerminal },
+      { label: model.hasTerminalPanes ? `All ${model.terminalPanels.length}` : "All", active: model.activeAll, muted: !model.hasTerminalPanes }
+    ]);
+  }
+
+  const apply = card.querySelector('[data-saved-background-action="apply"]');
+  if (apply) {
+    const applyLabel = backgroundApplyTargetPrimaryLabel(model.target);
+    setSettingsActionLabel(apply, applyLabel);
+    setDisabledIfChanged(apply, model.targetDisabled);
+    setTitleIfChanged(apply, model.applyTitle);
+    setSettingsSearchIfChanged(apply, savedBackgroundAddActionSearch(applyLabel, `apply saved background selected target ${model.targetDisabled ? "unavailable " : "ready "}${model.targetOption.label} ${background.label}`));
+  }
+
+  const everywhere = card.querySelector('[data-saved-background-action="everywhere"]');
+  if (everywhere) {
+    setDisabledIfChanged(everywhere, model.activeEverywhere.disabled);
+    setTitleIfChanged(everywhere, model.activeEverywhere.title);
+    setSettingsSearchIfChanged(everywhere, savedBackgroundAddActionSearch("Everywhere", `apply saved background everywhere whole app all terminals ${model.activeEverywhere.search} ${background.label}`));
+  }
+
+  const copy = card.querySelector('[data-saved-background-action="copy"]');
+  if (copy) {
+    setDisabledIfChanged(copy, !canCopyBackgroundImageSource(background.url));
+    setTitleIfChanged(copy, backgroundImageCopyTitle(background.url, "Copy this saved background source."));
+    setSettingsSearchIfChanged(copy, savedBackgroundAddActionSearch("Copy", `saved background copy source clipboard url file path reusable library ${background.label} ${background.url}`));
+  }
+
+  const more = card.querySelector('[data-saved-background-action="more"]');
+  if (more) {
+    setTitleIfChanged(more, `More actions for ${background.label}.`);
+    setSettingsSearchIfChanged(more, savedBackgroundAddActionSearch("More", `saved background more actions open rename delete copy apply app pane all terminals everywhere ${background.label}`));
+  }
+  return true;
+}
+
+function refreshSavedBackgroundImagesPanel(panel) {
+  if (!panel) return false;
+  const context = savedBackgroundPanelContext();
+  setSettingsSearchIfChanged(panel, savedBackgroundPanelSearchText(context));
+  for (const control of panel.querySelectorAll(".background-image-target-control")) {
+    updateActiveBackgroundTargetControl(control);
+  }
+  if (!refreshSavedBackgroundAddCard(panel.querySelector(".saved-background-add-card"), context)) return false;
+  const list = panel.querySelector(".saved-background-list");
+  if (state.savedBackgroundImages.length === 0) return !list && Boolean(panel.querySelector(".saved-background-empty"));
+  if (!list) return false;
+  const cards = [...list.querySelectorAll("[data-saved-background-card]")];
+  if (cards.length !== state.savedBackgroundImages.length) return false;
+  const activeTerminal = activeTerminalPanelForSettings();
+  const terminalPanels = workspaceTerminalPanels(context.workspace);
+  for (const [index, background] of state.savedBackgroundImages.entries()) {
+    const card = cards[index];
+    if (card.dataset.savedBackgroundCard !== background.id) return false;
+    updateSavedBackgroundImageCard(card, background, {
+      workspace: context.workspace,
+      activeTerminal,
+      terminalPanels,
+      target: context.target,
+      targetOption: context.targetOption
+    });
+  }
+  return true;
+}
+
 function savedBackgroundImagesPanel() {
   const panel = document.createElement("div");
   panel.className = "saved-background-panel";
-  const workspace = activeWorkspace();
-  const targetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
-  const addTargetOption = backgroundApplyTargetOption(targetStatus.scope, workspace);
-  const targetLabel = backgroundApplyTargetActionLabel(targetStatus.scope);
-  const savedCountLabel = `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved backgrounds`;
-  const libraryFull = savedBackgroundImagesFull();
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper library url file apply rename delete save profile copy paste clipboard json ${targetStatus.canTarget ? "ready " : "unavailable "}${targetLabel} ${savedCountLabel}`);
+  const context = savedBackgroundPanelContext();
+  const { workspace, targetStatus, targetOption: addTargetOption, targetLabel, savedCountLabel, libraryFull } = context;
+  panel.dataset.settingsSearch = savedBackgroundPanelSearchText(context);
 
   panel.append(activeBackgroundTargetControl());
 
   const addCard = document.createElement("div");
   addCard.className = "saved-background-add-card";
-  addCard.dataset.settingsSearch = normalizeSettingsQuery(`saved background add image drop paste choose local file url selected target wallpaper ${targetStatus.canTarget ? "ready " : "unavailable "}${targetLabel} ${savedCountLabel}`);
+  addCard.dataset.settingsSearch = savedBackgroundAddSearchText(context);
 
   const addCopy = document.createElement("button");
   addCopy.className = "saved-background-add-copy";
   addCopy.type = "button";
+  addCopy.dataset.savedBackgroundAddAction = "choose-card";
   const addCopyTitle = targetStatus.canTarget
     ? `Choose and save an image for ${targetLabel}.`
     : `${addTargetOption.label} cannot use a background right now.`;
@@ -31434,25 +31730,37 @@ function savedBackgroundImagesPanel() {
     }
   });
   const saveUrl = settingsActionButton("Save only", saveTypedImage, "", "saved background image url local path file add");
+  saveUrl.dataset.savedBackgroundAddAction = "save-only";
   addRow.append(input, saveUrl);
 
   const actions = document.createElement("div");
   actions.className = "settings-actions saved-background-actions";
   actions.dataset.settingsSearch = normalizeSettingsQuery("saved background current choose local file wallpaper apply save copy paste clipboard json");
   const applyAndSave = settingsActionButton(backgroundApplyTargetSaveLabel(targetStatus.scope), applyAndSaveTypedImage, "primary", "saved background image apply save selected target url local path file wallpaper");
+  applyAndSave.dataset.savedBackgroundAddAction = "apply-save";
   const refreshTypedSaveState = () => {
+    const status = activeBackgroundTargetStatus(state.backgroundApplyTarget);
+    const option = backgroundApplyTargetOption(status.scope);
+    const label = `${option.label} - ${option.meta}`;
     applySavedBackgroundImageSaveLimit(saveUrl, input.value, "Save the typed image to the reusable background library.");
-    applySavedBackgroundImageSaveLimit(applyAndSave, input.value, `Apply and save the typed image to ${targetLabel}`);
-    if (!targetStatus.canTarget) {
+    applySavedBackgroundImageSaveLimit(applyAndSave, input.value, `Apply and save the typed image to ${label}`);
+    setSettingsActionLabel(applyAndSave, backgroundApplyTargetSaveLabel(status.scope));
+    if (!status.canTarget) {
       applyAndSave.disabled = true;
-      applyAndSave.title = `${addTargetOption.label} cannot use a background right now.`;
+      applyAndSave.title = `${option.label} cannot use a background right now.`;
     }
   };
   refreshTypedSaveState();
   input.addEventListener("input", refreshTypedSaveState);
   input.addEventListener("change", refreshTypedSaveState);
   const currentBackground = activeBackgroundPanelViewModel(targetStatus.scope, workspace);
-  const copyTarget = settingsActionButton("Copy target", () => copyBackgroundImageSource(currentBackground.background, `${addTargetOption.label} background source copied.`), "", `saved background copy current target source clipboard url file path ${targetLabel} ${currentBackground.label}`);
+  const copyTarget = settingsActionButton("Copy target", () => {
+    const status = activeBackgroundTargetStatus(state.backgroundApplyTarget);
+    const option = backgroundApplyTargetOption(status.scope);
+    const model = activeBackgroundPanelViewModel(status.scope);
+    return copyBackgroundImageSource(model.background, `${option.label} background source copied.`);
+  }, "", `saved background copy current target source clipboard url file path ${targetLabel} ${currentBackground.label}`);
+  copyTarget.dataset.savedBackgroundAddAction = "copy-target";
   copyTarget.disabled = !targetStatus.canTarget || currentBackground.mixed || !canCopyBackgroundImageSource(currentBackground.background);
   copyTarget.title = !targetStatus.canTarget
     ? `${addTargetOption.label} cannot use a background right now.`
@@ -31460,27 +31768,33 @@ function savedBackgroundImagesPanel() {
       ? "Terminal backgrounds are mixed. Choose one background first."
       : backgroundImageCopyTitle(currentBackground.background, `Copy ${addTargetOption.label.toLowerCase()} background source.`);
   const saveCurrent = settingsActionButton("Save selected", () => saveCustomBackgroundImage({
-    url: activeBackgroundPanelViewModel(targetStatus.scope, workspace).background
+    url: activeBackgroundPanelViewModel(state.backgroundApplyTarget).background
   }), "", "saved background image current selected target");
+  saveCurrent.dataset.savedBackgroundAddAction = "save-current";
   applySavedBackgroundImageSaveLimit(saveCurrent, currentBackground.background, "Save the currently selected background without changing the target.");
   const backgroundSetModel = currentBackgroundSetSaveModel();
   const saveBackgroundSet = settingsActionButton("Save current set", () => saveCurrentBackgroundSetToLibrary(), "", `saved background image current set app terminal panes reusable library ${backgroundSetModel.search}`);
+  saveBackgroundSet.dataset.savedBackgroundAddAction = "save-set";
   saveBackgroundSet.disabled = backgroundSetModel.disabled;
   saveBackgroundSet.title = backgroundSetModel.title;
   const saveBackgroundProfile = applySettingsProfileSaveLimit(
     settingsActionButton("Save profile", saveCurrentBackgroundProfile, "", "saved background image wallpaper app tuning save settings profile reusable opacity fit repeat position effects chrome"),
     "Save the current app background and tuning as a reusable Settings profile."
   );
+  saveBackgroundProfile.dataset.savedBackgroundAddAction = "save-profile";
   const currentEverywhere = currentBackgroundEverywhereModel(targetStatus.scope, workspace);
-  const applyEverywhere = settingsActionButton("Apply everywhere", () => applyCurrentBackgroundEverywhere(state.backgroundApplyTarget, workspace), "", `saved background current target apply everywhere app whole window terminal panes all ${currentEverywhere.search}`);
+  const applyEverywhere = settingsActionButton("Apply everywhere", () => applyCurrentBackgroundEverywhere(state.backgroundApplyTarget, activeWorkspace()), "", `saved background current target apply everywhere app whole window terminal panes all ${currentEverywhere.search}`);
+  applyEverywhere.dataset.savedBackgroundAddAction = "apply-everywhere";
   applyEverywhere.disabled = currentEverywhere.disabled;
   applyEverywhere.title = currentEverywhere.title;
-  const cycleTemplate = settingsActionButton("Cycle template", () => cycleBackgroundTemplate(state.backgroundApplyTarget, workspace), "", "saved background cycle selected target built in template wallpaper app pane all terminals");
+  const cycleTemplate = settingsActionButton("Cycle template", () => cycleBackgroundTemplate(state.backgroundApplyTarget, activeWorkspace()), "", "saved background cycle selected target built in template wallpaper app pane all terminals");
+  cycleTemplate.dataset.savedBackgroundAddAction = "cycle-template";
   const cycleTemplateModel = backgroundTemplateCycleModel(targetStatus.scope, workspace);
   cycleTemplate.disabled = cycleTemplateModel.disabled;
   cycleTemplate.title = cycleTemplateModel.title;
   cycleTemplate.dataset.settingsSearch = normalizeSettingsQuery(`saved background cycle selected target built in template wallpaper app pane all terminals ${cycleTemplateModel.search}`);
   const clearTarget = settingsActionButton("Clear target", clearBackgroundApplyTarget, "danger", `saved background clear current target app pane all terminals reset ${targetStatus.hasValue ? "ready " : "empty default "}${targetLabel}`);
+  clearTarget.dataset.savedBackgroundAddAction = "clear-target";
   clearTarget.disabled = !targetStatus.canTarget || !targetStatus.hasValue;
   clearTarget.title = !targetStatus.canTarget
     ? `${addTargetOption.label} cannot use a background right now.`
@@ -31488,13 +31802,17 @@ function savedBackgroundImagesPanel() {
       ? `Clear ${targetLabel}.`
       : `${targetLabel} has no background to clear.`;
   const pasteSave = settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input, target: () => state.backgroundApplyTarget, save: true }), "", "saved background image paste clipboard copied image apply save selected target wallpaper");
+  pasteSave.dataset.savedBackgroundAddAction = "paste-save";
   applyUnknownBackgroundSaveLimit(pasteSave, `Paste, apply, and save an image to ${targetLabel}`);
   const chooseSave = settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "saved background image choose local file selected target wallpaper");
+  chooseSave.dataset.savedBackgroundAddAction = "choose-save";
   applyUnknownBackgroundSaveLimit(chooseSave, `Choose, apply, and save an image to ${targetLabel}`);
   const copyLibrary = settingsActionButton("Copy library", copySavedBackgroundImages, "", `saved background image library copy clipboard json ${savedCountLabel}`);
+  copyLibrary.dataset.savedBackgroundAddAction = "copy-library";
   copyLibrary.disabled = state.savedBackgroundImages.length === 0;
   copyLibrary.title = copyLibrary.disabled ? "Save a background before copying the library." : "Copy saved backgrounds as JSON.";
   const pasteLibrary = settingsActionButton("Paste library", pasteSavedBackgroundImages, "", `saved background image library paste clipboard json image url path import ${libraryFull ? "limit full " : ""}${savedCountLabel}`);
+  pasteLibrary.dataset.savedBackgroundAddAction = "paste-library";
   pasteLibrary.title = libraryFull
     ? "Merge copied saved backgrounds. New backgrounds may be skipped by the limit."
     : "Merge copied saved backgrounds into the library.";
@@ -31532,34 +31850,35 @@ function savedBackgroundImagesPanel() {
   const target = normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
   const targetOption = backgroundApplyTargetOption(target, workspace);
   for (const background of state.savedBackgroundImages) {
-    const activeApp = savedBackgroundImageActiveForTarget(background, "app", workspace);
-    const activePane = Boolean(activeTerminal && savedBackgroundImageActiveForTarget(background, "pane", workspace));
-    const activeAll = hasTerminalPanes && savedBackgroundImageActiveForTarget(background, "all", workspace);
-    const activeEverywhere = backgroundEverywhereApplyModel(background.url, background.label, workspace);
-    const activeTarget = target === "pane" ? activePane : target === "all" ? activeAll : activeApp;
-    const targetDisabled = Boolean(targetOption.disabled) || activeTarget;
-    const applyTitle = savedBackgroundImageApplyTitle(background, targetOption, activeTarget);
-    const activeSearch = `${activeApp ? "app active " : ""}${activePane ? "pane active " : ""}${activeAll ? "all terminals active " : ""}${activeEverywhere.active ? "everywhere active " : ""}`;
+    const model = savedBackgroundImageTargetModel(background, {
+      workspace,
+      activeTerminal,
+      terminalPanels,
+      target,
+      targetOption
+    });
     const card = document.createElement("div");
     card.className = [
       "saved-background-card",
-      activeApp ? "is-active is-active-app" : "",
-      activePane ? "is-active-pane" : "",
-      activeAll ? "is-active-all" : "",
-      activeEverywhere.active ? "is-active-everywhere" : "",
-      activeTarget ? "is-active-target" : ""
+      model.activeApp ? "is-active is-active-app" : "",
+      model.activePane ? "is-active-pane" : "",
+      model.activeAll ? "is-active-all" : "",
+      model.activeEverywhere.active ? "is-active-everywhere" : "",
+      model.activeTarget ? "is-active-target" : ""
     ].filter(Boolean).join(" ");
-    card.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper scope app pane all terminals everywhere copy clipboard json apply ${activeTarget ? "active current unavailable " : targetDisabled ? "unavailable " : "ready "}${activeSearch}${activeEverywhere.search} ${targetLabel} ${background.label} ${background.url}`);
+    card.dataset.savedBackgroundCard = background.id;
+    card.dataset.settingsSearch = savedBackgroundCardSearchText(background, model);
     const preview = document.createElement("button");
-    preview.className = `saved-background-preview${activeTarget ? " is-active" : ""}`;
+    preview.className = `saved-background-preview${model.activeTarget ? " is-active" : ""}`;
     preview.type = "button";
-    preview.disabled = targetDisabled;
-    preview.title = applyTitle;
-    preview.setAttribute("aria-label", applyTitle);
-    preview.setAttribute("aria-pressed", activeTarget ? "true" : "false");
+    preview.dataset.savedBackgroundAction = "preview";
+    preview.disabled = model.targetDisabled;
+    preview.title = model.applyTitle;
+    preview.setAttribute("aria-label", model.applyTitle);
+    preview.setAttribute("aria-pressed", model.activeTarget ? "true" : "false");
     preview.style.setProperty("--saved-background-image", backgroundCss(background.url));
     preview.style.setProperty("--saved-background-repeat", backgroundRepeatCss(background.url));
-    preview.onclick = () => applySavedBackgroundImageToTarget(background.id, target);
+    preview.onclick = () => applySavedBackgroundImageToTarget(background.id, state.backgroundApplyTarget);
     const text = document.createElement("div");
     text.className = "saved-background-text";
     const label = document.createElement("div");
@@ -31574,7 +31893,7 @@ function savedBackgroundImagesPanel() {
 
     const scope = document.createElement("div");
     scope.className = "background-preset-scope saved-background-scope";
-    scope.dataset.settingsSearch = normalizeSettingsQuery(`saved background scope app pane all terminals ${activeSearch}${background.label}`);
+    scope.dataset.settingsSearch = normalizeSettingsQuery(`saved background scope app pane all terminals ${model.activeSearch}${background.label}`);
     const addScopeChip = (labelText, active, muted = false) => {
       const chip = document.createElement("span");
       chip.className = [
@@ -31585,22 +31904,26 @@ function savedBackgroundImagesPanel() {
       chip.textContent = active ? `${labelText} active` : labelText;
       scope.append(chip);
     };
-    addScopeChip("App", activeApp);
-    addScopeChip("Pane", activePane, !activeTerminal);
-    addScopeChip(hasTerminalPanes ? `All ${terminalPanels.length}` : "All", activeAll, !hasTerminalPanes);
+    addScopeChip("App", model.activeApp);
+    addScopeChip("Pane", model.activePane, !model.activeTerminal);
+    addScopeChip(hasTerminalPanes ? `All ${terminalPanels.length}` : "All", model.activeAll, !hasTerminalPanes);
 
     const cardActions = document.createElement("div");
     cardActions.className = "saved-background-card-actions";
-    const apply = settingsActionButton(backgroundApplyTargetPrimaryLabel(target), () => applySavedBackgroundImageToTarget(background.id, target), "primary", `apply saved background selected target ${targetDisabled ? "unavailable " : "ready "}${targetOption.label} ${background.label}`);
-    apply.disabled = targetDisabled;
-    apply.title = applyTitle;
-    const everywhere = settingsActionButton("Everywhere", () => applyBackgroundValueEverywhere(background.url, { label: background.label, workspace }), "", `apply saved background everywhere whole app all terminals ${activeEverywhere.search} ${background.label}`);
-    everywhere.disabled = activeEverywhere.disabled;
-    everywhere.title = activeEverywhere.title;
+    const apply = settingsActionButton(backgroundApplyTargetPrimaryLabel(target), () => applySavedBackgroundImageToTarget(background.id, state.backgroundApplyTarget), "primary", `apply saved background selected target ${model.targetDisabled ? "unavailable " : "ready "}${targetOption.label} ${background.label}`);
+    apply.dataset.savedBackgroundAction = "apply";
+    apply.disabled = model.targetDisabled;
+    apply.title = model.applyTitle;
+    const everywhere = settingsActionButton("Everywhere", () => applyBackgroundValueEverywhere(background.url, { label: background.label, workspace: activeWorkspace() }), "", `apply saved background everywhere whole app all terminals ${model.activeEverywhere.search} ${background.label}`);
+    everywhere.dataset.savedBackgroundAction = "everywhere";
+    everywhere.disabled = model.activeEverywhere.disabled;
+    everywhere.title = model.activeEverywhere.title;
     const copy = settingsActionButton("Copy", () => copySavedBackgroundImageSource(background), "", `saved background copy source clipboard url file path reusable library ${background.label} ${background.url}`);
+    copy.dataset.savedBackgroundAction = "copy";
     copy.disabled = !canCopyBackgroundImageSource(background.url);
     copy.title = backgroundImageCopyTitle(background.url, "Copy this saved background source.");
     const more = settingsActionButton("More", (event) => showSavedBackgroundImageMenu(event, background), "", `saved background more actions open rename delete copy apply app pane all terminals everywhere ${background.label}`);
+    more.dataset.savedBackgroundAction = "more";
     more.title = `More actions for ${background.label}.`;
     cardActions.append(apply, everywhere, copy, more);
     card.append(preview, text, scope, cardActions);
