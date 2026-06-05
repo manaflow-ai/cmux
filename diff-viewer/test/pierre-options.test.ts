@@ -26,7 +26,8 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
 test("file tree sticky overlays use a non-transparent surface", () => {
   const css = fileTreeUnsafeCSS();
 
+  expect(css).toContain("background-color: var(--cmux-diff-sidebar-bg)");
   expect(css).toContain("[data-file-tree-sticky-overlay-content]");
-  expect(css).toContain("background-color: var(--cmux-diff-tree-sticky-bg, var(--cmux-diff-bg)) !important");
+  expect(css).toContain("background-color: var(--cmux-diff-tree-sticky-bg, var(--cmux-diff-sidebar-bg)) !important");
   expect(css).toContain("box-shadow: 0 1px 0 var(--trees-border-color)");
 });

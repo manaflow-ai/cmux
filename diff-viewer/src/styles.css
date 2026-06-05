@@ -17,7 +17,8 @@
   --cmux-diff-bg: var(--cmux-diff-bg-light);
   --cmux-diff-fg: var(--cmux-diff-fg-light);
   --cmux-diff-border: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
-  --cmux-diff-sidebar-bg: transparent;
+  --cmux-diff-toolbar-bg: var(--cmux-diff-bg);
+  --cmux-diff-sidebar-bg: var(--cmux-diff-bg);
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
@@ -96,8 +97,8 @@ body {
   gap: 7px;
   min-height: 32px;
   padding: 3px 8px;
-  border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 14%, transparent);
-  background: transparent;
+  border-bottom: 1px solid var(--cmux-diff-border);
+  background: var(--cmux-diff-toolbar-bg);
   color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
   z-index: 50;
 }
@@ -354,7 +355,7 @@ body[data-status-only="true"] #content {
   flex-direction: column;
   overflow: hidden;
   border-left: 1px solid var(--cmux-diff-border);
-  background: transparent;
+  background: var(--cmux-diff-sidebar-bg);
   contain: strict;
   opacity: 1;
   transition: opacity 100ms ease, visibility 0s linear 0s;
@@ -401,8 +402,8 @@ body[data-status-only="true"] #files-sidebar {
   min-height: 30px;
   gap: 8px;
   padding: 0 7px 0 10px;
-  border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-  background: transparent;
+  border-bottom: 1px solid var(--cmux-diff-border);
+  background: var(--cmux-diff-sidebar-bg);
   color: var(--cmux-diff-text-muted);
 }
 #files-title {
@@ -451,6 +452,7 @@ body[data-status-only="true"] #files-sidebar {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+  background: var(--cmux-diff-sidebar-bg);
   padding: 6px 4px 6px 6px;
   --trees-bg-override: var(--cmux-diff-sidebar-bg);
   --trees-fg-override: var(--cmux-diff-text-subtle);
@@ -491,7 +493,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   flex: 0 0 auto;
   padding: 7px 10px 8px;
   border-top: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-  background: transparent;
+  background: var(--cmux-diff-sidebar-bg);
 }
 .stats-row {
   display: flex;

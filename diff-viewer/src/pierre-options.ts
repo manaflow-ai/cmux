@@ -126,6 +126,7 @@ export function fileTreeUnsafeCSS(): string {
       display: block;
       height: 100%;
       min-height: 0;
+      background-color: var(--cmux-diff-sidebar-bg);
     }
     [data-file-tree-search-container][data-open='false'] {
       display: none;
@@ -139,6 +140,7 @@ export function fileTreeUnsafeCSS(): string {
       height: 100%;
       min-height: 0;
       overflow: auto;
+      background-color: var(--cmux-diff-sidebar-bg);
       padding-inline-start: 0;
       padding-inline-end: 2px;
       margin-inline-end: 2px;
@@ -165,7 +167,7 @@ export function fileTreeUnsafeCSS(): string {
       font-weight: 500;
     }
     [data-file-tree-sticky-overlay-content] {
-      background-color: var(--cmux-diff-tree-sticky-bg, var(--cmux-diff-bg)) !important;
+      background-color: var(--cmux-diff-tree-sticky-bg, var(--cmux-diff-sidebar-bg)) !important;
       box-shadow: 0 1px 0 var(--trees-border-color);
     }
   `;
