@@ -19172,6 +19172,7 @@ struct CMUXCLI {
     private static let omoPluginName = "oh-my-openagent"
     private static let legacyOmoPluginName = "oh-my-opencode"
     private static let openCodeSessionPluginConfigSpec = "./plugins/cmux-session.js"
+    private static let openCodeFeedPluginConfigSpec = "./plugins/cmux-feed.js"
 
     private func resolveExecutableInPath(_ name: String) -> String? {
         let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
@@ -19354,10 +19355,10 @@ struct CMUXCLI {
         return UInt16(bigEndian: boundAddress.sin_port)
     }
 
-    private func omoResolvedPort(
+    private func omoConfiguredPort(
         commandArgs: [String],
         processEnvironment: [String: String]
-    ) -> String {
+    ) -> String? {
         if let requestedPort = omoRequestedPort(from: commandArgs) {
             return requestedPort
         }
@@ -19369,16 +19370,7 @@ struct CMUXCLI {
            omoBindableLoopbackPort(parsedEnvironmentPort) != nil {
             return environmentPort
         }
-
-        if let preferredPort = omoBindableLoopbackPort(4096) {
-            return String(preferredPort)
-        }
-
-        if let fallbackPort = omoBindableLoopbackPort(0) {
-            return String(fallbackPort)
-        }
-
-        return "4096"
+        return nil
     }
 
     /// Creates a shadow config directory that layers oh-my-openagent on top of the user's
@@ -19406,7 +19398,7 @@ struct CMUXCLI {
         }
 
         var plugins = Self.openCodePluginListNormalizingOMOPlugin(
-            Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
+            Self.openCodePluginListRemovingCMUXPlugins((config["plugin"] as? [Any]) ?? [])
         )
         if !Self.openCodePluginListContains(plugins, spec: Self.omoPluginName, allowVersionSuffix: true) {
             plugins.append(Self.omoPluginName)
@@ -19560,8 +19552,14 @@ struct CMUXCLI {
         socketPath: String,
         explicitPassword: String?,
         focusedContext: TmuxCompatFocusedContext?,
-        openCodePort: String
+        openCodePort: String?
     ) {
+        var extraEnvVars: [(key: String, value: String)] = [
+            (key: "CMUX_OPENCODE_CMUX_BIN", value: executablePath),
+        ]
+        if let openCodePort {
+            extraEnvVars.append((key: "OPENCODE_PORT", value: openCodePort))
+        }
         configureTmuxCompatEnvironment(
             processEnvironment: processEnvironment,
             shimDirectory: shimDirectory,
@@ -19572,10 +19570,7 @@ struct CMUXCLI {
             tmuxPathPrefix: "cmux-omo",
             cmuxBinEnvVar: "CMUX_OMO_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMO_TERM",
-            extraEnvVars: [
-                (key: "OPENCODE_PORT", value: openCodePort),
-                (key: "CMUX_OPENCODE_CMUX_BIN", value: executablePath),
-            ]
+            extraEnvVars: extraEnvVars
         )
     }
 
@@ -19616,11 +19611,15 @@ struct CMUXCLI {
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
-        let openCodePort = omoResolvedPort(
+        let openCodePort = omoConfiguredPort(
             commandArgs: commandArgs,
             processEnvironment: launcherEnvironment
         )
-        launcherEnvironment["OPENCODE_PORT"] = openCodePort
+        if let openCodePort {
+            launcherEnvironment["OPENCODE_PORT"] = openCodePort
+        } else {
+            launcherEnvironment.removeValue(forKey: "OPENCODE_PORT")
+        }
         configureOMOEnvironment(
             processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,
@@ -19632,11 +19631,10 @@ struct CMUXCLI {
         )
 
         let launchPath = openCodeExecutablePath ?? "opencode"
-        // oh-my-openagent needs the OpenCode API server running to attach
-        // subagent sessions to tmux panes. Prefer the historic default port
-        // when it is available, otherwise fall back to a free loopback port.
+        // Keep OpenCode on its random loopback port unless the caller supplied
+        // a port explicitly through args or OPENCODE_PORT.
         var effectiveArgs = commandArgs
-        if omoRequestedPort(from: commandArgs) == nil {
+        if let openCodePort, omoRequestedPort(from: commandArgs) == nil {
             effectiveArgs.append("--port")
             effectiveArgs.append(openCodePort)
         }
@@ -25482,10 +25480,18 @@ export default CMUXSessionRestore;
             guard let value else { return false }
             if value == spec { return true }
             if allowVersionSuffix, value.hasPrefix("\(spec)@") { return true }
+            let managedFileName: String?
             if spec == Self.openCodeSessionPluginConfigSpec {
-                return value == "./plugins/\(Self.openCodeSessionPluginFilename)"
-                    || value.hasSuffix("/plugins/\(Self.openCodeSessionPluginFilename)")
-                    || value.hasSuffix("/\(Self.openCodeSessionPluginFilename)")
+                managedFileName = Self.openCodeSessionPluginFilename
+            } else if spec == Self.openCodeFeedPluginConfigSpec {
+                managedFileName = Self.openCodePluginFileName
+            } else {
+                managedFileName = nil
+            }
+            if let managedFileName {
+                return value == "./plugins/\(managedFileName)"
+                    || value.hasSuffix("/plugins/\(managedFileName)")
+                    || value.hasSuffix("/\(managedFileName)")
             }
             return false
         }
@@ -25588,16 +25594,21 @@ export default CMUXSessionRestore;
         return normalized
     }
 
-    private static func openCodePluginListRemovingSessionPlugin(_ plugins: [Any]) -> [Any] {
-        plugins.filter { entry in
-            guard let value = (entry as? String) ?? ((entry as? [Any])?.first as? String) else {
+    private static func openCodePluginEntryIsManagedCMUXPlugin(_ entry: Any) -> Bool {
+        guard let value = (entry as? String) ?? ((entry as? [Any])?.first as? String) else {
+            return false
+        }
+        for spec in [openCodeSessionPluginConfigSpec, openCodeFeedPluginConfigSpec] {
+            if openCodePluginListContains([value], spec: spec) {
                 return true
             }
-            return value != Self.openCodeSessionPluginConfigSpec
-                && value != "cmux-session"
-                && value != "./plugins/\(Self.openCodeSessionPluginFilename)"
-                && !value.hasSuffix("/plugins/\(Self.openCodeSessionPluginFilename)")
-                && !value.hasSuffix("/\(Self.openCodeSessionPluginFilename)")
+        }
+        return value == "cmux-session" || value == "cmux-feed"
+    }
+
+    private static func openCodePluginListRemovingCMUXPlugins(_ plugins: [Any]) -> [Any] {
+        plugins.filter { entry in
+            !openCodePluginEntryIsManagedCMUXPlugin(entry)
         }
     }
 
@@ -25610,8 +25621,12 @@ export default CMUXSessionRestore;
         } else {
             config = [:]
         }
-        var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
-        if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) { plugins.append(Self.openCodeSessionPluginConfigSpec) }
+        var plugins = Self.openCodePluginListRemovingCMUXPlugins((config["plugin"] as? [Any]) ?? [])
+        if shouldInstall {
+            for spec in [Self.openCodeSessionPluginConfigSpec, Self.openCodeFeedPluginConfigSpec] where !Self.openCodePluginListContains(plugins, spec: spec) {
+                plugins.append(spec)
+            }
+        }
         config["plugin"] = plugins
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
         if existingData == output { return false }

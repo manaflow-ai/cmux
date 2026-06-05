@@ -45,7 +45,9 @@ def main() -> int:
                         "oh-my-opencode",
                         ["existing-plugin", {"enabled": True}],
                         "cmux-session",
+                        "cmux-feed",
                         "./plugins/cmux-session.js",
+                        "./plugins/cmux-feed.js",
                     ]
                 }
             ),
@@ -90,17 +92,19 @@ def main() -> int:
         if not isinstance(plugins, list):
             print(f"FAIL: expected plugin list in opencode.json, got {plugins!r}")
             return 1
-        stale = [
-            entry
-            for entry in plugins
-            if (entry if isinstance(entry, str) else entry[0] if isinstance(entry, list) and entry else "")
-            == "cmux-session"
-        ]
+        stale = []
+        for entry in plugins:
+            name = entry if isinstance(entry, str) else entry[0] if isinstance(entry, list) and entry else ""
+            if name in {"cmux-session", "cmux-feed"}:
+                stale.append(entry)
         if stale:
             print(f"FAIL: expected stale cmux plugin registrations removed, got {plugins!r}")
             return 1
-        if "./plugins/cmux-session.js" not in plugins:
-            print(f"FAIL: expected local cmux session plugin registration, got {plugins!r}")
+        if plugins.count("./plugins/cmux-session.js") != 1:
+            print(f"FAIL: expected one local cmux session plugin registration, got {plugins!r}")
+            return 1
+        if plugins.count("./plugins/cmux-feed.js") != 1:
+            print(f"FAIL: expected one local cmux feed plugin registration, got {plugins!r}")
             return 1
         if "oh-my-opencode" not in plugins or ["existing-plugin", {"enabled": True}] not in plugins:
             print(f"FAIL: installer did not preserve existing plugin entries: {plugins!r}")
@@ -130,6 +134,10 @@ def main() -> int:
                 print("FAIL: opencode did not auto-load cmux session plugin file")
                 print(debug_output[-4000:])
                 return 1
+            if f"file://{feed_plugin_path}" not in debug_output:
+                print("FAIL: opencode did not auto-load cmux feed plugin file")
+                print(debug_output[-4000:])
+                return 1
 
         fake_cmux = root / "fake-cmux"
         fake_args_log = root / "fake-cmux-args.log"
@@ -155,6 +163,8 @@ printf '\\n---\\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env = env.copy()
         check_env["CMUX_TEST_OPENCODE_PLUGIN_PATH"] = str(plugin_path)
         check_env["CMUX_TEST_OPENCODE_PLUGIN_COPY_PATH"] = str(plugin_copy_path)
+        check_env["CMUX_TEST_OPENCODE_FEED_PLUGIN_PATH"] = str(feed_plugin_path)
+        check_env["CMUX_SOCKET_PATH"] = f"/tmp/cmux-opencode-feed-{os.getpid()}.sock"
         check_env["CMUX_SURFACE_ID"] = "surface-opencode-test"
         check_env["CMUX_OPENCODE_CMUX_BIN"] = str(fake_cmux)
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
@@ -213,6 +223,145 @@ await hooks.event({
             print(f"exit={check.returncode}")
             print(f"stdout={check.stdout.strip()}")
             print(f"stderr={check.stderr.strip()}")
+            return 1
+
+        feed_check_source = """
+const net = await import("node:net");
+const fs = await import("node:fs");
+const pluginPath = process.env.CMUX_TEST_OPENCODE_FEED_PLUGIN_PATH;
+const socketPath = process.env.CMUX_SOCKET_PATH;
+try { fs.unlinkSync(socketPath); } catch (_) {}
+const frames = [];
+const sockets = new Set();
+const server = net.createServer((socket) => {
+  sockets.add(socket);
+  socket.on("close", () => sockets.delete(socket));
+  socket.setEncoding("utf8");
+  let buffered = "";
+  socket.on("data", (chunk) => {
+    buffered += chunk;
+    let idx;
+    while ((idx = buffered.indexOf("\\n")) >= 0) {
+      const line = buffered.slice(0, idx);
+      buffered = buffered.slice(idx + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line);
+      frames.push(msg);
+      if (msg.id && msg.params?.event?.hook_event_name === "PermissionRequest") {
+        socket.write(JSON.stringify({ id: msg.id, result: { status: "timed_out" } }) + "\\n");
+      }
+    }
+  });
+});
+await new Promise((resolve) => server.listen(socketPath, resolve));
+const mod = await import(pluginPath);
+if (typeof mod.CMUXFeed !== "function") {
+  throw new Error("missing CMUXFeed export");
+}
+const hooks = await mod.CMUXFeed({ directory: "/tmp/opencode-project" });
+await hooks.event({
+  event: {
+    type: "permission.asked",
+    properties: {
+      id: "permission-rich",
+      sessionID: "ses-rich-stop",
+      permission: "bash",
+      metadata: {
+        input: {
+          command: "deploy --token super-secret",
+          description: "Deploy production"
+        }
+      },
+      patterns: ["deploy *"]
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "message.updated",
+    properties: { info: { id: "msg-user", sessionID: "ses-rich-stop", role: "user" } },
+  },
+});
+await hooks.event({
+  event: {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "part-user",
+        sessionID: "ses-rich-stop",
+        messageID: "msg-user",
+        type: "text",
+        text: "meaning of life",
+      },
+    },
+  },
+});
+await hooks.event({
+  event: {
+    type: "message.updated",
+    properties: { info: { id: "msg-assistant", sessionID: "ses-rich-stop", role: "assistant" } },
+  },
+});
+await hooks.event({
+  event: {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "part-assistant",
+        sessionID: "ses-rich-stop",
+        messageID: "msg-assistant",
+        type: "text",
+        text: "42. Use cmux notifications.",
+      },
+    },
+  },
+});
+await hooks.event({ event: { type: "session.idle", properties: { sessionID: "ses-rich-stop" } } });
+await new Promise((resolve) => setTimeout(resolve, 100));
+sockets.forEach((socket) => socket.destroy());
+await new Promise((resolve) => server.close(resolve));
+try { fs.unlinkSync(socketPath); } catch (_) {}
+const stop = frames.find((frame) => frame.params?.event?.hook_event_name === "Stop");
+if (!stop) {
+  throw new Error(`missing Stop frame: ${JSON.stringify(frames)}`);
+}
+const event = stop.params.event;
+if (event.tool_input?.reason !== "42. Use cmux notifications.") {
+  throw new Error(`missing Stop reason: ${JSON.stringify(event)}`);
+}
+if (event.tool_input?.last_assistant_message !== "42. Use cmux notifications.") {
+  throw new Error(`missing Stop last_assistant_message: ${JSON.stringify(event)}`);
+}
+if (event.context?.assistantPreamble !== "42. Use cmux notifications.") {
+  throw new Error(`missing Stop context assistantPreamble: ${JSON.stringify(event)}`);
+}
+const permission = frames.find((frame) => frame.params?.event?.hook_event_name === "PermissionRequest")?.params?.event;
+if (!permission) {
+  throw new Error(`missing PermissionRequest frame: ${JSON.stringify(frames)}`);
+}
+if (permission.tool_input?.action !== "run_command") {
+  throw new Error(`missing canonical permission action: ${JSON.stringify(permission)}`);
+}
+for (const presentationKey of ["summary", "title", "lines", "icon"]) {
+  if (Object.prototype.hasOwnProperty.call(permission.tool_input || {}, presentationKey)) {
+    throw new Error(`permission payload leaked presentation key ${presentationKey}: ${JSON.stringify(permission)}`);
+  }
+}
+"""
+        feed_check = subprocess.run(
+            [bun, "--eval", feed_check_source],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=check_env,
+            timeout=20,
+        )
+        if feed_check.returncode != 0:
+            print("FAIL: generated OpenCode feed plugin did not emit rich Stop details")
+            print(f"exit={feed_check.returncode}")
+            print(f"stdout={feed_check.stdout.strip()}")
+            print(f"stderr={feed_check.stderr.strip()}")
             return 1
 
         args_log = fake_args_log.read_text(encoding="utf-8") if fake_args_log.exists() else ""

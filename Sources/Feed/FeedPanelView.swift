@@ -42,6 +42,27 @@ private extension WorkstreamExitPlanMode {
         }
     }
 }
+
+private extension WorkstreamSource {
+    var feedDisplayName: String {
+        switch self {
+        case .opencode:
+            return String(localized: "feed.source.opencode", defaultValue: "OpenCode")
+        default:
+            return rawValue.capitalized
+        }
+    }
+
+    var rendersFeedMarkdown: Bool {
+        switch self {
+        case .claude, .opencode:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 /// Right-sidebar Feed view. Matches the Sessions page visual language:
 /// compact rows with SF Symbol + 13pt title + secondary metadata,
 /// full-width hover backgrounds, and control-bar pill buttons styled
@@ -1273,6 +1294,7 @@ struct FeedItemRow: View, Equatable {
             StopActionArea(
                 draft: $stopDraft,
                 focusRequest: $stopFocusRequest,
+                source: snapshot.source,
                 onFocusRow: onControlFocus,
                 onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
@@ -1377,7 +1399,7 @@ private struct FeedContextBlock: View {
                     text: preamble,
                     labelColor: .secondary,
                     textColor: .secondary,
-                    rendersMarkdown: source == .claude
+                    rendersMarkdown: source.rendersFeedMarkdown
                 )
             }
             if let plan = context.planSummary {
@@ -1386,7 +1408,7 @@ private struct FeedContextBlock: View {
                     text: plan,
                     labelColor: Color.purple.opacity(0.85),
                     textColor: .secondary,
-                    rendersMarkdown: source == .claude
+                    rendersMarkdown: source.rendersFeedMarkdown
                 )
             }
         }
@@ -1555,31 +1577,157 @@ private struct PermissionInputPreview {
         let dict = (try? JSONSerialization.jsonObject(
             with: Data(toolInputJSON.utf8)
         )) as? [String: Any] ?? [:]
+        let effective = Self.effectiveInput(from: dict)
+        let name = (Self.firstString(
+            effective["permission"],
+            effective["toolName"],
+            effective["tool_name"],
+            toolName
+        ) ?? toolName).lowercased()
+        let summary = Self.firstString(effective["summary"], effective["title"])
+        let detailLines = Self.stringArray(effective["lines"])
+        let patterns = Self.stringArray(effective["patterns"])
 
-        switch toolName.lowercased() {
+        switch name {
         case "bash":
             self.sigil = "$"
-            self.primary = (dict["command"] as? String) ?? toolInputJSON
-            self.secondary = (dict["description"] as? String)
-        case "write", "edit", "multiedit":
+            let primary = Self.firstString(effective["command"], effective["cmd"], detailLines.first) ?? toolInputJSON
+            self.primary = primary
+            self.secondary = Self.secondaryText(
+                preferred: Self.firstString(effective["description"], summary),
+                excluding: primary,
+                fallbackLines: Array(detailLines.dropFirst())
+            )
+        case "write", "edit", "multiedit", "apply_patch":
             self.sigil = nil
-            self.primary = (dict["file_path"] as? String) ?? toolInputJSON
-            if toolName.lowercased() == "write" {
-                let content = (dict["content"] as? String) ?? ""
+            let primary = Self.firstString(
+                effective["filePath"],
+                effective["file_path"],
+                effective["filepath"],
+                effective["path"],
+                patterns.first,
+                summary
+            ) ?? (toolInputJSON == "{}" ? nil : toolInputJSON)
+            self.primary = primary
+            if name == "write" {
+                let content = Self.firstString(effective["content"]) ?? ""
                 let preview = content.split(separator: "\n").first.map(String.init) ?? ""
-                self.secondary = preview.isEmpty ? nil : preview
+                self.secondary = Self.secondaryText(
+                    preferred: preview.isEmpty ? nil : preview,
+                    excluding: primary,
+                    fallbackLines: detailLines
+                )
             } else {
-                self.secondary = nil
+                self.secondary = Self.secondaryText(
+                    preferred: Self.firstString(effective["description"]),
+                    excluding: primary,
+                    fallbackLines: detailLines
+                )
             }
         case "read":
             self.sigil = nil
-            self.primary = (dict["file_path"] as? String) ?? toolInputJSON
-            self.secondary = nil
+            let primary = Self.firstString(
+                effective["filePath"],
+                effective["file_path"],
+                effective["filepath"],
+                effective["path"],
+                patterns.first,
+                summary
+            ) ?? (toolInputJSON == "{}" ? nil : toolInputJSON)
+            self.primary = primary
+            self.secondary = Self.secondaryText(excluding: primary, fallbackLines: detailLines)
+        case "glob", "grep":
+            self.sigil = nil
+            let primary = Self.firstString(effective["pattern"], patterns.first, summary) ?? (toolInputJSON == "{}" ? nil : toolInputJSON)
+            self.primary = primary
+            self.secondary = Self.secondaryText(excluding: primary, fallbackLines: detailLines)
+        case "list":
+            self.sigil = nil
+            let primary = Self.firstString(effective["path"], effective["directory"], patterns.first, summary) ?? (toolInputJSON == "{}" ? nil : toolInputJSON)
+            self.primary = primary
+            self.secondary = Self.secondaryText(excluding: primary, fallbackLines: detailLines)
+        case "task":
+            self.sigil = "*"
+            let primary = Self.firstString(effective["description"], effective["prompt"], summary) ?? (toolInputJSON == "{}" ? nil : toolInputJSON)
+            self.primary = primary
+            self.secondary = Self.secondaryText(excluding: primary, fallbackLines: detailLines)
+        case "webfetch":
+            self.sigil = "%"
+            let primary = Self.firstString(effective["url"], patterns.first, summary) ?? (toolInputJSON == "{}" ? nil : toolInputJSON)
+            self.primary = primary
+            self.secondary = Self.secondaryText(excluding: primary, fallbackLines: detailLines)
+        case "websearch":
+            self.sigil = "*"
+            let primary = Self.firstString(effective["query"], patterns.first, summary) ?? (toolInputJSON == "{}" ? nil : toolInputJSON)
+            self.primary = primary
+            self.secondary = Self.secondaryText(excluding: primary, fallbackLines: detailLines)
+        case "lsp":
+            self.sigil = nil
+            let primary = Self.firstString(summary, effective["operation"], effective["filePath"], effective["file_path"]) ?? (toolInputJSON == "{}" ? nil : toolInputJSON)
+            self.primary = primary
+            self.secondary = Self.secondaryText(excluding: primary, fallbackLines: detailLines)
+        case "external_directory":
+            self.sigil = "<"
+            let primary = summary ?? Self.firstString(patterns.first) ?? (toolInputJSON == "{}" ? nil : toolInputJSON)
+            self.primary = primary
+            self.secondary = Self.secondaryText(excluding: primary, fallbackLines: detailLines.isEmpty ? patterns : detailLines)
+        case "doom_loop":
+            self.sigil = "~"
+            let primary = summary ?? String(localized: "feed.permission.doomLoop", defaultValue: "Continue after repeated failures")
+            self.primary = primary
+            self.secondary = Self.secondaryText(excluding: primary, fallbackLines: detailLines)
         default:
             self.sigil = nil
-            self.primary = toolInputJSON == "{}" ? nil : toolInputJSON
-            self.secondary = nil
+            let primary = summary ?? (toolInputJSON == "{}" ? nil : toolInputJSON)
+            self.primary = primary
+            self.secondary = Self.secondaryText(excluding: primary, fallbackLines: detailLines)
         }
+    }
+
+    private static func effectiveInput(from dict: [String: Any]) -> [String: Any] {
+        var out: [String: Any] = [:]
+        if let metadata = dict["metadata"] as? [String: Any] {
+            out.merge(metadata) { _, new in new }
+            if let input = metadata["input"] as? [String: Any] {
+                out.merge(input) { _, new in new }
+            }
+        }
+        out.merge(dict) { _, new in new }
+        return out
+    }
+
+    private static func firstString(_ values: Any?...) -> String? {
+        for value in values {
+            if let text = value as? String {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+        }
+        return nil
+    }
+
+    private static func stringArray(_ value: Any?) -> [String] {
+        guard let values = value as? [Any] else { return [] }
+        return values.compactMap { item in
+            guard let text = item as? String else { return nil }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    private static func secondaryText(
+        preferred: String? = nil,
+        excluding primary: String?,
+        fallbackLines: [String]
+    ) -> String? {
+        if let preferred,
+           !preferred.isEmpty,
+           preferred != primary {
+            return preferred
+        }
+        let lines = fallbackLines.filter { !$0.isEmpty && $0 != primary }
+        guard !lines.isEmpty else { return nil }
+        return lines.joined(separator: "\n")
     }
 }
 
@@ -2228,7 +2376,7 @@ private struct ExitPlanActionArea: View {
         VStack(alignment: .leading, spacing: 10) {
             PlanBodyView(
                 plan: preview.planText,
-                rendersMarkdown: source == .claude
+                rendersMarkdown: source.rendersFeedMarkdown
             )
             if !preview.allowedPrompts.isEmpty {
                 ExitPlanAllowedPromptsView(prompts: preview.allowedPrompts)
@@ -3633,19 +3781,21 @@ private struct FlowLayout: Layout {
     }
 }
 
-/// Renders a Stop event (Claude finished a turn and is waiting for
+/// Renders a Stop event (an agent finished a turn and is waiting for
 /// the next user prompt). Shows a text field + Send button that
 /// types the reply into the agent's terminal surface and presses
-/// Return — so the user can reply without switching focus.
+/// Return, so the user can reply without switching focus.
 private struct StopActionArea: View {
     @Binding var draft: FeedStopDraft
     @Binding var focusRequest: Int
 
+    let source: WorkstreamSource
     let onFocusRow: () -> Void
     let onActionRow: () -> Void
     let onBlurRow: () -> Void
     let onSend: (String) -> Void
 
+    private var sourceName: String { source.feedDisplayName }
     private var trimmed: String {
         draft.reply.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -3664,14 +3814,26 @@ private struct StopActionArea: View {
                 Image(systemName: "checkmark.circle")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
-                Text(String(localized: "feed.stop.label", defaultValue: "Claude finished — reply to continue"))
+                Text(String.localizedStringWithFormat(
+                    String(
+                        localized: "feed.stop.labelForSource",
+                        defaultValue: "%@ finished, reply to continue"
+                    ),
+                    sourceName
+                ))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
             }
             FeedInlineTextField(
                 text: replyBinding,
                 focusRequest: focusRequest == 0 ? nil : focusRequest,
-                placeholder: String(localized: "feed.stop.placeholder", defaultValue: "Reply to Claude…"),
+                placeholder: String.localizedStringWithFormat(
+                    String(
+                        localized: "feed.stop.placeholderForSource",
+                        defaultValue: "Reply to %@..."
+                    ),
+                    sourceName
+                ),
                 isEnabled: true,
                 font: replyFont,
                 onFocus: onFocusRow,
@@ -3700,7 +3862,10 @@ private struct StopActionArea: View {
                 requestReplyFocus()
             }
             FeedButton(
-                label: String(localized: "feed.stop.send", defaultValue: "Send to Claude"),
+                label: String.localizedStringWithFormat(
+                    String(localized: "feed.stop.sendForSource", defaultValue: "Send to %@"),
+                    sourceName
+                ),
                 leadingIcon: "arrow.up.circle.fill",
                 kind: canSend ? .primary : .soft,
                 size: .medium,
@@ -3732,7 +3897,7 @@ private struct TelemetryActionArea: View {
         if case .todos(let todos) = snapshot.payload {
             TodoListBody(todos: todos)
         } else if case .assistantMessage(let text) = snapshot.payload,
-                  snapshot.source == .claude {
+                  snapshot.source.rendersFeedMarkdown {
             FeedMarkdownInlineText(
                 text: text,
                 fontSize: 11,

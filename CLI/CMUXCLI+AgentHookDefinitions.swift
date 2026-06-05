@@ -184,7 +184,10 @@ extension CMUXCLI {
             configDir: ".config/opencode", configFile: "plugins/cmux-session.js", configDirEnvOverride: "OPENCODE_CONFIG_DIR",
             sessionStoreSuffix: "opencode", disableEnvVar: "CMUX_OPENCODE_HOOKS_DISABLED",
             hookMarker: "cmux hooks opencode", format: .flat,
-            events: []
+            events: [],
+            // OpenCode completion notifications are owned by cmux-feed.js.
+            // This session plugin only owns session restore and status.
+            publishesStopNotification: false
         ),
         AgentHookDef(
             name: "pi", displayName: "Pi", statusKey: "pi",
