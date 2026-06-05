@@ -21131,6 +21131,30 @@ function refreshActivePaneSetupSettings(options = {}) {
   scheduleSettingsInspectorRender({ ifChanged: true });
 }
 
+function refreshPaneLookSaveSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  if (state.settingsCategory === "appearance" && !searching) {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode !== "settings" || state.settingsCategory !== "appearance" || normalizeSettingsQuery(state.settingsQuery)) return;
+      refreshAppearanceSavedLibraryPanels();
+    });
+    return;
+  }
+  if (state.settingsCategory === "workspace" && !searching) {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode !== "settings" || state.settingsCategory !== "workspace" || normalizeSettingsQuery(state.settingsQuery)) return;
+      refreshWorkspaceActivePaneSettingsControls();
+    });
+    return;
+  }
+  if (state.settingsCategory === "quick" && !searching) {
+    scheduleQuickSettingsRefresh();
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 function refreshColorApplicationSettings(options = {}) {
   if (options.render === false || state.inspectorMode !== "settings") return;
   const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
@@ -21896,7 +21920,7 @@ async function saveActivePaneLook(panel = focusedPanel() || activePanel(), optio
     toast("Pane look is already saved.");
     return false;
   }
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshPaneLookSaveSettings(options);
   if (savedColor && savedBackground) toast("Pane color and background saved.");
   else if (savedColor) toast("Pane color saved.");
   else toast("Pane background saved.");
