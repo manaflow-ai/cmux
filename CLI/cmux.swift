@@ -658,7 +658,7 @@ private final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         turnId: String? = nil,
         terminalActivePromptTurnIds: Set<String> = [],
-        terminalPromptTurnIdsFromTranscript: ((String, Set<String>?) -> Set<String>)? = nil,
+        terminalPromptTurnIdsFromTranscript: ((String, Set<String>) -> Set<String>)? = nil,
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
@@ -768,19 +768,6 @@ private final class ClaudeHookSessionStore {
                 if totalDepthBeforeStop == 0, terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                     state.sessions[normalized] = record
                     return true
-                }
-                if turnStack.isEmpty,
-                   totalDepthBeforeStop > 1,
-                   normalizeOptional(record.lastPromptTurnId) == normalizedTurnId,
-                   let transcriptPath = normalizeOptional(transcriptPath ?? record.transcriptPath),
-                   let terminalPromptTurnIdsFromTranscript {
-                    let priorTerminalTurnIds = terminalPromptTurnIdsFromTranscript(transcriptPath, nil)
-                        .subtracting([normalizedTurnId])
-                    if !priorTerminalTurnIds.isEmpty {
-                        let prunedDepth = min(priorTerminalTurnIds.count, max(0, totalDepthBeforeStop - 1))
-                        totalDepthBeforeStop = max(0, totalDepthBeforeStop - prunedDepth)
-                        markPromptTurnsTerminal(Array(priorTerminalTurnIds), on: &record)
-                    }
                 }
                 markPromptTurnTerminal(normalizedTurnId, on: &record)
                 if totalDepthBeforeStop == 0 {
@@ -23044,9 +23031,9 @@ struct CMUXCLI {
         return .healthy
     }
 
-    private func codexTranscriptTerminalTurnIds(path: String, turnIds: Set<String>?) -> Set<String> {
-        let expectedTurnIds = turnIds.map { Set($0.compactMap { normalizedHookValue($0) }) }
-        if let expectedTurnIds, expectedTurnIds.isEmpty {
+    private func codexTranscriptTerminalTurnIds(path: String, turnIds: Set<String>) -> Set<String> {
+        let expectedTurnIds = Set(turnIds.compactMap { normalizedHookValue($0) })
+        if expectedTurnIds.isEmpty {
             return []
         }
         guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
