@@ -76,10 +76,14 @@ final class PhonePushClient {
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + "/api/notifications/push"
         guard let url = comps.url else { return }
 
+        // When hideContent is on, the real terminal title/subtitle/body must
+        // never leave the Mac. Send generic placeholders so the request still
+        // carries valid, parseable fields while the actual content stays local.
+        // workspaceId/surfaceId/hideContent are opaque IDs/flags, not content.
         var bodyDict: [String: Any] = [
-            "title": payload.title,
-            "subtitle": payload.subtitle,
-            "body": payload.body,
+            "title": payload.hideContent ? "cmux" : payload.title,
+            "subtitle": payload.hideContent ? "" : payload.subtitle,
+            "body": payload.hideContent ? "New terminal activity" : payload.body,
             "workspaceId": payload.workspaceId,
             "hideContent": payload.hideContent,
         ]

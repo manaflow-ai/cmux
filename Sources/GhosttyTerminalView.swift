@@ -7886,6 +7886,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
 
+        // Mirror teardownSurface/suspend: release the retained mobile byte-tee
+        // userdata and drop the per-surface tee state keyed by this surface id,
+        // BEFORE freeing the surface. A terminal closed via deinit (not explicit
+        // teardown) would otherwise leak the tee userdata and leave stale mobile
+        // replay buffers keyed by the old id. If teardown already ran, it nil'd
+        // mobileByteTeeContext, so teeContext is nil here and ?.release() no-ops.
+        let teeContext = mobileByteTeeContext
+        mobileByteTeeContext = nil
+        // `dropSurface` is @MainActor but `deinit` is nonisolated, so hop to the
+        // main actor with the surface id captured by value (no self capture).
+        // Dropping by id only clears the registry/replay state; releasing
+        // `teeContext` on each exit path frees the userdata independently.
+        let teeSurfaceID = id
+        Task { @MainActor in MobileTerminalByteTee.shared.dropSurface(surfaceID: teeSurfaceID) }
+
         // Nil out the surface pointer so any in-flight closures (e.g. geometry
         // reconcile dispatched via DispatchQueue.main.async) that read self.surface
         // before this object is fully deallocated will see nil and bail out,
@@ -7904,6 +7919,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
 #endif
             callbackContext?.release()
+            teeContext?.release()
             return
         }
 
@@ -7911,6 +7927,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
             callbackContext?.release()
+            teeContext?.release()
             return
         }
 #endif
@@ -7933,6 +7950,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             surface: surfaceToFree,
             callbackContext: callbackContext
         )
+        // The teardown coordinator releases callbackContext; teeContext is not
+        // transported through the request, so release it here (mirrors teardownSurface).
+        teeContext?.release()
     }
 }
 
