@@ -1501,6 +1501,7 @@ private struct TextBoxMentionCompletionPopoverView: View {
     let selectionIndex: Int
     let searchTerm: String
     let isLoading: Bool
+    let renderIdentity: Int
     let onSelect: (TextBoxMentionSuggestion) -> Void
 
     var body: some View {
@@ -1557,6 +1558,7 @@ private struct TextBoxMentionCompletionPopoverView: View {
             }
         }
         .frame(width: 360)
+        .id(renderIdentity)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .transaction { transaction in
@@ -4951,6 +4953,7 @@ final class TextBoxInputTextView: NSTextView {
             selectionIndex: renderState.selectionIndex,
             searchTerm: renderState.searchTerm,
             isLoading: renderState.isLoading,
+            renderIdentity: renderState.identity,
             onSelect: { [weak self] suggestion in
                 self?.window?.makeFirstResponder(self)
                 self?.acceptMentionCompletion(suggestion)
