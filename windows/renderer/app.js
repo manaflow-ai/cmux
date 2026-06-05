@@ -7638,6 +7638,7 @@ const commands = [
   { id: "browser.copySetup", label: "Copy Browser Setup", shortcut: "", run: () => copyBrowserSetup() },
   { id: "browser.pasteSetup", label: "Paste Browser Setup", shortcut: "", run: () => pasteBrowserSetup() },
   { id: "browser.cycleHomePreset", label: "Cycle Browser Home Preset", shortcut: "", run: () => cycleBrowserHomePreset() },
+  { id: "browser.cyclePaneViewPreset", label: "Cycle Browser Pane View", shortcut: "", run: () => cycleBrowserPaneViewPreset() },
   { id: "browser.cycleWorkflowPreset", label: "Cycle Browser Workflow Preset", shortcut: "", run: () => cycleBrowserWorkflowPreset() },
   { id: "browser.resetSetup", label: "Reset Browser Setup", shortcut: "", run: () => resetBrowserSetupSettings() },
   { id: "browser.copyRecentPages", label: "Copy Recent Browser Pages", shortcut: "", run: () => copyRecentBrowserPages() },
@@ -7820,6 +7821,7 @@ const customizationPaletteCommandIds = new Set([
   "browser.copyRecentPages",
   "browser.pasteRecentPages",
   "browser.cycleHomePreset",
+  "browser.cyclePaneViewPreset",
   "browser.cycleWorkflowPreset",
   "settings.copySavedLibrary",
   "settings.pasteSavedLibrary",
@@ -8829,6 +8831,7 @@ const corePaletteCommandIds = new Set([
   "browser.copySetup",
   "browser.pasteSetup",
   "browser.cycleHomePreset",
+  "browser.cyclePaneViewPreset",
   "browser.cycleWorkflowPreset",
   "browser.resetSetup",
   "browser.copyTabs",
@@ -9131,6 +9134,17 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       icon: "browserPlus",
       title: model.title,
       search: normalizeSettingsQuery(`browser home preset cycle next homepage google github localhost vite angular flask python asp net api backend web url ${model.search}`)
+    };
+  }
+  if (commandId === "browser.cyclePaneViewPreset") {
+    const model = browserPaneViewPresetCycleModel();
+    return {
+      meta: model.meta,
+      shortcut: "Cycle",
+      disabled: model.disabled,
+      icon: "browserPlus",
+      title: model.title,
+      search: normalizeSettingsQuery(`browser pane view chrome zoom cycle next preset full compact content dense readable ${model.search}`)
     };
   }
   if (commandId === "browser.cycleWorkflowPreset") {
@@ -16136,7 +16150,7 @@ function renderSettingsInspector(options = {}) {
     ));
     const homeActions = document.createElement("div");
     homeActions.className = "settings-actions";
-    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open cycle preset reset default url page web launch mode system external profile chrome edge brave suspend inactive pane chrome tabs address controls full compact content zoom scale save browser profile reusable copy paste setup clipboard json");
+    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open cycle preset pane view reset default url page web launch mode system external profile chrome edge brave suspend inactive pane chrome tabs address controls full compact content zoom scale save browser profile reusable copy paste setup clipboard json");
     const browserHomeDefault = browserHomeKey(state.settings.browserHomeUrl) === browserHomeKey(defaultSettings.browserHomeUrl);
     const resetBrowserHomeAction = settingsActionButton("Reset", resetBrowserHome, "", `browser home reset default url page web ${browserHomeDefault ? "active current " : ""}`);
     resetBrowserHomeAction.disabled = browserHomeDefault;
@@ -16166,6 +16180,10 @@ function renderSettingsInspector(options = {}) {
     const cycleBrowserHome = settingsActionButton("Cycle home", cycleBrowserHomePreset, "", `browser home preset cycle next homepage google github localhost vite angular flask python asp net api backend web url ${homeCycle.search}`);
     cycleBrowserHome.disabled = homeCycle.disabled;
     cycleBrowserHome.title = homeCycle.title;
+    const paneViewCycle = browserPaneViewPresetCycleModel();
+    const cycleBrowserPaneView = settingsActionButton("Cycle pane view", cycleBrowserPaneViewPreset, "", `browser pane view chrome zoom cycle next preset full compact content dense readable tabs address controls preview local app dashboard scale ${paneViewCycle.search}`);
+    cycleBrowserPaneView.disabled = paneViewCycle.disabled;
+    cycleBrowserPaneView.title = paneViewCycle.title;
     const workflowCycle = browserWorkflowPresetCycleModel();
     const cycleBrowserWorkflow = settingsActionButton("Cycle workflow", cycleBrowserWorkflowPreset, "", `browser workflow setup cycle next preset home launch external profile suspend pane chrome tabs address controls full compact content zoom scale localhost local dev app api backend ${workflowCycle.search}`);
     cycleBrowserWorkflow.disabled = workflowCycle.disabled;
@@ -16182,6 +16200,7 @@ function renderSettingsInspector(options = {}) {
         "Save this browser setup as a reusable Settings profile."
       ),
       cycleBrowserHome,
+      cycleBrowserPaneView,
       cycleBrowserWorkflow,
       copyBrowser,
       pasteBrowser,
@@ -19926,6 +19945,100 @@ function cycleBrowserHomePreset(options = {}) {
     return false;
   }
   return applyBrowserHomePreset(model.preset, options);
+}
+
+const browserPaneViewPresets = [
+  {
+    id: "full",
+    label: "Full 100%",
+    body: "Show normal browser tabs and controls at default scale.",
+    settings: { browserChromeMode: "full", browserZoom: "100" }
+  },
+  {
+    id: "compact",
+    label: "Compact 100%",
+    body: "Keep the address and tab controls tighter without changing page scale.",
+    settings: { browserChromeMode: "compact", browserZoom: "100" }
+  },
+  {
+    id: "contentDense",
+    label: "Content 90%",
+    body: "Prioritize page content for app previews and dense local dashboards.",
+    settings: { browserChromeMode: "content", browserZoom: "90" }
+  },
+  {
+    id: "readable",
+    label: "Readable 110%",
+    body: "Use compact browser controls with larger page text.",
+    settings: { browserChromeMode: "compact", browserZoom: "110" }
+  }
+];
+
+function browserPaneViewPresetSettings(preset) {
+  if (!preset) return null;
+  const chrome = browserChromeModeValue(preset.settings?.browserChromeMode);
+  const zoom = browserZoomValue(preset.settings?.browserZoom);
+  return { browserChromeMode: chrome, browserZoom: zoom };
+}
+
+function isActiveBrowserPaneViewPreset(preset) {
+  const settings = browserPaneViewPresetSettings(preset);
+  if (!settings) return false;
+  return settings.browserChromeMode === browserChromeModeValue()
+    && settings.browserZoom === browserZoomValue();
+}
+
+function browserPaneViewPresetSearchText(preset, settings = browserPaneViewPresetSettings(preset)) {
+  return normalizeSettingsQuery([
+    "browser pane view preset chrome zoom cycle full compact content dense readable tabs address controls preview local app dashboard scale",
+    preset?.label || "",
+    preset?.body || "",
+    browserChromeModeLabel(settings?.browserChromeMode),
+    browserZoomLabel(settings?.browserZoom)
+  ].join(" "));
+}
+
+function browserPaneViewPresetCycleModel() {
+  const presets = browserPaneViewPresets
+    .map((preset) => ({ preset, settings: browserPaneViewPresetSettings(preset) }))
+    .filter((entry) => entry.settings);
+  const activeIndex = presets.findIndex(({ preset }) => isActiveBrowserPaneViewPreset(preset));
+  const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % presets.length : 0;
+  const entry = presets[nextIndex] || null;
+  const chrome = browserChromeModeLabel(entry?.settings?.browserChromeMode);
+  const zoom = browserZoomLabel(entry?.settings?.browserZoom);
+  return {
+    preset: entry?.preset || null,
+    settings: entry?.settings || null,
+    disabled: !entry || (presets.length === 1 && activeIndex === 0),
+    meta: entry ? `${entry.preset.label} / ${chrome} / ${zoom}` : "No pane views",
+    title: entry
+      ? `Cycle browser pane view to ${entry.preset.label}.`
+      : "No browser pane view presets are available.",
+    search: browserPaneViewPresetSearchText(entry?.preset, entry?.settings)
+  };
+}
+
+function applyBrowserPaneViewPreset(preset, options = {}) {
+  const settings = browserPaneViewPresetSettings(preset);
+  if (!preset || !settings) {
+    toast("Browser pane view preset not found.");
+    return false;
+  }
+  return applyBrowserSetupUpdates(settings, {
+    toastText: `${preset.label} browser pane view applied.`,
+    alreadyText: `${preset.label} browser pane view already active.`,
+    ...options
+  });
+}
+
+function cycleBrowserPaneViewPreset(options = {}) {
+  const model = browserPaneViewPresetCycleModel();
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applyBrowserPaneViewPreset(model.preset, options);
 }
 
 function resetBrowserHome() {
@@ -25639,6 +25752,7 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
   const profilesFull = savedSettingsProfilesFull();
   const setupDefault = browserSetupSettingsAreDefault();
   const homeCycle = browserHomePresetCycleModel();
+  const paneViewCycle = browserPaneViewPresetCycleModel();
   const workflowCycle = browserWorkflowPresetCycleModel();
   const activeBrowserTitle = activeBrowser
     ? panelDisplayTitle(activeBrowser, true)
@@ -25663,6 +25777,11 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
       disabled: homeCycle.disabled,
       title: homeCycle.title,
       search: `quick setup browser home preset cycle next homepage google github localhost vite angular flask python asp net api backend web url ${homeCycle.search}`
+    }),
+    quickOverviewControlButton("Cycle view", () => refreshQuickSettingsAfterAction(cycleBrowserPaneViewPreset({ render: false })), {
+      disabled: paneViewCycle.disabled,
+      title: paneViewCycle.title,
+      search: `quick setup browser pane view chrome zoom cycle next preset full compact content dense readable tabs address controls preview local app dashboard scale ${paneViewCycle.search}`
     }),
     quickOverviewControlButton("New tab", () => newBrowserTabFromPanel(activeBrowser), {
       disabled: !activeBrowser,
