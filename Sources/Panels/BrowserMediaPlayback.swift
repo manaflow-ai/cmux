@@ -81,6 +81,7 @@ extension BrowserPanel {
         })();
 
         let lastReported = null;
+        let mediaObserver = null;
 
         const isElementPlaying = (el) => {
           try {
@@ -109,12 +110,39 @@ extension BrowserPanel {
           } catch (_) {}
         };
 
-        const report = () => {
+        const disconnectObserver = () => {
+          if (!mediaObserver) return;
+          try { mediaObserver.disconnect(); } catch (_) {}
+          mediaObserver = null;
+        };
+
+        // Removing a playing element from the DOM fires no media event, so while
+        // anything is playing watch for DOM mutations and recheck. This is the
+        // only signal that survives while the page is hidden (timers are
+        // throttled, MutationObserver is not), so a player that tears down its
+        // <video> still clears the blocker and lets the pane be discarded.
+        function syncObserver(playing) {
+          if (playing) {
+            if (mediaObserver) return;
+            try {
+              mediaObserver = new MutationObserver(() => { report(); });
+              mediaObserver.observe(document.documentElement || document, {
+                childList: true,
+                subtree: true
+              });
+            } catch (_) {}
+          } else {
+            disconnectObserver();
+          }
+        }
+
+        function report() {
           const playing = anyPlaying();
+          syncObserver(playing);
           if (playing === lastReported) return;
           lastReported = playing;
           post(playing);
-        };
+        }
 
         // Media events do not bubble, but capture-phase listeners on `document`
         // still observe them as the event travels down to the target element.
@@ -127,6 +155,7 @@ extension BrowserPanel {
         }
 
         window.addEventListener("pagehide", () => {
+          disconnectObserver();
           if (lastReported === false) return;
           lastReported = false;
           post(false);
@@ -146,16 +175,26 @@ extension BrowserPanel {
     /// content controller. Reset `isPlayingMedia` for the freshly bound webview.
     func setupMediaPlaybackMessageHandler(for webView: WKWebView) {
         resetMediaPlaybackTracking()
+        // Bind the handler to this webview generation. The handler stays alive on
+        // the old content controller until the old webview deallocates, so a late
+        // report from a replaced document must be ignored or it would repopulate
+        // playingMediaFrameIDs for a page that is gone and block discard forever.
+        let boundWebViewInstanceID = webViewInstanceID
         let handler = BrowserMediaPlaybackMessageHandler { [weak self] report in
-            self?.handleMediaPlaybackReport(report)
+            self?.handleMediaPlaybackReport(report, fromWebViewInstanceID: boundWebViewInstanceID)
         }
         mediaPlaybackMessageHandler = handler
         webView.configuration.userContentController.add(handler, name: mediaPlaybackMessageHandlerName)
     }
 
     /// Applies a per-frame playback report from the injected hook, aggregating
-    /// across the main frame and any iframes.
-    func handleMediaPlaybackReport(_ report: BrowserMediaPlaybackReport) {
+    /// across the main frame and any iframes. Reports from a superseded webview
+    /// generation are dropped.
+    func handleMediaPlaybackReport(
+        _ report: BrowserMediaPlaybackReport,
+        fromWebViewInstanceID instanceID: UUID
+    ) {
+        guard instanceID == webViewInstanceID else { return }
         applyMediaPlaybackReport(frameID: report.frameID, isPlaying: report.isPlaying)
 #if DEBUG
         cmuxDebugLog(
