@@ -4738,7 +4738,6 @@ final class BrowserPanel: Panel, ObservableObject {
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         let previousFaviconCachePartition = faviconCachePartition
         workspaceId = newWorkspaceId
-        pickerMessageHandler?.updateWorkspaceId(newWorkspaceId)
         invalidateFaviconIfCachePartitionChanged(
             from: previousFaviconCachePartition,
             refreshCurrentPage: true
@@ -4754,7 +4753,6 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         let previousFaviconCachePartition = faviconCachePartition
         workspaceId = newWorkspaceId
-        pickerMessageHandler?.updateWorkspaceId(newWorkspaceId)
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
         let targetStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
