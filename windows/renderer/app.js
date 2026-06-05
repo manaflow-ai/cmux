@@ -681,6 +681,7 @@ const savedSettingsProfilesStorageKey = "cmux.savedSettingsProfiles";
 const workspaceBlueprintsStorageKey = "cmux.workspaceBlueprints";
 const customColorPaletteStorageKey = "cmux.customColorPalette";
 const savedBackgroundImagesStorageKey = "cmux.savedBackgroundImages";
+const savedLibraryBackupSignatureStorageKey = "cmux.savedLibraryBackupSignature";
 const recentFoldersLimit = 8;
 const recentCommandsLimit = 8;
 const recentBrowserPagesLimit = 10;
@@ -5014,6 +5015,39 @@ function savedLibraryPayload() {
   };
 }
 
+function savedLibraryBackupSignature() {
+  return savedDataItemCount() ? stableJson(savedLibraryPayload()) : "";
+}
+
+function markSavedLibraryBackupCurrent() {
+  const signature = savedLibraryBackupSignature();
+  if (!signature) return false;
+  try {
+    localStorage.setItem(savedLibraryBackupSignatureStorageKey, signature);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function savedLibraryBackupModel() {
+  const savedCount = savedDataItemCount();
+  const signature = savedLibraryBackupSignature();
+  const backedUp = Boolean(signature && localStorageString(savedLibraryBackupSignatureStorageKey) === signature);
+  return {
+    savedCount,
+    backedUp,
+    disabled: savedCount === 0,
+    meta: savedCount ? `${savedCount} saved${backedUp ? " / copied" : ""}` : "Library empty",
+    title: savedCount
+      ? backedUp
+        ? "Current customization library is already copied. Copy it again if you want a fresh backup."
+        : savedLibraryCopyTitle()
+      : "Customization library is empty.",
+    search: normalizeSettingsQuery(`backup saved customization library copy export clipboard json snippets profiles blueprints colors backgrounds ${backedUp ? "current copied backed up " : "needs backup "}${savedLibrarySearchLabel()}`)
+  };
+}
+
 async function copySavedLibrary() {
   if (savedDataItemCount() === 0) {
     toast("Customization library is empty.");
@@ -5021,6 +5055,7 @@ async function copySavedLibrary() {
   }
   const payload = JSON.stringify(savedLibraryPayload(), null, 2);
   if (await writeClipboardText(payload)) {
+    markSavedLibraryBackupCurrent();
     toast("Customization library copied.");
     return true;
   }
@@ -28662,6 +28697,21 @@ function quickSetupActionDefinitions() {
       run: () => refreshQuickSettingsAfterAction(saveQuickSetupProfile({ render: false }))
     },
     {
+      id: "backup-library",
+      icon: "data",
+      label: "Back up setup",
+      body: "Copy saved profiles, layouts, colors, backgrounds, and snippets.",
+      meta: () => savedLibraryBackupModel().meta,
+      cta: "Copy",
+      active: () => savedLibraryBackupModel().backedUp,
+      activeCta: "Copied",
+      activeDisabled: false,
+      search: () => savedLibraryBackupModel().search,
+      disabled: () => savedLibraryBackupModel().disabled,
+      title: () => savedLibraryBackupModel().title,
+      run: () => refreshQuickSettingsAfterAction(copySavedLibrary())
+    },
+    {
       id: "save-accent-color",
       icon: "appearance",
       label: "Save accent",
@@ -28919,6 +28969,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   const healthIssueCount = performanceHealthIssueCount();
   const setup = activeSettingsSetupModel();
   const profilesFull = savedSettingsProfilesFull();
+  const libraryBackup = savedLibraryBackupModel();
   const colorSetSave = currentColorSetSaveModel(workspace);
   const colorEverywhere = currentColorEverywhereModel(state.colorApplyTarget, workspace);
   const colorVariants = quickColorVariantSaveModel(workspace);
@@ -28948,6 +28999,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   if (!ids.includes("save-background-set") && activeTerminalBackground && canSaveBackgroundImage(activeTerminalBackground) && !savedBackgroundImageExists(activeTerminalBackground) && ids.length < 4) ids.push("save-terminal-image");
   if (workspaceNeedsQuickRename(workspace)) ids.push("rename");
   if (workspace && panels.length > 1 && !workspaceBlueprintsFull()) ids.push("save-layout");
+  if (!libraryBackup.disabled && !libraryBackup.backedUp && ids.length < 4) ids.push("backup-library");
   if (workspace && panels.length > 0 && ids.length < 4) ids.push("pane-settings");
 
   return [...new Set(ids)].slice(0, 4);
