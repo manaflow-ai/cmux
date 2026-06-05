@@ -37,6 +37,7 @@ final class BrowserHiddenWebViewDiscardManager {
         let isVisualAutomationCaptureActive: Bool
         let hasPopups: Bool
         let isCapturingMedia: Bool
+        let isPlayingMedia: Bool
     }
 
     weak var delegate: BrowserHiddenWebViewDiscardManagerDelegate?
@@ -78,6 +79,7 @@ final class BrowserHiddenWebViewDiscardManager {
         if snapshot.hasActiveMainFrameProvisionalNavigation { blockers.append("provisional_navigation") }
         if snapshot.isDownloading || snapshot.activeDownloadCount != 0 { blockers.append("download") }
         if snapshot.isCapturingMedia { blockers.append("media_capture") }
+        if snapshot.isPlayingMedia { blockers.append("media_playback") }
         if snapshot.preferredDeveloperToolsVisible || snapshot.isDeveloperToolsVisible {
             blockers.append("developer_tools")
         }

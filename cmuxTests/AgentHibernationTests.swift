@@ -80,7 +80,7 @@ final class AgentHibernationTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         XCTAssertFalse(AgentHibernationSettings.isEnabled(defaults: defaults))
-        XCTAssertEqual(AgentHibernationSettings.idleSeconds(defaults: defaults), 3600)
+        XCTAssertEqual(AgentHibernationSettings.idleSeconds(defaults: defaults), 5)
         XCTAssertEqual(AgentHibernationSettings.maxLiveTerminals(defaults: defaults), 12)
 
         let notificationCenter = NotificationCenter()

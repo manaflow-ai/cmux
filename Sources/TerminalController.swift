@@ -18764,27 +18764,11 @@ class TerminalController {
     }
 
     private func orderedPanels(in tab: Workspace) -> [any Panel] {
-        // Use bonsplit's tab ordering as the source of truth. This avoids relying on
-        // Dictionary iteration order, and prevents indexing into panels that aren't
-        // actually present in bonsplit anymore.
-        let orderedTabIds = tab.bonsplitController.allTabIds
-        var result: [any Panel] = []
-        var seen = Set<UUID>()
-
-        for tabId in orderedTabIds {
-            guard let panelId = tab.panelIdFromSurfaceId(tabId),
-                  let panel = tab.panels[panelId] else { continue }
-            result.append(panel)
-            seen.insert(panelId)
-        }
-
-        // Defensive: include any orphaned panels in a stable order at the end.
-        let orphans = tab.panels.values
-            .filter { !seen.contains($0.id) }
-            .sorted { $0.id.uuidString < $1.id.uuidString }
-        result.append(contentsOf: orphans)
-
-        return result
+        // Single source of truth for spatial (left-to-right, top-to-bottom) panel
+        // order lives on `Workspace.orderedPanelIds`, derived from bonsplit's tab
+        // ordering. This avoids relying on Dictionary iteration order and keeps the
+        // serializer, the reorder gate, and the mobile observer hash consistent.
+        tab.orderedPanelIds.compactMap { tab.panels[$0] }
     }
 
     private func resolveTerminalPanel(from arg: String, tabManager: TabManager) -> TerminalPanel? {
@@ -22203,14 +22187,11 @@ class TerminalController {
     }
 
     private func mobileTerminalPanels(in workspace: Workspace) -> [TerminalPanel] {
-        let focusedPanelID = workspace.focusedPanelId
-        return workspace.panels.values
-            .compactMap { $0 as? TerminalPanel }
-            .sorted { lhs, rhs in
-                if lhs.id == focusedPanelID { return true }
-                if rhs.id == focusedPanelID { return false }
-                return lhs.id.uuidString < rhs.id.uuidString
-            }
+        // Use the workspace's spatial (left-to-right, top-to-bottom) panel order
+        // so the phone's terminal dropdown matches the on-screen bonsplit layout,
+        // rather than focused-first/UUID order. `is_focused` in the payload still
+        // tells the phone which terminal is active.
+        orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }
     }
 
     private func mobileNonEmpty(_ raw: String?) -> String? {
