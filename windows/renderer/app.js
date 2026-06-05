@@ -2210,7 +2210,7 @@ function recentCommandEntriesFromPayload(payload) {
   return [];
 }
 
-function mergeRecentCommands(commands) {
+function mergeRecentCommands(commands, options = {}) {
   const imported = normalizeRecentCommandList(commands);
   if (imported.length === 0) {
     toast("Clipboard does not contain recent commands.");
@@ -2231,21 +2231,21 @@ function mergeRecentCommands(commands) {
   }
   state.recentCommands = next;
   saveRecentCommands();
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast(`Recent commands updated (${state.recentCommands.length}/${recentCommandsLimit}).`);
   return true;
 }
 
-async function pasteRecentCommands() {
+async function pasteRecentCommands(options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
     return false;
   }
   try {
-    return mergeRecentCommands(recentCommandEntriesFromPayload(JSON.parse(clipboard)));
+    return mergeRecentCommands(recentCommandEntriesFromPayload(JSON.parse(clipboard)), options);
   } catch {
-    return mergeRecentCommands(recentCommandEntriesFromPayload(clipboard));
+    return mergeRecentCommands(recentCommandEntriesFromPayload(clipboard), options);
   }
 }
 
@@ -2358,7 +2358,7 @@ function recentBrowserPageEntriesFromPayload(payload) {
   return [];
 }
 
-function mergeRecentBrowserPages(pages) {
+function mergeRecentBrowserPages(pages, options = {}) {
   const imported = normalizeRecentBrowserPageList(pages);
   if (imported.length === 0) {
     toast("Clipboard does not contain recent browser pages.");
@@ -2379,21 +2379,21 @@ function mergeRecentBrowserPages(pages) {
   }
   state.recentBrowserPages = next;
   saveRecentBrowserPages();
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast(`Recent browser pages updated (${state.recentBrowserPages.length}/${recentBrowserPagesLimit}).`);
   return true;
 }
 
-async function pasteRecentBrowserPages() {
+async function pasteRecentBrowserPages(options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
     return false;
   }
   try {
-    return mergeRecentBrowserPages(recentBrowserPageEntriesFromPayload(JSON.parse(clipboard)));
+    return mergeRecentBrowserPages(recentBrowserPageEntriesFromPayload(JSON.parse(clipboard)), options);
   } catch {
-    return mergeRecentBrowserPages(recentBrowserPageEntriesFromPayload(clipboard));
+    return mergeRecentBrowserPages(recentBrowserPageEntriesFromPayload(clipboard), options);
   }
 }
 
@@ -2711,7 +2711,7 @@ function mergedRecentActivityList(imported, current, limit, keyForItem) {
   return next;
 }
 
-function mergeRecentActivity(payload) {
+function mergeRecentActivity(payload, options = {}) {
   const entries = recentActivityEntriesFromPayload(payload);
   if (!hasRecentActivityEntries(entries)) {
     toast("Clipboard does not contain recent activity.");
@@ -2754,26 +2754,26 @@ function mergeRecentActivity(payload) {
     toast("Recent activity already matches.");
     return false;
   }
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast("Recent activity updated.");
   return true;
 }
 
-async function pasteRecentActivity() {
+async function pasteRecentActivity(options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
     return false;
   }
   try {
-    return mergeRecentActivity(JSON.parse(clipboard));
+    return mergeRecentActivity(JSON.parse(clipboard), options);
   } catch {
     toast("Clipboard does not contain recent activity.");
     return false;
   }
 }
 
-async function clearRecentActivity() {
+async function clearRecentActivity(options = {}) {
   if (!hasRecentActivity()) {
     toast("Recent activity is already clear.");
     return false;
@@ -2792,7 +2792,7 @@ async function clearRecentActivity() {
   saveRecentCommands();
   saveRecentBrowserPages();
   saveBrowserTabSnapshots(state.browserTabSnapshots);
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast("Recent activity cleared.");
   return true;
 }
@@ -2971,7 +2971,7 @@ function commandSnippetFromPayload(payload) {
   });
 }
 
-async function pasteCommandSnippet() {
+async function pasteCommandSnippet(options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
@@ -2989,12 +2989,12 @@ async function pasteCommandSnippet() {
   }
   const saved = upsertCustomCommandSnippet(snippet);
   if (!saved) return null;
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast(`${saved.label} snippet saved.`);
   return saved;
 }
 
-function saveRecentCommandAsSnippet(command = state.recentCommands[0]) {
+function saveRecentCommandAsSnippet(command = state.recentCommands[0], options = {}) {
   const normalized = normalizeTerminalCommand(command);
   if (!normalized) {
     toast("Choose a recent command first.");
@@ -3006,7 +3006,7 @@ function saveRecentCommandAsSnippet(command = state.recentCommands[0]) {
     command: normalized
   });
   if (!saved) return null;
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   resetPaletteEntriesCache();
   toast(`${saved.label} snippet saved.`);
   return saved;
@@ -5082,7 +5082,7 @@ async function pasteSavedLibrary(options = {}) {
   }
 }
 
-async function clearSavedLibrary() {
+async function clearSavedLibrary(options = {}) {
   if (savedDataItemCount() === 0) {
     toast("Customization library is already clear.");
     return false;
@@ -5103,7 +5103,7 @@ async function clearSavedLibrary() {
   saveWorkspaceBlueprints();
   saveCustomColorPalette();
   saveSavedBackgroundImages();
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast("Customization library cleared.");
   return true;
 }
@@ -20500,7 +20500,7 @@ function browserTabSessionItemsFromPayload(payload) {
   return items;
 }
 
-function applyBrowserTabSessionToPanel(panel, item) {
+function applyBrowserTabSessionToPanel(panel, item, options = {}) {
   const target = resolveBrowserPanel(panel);
   if (!target) {
     toast("Focus a browser pane first.");
@@ -20538,7 +20538,7 @@ function applyBrowserTabSessionToPanel(panel, item) {
   }
   if (activeTab?.url) queueBrowserUrlSync(target.id, activeTab.url);
   focusPanel(target.id);
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
   toast(`Browser tabs applied (${browserTabSessionCountLabel(snapshot)}).`);
   return true;
 }
@@ -20574,7 +20574,7 @@ async function duplicateBrowserTabSessionByPanelId(panelId) {
   }
 }
 
-async function pasteBrowserTabSessions() {
+async function pasteBrowserTabSessions(options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
@@ -20594,7 +20594,7 @@ async function pasteBrowserTabSessions() {
   }
   if (items.length === 1) {
     const target = resolveBrowserPanel(focusedPanel());
-    if (target) return applyBrowserTabSessionToPanel(target, items[0]);
+    if (target) return applyBrowserTabSessionToPanel(target, items[0], options);
     const created = await createBrowserTabSessionPane(items[0]);
     if (!created) return false;
     toast(`Browser tabs restored (${browserTabSessionCountLabel(items[0].snapshot)}).`);
@@ -25691,11 +25691,11 @@ function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount
       title: state.recentCommands.length ? "Copy recent terminal commands as JSON." : "Recent commands are empty.",
       search: "quick setup terminal recent commands copy history clipboard json"
     }),
-    quickOverviewControlButton("Paste recent", pasteRecentCommands, {
+    quickOverviewControlButton("Paste recent", () => refreshQuickSettingsAfterAction(pasteRecentCommands({ render: false })), {
       title: "Merge copied terminal commands into recent commands.",
       search: "quick setup terminal recent commands paste history clipboard json"
     }),
-    quickOverviewControlButton("Save command", () => saveRecentCommandAsSnippet(latestCommand), {
+    quickOverviewControlButton("Save command", () => refreshQuickSettingsAfterAction(saveRecentCommandAsSnippet(latestCommand, { render: false })), {
       disabled: saveCommandDisabled,
       title: saveCommandTitle,
       search: `quick setup terminal save recent command snippet reusable ${latestCommand}`
@@ -25844,7 +25844,7 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
       title: activeBrowser ? "Copy the active browser tab session as JSON." : browserRequiredTitle,
       search: "quick setup browser copy active tabs session clipboard json"
     }),
-    quickOverviewControlButton("Paste tabs", pasteBrowserTabSessions, {
+    quickOverviewControlButton("Paste tabs", () => refreshQuickSettingsAfterAction(pasteBrowserTabSessions({ render: false })), {
       disabled: !hasWorkspace,
       title: hasWorkspace ? "Paste copied browser tabs into the active browser or restore panes." : workspaceRequiredTitle,
       search: "quick setup browser paste tabs restore session panes clipboard json"
@@ -25854,7 +25854,7 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
       title: state.recentBrowserPages.length ? "Copy recent browser pages as JSON." : "Recent browser pages are empty.",
       search: "quick setup browser recent pages copy history clipboard json"
     }),
-    quickOverviewControlButton("Paste recent", pasteRecentBrowserPages, {
+    quickOverviewControlButton("Paste recent", () => refreshQuickSettingsAfterAction(pasteRecentBrowserPages({ render: false })), {
       title: "Merge copied browser pages into recent pages.",
       search: "quick setup browser recent pages paste history clipboard json"
     }),
@@ -26619,7 +26619,7 @@ function quickProfileDataControlsPanel(storageBytes = totalDataStorageBytes()) {
         : "Recent activity is empty.",
       search: "quick setup profile data copy recent activity folders commands browser pages tabs clipboard json"
     }),
-    quickOverviewControlButton("Paste recent", pasteRecentActivity, {
+    quickOverviewControlButton("Paste recent", () => refreshQuickSettingsAfterAction(pasteRecentActivity({ render: false })), {
       title: "Merge copied recent folders, terminal commands, browser pages, and tab sessions.",
       search: "quick setup profile data paste recent activity folders commands browser pages tabs clipboard json"
     }),
@@ -26681,23 +26681,23 @@ function quickDataMaintenanceControlsPanel(storageBytes = totalDataStorageBytes(
       title: "Copy settings, profiles, blueprints, saved colors, backgrounds, snippets, and recent data as JSON.",
       search: "quick setup data maintenance backup export copy app setup settings profiles blueprints snippets colors backgrounds recent clipboard json"
     }),
-    quickOverviewControlButton("Restore", pasteAppSetup, {
+    quickOverviewControlButton("Restore", () => refreshQuickSettingsAfterAction(pasteAppSetup({ render: false })), {
       title: "Paste exported cmux Windows app setup JSON.",
       search: "quick setup data maintenance restore import paste app setup settings profiles blueprints snippets colors backgrounds recent clipboard json"
     }),
-    quickOverviewControlButton("Clear recent", clearRecentActivity, {
+    quickOverviewControlButton("Clear recent", () => refreshQuickSettingsAfterAction(clearRecentActivity({ render: false })), {
       disabled: !hasRecent,
       title: hasRecent
         ? "Clear recent folders, commands, browser pages, and saved browser tabs."
         : "Recent activity is already clear.",
       search: "quick setup data maintenance clear recent activity privacy folders commands browser pages tabs history"
     }),
-    quickOverviewControlButton("Clear saved", clearSavedLibrary, {
+    quickOverviewControlButton("Clear saved", () => refreshQuickSettingsAfterAction(clearSavedLibrary({ render: false })), {
       disabled: !hasSaved,
       title: savedLibraryClearTitle(),
       search: `quick setup data maintenance clear saved customization library snippets profiles blueprints colors backgrounds ${savedSearch}`
     }),
-    quickOverviewControlButton("Close empty", closeEmptyWorkspaces, {
+    quickOverviewControlButton("Close empty", () => refreshQuickSettingsAfterAction(closeEmptyWorkspaces({ render: false })), {
       disabled: emptyTargets.length === 0,
       title: emptyTargets.length
         ? "Close extra empty workspaces. Workspaces with panes stay open."
@@ -26747,17 +26747,17 @@ function quickCommandActionControlsPanel() {
     || packMissing.length > remainingSlots;
   const snippetsFull = customCommandSnippetsFull();
   const actions = [
-    quickOverviewControlButton("Add snippet", addCustomCommandSnippet, {
+    quickOverviewControlButton("Add snippet", () => refreshQuickSettingsAfterAction(addCustomCommandSnippet({ render: false })), {
       disabled: snippetsFull,
       title: snippetsFull ? commandSnippetLimitTitle() : "Add a saved terminal command snippet.",
       search: "quick setup command action add saved terminal command snippet custom reusable"
     }),
-    quickOverviewControlButton("Paste snippet", pasteCommandSnippet, {
+    quickOverviewControlButton("Paste snippet", () => refreshQuickSettingsAfterAction(pasteCommandSnippet({ render: false })), {
       title: "Paste a copied command snippet or command.",
       search: "quick setup command action paste saved terminal command snippet clipboard import"
     }),
     quickOverviewControlButton("Save pack", () => {
-      if (pack) saveCommandSnippetPack(pack.id);
+      return pack ? refreshQuickSettingsAfterAction(saveCommandSnippetPack(pack.id, { render: false })) : false;
     }, {
       disabled: packDisabled,
       title: pack ? commandSnippetPackSaveTitle(pack, packMissing) : "No snippet pack is available.",
@@ -26996,7 +26996,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   pasteSetup.title = "Paste exported cmux Windows app setup JSON.";
   pasteSetup.setAttribute("aria-label", pasteSetup.title);
   pasteSetup.dataset.settingsSearch = normalizeSettingsQuery("quick setup paste app setup import settings profiles blueprints colors backgrounds snippets clipboard json");
-  pasteSetup.onclick = () => pasteAppSetup();
+  pasteSetup.onclick = () => refreshQuickSettingsAfterAction(pasteAppSetup({ render: false }));
   const profileValue = panel.querySelector("[data-quick-profile]");
   profileValue.textContent = setup.label;
   profileValue.title = `${setup.kind}: ${setup.label}`;
@@ -32900,22 +32900,22 @@ function commandSnippetPackSaveTitle(pack, missing = commandSnippetPackMissingSn
   return `Save ${missing.length} ${pack.label} snippet${missing.length === 1 ? "" : "s"}.`;
 }
 
-function saveCommandSnippetPack(packId) {
+function saveCommandSnippetPack(packId, options = {}) {
   const pack = commandSnippetPackById(packId);
   const snippets = commandSnippetPackSnippets(pack);
   if (!pack || snippets.length === 0) {
     toast("Command snippet pack not found.");
-    return;
+    return false;
   }
   const missing = commandSnippetPackMissingSnippets(pack);
   if (missing.length === 0) {
     toast(`${pack.label} pack already saved.`);
-    return;
+    return false;
   }
   const remainingSlots = customCommandSnippetsLimit - state.customCommandSnippets.length;
   if (missing.length > remainingSlots) {
     toast(`Delete ${missing.length - remainingSlots} saved snippet${missing.length - remainingSlots === 1 ? "" : "s"} first.`);
-    return;
+    return false;
   }
   for (let index = missing.length - 1; index >= 0; index -= 1) {
     const snippet = missing[index];
@@ -32925,8 +32925,9 @@ function saveCommandSnippetPack(packId) {
       command: snippet.command
     });
   }
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast(`${pack.label} pack saved.`);
+  return true;
 }
 
 function commandSnippetPackGrid() {
@@ -33040,7 +33041,7 @@ function commandSnippetCard(snippet) {
   return card;
 }
 
-async function addCustomCommandSnippet() {
+async function addCustomCommandSnippet(options = {}) {
   if (customCommandSnippetsFull()) {
     toast(commandSnippetLimitTitle());
     return null;
@@ -33049,15 +33050,16 @@ async function addCustomCommandSnippet() {
     title: "Add command snippet",
     confirmLabel: "Save"
   });
-  if (!details) return;
+  if (!details) return false;
   const saved = upsertCustomCommandSnippet({
     id: createCustomCommandSnippetId(),
     label: details.label,
     command: details.command
   });
-  if (!saved) return;
-  renderSettingsInspector();
+  if (!saved) return null;
+  if (options.render !== false) renderSettingsInspector();
   toast("Command snippet saved.");
+  return saved;
 }
 
 async function editCustomCommandSnippet(snippetId) {
@@ -38620,7 +38622,7 @@ async function closeWorkspaceById(workspaceId) {
   await api(`/api/workspaces/${workspaceId}`, { method: "DELETE" });
 }
 
-async function closeEmptyWorkspaces() {
+async function closeEmptyWorkspaces(options = {}) {
   const targets = emptyWorkspaceCleanupTargets();
   if (targets.length === 0) {
     toast(emptyWorkspaces().length ? "cmux home is the only empty workspace." : "No empty workspaces to close.");
@@ -38640,7 +38642,7 @@ async function closeEmptyWorkspaces() {
   savePaneTreeLayouts(state.paneTrees);
   await Promise.all(targetIds.map((workspaceId) => api(`/api/workspaces/${workspaceId}`, { method: "DELETE" })));
   await loadState();
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
   toast(`Closed ${label}.`);
   return true;
 }
@@ -41720,12 +41722,13 @@ function copyAppSetup() {
   });
 }
 
-function pasteAppSetup() {
+function pasteAppSetup(options = {}) {
   return importSettings({
     title: "Paste app setup",
     message: "Paste exported cmux Windows app setup JSON.",
     confirmLabel: "Paste",
-    toastText: "App setup applied."
+    toastText: "App setup applied.",
+    ...options
   });
 }
 
@@ -41911,7 +41914,7 @@ async function importSettings(options = {}) {
     applySettings();
     scheduleTerminalAppearanceRefresh();
     render();
-    renderSettingsInspector();
+    if (options.render !== false) renderSettingsInspector();
     toast(options.toastText || "Settings imported.");
     return true;
   } catch {
