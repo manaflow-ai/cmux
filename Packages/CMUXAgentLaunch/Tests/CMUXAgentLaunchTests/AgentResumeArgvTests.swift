@@ -56,13 +56,14 @@ struct AgentResumeArgvTests {
 
     @Test("Captured executable path overrides the fallback executable")
     func executablePathOverridesFallback() {
+        // Non-claude kinds replay the captured executable path verbatim.
         #expect(
             AgentResumeArgv().builtInKind(
-                kind: "claude",
+                kind: "codex",
                 sessionId: "SID",
-                executablePath: "/opt/bin/claude",
-                arguments: ["/opt/bin/claude"]
-            ) == ["/opt/bin/claude", "--resume", "SID"]
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex"]
+            ) == ["/opt/bin/codex", "resume", "SID"]
         )
     }
 

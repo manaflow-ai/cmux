@@ -1503,6 +1503,12 @@ final class TerminalNotificationStore: ObservableObject {
             suppressedNotificationFeedbackHandler(self, notification, effects)
         } else {
             notificationDeliveryHandler(self, notification, effects)
+            // Mirror to the user's iPhone (opt-in, off by default). Only on the
+            // desktop-delivery path so it matches what the Mac actually shows;
+            // suppressed/focused notifications are not forwarded.
+            if effects.desktop {
+                PhonePushClient.shared.forward(notification)
+            }
         }
     }
 

@@ -120,8 +120,8 @@ struct CMUXAuthStateTests {
         )
     }
 
-    @Test("Primed state restores cached user and token state")
-    func primedStateRestoresCachedUserAndTokenState() {
+    @Test("Primed state restores cached user while awaiting token validation")
+    func primedStateRestoresCachedUserWhileAwaitingTokenValidation() {
         let user = CMUXAuthUser(id: "user_123", primaryEmail: "user@example.com", displayName: "Test User")
         let state = CMUXAuthState.primed(
             clearAuthRequested: false,
@@ -133,9 +133,27 @@ struct CMUXAuthStateTests {
             mockUser: CMUXAuthUser(id: "mock", primaryEmail: "mock@example.com", displayName: "Mock")
         )
 
-        #expect(state.isAuthenticated)
+        #expect(!state.isAuthenticated)
         #expect(state.currentUser == user)
-        #expect(!state.isRestoringSession)
+        #expect(state.isRestoringSession)
+    }
+
+    @Test("Primed state does not authenticate from auto-login credentials before sign-in")
+    func primedStateDoesNotAuthenticateFromAutoLoginCredentialsBeforeSignIn() {
+        let user = CMUXAuthUser(id: "user_123", primaryEmail: "user@example.com", displayName: "Test User")
+        let state = CMUXAuthState.primed(
+            clearAuthRequested: false,
+            mockDataEnabled: false,
+            fixtureUser: nil,
+            autoLoginCredentials: CMUXAuthAutoLoginCredentials(email: "user@example.com", password: "password"),
+            cachedUser: user,
+            hasTokens: false,
+            mockUser: CMUXAuthUser(id: "mock", primaryEmail: "mock@example.com", displayName: "Mock")
+        )
+
+        #expect(!state.isAuthenticated)
+        #expect(state.currentUser == user)
+        #expect(state.isRestoringSession)
     }
 
     @Test("Primed state does not authenticate from cached user alone")
