@@ -27893,36 +27893,35 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return (workspaceId, surfaceId)
             }
 
-            func processBoundCodexPromptTarget(workspaceId: String) -> (workspaceId: String, surfaceId: String)? {
+            func processBoundCodexPromptTarget() -> (workspaceId: String, surfaceId: String)? {
                 guard hookWsFlag == nil,
                       explicitSurfaceFlag == nil,
-                      ambientWorkspaceArg != nil,
+                      let ambientWorkspaceId = ambientWorkspaceArg,
                       ambientSurfaceArg != nil,
                       case .promptSubmit = action,
                       def.name == "codex",
                       let binding = processBinding(),
-                      nonEmptyClaudeHookIdentifier(binding.workspaceId) == workspaceId,
-                      let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
-                      let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: workspaceId) else {
+                      let boundWorkspace = nonEmptyClaudeHookIdentifier(binding.workspaceId),
+                      boundWorkspace == ambientWorkspaceId,
+                      let boundSurface = nonEmptyClaudeHookIdentifier(binding.surfaceId) else {
                     return nil
                 }
 
                 if hasInvalidAmbientSurfaceArg || boundSurface != resolvedDirectSurfaceArg {
 #if DEBUG
                     agentHookDebugLog(
-                        "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process-bound-codex workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(boundSurface)) mapped=\(mapped == nil ? 0 : 1)",
+                        "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process-bound-codex workspace=\(agentHookDebugShort(boundWorkspace)) surface=\(agentHookDebugShort(boundSurface)) mapped=\(mapped == nil ? 0 : 1)",
                         socketPath: client.socketPath,
                         env: env
                     )
 #endif
-                    return (workspaceId, boundSurface)
+                    return (boundWorkspace, boundSurface)
                 }
 
                 return nil
             }
 
-            if let workspaceId = resolvedDirectWorkspaceArg,
-               let target = processBoundCodexPromptTarget(workspaceId: workspaceId) {
+            if let target = processBoundCodexPromptTarget() {
                 return target
             }
 
