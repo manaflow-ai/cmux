@@ -1168,12 +1168,12 @@ struct TextBoxMentionCompletionTests {
             ),
             suggestions: [staleSuggestion]
         )
-        #expect(textView.debugMentionSuggestionCount() == 1)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 1)
 
         textView.string = "$iterate-pr"
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!(textView.debugAcceptMentionCompletion()))
         #expect(!(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion)))
@@ -1206,7 +1206,7 @@ struct TextBoxMentionCompletionTests {
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.didChangeText()
 
-        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
     }
@@ -1233,12 +1233,12 @@ struct TextBoxMentionCompletionTests {
             ),
             suggestions: [currentSuggestion]
         )
-        #expect(textView.debugMentionSuggestionCount() == 1)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 1)
 
         textView.string = "$iterate-pr"
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         #expect(!textView.debugMentionSuggestionsAreCurrent())
         #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!textView.debugAcceptMentionCompletion())
@@ -1400,7 +1400,7 @@ struct TextBoxMentionCompletionTests {
         textView.string = "$"
         textView.setSelectedRange(NSRange(location: 1, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!textView.debugAcceptMentionCompletion())
     }
@@ -1444,7 +1444,7 @@ struct TextBoxMentionCompletionTests {
 
         textView.completionRootDirectory = newRoot.path
 
-        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         #expect(!(textView.debugAcceptMentionCompletion()))
     }
 
@@ -1472,7 +1472,7 @@ struct TextBoxMentionCompletionTests {
         textView.refreshMentionCompletions()
 
         #expect(textView.debugMentionCompletionsShouldShowPopover())
-        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 0)
     }
 
     @Test
@@ -1564,7 +1564,7 @@ struct TextBoxMentionCompletionTests {
 
             #expect(submitCount == 1)
             #expect(textView.string == scenario.text)
-            #expect(textView.debugMentionSuggestionCount() == 0)
+            #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         }
     }
 
@@ -1612,7 +1612,7 @@ struct TextBoxMentionCompletionTests {
             textView.doCommand(by: #selector(NSResponder.insertTab(_:)))
 
             #expect(textView.string == scenario.expected)
-            #expect(textView.debugMentionSuggestionCount() == 0)
+            #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         }
     }
 

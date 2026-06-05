@@ -5011,8 +5011,8 @@ final class TextBoxInputTextView: NSTextView {
         mentionCompletionController.debugSuggestionCount
     }
 
-    func debugStoredMentionSuggestionCount() -> Int {
-        mentionCompletionController.debugStoredSuggestionCount
+    func debugVisibleMentionSuggestionCount() -> Int {
+        mentionCompletionController.debugVisibleSuggestionCount
     }
 
     func debugMentionSuggestionTitles() -> [String] {

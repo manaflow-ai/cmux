@@ -205,11 +205,11 @@ final class TextBoxMentionCompletionController {
     }
 
     var debugSuggestionCount: Int {
-        visibleSuggestions.count
+        suggestions.count
     }
 
-    var debugStoredSuggestionCount: Int {
-        suggestions.count
+    var debugVisibleSuggestionCount: Int {
+        visibleSuggestions.count
     }
 
     var debugHasCurrentSuggestions: Bool {
