@@ -31448,13 +31448,16 @@ function settingsActionIconMarkup(label, tone = "") {
   if (tone === "danger" || text.startsWith("delete") || text.startsWith("clear") || text.startsWith("reset")) {
     return controlIconMarkup("close");
   }
-  if (text.startsWith("save") || text.includes("+ save")) return quickActionIconMarkup("saveLayout");
+  if (text.startsWith("save") || text === "saved" || text.includes("+ save")) return quickActionIconMarkup("saveLayout");
+  if (text.startsWith("update")) return controlIconMarkup("reload");
   if (text.startsWith("add") || text.startsWith("new")) return controlIconMarkup("plus");
-  if (text.startsWith("apply") || text === "use" || text.startsWith("use ")) return controlIconMarkup("arrowRight");
+  if (text === "everywhere" || text.includes(" everywhere")) return quickActionIconMarkup("workspace");
+  if (text.startsWith("apply") || text === "use" || text.startsWith("use ") || text.endsWith(" active")) return controlIconMarkup("arrowRight");
   if (text.startsWith("paste")) return controlIconMarkup("clipboard");
   if (text.startsWith("choose")) return quickActionIconMarkup("background");
   if (text.startsWith("open external") || text === "external") return controlIconMarkup("external");
   if (text.startsWith("open")) return controlIconMarkup("external");
+  if (text.startsWith("more")) return quickActionIconMarkup("actions");
   if (text.startsWith("refresh") || text.startsWith("restart")) return controlIconMarkup("reload");
   if (text.startsWith("rename") || text === "edit") return quickActionIconMarkup("rename");
   if (text.startsWith("run")) return controlIconMarkup("terminal");
