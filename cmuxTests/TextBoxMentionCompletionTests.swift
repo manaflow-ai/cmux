@@ -1147,6 +1147,55 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionControllerPublishesFilteredRenderStateBeforeAsyncLookup() {
+        let controller = TextBoxMentionCompletionController()
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/agent-browser/SKILL.md",
+            title: "$agent-browser",
+            subtitle: "/tmp/agent-browser/SKILL.md",
+            insertionText: "$agent-browser",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+        let matchingSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/autoreview/SKILL.md",
+            title: "$autoreview",
+            subtitle: "/tmp/autoreview/SKILL.md",
+            insertionText: "$autoreview",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        controller.debugSetState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "$"
+            ),
+            suggestions: [staleSuggestion, matchingSuggestion]
+        )
+        var stateChangeCount = 0
+        controller.onStateChanged = {
+            stateChangeCount += 1
+        }
+
+        controller.refresh(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 6),
+                query: "autore",
+                trigger: "$"
+            ),
+            rootDirectory: nil
+        )
+
+        #expect(stateChangeCount == 1)
+        #expect(controller.renderState.searchTerm == "autore")
+        #expect(controller.renderState.isLoading)
+        #expect(controller.renderState.suggestions.map(\.title) == ["$autoreview"])
+        #expect(!controller.debugHasCurrentSuggestions)
+    }
+
+    @Test
     func testTextBoxMentionRefreshClearsRowsWhenSameTriggerQueryBecomesNonEmpty() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$"
