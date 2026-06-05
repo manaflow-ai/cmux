@@ -7577,6 +7577,7 @@ const commands = [
   { id: "settings.saveCurrentColorSet", label: "Save Current Color Set", shortcut: "", run: () => saveCurrentColorSetToPalette() },
   { id: "settings.backgrounds", label: "Open Background Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "background", focusSearch: true }) },
   { id: "settings.saveBackground", label: "Save Current Background", shortcut: "", run: () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }) },
+  { id: "settings.saveBackgroundProfile", label: "Save Background Profile", shortcut: "", run: () => saveCurrentBackgroundProfile() },
   { id: "settings.saveCurrentBackgroundSet", label: "Save Current Background Set", shortcut: "", run: () => saveCurrentBackgroundSetToLibrary() },
   { id: "settings.copySavedBackgrounds", label: "Copy Saved Backgrounds", shortcut: "", run: () => copySavedBackgroundImages() },
   { id: "settings.pasteSavedBackgrounds", label: "Paste Saved Backgrounds", shortcut: "", run: () => pasteSavedBackgroundImages() },
@@ -7693,6 +7694,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.savePaneColor",
   "settings.saveAllPaneColors",
   "settings.saveCurrentColorSet",
+  "settings.saveBackgroundProfile",
   "settings.saveBackground",
   "settings.saveCurrentBackgroundSet",
   "settings.copySavedBackgrounds",
@@ -8428,6 +8430,19 @@ function customizationCommandPaletteState(commandId) {
       icon: "background",
       title: model.title,
       search: "saved background image wallpaper save current app reusable library"
+    };
+  }
+  if (commandId === "settings.saveBackgroundProfile") {
+    const profilesFull = savedSettingsProfilesFull();
+    const profileCount = savedSettingsProfileCountLabel();
+    const background = appearanceBackgroundLabel(state.settings.backgroundImage);
+    return {
+      meta: `${background} / ${profileCount}`,
+      shortcut: "Save",
+      disabled: profilesFull,
+      icon: "profiles",
+      title: profilesFull ? settingsProfileLimitTitle() : "Save the current app background and tuning as a reusable Settings profile.",
+      search: normalizeSettingsQuery(`saved background image wallpaper save profile reusable settings app background tuning fit repeat position effects chrome strength opacity soften blur ${profilesFull ? "limit full " : ""}${background} ${profileCount}`)
     };
   }
   if (commandId === "settings.saveCurrentBackgroundSet") {
@@ -25158,6 +25173,7 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
   const appSave = quickAppBackgroundSaveModel();
   const terminalSave = quickTerminalBackgroundSaveModel();
   const backgroundSetSave = currentBackgroundSetSaveModel(workspace);
+  const profilesFull = savedSettingsProfilesFull();
   const paneOption = backgroundApplyTargetOption("pane", workspace);
   const allOption = backgroundApplyTargetOption("all", workspace);
   const targetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
@@ -25214,6 +25230,11 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
       title: backgroundSetSave.title,
       search: `quick setup background save current set app terminal panes reusable library ${backgroundSetSave.search}`
     }),
+    quickOverviewControlButton("Save profile", saveCurrentBackgroundProfile, {
+      disabled: profilesFull,
+      title: profilesFull ? settingsProfileLimitTitle() : "Save the current app background and tuning as a reusable Settings profile.",
+      search: "quick setup background app image tuning save profile reusable settings wallpaper opacity fit position effects chrome"
+    }),
     quickOverviewControlButton("Copy setup", () => copyBackgroundSetup(targetStatus.scope), {
       disabled: !targetStatus.canTarget || targetModel.mixed,
       title: !targetStatus.canTarget
@@ -25257,7 +25278,7 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
     className: "quick-overview-backgrounds",
     title: "Background controls",
     meta: `${targetOption.label}: ${targetModel.label} / ${appLabel} / ${scope.all} / ${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved`,
-    search: `quick setup background controls app terminal all panes everywhere wallpaper image setup saved library copy paste reset ${targetOption.label} ${targetModel.label} ${targetOption.meta} ${appLabel} ${scope.pane} ${scope.all} ${everywhereModel.search}`,
+    search: `quick setup background controls app terminal all panes everywhere wallpaper image setup saved library profile copy paste reset ${targetOption.label} ${targetModel.label} ${targetOption.meta} ${appLabel} ${scope.pane} ${scope.all} ${everywhereModel.search}`,
     actions
   });
 }
@@ -29650,7 +29671,7 @@ function savedBackgroundImagesPanel() {
   const targetLabel = backgroundApplyTargetActionLabel(targetStatus.scope);
   const savedCountLabel = `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved backgrounds`;
   const libraryFull = savedBackgroundImagesFull();
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper library url file apply rename delete save copy paste clipboard json ${targetStatus.canTarget ? "ready " : "unavailable "}${targetLabel} ${savedCountLabel}`);
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper library url file apply rename delete save profile copy paste clipboard json ${targetStatus.canTarget ? "ready " : "unavailable "}${targetLabel} ${savedCountLabel}`);
 
   panel.append(activeBackgroundTargetControl());
 
@@ -29752,6 +29773,10 @@ function savedBackgroundImagesPanel() {
   const saveBackgroundSet = settingsActionButton("Save current set", () => saveCurrentBackgroundSetToLibrary(), "", `saved background image current set app terminal panes reusable library ${backgroundSetModel.search}`);
   saveBackgroundSet.disabled = backgroundSetModel.disabled;
   saveBackgroundSet.title = backgroundSetModel.title;
+  const saveBackgroundProfile = applySettingsProfileSaveLimit(
+    settingsActionButton("Save profile", saveCurrentBackgroundProfile, "", "saved background image wallpaper app tuning save settings profile reusable opacity fit repeat position effects chrome"),
+    "Save the current app background and tuning as a reusable Settings profile."
+  );
   const currentEverywhere = currentBackgroundEverywhereModel(targetStatus.scope, workspace);
   const applyEverywhere = settingsActionButton("Apply everywhere", () => applyCurrentBackgroundEverywhere(state.backgroundApplyTarget, workspace), "", `saved background current target apply everywhere app whole window terminal panes all ${currentEverywhere.search}`);
   applyEverywhere.disabled = currentEverywhere.disabled;
@@ -29779,6 +29804,7 @@ function savedBackgroundImagesPanel() {
     copyTarget,
     saveCurrent,
     saveBackgroundSet,
+    saveBackgroundProfile,
     applyEverywhere,
     clearTarget,
     pasteSave,
@@ -32139,6 +32165,14 @@ function saveCurrentLayoutProfile() {
     title: "Save layout profile",
     message: "Save this layout and workspace chrome together with the current look, terminal, browser, and performance settings.",
     baseName: "Layout profile"
+  });
+}
+
+function saveCurrentBackgroundProfile() {
+  return saveCurrentSettingsProfile({
+    title: "Save background profile",
+    message: "Save the current app background image and tuning together with the current look, layout, terminal, browser, and performance settings.",
+    baseName: "Background profile"
   });
 }
 
