@@ -63,9 +63,9 @@ function IconPaths({ name }: { name: IconName }) {
   case "sidebarCollapse":
     return <><rect x="3.5" y="4" width="13" height="12" rx="2" /><path d="M8 4v12" /><path d="m12 8 2 2-2 2" /></>;
   case "split":
-    return <><rect x="4" y="4" width="12" height="12" rx="2" /><rect x="6.2" y="5.5" width="2.8" height="9" rx=".7" data-diff-deletion="true" /><rect x="11" y="5.5" width="2.8" height="9" rx=".7" data-diff-addition="true" /></>;
+    return <><rect x="4" y="4" width="12" height="12" rx="2" /><rect x="5" y="5" width="4.5" height="10" rx="1" data-diff-deletion="true" /><rect x="10.5" y="5" width="4.5" height="10" rx="1" data-diff-addition="true" /></>;
   case "unified":
-    return <><rect x="4" y="4" width="12" height="12" rx="2" /><rect x="6" y="6.2" width="8" height="2.8" rx=".7" data-diff-deletion="true" /><rect x="6" y="11" width="8" height="2.8" rx=".7" data-diff-addition="true" /></>;
+    return <><rect x="4" y="4" width="12" height="12" rx="2" /><rect x="5" y="5" width="10" height="4.5" rx="1" data-diff-deletion="true" /><rect x="5" y="10.5" width="10" height="4.5" rx="1" data-diff-addition="true" /></>;
   case "word":
     return <><path d="M3 6h14" /><path d="M3 10h8" /><path d="M3 14h11" /><path d="M14 10h3" /></>;
   case "wrap":
