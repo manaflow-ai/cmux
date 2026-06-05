@@ -55,7 +55,7 @@ export function codeViewUnsafeCSS(): string {
     :host {
       --diffs-light-bg: var(--cmux-diff-bg);
       --diffs-dark-bg: var(--cmux-diff-bg);
-      --diffs-bg-buffer-override: var(--cmux-diff-bg);
+      --diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
       --diffs-bg-context-override: var(--cmux-diff-bg);
       --diffs-bg-context-gutter-override: var(--cmux-diff-bg);
       --cmux-diff-surface-bg: light-dark(
@@ -88,6 +88,18 @@ export function codeViewUnsafeCSS(): string {
     }
     [data-line-type='change-deletion']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--diffs-deletion-base);
+    }
+    [data-gutter-buffer='buffer'] {
+      background-position: 5px 0;
+      background-size: 8px 8px;
+      background-origin: border-box;
+      background-image: repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 4.242px,
+        var(--diffs-bg-buffer) 4.242px,
+        var(--diffs-bg-buffer) 5.656px
+      );
     }
     [data-separator='line-info'] {
       background-color: var(--diffs-bg-separator);
