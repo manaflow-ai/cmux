@@ -1908,8 +1908,8 @@ final class DraggableFolderHitTests: XCTestCase {
 
 
 @MainActor
-final class MainWindowHostingViewTests: XCTestCase {
-    func testReportsPolicyMinimumInsteadOfChildMinimum() {
+@Suite struct MainWindowHostingViewTests {
+    @Test func testReportsPolicyMinimumInsteadOfChildMinimum() {
         _ = NSApplication.shared
 
         let root = HStack(spacing: 0) {
@@ -1921,37 +1921,36 @@ final class MainWindowHostingViewTests: XCTestCase {
                 minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
             )
         let hostingView = MainWindowHostingView(rootView: root)
+        let expectedMinimumWidth = CGFloat(SessionPersistencePolicy.minimumWindowWidth)
 
         for width in [520, 1_200] as [CGFloat] {
             hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 500)
             hostingView.layoutSubtreeIfNeeded()
 
-            XCTAssertLessThanOrEqual(
-                hostingView.fittingSize.width,
-                CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-                "Main window AppKit fitting width must not inherit child/sidebar width at \(width)pt."
+            #expect(
+                abs(hostingView.fittingSize.width - expectedMinimumWidth) <= 0.001,
+                "Main window AppKit fitting width must equal minimumWindowWidth at \(width)pt."
             )
-            XCTAssertLessThanOrEqual(
-                hostingView.intrinsicContentSize.width,
-                CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-                "Main window AppKit intrinsic width must not inherit child/sidebar width at \(width)pt."
+            #expect(
+                abs(hostingView.intrinsicContentSize.width - expectedMinimumWidth) <= 0.001,
+                "Main window AppKit intrinsic width must equal minimumWindowWidth at \(width)pt."
             )
         }
     }
 
-    func testStandardFrameKeepsAppKitDefaultFrameWhenLargerThanPolicyMinimum() {
+    @Test func testStandardFrameKeepsAppKitDefaultFrameWhenLargerThanPolicyMinimum() {
         let defaultFrame = NSRect(x: 20, y: 40, width: 1_000, height: 700)
 
-        XCTAssertEqual(CmuxMainWindow.standardFrame(forDefaultFrame: defaultFrame), defaultFrame)
+        #expect(CmuxMainWindow.standardFrame(forDefaultFrame: defaultFrame) == defaultFrame)
     }
 
-    func testStandardFrameDoesNotShrinkBelowPolicyMinimum() {
+    @Test func testStandardFrameDoesNotShrinkBelowPolicyMinimum() {
         let tinyDefaultFrame = NSRect(x: 20, y: 40, width: 100, height: 80)
         let standardFrame = CmuxMainWindow.standardFrame(forDefaultFrame: tinyDefaultFrame)
 
-        XCTAssertEqual(standardFrame.origin, tinyDefaultFrame.origin)
-        XCTAssertEqual(standardFrame.width, CGFloat(SessionPersistencePolicy.minimumWindowWidth))
-        XCTAssertEqual(standardFrame.height, CGFloat(SessionPersistencePolicy.minimumWindowHeight))
+        #expect(standardFrame.origin == tinyDefaultFrame.origin)
+        #expect(standardFrame.width == CGFloat(SessionPersistencePolicy.minimumWindowWidth))
+        #expect(standardFrame.height == CGFloat(SessionPersistencePolicy.minimumWindowHeight))
     }
 }
 
