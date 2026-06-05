@@ -29744,6 +29744,26 @@ function performanceTuningPresetGrid() {
   return grid;
 }
 
+function performanceOverviewNextFixModel(checks = performanceHealthPendingChecks()) {
+  const check = checks[0];
+  if (!check) {
+    return {
+      nextFixActive: false,
+      nextFixKicker: "Health ready",
+      nextFixTitle: "No pending fixes",
+      nextFixBody: "Motion, hidden output, browser suspension, chrome weight, and history are already tuned.",
+      nextFixMeta: "Ready"
+    };
+  }
+  return {
+    nextFixActive: true,
+    nextFixKicker: "Next fix",
+    nextFixTitle: check.label,
+    nextFixBody: check.body,
+    nextFixMeta: check.meta?.() || check.actionLabel || "Tune"
+  };
+}
+
 function performanceOverviewModel() {
   updateTerminalOutputBacklog();
   const browserActivity = browserPaneActivityModel();
@@ -29765,7 +29785,9 @@ function performanceOverviewModel() {
     || state.paneCreateStats.avgMs >= performanceGuardSlowPaneCreateMs;
   const slowShellConnect = state.terminalConnectStats.lastMs >= performanceGuardSlowTerminalConnectMs
     || state.terminalConnectStats.avgMs >= performanceGuardSlowTerminalConnectMs;
-  const healthIssueCount = performanceHealthIssueCount();
+  const pendingHealthChecks = performanceHealthPendingChecks();
+  const healthIssueCount = pendingHealthChecks.length;
+  const nextFix = performanceOverviewNextFixModel(pendingHealthChecks);
   const status = state.settings.performanceMode
     ? "tuned"
     : hasBacklog || verySlowRender || slowPaneAdd || slowShellConnect || liveInactiveBrowsers > 0
@@ -29802,7 +29824,8 @@ function performanceOverviewModel() {
     startup: optionLabel(terminalStartupOptions, state.settings.terminalStartupMode, "Fast"),
     paused: pausedOutput ? `${pausedOutput} paused` : "None",
     browsers: browserPaneActivityOverviewLabel(browserActivity),
-    pending: pendingPanes ? `${pendingPanes} pending` : "None"
+    pending: pendingPanes ? `${pendingPanes} pending` : "None",
+    ...nextFix
   };
 }
 
