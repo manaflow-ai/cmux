@@ -630,6 +630,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "33333333-3333-3333-3333-333333333333"
         let workspaceRef = "workspace:9"
 
         defer {
@@ -656,6 +657,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ok: true,
                     result: [
                         "workspace_id": workspaceID,
+                        "surface_id": surfaceID,
                     ]
                 )
             case "workspace.remote.configure":
@@ -725,6 +727,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let state = MockSocketServerState()
         let vmID = "vm-test-startup"
         let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "33333333-3333-3333-3333-333333333333"
         let workspaceRef = "workspace:vm-startup"
 
         defer {
@@ -764,6 +767,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ok: true,
                     result: [
                         "workspace_id": workspaceID,
+                        "surface_id": surfaceID,
                     ]
                 )
             case "workspace.rename":
