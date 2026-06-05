@@ -1735,7 +1735,6 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         }
         return false
     }
-
 }
 
 @MainActor
