@@ -15811,195 +15811,9 @@ function renderSettingsInspector(options = {}) {
     workspaceSection.append(workspaceSettingsPreviewPanel(workspace));
     workspaceSection.append(workspaceNamingPanel(workspace));
     workspaceSection.append(workspaceActivePaneSettingRow(workspace));
-    const titleInput = document.createElement("input");
-    titleInput.className = "setting-control";
-    titleInput.value = workspace?.title || "";
-    titleInput.placeholder = "Workspace name";
-    titleInput.dataset.settingsSearch = workspaceRenameActionSearchText("input", workspace);
-    titleInput.disabled = !workspace;
-    let titleSave = null;
-    let titleUseFolder = null;
-    let titleUseBranch = null;
-    let titleUsePane = null;
-    let titleUsePageTitle = null;
-    const workspaceNameTarget = () => activeWorkspace() || workspace;
-    const currentWorkspaceName = () => workspaceNameTarget()?.title || "";
-    const suggestedWorkspaceName = () => workspaceFolderNameSuggestion(workspaceNameTarget());
-    const suggestedBranchWorkspaceName = () => workspaceBranchNameSuggestion(workspaceNameTarget());
-    const suggestedPaneWorkspaceName = () => {
-      const targetWorkspace = workspaceNameTarget();
-      return targetWorkspace?.panels?.length ? workspacePaneSuggestedTitle(targetWorkspace) : "";
-    };
-    const suggestedBrowserPageWorkspaceName = () => workspaceBrowserPageTitleSuggestion(workspaceNameTarget());
-    const updateWorkspaceNameActions = () => {
-      const targetWorkspace = workspaceNameTarget();
-      const nextTitle = titleInput.value.trim();
-      const currentTitle = currentWorkspaceName();
-      const suggestedTitle = suggestedWorkspaceName();
-      const suggestedBranchTitle = suggestedBranchWorkspaceName();
-      const suggestedPaneTitle = suggestedPaneWorkspaceName();
-      const suggestedPageTitle = suggestedBrowserPageWorkspaceName();
-      if (titleSave) {
-        titleSave.disabled = !targetWorkspace || !nextTitle || nextTitle === currentTitle;
-        titleSave.title = workspaceNameSaveTitle(targetWorkspace, nextTitle, currentTitle);
-      }
-      if (titleUseFolder) {
-        titleUseFolder.disabled = !targetWorkspace || !suggestedTitle || suggestedTitle === currentTitle;
-        titleUseFolder.title = workspaceUseFolderNameTitle(targetWorkspace);
-      }
-      if (titleUseBranch) {
-        titleUseBranch.disabled = !targetWorkspace || !suggestedBranchTitle || suggestedBranchTitle === currentTitle;
-        titleUseBranch.title = workspaceUseBranchNameTitle(targetWorkspace);
-      }
-      if (titleUsePane) {
-        titleUsePane.disabled = !targetWorkspace || !suggestedPaneTitle || suggestedPaneTitle === currentTitle;
-        titleUsePane.title = workspaceUsePaneNameTitle(targetWorkspace);
-      }
-      if (titleUsePageTitle) {
-        titleUsePageTitle.disabled = !targetWorkspace || !suggestedPageTitle || suggestedPageTitle === currentTitle;
-        titleUsePageTitle.title = workspaceUseBrowserPageTitleTitle(targetWorkspace, suggestedPageTitle);
-      }
-    };
-    const revertWorkspaceNameInput = () => {
-      titleInput.value = currentWorkspaceName();
-      updateWorkspaceNameActions();
-    };
-    const saveWorkspaceNameInput = async (options = {}) => {
-      const targetWorkspace = workspaceNameTarget();
-      const nextTitle = titleInput.value.trim();
-      if (!targetWorkspace) {
-        if (options.toast) toast("Open a workspace before renaming it.");
-        return false;
-      }
-      if (!nextTitle) {
-        revertWorkspaceNameInput();
-        if (options.toast) toast("Enter a workspace name first.");
-        return false;
-      }
-      if (nextTitle === currentWorkspaceName()) {
-        revertWorkspaceNameInput();
-        if (options.toast) toast("Workspace name already current.");
-        return false;
-      }
-      const changed = await renameWorkspaceTo(titleInput.value, targetWorkspace.id);
-      revertWorkspaceNameInput();
-      if (options.toast) toast(changed ? "Workspace renamed." : "Workspace name already current.");
-      return changed;
-    };
-    titleInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        saveWorkspaceNameInput({ toast: true });
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        revertWorkspaceNameInput();
-        titleInput.blur();
-      }
-    });
-    titleInput.addEventListener("input", updateWorkspaceNameActions);
-    titleSave = settingsActionButton("Save", () => saveWorkspaceNameInput({ toast: true }), "primary", workspaceRenameActionSearchText("save", workspace));
-    titleUseFolder = settingsActionButton("Use folder", async () => {
-      const targetWorkspace = workspaceNameTarget();
-      const suggestedTitle = suggestedWorkspaceName();
-      if (!targetWorkspace) {
-        updateWorkspaceNameActions();
-        toast("Open a workspace before using its folder name.");
-        return false;
-      }
-      if (!suggestedTitle) {
-        updateWorkspaceNameActions();
-        toast("Set a workspace folder before using its name.");
-        return false;
-      }
-      titleInput.value = suggestedTitle;
-      const changed = await renameWorkspaceTo(suggestedTitle, targetWorkspace.id);
-      revertWorkspaceNameInput();
-      toast(changed ? "Workspace name set from folder." : "Workspace already uses the folder name.");
-      return changed;
-    }, "", workspaceRenameActionSearchText("useFolder", workspace));
-    titleUseBranch = settingsActionButton("Use branch", async () => {
-      const targetWorkspace = workspaceNameTarget();
-      const suggestedTitle = suggestedBranchWorkspaceName();
-      if (!targetWorkspace) {
-        updateWorkspaceNameActions();
-        toast("Open a workspace before using its Git branch name.");
-        return false;
-      }
-      if (!suggestedTitle) {
-        updateWorkspaceNameActions();
-        toast("Open a Git workspace before using its branch name.");
-        return false;
-      }
-      titleInput.value = suggestedTitle;
-      const changed = await renameWorkspaceTo(suggestedTitle, targetWorkspace.id);
-      revertWorkspaceNameInput();
-      toast(changed ? "Workspace name set from Git branch." : "Workspace already uses the Git branch name.");
-      return changed;
-    }, "", workspaceRenameActionSearchText("useBranch", workspace));
-    titleUsePane = settingsActionButton("Use pane", async () => {
-      const targetWorkspace = workspaceNameTarget();
-      const suggestedTitle = suggestedPaneWorkspaceName();
-      if (!targetWorkspace) {
-        updateWorkspaceNameActions();
-        toast("Open a workspace before using its active pane name.");
-        return false;
-      }
-      if (!suggestedTitle) {
-        updateWorkspaceNameActions();
-        toast("Open or rename a pane before using it as the workspace name.");
-        return false;
-      }
-      titleInput.value = suggestedTitle;
-      const changed = await renameWorkspaceTo(suggestedTitle, targetWorkspace.id);
-      revertWorkspaceNameInput();
-      toast(changed ? "Workspace name set from the active pane." : "Workspace already uses the active pane name.");
-      return changed;
-    }, "", workspaceRenameActionSearchText("usePane", workspace));
-    titleUsePageTitle = settingsActionButton("Use title", async () => {
-      const targetWorkspace = workspaceNameTarget();
-      const suggestedTitle = suggestedBrowserPageWorkspaceName();
-      if (!targetWorkspace) {
-        updateWorkspaceNameActions();
-        toast("Open a workspace before using a browser page title.");
-        return false;
-      }
-      if (!suggestedTitle) {
-        updateWorkspaceNameActions();
-        toast("The active browser page does not have a distinct title yet.");
-        return false;
-      }
-      titleInput.value = suggestedTitle;
-      const changed = await renameWorkspaceTo(suggestedTitle, targetWorkspace.id);
-      revertWorkspaceNameInput();
-      toast(changed ? "Workspace name set from page title." : "Workspace already uses this page title.");
-      return changed;
-    }, "", workspaceRenameActionSearchText("usePageTitle", workspace, "browser page document title"));
-    const titleControl = document.createElement("span");
-    titleControl.className = "workspace-name-control has-page-title has-branch-title";
-    titleControl.append(titleInput, titleSave, titleUseFolder, titleUseBranch, titleUsePane, titleUsePageTitle);
-    updateWorkspaceNameActions();
-    workspaceSection.append(settingRow("Name", titleControl, false, workspaceRenameActionSearchText("actions", workspace, "input save use folder use git branch use active pane use browser page title")));
-    const folderInput = document.createElement("input");
-    folderInput.className = "setting-control";
-    folderInput.readOnly = true;
-    folderInput.value = workspace?.cwdShort || workspace?.cwd || "";
-    folderInput.title = workspace?.cwd || "";
-    workspaceSection.append(settingRow("Folder", folderInput, true, "workspace folder directory cwd path"));
-    const folderActions = document.createElement("div");
-    folderActions.className = "settings-actions";
-    folderActions.dataset.settingsSearch = normalizeSettingsQuery("workspace folder directory cwd choose open new recent history");
-    const chooseFolder = settingsActionButton("Choose", () => chooseWorkspaceFolder(), "", "workspace folder directory cwd picker choose folder");
-    chooseFolder.disabled = !workspace;
-    chooseFolder.title = workspace ? "Choose a folder for the active workspace." : "Open a workspace before choosing a folder.";
-    const openFolder = settingsActionButton("Open", () => openWorkspaceFolder(), "", "workspace folder explorer directory open folder");
-    openFolder.disabled = !workspace?.cwd;
-    openFolder.title = workspace?.cwd ? "Open this workspace folder." : "This workspace does not have a folder yet.";
-    folderActions.append(
-      chooseFolder,
-      openFolder,
-      settingsActionButton("New", () => createWorkspaceFromFolder(), "", "workspace folder new directory new from folder")
-    );
-    workspaceSection.append(folderActions);
+    workspaceSection.append(workspaceNameSettingRow(workspace));
+    workspaceSection.append(workspaceFolderSettingRow(workspace));
+    workspaceSection.append(workspaceFolderActionsPanel(workspace));
     workspaceSection.append(recentFoldersDisclosurePanel());
     workspaceSection.append(workspaceStartersDisclosurePanel());
     workspaceSection.append(workspaceColorSettingRow(workspace));
@@ -21111,6 +20925,62 @@ function refreshWorkspaceColorSettingsControls() {
   return changed;
 }
 
+function refreshWorkspaceSetupControls() {
+  const workspace = activeWorkspace();
+  let changed = false;
+  for (const preview of elements.inspectorBody.querySelectorAll(".workspace-settings-preview")) {
+    preview.replaceWith(workspaceSettingsPreviewPanel(workspace));
+    changed = true;
+  }
+  for (const naming of elements.inspectorBody.querySelectorAll(".workspace-naming-panel")) {
+    naming.replaceWith(workspaceNamingPanel(workspace));
+    changed = true;
+  }
+  for (const row of elements.inspectorBody.querySelectorAll("[data-workspace-active-pane-settings]")) {
+    row.replaceWith(workspaceActivePaneSettingRow(workspace));
+    changed = true;
+  }
+  for (const row of elements.inspectorBody.querySelectorAll("[data-workspace-name-settings]")) {
+    row.replaceWith(workspaceNameSettingRow(workspace));
+    changed = true;
+  }
+  for (const row of elements.inspectorBody.querySelectorAll("[data-workspace-folder-settings]")) {
+    row.replaceWith(workspaceFolderSettingRow(workspace));
+    changed = true;
+  }
+  for (const actions of elements.inspectorBody.querySelectorAll("[data-workspace-folder-actions]")) {
+    actions.replaceWith(workspaceFolderActionsPanel(workspace));
+    changed = true;
+  }
+  for (const row of elements.inspectorBody.querySelectorAll("[data-workspace-color-settings]")) {
+    row.replaceWith(workspaceColorSettingRow(workspace));
+    changed = true;
+  }
+  for (const row of elements.inspectorBody.querySelectorAll("[data-workspace-color-sync-settings]")) {
+    row.replaceWith(workspaceColorSyncSettingRow(workspace));
+    changed = true;
+  }
+  changed = refreshRecentFolderPanels() || changed;
+  return changed;
+}
+
+function refreshWorkspaceSetupSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  if (state.settingsCategory === "workspace" && !searching) {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode !== "settings" || state.settingsCategory !== "workspace" || normalizeSettingsQuery(state.settingsQuery)) return;
+      refreshWorkspaceSetupControls();
+    });
+    return;
+  }
+  if (state.settingsCategory === "quick" && !searching) {
+    scheduleQuickSettingsRefresh();
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 function refreshActivePaneSetupSettings(options = {}) {
   if (options.render === false || state.inspectorMode !== "settings") return;
   const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
@@ -21179,6 +21049,214 @@ function refreshColorTargetSettings(options = {}) {
   if (options.render === false || state.inspectorMode !== "settings") return;
   if (refreshSavedColorPalettePanels()) return;
   refreshColorApplicationSettings(options);
+}
+
+function workspaceNameSettingRow(workspace = activeWorkspace()) {
+  const titleInput = document.createElement("input");
+  titleInput.className = "setting-control";
+  titleInput.value = workspace?.title || "";
+  titleInput.placeholder = "Workspace name";
+  titleInput.dataset.settingsSearch = workspaceRenameActionSearchText("input", workspace);
+  titleInput.disabled = !workspace;
+  let titleSave = null;
+  let titleUseFolder = null;
+  let titleUseBranch = null;
+  let titleUsePane = null;
+  let titleUsePageTitle = null;
+  const workspaceNameTarget = () => activeWorkspace() || workspace;
+  const currentWorkspaceName = () => workspaceNameTarget()?.title || "";
+  const suggestedWorkspaceName = () => workspaceFolderNameSuggestion(workspaceNameTarget());
+  const suggestedBranchWorkspaceName = () => workspaceBranchNameSuggestion(workspaceNameTarget());
+  const suggestedPaneWorkspaceName = () => {
+    const targetWorkspace = workspaceNameTarget();
+    return targetWorkspace?.panels?.length ? workspacePaneSuggestedTitle(targetWorkspace) : "";
+  };
+  const suggestedBrowserPageWorkspaceName = () => workspaceBrowserPageTitleSuggestion(workspaceNameTarget());
+  const updateWorkspaceNameActions = () => {
+    const targetWorkspace = workspaceNameTarget();
+    const nextTitle = titleInput.value.trim();
+    const currentTitle = currentWorkspaceName();
+    const suggestedTitle = suggestedWorkspaceName();
+    const suggestedBranchTitle = suggestedBranchWorkspaceName();
+    const suggestedPaneTitle = suggestedPaneWorkspaceName();
+    const suggestedPageTitle = suggestedBrowserPageWorkspaceName();
+    if (titleSave) {
+      titleSave.disabled = !targetWorkspace || !nextTitle || nextTitle === currentTitle;
+      titleSave.title = workspaceNameSaveTitle(targetWorkspace, nextTitle, currentTitle);
+    }
+    if (titleUseFolder) {
+      titleUseFolder.disabled = !targetWorkspace || !suggestedTitle || suggestedTitle === currentTitle;
+      titleUseFolder.title = workspaceUseFolderNameTitle(targetWorkspace);
+    }
+    if (titleUseBranch) {
+      titleUseBranch.disabled = !targetWorkspace || !suggestedBranchTitle || suggestedBranchTitle === currentTitle;
+      titleUseBranch.title = workspaceUseBranchNameTitle(targetWorkspace);
+    }
+    if (titleUsePane) {
+      titleUsePane.disabled = !targetWorkspace || !suggestedPaneTitle || suggestedPaneTitle === currentTitle;
+      titleUsePane.title = workspaceUsePaneNameTitle(targetWorkspace);
+    }
+    if (titleUsePageTitle) {
+      titleUsePageTitle.disabled = !targetWorkspace || !suggestedPageTitle || suggestedPageTitle === currentTitle;
+      titleUsePageTitle.title = workspaceUseBrowserPageTitleTitle(targetWorkspace, suggestedPageTitle);
+    }
+  };
+  const revertWorkspaceNameInput = () => {
+    titleInput.value = currentWorkspaceName();
+    updateWorkspaceNameActions();
+  };
+  const saveWorkspaceNameInput = async (options = {}) => {
+    const targetWorkspace = workspaceNameTarget();
+    const nextTitle = titleInput.value.trim();
+    if (!targetWorkspace) {
+      if (options.toast) toast("Open a workspace before renaming it.");
+      return false;
+    }
+    if (!nextTitle) {
+      revertWorkspaceNameInput();
+      if (options.toast) toast("Enter a workspace name first.");
+      return false;
+    }
+    if (nextTitle === currentWorkspaceName()) {
+      revertWorkspaceNameInput();
+      if (options.toast) toast("Workspace name already current.");
+      return false;
+    }
+    const changed = await renameWorkspaceTo(titleInput.value, targetWorkspace.id);
+    revertWorkspaceNameInput();
+    if (changed) refreshWorkspaceSetupSettings();
+    if (options.toast) toast(changed ? "Workspace renamed." : "Workspace name already current.");
+    return changed;
+  };
+  titleInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveWorkspaceNameInput({ toast: true });
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      revertWorkspaceNameInput();
+      titleInput.blur();
+    }
+  });
+  titleInput.addEventListener("input", updateWorkspaceNameActions);
+  titleSave = settingsActionButton("Save", () => saveWorkspaceNameInput({ toast: true }), "primary", workspaceRenameActionSearchText("save", workspace));
+  titleUseFolder = settingsActionButton("Use folder", async () => {
+    const targetWorkspace = workspaceNameTarget();
+    const suggestedTitle = suggestedWorkspaceName();
+    if (!targetWorkspace) {
+      updateWorkspaceNameActions();
+      toast("Open a workspace before using its folder name.");
+      return false;
+    }
+    if (!suggestedTitle) {
+      updateWorkspaceNameActions();
+      toast("Set a workspace folder before using its name.");
+      return false;
+    }
+    titleInput.value = suggestedTitle;
+    const changed = await renameWorkspaceTo(suggestedTitle, targetWorkspace.id);
+    revertWorkspaceNameInput();
+    if (changed) refreshWorkspaceSetupSettings();
+    toast(changed ? "Workspace name set from folder." : "Workspace already uses the folder name.");
+    return changed;
+  }, "", workspaceRenameActionSearchText("useFolder", workspace));
+  titleUseBranch = settingsActionButton("Use branch", async () => {
+    const targetWorkspace = workspaceNameTarget();
+    const suggestedTitle = suggestedBranchWorkspaceName();
+    if (!targetWorkspace) {
+      updateWorkspaceNameActions();
+      toast("Open a workspace before using its Git branch name.");
+      return false;
+    }
+    if (!suggestedTitle) {
+      updateWorkspaceNameActions();
+      toast("Open a Git workspace before using its branch name.");
+      return false;
+    }
+    titleInput.value = suggestedTitle;
+    const changed = await renameWorkspaceTo(suggestedTitle, targetWorkspace.id);
+    revertWorkspaceNameInput();
+    if (changed) refreshWorkspaceSetupSettings();
+    toast(changed ? "Workspace name set from Git branch." : "Workspace already uses the Git branch name.");
+    return changed;
+  }, "", workspaceRenameActionSearchText("useBranch", workspace));
+  titleUsePane = settingsActionButton("Use pane", async () => {
+    const targetWorkspace = workspaceNameTarget();
+    const suggestedTitle = suggestedPaneWorkspaceName();
+    if (!targetWorkspace) {
+      updateWorkspaceNameActions();
+      toast("Open a workspace before using its active pane name.");
+      return false;
+    }
+    if (!suggestedTitle) {
+      updateWorkspaceNameActions();
+      toast("Open or rename a pane before using it as the workspace name.");
+      return false;
+    }
+    titleInput.value = suggestedTitle;
+    const changed = await renameWorkspaceTo(suggestedTitle, targetWorkspace.id);
+    revertWorkspaceNameInput();
+    if (changed) refreshWorkspaceSetupSettings();
+    toast(changed ? "Workspace name set from the active pane." : "Workspace already uses the active pane name.");
+    return changed;
+  }, "", workspaceRenameActionSearchText("usePane", workspace));
+  titleUsePageTitle = settingsActionButton("Use title", async () => {
+    const targetWorkspace = workspaceNameTarget();
+    const suggestedTitle = suggestedBrowserPageWorkspaceName();
+    if (!targetWorkspace) {
+      updateWorkspaceNameActions();
+      toast("Open a workspace before using a browser page title.");
+      return false;
+    }
+    if (!suggestedTitle) {
+      updateWorkspaceNameActions();
+      toast("The active browser page does not have a distinct title yet.");
+      return false;
+    }
+    titleInput.value = suggestedTitle;
+    const changed = await renameWorkspaceTo(suggestedTitle, targetWorkspace.id);
+    revertWorkspaceNameInput();
+    if (changed) refreshWorkspaceSetupSettings();
+    toast(changed ? "Workspace name set from page title." : "Workspace already uses this page title.");
+    return changed;
+  }, "", workspaceRenameActionSearchText("usePageTitle", workspace, "browser page document title"));
+  const titleControl = document.createElement("span");
+  titleControl.className = "workspace-name-control has-page-title has-branch-title";
+  titleControl.append(titleInput, titleSave, titleUseFolder, titleUseBranch, titleUsePane, titleUsePageTitle);
+  updateWorkspaceNameActions();
+  const row = settingRow("Name", titleControl, false, workspaceRenameActionSearchText("actions", workspace, "input save use folder use git branch use active pane use browser page title"));
+  row.dataset.workspaceNameSettings = "true";
+  return row;
+}
+
+function workspaceFolderSettingRow(workspace = activeWorkspace()) {
+  const folderInput = document.createElement("input");
+  folderInput.className = "setting-control";
+  folderInput.readOnly = true;
+  folderInput.value = workspace?.cwdShort || workspace?.cwd || "";
+  folderInput.title = workspace?.cwd || "";
+  const row = settingRow("Folder", folderInput, true, "workspace folder directory cwd path");
+  row.dataset.workspaceFolderSettings = "true";
+  return row;
+}
+
+function workspaceFolderActionsPanel(workspace = activeWorkspace()) {
+  const folderActions = document.createElement("div");
+  folderActions.className = "settings-actions";
+  folderActions.dataset.workspaceFolderActions = "true";
+  folderActions.dataset.settingsSearch = normalizeSettingsQuery("workspace folder directory cwd choose open new recent history");
+  const chooseFolder = settingsActionButton("Choose", () => chooseWorkspaceFolder(), "", "workspace folder directory cwd picker choose folder");
+  chooseFolder.disabled = !workspace;
+  chooseFolder.title = workspace ? "Choose a folder for the active workspace." : "Open a workspace before choosing a folder.";
+  const openFolder = settingsActionButton("Open", () => openWorkspaceFolder(), "", "workspace folder explorer directory open folder");
+  openFolder.disabled = !workspace?.cwd;
+  openFolder.title = workspace?.cwd ? "Open this workspace folder." : "This workspace does not have a folder yet.";
+  folderActions.append(
+    chooseFolder,
+    openFolder,
+    settingsActionButton("New", () => createWorkspaceFromFolder(), "", "workspace folder new directory new from folder")
+  );
+  return folderActions;
 }
 
 function workspaceNamingPanel(workspace) {
@@ -40303,7 +40381,7 @@ async function applyWorkspaceSetupUpdates(updates, workspace = activeWorkspace()
     return false;
   }
   if (updates.cwd) rememberRecentFolder(updates.cwd);
-  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  refreshWorkspaceSetupSettings(options);
   toast("Workspace setup applied.");
   return true;
 }
