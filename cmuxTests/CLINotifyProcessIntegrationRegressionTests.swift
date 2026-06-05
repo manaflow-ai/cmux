@@ -1359,7 +1359,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
         XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
-        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
+        let currentStopCommands = Array(context.state.snapshot().dropFirst(currentStopStart))
 
         XCTAssertTrue(
             currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
@@ -1525,7 +1525,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
         XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
-        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
+        let currentStopCommands = Array(context.state.snapshot().dropFirst(currentStopStart))
         XCTAssertTrue(
             currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
             "A current Stop after a fully terminal interrupted stack must notify, saw \(currentStopCommands)"
@@ -2072,9 +2072,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(currentStop.timedOut, currentStop.stderr)
         XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
-        let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
+        let sawCurrentNotification = waitForMockSocketCommand(in: context.state, after: currentStopStart) {
+            $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|")
+        }
+        let currentStopCommands = Array(context.state.snapshot().dropFirst(currentStopStart))
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            sawCurrentNotification,
             "The current turn should notify before a late stale Stop arrives, saw \(currentStopCommands)"
         )
 
@@ -2087,7 +2090,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(lateStop.timedOut, lateStop.stderr)
         XCTAssertEqual(lateStop.status, 0, lateStop.stderr)
-        let lateStopCommands = Array(context.state.commands.dropFirst(lateStopStart))
+        let lateStopCommands = Array(context.state.snapshot().dropFirst(lateStopStart))
 
         XCTAssertFalse(
             lateStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
@@ -8450,6 +8453,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
         return state.snapshot().contains(where: predicate)
+    }
+
+    private func waitForMockSocketCommand(
+        in state: MockSocketServerState,
+        after startIndex: Int,
+        timeout: TimeInterval = 5,
+        predicate: (String) -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if state.snapshot().dropFirst(startIndex).contains(where: predicate) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return state.snapshot().dropFirst(startIndex).contains(where: predicate)
     }
 
     private func decodedReusableStartupScript(from command: String) -> String? {
