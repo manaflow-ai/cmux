@@ -3431,6 +3431,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private var shouldPreloadInitialNavigationInBackground: Bool
     private var backgroundPreloadWindow: NSWindow?
+    private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
+    private var activeVisualAutomationCaptureCount: Int = 0
     private struct PendingInteractiveBrowserPrompt {
         let present: (NSWindow, @escaping () -> Void) -> Void
         let cancel: () -> Void
@@ -4641,10 +4643,22 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func ensureBackgroundPreloadHostIfNeeded(reason: String) {
-        guard backgroundPreloadWindow == nil else { return }
-        guard webView.window == nil else { return }
-        guard webView.superview == nil else { return }
+    @discardableResult
+    private func ensureBackgroundPreloadHostIfNeeded(reason: String) -> Bool {
+        if let preloadWindow = backgroundPreloadWindow {
+            guard webView.window == nil,
+                  webView.superview == nil,
+                  let contentView = preloadWindow.contentView else {
+                return false
+            }
+            webView.frame = contentView.bounds
+            webView.autoresizingMask = [.width, .height]
+            contentView.addSubview(webView)
+            return true
+        }
+
+        guard webView.window == nil else { return false }
+        guard webView.superview == nil else { return false }
 
         let frame = NSRect(x: -10_000, y: -10_000, width: 800, height: 600)
         let window = NSWindow(
@@ -4675,6 +4689,7 @@ final class BrowserPanel: Panel, ObservableObject {
             "reason=\(reason)"
         )
 #endif
+        return true
     }
 
     private func shouldDeferPromptUntilInteractiveHost(for webView: WKWebView) -> Bool {
@@ -6439,6 +6454,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isDeveloperToolsVisible: isDeveloperToolsVisible(),
             isElementFullscreenActive: isElementFullscreenActive,
             isReactGrabActive: isReactGrabActive,
+            isVisualAutomationCaptureActive: activeVisualAutomationCaptureCount > 0,
             hasPopups: !popupControllers.isEmpty,
             isCapturingMedia: webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none,
             isPlayingMedia: isPlayingMedia
