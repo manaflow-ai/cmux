@@ -25145,6 +25145,38 @@ function quickRecentBrowserPageControlsPanel(workspace = activeWorkspace()) {
   });
 }
 
+function quickBrowserTabSessionControlsPanel() {
+  const entries = browserTabSessionEntries();
+  if (entries.length === 0) return null;
+  const active = activePanel();
+  const previewLimit = 4;
+  const visibleEntries = entries.slice(0, previewLimit);
+  const hiddenSessionCount = Math.max(0, entries.length - visibleEntries.length);
+  const actions = visibleEntries.map((entry) => {
+    const activeEntry = active?.id === entry.id && entry.workspace?.id === state.data?.activeWorkspaceId && !isPanelMinimized(entry.panel);
+    const tabCount = browserTabSessionCountLabel(entry.snapshot);
+    const workspaceTitle = workspaceDisplayTitle(entry.workspace, "Workspace");
+    return quickOverviewControlButton(activeEntry ? "Active" : entry.label, () => focusPanel(entry.id), {
+      disabled: activeEntry,
+      title: activeEntry ? `${entry.label} is already active.` : `Focus ${entry.label} in ${workspaceTitle}.`,
+      search: normalizeSettingsQuery(`quick setup browser tab session focus active pane ${activeEntry ? "active current " : ""}${entry.label} ${workspaceTitle} ${tabCount} ${entry.activeHost} ${entry.activeUrl}`)
+    });
+  });
+  if (hiddenSessionCount > 0) {
+    actions.push(quickOverviewControlButton("More", () => openSettingsCategory("browser", { query: "tab sessions", focusSearch: false }), {
+      title: `Open all ${entries.length} browser tab sessions.`,
+      search: normalizeSettingsQuery(`quick setup browser tab sessions more full browser settings focus copy duplicate restore ${entries.map((entry) => `${entry.label} ${entry.activeHost}`).join(" ")}`)
+    }));
+  }
+  return quickOverviewControlsPanel({
+    className: "quick-overview-browser",
+    title: "Browser tab sessions",
+    meta: `${browserTabSessionsMeta(entries)}${hiddenSessionCount ? ` / ${hiddenSessionCount} more` : ""}`,
+    search: `quick setup browser tab sessions focus panes copy duplicate restore ${visibleEntries.map((entry) => `${entry.label} ${entry.activeHost} ${entry.activeUrl}`).join(" ")}`,
+    actions
+  });
+}
+
 function quickLookControlsPanel() {
   const lookSettingsDefault = appearanceSettingsAreDefault();
   const profilesFull = savedSettingsProfilesFull();
@@ -26052,6 +26084,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-saved-command-controls></div>
     <div data-quick-browser-controls></div>
     <div data-quick-recent-browser-controls></div>
+    <div data-quick-browser-tab-controls></div>
     <div data-quick-look-controls></div>
     <div data-quick-look-pack-controls></div>
     <div data-quick-color-target-controls></div>
@@ -26172,6 +26205,10 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   const recentBrowserSlot = panel.querySelector("[data-quick-recent-browser-controls]");
   if (recentBrowserControls) recentBrowserSlot.replaceWith(recentBrowserControls);
   else recentBrowserSlot.remove();
+  const browserTabControls = quickBrowserTabSessionControlsPanel();
+  const browserTabSlot = panel.querySelector("[data-quick-browser-tab-controls]");
+  if (browserTabControls) browserTabSlot.replaceWith(browserTabControls);
+  else browserTabSlot.remove();
   panel.querySelector("[data-quick-look-controls]").replaceWith(quickLookControlsPanel());
   panel.querySelector("[data-quick-look-pack-controls]").replaceWith(quickLookPackControlsPanel());
   panel.querySelector("[data-quick-color-target-controls]").replaceWith(quickColorTargetControlsPanel(workspace));
