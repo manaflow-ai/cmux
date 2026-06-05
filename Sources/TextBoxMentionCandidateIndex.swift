@@ -96,8 +96,20 @@ struct TextBoxMentionCandidateIndex: Sendable {
         shouldCancel: @escaping () -> Bool
     ) -> [TextBoxMentionCandidate] {
         let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
-        let filteredEntries = preparedQuery.isEmpty ? entries : entries.filter {
-            mentionCandidate($0, matches: preparedQuery)
+        let filteredEntries: [CommandPaletteSearchCorpusEntry<TextBoxMentionCandidate>]
+        if preparedQuery.isEmpty {
+            filteredEntries = entries
+        } else {
+            var matches: [CommandPaletteSearchCorpusEntry<TextBoxMentionCandidate>] = []
+            matches.reserveCapacity(min(entries.count, limit))
+            for entry in entries {
+                if shouldCancel() { return [] }
+                if mentionCandidate(entry, matches: preparedQuery) {
+                    matches.append(entry)
+                }
+            }
+            if shouldCancel() { return [] }
+            filteredEntries = matches
         }
         guard !filteredEntries.isEmpty else { return [] }
 

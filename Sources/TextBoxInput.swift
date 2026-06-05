@@ -3385,7 +3385,9 @@ struct TextBoxInputView: NSViewRepresentable {
                !textView.hasPendingAttachmentUploadPlaceholder() {
                 textView.invalidatePendingAttachmentUploads()
             }
-            textView.refreshMentionCompletions()
+            if !textView.isHandlingDidChangeText {
+                textView.refreshMentionCompletions()
+            }
             recalculateHeight(textView)
         }
 
@@ -3397,7 +3399,9 @@ struct TextBoxInputView: NSViewRepresentable {
                 textView.window?.firstResponder === textView ? 0.45 : 0.24
             ).cgColor
             textView.refreshInlineAttachmentFocus()
-            textView.refreshMentionCompletions()
+            if !textView.isHandlingDidChangeText {
+                textView.refreshMentionCompletions()
+            }
         }
 
         func noteMarkedTextStateChanged(_ hasMarkedText: Bool, from textView: TextBoxInputTextView? = nil) {
@@ -3498,6 +3502,8 @@ struct TextBoxInputView: NSViewRepresentable {
 }
 
 final class TextBoxInputTextView: NSTextView {
+    fileprivate private(set) var isHandlingDidChangeText = false
+
     var terminalTitle = ""
     var completionRootDirectory: String? {
         didSet {
@@ -3653,6 +3659,8 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     override func didChangeText() {
+        isHandlingDidChangeText = true
+        defer { isHandlingDidChangeText = false }
         super.didChangeText()
         flushAutomaticAttachmentFileCleanup()
         refreshMentionCompletions()

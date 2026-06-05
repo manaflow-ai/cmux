@@ -1073,6 +1073,37 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionCandidateIndexStopsPrefilterWhenCancelled() {
+        let candidates = [
+            "agent-browser",
+            "agent-cli-integration",
+            "pi-agent-rust",
+            "iterate-pr"
+        ].map { skillName in
+            TextBoxMentionCandidate(
+                title: "/\(skillName)",
+                subtitle: "/tmp/skills/\(skillName)/SKILL.md",
+                targetPath: "/tmp/skills/\(skillName)/SKILL.md",
+                systemImageName: "sparkle.magnifyingglass",
+                searchKey: skillName,
+                priority: 0
+            )
+        }
+        var cancellationChecks = 0
+
+        let matches = TextBoxMentionCandidateIndex(candidates: candidates).rankedCandidates(
+            matching: "iterate",
+            limit: 500
+        ) {
+            cancellationChecks += 1
+            return cancellationChecks > 1
+        }
+
+        #expect(matches.isEmpty)
+        #expect(cancellationChecks > 1)
+    }
+
+    @Test
     func testTextBoxMentionRefreshClearsRowsWhenSameTriggerQueryBecomesNonEmpty() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$"
