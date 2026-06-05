@@ -3451,7 +3451,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let serverHandled = startMockServer(
             listenerFD: listenerFD,
             state: state,
-            fulfillWhen: { self.jsonObject($0)?["method"] as? String == "surface.resume.set" }
+            fulfillWhen: { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            finishOnIdle: false
         ) { line in
             guard let payload = self.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
@@ -3551,7 +3552,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let serverHandled = startMockServer(
             listenerFD: listenerFD,
             state: state,
-            fulfillWhen: { self.jsonObject($0)?["method"] as? String == "surface.resume.set" }
+            fulfillWhen: { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            finishOnIdle: false
         ) { line in
             guard let payload = self.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {

@@ -412,12 +412,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         listenerFD: Int32,
         state: MockSocketServerState,
         fulfillWhen: (@Sendable (String) -> Bool)? = nil,
+        finishOnIdle: Bool = true,
         handler: @escaping @Sendable (String) -> String
     ) -> XCTestExpectation {
         startMockServerAllowingNoResponse(
             listenerFD: listenerFD,
             state: state,
             fulfillWhen: fulfillWhen,
+            finishOnIdle: finishOnIdle,
             allowOpenConnectionsAfterIdle: false
         ) { line in
             handler(line)
@@ -428,6 +430,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         listenerFD: Int32,
         state: MockSocketServerState,
         fulfillWhen: (@Sendable (String) -> Bool)? = nil,
+        finishOnIdle: Bool = true,
         allowOpenConnectionsAfterIdle: Bool = true,
         handler: @escaping @Sendable (String) -> String?
     ) -> XCTestExpectation {
@@ -506,7 +509,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     }
                 }
 
-                if tracker.shouldFinish(idleFor: idleGrace, allowOpenConnections: allowOpenConnectionsAfterIdle) {
+                if finishOnIdle && tracker.shouldFinish(idleFor: idleGrace, allowOpenConnections: allowOpenConnectionsAfterIdle) {
                     fulfillOnce()
                     return
                 }
