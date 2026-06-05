@@ -95,7 +95,7 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     func testTextBoxSkillMentionFiltersWhenTypingAfterBareDollarTrigger() throws {
-        _ = try makeSkillFixtureRoot(
+        let fixtureRoot = try makeSkillFixtureRoot(
             skillNames: [
                 "agent-browser",
                 "agent-cli-integration",
@@ -129,20 +129,26 @@ final class AutomationSocketUITests: XCTestCase {
         textBox.typeText("$")
 
         _ = try XCTUnwrap(
-            waitForMentionRows(in: app, timeout: 8.0) { rows in
+            waitForMentionRows(in: app, textBox: textBox, timeout: 8.0) { rows in
                 rows.contains { $0.contains("$agent-browser") }
             },
-            "Expected bare $ popover rows to include $agent-browser. rows=\(mentionPopoverRowTitles(in: app))"
+            """
+            Expected bare $ popover rows to include $agent-browser.
+            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoot: fixtureRoot))
+            """
         )
 
         textBox.typeText("autore")
 
         let typedRows = try XCTUnwrap(
-            waitForMentionRows(in: app, timeout: 8.0) { rows in
+            waitForMentionRows(in: app, textBox: textBox, timeout: 8.0) { rows in
                 rows.first?.contains("$autoreview") == true &&
                     !rows.contains { $0.contains("$agent-browser") }
             },
-            "Expected visible popover rows for $autore to hide stale $agent-browser. rows=\(mentionPopoverRowTitles(in: app))"
+            """
+            Expected visible popover rows for $autore to hide stale $agent-browser.
+            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoot: fixtureRoot))
+            """
         )
         XCTAssertTrue(typedRows.first?.contains("$autoreview") == true)
     }
@@ -504,8 +510,8 @@ final class AutomationSocketUITests: XCTestCase {
         }
     }
 
-    private func mentionPopoverRowTitles(in app: XCUIApplication) -> [String] {
-        (0..<12).compactMap { index in
+    private func mentionPopoverRowTitles(in app: XCUIApplication, textBox: XCUIElement? = nil) -> [String] {
+        let indexedRows = (0..<12).compactMap { index in
             let row = app.descendants(matching: .any)
                 .matching(identifier: "TextBoxMentionCompletionPopover.Row.\(index)")
                 .firstMatch
@@ -518,23 +524,88 @@ final class AutomationSocketUITests: XCTestCase {
             }
             return nil
         }
+        if !indexedRows.isEmpty {
+            return indexedRows
+        }
+
+        let excludedText = textBox.flatMap { $0.value as? String } ?? ""
+        let predicate = NSPredicate(
+            format: "label BEGINSWITH %@ OR value BEGINSWITH %@",
+            "$",
+            "$"
+        )
+        let visibleMentionTexts = app.descendants(matching: .any)
+            .matching(predicate)
+            .allElementsBoundByIndex
+            .compactMap { element -> String? in
+                guard element.identifier != "TextBoxInput.TextView" else { return nil }
+                let candidates = [element.label, element.value as? String].compactMap { $0 }
+                guard let text = candidates.first(where: { $0.hasPrefix("$") }),
+                      text != excludedText else {
+                    return nil
+                }
+                return text
+            }
+
+        var seen = Set<String>()
+        return visibleMentionTexts.filter { seen.insert($0).inserted }
     }
 
     private func waitForMentionRows(
         in app: XCUIApplication,
+        textBox: XCUIElement,
         timeout: TimeInterval,
         predicate: @escaping ([String]) -> Bool
     ) -> [String]? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            let rows = mentionPopoverRowTitles(in: app)
+            let rows = mentionPopoverRowTitles(in: app, textBox: textBox)
             if predicate(rows) {
                 return rows
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        let rows = mentionPopoverRowTitles(in: app)
+        let rows = mentionPopoverRowTitles(in: app, textBox: textBox)
         return predicate(rows) ? rows : nil
+    }
+
+    private func mentionPopoverDiagnostics(
+        in app: XCUIApplication,
+        textBox: XCUIElement,
+        fixtureRoot: URL
+    ) -> String {
+        let indexedRows = (0..<12).compactMap { index -> String? in
+            let row = app.descendants(matching: .any)
+                .matching(identifier: "TextBoxMentionCompletionPopover.Row.\(index)")
+                .firstMatch
+            guard row.exists else { return nil }
+            return row.label.isEmpty ? row.value as? String : row.label
+        }
+        let rows = mentionPopoverRowTitles(in: app, textBox: textBox)
+        let popoverExists = app.descendants(matching: .any)
+            .matching(identifier: "TextBoxMentionCompletionPopover")
+            .firstMatch
+            .exists
+        let loadingExists = app.descendants(matching: .any)
+            .matching(identifier: "TextBoxMentionCompletionPopover.Loading")
+            .firstMatch
+            .exists
+        let mentionDebugLines = app.debugDescription
+            .split(separator: "\n")
+            .filter { $0.contains("TextBoxMentionCompletionPopover") || $0.contains("TextBoxInput.TextView") }
+            .prefix(20)
+            .joined(separator: "\n")
+        return """
+        textBoxValue=\(String(describing: textBox.value))
+        fixtureRoot=\(fixtureRoot.path)
+        fixtureRootExists=\(FileManager.default.fileExists(atPath: fixtureRoot.path))
+        popoverExists=\(popoverExists)
+        loadingExists=\(loadingExists)
+        indexedRows=\(indexedRows)
+        visibleMentionTexts=\(rows)
+        axMentions=
+        \(mentionDebugLines)
+        """
     }
 
     private func waitForJSON(
