@@ -69,7 +69,7 @@ echo "$ANTHROPIC_BASE_URL"
 # → http://localhost:4000
 ```
 
-If you get an empty line, your wrapper isn't being used or the file isn't being sourced — `./scripts/cmux-with-gateway.sh --debug` prints what it loaded.
+If you get an empty line, your wrapper isn't being used or the file isn't being loaded — `./scripts/cmux-with-gateway.sh --debug` prints what it loaded. (The wrapper parses `KEY=VALUE` lines rather than `source`-ing the file, so it never executes shell code from your credential file.)
 
 ## What this workaround does *not* fix
 
