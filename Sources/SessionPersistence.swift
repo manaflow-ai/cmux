@@ -193,7 +193,7 @@ struct SessionRectSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-struct SessionDisplaySnapshot: Codable, Sendable {
+struct SessionDisplaySnapshot: Codable, Equatable, Sendable {
     var displayID: UInt32?
     var frame: SessionRectSnapshot?
     var visibleFrame: SessionRectSnapshot?

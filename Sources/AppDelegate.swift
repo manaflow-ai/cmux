@@ -747,6 +747,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private final class MainWindowController: NSWindowController, NSWindowDelegate {
         var onClose: (() -> Void)?
         var shouldClose: (() -> Bool)?
+        /// Invoked when the window finishes moving or live-resizing, so the
+        /// AppDelegate can capture the user's intended "home" position. The
+        /// `userInitiated` flag is true only for an interactive drag/resize the
+        /// user started; a move macOS performs to rescue the window off a
+        /// vanishing display arrives without a preceding `windowWillMove` and is
+        /// reported as `false`, so it never overwrites the remembered home.
+        var onGeometryChanged: ((_ window: NSWindow, _ userInitiated: Bool) -> Void)?
+
+        /// Set between `windowWillMove` (drag start) and the following
+        /// `windowDidMove`, identifying an interactive user move.
+        private var isUserMovingWindow = false
 
         #if DEBUG
         private func logWindowEvent(_ event: String, notification: Notification) {
@@ -760,6 +771,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         func windowWillClose(_ notification: Notification) {
             onClose?()
+        }
+
+        func windowWillMove(_ notification: Notification) {
+            isUserMovingWindow = true
+        }
+
+        func windowDidMove(_ notification: Notification) {
+            let userInitiated = isUserMovingWindow
+            isUserMovingWindow = false
+            notifyGeometryChanged(notification, userInitiated: userInitiated)
+        }
+
+        func windowDidEndLiveResize(_ notification: Notification) {
+            notifyGeometryChanged(notification, userInitiated: true)
+        }
+
+        private func notifyGeometryChanged(_ notification: Notification, userInitiated: Bool) {
+            guard let window = notification.object as? NSWindow else { return }
+            onGeometryChanged?(window, userInitiated)
         }
 
         #if DEBUG
@@ -1045,6 +1075,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
+    /// Set while we re-apply a window's home frame in response to a display
+    /// configuration change, so the induced move/resize events (and any macOS
+    /// rescue moves in the same burst) are not mistaken for user placements.
+    private var isReconcilingWindowHome = false
+    /// Remembers each main window's user-intended display + frame so it can be
+    /// restored when its display reappears after sleep/disconnect.
+    private let windowHomeTracker = WindowHomeTracker()
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
@@ -3554,13 +3591,93 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let window else { return nil }
         let screen = window.screen
             ?? NSScreen.screens.first(where: { $0.frame.intersects(window.frame) })
-        guard let screen else { return nil }
+        return Self.displaySnapshot(for: screen)
+    }
 
+    private nonisolated static func displaySnapshot(for screen: NSScreen?) -> SessionDisplaySnapshot? {
+        guard let screen else { return nil }
         return SessionDisplaySnapshot(
             displayID: screen.cmuxDisplayID,
             frame: SessionRectSnapshot(screen.frame),
             visibleFrame: SessionRectSnapshot(screen.visibleFrame)
         )
+    }
+
+    /// Captures a window's current placement as its "home" when the move is a
+    /// genuine, user-initiated action (an interactive drag/resize — not our own
+    /// reconcile, not session restore, not a macOS rescue off a vanishing
+    /// display, not a fullscreen/zoomed/miniaturized window) and the window sits
+    /// on a connected display. Home lives only in memory; the runtime re-home
+    /// (within a single session) does not need cross-launch persistence, which
+    /// the existing startup restore already handles.
+    private func handleMainWindowGeometryChanged(_ window: NSWindow, userInitiated: Bool) {
+        guard let windowId = mainWindowId(for: window) else { return }
+        let screen = window.screen
+            ?? NSScreen.screens.first(where: { $0.frame.intersects(window.frame) })
+        let screenPresent = screen?.cmuxDisplayID.map { id in
+            NSScreen.screens.contains(where: { $0.cmuxDisplayID == id })
+        } ?? false
+
+        guard WindowHomeTracker.shouldRecordHome(
+            isUserInitiated: userInitiated,
+            isReconciling: isReconcilingWindowHome,
+            isApplyingSessionRestore: isApplyingSessionRestore,
+            isFullScreen: window.styleMask.contains(.fullScreen),
+            isZoomed: window.isZoomed,
+            isMiniaturized: window.isMiniaturized,
+            screenPresent: screenPresent
+        ) else {
+            return
+        }
+
+        guard let snapshot = Self.displaySnapshot(for: screen) else { return }
+        windowHomeTracker.recordHome(windowId: windowId, frame: window.frame, display: snapshot)
+    }
+
+    /// Re-homes the primary main window after a display configuration change.
+    ///
+    /// macOS rescues windows off a vanishing display onto the remaining one and
+    /// leaves them there when the display returns. When the window's remembered
+    /// home display reappears, this re-runs the (pure, idempotent) frame resolver
+    /// against the remembered home and re-applies the result. While the home
+    /// display is absent it does nothing — never fighting a placement the user
+    /// made in the meantime. Idempotent, so a burst of notifications converges
+    /// without a settle delay.
+    private func reconcileWindowHomeForDisplayChange() {
+        guard !isTerminatingApp, !isApplyingSessionRestore else { return }
+        guard !NSScreen.screens.isEmpty else { return }
+        guard let window = preferredRegisteredMainWindowContext()?.window
+            ?? mainWindowContexts.values.first(where: { $0.window != nil })?.window,
+              let windowId = mainWindowId(for: window),
+              let home = windowHomeTracker.home(for: windowId) else {
+            return
+        }
+        guard !window.styleMask.contains(.fullScreen),
+              !window.isZoomed,
+              !window.isMiniaturized else {
+            return
+        }
+
+        // Only restore once the home display is connected again; otherwise leave
+        // the window wherever it currently is.
+        guard let homeDisplayID = home.display.displayID,
+              NSScreen.screens.contains(where: { $0.cmuxDisplayID == homeDisplayID }) else {
+            return
+        }
+
+        let displays = currentDisplayGeometries()
+        guard let resolved = Self.resolvedWindowFrame(
+            from: SessionRectSnapshot(home.frame),
+            display: home.display,
+            availableDisplays: displays.available,
+            fallbackDisplay: displays.fallback
+        ), !Self.rectApproximatelyEqual(resolved, window.frame) else {
+            return
+        }
+
+        isReconcilingWindowHome = true
+        defer { isReconcilingWindowHome = false }
+        window.setFrame(resolved, display: true, animate: false)
     }
 
     private func startSessionAutosaveTimerIfNeeded() {
@@ -3635,6 +3752,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
+
+        // Re-home the main window when displays come and go. macOS rescues
+        // windows off a vanishing display onto the remaining one but never moves
+        // them back; this observer restores the user's placement once the home
+        // display reappears. The handler is idempotent, so a burst of
+        // notifications during reconfiguration converges without a settle delay.
+        let screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reconcileWindowHomeForDisplayChange()
+            }
+        }
+        lifecycleSnapshotObservers.append(screenParametersObserver)
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
@@ -8107,6 +8240,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
             }
             return shouldClose
+        }
+        controller.onGeometryChanged = { [weak self] movedWindow, userInitiated in
+            self?.handleMainWindowGeometryChanged(movedWindow, userInitiated: userInitiated)
         }
         window.delegate = controller
         mainWindowControllers.append(controller)
@@ -15808,6 +15944,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
+        windowHomeTracker.clear(windowId: removed.windowId)
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
         commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteRecentRequestAtByWindowId.removeValue(forKey: removed.windowId)
