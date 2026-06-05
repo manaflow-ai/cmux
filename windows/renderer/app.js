@@ -31569,7 +31569,16 @@ function settingsActionIconMarkup(label, tone = "") {
   if (text.startsWith("copy")) return quickActionIconMarkup("actions");
   if (text.startsWith("import")) return controlIconMarkup("down");
   if (text.startsWith("export")) return controlIconMarkup("up");
+  if (text.startsWith("backup")) return controlIconMarkup("up");
+  if (text.startsWith("restore")) return controlIconMarkup("down");
   if (text.startsWith("home")) return controlIconMarkup("home");
+  if (text.includes("diagnostic") || text.includes("health")) return quickActionIconMarkup("speed");
+  if (text === "data" || text.includes("storage") || text.includes(" data")) return quickActionIconMarkup("data");
+  if (text.includes("gallery") || text.includes("look") || text.includes("color")) return quickActionIconMarkup("appearance");
+  if (text.includes("background")) return quickActionIconMarkup("background");
+  if (text.includes("blueprint")) return quickActionIconMarkup("blueprints");
+  if (text.includes("layout")) return quickActionIconMarkup("layout");
+  if (text.includes("command") || text.includes("workflow") || text.includes("shortcut")) return quickActionIconMarkup("commands");
   if (text.includes("speed") || text.includes("tune")) return quickActionIconMarkup("speed");
   if (text.includes("profile")) return quickActionIconMarkup("profiles");
   if (text.includes("workspace")) return quickActionIconMarkup("workspace");
