@@ -17116,6 +17116,25 @@ function appearanceSpeedModel(settings = state.settings) {
   };
 }
 
+function appearanceSpeedStatus(speed = appearanceSpeedModel()) {
+  if (speed.tone === "fast") {
+    return {
+      title: t("appearance.statusFastTitle", "Simple and fast"),
+      body: t("appearance.statusFastBody", "Low visual effects keep the workspace responsive.")
+    };
+  }
+  if (speed.tone === "heavy") {
+    return {
+      title: t("appearance.statusHeavyTitle", "Heavier effects"),
+      body: t("appearance.statusHeavyBody", "Blur, glass, and layered depth can make the interface feel slower.")
+    };
+  }
+  return {
+    title: t("appearance.statusBalancedTitle", "Balanced setup"),
+    body: t("appearance.statusBalancedBody", "Readable chrome with a moderate amount of visual polish.")
+  };
+}
+
 function simplifiedAppearanceEffectsSettings(settings = state.settings) {
   return {
     backgroundOpacity: Math.min(Number(settings.backgroundOpacity) || 0, 12),
@@ -17127,9 +17146,25 @@ function simplifiedAppearanceEffectsSettings(settings = state.settings) {
   };
 }
 
+function balancedAppearanceEffectsSettings(settings = state.settings) {
+  return {
+    backgroundOpacity: normalizeBackgroundValue(settings.backgroundImage) ? 18 : 0,
+    backgroundBlur: 0,
+    backgroundEffects: "tinted",
+    backgroundChromeMode: "soft",
+    backgroundReadability: "balanced",
+    interfaceDepth: "soft"
+  };
+}
+
 function appearanceEffectsAreSimplified(settings = state.settings) {
   const simplified = simplifiedAppearanceEffectsSettings(settings);
   return Object.entries(simplified).every(([key, value]) => settings[key] === value);
+}
+
+function appearanceEffectsAreBalanced(settings = state.settings) {
+  const balanced = balancedAppearanceEffectsSettings(settings);
+  return Object.entries(balanced).every(([key, value]) => settings[key] === value);
 }
 
 function simplifyAppearanceEffects(options = {}) {
@@ -17143,9 +17178,21 @@ function simplifyAppearanceEffects(options = {}) {
   return true;
 }
 
+function balanceAppearanceEffects(options = {}) {
+  const changed = updateSettings(balancedAppearanceEffectsSettings(), { immediate: true });
+  if (!changed) {
+    toast(t("appearance.effectsAlreadyBalanced", "Appearance effects are already balanced."));
+    return false;
+  }
+  refreshAppearanceLookSettings(options);
+  toast(t("appearance.effectsBalanced", "Appearance effects balanced."));
+  return true;
+}
+
 function appearancePreviewPanel() {
   const readability = backgroundReadabilityCssVars();
   const speed = appearanceSpeedModel();
+  const speedStatus = appearanceSpeedStatus(speed);
   const preview = createAppearancePreview({
     settings: state.settings,
     themeLabel: `${optionLabel(themeOptions, state.settings.theme, "cmux")} / ${optionLabel(surfaceTintOptions, state.settings.surfaceTint, state.settings.surfaceTint)}`,
@@ -17155,6 +17202,8 @@ function appearancePreviewPanel() {
     backgroundLabel: appearanceBackgroundLabel(state.settings.backgroundImage),
     speedLabel: speed.label,
     speedTone: speed.tone,
+    speedStatusTitle: speedStatus.title,
+    speedStatusBody: speedStatus.body,
     terminalFontLabel: optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono"),
     terminalFontStack: terminalFontStack(),
     terminalTheme: terminalTheme(),
@@ -17171,6 +17220,7 @@ function appearancePreviewPanel() {
   const actions = preview.querySelector("[data-appearance-preview-actions]");
   if (actions) {
     const simplified = appearanceEffectsAreSimplified();
+    const balanced = appearanceEffectsAreBalanced();
     const simplify = settingsActionButton(
       t("appearance.simplifyEffects", "Simplify effects"),
       () => simplifyAppearanceEffects(),
@@ -17182,7 +17232,18 @@ function appearancePreviewPanel() {
     simplify.title = simplified
       ? t("appearance.effectsAlreadySimple", "Appearance effects are already simplified.")
       : t("appearance.simplifyEffectsTitle", "Reduce background opacity, blur, glass, and layered depth for a faster look.");
-    actions.append(simplify);
+    const balance = settingsActionButton(
+      t("appearance.balanceEffects", "Balance effects"),
+      () => balanceAppearanceEffects(),
+      "",
+      `appearance balance polish readable effects tinted soft chrome moderate background depth ${speed.label}`
+    );
+    balance.dataset.appearanceAction = "balance-effects";
+    balance.disabled = balanced;
+    balance.title = balanced
+      ? t("appearance.effectsAlreadyBalanced", "Appearance effects are already balanced.")
+      : t("appearance.balanceEffectsTitle", "Use soft depth, tinted background treatment, and readable chrome.");
+    actions.append(simplify, balance);
   }
   return preview;
 }

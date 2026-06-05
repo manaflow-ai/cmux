@@ -9,6 +9,8 @@ export function createAppearancePreview({
   backgroundLabel,
   speedLabel,
   speedTone,
+  speedStatusTitle,
+  speedStatusBody,
   terminalFontLabel,
   terminalFontStack,
   terminalTheme,
@@ -70,6 +72,13 @@ export function createAppearancePreview({
       <span><b data-preview-label-speed></b><em data-preview-speed></em></span>
       <span><b data-preview-label-terminal></b><em data-preview-terminal></em></span>
     </div>
+    <div class="appearance-preview-status" data-appearance-preview-status>
+      <span class="appearance-preview-status-marker" aria-hidden="true"></span>
+      <span class="appearance-preview-status-copy">
+        <b data-preview-status-title></b>
+        <em data-preview-status-body></em>
+      </span>
+    </div>
     <div class="appearance-preview-actions settings-actions" data-appearance-preview-actions></div>
   `;
 
@@ -87,5 +96,7 @@ export function createAppearancePreview({
   panel.querySelector("[data-preview-background]").textContent = backgroundLabel;
   panel.querySelector("[data-preview-speed]").textContent = speedLabel || t("appearance.speedBalanced", "Balanced / readable");
   panel.querySelector("[data-preview-terminal]").textContent = terminalFontLabel;
+  panel.querySelector("[data-preview-status-title]").textContent = speedStatusTitle || t("appearance.statusBalancedTitle", "Balanced setup");
+  panel.querySelector("[data-preview-status-body]").textContent = speedStatusBody || t("appearance.statusBalancedBody", "Readable chrome with a moderate amount of visual polish.");
   return panel;
 }
