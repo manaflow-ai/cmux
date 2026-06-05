@@ -5189,21 +5189,22 @@ async function applyAndSaveBackgroundImageToTarget(background, target = state.ba
   return saved;
 }
 
-async function applySavedBackgroundImage(backgroundId) {
+async function applySavedBackgroundImage(backgroundId, options = {}) {
   const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
-  if (!background) return;
+  if (!background) return null;
   const validated = await validateBackgroundImageValue(background.url);
   if (!validated.ok) {
-    toast(`${background.label} background could not be loaded.`);
-    return;
+    if (options.toast !== false) toast(`${background.label} background could not be loaded.`);
+    return null;
   }
   const changed = updateSettings(backgroundImageSettings(validated.url), { immediate: true });
   if (!changed) {
-    toast(`${background.label} background already active.`);
-    return;
+    if (options.toast !== false) toast(`${background.label} background already active.`);
+    return false;
   }
-  renderSettingsInspector();
-  toast(`${background.label} background applied.`);
+  if (options.render !== false) renderSettingsInspector();
+  if (options.toast !== false) toast(`${background.label} background applied.`);
+  return true;
 }
 
 async function applyPanelBackgroundImage(value, panel = focusedPanel(), options = {}) {
@@ -6266,7 +6267,7 @@ function backgroundSetupUpdatesFromPayload(payload) {
     : null;
 }
 
-async function applyBackgroundSetupPayload(payload, target = state.backgroundApplyTarget) {
+async function applyBackgroundSetupPayload(payload, target = state.backgroundApplyTarget, options = {}) {
   const setup = backgroundSetupUpdatesFromPayload(payload);
   if (!setup) {
     toast("Clipboard does not contain a background setup.");
@@ -6291,7 +6292,7 @@ async function applyBackgroundSetupPayload(payload, target = state.backgroundApp
     ? updateSettings(setup.tuningUpdates, { immediate: true })
     : false;
   if (backgroundChanged || tuningChanged) {
-    renderSettingsInspector();
+    if (options.render !== false) renderSettingsInspector();
     toast(`Background setup applied to ${targetOption.label.toLowerCase()}.`);
     return true;
   }
@@ -6299,20 +6300,20 @@ async function applyBackgroundSetupPayload(payload, target = state.backgroundApp
   return false;
 }
 
-async function pasteBackgroundSetup(target = state.backgroundApplyTarget) {
+async function pasteBackgroundSetup(target = state.backgroundApplyTarget, options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
     return false;
   }
   try {
-    return applyBackgroundSetupPayload(JSON.parse(clipboard), target);
+    return applyBackgroundSetupPayload(JSON.parse(clipboard), target, options);
   } catch {
-    return applyBackgroundSetupPayload(clipboard, target);
+    return applyBackgroundSetupPayload(clipboard, target, options);
   }
 }
 
-async function resetBackgroundSetup(target = state.backgroundApplyTarget) {
+async function resetBackgroundSetup(target = state.backgroundApplyTarget, options = {}) {
   const scope = normalizeBackgroundApplyTarget(target);
   const targetOption = backgroundApplyTargetOption(scope);
   if (!activeBackgroundTargetStatus(scope).canTarget) {
@@ -6329,7 +6330,7 @@ async function resetBackgroundSetup(target = state.backgroundApplyTarget) {
   for (const key of backgroundTuningSettings) tuningUpdates[key] = defaultSettings[key];
   const tuningChanged = updateSettings(tuningUpdates, { immediate: true });
   if (backgroundResult || tuningChanged) {
-    renderSettingsInspector();
+    if (options.render !== false) renderSettingsInspector();
     toast(`Background setup reset for ${targetOption.label.toLowerCase()}.`);
     return true;
   }
@@ -6337,11 +6338,12 @@ async function resetBackgroundSetup(target = state.backgroundApplyTarget) {
   return false;
 }
 
-async function applyBackgroundPresetToTarget(preset, target = state.backgroundApplyTarget) {
+async function applyBackgroundPresetToTarget(preset, target = state.backgroundApplyTarget, options = {}) {
   if (!preset) return false;
   const scope = normalizeBackgroundApplyTarget(target);
-  if (scope === "app") return applyBackgroundPreset(preset, { toast: true });
-  return applyBackgroundValueToTarget(preset.value, scope, { toast: true });
+  const actionOptions = { toast: true, ...options };
+  if (scope === "app") return applyBackgroundPreset(preset, actionOptions);
+  return applyBackgroundValueToTarget(preset.value, scope, actionOptions);
 }
 
 function backgroundTemplateCycleModel(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
@@ -6381,16 +6383,16 @@ function backgroundTemplateCycleModel(target = state.backgroundApplyTarget, work
   };
 }
 
-function cycleBackgroundTemplate(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
+function cycleBackgroundTemplate(target = state.backgroundApplyTarget, workspace = activeWorkspace(), options = {}) {
   const model = backgroundTemplateCycleModel(target, workspace);
   if (model.disabled) {
     toast(model.title);
     return false;
   }
-  return applyBackgroundPresetToTarget(model.preset, model.scope);
+  return applyBackgroundPresetToTarget(model.preset, model.scope, options);
 }
 
-async function applySavedBackgroundImageToTarget(backgroundId, target = state.backgroundApplyTarget) {
+async function applySavedBackgroundImageToTarget(backgroundId, target = state.backgroundApplyTarget, options = {}) {
   const scope = normalizeBackgroundApplyTarget(target);
   const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
   if (!background) return null;
@@ -6403,9 +6405,9 @@ async function applySavedBackgroundImageToTarget(backgroundId, target = state.ba
     toast(`${targetOption.label} already uses ${background.label}.`);
     return false;
   }
-  if (scope === "app") return applySavedBackgroundImage(backgroundId);
-  if (scope === "pane") return applySavedBackgroundImageToPanel(backgroundId);
-  return applySavedBackgroundImageToWorkspaceTerminals(backgroundId);
+  if (scope === "app") return applySavedBackgroundImage(backgroundId, options);
+  if (scope === "pane") return applySavedBackgroundImageToPanel(backgroundId, undefined, options);
+  return applySavedBackgroundImageToWorkspaceTerminals(backgroundId, undefined, options);
 }
 
 async function applyCurrentBackgroundToTarget() {
@@ -6536,19 +6538,22 @@ async function clearBackgroundApplyTarget() {
   return applyBackgroundValueToTarget("", state.backgroundApplyTarget, { toast: true });
 }
 
-async function applySavedBackgroundImageToPanel(backgroundId, panel = focusedPanel()) {
+async function applySavedBackgroundImageToPanel(backgroundId, panel = focusedPanel(), options = {}) {
   const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
   if (!background) return null;
-  return applyPanelBackgroundImage(background.url, panel, { toast: false }).then((changed) => {
-    if (changed !== null) toast(`${background.label} applied to pane.`);
+  return applyPanelBackgroundImage(background.url, panel, { render: options.render, toast: false }).then((changed) => {
+    if (changed !== null && options.toast !== false) {
+      toast(changed ? `${background.label} applied to pane.` : `Pane already uses ${background.label}.`);
+    }
     return changed;
   });
 }
 
-async function applySavedBackgroundImageToWorkspaceTerminals(backgroundId, workspace = activeWorkspace()) {
+async function applySavedBackgroundImageToWorkspaceTerminals(backgroundId, workspace = activeWorkspace(), options = {}) {
   const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
   if (!background) return null;
-  return applyWorkspaceBackgroundImageToTerminals(background.url, workspace, { toast: false }).then((changed) => {
+  return applyWorkspaceBackgroundImageToTerminals(background.url, workspace, { render: options.render, toast: false }).then((changed) => {
+    if (options.toast === false) return changed;
     if (changed === true) {
       toast(`${background.label} applied to terminal panes.`);
     } else if (changed === false) {
@@ -24898,6 +24903,9 @@ function scheduleQuickSettingsRefresh(options = {}) {
 }
 
 function refreshQuickSettingsAfterAction(result, options = {}) {
+  if (result && typeof result.then === "function") {
+    return result.then((resolved) => refreshQuickSettingsAfterAction(resolved, options));
+  }
   if (result !== false) scheduleQuickSettingsRefresh(options);
   return result;
 }
@@ -26057,12 +26065,12 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
       title: allChoose.title,
       search: `quick setup background ${allChoose.search} ${allOption.meta}`
     }),
-    quickOverviewControlButton("Everywhere", () => applyCurrentBackgroundEverywhere(targetStatus.scope, workspace), {
+    quickOverviewControlButton("Everywhere", () => refreshQuickSettingsAfterAction(applyCurrentBackgroundEverywhere(targetStatus.scope, workspace, { render: false })), {
       disabled: everywhereModel.disabled,
       title: everywhereModel.title,
       search: `quick setup background apply current target everywhere app whole window all terminal panes ${everywhereModel.search}`
     }),
-    quickOverviewControlButton("Cycle template", () => cycleBackgroundTemplate(targetStatus.scope, workspace), {
+    quickOverviewControlButton("Cycle template", () => refreshQuickSettingsAfterAction(cycleBackgroundTemplate(targetStatus.scope, workspace, { render: false })), {
       disabled: cycleTemplateModel.disabled,
       title: cycleTemplateModel.title,
       search: `quick setup background cycle selected target template wallpaper app pane all terminals ${cycleTemplateModel.search}`
@@ -26091,14 +26099,14 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
           : `Copy ${targetLabel} background and tuning.`,
       search: `quick setup background copy setup current target image tuning opacity fit position effects chrome readable soft immersive clipboard json ${targetOption.label} ${targetOption.meta} ${targetModel.label}`
     }),
-    quickOverviewControlButton("Paste setup", () => pasteBackgroundSetup(targetStatus.scope), {
+    quickOverviewControlButton("Paste setup", () => refreshQuickSettingsAfterAction(pasteBackgroundSetup(targetStatus.scope, { render: false })), {
       disabled: !targetStatus.canTarget,
       title: !targetStatus.canTarget
         ? `${targetOption.label}: ${targetOption.meta}.`
         : `Paste copied background setup to ${targetLabel}.`,
       search: `quick setup background paste setup target image tuning opacity fit position effects chrome readable soft immersive clipboard json ${targetOption.label} ${targetOption.meta} ${targetModel.label}`
     }),
-    quickOverviewControlButton("Reset setup", () => resetBackgroundSetup(targetStatus.scope), {
+    quickOverviewControlButton("Reset setup", () => refreshQuickSettingsAfterAction(resetBackgroundSetup(targetStatus.scope, { render: false })), {
       disabled: !targetStatus.canTarget || setupDefault,
       title: !targetStatus.canTarget
         ? `${targetOption.label}: ${targetOption.meta}.`
@@ -26139,7 +26147,7 @@ function quickBackgroundPresetControlsPanel(workspace = activeWorkspace()) {
   const presetSearch = backgroundPresets.map((preset) => `${preset.label} ${preset.value}`).join(" ");
   const actions = backgroundPresets.map((preset) => {
     const active = Boolean(targetStatus.canTarget && backgroundPresetActiveForTarget(preset.value, targetStatus.scope, workspace));
-    const button = quickOverviewControlButton(active ? "Active" : preset.label, () => applyBackgroundPresetToTarget(preset, targetStatus.scope), {
+    const button = quickOverviewControlButton(active ? "Active" : preset.label, () => refreshQuickSettingsAfterAction(applyBackgroundPresetToTarget(preset, targetStatus.scope, { render: false })), {
       disabled: !targetStatus.canTarget || active,
       title: !targetStatus.canTarget
         ? `${targetOption.label}: ${targetOption.meta}.`
@@ -26169,7 +26177,7 @@ function quickSavedBackgroundControlsPanel(workspace = activeWorkspace()) {
   const actions = visibleBackgrounds.map((background) => {
     const active = Boolean(targetStatus.canTarget && savedBackgroundImageActiveForTarget(background, targetStatus.scope, workspace));
     const searchSource = String(background.url || "").startsWith("data:image") ? "data image" : background.url;
-    const button = quickOverviewControlButton(active ? "Active" : background.label, () => applySavedBackgroundImageToTarget(background.id, targetStatus.scope), {
+    const button = quickOverviewControlButton(active ? "Active" : background.label, () => refreshQuickSettingsAfterAction(applySavedBackgroundImageToTarget(background.id, targetStatus.scope, { render: false })), {
       disabled: !targetStatus.canTarget || active,
       title: !targetStatus.canTarget
         ? `${targetOption.label}: ${targetOption.meta}.`
@@ -30413,13 +30421,13 @@ async function applyBackgroundValueEverywhere(value, options = {}) {
   if (model.hasTerminalPanes) {
     terminalsChanged = await applyWorkspaceBackgroundImageToTerminals(validated.url, workspace, { render: false, toast: false });
     if (terminalsChanged === null) {
-      if (appChanged && state.inspectorMode === "settings") renderSettingsInspector();
+      if (appChanged && options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
       toast(`${label} could not be applied to terminal panes.`);
       return Boolean(appChanged);
     }
   }
   const changed = Boolean(appChanged || terminalsChanged);
-  if (changed && state.inspectorMode === "settings") renderSettingsInspector();
+  if (changed && options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
   if (changed) {
     toast(model.hasTerminalPanes
       ? `${label} applied to app and terminal panes.`
@@ -30430,13 +30438,13 @@ async function applyBackgroundValueEverywhere(value, options = {}) {
   return changed;
 }
 
-async function applyCurrentBackgroundEverywhere(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
+async function applyCurrentBackgroundEverywhere(target = state.backgroundApplyTarget, workspace = activeWorkspace(), options = {}) {
   const model = currentBackgroundEverywhereModel(target, workspace);
   if (model.disabled) {
     toast(model.title);
     return false;
   }
-  return applyBackgroundValueEverywhere(model.background, { label: model.label, workspace });
+  return applyBackgroundValueEverywhere(model.background, { label: model.label, workspace, ...options });
 }
 
 function workspaceTerminalBackgroundState(workspace = activeWorkspace(), appBackground = state.settings.backgroundImage) {
@@ -30776,7 +30784,7 @@ function applyBackgroundPreset(preset, options = {}) {
     if (options.toast !== false) toast(`${preset.label} background already active.`);
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
   if (options.toast) toast(`${preset.label} background applied.`);
   return true;
 }
