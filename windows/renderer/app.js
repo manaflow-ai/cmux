@@ -959,6 +959,17 @@ const lookPackDefinitions = [
   }
 ];
 
+const quickColorPresetDefinitions = [
+  { id: "blue", label: "Blue", color: accentOptions[0] },
+  { id: "green", label: "Green", color: accentOptions[1] },
+  { id: "gold", label: "Gold", color: accentOptions[2] },
+  { id: "pink", label: "Pink", color: accentOptions[3] },
+  { id: "ruby", label: "Ruby", color: accentOptions[4] },
+  { id: "cyan", label: "Cyan", color: accentOptions[5] },
+  { id: "ember", label: "Ember", color: accentOptions[6] },
+  { id: "orchid", label: "Orchid", color: accentOptions[7] }
+];
+
 const initialSettings = loadSettings();
 
 const state = {
@@ -25123,6 +25134,35 @@ function quickColorTargetControlsPanel(workspace = activeWorkspace()) {
   });
 }
 
+async function applyQuickColorPreset(color, target = state.colorApplyTarget) {
+  const changed = await applySavedColorToTarget(color, target);
+  if (changed && state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
+  return changed;
+}
+
+function quickColorPresetControlsPanel(workspace = activeWorkspace()) {
+  const targetOption = colorApplyTargetOption(state.colorApplyTarget, workspace);
+  const actions = quickColorPresetDefinitions.map((preset) => {
+    const active = Boolean(preset.color && !targetOption.disabled && savedColorActiveForTarget(preset.color, targetOption.id, workspace));
+    return quickOverviewControlButton(preset.label, () => applyQuickColorPreset(preset.color, state.colorApplyTarget), {
+      disabled: targetOption.disabled || !preset.color || active,
+      title: targetOption.disabled
+        ? `${targetOption.label}: ${targetOption.meta}.`
+        : active
+          ? `${targetOption.label} already uses ${preset.label}.`
+          : `Apply ${preset.label.toLowerCase()} to ${targetOption.label.toLowerCase()}.`,
+      search: normalizeSettingsQuery(`quick setup color preset apply ${targetOption.label} accent workspace pane all ${active ? "active current " : ""}${preset.label} ${preset.color} ${targetOption.status} ${targetOption.meta}`)
+    });
+  });
+  return quickOverviewControlsPanel({
+    className: "quick-overview-colors",
+    title: "Color presets",
+    meta: `${targetOption.label}: ${targetOption.status} / ${quickColorPresetDefinitions.length} presets`,
+    search: `quick setup color presets accent workspace active pane all panes target apply palette blue green gold pink ruby cyan ember orchid ${targetOption.label} ${targetOption.status} ${targetOption.meta}`,
+    actions
+  });
+}
+
 function quickColorControlsPanel(workspace = activeWorkspace()) {
   const targetOption = colorApplyTargetOption(state.colorApplyTarget, workspace);
   const accentSave = currentColorSaveModel("accent", workspace);
@@ -25707,6 +25747,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-look-controls></div>
     <div data-quick-look-pack-controls></div>
     <div data-quick-color-target-controls></div>
+    <div data-quick-color-preset-controls></div>
     <div data-quick-color-controls></div>
     <button class="quick-overview-speed" type="button" data-performance-status>
       <span class="quick-overview-speed-icon" aria-hidden="true"></span>
@@ -25799,6 +25840,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   panel.querySelector("[data-quick-look-controls]").replaceWith(quickLookControlsPanel());
   panel.querySelector("[data-quick-look-pack-controls]").replaceWith(quickLookPackControlsPanel());
   panel.querySelector("[data-quick-color-target-controls]").replaceWith(quickColorTargetControlsPanel(workspace));
+  panel.querySelector("[data-quick-color-preset-controls]").replaceWith(quickColorPresetControlsPanel(workspace));
   panel.querySelector("[data-quick-color-controls]").replaceWith(quickColorControlsPanel(workspace));
   const speed = panel.querySelector(".quick-overview-speed");
   speed.className = `quick-overview-speed is-${performance.status}`;
