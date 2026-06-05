@@ -33,7 +33,10 @@ extension SocketTransport {
         let normalizedTimeout = max(timeout, 0)
         let seconds = floor(normalizedTimeout)
         let microseconds = (normalizedTimeout - seconds) * 1_000_000
-        return timeval(tv_sec: Int(seconds), tv_usec: Int32(microseconds.rounded()))
+        // Rounding can land exactly on 1_000_000, which is not a valid
+        // tv_usec; clamp to the last representable microsecond instead.
+        let clamped = min(Int32(microseconds.rounded()), 999_999)
+        return timeval(tv_sec: Int(seconds), tv_usec: clamped)
     }
 
     /// Applies `timeout` as both `SO_RCVTIMEO` and `SO_SNDTIMEO` (best effort).
