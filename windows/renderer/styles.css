@@ -10717,6 +10717,16 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   font-size: 12px;
 }
 
+.quick-overview-controls,
+.quick-overview-speed,
+.quick-overview-scope,
+.quick-overview-library,
+.quick-overview-library-item,
+.performance-health-card,
+.performance-tune-card {
+  contain: layout style;
+}
+
 .quick-overview-controls {
   --quick-control-color: var(--color-accent);
   position: relative;
