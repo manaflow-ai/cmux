@@ -20041,43 +20041,43 @@ function cycleBrowserPaneViewPreset(options = {}) {
   return applyBrowserPaneViewPreset(model.preset, options);
 }
 
-function resetBrowserHome() {
+function resetBrowserHome(options = {}) {
   const changed = updateSettings({ browserHomeUrl: defaultSettings.browserHomeUrl });
   if (!changed) {
-    toast("Browser home already uses the default.");
+    if (options.toast !== false) toast("Browser home already uses the default.");
     return false;
   }
-  if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
-  toast("Browser home reset.");
+  if (options.render !== false && state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
+  if (options.toast !== false) toast("Browser home reset.");
   return true;
 }
 
-function resetBrowserPaneView() {
+function resetBrowserPaneView(options = {}) {
   const changed = updateSettings({
     browserChromeMode: defaultSettings.browserChromeMode,
     browserZoom: defaultSettings.browserZoom
   });
   if (!changed) {
-    toast("Browser pane view already uses defaults.");
+    if (options.toast !== false) toast("Browser pane view already uses defaults.");
     return false;
   }
-  if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
-  toast("Browser pane view reset.");
+  if (options.render !== false && state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
+  if (options.toast !== false) toast("Browser pane view reset.");
   return true;
 }
 
-function resetBrowserLaunchSettings() {
+function resetBrowserLaunchSettings(options = {}) {
   const changed = updateSettings({
     browserLaunchMode: defaultSettings.browserLaunchMode,
     externalBrowserProfileId: defaultSettings.externalBrowserProfileId,
     browserSuspendInactive: defaultSettings.browserSuspendInactive
   });
   if (!changed) {
-    toast("Browser launch settings already use defaults.");
+    if (options.toast !== false) toast("Browser launch settings already use defaults.");
     return false;
   }
-  if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
-  toast("Browser launch settings reset.");
+  if (options.render !== false && state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
+  if (options.toast !== false) toast("Browser launch settings reset.");
   return true;
 }
 
@@ -20089,16 +20089,16 @@ function browserSetupSettingsAreDefault() {
   ));
 }
 
-function resetBrowserSetupSettings() {
+function resetBrowserSetupSettings(options = {}) {
   const updates = {};
   for (const key of browserSetupSettings) updates[key] = defaultSettings[key];
   const changed = updateSettings(updates);
   if (!changed) {
-    toast("Browser setup already uses defaults.");
+    if (options.toast !== false) toast("Browser setup already uses defaults.");
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
-  toast("Browser setup reset.");
+  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  if (options.toast !== false) toast("Browser setup reset.");
   return true;
 }
 
@@ -20209,7 +20209,7 @@ function applyBrowserSetupUpdates(updates, options = {}) {
   return true;
 }
 
-async function pasteBrowserSetup() {
+async function pasteBrowserSetup(options = {}) {
   const clipboard = await readClipboardText();
   if (!clipboard) {
     toast("Clipboard is empty.");
@@ -20217,7 +20217,7 @@ async function pasteBrowserSetup() {
   }
   try {
     const parsed = JSON.parse(clipboard);
-    return applyBrowserSetupUpdates(browserSetupUpdatesFromPayload(parsed));
+    return applyBrowserSetupUpdates(browserSetupUpdatesFromPayload(parsed), options);
   } catch {
     toast("Clipboard does not contain browser setup.");
     return false;
@@ -25821,11 +25821,11 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
       title: "Copy browser home, launch mode, external profile, suspend setting, pane chrome, and pane zoom as JSON.",
       search: "quick setup browser copy setup home launch external profile suspend pane chrome tabs address controls full compact content zoom scale clipboard json"
     }),
-    quickOverviewControlButton("Paste setup", pasteBrowserSetup, {
+    quickOverviewControlButton("Paste setup", () => refreshQuickSettingsAfterAction(pasteBrowserSetup({ render: false })), {
       title: "Apply copied browser setup.",
       search: "quick setup browser paste setup home launch external profile suspend pane chrome tabs address controls full compact content zoom scale clipboard json"
     }),
-    quickOverviewControlButton("Reset setup", resetBrowserSetupSettings, {
+    quickOverviewControlButton("Reset setup", () => refreshQuickSettingsAfterAction(resetBrowserSetupSettings({ render: false })), {
       disabled: setupDefault,
       title: setupDefault
         ? "Browser setup already uses defaults."
