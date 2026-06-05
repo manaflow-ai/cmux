@@ -7,9 +7,8 @@ import SwiftUI
 /// agent-session "Vault".
 ///
 /// Each destructive action is one operation (a single close, or a multi-select
-/// delete of N items). Operations render as collapsible groups: "Restore all" on
-/// the header brings back the items that are not already restored, and each child
-/// can be reopened or removed individually.
+/// delete of N items). Operations render as collapsible groups; users can select
+/// exactly which entries to restore instead of triggering a broad restore-all.
 ///
 /// Follows the snapshot-boundary rule (https://github.com/manaflow-ai/cmux/issues/2586):
 /// the store is observed only here; rows receive immutable value snapshots plus
@@ -23,19 +22,20 @@ struct ClosedItemsHistoryView: View {
     let onClearAll: () -> Void
 
     @State private var collapsed: Set<UUID> = []
+    @State private var selectedItemIds: Set<UUID> = []
 
     var body: some View {
         let operations = store.operationSnapshot()
         let totalItems = operations.reduce(0) { $0 + $1.items.count }
         let onReopen = self.onReopen
         let onDelete = self.onDelete
-        let restorableWorkspaceIds = operations
+        let selectedRestorableIds = operations
             .flatMap(\.items)
-            .filter { $0.kind == .workspace && !$0.isRestored }
+            .filter { !$0.isRestored && selectedItemIds.contains($0.id) }
             .map(\.id)
 
         return VStack(spacing: 0) {
-            header(count: totalItems, restorableWorkspaceIds: restorableWorkspaceIds)
+            header(count: totalItems, selectedRestorableIds: selectedRestorableIds)
             if operations.isEmpty {
                 emptyView
             } else {
@@ -48,11 +48,10 @@ struct ClosedItemsHistoryView: View {
                                 onToggleCollapse: { toggle(op.id) },
                                 onReopenItem: onReopen,
                                 onDeleteItem: onDelete,
-                                onRestoreAll: {
-                                    for item in op.items where !item.isRestored {
-                                        onReopen(item.id)
-                                    }
-                                }
+                                selectedItemIds: selectedItemIds,
+                                onToggleSelection: { toggleSelection($0) },
+                                onSelectItems: { selectItems($0) },
+                                onDeselectItems: { deselectItems($0) }
                             )
                             .id(op.id)
                         }
@@ -68,25 +67,41 @@ struct ClosedItemsHistoryView: View {
         if collapsed.contains(id) { collapsed.remove(id) } else { collapsed.insert(id) }
     }
 
-    private func header(count: Int, restorableWorkspaceIds: [UUID]) -> some View {
+    private func toggleSelection(_ id: UUID) {
+        if selectedItemIds.contains(id) { selectedItemIds.remove(id) } else { selectedItemIds.insert(id) }
+    }
+
+    private func selectItems(_ ids: [UUID]) {
+        selectedItemIds.formUnion(ids)
+    }
+
+    private func deselectItems(_ ids: [UUID]) {
+        selectedItemIds.subtract(ids)
+    }
+
+    private func header(count: Int, selectedRestorableIds: [UUID]) -> some View {
         let onReopen = self.onReopen
         return HStack(spacing: 8) {
-            Text(String(localized: "historyPane.header.recentlyClosed", defaultValue: "Recently Closed"))
+            Text(String(localized: "historyPane.header.title", defaultValue: "History"))
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(.secondary)
             Spacer(minLength: 8)
-            if !restorableWorkspaceIds.isEmpty {
+            if !selectedRestorableIds.isEmpty {
                 Button {
-                    for id in restorableWorkspaceIds { onReopen(id) }
+                    deselectItems(selectedRestorableIds)
+                    for id in selectedRestorableIds { onReopen(id) }
                 } label: {
-                    Text(String(localized: "historyPane.reopenAllWorkspaces", defaultValue: "Reopen all workspaces"))
+                    Text(restoreSelectedTitle(count: selectedRestorableIds.count))
                         .font(.system(size: 11, weight: .medium))
                 }
                 .buttonStyle(.borderless)
-                .help(String(localized: "historyPane.reopenAllWorkspaces.tooltip", defaultValue: "Reopen every closed workspace that isn't already open"))
+                .help(String(localized: "historyPane.restoreSelected.tooltip", defaultValue: "Restore selected closed items"))
             }
             if count > 0 {
-                Button(action: onClearAll) {
+                Button {
+                    selectedItemIds.removeAll()
+                    onClearAll()
+                } label: {
                     Text(String(localized: "historyPane.clearAll", defaultValue: "Clear All"))
                         .font(.system(size: 11, weight: .medium))
                 }
@@ -99,6 +114,11 @@ struct ClosedItemsHistoryView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
         }
+    }
+
+    private func restoreSelectedTitle(count: Int) -> String {
+        let format = String(localized: "historyPane.restoreSelected", defaultValue: "Restore %d")
+        return String.localizedStringWithFormat(format, count)
     }
 
     private var emptyView: some View {
@@ -125,10 +145,15 @@ private struct ClosedOperationGroup: View, Equatable {
     let onToggleCollapse: () -> Void
     let onReopenItem: (UUID) -> Void
     let onDeleteItem: (UUID) -> Void
-    let onRestoreAll: () -> Void
+    let selectedItemIds: Set<UUID>
+    let onToggleSelection: (UUID) -> Void
+    let onSelectItems: ([UUID]) -> Void
+    let onDeselectItems: ([UUID]) -> Void
 
     static func == (lhs: ClosedOperationGroup, rhs: ClosedOperationGroup) -> Bool {
-        lhs.operation == rhs.operation && lhs.isCollapsed == rhs.isCollapsed
+        lhs.operation == rhs.operation &&
+            lhs.isCollapsed == rhs.isCollapsed &&
+            lhs.selectedItemIds == rhs.selectedItemIds
     }
 
     var body: some View {
@@ -136,6 +161,8 @@ private struct ClosedOperationGroup: View, Equatable {
             ClosedItemRow(
                 item: item,
                 indented: false,
+                isSelected: selectedItemIds.contains(item.id),
+                onToggleSelection: { onToggleSelection(item.id) },
                 onReopen: { onReopenItem(item.id) },
                 onDelete: { onDeleteItem(item.id) }
             )
@@ -147,6 +174,8 @@ private struct ClosedOperationGroup: View, Equatable {
                         ClosedItemRow(
                             item: item,
                             indented: true,
+                            isSelected: selectedItemIds.contains(item.id),
+                            onToggleSelection: { onToggleSelection(item.id) },
                             onReopen: { onReopenItem(item.id) },
                             onDelete: { onDeleteItem(item.id) }
                         )
@@ -166,6 +195,7 @@ private struct ClosedOperationGroup: View, Equatable {
                     .frame(width: 16)
             }
             .buttonStyle(.plain)
+            groupSelectionControl
             Image(systemName: "rectangle.stack")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
@@ -174,19 +204,48 @@ private struct ClosedOperationGroup: View, Equatable {
                 .foregroundColor(operation.isFullyRestored ? .secondary : .primary.opacity(0.9))
                 .lineLimit(1)
             Spacer(minLength: 8)
-            if !operation.isFullyRestored {
-                Button(action: onRestoreAll) {
-                    Text(String(localized: "historyPane.group.restoreAll", defaultValue: "Restore all"))
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .buttonStyle(.borderless)
-                .help(String(localized: "historyPane.group.restoreAll.tooltip", defaultValue: "Reopen the items in this group that aren't already open"))
-            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .contentShape(Rectangle())
         .onTapGesture { onToggleCollapse() }
+    }
+
+    private var restorableItemIds: [UUID] {
+        operation.items.filter { !$0.isRestored }.map(\.id)
+    }
+
+    private var selectedRestorableItemIds: [UUID] {
+        restorableItemIds.filter { selectedItemIds.contains($0) }
+    }
+
+    @ViewBuilder
+    private var groupSelectionControl: some View {
+        if restorableItemIds.isEmpty {
+            Image(systemName: "checkmark.square")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary.opacity(0.45))
+                .frame(width: 14)
+        } else {
+            let selectedCount = selectedRestorableItemIds.count
+            let imageName = selectedCount == restorableItemIds.count
+                ? "checkmark.square.fill"
+                : selectedCount > 0 ? "minus.square.fill" : "square"
+            Button {
+                if selectedCount == restorableItemIds.count {
+                    onDeselectItems(restorableItemIds)
+                } else {
+                    onSelectItems(restorableItemIds.filter { !selectedItemIds.contains($0) })
+                }
+            } label: {
+                Image(systemName: imageName)
+                    .font(.system(size: 12))
+                    .foregroundColor(selectedCount > 0 ? .accentColor : .secondary.opacity(0.75))
+                    .frame(width: 14)
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "historyPane.group.select", defaultValue: "Select group for restore"))
+        }
     }
 }
 
@@ -194,13 +253,15 @@ private struct ClosedOperationGroup: View, Equatable {
 private struct ClosedItemRow: View, Equatable {
     let item: ClosedItemHistoryMenuItem
     let indented: Bool
+    let isSelected: Bool
+    let onToggleSelection: () -> Void
     let onReopen: () -> Void
     let onDelete: () -> Void
 
     @State private var isHovered: Bool = false
 
     static func == (lhs: ClosedItemRow, rhs: ClosedItemRow) -> Bool {
-        lhs.item == rhs.item && lhs.indented == rhs.indented
+        lhs.item == rhs.item && lhs.indented == rhs.indented && lhs.isSelected == rhs.isSelected
     }
 
     static let relativeFormatter: RelativeDateTimeFormatter = {
@@ -211,6 +272,7 @@ private struct ClosedItemRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 8) {
+            selectionControl
             Image(systemName: item.isRestored ? "checkmark.circle" : item.kind.systemImage)
                 .font(.system(size: 12))
                 .foregroundColor(item.isRestored ? .secondary.opacity(0.6) : .secondary)
@@ -244,7 +306,7 @@ private struct ClosedItemRow: View, Equatable {
                     .fixedSize()
             }
         }
-        .padding(.leading, indented ? 30 : 12)
+        .padding(.leading, indented ? 24 : 12)
         .padding(.trailing, 12)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -268,6 +330,25 @@ private struct ClosedItemRow: View, Equatable {
             Button(role: .destructive, action: onDelete) {
                 Text(String(localized: "historyPane.row.delete", defaultValue: "Remove from History"))
             }
+        }
+    }
+
+    @ViewBuilder
+    private var selectionControl: some View {
+        if item.isRestored {
+            Image(systemName: "checkmark.square")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary.opacity(0.45))
+                .frame(width: 14)
+        } else {
+            Button(action: onToggleSelection) {
+                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 12))
+                    .foregroundColor(isSelected ? .accentColor : .secondary.opacity(0.75))
+                    .frame(width: 14)
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "historyPane.row.select", defaultValue: "Select for restore"))
         }
     }
 }
