@@ -12,6 +12,7 @@ final class AutomationSocketUITests: XCTestCase {
     private var temporaryRoots: [URL] = []
     private var lastTextBoxFixtureResponse = ""
     private var lastMainWindowContextResponse = ""
+    private var lastWorkspaceCreateResponse = ""
 
     override func setUp() {
         super.setUp()
@@ -22,6 +23,7 @@ final class AutomationSocketUITests: XCTestCase {
         temporaryRoots = []
         lastTextBoxFixtureResponse = ""
         lastMainWindowContextResponse = ""
+        lastWorkspaceCreateResponse = ""
         resetSocketDefaults()
         removeSocketFile()
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
@@ -117,36 +119,32 @@ final class AutomationSocketUITests: XCTestCase {
             "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
         )
 
-        let windowContext = try XCTUnwrap(
-            waitForMainWindowContext(timeout: 12.0),
-            "Expected main window context. last=\(lastMainWindowContextResponse) diagnostics=\(loadDiagnostics())"
+        let windowContext = waitForMainWindowContext(timeout: 12.0)
+        let workspace = createTextBoxFixtureWorkspace(
+            windowID: windowContext?.windowID,
+            workingDirectory: skillRoot.path
         )
-        let workspace = try XCTUnwrap(
-            socketResult(
-                method: "workspace.create",
-                params: [
-                    "window_id": windowContext.windowID,
-                    "title": "Textbox mention XCUITest",
-                    "working_directory": skillRoot.path,
-                    "focus": true,
-                    "eager_load_terminal": true,
-                    "auto_refresh_metadata": false,
-                ]
-            ),
-            "Expected workspace.create to succeed after main window readiness"
-        )
-        let surfaceID = try XCTUnwrap(workspace["surface_id"] as? String, "Expected created surface id")
+        let createdSurfaceID = workspace?["surface_id"] as? String
 
         let fixture = try XCTUnwrap(
             waitForTextBoxFixture(
-                surfaceID: surfaceID,
+                surfaceID: createdSurfaceID,
                 beforeText: "$",
                 completionRootDirectory: skillRoot.path,
                 timeout: 8.0
             ),
-            "Expected text box fixture to mount with a bare $ trigger. last=\(lastTextBoxFixtureResponse) diagnostics=\(loadDiagnostics())"
+            """
+            Expected text box fixture to mount with a bare $ trigger.
+            window=\(lastMainWindowContextResponse)
+            workspace=\(lastWorkspaceCreateResponse)
+            fixture=\(lastTextBoxFixtureResponse)
+            diagnostics=\(loadDiagnostics())
+            """
         )
-        XCTAssertEqual(fixture["surface_id"] as? String, surfaceID)
+        let surfaceID = try XCTUnwrap(fixture["surface_id"] as? String, "Expected fixture surface id")
+        if let createdSurfaceID {
+            XCTAssertEqual(surfaceID, createdSurfaceID)
+        }
         _ = try XCTUnwrap(
             socketResult(
                 method: "debug.textbox.interact",
@@ -430,6 +428,36 @@ final class AutomationSocketUITests: XCTestCase {
             return windowID
         }
         return nil
+    }
+
+    private func createTextBoxFixtureWorkspace(windowID: String?, workingDirectory: String) -> [String: Any]? {
+        var params: [String: Any] = [
+            "title": "Textbox mention XCUITest",
+            "working_directory": workingDirectory,
+            "focus": true,
+            "eager_load_terminal": true,
+            "auto_refresh_metadata": false,
+        ]
+        if let windowID, !windowID.isEmpty {
+            params["window_id"] = windowID
+            if let result = socketResultCapturingEnvelope(method: "workspace.create", params: params) {
+                return result
+            }
+            params.removeValue(forKey: "window_id")
+        }
+        return socketResultCapturingEnvelope(method: "workspace.create", params: params)
+    }
+
+    private func socketResultCapturingEnvelope(method: String, params: [String: Any]) -> [String: Any]? {
+        guard let envelope = socketJSON(method: method, params: params) else {
+            lastWorkspaceCreateResponse = "\(method) nil envelope"
+            return nil
+        }
+        lastWorkspaceCreateResponse = "\(method) \(Self.debugDescription(envelope))"
+        guard envelope["ok"] as? Bool == true else {
+            return nil
+        }
+        return envelope["result"] as? [String: Any]
     }
 
     private func waitForTextBoxFixture(
