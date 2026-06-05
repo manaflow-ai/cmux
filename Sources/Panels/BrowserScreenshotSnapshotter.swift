@@ -584,7 +584,10 @@ enum BrowserScreenshotWebViewSnapshotter {
             expectedAbsoluteString: expectedURL.absoluteString,
             timeout: 5.0
         )
-        waiter.wait(completion: completion)
+        waiter.wait { [waiter] result in
+            _ = waiter
+            completion(result)
+        }
     }
 
     fileprivate static func urlMatches(_ currentURL: URL, expectedAbsoluteString: String) -> Bool {
