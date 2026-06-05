@@ -239,6 +239,81 @@ while [ "$class_offset" -lt "${#SELECTED_TEST_IDENTIFIERS[@]}" ]; do
     return "$exit_code"
   }
 
+  executed_test_count() {
+    local log_path="$1"
+    local result_path="$2"
+    local count
+
+    count=""
+    if [ -d "$result_path" ] && command -v xcrun >/dev/null 2>&1; then
+      count="$(
+        { xcrun xcresulttool get test-results summary --path "$result_path" --format json 2>/dev/null || true; } |
+          /usr/bin/python3 -c '
+import json
+import sys
+
+try:
+    summary = json.load(sys.stdin)
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+total = None
+for key in ("totalTestCount", "testsCount", "testCount"):
+    value = summary.get(key)
+    if isinstance(value, int):
+        total = value
+        break
+
+if total is None:
+    metrics = summary.get("metrics")
+    if isinstance(metrics, dict):
+        for key in ("testsCount", "testCount", "totalTestCount"):
+            value = metrics.get(key)
+            if isinstance(value, int):
+                total = value
+                break
+
+print("" if total is None else total)
+'
+      )"
+    fi
+
+    if [ -n "$count" ]; then
+      printf '%s\n' "$count"
+      return 0
+    fi
+
+    /usr/bin/awk '
+      /Test Case .* passed/ { count += 1 }
+      /Test .* passed after [0-9.]+ seconds/ { count += 1 }
+      END { print count + 0 }
+    ' "$log_path"
+  }
+
+  assert_executed_tests() {
+    local label="$1"
+    local log_path="$2"
+    local result_path="$3"
+    local count
+
+    count="$(executed_test_count "$log_path" "$result_path")"
+    case "$count" in
+      ''|*[!0-9]*)
+        echo "FAIL $label could not determine executed test count" >&2
+        echo "===== $label log =====" >&2
+        tail -n 1200 "$log_path" >&2
+        exit 1
+        ;;
+    esac
+    if [ "$count" -eq 0 ]; then
+      echo "FAIL $label reported zero executed tests" >&2
+      echo "===== $label log =====" >&2
+      tail -n 1200 "$log_path" >&2
+      exit 1
+    fi
+  }
+
   echo "Running $BATCH_LABEL with ${#batch_classes[@]} classes"
   printf '  %s\n' "${batch_classes[@]}"
 
@@ -309,6 +384,7 @@ while [ "$class_offset" -lt "${#SELECTED_TEST_IDENTIFIERS[@]}" ]; do
             tail -n 1200 "$retry_log" >&2
             exit 1
           fi
+          assert_executed_tests "$retry_label" "$retry_log" "$retry_result"
           retry_index=$((retry_index + 1))
         done
         echo "PASS $BATCH_LABEL after crash-reported XCTest method retries"
@@ -329,6 +405,7 @@ while [ "$class_offset" -lt "${#SELECTED_TEST_IDENTIFIERS[@]}" ]; do
     tail -n 1200 "$BATCH_LOG" >&2
     exit 1
   fi
+  assert_executed_tests "$BATCH_LABEL" "$BATCH_LOG" "$BATCH_RESULT"
 
   echo "PASS $BATCH_LABEL"
   batch_index=$((batch_index + 1))
