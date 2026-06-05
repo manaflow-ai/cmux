@@ -122,6 +122,9 @@ final class RemoteTmuxController {
                 onPaneOutput: { [weak self] paneId, data in
                     self?.displayPanels["\(key)\u{1}\(paneId)"]?.surface.processRemoteOutput(data)
                 },
+                onPaneCwd: { [weak self] paneId, path in
+                    self?.applyDisplayPaneCwd(key: key, paneId: paneId, path: path)
+                },
                 onTopologyChanged: { [weak self, weak connection] in
                     guard let self, let connection else { return }
                     self.buildDisplayIfNeeded(connection: connection, key: key, workspaceId: targetWorkspaceId, focus: focus)
@@ -160,6 +163,22 @@ final class RemoteTmuxController {
         displayPanels[panelKey] = panel
         // Prime the pane with its current contents so it isn't blank on open.
         connection.capturePane(paneId: paneId)
+        // Track the pane's working directory (initial + live) so the tab shows the
+        // remote cwd instead of staying at "~".
+        connection.requestPanePath(paneId: paneId)
+        connection.subscribePanePath(paneId: paneId)
+    }
+
+    /// Applies a display pane's reported working directory to its tab. Resolves the
+    /// workspace from the panel's own surface (not a captured id) so it stays
+    /// correct if the tab was moved to another workspace/window after attach.
+    private func applyDisplayPaneCwd(key: String, paneId: Int, path: String) {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let panel = displayPanels["\(key)\u{1}\(paneId)"],
+              let workspace = panel.surface.owningWorkspace()
+        else { return }
+        _ = workspace.updatePanelDirectory(panelId: panel.id, directory: trimmed)
     }
 
     /// Active session→workspace mirrors keyed `dest\u{1}session`.
@@ -412,6 +431,28 @@ final class RemoteTmuxController {
             if sessionMirror.windowMirror(forSurfaceId: surfaceId) != nil { return true }
         }
         return false
+    }
+
+    /// The SSH upload target for a remote-tmux surface (a session-mirror pane or
+    /// an ``openActivePane`` display pane), or `nil` if `surfaceId` isn't one.
+    /// Lets the image-paste path upload a pasted screenshot to the remote tmux
+    /// host (and insert the remote path) instead of an unreadable macOS-local one.
+    func remoteUploadTarget(forSurfaceId surfaceId: UUID) -> TerminalRemoteUploadTarget? {
+        for sessionMirror in sessionMirrors.values
+        where !sessionMirror.connection.exited && sessionMirror.ownsSurface(surfaceId) {
+            return .detectedSSH(sessionMirror.host.detectedSSHSession())
+        }
+        // openActivePane display panes: the panel key is `dest\u{1}session\u{1}pane`,
+        // so the connection key is its first two components.
+        for (panelKey, panel) in displayPanels where panel.surface.id == surfaceId {
+            let parts = panelKey.split(separator: "\u{1}", omittingEmptySubsequences: false)
+            guard parts.count >= 2 else { continue }
+            let connectionKey = parts[0..<2].joined(separator: "\u{1}")
+            if let connection = connectionsByHostSession[connectionKey], !connection.exited {
+                return .detectedSSH(connection.host.detectedSSHSession())
+            }
+        }
+        return nil
     }
 
     /// A split was requested on a mirror window-tab (the split button / any

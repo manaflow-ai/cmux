@@ -27,6 +27,8 @@ final class RemoteTmuxControlConnection {
     // it), so events MUST fan out to all consumers — a single overwritable
     // closure silently cut off whichever consumer wired up first.
     private var paneOutputObservers: [ObserverToken: (_ paneId: Int, _ data: Data) -> Void] = [:]
+    private var paneCwdObservers: [ObserverToken: (_ paneId: Int, _ path: String) -> Void] = [:]
+    private var activePaneObservers: [ObserverToken: (_ windowId: Int, _ paneId: Int) -> Void] = [:]
     private var topologyObservers: [ObserverToken: () -> Void] = [:]
     private var exitObservers: [ObserverToken: () -> Void] = [:]
 
@@ -53,7 +55,14 @@ final class RemoteTmuxControlConnection {
     private let createIfMissing: Bool
     private let maxRecentEvents = 100
 
-    private enum CommandKind: Equatable { case listWindows, capturePane(Int), paneCursor(Int), other }
+    private enum CommandKind: Equatable {
+        case listWindows, capturePane(Int), paneCursor(Int), panePath(Int), other
+    }
+
+    /// Subscription-name prefix for per-pane `pane_current_path` (`refresh-client -B`).
+    /// The tmux pane id is appended so an inbound `%subscription-changed` can be
+    /// routed back to its pane; defined once so the writer and reader can't drift.
+    private static let cwdSubscriptionPrefix = "cmux_cwd_"
 
     init(host: RemoteTmuxHost, sessionName: String, createIfMissing: Bool = false) {
         self.host = host
@@ -72,16 +81,26 @@ final class RemoteTmuxControlConnection {
     ///
     /// - Parameters:
     ///   - onPaneOutput: receives every `%output` (raw, octal-unescaped bytes).
+    ///   - onPaneCwd: receives a pane's working directory (`pane_current_path`),
+    ///     both the initial value and live changes (see ``requestPanePath(paneId:)``
+    ///     and ``subscribePanePath(paneId:)``).
+    ///   - onActivePaneChanged: fires when a window's active pane changes
+    ///     (`%window-pane-changed`), so consumers can re-project per-pane state
+    ///     (e.g. the active pane's directory) onto the window's tab.
     ///   - onTopologyChanged: fires when the window/pane topology changes.
     ///   - onExit: fires once when control mode ends.
     @discardableResult
     func addObserver(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)? = nil,
+        onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)? = nil,
+        onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
         onTopologyChanged: (() -> Void)? = nil,
         onExit: (() -> Void)? = nil
     ) -> ObserverToken {
         let token = ObserverToken()
         if let onPaneOutput { paneOutputObservers[token] = onPaneOutput }
+        if let onPaneCwd { paneCwdObservers[token] = onPaneCwd }
+        if let onActivePaneChanged { activePaneObservers[token] = onActivePaneChanged }
         if let onTopologyChanged { topologyObservers[token] = onTopologyChanged }
         if let onExit { exitObservers[token] = onExit }
         return token
@@ -90,12 +109,22 @@ final class RemoteTmuxControlConnection {
     /// Deregisters the callbacks registered under `token`.
     func removeObserver(_ token: ObserverToken) {
         paneOutputObservers[token] = nil
+        paneCwdObservers[token] = nil
+        activePaneObservers[token] = nil
         topologyObservers[token] = nil
         exitObservers[token] = nil
     }
 
     private func emitPaneOutput(_ paneId: Int, _ data: Data) {
         for callback in paneOutputObservers.values { callback(paneId, data) }
+    }
+
+    private func emitPaneCwd(_ paneId: Int, _ path: String) {
+        for callback in paneCwdObservers.values { callback(paneId, path) }
+    }
+
+    private func emitActivePaneChanged(_ windowId: Int, _ paneId: Int) {
+        for callback in activePaneObservers.values { callback(windowId, paneId) }
     }
 
     private func notifyTopologyChanged() {
@@ -203,6 +232,33 @@ final class RemoteTmuxControlConnection {
             "display-message -p -t %\(paneId) -F \"#{cursor_x},#{cursor_y}\"",
             kind: .paneCursor(paneId)
         )
+    }
+
+    /// One-shot query of a pane's working directory (`pane_current_path`),
+    /// delivered to the cwd observers. Guarantees an initial folder for the
+    /// mirrored tab even on tmux builds without control-mode subscriptions.
+    func requestPanePath(paneId: Int) {
+        sendInternal(
+            "display-message -p -t %\(paneId) -F \"#{pane_current_path}\"",
+            kind: .panePath(paneId)
+        )
+    }
+
+    /// Subscribes to live `pane_current_path` changes for `paneId` via tmux
+    /// control-mode `refresh-client -B`, so a remote `cd` updates the mirrored
+    /// tab's folder without polling. tmux emits the value once on subscribe and
+    /// again on every change as `%subscription-changed cmux_cwd_<paneId> … : <path>`.
+    /// Best-effort: on tmux builds that don't support subscriptions the command is
+    /// a no-op and ``requestPanePath(paneId:)`` still supplies the initial folder.
+    func subscribePanePath(paneId: Int) {
+        send("refresh-client -B \(Self.cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}")
+    }
+
+    /// Removes the live `pane_current_path` subscription for `paneId` (issued once
+    /// the pane is gone). tmux also drops a dead pane's subscriptions on its own;
+    /// this keeps the client's subscription set tidy across split/close churn.
+    func unsubscribePanePath(paneId: Int) {
+        send("refresh-client -B \(Self.cwdSubscriptionPrefix)\(paneId)")
     }
 
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),
@@ -331,8 +387,16 @@ final class RemoteTmuxControlConnection {
             notifyTopologyChanged()
         case let .windowPaneChanged(windowId, paneId):
             activePaneByWindow[windowId] = paneId
+            emitActivePaneChanged(windowId, paneId)
         case let .sessionWindowChanged(_, windowId):
             record("session-window-changed @\(windowId)")
+        case let .subscriptionChanged(name, value):
+            // cmux subscribes each pane's working directory as "cmux_cwd_<paneId>".
+            if name.hasPrefix(Self.cwdSubscriptionPrefix),
+               let paneId = Int(name.dropFirst(Self.cwdSubscriptionPrefix.count)) {
+                let path = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !path.isEmpty { emitPaneCwd(paneId, path) }
+            }
         case let .commandResult(_, lines, isError):
             handleCommandResult(lines: lines, isError: isError)
         case .ignoredNotification, .unparsed:
@@ -387,6 +451,10 @@ final class RemoteTmuxControlConnection {
                    let data = "\u{1b}[\(y + 1);\(x + 1)H".data(using: .utf8) {
                     emitPaneOutput(paneId, data)
                 }
+            }
+        case let .panePath(paneId):
+            if let path = lines.first?.trimmingCharacters(in: .whitespaces), !path.isEmpty {
+                emitPaneCwd(paneId, path)
             }
         case .other:
             break

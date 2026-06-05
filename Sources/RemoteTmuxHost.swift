@@ -139,4 +139,29 @@ struct RemoteTmuxHost: Sendable, Equatable, Codable, Identifiable {
         args.append(contentsOf: ["--", destination, remoteCommand])
         return args
     }
+
+    /// Builds a ``DetectedSSHSession`` that uploads files to this host over SSH,
+    /// reusing the same ControlMaster socket the control connection already opened
+    /// (so an `scp` multiplexes over the existing authenticated master — no second
+    /// prompt while a mirror is live).
+    ///
+    /// Used by the image-paste path: a screenshot pasted into a mirrored remote
+    /// tmux pane is uploaded to the host and the remote path is inserted, so a
+    /// remote CLI (e.g. claude) can read it — instead of inserting a macOS-local
+    /// path that doesn't exist on the remote.
+    func detectedSSHSession() -> DetectedSSHSession {
+        DetectedSSHSession(
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            configFile: nil,
+            jumpHost: nil,
+            controlPath: controlSocketPath,
+            useIPv4: false,
+            useIPv6: false,
+            forwardAgent: false,
+            compressionEnabled: false,
+            sshOptions: []
+        )
+    }
 }

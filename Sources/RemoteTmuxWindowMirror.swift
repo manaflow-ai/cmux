@@ -77,12 +77,18 @@ final class RemoteTmuxWindowMirror {
             panelsByPaneId[paneId] = panel
             syntheticPaneIds[paneId] = PaneID()
             connection?.capturePane(paneId: paneId)
+            // Track this pane's working directory (initial + live) so the window
+            // tab reflects the remote cwd. The session mirror's cwd observer maps
+            // the pane back to this window's tab.
+            connection?.requestPanePath(paneId: paneId)
+            connection?.subscribePanePath(paneId: paneId)
         }
         for (paneId, panel) in panelsByPaneId where !livePaneIds.contains(paneId) {
             // Use the full panel close (detaches the portal from the registry
             // BEFORE freeing the surface) so a stale portal entry can't be
             // dereferenced by a later Core Animation commit.
             panel.close()
+            connection?.unsubscribePanePath(paneId: paneId)
             panelsByPaneId[paneId] = nil
             syntheticPaneIds[paneId] = nil
             if activePaneId == paneId { activePaneId = nil }

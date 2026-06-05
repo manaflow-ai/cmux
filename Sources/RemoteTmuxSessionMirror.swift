@@ -23,6 +23,9 @@ final class RemoteTmuxSessionMirror {
     private var defaultClosed = false
     private var panelIdByWindow: [Int: UUID] = [:]
     private var panelIdByPane: [Int: UUID] = [:]
+    /// Last-known working directory per tmux pane, so switching the active pane of
+    /// a multi-pane window can re-project that pane's directory onto the tab.
+    private var cwdByPane: [Int: String] = [:]
     /// Per-window multi-pane renderers (present once a window has >1 pane).
     private var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private var observerToken: RemoteTmuxControlConnection.ObserverToken?
@@ -44,6 +47,12 @@ final class RemoteTmuxSessionMirror {
         self.observerToken = connection.addObserver(
             onPaneOutput: { [weak self] paneId, data in
                 self?.routeOutput(paneId: paneId, data: data)
+            },
+            onPaneCwd: { [weak self] paneId, path in
+                self?.handlePaneCwd(paneId: paneId, path: path)
+            },
+            onActivePaneChanged: { [weak self] windowId, paneId in
+                self?.handleActivePaneChanged(windowId: windowId, paneId: paneId)
             },
             onTopologyChanged: { [weak self] in
                 self?.rebuild()
@@ -129,6 +138,10 @@ final class RemoteTmuxSessionMirror {
                 panelIdByWindow[windowId] = panel.id
                 panelIdByPane[firstPaneId] = panel.id
                 connection.capturePane(paneId: firstPaneId)
+                // Track the pane's working directory so the tab shows the remote
+                // cwd (initial value + live `cd`) instead of staying at "~".
+                connection.requestPanePath(paneId: firstPaneId)
+                connection.subscribePanePath(paneId: firstPaneId)
                 panelId = panel.id
             }
             reconcileWindowMirror(windowId: windowId, panelId: panelId, window: window, in: workspace)
@@ -146,6 +159,10 @@ final class RemoteTmuxSessionMirror {
             panelIdByWindow[windowId] = nil
             panelIdByPane = panelIdByPane.filter { $0.value != panelId }
         }
+        // Drop cached directories for panes tmux no longer reports, so the cache
+        // stays bounded across window/pane churn (tmux pane ids never recur).
+        let livePanes = Set(connection.windowsByID.values.flatMap { $0.paneIDsInOrder })
+        cwdByPane = cwdByPane.filter { livePanes.contains($0.key) }
         closeDefaultTabsIfNeeded()
     }
 
@@ -205,6 +222,50 @@ final class RemoteTmuxSessionMirror {
         defaultClosed = true
     }
 
+    /// Routes a pane's reported working directory to the tab that renders it: a
+    /// single-pane window updates its display tab; a multi-pane window updates its
+    /// window tab only when the reporting pane is the window's active pane, so a
+    /// background pane's `cd` can't hijack the tab's folder. No-ops for unknown panes.
+    private func handlePaneCwd(paneId: Int, path: String) {
+        guard let workspace else { return }
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        cwdByPane[paneId] = trimmed
+        guard let panelId = tabPanelId(forPane: paneId) else { return }
+        // Multi-pane window: only the active pane represents the tab.
+        if let windowId = windowIdContaining(pane: paneId),
+           windowMirrorByWindowId[windowId] != nil,
+           activePane(inWindow: windowId) != paneId {
+            return
+        }
+        _ = workspace.updatePanelDirectory(panelId: panelId, directory: trimmed)
+    }
+
+    /// Re-projects the newly-active pane's cached directory onto its multi-pane
+    /// window tab when the active pane changes, so switching panes updates the
+    /// folder immediately (rather than waiting for that pane's next `cd`).
+    private func handleActivePaneChanged(windowId: Int, paneId: Int) {
+        guard let workspace,
+              windowMirrorByWindowId[windowId] != nil,
+              let panelId = panelIdByWindow[windowId],
+              let path = cwdByPane[paneId] else { return }
+        _ = workspace.updatePanelDirectory(panelId: panelId, directory: path)
+    }
+
+    /// The panel id of the tab that renders `paneId`: a single-pane window's
+    /// display tab, or a multi-pane window's window tab.
+    private func tabPanelId(forPane paneId: Int) -> UUID? {
+        panelIdByPane[paneId] ?? windowIdContaining(pane: paneId).flatMap { panelIdByWindow[$0] }
+    }
+
+    /// The pane that currently represents `windowId`'s tab: the user-focused mirror
+    /// pane, else tmux's active pane, else the window's first pane.
+    private func activePane(inWindow windowId: Int) -> Int? {
+        windowMirrorByWindowId[windowId]?.activePaneId
+            ?? connection.activePaneByWindow[windowId]
+            ?? connection.windowsByID[windowId]?.paneIDsInOrder.first
+    }
+
     private func routeOutput(paneId: Int, data: Data) {
         // Multi-pane window: its in-tab renderer owns the pane's surface.
         if let windowId = windowIdContaining(pane: paneId),
@@ -231,6 +292,17 @@ final class RemoteTmuxSessionMirror {
         guard let targetPane else { return false }
         connection.send("split-window \(vertical ? "-v" : "-h") -t @\(windowId).%\(targetPane)")
         return true
+    }
+
+    /// Whether `surfaceId` is one of this session mirror's pane surfaces — a
+    /// single-pane display tab or any multi-pane window-mirror pane. Used to route
+    /// a pasted image to this mirror's tmux host for SSH upload.
+    func ownsSurface(_ surfaceId: UUID) -> Bool {
+        if windowMirror(forSurfaceId: surfaceId) != nil { return true }
+        guard let workspace else { return false }
+        return panelIdByPane.values.contains {
+            (workspace.panels[$0] as? TerminalPanel)?.surface.id == surfaceId
+        }
     }
 
     /// The multi-pane renderer + tmux pane id for a focused mirror surface, used

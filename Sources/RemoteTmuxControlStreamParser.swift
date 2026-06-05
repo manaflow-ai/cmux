@@ -130,6 +130,14 @@ struct RemoteTmuxControlStreamParser {
                   let wid = Self.fieldId(line, 2, sigil: "@") else { return .unparsed(line) }
             return .sessionWindowChanged(sessionId: sid, windowId: wid)
         }
+        if line.hasPrefix("%subscription-changed ") {
+            guard let name = Self.field(line, 1) else { return .ignoredNotification(line) }
+            // The value is everything after the first " : " separator. The middle
+            // fields (session/window/pane/flags) vary by tmux version, so key off
+            // the subscription name instead of a fixed field index.
+            let value = line.range(of: " : ").map { String(line[$0.upperBound...]) } ?? ""
+            return .subscriptionChanged(name: name, value: value)
+        }
         if line.hasPrefix("%") { return .ignoredNotification(line) }
         return .unparsed(line)
     }

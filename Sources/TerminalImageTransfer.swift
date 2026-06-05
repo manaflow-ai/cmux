@@ -488,6 +488,13 @@ extension TerminalSurface {
         if workspace.isRemoteTerminalSurface(id) {
             return .remote(.workspaceRemote)
         }
+        // Remote tmux mirror surfaces have no local TTY/process, so the SSH
+        // detector below can't see them. Upload pasted images to the tmux host
+        // over SSH (where claude runs can read them) instead of inserting a
+        // macOS-local path the remote host has no access to.
+        if let target = AppDelegate.shared?.remoteTmuxController.remoteUploadTarget(forSurfaceId: id) {
+            return .remote(target)
+        }
         if let ttyName = workspace.surfaceTTYNames[id],
            let session = TerminalSSHSessionDetector.detect(forTTY: ttyName) {
             return .remote(.detectedSSH(session))
