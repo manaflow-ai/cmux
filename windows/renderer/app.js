@@ -28738,6 +28738,20 @@ function quickSetupActionDefinitions() {
       run: () => refreshQuickSettingsAfterAction(saveCustomBackgroundImage({ url: quickTerminalBackgroundSaveModel().background }, { render: false }))
     },
     {
+      id: "save-background-set",
+      icon: "background",
+      label: "Save image set",
+      body: "Keep all current app and terminal backgrounds.",
+      meta: () => currentBackgroundSetSaveModel().meta,
+      cta: "Save",
+      active: () => currentBackgroundSetSaveModel().saved,
+      activeCta: "Saved",
+      search: () => `save current background image set app terminal panes wallpaper saved library reusable ${currentBackgroundSetSaveModel().search}`,
+      disabled: () => currentBackgroundSetSaveModel().disabled,
+      title: () => currentBackgroundSetSaveModel().title,
+      run: () => refreshQuickSettingsAfterAction(saveCurrentBackgroundSetToLibrary(activeWorkspace(), { render: false }))
+    },
+    {
       id: "pane-settings",
       icon: "paneSettings",
       label: "Pane settings",
@@ -28811,6 +28825,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   const healthIssueCount = performanceHealthIssueCount();
   const setup = activeSettingsSetupModel();
   const profilesFull = savedSettingsProfilesFull();
+  const backgroundSetSave = currentBackgroundSetSaveModel(workspace);
   const ids = [];
 
   if (!workspace) ids.push("new-workspace");
@@ -28823,10 +28838,11 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   }
   if (!state.settings.backgroundImage) ids.push("background");
   else if (activeTerminal && !normalizeBackgroundValue(activeTerminal.backgroundImage)) ids.push("pane-background");
+  if (!backgroundSetSave.disabled && backgroundSetSave.newBackgrounds.length > 1 && ids.length < 4) ids.push("save-background-set");
   if (state.savedSettingsProfiles.length === 0 && !ids.includes("save-clean-fast-profile") && !ids.includes("save-profile") && ids.length < 4) ids.push("save-profile");
   if (canSaveCustomColor(state.settings.accent) && !customColorPaletteHasColor(state.settings.accent) && ids.length < 4) ids.push("save-accent-color");
-  if (appBackground && canSaveBackgroundImage(appBackground) && !savedBackgroundImageExists(appBackground) && ids.length < 4) ids.push("save-background-image");
-  if (activeTerminalBackground && canSaveBackgroundImage(activeTerminalBackground) && !savedBackgroundImageExists(activeTerminalBackground) && ids.length < 4) ids.push("save-terminal-image");
+  if (!ids.includes("save-background-set") && appBackground && canSaveBackgroundImage(appBackground) && !savedBackgroundImageExists(appBackground) && ids.length < 4) ids.push("save-background-image");
+  if (!ids.includes("save-background-set") && activeTerminalBackground && canSaveBackgroundImage(activeTerminalBackground) && !savedBackgroundImageExists(activeTerminalBackground) && ids.length < 4) ids.push("save-terminal-image");
   if (workspaceNeedsQuickRename(workspace)) ids.push("rename");
   if (workspace && panels.length > 1 && !workspaceBlueprintsFull()) ids.push("save-layout");
   if (workspace && panels.length > 0 && ids.length < 4) ids.push("pane-settings");
