@@ -1539,10 +1539,36 @@ struct RestorableAgentSessionIndex: Sendable {
               let liveExecutable = process.arguments.first.map(executableBasename) else {
             return pid
         }
-        guard liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame else {
+        guard liveProcessExecutableMatchesRecordedAgent(
+            kind: kind,
+            liveExecutable: liveExecutable,
+            recordedExecutable: recordedExecutable,
+            arguments: process.arguments
+        ) else {
             return nil
         }
         return pid
+    }
+
+    private static func liveProcessExecutableMatchesRecordedAgent(
+        kind: RestorableAgentKind,
+        liveExecutable: String,
+        recordedExecutable: String,
+        arguments: [String]
+    ) -> Bool {
+        if liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame {
+            return true
+        }
+
+        guard kind == .claude else { return false }
+        let liveBase = liveExecutable.lowercased()
+        guard liveBase == "node" || liveBase == "bun" else { return false }
+        return arguments.dropFirst().contains { argument in
+            let lowered = argument.lowercased()
+            return executableBasename(argument).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame
+                || lowered.contains("/.claude/")
+                || lowered.contains("/claude/versions/")
+        }
     }
 
     private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {
