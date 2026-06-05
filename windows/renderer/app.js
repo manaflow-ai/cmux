@@ -7660,6 +7660,7 @@ const commands = [
   { id: "settings.resetPaneSetup", label: "Reset Active Pane Setup", shortcut: "", run: () => resetActivePaneSetup() },
   { id: "settings.syncPaneLook", label: "Sync Active Pane Look", shortcut: "", run: () => syncActivePaneLook() },
   { id: "settings.resetAppearance", label: "Reset Look Settings", shortcut: "", run: () => resetAppearanceSettings() },
+  { id: "settings.cycleLookPack", label: "Cycle Look Pack", shortcut: "", run: () => cycleLookPack() },
   { id: "settings.copyLook", label: "Copy Look Settings", shortcut: "", run: () => copyLookSettings() },
   { id: "settings.pasteLook", label: "Paste Look Settings", shortcut: "", run: () => pasteLookSettings() },
   { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
@@ -7820,6 +7821,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.colors",
   "settings.backgrounds",
   "settings.resetAppearance",
+  "settings.cycleLookPack",
   "settings.copyLook",
   "settings.pasteLook",
   "settings.copyTerminalSetup",
@@ -8246,6 +8248,17 @@ function customizationCommandPaletteState(commandId) {
       icon: "profiles",
       title: profilesFull ? settingsProfileLimitTitle() : "Save the current colors, layout, terminal, browser, and performance settings as a reusable profile.",
       search: normalizeSettingsQuery(`settings profile save current setup reusable look layout terminal browser performance ${profilesFull ? "limit full " : ""}${setup.kind} ${setup.label} ${setupSummary} ${countLabel}`)
+    };
+  }
+  if (commandId === "settings.cycleLookPack") {
+    const model = lookPackCycleModel();
+    return {
+      meta: model.meta,
+      shortcut: "Cycle",
+      disabled: model.disabled,
+      icon: "appearance",
+      title: model.title,
+      search: normalizeSettingsQuery(`appearance look pack cycle next preset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors ${model.search}`)
     };
   }
   if (commandId === "settings.copyLook" || commandId === "settings.pasteLook" || commandId === "settings.resetAppearance") {
@@ -15930,8 +15943,12 @@ function renderSettingsInspector(options = {}) {
     appearanceSection.append(savedColorsDisclosurePanel());
     const appearanceActions = document.createElement("div");
     appearanceActions.className = "settings-actions appearance-actions";
-    appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look save profile copy paste reset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors default profiles clipboard json");
+    appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look save profile cycle pack copy paste reset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors default profiles clipboard json");
     const lookSettingsDefault = appearanceSettingsAreDefault();
+    const lookCycle = lookPackCycleModel();
+    const cycleLook = settingsActionButton("Cycle look", cycleLookPack, "", `appearance look cycle pack preset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors ${lookCycle.search}`);
+    cycleLook.disabled = lookCycle.disabled;
+    cycleLook.title = lookCycle.title;
     const lookReset = settingsActionButton("Reset look", resetAppearanceSettings, "", `appearance look reset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors default ${lookSettingsDefault ? "active current " : ""}`);
     lookReset.disabled = lookSettingsDefault;
     lookReset.title = lookReset.disabled
@@ -15946,6 +15963,7 @@ function renderSettingsInspector(options = {}) {
         settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal layout performance"),
         "Save this look as a reusable Settings profile."
       ),
+      cycleLook,
       copyLook,
       pasteLook,
       settingsActionButton("Profiles", () => openSettingsCategory("profiles"), "", "appearance look settings profiles saved apply update"),
@@ -17996,6 +18014,32 @@ function isActiveLookPack(pack) {
     if (key === "accent" || key.startsWith("terminal")) return colorKey(current) === colorKey(value);
     return current === value;
   });
+}
+
+function lookPackCycleModel() {
+  const packs = lookPackDefinitions.filter((pack) => pack?.settings);
+  const activeIndex = packs.findIndex((pack) => isActiveLookPack(pack));
+  const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % packs.length : 0;
+  const pack = packs[nextIndex] || null;
+  const summary = lookPackSummary(pack);
+  return {
+    pack,
+    disabled: !pack || (packs.length === 1 && activeIndex === 0),
+    meta: pack ? `${pack.label} / ${summary}` : "No look packs",
+    title: pack
+      ? `Cycle look to ${pack.label}.`
+      : "No look packs are available.",
+    search: normalizeSettingsQuery(`look pack cycle next appearance theme accent background chrome readable soft immersive terminal color current ${activeLookPackLabel()} next ${pack?.label || ""} ${pack?.body || ""} ${summary}`)
+  };
+}
+
+function cycleLookPack() {
+  const model = lookPackCycleModel();
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return applyLookPack(model.pack.id);
 }
 
 function savedSettingsProfileForLookPack(pack) {
@@ -25493,11 +25537,17 @@ function quickLookControlsPanel() {
   const surfaceTintLabel = optionLabel(surfaceTintOptions, state.settings.surfaceTint, state.settings.surfaceTint);
   const accentLabel = accentModeLabel();
   const backgroundLabel = appearanceBackgroundLabel(state.settings.backgroundImage);
+  const lookCycle = lookPackCycleModel();
   const actions = [
     quickOverviewControlButton("Save profile", saveCurrentLookProfile, {
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save this look as a reusable Settings profile.",
       search: "quick setup look appearance save profile theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors reusable"
+    }),
+    quickOverviewControlButton("Cycle look", () => refreshQuickSettingsAfterAction(cycleLookPack()), {
+      disabled: lookCycle.disabled,
+      title: lookCycle.title,
+      search: `quick setup look appearance cycle pack preset theme accent intensity surface tint contrast depth shadow background chrome readable soft immersive terminal colors ${lookCycle.search}`
     }),
     quickOverviewControlButton("Copy look", copyLookSettings, {
       title: "Copy theme, accent intensity, surface tint, interface contrast, surface depth, app background, background chrome, and terminal colors as JSON.",
