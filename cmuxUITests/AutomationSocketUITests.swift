@@ -10,6 +10,7 @@ final class AutomationSocketUITests: XCTestCase {
     private let legacyKey = "socketControlEnabled"
     private var launchTag = ""
     private var temporaryRoots: [URL] = []
+    private var skillFixtureDiagnostics = ""
     private var lastTextBoxFixtureResponse = ""
     private var lastMainWindowContextResponse = ""
     private var lastWorkspaceCreateResponse = ""
@@ -21,6 +22,7 @@ final class AutomationSocketUITests: XCTestCase {
         diagnosticsPath = "/tmp/cmux-ui-test-automation-socket-\(UUID().uuidString).json"
         launchTag = "ui-tests-automation-\(UUID().uuidString.prefix(8))"
         temporaryRoots = []
+        skillFixtureDiagnostics = ""
         lastTextBoxFixtureResponse = ""
         lastMainWindowContextResponse = ""
         lastWorkspaceCreateResponse = ""
@@ -106,7 +108,7 @@ final class AutomationSocketUITests: XCTestCase {
             ]
         )
         let app = XCUIApplication()
-        configureTextBoxMentionLaunchEnvironment(app)
+        configureTextBoxMentionLaunchEnvironment(app, fixtureHome: fixtureRoots.fixtureHome)
         defer { app.terminate() }
         app.launch()
 
@@ -138,7 +140,7 @@ final class AutomationSocketUITests: XCTestCase {
             },
             """
             Expected bare $ popover rows to include $agent-browser.
-            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoots: fixtureRoots))
+            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoots: fixtureRoots.skillRoots))
             """
         )
 
@@ -155,7 +157,7 @@ final class AutomationSocketUITests: XCTestCase {
             },
             """
             Expected visible popover rows for $autore to hide stale $agent-browser.
-            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoots: fixtureRoots))
+            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoots: fixtureRoots.skillRoots))
             """
         )
         XCTAssertTrue(typedRows.first?.contains("$autoreview") == true)
@@ -173,7 +175,7 @@ final class AutomationSocketUITests: XCTestCase {
         return app
     }
 
-    private func configureTextBoxMentionLaunchEnvironment(_ app: XCUIApplication) {
+    private func configureTextBoxMentionLaunchEnvironment(_ app: XCUIApplication, fixtureHome: URL? = nil) {
         app.launchArguments += [
             "-terminal.showTextBoxOnNewTerminals", "1",
             "-terminal.focusTextBoxOnNewTerminals", "1",
@@ -184,6 +186,10 @@ final class AutomationSocketUITests: XCTestCase {
         app.launchEnvironment["CMUX_TAG"] = launchTag
         if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
             app.launchEnvironment["PATH"] = path
+        }
+        if let fixtureHome {
+            app.launchEnvironment["CFFIXED_USER_HOME"] = fixtureHome.path
+            app.launchEnvironment["HOME"] = fixtureHome.path
         }
     }
 
@@ -604,6 +610,7 @@ final class AutomationSocketUITests: XCTestCase {
             .joined(separator: "\n")
         return """
         textBoxValue=\(String(describing: textBox.value))
+        \(skillFixtureDiagnostics)
         fixtureRoots=
         \(fixtureRootStates)
         popoverExists=\(popoverExists)
@@ -629,60 +636,33 @@ final class AutomationSocketUITests: XCTestCase {
         return producer()
     }
 
-    private func makeSkillFixtureRoots(skillNames: [String]) throws -> [URL] {
+    private func makeSkillFixtureRoots(skillNames: [String]) throws -> (fixtureHome: URL, skillRoots: [URL]) {
+        let fixtureHome = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-ui-textbox-home-\(UUID().uuidString)", isDirectory: true)
         let fixtureName = "cmux-ui-textbox-skills-\(UUID().uuidString)"
-        var roots: [URL] = []
+        let root = fixtureHome
+            .appendingPathComponent(".codex/skills", isDirectory: true)
+            .appendingPathComponent(fixtureName, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for skillName in skillNames {
+            let skillDirectory = root.appendingPathComponent(skillName, isDirectory: true)
+            try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+            let contents = """
+            ---
+            name: \(skillName)
+            ---
 
-        for home in skillFixtureHomeCandidates() {
-            let root = home
-                .appendingPathComponent(".codex/skills", isDirectory: true)
-                .appendingPathComponent(fixtureName, isDirectory: true)
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            for skillName in skillNames {
-                let skillDirectory = root.appendingPathComponent(skillName, isDirectory: true)
-                try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
-                let contents = """
-                ---
-                name: \(skillName)
-                ---
-
-                Test skill fixture for \(skillName).
-                """
-                try contents.write(
-                    to: skillDirectory.appendingPathComponent("SKILL.md", isDirectory: false),
-                    atomically: true,
-                    encoding: .utf8
-                )
-            }
-            roots.append(root)
-            temporaryRoots.append(root)
+            Test skill fixture for \(skillName).
+            """
+            try contents.write(
+                to: skillDirectory.appendingPathComponent("SKILL.md", isDirectory: false),
+                atomically: true,
+                encoding: .utf8
+            )
         }
-        return roots
-    }
-
-    private func skillFixtureHomeCandidates() -> [URL] {
-        var homes: [URL] = [FileManager.default.homeDirectoryForCurrentUser]
-        if let envHome = ProcessInfo.processInfo.environment["HOME"],
-           !envHome.isEmpty {
-            homes.append(URL(fileURLWithPath: envHome, isDirectory: true))
-        }
-        let loginHome = URL(fileURLWithPath: "/Users/\(NSUserName())", isDirectory: true)
-        homes.append(loginHome)
-
-        let runnerContainerSuffix = "/Library/Containers/com.cmuxterm.appuitests.xctrunner/Data"
-        let initialHomes = homes
-        for home in initialHomes {
-            let path = home.standardizedFileURL.path
-            guard path.hasSuffix(runnerContainerSuffix) else { continue }
-            let appHomePath = String(path.dropLast(runnerContainerSuffix.count))
-                + "/Library/Containers/com.cmuxterm.app.debug/Data"
-            homes.append(URL(fileURLWithPath: appHomePath, isDirectory: true))
-        }
-
-        var seen = Set<String>()
-        return homes
-            .map(\.standardizedFileURL)
-            .filter { seen.insert($0.path).inserted }
+        temporaryRoots.append(fixtureHome)
+        skillFixtureDiagnostics = "fixtureHome=\(fixtureHome.path)"
+        return (fixtureHome.standardizedFileURL, [root.standardizedFileURL])
     }
 
     private func resolveSocketPath(timeout: TimeInterval, allowTmpFallback: Bool = true) -> String? {
