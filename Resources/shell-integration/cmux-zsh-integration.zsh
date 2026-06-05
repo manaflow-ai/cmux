@@ -542,21 +542,13 @@ _cmux_install_winch_guard() {
     fi
 
     TRAPWINCH() {
-        [[ -n "$CMUX_TAB_ID" ]] || return 0
-        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+        [[ -n "$CMUX_TAB_ID" ]] || return 1
+        [[ -n "$CMUX_PANEL_ID" ]] || return 1
 
-        # Update $COLUMNS/$LINES after resize so the shell and any foreground
-        # program see the correct dimensions. Use zle reset-prompt instead of
-        # writing to the PTY directly to avoid making the resize look like a
-        # fresh prompt (the original concern in the comment below).
-        COLUMNS=$(tput cols 2>/dev/null || echo "$COLUMNS")
-        LINES=$(tput lines 2>/dev/null || echo "$LINES")
-        if [[ -o zle ]] && zle -l reset-prompt &>/dev/null; then
-            zle reset-prompt
-        fi
-        # Return non-zero so zsh propagates SIGWINCH to the foreground process
-        # group — this lets TUI programs (vim, htop, less, etc.) redraw to fit
-        # the new window size.
+        # Return non-zero so zsh runs its default SIGWINCH action: update
+        # $COLUMNS/$LINES via ioctl(TIOCGWINSZ), redraw the ZLE prompt, and
+        # propagate the signal to the foreground process group so TUI programs
+        # (vim, htop, less, etc.) also redraw to fit the new window size.
         return 1
     }
 
