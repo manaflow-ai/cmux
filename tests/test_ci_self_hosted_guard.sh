@@ -588,7 +588,7 @@ check_cmux_unit_isolated_runner() {
     'RUSTUP_HOME="$ORIGINAL_HOME/.rustup" CARGO_HOME="$ORIGINAL_HOME/.cargo"' \
     'SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"' \
     'SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"' \
-    'class_hash="$(printf '\''%s'\'' "$class" | cksum | awk '\''{print $1}'\'')"' \
+    'class_hash="$(printf '\''%s'\'' "$test_identifier" | cksum | awk '\''{print $1}'\'')"' \
     'if [ $((class_hash % SHARD_COUNT)) -eq "$SHARD_INDEX" ]; then' \
     'BATCH_SIZE="${CMUX_UNIT_TEST_BATCH_SIZE:-1}"' \
     'BATCH_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_BATCH_TIMEOUT_SECONDS:-900}"' \
@@ -596,7 +596,7 @@ check_cmux_unit_isolated_runner() {
     'FAIL $label timed out after ${BATCH_TIMEOUT_SECONDS}s' \
     'tail -n 1200 "$BATCH_LOG"' \
     'exit 124' \
-    "All \${#SELECTED_TEST_CLASSES[@]} selected cmuxTests XCTestCase classes passed in \$SHARD_LABEL batches"
+    "All \${#SELECTED_TEST_IDENTIFIERS[@]} selected cmuxTests XCTestCase classes and Swift Testing suites passed in \$SHARD_LABEL batches"
   do
     if ! grep -Fq -- "$pattern" "$CMUX_UNIT_ISOLATED_RUNNER"; then
       echo "FAIL: run-cmux-unit-tests-isolated.sh missing required isolation pattern: $pattern"
@@ -609,7 +609,7 @@ check_cmux_unit_isolated_runner() {
     exit 1
   fi
 
-  echo "PASS: class-sharded cmux unit-test runner builds once and runs selected XCTestCase classes under an isolated app-host home"
+  echo "PASS: type-sharded cmux unit-test runner builds once and runs selected XCTestCase classes and Swift Testing suites under an isolated app-host home"
 }
 
 check_xcodebuild_unit_step_rejects_expected_failures() {
