@@ -10858,6 +10858,28 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   opacity: .76;
 }
 
+.quick-overview-controls-actions .quick-background-preset-action {
+  grid-template-columns: 22px minmax(0, 1fr);
+  justify-content: start;
+  justify-items: start;
+}
+
+.quick-overview-controls-actions .quick-background-preset-action::before {
+  content: "";
+  width: 20px;
+  height: 14px;
+  border: 1px solid color-mix(in oklch, var(--color-text) 14%, var(--color-line) 86%);
+  border-radius: 4px;
+  background-image: var(--quick-background-preview);
+  background-size: 8px 8px, 8px 8px, cover;
+  background-position: center;
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 9%, transparent);
+}
+
+.quick-overview-controls-actions .quick-background-preset-action:disabled::before {
+  opacity: .78;
+}
+
 .quick-overview-workspace,
 .quick-overview-blueprints {
   --quick-control-color: var(--color-success);

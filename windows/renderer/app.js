@@ -25485,6 +25485,35 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
   });
 }
 
+function quickBackgroundPresetControlsPanel(workspace = activeWorkspace()) {
+  const targetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
+  const targetOption = backgroundApplyTargetOption(targetStatus.scope, workspace);
+  const activePreset = targetStatus.canTarget
+    ? backgroundPresets.find((preset) => backgroundPresetActiveForTarget(preset.value, targetStatus.scope, workspace)) || null
+    : null;
+  const presetSearch = backgroundPresets.map((preset) => `${preset.label} ${preset.value}`).join(" ");
+  const actions = backgroundPresets.map((preset) => {
+    const active = Boolean(targetStatus.canTarget && backgroundPresetActiveForTarget(preset.value, targetStatus.scope, workspace));
+    const button = quickOverviewControlButton(active ? "Active" : preset.label, () => applyBackgroundPresetToTarget(preset, targetStatus.scope), {
+      disabled: !targetStatus.canTarget || active,
+      title: !targetStatus.canTarget
+        ? `${targetOption.label}: ${targetOption.meta}.`
+        : backgroundPresetApplyTitle(preset, targetOption, active),
+      search: normalizeSettingsQuery(`quick setup background template preset wallpaper apply ${targetOption.label} app pane all terminals ${active ? "active current " : ""}${preset.label} ${preset.value}`)
+    });
+    button.classList.add("quick-background-preset-action");
+    button.style.setProperty("--quick-background-preview", preset.preview || "linear-gradient(135deg, var(--color-pane), var(--color-canvas))");
+    return button;
+  });
+  return quickOverviewControlsPanel({
+    className: "quick-overview-backgrounds",
+    title: "Background templates",
+    meta: `${targetOption.label}: ${activePreset?.label || "Custom"} / ${backgroundPresets.length} templates`,
+    search: `quick setup background templates presets wallpaper image built in target app pane all terminals none grid aurora blueprint weave signal dots ${targetOption.label} ${targetOption.meta} ${activePreset?.label || "Custom"} ${presetSearch}`,
+    actions
+  });
+}
+
 function quickBackgroundTuneControlsPanel() {
   const activePreset = backgroundTuningPresets.find(backgroundTuningPresetActive) || null;
   const presetSearch = backgroundTuningPresets.map((preset) => `${preset.label} ${preset.body}`).join(" ");
@@ -25766,6 +25795,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-performance-controls></div>
     <div data-quick-performance-preset-controls></div>
     <div data-quick-background-controls></div>
+    <div data-quick-background-preset-controls></div>
     <div data-quick-background-tune-controls></div>
     <div class="quick-overview-scope" aria-label="Background scope">
       <button class="quick-overview-scope-item" type="button" data-quick-scope-item="app">
@@ -25870,6 +25900,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   if (performancePresetControls) performancePresetSlot.replaceWith(performancePresetControls);
   else performancePresetSlot.remove();
   panel.querySelector("[data-quick-background-controls]").replaceWith(quickBackgroundControlsPanel(workspace));
+  panel.querySelector("[data-quick-background-preset-controls]").replaceWith(quickBackgroundPresetControlsPanel(workspace));
   panel.querySelector("[data-quick-background-tune-controls]").replaceWith(quickBackgroundTuneControlsPanel());
   panel.querySelector("[data-quick-scope-app]").textContent = scope.hasBackground
     ? appearanceBackgroundLabel(state.settings.backgroundImage)
