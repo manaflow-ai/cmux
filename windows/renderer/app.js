@@ -24767,7 +24767,7 @@ function runPerformanceQuickAction(actionId) {
     toast(action.already);
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  refreshPerformanceSettings();
   toast(action.applied);
   return true;
 }
@@ -24903,7 +24903,7 @@ function applyPerformanceHealthFix(checkId, options = {}) {
     toast(`${check.label} is already tuned.`);
     return false;
   }
-  if (options.render !== false && state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
+  refreshPerformanceSettings(options);
   toast(`${check.label} tuned.`);
   return true;
 }
@@ -24919,7 +24919,7 @@ function applyPerformanceHealthFixes(options = {}) {
     toast("Performance health is already tuned.");
     return false;
   }
-  if (options.render !== false && state.inspectorMode === "settings") scheduleSettingsInspectorRender({ ifChanged: true });
+  refreshPerformanceSettings(options);
   toast("Performance health fixes applied.");
   return true;
 }
@@ -25256,6 +25256,19 @@ function refreshPerformanceProfileSaveSettings(options = {}) {
   if (state.settingsCategory === "performance") {
     requestAnimationFrame(() => {
       if (state.inspectorMode === "settings" && state.settingsCategory === "performance") refreshPerformanceProfileSaveControls();
+    });
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
+function refreshPerformanceSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "performance" && !normalizeSettingsQuery(state.settingsQuery)) {
+    requestAnimationFrame(() => {
+      if (state.inspectorMode !== "settings" || state.settingsCategory !== "performance" || normalizeSettingsQuery(state.settingsQuery)) return;
+      refreshPerformanceMetricsGrid();
+      refreshPerformanceProfileSaveControls();
     });
     return;
   }
@@ -30065,9 +30078,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     toast(automatic ? "Performance guard already tuned." : "Performance tune already active.");
     return false;
   }
-  if (state.inspectorMode === "settings" && state.settingsCategory === "performance") {
-    scheduleSettingsInspectorRender({ ifChanged: true });
-  }
+  if (state.inspectorMode === "settings" && state.settingsCategory === "performance") refreshPerformanceSettings();
   toast(automatic ? `Performance guard enabled: ${reason}.` : "Performance tune applied.");
   return true;
 }
