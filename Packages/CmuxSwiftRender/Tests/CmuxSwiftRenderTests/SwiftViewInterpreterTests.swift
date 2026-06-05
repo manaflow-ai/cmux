@@ -406,4 +406,405 @@ import Testing
         #expect(!text.contains("$"))
         #expect(text.contains("4"))
     }
+
+    @Test func listSectionLazyAndGroupContainers() {
+        let node = interp.evaluate("""
+        List {
+            Section("Repos") {
+                LazyVStack {
+                    Text("a")
+                    Text("b")
+                }
+            }
+            Group {
+                Text("c")
+            }
+        }
+        """)
+        #expect(node?.kind == .list)
+        let section = node?.children.first
+        #expect(section?.kind == .section)
+        #expect(section?.text == "Repos")
+        #expect(section?.children.first?.kind == .lazyVStack)
+        #expect(section?.children.first?.children.map(\.text) == ["a", "b"])
+        #expect(node?.children.last?.kind == .group)
+    }
+
+    @Test func horizontalScrollViewBecomesHscrollVerticalStaysPassthrough() {
+        let h = interp.evaluate("""
+        ScrollView(.horizontal) {
+            HStack { Text("x"); Text("y") }
+        }
+        """)
+        #expect(h?.kind == .hscroll)
+        #expect(h?.children.first?.kind == .hstack)
+
+        let v = interp.evaluate("""
+        ScrollView {
+            Text("only")
+        }
+        """)
+        #expect(v?.kind == .vstack)
+        #expect(v?.children.first?.text == "only")
+    }
+
+    @Test func forEachEnumeratedTwoArgClosureDestructures() {
+        let node = interp.evaluate("""
+        VStack {
+            ForEach(Array(["a", "b", "c"].enumerated()), id: \\.offset) { i, name in
+                Text("\\(i):\\(name)")
+            }
+        }
+        """)
+        #expect(node?.children.map(\.text) == ["0:a", "1:b", "2:c"])
+    }
+
+    @Test func forEachOverIndices() {
+        let xs = SwiftValue.array([.string("x"), .string("y")])
+        let node = interp.evaluate("""
+        VStack {
+            ForEach(items.indices) { i in Text("\\(i)") }
+        }
+        """, state: ["items": xs])
+        #expect(node?.children.map(\.text) == ["0", "1"])
+    }
+
+    @Test func arraySliceHelpersAndConversions() {
+        let node = interp.evaluate("""
+        HStack {
+            Text("\\([1,2,3,4].dropFirst(2).count)")
+            Text("\\([1,2,3,4].suffix(1).count)")
+            Text("\\(Int("42"))")
+        }
+        """)
+        #expect(node?.children.map(\.text) == ["2", "1", "42"])
+    }
+
+    @Test func deeplyNestedViewDoesNotCrash() {
+        // 600 levels of nesting overflows the small caller stack (both the
+        // swift-syntax parse and this walker recurse with depth); the large-
+        // stack worker thread absorbs it and it renders without crashing.
+        let depth = 600
+        let source = String(repeating: "VStack { ", count: depth) + "Text(\"deep\")" + String(repeating: " }", count: depth)
+        let node = interp.evaluate(source)
+        #expect(node?.kind == .vstack)
+    }
+
+    @Test func progressGaugeMenuAndContextMenu() {
+        let p = interp.evaluate(#"VStack { ProgressView(value: 30, total: 120) }"#)
+        #expect(p?.children.first?.kind == .progressView)
+        #expect(p?.children.first?.value == 0.25)
+
+        let indeterminate = interp.evaluate(#"VStack { ProgressView() }"#)
+        #expect(indeterminate?.children.first?.kind == .progressView)
+        #expect(indeterminate?.children.first?.value == nil)
+
+        let menu = interp.evaluate("""
+        Menu("Actions") {
+            Button("Stop") { cmux("agent.stop") }
+        }
+        """)
+        #expect(menu?.kind == .menu)
+        #expect(menu?.text == "Actions")
+        #expect(menu?.children.first?.kind == .button)
+
+        let ctx = interp.evaluate("""
+        Text("row").contextMenu {
+            Button("Open") { cmux("workspace.select") }
+        }
+        """)
+        let cm = ctx?.modifiers.first { $0.name == "contextMenu" }
+        #expect(cm?.children.first?.kind == .button)
+    }
+
+    @Test func gridRowsAndViewThatFits() {
+        let node = interp.evaluate("""
+        Grid {
+            GridRow {
+                Text("a")
+                Text("b")
+            }
+            GridRow {
+                Text("c")
+                Text("d")
+            }
+        }
+        """)
+        #expect(node?.kind == .grid)
+        #expect(node?.children.map(\.kind) == [.gridRow, .gridRow])
+        #expect(node?.children.first?.children.map(\.text) == ["a", "b"])
+
+        let fits = interp.evaluate("""
+        ViewThatFits {
+            Text("wide label")
+            Text("x")
+        }
+        """)
+        #expect(fits?.kind == .viewThatFits)
+        #expect(fits?.children.count == 2)
+    }
+
+    @Test func numericBuiltinsMinMaxAbs() {
+        let node = interp.evaluate("""
+        HStack {
+            Text("\\(min(3, 7))")
+            Text("\\(max(3, 7))")
+            Text("\\(abs(-5))")
+        }
+        """)
+        #expect(node?.children.map(\.text) == ["3", "7", "5"])
+    }
+
+    @Test func imageSymbolModifiersCaptured() {
+        let node = interp.evaluate("""
+        Image(systemName: "star")
+            .imageScale(.large)
+            .symbolRenderingMode(.hierarchical)
+            .symbolVariant(.fill)
+        """)
+        #expect(node?.kind == .image)
+        let names = Set((node?.modifiers ?? []).map(\.name))
+        #expect(names.isSuperset(of: ["imageScale", "symbolRenderingMode", "symbolVariant"]))
+    }
+
+    @Test func overlayAndBackgroundCaptureArbitraryChildViews() {
+        let node = interp.evaluate("""
+        Text("base")
+            .overlay(alignment: .topTrailing) {
+                Circle().frame(width: 8, height: 8)
+            }
+            .background {
+                RoundedRectangle(cornerRadius: 8)
+            }
+        """)
+        let overlay = node?.modifiers.first { $0.name == "overlay" }
+        #expect(overlay?.children.first?.kind == .circle)
+        #expect(overlay?.value("alignment") == ".topTrailing" || overlay?.value("alignment") == "topTrailing")
+        let background = node?.modifiers.first { $0.name == "background" }
+        #expect(background?.children.first?.kind == .roundedRectangle)
+    }
+
+    @Test func gradientsCaptureColorsAndPoints() {
+        let node = interp.evaluate("""
+        ZStack {
+            LinearGradient(colors: [.red, "#0A84FF"], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+        """)
+        let g = node?.children.first
+        #expect(g?.kind == .linearGradient)
+        #expect(g?.colors == ["red", "#0A84FF"])
+        #expect(g?.points == ["topLeading", "bottomTrailing"])
+
+        let radial = interp.evaluate("""
+        ZStack { RadialGradient(colors: ["#fff", "#000"], center: .center) }
+        """)
+        #expect(radial?.children.first?.kind == .radialGradient)
+    }
+
+    @Test func stringTrimmingCharacters() {
+        let node = interp.evaluate("""
+        VStack {
+            Text("  hi  ".trimmingCharacters(in: .whitespaces))
+            Text("\\("  hi  ".trimmingCharacters(in: .whitespacesAndNewlines).count)")
+        }
+        """)
+        #expect(node?.children.first?.text == "hi")
+        #expect(node?.children.last?.text == "2")
+    }
+
+    @Test func stringAndArrayJoinHelpers() {
+        let node = interp.evaluate("""
+        VStack {
+            Text(["a", "b", "c"].joined(separator: "/"))
+            Text("hello world".capitalized)
+            Text("a-b-c".replacingOccurrences(of: "-", with: "."))
+        }
+        """)
+        #expect(node?.children.map(\.text) == ["a/b/c", "Hello World", "a.b.c"])
+    }
+
+    @Test func closuresHonorLocalLetBindings() {
+        // map/reduce/sorted closures with a local `let` must define it (was a
+        // bug: closures returned the first expression, skipping let bindings).
+        let mapped = interp.evaluate("""
+        HStack { ForEach([1, 2, 3].map { x in let d = x * 2; d + 1 }) { n in Text("\\(n)") } }
+        """)
+        #expect(mapped?.children.map(\.text) == ["3", "5", "7"])
+
+        let reduced = interp.evaluate("""
+        VStack { Text("\\([1, 2, 3].reduce(0) { acc, x in let step = x * x; acc + step })") }
+        """)
+        #expect(reduced?.children.first?.text == "14")
+    }
+
+    @Test func colorChannelHandlesNonFiniteWithoutCrashing() {
+        // Color(red: .infinity) must not trap converting Double->Int.
+        let node = interp.evaluate(#"VStack { Rectangle().foregroundColor(Color(red: 2.0, green: 0.5, blue: 0.0)) ; Text("ok") }"#)
+        #expect(node?.children.last?.text == "ok")
+    }
+
+    @Test func valueFuncWithSwitchAndIfLet() {
+        let node = interp.evaluate("""
+        func tint(_ w) -> String {
+            switch w.state {
+            case "running": return "#9ECE6A"
+            case "queued": return "#7AA2F7"
+            default: return "#565F89"
+            }
+        }
+        func name(_ w) -> String {
+            if let t = w.title { return t }
+            return "untitled"
+        }
+        VStack {
+            Text(tint(a)).foregroundColor(tint(a))
+            Text(name(a))
+            Text(name(b))
+        }
+        """, state: [
+            "a": .object(["state": .string("queued"), "title": .string("Alpha")]),
+            "b": .object(["state": .string("running")]),
+        ])
+        #expect(node?.children.map(\.text) == ["#7AA2F7", "Alpha", "untitled"])
+    }
+
+    @Test func ifLetOptionalBindingRendersWhenPresent() {
+        let present = SwiftValue.object(["branch": .string("main")])
+        let node = interp.evaluate("""
+        VStack {
+            if let b = ws.branch { Text("on \\(b)") } else { Text("no branch") }
+        }
+        """, state: ["ws": present])
+        #expect(node?.children.first?.text == "on main")
+
+        let absent = SwiftValue.object(["title": .string("x")])
+        let node2 = interp.evaluate("""
+        VStack {
+            if let b = ws.branch { Text("on \\(b)") } else { Text("no branch") }
+        }
+        """, state: ["ws": absent])
+        #expect(node2?.children.first?.text == "no branch")
+    }
+
+    @Test func switchSelectsMatchingCase() {
+        func run(_ status: String) -> String? {
+            interp.evaluate("""
+            VStack {
+                switch s {
+                case "running": Text("go")
+                case "idle": Text("wait")
+                default: Text("?")
+                }
+            }
+            """, state: ["s": .string(status)])?.children.first?.text
+        }
+        #expect(run("running") == "go")
+        #expect(run("idle") == "wait")
+        #expect(run("other") == "?")
+    }
+
+    @Test func anyViewPassthrough() {
+        let node = interp.evaluate(#"VStack { AnyView(Text("wrapped")) }"#)
+        #expect(node?.children.first?.kind == .text)
+        #expect(node?.children.first?.text == "wrapped")
+    }
+
+    @Test func shapeStrokeAndTrimCaptured() {
+        let node = interp.evaluate("""
+        Circle().stroke("#7AA2F7", lineWidth: 2).trim(from: 0.0, to: 0.75)
+        """)
+        #expect(node?.kind == .circle)
+        let names = Set((node?.modifiers ?? []).map(\.name))
+        #expect(names.isSuperset(of: ["stroke", "trim"]))
+        let stroke = node?.modifiers.first { $0.name == "stroke" }
+        #expect(stroke?.firstValue == "#7AA2F7")
+        #expect(stroke?.value("lineWidth") == "2")
+    }
+
+    @Test func ellipseAndUnevenRoundedRectangleShapes() {
+        let node = interp.evaluate("""
+        HStack {
+            Ellipse()
+            UnevenRoundedRectangle(cornerRadius: 12)
+        }
+        """)
+        #expect(node?.children.map(\.kind) == [.ellipse, .unevenRoundedRectangle])
+        #expect(node?.children.last?.cornerRadius == 12)
+    }
+
+    @Test func cosmeticModifiersCaptured() {
+        let node = interp.evaluate("""
+        Text("x")
+            .shadow(radius: 4)
+            .border(.gray, width: 1)
+            .rotationEffect(.degrees(45))
+            .scaleEffect(1.2)
+        """)
+        let names = Set((node?.modifiers ?? []).map(\.name))
+        #expect(names.isSuperset(of: ["shadow", "border", "rotationEffect", "scaleEffect"]))
+    }
+
+    @Test func labelCapturesTitleAndIcon() {
+        let node = interp.evaluate("""
+        VStack {
+            Label("Repos", systemImage: "folder.fill")
+        }
+        """)
+        let label = node?.children.first
+        #expect(label?.kind == .label)
+        #expect(label?.text == "Repos")
+        #expect(label?.systemName == "folder.fill")
+    }
+
+    @Test func textTypographyModifiersCaptured() {
+        let node = interp.evaluate("""
+        Text("hi")
+            .italic()
+            .monospaced()
+            .textCase(.uppercase)
+            .multilineTextAlignment(.center)
+        """)
+        #expect(node?.kind == .text)
+        let names = Set((node?.modifiers ?? []).map(\.name))
+        #expect(names.isSuperset(of: ["italic", "monospaced", "textCase", "multilineTextAlignment"]))
+    }
+
+    @Test func emptyViewLowersToEmptyGroup() {
+        let node = interp.evaluate("""
+        VStack {
+            EmptyView()
+            Text("after")
+        }
+        """)
+        #expect(node?.children.first?.kind == .group)
+        #expect(node?.children.first?.children.isEmpty == true)
+        #expect(node?.children.last?.text == "after")
+    }
+
+    /// Authored source must never trap the interpreter: a non-finite or
+    /// out-of-range double passed to `Int(...)` evaluates to nil instead of
+    /// crashing the process (https://github.com/manaflow-ai/cmux/pull/5275
+    /// review finding).
+    @Test func intConversionOfNonFiniteDoubleDoesNotTrap() {
+        let node = interp.evaluate("""
+        VStack {
+            Text("\\(Int(1.0 / 0.0))")
+            Text("\\(Int(0.0 / 0.0))")
+            Text("\\(Int(1e300))")
+            Text("after")
+        }
+        """)
+        #expect(node?.kind == .vstack)
+        #expect(node?.children.last?.text == "after")
+    }
+
+    /// `Gauge(value:total:)` normalizes like ProgressView; the raw value
+    /// alone would render any total-relative gauge as full.
+    @Test func gaugeNormalizesValueAgainstTotal() {
+        let node = interp.evaluate("""
+        Gauge(value: 3.0, total: 12.0) { Text("load") }
+        """)
+        #expect(node?.kind == .gauge)
+        #expect(node?.value == 0.25)
+    }
 }

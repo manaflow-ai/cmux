@@ -4,10 +4,15 @@
 public struct RenderModifier: Codable, Sendable, Equatable {
     public let name: String
     public let args: [ModifierArg]
+    /// The view subtree from a modifier's trailing closure, e.g. the content of
+    /// `.overlay { ... }` / `.background { ... }` / `.mask { ... }`. Empty for
+    /// value-only modifiers.
+    public let children: [RenderNode]
 
-    public init(name: String, args: [ModifierArg] = []) {
+    public init(name: String, args: [ModifierArg] = [], children: [RenderNode] = []) {
         self.name = name
         self.args = args
+        self.children = children
     }
 
     /// The first unlabeled argument value (or the first argument), for

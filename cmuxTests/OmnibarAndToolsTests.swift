@@ -412,7 +412,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertFalse(effects.shouldSelectAll)
     }
 
-    func testRefocusRequestPreservesEditingBuffer() throws {
+    func testExplicitRefocusRequestPreservesEditingBufferAndSelectsAll() throws {
         var state = OmnibarState()
 
         _ = omnibarReduce(
@@ -424,7 +424,9 @@ final class OmnibarStateMachineTests: XCTestCase {
         let effects = omnibarReduce(
             state: &state,
             event: .focusReasserted(
-                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: state.isUserEditing)
+                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
+                    selectionIntent: .selectAll
+                )
             )
         )
 
@@ -432,12 +434,20 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertTrue(state.isUserEditing)
         XCTAssertEqual(state.currentURLString, "https://example.com/")
         XCTAssertEqual(state.buffer, "abcdef")
-        XCTAssertFalse(effects.shouldSelectAll)
+        XCTAssertTrue(effects.shouldSelectAll)
     }
 
-    func testFocusReassertionDoesNotSelectAllDuringUserEdit() throws {
-        XCTAssertFalse(browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: true))
-        XCTAssertTrue(browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: false))
+    func testFocusReassertionHonorsSelectionIntent() throws {
+        XCTAssertTrue(
+            browserOmnibarShouldSelectAllOnFocusReassertion(
+                selectionIntent: .selectAll
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldSelectAllOnFocusReassertion(
+                selectionIntent: .preserveFieldEditorSelection
+            )
+        )
     }
 
     func testEscapeRevertsWhenEditingThenBlursOnSecondEscape() throws {
@@ -447,7 +457,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertTrue(state.isFocused)
         XCTAssertEqual(state.buffer, "https://example.com/")
         XCTAssertFalse(state.isUserEditing)
-        XCTAssertTrue(effects.shouldSelectAll)
+        XCTAssertFalse(effects.shouldSelectAll)
 
         effects = omnibarReduce(state: &state, event: .bufferChanged("exam"))
         XCTAssertTrue(state.isUserEditing)
