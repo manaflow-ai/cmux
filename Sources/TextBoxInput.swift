@@ -1538,7 +1538,13 @@ private struct TextBoxMentionCompletionPopoverView: View {
                             .accessibilityLabel(suggestion.title)
                             .accessibilityValue(
                                 index == selectionIndex
-                                    ? "selected \(suggestion.title)"
+                                    ? String(
+                                        format: String(
+                                            localized: "textbox.mentionCompletion.accessibility.selectedValue",
+                                            defaultValue: "selected %@"
+                                        ),
+                                        suggestion.title
+                                    )
                                     : suggestion.title
                             )
                         }
