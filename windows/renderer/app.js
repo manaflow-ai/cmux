@@ -24692,6 +24692,21 @@ const performanceHealthCheckDefinitions = [
     search: "reduce motion animation smooth scrolling transition"
   },
   {
+    id: "chromeTiming",
+    label: "Chrome timing",
+    body: "Uses shorter UI transitions so settings, panes, and chrome respond faster.",
+    actionLabel: "Snappy",
+    readyLabel: "Snappy",
+    issue: () => !state.settings.performanceMode
+      && !state.settings.reduceMotion
+      && state.settings.chromeMotionMode !== "snappy",
+    meta: () => state.settings.performanceMode || state.settings.reduceMotion
+      ? "Reduced"
+      : optionLabel(chromeMotionOptions, state.settings.chromeMotionMode, state.settings.chromeMotionMode),
+    updates: () => ({ chromeMotionMode: "snappy" }),
+    search: "chrome timing transition duration snappy balanced calm settings pane ui lag"
+  },
+  {
     id: "outputBacklog",
     label: "Output backlog",
     body: "Applies speed tuning when queued terminal output is already building up.",
