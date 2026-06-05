@@ -3,7 +3,7 @@ import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFi
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useEffect, useReducer, useRef, useState } from "react";
-import { copyGitApplyCommand, diffSourceDetail, resolveDiffNavigationURL } from "./actions";
+import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { fileName, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
 import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh, selectPierreFileTreePath } from "./file-tree-refresh";
@@ -392,7 +392,6 @@ function SourceControls({
         options={payload.baseOptions}
         onNavigate={onNavigate}
       />
-      <span id="source-detail">{selectedSourceDetail(payload)}</span>
     </div>
   );
 }
@@ -441,13 +440,6 @@ function NavigationSelect({
       ))}
     </select>
   );
-}
-
-function selectedSourceDetail(payload: any): string {
-  const selectedSource = Array.isArray(payload.sourceOptions)
-    ? payload.sourceOptions.find((option: any) => option.selected) ?? payload.sourceOptions.find((option: any) => !option.disabled)
-    : null;
-  return selectedSource?.sourceLabel ?? diffSourceDetail(payload);
 }
 
 function JumpSelect({

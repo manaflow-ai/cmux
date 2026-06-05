@@ -52,6 +52,7 @@ test("App renders the React-owned shell without starting a patch fetch for statu
   );
 
   expect(dom.window.document.getElementById("toolbar")).toBeTruthy();
+  expect(dom.window.document.getElementById("source-detail")).toBeNull();
   expect(dom.window.document.getElementById("files-sidebar")).toBeTruthy();
   expect(dom.window.document.getElementById("status-text")?.textContent).toBe("Waiting for diff");
   expect(fetched).toBe(false);
