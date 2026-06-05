@@ -28,7 +28,7 @@ function resolveExecutable(name: string): string {
     const candidate = path.join(dir, name);
     try {
       fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
+      if (fs.statSync(candidate).isFile()) return candidate;
     } catch (_) {}
   }
   return name;
@@ -205,17 +205,16 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
         do {
             return try String(contentsOf: url, encoding: .utf8)
         } catch {
-            let message = String.localizedStringWithFormat(
+            throw CLIError(message: String.localizedStringWithFormat(
                 String(
-                    localized: "cli.hooks.omp.error.notCmuxExtension",
-                    defaultValue: "%@ exists and is not a cmux extension; leaving it alone"
+                    localized: "cli.hooks.omp.error.readFailed",
+                    defaultValue: "Failed to read %@: %@"
                 ),
-                url.path
-            )
-            throw CLIError(message: "\(message): \(error.localizedDescription)")
+                url.path,
+                String(describing: error)
+            ))
         }
     }
-
 
     func installOmpExtensionHooks(_ _: AgentHookDef) throws {
         let extensionURL = ompExtensionURL()

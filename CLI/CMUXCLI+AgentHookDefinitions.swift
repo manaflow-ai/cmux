@@ -13,6 +13,7 @@ extension CMUXCLI {
         let configDirEnvOverride: String? // e.g. "CODEX_HOME" overrides configDir
         let configDirEnvOverrideSubpath: String? // e.g. "GROK_HOME" + "hooks"
         let createConfigDirIfMissing: Bool // for agents whose hook dir is created lazily
+        let configDirResolver: (() -> String)?
         let sessionStoreSuffix: String // e.g. "cursor" -> ~/.cmuxterm/cursor-hook-sessions.json
         let disableEnvVar: String   // e.g. "CMUX_CURSOR_HOOKS_DISABLED"
         let hookMarker: String      // Marker in commands: "cmux hooks cursor"
@@ -70,8 +71,8 @@ extension CMUXCLI {
 
         /// Resolves the config directory, respecting env override if set.
         func resolvedConfigDir() -> String {
-            if name == "omp" {
-                return CMUXCLI.resolvedOmpAgentDirectory().path
+            if let configDirResolver {
+                return configDirResolver()
             }
             let home = ProcessInfo.processInfo.environment["HOME"].flatMap { value -> String? in
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -101,6 +102,7 @@ extension CMUXCLI {
              configDir: String, configFile: String, configDirEnvOverride: String? = nil,
              configDirEnvOverrideSubpath: String? = nil,
              createConfigDirIfMissing: Bool = false,
+             configDirResolver: (() -> String)? = nil,
              binaryName: String? = nil,
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
@@ -115,6 +117,7 @@ extension CMUXCLI {
             self.configDirEnvOverride = configDirEnvOverride
             self.configDirEnvOverrideSubpath = configDirEnvOverrideSubpath
             self.createConfigDirIfMissing = createConfigDirIfMissing
+            self.configDirResolver = configDirResolver
             self.binaryName = binaryName ?? name
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
@@ -200,6 +203,7 @@ extension CMUXCLI {
             name: "omp", displayName: "OMP", statusKey: "omp",
             configDir: ".omp/agent", configFile: "extensions/cmux-omp-session.ts",
             createConfigDirIfMissing: true,
+            configDirResolver: { CMUXCLI.resolvedOmpAgentDirectory().path },
             sessionStoreSuffix: "omp", disableEnvVar: "CMUX_OMP_HOOKS_DISABLED",
             hookMarker: "cmux hooks omp", format: .flat,
             events: []

@@ -246,7 +246,86 @@ struct OmpSupportTests {
         #expect(detected.workingDirectory == workspace.path)
     }
 
+    @Test func hostedOmpIgnoresRuntimePreloadFlagsBeforeAgentScript() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-hosted-runtime-preload-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
 
+        let latest = try Self.writeSessionFile(
+            id: "omp-hosted-latest-session",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let detected = try #require(Self.detectedOmpSnapshot(
+            processName: "node",
+            processPath: "/opt/homebrew/bin/node",
+            arguments: [
+                "/opt/homebrew/bin/node",
+                "-r",
+                "/tmp/preload-session-module.js",
+                "/Users/example/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src/main.ts",
+            ],
+            environment: [
+                "PWD": workspace.path,
+                "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+            ]
+        ))
+
+        #expect(detected.kind == RestorableAgentKind.custom("omp"))
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(detected.sessionId != "/tmp/preload-session-module.js")
+        #expect(detected.workingDirectory == workspace.path)
+    }
+
+    @Test func hostedOmpParsesSessionSelectorsAfterAgentScript() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-hosted-runtime-session-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+
+        let explicit = try Self.writeSessionFile(
+            id: "omp-hosted-explicit-session",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let latest = try Self.writeSessionFile(
+            id: "omp-hosted-latest-session",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let detected = try #require(Self.detectedOmpSnapshot(
+            processName: "node",
+            processPath: "/opt/homebrew/bin/node",
+            arguments: [
+                "/opt/homebrew/bin/node",
+                "-r",
+                "/tmp/preload-session-module.js",
+                "/Users/example/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src/main.ts",
+                "--session",
+                "omp-hosted-explicit-session",
+            ],
+            environment: [
+                "PWD": workspace.path,
+                "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+            ]
+        ))
+
+        #expect(detected.kind == RestorableAgentKind.custom("omp"))
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(explicit.path))
+        #expect(Self.normalizedPath(detected.sessionId) != Self.normalizedPath(latest.path))
+        #expect(detected.workingDirectory == workspace.path)
+    }
 
     @Test func taskManagerClassifiesOmpBeforeLegacyPiPackageNeedles() throws {
         let direct = try #require(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(

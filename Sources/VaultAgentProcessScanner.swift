@@ -659,6 +659,10 @@ private struct VaultObservedAgentProcess: Sendable {
         return arguments[index]
     }
 
+    var piCompatibleSessionID: String? {
+        arguments.piCompatibleSessionID(startingAt: piCompatibleSessionArgumentStartIndex)
+    }
+
     var openCodeExecutableArgumentIndex: Int? {
         if let first = arguments.first,
            Self.argumentLooksLikeOpenCode(first) {
@@ -671,6 +675,17 @@ private struct VaultObservedAgentProcess: Sendable {
             return nil
         }
         return Self.argumentLooksLikeOpenCode(arguments[scriptIndex]) ? scriptIndex : nil
+    }
+
+    private var piCompatibleSessionArgumentStartIndex: Int {
+        guard !arguments.isEmpty else { return 0 }
+        if let scriptIndex = Self.javaScriptRuntimeScriptArgumentIndex(arguments) {
+            return min(scriptIndex + 1, arguments.endIndex)
+        }
+        if arguments[arguments.startIndex].hasPrefix("-") {
+            return arguments.startIndex
+        }
+        return min(arguments.startIndex + 1, arguments.endIndex)
     }
 
     private var processIdentityLooksLikeOpenCode: Bool {
@@ -705,6 +720,15 @@ private struct VaultObservedAgentProcess: Sendable {
         TmuxResumeParser.argumentLooksLikeTmuxServerProcessTitle(argument)
     }
 
+    private static func wrapperLooksLikeJavaScriptRuntime(_ basename: String) -> Bool {
+        switch basename.lowercased() {
+        case "node", "bun", "deno", "tsx", "ts-node":
+            return true
+        default:
+            return false
+        }
+    }
+
     private static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {
         switch basename.lowercased() {
         case "node":
@@ -712,6 +736,30 @@ private struct VaultObservedAgentProcess: Sendable {
         default:
             return false
         }
+    }
+
+    private static func javaScriptRuntimeScriptArgumentIndex(_ arguments: [String]) -> Int? {
+        guard let first = arguments.first else { return nil }
+        guard wrapperLooksLikeJavaScriptRuntime((first as NSString).lastPathComponent) else {
+            return nil
+        }
+        var index = 1
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                let nextIndex = index + 1
+                return nextIndex < arguments.count ? nextIndex : nil
+            }
+            if argument.hasPrefix("-") {
+                if nodeOptionConsumesScript(argument) {
+                    return nil
+                }
+                index += 1 + nodeOptionValueCount(argument)
+                continue
+            }
+            return index
+        }
+        return nil
     }
 
     private static func nodeScriptArgumentIndex(_ arguments: [String]) -> Int? {
@@ -816,7 +864,7 @@ private extension CmuxVaultAgentSessionIDSource {
         case .argvOption(let option):
             return process.arguments.nonOptionValue(afterOption: option)
         case .piSessionFile:
-            if let session = process.arguments.piCompatibleSessionID {
+            if let session = process.piCompatibleSessionID {
                 return PiSessionLocator.resolvedSessionPath(
                     session,
                     for: process,
@@ -887,8 +935,9 @@ private extension Array where Element == String {
         return value
     }
 
-    var piCompatibleSessionID: String? {
-        for index in indices {
+    func piCompatibleSessionID(startingAt startIndex: Int) -> String? {
+        guard startIndex < endIndex else { return nil }
+        for index in indices where index >= startIndex {
             let argument = self[index]
             if argument == "--session" || argument == "--resume" || argument == "-r" {
                 let nextIndex = self.index(after: index)
