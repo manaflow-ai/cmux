@@ -10354,6 +10354,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// (which also flow through `didChangeGeometry`) do not fire `objectWillChange`.
     @Published var paneLayoutVersion: Int = 0
 
+    /// Snapshot of `orderedPanelIds` from the last geometry notification, used to
+    /// gate `paneLayoutVersion` bumps to genuine reorder events.
+    private var lastOrderedPanelIds: [UUID] = []
+
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
 
@@ -19412,6 +19416,17 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         tmuxLayoutSnapshot = snapshot
+        // Every order/membership mutation (same-pane reorder, cross-pane move,
+        // split, close) routes through here. A pure reorder mutates only
+        // bonsplit's internal state, which is not `@Published`, so observers
+        // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
+        // sequence actually changed, so divider drags and selection-only events
+        // (also routed here) do not fire `objectWillChange` app-wide.
+        let currentOrder = orderedPanelIds
+        if currentOrder != lastOrderedPanelIds {
+            lastOrderedPanelIds = currentOrder
+            paneLayoutVersion &+= 1
+        }
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
