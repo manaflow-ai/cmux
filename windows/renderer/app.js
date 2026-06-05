@@ -7497,6 +7497,7 @@ const commands = [
   { id: "settings.appearance", label: "Open Look Settings", shortcut: "", run: () => openSettingsCategory("appearance") },
   { id: "settings.browser", label: "Open Browser Settings", shortcut: "", run: () => openSettingsCategory("browser") },
   { id: "settings.layout", label: "Open Layout Settings", shortcut: "", run: () => openSettingsCategory("layout") },
+  { id: "settings.saveLayoutProfile", label: "Save Layout Profile", shortcut: "", run: () => saveCurrentLayoutProfile() },
   { id: "settings.data", label: "Open Data Settings", shortcut: "", run: () => openSettingsCategory("data") },
   { id: "settings.copyAppSetup", label: "Copy App Setup", shortcut: "", run: () => copyAppSetup() },
   { id: "settings.pasteAppSetup", label: "Paste App Setup", shortcut: "", run: () => pasteAppSetup() },
@@ -7648,6 +7649,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.clearSavedLibrary",
   "settings.clearRecentActivity",
   "settings.saveProfile",
+  "settings.saveLayoutProfile",
   "settings.copyCurrentProfile",
   "settings.pasteProfile",
   "settings.saveTerminalProfile",
@@ -8005,7 +8007,7 @@ function customizationCommandPaletteState(commandId) {
       search: normalizeSettingsQuery(`terminal command snippet paste import clipboard json saved custom shell ${full ? "limit full " : ""}${countLabel}`)
     };
   }
-  if (commandId === "settings.saveProfile" || commandId === "settings.copyCurrentProfile" || commandId === "settings.pasteProfile" || commandId === "settings.saveTerminalProfile") {
+  if (commandId === "settings.saveProfile" || commandId === "settings.copyCurrentProfile" || commandId === "settings.pasteProfile" || commandId === "settings.saveLayoutProfile" || commandId === "settings.saveTerminalProfile") {
     const setup = activeSettingsSetupModel();
     const setupSummary = settingsProfileSummary(state.settings);
     const profilesFull = savedSettingsProfilesFull();
@@ -8027,6 +8029,17 @@ function customizationCommandPaletteState(commandId) {
         icon: "profiles",
         title: profilesFull ? settingsProfileLimitTitle() : "Paste a copied Settings profile.",
         search: normalizeSettingsQuery(`settings profile setup paste import clipboard json saved reusable ${profilesFull ? "limit full " : ""}${countLabel}`)
+      };
+    }
+    if (commandId === "settings.saveLayoutProfile") {
+      const layoutSummary = workspaceChromeSummaryForSettings(state.settings);
+      return {
+        meta: `${layoutSummary.density} / ${layoutSummary.toolbar} / ${countLabel}`,
+        shortcut: "Save",
+        disabled: profilesFull,
+        icon: "profiles",
+        title: profilesFull ? settingsProfileLimitTitle() : "Save this layout and workspace chrome as a reusable Settings profile.",
+        search: normalizeSettingsQuery(`settings profile layout save current reusable workspace chrome toolbar labels top bar tabs sidebar inspector overlay command palette switcher toast pane headers controls dividers spacing active pane status bar focus mode panel widths ${profilesFull ? "limit full " : ""}${layoutSummary.density} ${layoutSummary.toolbar} ${layoutSummary.toolbarLabels} ${layoutSummary.topbarStyle} ${layoutSummary.toolbarButtons} ${layoutSummary.tabBar} ${layoutSummary.sidebarStyle} ${layoutSummary.sidebarTools} ${layoutSummary.inspectorStyle} ${layoutSummary.overlayStyle} ${layoutSummary.switcherStyle} ${layoutSummary.toastPlacement} ${layoutSummary.paletteDensity} ${layoutSummary.paletteResults} ${layoutSummary.palettePlacement} ${layoutSummary.paneHeaders} ${layoutSummary.paneControls} ${layoutSummary.newPanePlacement} ${layoutSummary.paneSurface} ${layoutSummary.workspaceRows} ${layoutSummary.workspaceRowSize} ${layoutSummary.activeWorkspace} ${layoutSummary.workspaceColors} ${layoutSummary.tabs} ${layoutSummary.activeTab} ${layoutSummary.corners} ${layoutSummary.dividers} ${layoutSummary.dividerStyle} ${layoutSummary.paneSpacing} ${layoutSummary.activePane} ${layoutSummary.statusbar} ${layoutSummary.statusbarStyle} ${layoutSummary.focusMode} ${layoutSummary.widths} ${countLabel}`)
       };
     }
     if (commandId === "settings.saveTerminalProfile") {
@@ -18404,9 +18417,13 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
   panel.append(paneShapePanel(workspace));
   const layoutActions = document.createElement("div");
   layoutActions.className = "settings-actions";
-  layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar top bar style button style ghost filled tab bar quiet banded sidebar width settings panel width style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus mode simple clean copy paste clipboard json");
+  layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout profile blueprint workspace chrome toolbar top bar style button style ghost filled tab bar quiet banded sidebar width settings panel width style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size density compact roomy active row selected color marker dot edge tint footer inspector tabs active selected underline status style quiet subtle solid header title corner divider new pane placement split direction right below down pane surface spacing gap gutter active pane highlight marker color focus mode simple clean copy paste clipboard json");
   const layoutPaneCount = workspaceBlueprintPaneCount(workspace);
   const layoutBlueprintsFull = workspaceBlueprintsFull();
+  const saveLayoutProfileAction = applySettingsProfileSaveLimit(
+    settingsActionButton("Save profile", saveCurrentLayoutProfile, "primary", "layout workspace chrome save current settings profile reusable toolbar tabs sidebar panes palette command placement"),
+    "Save this layout as a reusable Settings profile."
+  );
   const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", currentWorkspaceBlueprintSaveSearchText(workspace, layoutBlueprintsFull, layoutPaneCount));
   applyWorkspaceBlueprintSaveLimit(saveLayoutAction, workspace, "Save the current workspace pane layout as a reusable blueprint.", layoutPaneCount);
   const copyLayoutAction = settingsActionButton("Copy layout", copyCurrentWorkspaceBlueprint, "", currentWorkspaceBlueprintCopySearchText(workspace, layoutPaneCount));
@@ -18446,6 +18463,7 @@ function layoutAdvancedSettingsPanel(workspace = activeWorkspace()) {
     : "Open another pane before resetting the split layout.";
   layoutActions.append(
     settingsActionButton(state.settings.focusMode ? "Leave focus" : "Focus mode", () => toggleFocusMode(), "", "focus mode simple clean hide chrome"),
+    saveLayoutProfileAction,
     saveLayoutAction,
     copyLayoutAction,
     pasteLayoutAction,
@@ -24523,6 +24541,7 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
   const summary = workspaceChromeSummaryForSettings();
   const activePreset = activeWorkspaceChromePresetLabel();
   const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
+  const profilesFull = savedSettingsProfilesFull();
   const refreshQuick = (result) => {
     if (result !== false && state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
     return result;
@@ -24541,6 +24560,11 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
     quickOverviewControlButton(state.settings.focusMode ? "Leave focus" : "Focus mode", () => refreshQuick(toggleFocusMode()), {
       title: state.settings.focusMode ? "Turn focus mode off." : "Turn focus mode on.",
       search: "quick setup layout focus mode simple clean hide chrome workspace"
+    }),
+    quickOverviewControlButton("Save profile", saveCurrentLayoutProfile, {
+      disabled: profilesFull,
+      title: profilesFull ? settingsProfileLimitTitle() : "Save this layout and workspace chrome as a reusable Settings profile.",
+      search: "quick setup layout workspace chrome save profile reusable settings toolbar tabs sidebar panes palette command placement"
     }),
     presetAction("compact", "Compact"),
     presetAction("focus", "Focus"),
@@ -24572,7 +24596,7 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
     className: "quick-overview-layout",
     title: "Layout controls",
     meta: `${activePreset} / ${summary.toolbar} / ${summary.toolbarLabels} labels / ${summary.emptyWorkspace} home`,
-    search: `quick setup layout controls workspace chrome display simple compact focus density toolbar label mode icons labels top bar style quiet subtle solid button style ghost filled tab bar quiet banded sidebar rail tools primary hidden home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size compact roomy active row selected color marker dot edge tint tabs active selected underline status style quiet subtle solid sidebar corner radius rounded crisp soft divider grip line minimal slim balanced wide new pane placement split direction right below down pane surface spacing gap gutter active pane highlight edge quiet line strong ${activePreset} ${summary.density} ${summary.toolbar} ${summary.toolbarLabels} ${summary.topbarStyle} ${summary.toolbarButtons} ${summary.tabBar} ${summary.sidebarStyle} ${summary.sidebarTools} ${summary.emptyWorkspace} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneHeaders} ${summary.paneControls} ${summary.newPanePlacement} ${summary.paneSurface} ${summary.workspaceRows} ${summary.workspaceRowSize} ${summary.activeWorkspace} ${summary.workspaceColors} ${summary.tabs} ${summary.tabClose} ${summary.activeTab} ${summary.corners} ${summary.dividers} ${summary.dividerStyle} ${summary.paneSpacing} ${summary.activePane} ${summary.statusbar} ${summary.statusbarStyle} ${summary.focusMode} ${summary.widths}`,
+    search: `quick setup layout controls workspace chrome display simple compact focus save profile reusable density toolbar label mode icons labels top bar style quiet subtle solid button style ghost filled tab bar quiet banded sidebar rail tools primary hidden home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet solid overlay style command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher style workspace pane keyboard hud row size compact roomy active row selected color marker dot edge tint tabs active selected underline status style quiet subtle solid sidebar corner radius rounded crisp soft divider grip line minimal slim balanced wide new pane placement split direction right below down pane surface spacing gap gutter active pane highlight edge quiet line strong ${activePreset} ${summary.density} ${summary.toolbar} ${summary.toolbarLabels} ${summary.topbarStyle} ${summary.toolbarButtons} ${summary.tabBar} ${summary.sidebarStyle} ${summary.sidebarTools} ${summary.emptyWorkspace} ${summary.inspectorStyle} ${summary.overlayStyle} ${summary.switcherStyle} ${summary.toastPlacement} ${summary.paletteDensity} ${summary.paletteQuickActions} ${summary.paletteDetail} ${summary.paletteResults} ${summary.palettePlacement} ${summary.paneHeaders} ${summary.paneControls} ${summary.newPanePlacement} ${summary.paneSurface} ${summary.workspaceRows} ${summary.workspaceRowSize} ${summary.activeWorkspace} ${summary.workspaceColors} ${summary.tabs} ${summary.tabClose} ${summary.activeTab} ${summary.corners} ${summary.dividers} ${summary.dividerStyle} ${summary.paneSpacing} ${summary.activePane} ${summary.statusbar} ${summary.statusbarStyle} ${summary.focusMode} ${summary.widths}`,
     actions
   });
 }
@@ -32107,6 +32131,14 @@ function saveCurrentLookProfile() {
     title: "Save appearance profile",
     message: "Save this look together with the current layout, terminal, and performance settings.",
     baseName: "Look profile"
+  });
+}
+
+function saveCurrentLayoutProfile() {
+  return saveCurrentSettingsProfile({
+    title: "Save layout profile",
+    message: "Save this layout and workspace chrome together with the current look, terminal, browser, and performance settings.",
+    baseName: "Layout profile"
   });
 }
 
