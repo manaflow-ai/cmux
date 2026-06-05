@@ -4352,7 +4352,7 @@ function applyLayoutSetupPayload(payload, options = {}) {
   const savedBlueprint = blueprint ? upsertWorkspaceBlueprint(blueprint) : null;
   if (options.render !== false) {
     if (state.inspectorMode === "settings" && chromeChanged) {
-      renderSettingsInspector();
+      scheduleSettingsInspectorRender({ ifChanged: true });
     } else if (savedBlueprint) {
       refreshWorkspaceBlueprintSettings(options);
     } else if (chromeChanged) {
@@ -16759,7 +16759,7 @@ function shouldRefreshLayoutSettings() {
 }
 
 function refreshLayoutSettings(options = {}) {
-  if (shouldRefreshLayoutSettings()) renderSettingsInspector(options);
+  if (shouldRefreshLayoutSettings()) scheduleSettingsInspectorRender(options);
 }
 
 function scheduleLayoutSettingsRefresh(options = {}) {
