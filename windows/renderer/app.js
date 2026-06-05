@@ -26219,6 +26219,21 @@ function quickLagReportModel(performance = performanceOverviewModel()) {
   };
 }
 
+function quickDisplayCleanupModel() {
+  const check = performanceHealthCheckById("workspaceChrome");
+  const needsCleanup = performanceHealthCheckNeedsFix(check);
+  const meta = check?.meta?.() || activeWorkspaceChromePresetLabel();
+  return {
+    check,
+    needsCleanup,
+    meta,
+    title: needsCleanup
+      ? "Apply compact rows, quiet chrome, focused command palette results, hidden palette quick actions, no pane gutters, and tighter terminal padding without changing colors or backgrounds."
+      : "Display chrome is already simplified.",
+    search: performanceHealthCheckSearchText(check, needsCleanup, meta)
+  };
+}
+
 function workspaceCountLabel() {
   const count = state.data?.workspaces?.length || 0;
   return `${count} workspace${count === 1 ? "" : "s"}`;
@@ -28717,6 +28732,19 @@ function quickSetupActionDefinitions() {
       run: () => refreshQuickSettingsAfterAction(applySettingsPresetById("simple", { render: false }))
     },
     {
+      id: "simplify-display",
+      icon: "clean",
+      label: "Simplify display",
+      body: "Clean toolbar, sidebar, palette, panes, and spacing while keeping your look.",
+      meta: () => quickDisplayCleanupModel().meta,
+      cta: "Clean",
+      active: () => !quickDisplayCleanupModel().needsCleanup,
+      activeCta: "Ready",
+      search: () => `simple clean display declutter minimal chrome toolbar sidebar palette panes spacing ${quickDisplayCleanupModel().search}`,
+      title: () => quickDisplayCleanupModel().title,
+      run: () => refreshQuickSettingsAfterAction(applyPerformanceHealthFix("workspaceChrome", { render: false }))
+    },
+    {
       id: "save-profile",
       icon: "profiles",
       label: "Save setup",
@@ -29013,6 +29041,9 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   const healthIssueCount = performanceHealthIssueCount();
   const performance = performanceOverviewModel();
   const lagReport = quickLagReportModel(performance);
+  const pendingHealthChecks = performanceHealthPendingChecks();
+  const onlyDisplayCleanup = pendingHealthChecks.length === 1 && pendingHealthChecks[0]?.id === "workspaceChrome";
+  const displayCleanup = quickDisplayCleanupModel();
   const setup = activeSettingsSetupModel();
   const profilesFull = savedSettingsProfilesFull();
   const libraryBackup = savedLibraryBackupModel();
@@ -29026,11 +29057,13 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
 
   if (!workspace) ids.push("new-workspace");
   else if (terminalCount === 0) ids.push("new-terminal");
-  if (healthIssueCount > 0) ids.push("fix-lag");
+  if (onlyDisplayCleanup) ids.push("simplify-display");
+  else if (healthIssueCount > 0) ids.push("fix-lag");
   if (lagReport.warning && ids.length < 4) ids.push("copy-lag-report");
+  if (!onlyDisplayCleanup && displayCleanup.needsCleanup && ids.length < 4) ids.push("simplify-display");
   if (workspace && browserCount === 0) ids.push("new-browser");
   if (setup.kind === "Unsaved setup" && !profilesFull) ids.push("save-profile");
-  if (!isSettingsPresetIdActive("simpleFast")) {
+  if (!isSettingsPresetIdActive("simpleFast") && !ids.includes("simplify-display") && ids.length < 4) {
     ids.push(state.savedSettingsProfiles.length === 0 ? "save-clean-fast-profile" : "clean-fast");
   }
   if (!backgroundEverywhere.disabled) ids.push("background-everywhere");
