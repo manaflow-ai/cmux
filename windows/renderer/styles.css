@@ -10786,6 +10786,14 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   font: 10px/1.2 var(--font-mono);
 }
 
+.quick-overview-controls.has-scroll-actions .quick-overview-controls-copy em {
+  display: -webkit-box;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .quick-overview-controls-actions {
   position: relative;
   z-index: 1;
@@ -11930,6 +11938,14 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
   .quick-overview-controls {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .quick-overview-controls-copy em {
+    display: -webkit-box;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 
   .quick-overview-controls-actions {
