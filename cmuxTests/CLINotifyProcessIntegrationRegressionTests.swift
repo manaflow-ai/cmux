@@ -2076,7 +2076,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
             #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"old-turn"}}"#,
             #"{"type":"turn_context","payload":{"turn_id":"current-turn"}}"#,
-            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"current-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"current-turn","last_agent_message":"current done"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let currentStopStart = context.state.snapshot().count
