@@ -10244,8 +10244,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .layout-preview-meta b {
-  flex: 0 1 auto;
-  max-width: 56%;
+  flex: 0 0 auto;
+  max-width: 82px;
   color: var(--color-muted);
   font-size: 9px;
 }
