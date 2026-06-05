@@ -3899,6 +3899,33 @@ func browserOmnibarShouldSelectAllOnFocusReassertion(
     selectionIntent.shouldSelectAll
 }
 
+/// Whether a completed single click that just moved first responder into the
+/// omnibar should select the field's entire contents (Chrome/Safari/Arc parity),
+/// instead of leaving the caret the field editor placed at the click point.
+///
+/// The first click on an unfocused omnibar showing a URL selects everything so
+/// the user can immediately type a replacement. A subsequent click (the field is
+/// already first responder, so `gainedFocusOnThisClick` is `false`) keeps the
+/// caret placement from https://github.com/manaflow-ai/cmux/issues/5268. A drag
+/// or a Shift-click expresses an explicit range, so select-all defers to it; a
+/// double-click never reaches this path (the field routes multi-clicks straight
+/// to the field editor for word/line selection, and its second click lands after
+/// this click's `mouseUp`, so word selection wins).
+///
+/// - Parameters:
+///   - gainedFocusOnThisClick: `true` when the field had no field editor at
+///     `mouseDown`, i.e. this click is the one that moved focus into the omnibar.
+///   - isShiftClick: `true` when Shift was held, extending an explicit selection.
+///   - didDrag: `true` when the pointer moved far enough to build a drag selection.
+/// - Returns: `true` only for an undragged, unmodified focus-gaining click.
+func browserOmnibarFocusGainingClickShouldSelectAll(
+    gainedFocusOnThisClick: Bool,
+    isShiftClick: Bool,
+    didDrag: Bool
+) -> Bool {
+    gainedFocusOnThisClick && !isShiftClick && !didDrag
+}
+
 final class OmnibarNativeTextField: NSTextField {
     var panelId: UUID?
     var onPointerDown: (() -> Void)?
@@ -3913,6 +3940,12 @@ final class OmnibarNativeTextField: NSTextField {
         let anchor: Int
         let initialWindowLocation: NSPoint
         var didDrag: Bool
+        /// `true` when this click moved first responder into the omnibar, gating
+        /// the Chrome-style select-all-on-focus behavior applied at `mouseUp`.
+        let gainedFocus: Bool
+        /// `true` when Shift was held, so an explicit selection extension overrides
+        /// the focus-gaining select-all.
+        let isShift: Bool
     }
 
     override init(frame frameRect: NSRect) {
@@ -3947,6 +3980,8 @@ final class OmnibarNativeTextField: NSTextField {
             return
         }
 
+        let isShiftClick = event.modifierFlags.contains(.shift)
+
         // Keep multi-click word and line selection in the field editor, while avoiding
         // NSTextField's mouse tracking loop for ordinary clicks.
         if event.clickCount > 1 {
@@ -3958,7 +3993,7 @@ final class OmnibarNativeTextField: NSTextField {
 
         let clickIndex = insertionIndex(for: event, in: editor)
         let anchor: Int
-        if event.modifierFlags.contains(.shift) {
+        if isShiftClick {
             let selected = editor.selectedRange()
             anchor = shiftClickAnchor ?? selected.location
             shiftClickAnchor = anchor
@@ -3972,7 +4007,9 @@ final class OmnibarNativeTextField: NSTextField {
         mouseSelectionState = MouseSelectionState(
             anchor: anchor,
             initialWindowLocation: event.locationInWindow,
-            didDrag: false
+            didDrag: false,
+            gainedFocus: !hadEditor,
+            isShift: isShiftClick
         )
     }
 
@@ -3994,16 +4031,28 @@ final class OmnibarNativeTextField: NSTextField {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard mouseSelectionState != nil else {
+        guard let state = mouseSelectionState else {
             super.mouseUp(with: event)
             return
         }
-
-        // A single click leaves the caret placed in `mouseDown`; a drag leaves the
-        // range built up in `mouseDragged`. Focus-via-click never selects all — that
-        // is reserved for the keyboard path (Cmd+L), which selects the whole URL via
-        // the `selectAllRequestId` flow, independent of mouse handling.
         mouseSelectionState = nil
+
+        // Chrome/Safari/Arc parity: the click that moves first responder into the
+        // omnibar selects the whole URL so the next keystroke replaces it. A click
+        // while already focused keeps the caret placed in `mouseDown` (issue #5268),
+        // and a drag or Shift-click keeps the explicit range built up during the
+        // gesture. Double-clicks never reach here — `mouseDown` routes multi-clicks
+        // to the field editor for word/line selection and leaves `mouseSelectionState`
+        // nil, and the second click lands after this `mouseUp`, so word selection wins.
+        // The keyboard path (Cmd+L) still selects all via the `selectAllRequestId` flow.
+        guard browserOmnibarFocusGainingClickShouldSelectAll(
+            gainedFocusOnThisClick: state.gainedFocus,
+            isShiftClick: state.isShift,
+            didDrag: state.didDrag
+        ), let editor = currentEditor() as? NSTextView else {
+            return
+        }
+        editor.setSelectedRange(NSRange(location: 0, length: editor.string.utf16.count))
     }
 
     private func insertionIndex(for event: NSEvent, in editor: NSTextView) -> Int {

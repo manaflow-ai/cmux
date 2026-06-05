@@ -105,7 +105,10 @@ jobs:
   upload:
     name: Upload to TestFlight
     needs: decide
-    if: needs.decide.outputs.should_build == 'true'
+    # Only ever publish from main. push/schedule always run on main; this also
+    # blocks publishing arbitrary code by dispatching the workflow against a
+    # feature branch (the ASC secrets are only meant to ship reviewed main).
+    if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
     runs-on: macos-26
     timeout-minutes: 60
     env:
