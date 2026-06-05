@@ -628,6 +628,9 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         let assetURL = rootURL
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent("mod.mjs", isDirectory: false)
+        let workerAssetURL = rootURL
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent("worker.js", isDirectory: false)
         let indexURL = rootURL.appendingPathComponent("index.html", isDirectory: false)
         try FileManager.default.createDirectory(at: assetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -636,14 +639,18 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         export const marker = "module-ok";
         """.write(to: assetURL, atomically: true, encoding: .utf8)
         try """
+        export const workerMarker = "js-ok";
+        """.write(to: workerAssetURL, atomically: true, encoding: .utf8)
+        try """
         <!doctype html>
         <html>
         <body>
         <script type="module">
           import { marker } from "./assets/mod.mjs";
+          import { workerMarker } from "./assets/worker.js";
           WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))
             .then(() => {
-              const result = `${marker}:wasm-ok`;
+              const result = `${marker}:${workerMarker}:wasm-ok`;
               document.body.dataset.loaded = result;
               window.webkit.messageHandlers.moduleLoaded.postMessage(result);
             })
@@ -664,6 +671,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
             files: [
                 .init(requestPath: "/index.html", fileURL: indexURL, mimeType: "text/html"),
                 .init(requestPath: "/assets/mod.mjs", fileURL: assetURL, mimeType: "text/javascript"),
+                .init(requestPath: "/assets/worker.js", fileURL: workerAssetURL, mimeType: "text/javascript"),
                 .init(requestPath: "/index.patch", fileURL: patchURL, mimeType: "text/x-diff"),
             ]
         )
@@ -698,12 +706,12 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         wait(for: [loaded], timeout: 3)
         XCTAssertNil(delegate.error)
         wait(for: [moduleLoaded], timeout: 3)
-        XCTAssertEqual(moduleHandler.body as? String, "module-ok:wasm-ok")
+        XCTAssertEqual(moduleHandler.body as? String, "module-ok:js-ok:wasm-ok")
 
         let evaluated = expectation(description: "module evaluated")
         webView.evaluateJavaScript("document.body.dataset.loaded || ''") { value, error in
             XCTAssertNil(error)
-            XCTAssertEqual(value as? String, "module-ok:wasm-ok")
+            XCTAssertEqual(value as? String, "module-ok:js-ok:wasm-ok")
             evaluated.fulfill()
         }
         wait(for: [evaluated], timeout: 3)
@@ -862,10 +870,12 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
         let requestId = panel.requestAddressBarFocus()
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, requestId)
+        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
         XCTAssertTrue(panel.shouldSuppressWebViewFocus())
 
         panel.acknowledgeAddressBarFocusRequest(requestId)
         XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
 
         // Acknowledgement only clears the durable request; focus suppression follows
         // explicit blur state transitions.
@@ -876,11 +886,22 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
     func testRequestCoalescesWhilePending() {
         let panel = BrowserPanel(workspaceId: UUID())
-        let firstRequest = panel.requestAddressBarFocus()
+        let firstRequest = panel.requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
         let secondRequest = panel.requestAddressBarFocus()
 
         XCTAssertEqual(firstRequest, secondRequest)
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, firstRequest)
+        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
+    }
+
+    func testExplicitSelectAllRequestUpgradesPendingPreserveRequest() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let firstRequest = panel.requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
+        let secondRequest = panel.requestAddressBarFocus(selectionIntent: .selectAll)
+
+        XCTAssertNotEqual(firstRequest, secondRequest)
+        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, secondRequest)
+        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .selectAll)
     }
 
     func testStaleAcknowledgementDoesNotClearNewestRequest() {
@@ -3885,40 +3906,94 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
         return event
     }
 
-    /// Regression for https://github.com/manaflow-ai/cmux/issues/5268: a single,
-    /// unmodified click that focuses the omnibar must leave a caret (zero-length
-    /// selection) at the click position, not select the entire URL.
-    func testSingleClickFocusPlacesCaretInsteadOfSelectingAll() {
+    private func makeCoordinator(
+        panelId: UUID = UUID(),
+        isFocused: Bool = true
+    ) -> OmnibarTextFieldRepresentable.Coordinator {
+        var text = ""
+        var focused = isFocused
+        return OmnibarTextFieldRepresentable.Coordinator(
+            parent: OmnibarTextFieldRepresentable(
+                panelId: panelId,
+                text: Binding(
+                    get: { text },
+                    set: { text = $0 }
+                ),
+                isFocused: Binding(
+                    get: { focused },
+                    set: { focused = $0 }
+                ),
+                selectAllRequestId: 0,
+                inlineCompletion: nil,
+                placeholder: "",
+                onTap: {},
+                onSubmit: {},
+                onEscape: {},
+                onFieldLostFocus: {},
+                onMoveSelection: { _ in },
+                onDeleteSelectedSuggestion: {},
+                onAcceptInlineCompletion: {},
+                onDeleteBackwardWithInlineSelection: {},
+                onClearTypedPrefixWithInlineSelection: {},
+                onDeleteWordBackwardWithInlineSelection: {},
+                onSelectionChanged: { _, _ in },
+                shouldSuppressWebViewFocus: { false }
+            )
+        )
+    }
+
+    private func makeCaretProbeWindow() -> CaretProbeWindow {
         let window = CaretProbeWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 120),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
-        window.contentView = container
+        window.contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        return window
+    }
 
+    private func installOmnibarField(
+        in window: NSWindow,
+        stringValue: String = "https://github.com/manaflow-ai/cmux"
+    ) -> OmnibarNativeTextField {
         let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 80, width: 360, height: 24))
         field.font = .systemFont(ofSize: 12)
         field.isEditable = true
         field.isSelectable = true
         field.isEnabled = true
-        field.stringValue = "https://github.com/manaflow-ai/cmux"
-        container.addSubview(field)
+        field.stringValue = stringValue
+        window.contentView?.addSubview(field)
+        return field
+    }
 
+    private func cleanup(window: NSWindow, field: OmnibarNativeTextField) {
+        field.removeFromSuperview()
+        window.contentView = nil
+        window.orderOut(nil)
+    }
+
+    private func singleClick(field: OmnibarNativeTextField, in window: NSWindow) {
+        let clickPoint = NSPoint(x: field.frame.midX, y: field.frame.midY)
+        let pointInWindow = window.contentView?.convert(clickPoint, to: nil) ?? clickPoint
+        field.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window))
+        field.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: pointInWindow, window: window))
+    }
+
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/5268: a single,
+    /// unmodified click that focuses the omnibar must leave a caret (zero-length
+    /// selection) at the click position, not select the entire URL.
+    func testSingleClickFocusPlacesCaretInsteadOfSelectingAll() {
+        let window = makeCaretProbeWindow()
+        let field = installOmnibarField(in: window)
         window.makeKeyAndOrderFront(nil)
         defer {
-            field.removeFromSuperview()
-            window.contentView = nil
-            window.orderOut(nil)
+            cleanup(window: window, field: field)
         }
 
         // Do NOT pre-focus: the bug only manifests on the click that first acquires
         // focus, where the old code forced a select-all on mouseUp.
-        let clickPoint = NSPoint(x: field.frame.midX, y: field.frame.midY)
-        let pointInWindow = container.convert(clickPoint, to: nil)
-        field.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window))
-        field.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: pointInWindow, window: window))
+        singleClick(field: field, in: window)
 
         guard let editor = field.currentEditor() as? NSTextView else {
             XCTFail("Expected a field editor after the click acquired focus")
@@ -3930,6 +4005,116 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
             editor.selectedRange().length,
             0,
             "A single click must place a caret, not select the whole URL"
+        )
+    }
+
+    /// The native single-click path can place a caret correctly and still be
+    /// clobbered later by the SwiftUI focus-gained effect. This exercises that
+    /// full behavior path instead of only checking the field's mouse handlers.
+    func testSwiftUIFocusGainedEffectDoesNotClobberSingleClickCaret() {
+        let window = makeCaretProbeWindow()
+        let field = installOmnibarField(in: window)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cleanup(window: window, field: field)
+        }
+
+        singleClick(field: field, in: window)
+
+        guard let editor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected a field editor after the click acquired focus")
+            return
+        }
+        XCTAssertEqual(editor.selectedRange().length, 0, "Test precondition: native click should place a caret")
+
+        var state = OmnibarState()
+        let effects = omnibarReduce(
+            state: &state,
+            event: .focusGained(currentURLString: field.stringValue)
+        )
+        let coordinator = makeCoordinator()
+        coordinator.parentField = field
+        if effects.shouldSelectAll {
+            coordinator.queueSelectAllRequest(1)
+            _ = coordinator.applyPendingSelectAllIfPossible(field: field)
+        }
+
+        XCTAssertEqual(
+            editor.selectedRange().length,
+            0,
+            "Focus-gained handling must preserve the caret placed by the focusing click"
+        )
+    }
+
+    /// Pane focus reconciliation can reassert omnibar focus after the click has
+    /// already placed the caret. That restore path must not treat the click as
+    /// Cmd+L and select the full URL.
+    func testFocusRestoreReassertionDoesNotClobberSingleClickCaret() {
+        let window = makeCaretProbeWindow()
+        let field = installOmnibarField(in: window)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cleanup(window: window, field: field)
+        }
+
+        singleClick(field: field, in: window)
+
+        guard let editor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected a field editor after the click acquired focus")
+            return
+        }
+        XCTAssertEqual(editor.selectedRange().length, 0, "Test precondition: native click should place a caret")
+
+        var state = OmnibarState()
+        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: field.stringValue))
+        let effects = omnibarReduce(
+            state: &state,
+            event: .focusReasserted(
+                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
+                    selectionIntent: .preserveFieldEditorSelection
+                )
+            )
+        )
+
+        let coordinator = makeCoordinator()
+        coordinator.parentField = field
+        if effects.shouldSelectAll {
+            coordinator.queueSelectAllRequest(1)
+            _ = coordinator.applyPendingSelectAllIfPossible(field: field)
+        }
+
+        XCTAssertEqual(
+            editor.selectedRange().length,
+            0,
+            "Focus-restore reassertion must preserve the caret placed by the focusing click"
+        )
+    }
+
+    func testExplicitSelectAllRequestStillSelectsWholeURL() {
+        let window = makeCaretProbeWindow()
+        let field = installOmnibarField(in: window)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cleanup(window: window, field: field)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard let editor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected a field editor after focusing text field")
+            return
+        }
+        let textLength = (editor.string as NSString).length
+        editor.setSelectedRange(NSRange(location: textLength, length: 0))
+
+        let coordinator = makeCoordinator()
+        coordinator.parentField = field
+        coordinator.queueSelectAllRequest(1)
+
+        XCTAssertTrue(coordinator.applyPendingSelectAllIfPossible(field: field))
+        XCTAssertEqual(
+            editor.selectedRange(),
+            NSRange(location: 0, length: textLength),
+            "Explicit omnibar focus requests such as Cmd+L must still select the whole URL"
         )
     }
 }
