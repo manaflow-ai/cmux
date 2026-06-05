@@ -1097,6 +1097,7 @@ const state = {
   deferredTerminalFitFrame: 0,
   appearancePreviewFrame: 0,
   terminalSettingsPreviewFrame: 0,
+  terminalShellSettingsFrame: 0,
   layoutSettingsPreviewFrame: 0,
   browserSettingsPreviewFrame: 0,
   settingsFilterFrame: 0,
@@ -16625,31 +16626,9 @@ function renderSettingsInspector(options = {}) {
       resetTerminalColors
     );
     terminalSection.append(colorActions);
-    const profileSelect = document.createElement("select");
-    profileSelect.className = "setting-select";
-    for (const [value, label] of terminalProfiles) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      profileSelect.append(option);
-    }
-    profileSelect.value = state.settings.terminalProfile;
-    profileSelect.onchange = () => {
-      updateSettings({ terminalProfile: profileSelect.value });
-      renderSettingsInspector();
-    };
-    terminalSection.append(settingRow("Default shell", profileSelect));
-    if (state.settings.terminalProfile === "custom") {
-      const shellInput = document.createElement("input");
-      shellInput.className = "setting-control";
-      shellInput.value = state.settings.terminalCustomShell;
-      shellInput.placeholder = "C:\\\\Path\\\\to\\\\shell.exe";
-      shellInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") shellInput.blur();
-      });
-      shellInput.addEventListener("blur", () => updateSettings({ terminalCustomShell: shellInput.value }));
-      terminalSection.append(settingRow("Shell path", shellInput, true));
-    }
+    terminalSection.append(terminalProfileSettingRow());
+    const customShellRow = terminalCustomShellSettingRow();
+    if (customShellRow) terminalSection.append(customShellRow);
     const restartActions = document.createElement("div");
     restartActions.className = "settings-actions";
     restartActions.dataset.settingsSearch = normalizeSettingsQuery("terminal restart active shell reload");
@@ -30712,6 +30691,72 @@ function refreshTerminalCursorBlinkControls() {
   return changed;
 }
 
+function terminalProfileSettingRow() {
+  const profileSelect = document.createElement("select");
+  profileSelect.className = "setting-select";
+  profileSelect.dataset.settingControl = "terminalProfile";
+  for (const [value, label] of terminalProfiles) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    profileSelect.append(option);
+  }
+  profileSelect.value = state.settings.terminalProfile;
+  profileSelect.onchange = () => {
+    const changed = updateSettings({ terminalProfile: profileSelect.value });
+    if (changed) refreshTerminalSetupSettings({}, { terminalProfile: profileSelect.value });
+  };
+  const row = settingRow("Default shell", profileSelect, false, "terminal shell profile powershell cmd custom auto");
+  row.dataset.terminalProfileSettings = "true";
+  return row;
+}
+
+function terminalCustomShellSettingRow() {
+  if (state.settings.terminalProfile !== "custom") return null;
+  const shellInput = document.createElement("input");
+  shellInput.className = "setting-control";
+  shellInput.value = state.settings.terminalCustomShell;
+  shellInput.placeholder = "C:\\\\Path\\\\to\\\\shell.exe";
+  shellInput.dataset.settingControl = "terminalCustomShell";
+  shellInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") shellInput.blur();
+  });
+  shellInput.addEventListener("blur", () => {
+    const changed = updateSettings({ terminalCustomShell: shellInput.value });
+    if (changed) refreshTerminalSetupSettings({}, { terminalCustomShell: shellInput.value });
+  });
+  const row = settingRow("Shell path", shellInput, true, "terminal custom shell path executable powershell cmd");
+  row.dataset.terminalCustomShellSettings = "true";
+  return row;
+}
+
+function refreshTerminalShellSettingsRows() {
+  const profileRow = elements.inspectorBody.querySelector("[data-terminal-profile-settings]");
+  const profileSelect = profileRow?.querySelector('[data-setting-control="terminalProfile"]');
+  if (profileSelect && profileSelect.value !== state.settings.terminalProfile) {
+    profileSelect.value = state.settings.terminalProfile;
+  }
+
+  const customRow = elements.inspectorBody.querySelector("[data-terminal-custom-shell-settings]");
+  const nextCustomRow = terminalCustomShellSettingRow();
+  if (customRow && nextCustomRow) {
+    customRow.replaceWith(nextCustomRow);
+  } else if (customRow) {
+    customRow.remove();
+  } else if (profileRow && nextCustomRow) {
+    profileRow.after(nextCustomRow);
+  }
+}
+
+function scheduleTerminalShellSettingsRefresh() {
+  if (state.terminalShellSettingsFrame) return;
+  state.terminalShellSettingsFrame = requestAnimationFrame(() => {
+    state.terminalShellSettingsFrame = 0;
+    if (state.inspectorMode !== "settings" || state.settingsCategory !== "terminal" || normalizeSettingsQuery(state.settingsQuery)) return;
+    refreshTerminalShellSettingsRows();
+  });
+}
+
 function updateTerminalSetupAction(button, disabled, title, search) {
   if (!button) return;
   setDisabledIfChanged(button, disabled);
@@ -30848,14 +30893,18 @@ function refreshTerminalProfileSaveControls() {
 }
 
 function terminalSetupNeedsFullRender(updates = {}) {
+  return [...terminalSetupColorSettings].some((key) => Object.hasOwn(updates, key));
+}
+
+function terminalSetupNeedsShellRefresh(updates = {}) {
   return Object.hasOwn(updates, "terminalProfile")
-    || Object.hasOwn(updates, "terminalCustomShell")
-    || [...terminalSetupColorSettings].some((key) => Object.hasOwn(updates, key));
+    || Object.hasOwn(updates, "terminalCustomShell");
 }
 
 function refreshTerminalSetupSettings(options = {}, updates = {}) {
   if (options.render === false || state.inspectorMode !== "settings") return;
   if (state.settingsCategory === "terminal" && !normalizeSettingsQuery(state.settingsQuery) && !terminalSetupNeedsFullRender(updates)) {
+    if (terminalSetupNeedsShellRefresh(updates)) scheduleTerminalShellSettingsRefresh();
     scheduleTerminalSettingsPreviewRefresh();
     return;
   }
