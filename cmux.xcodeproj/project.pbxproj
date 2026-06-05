@@ -87,7 +87,11 @@
 		A5D41203A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41204A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift */; };
 		A5D41205A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */; };
 		A5D41209A1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */; };
+		C5343003A1B2C3D4E5F60719 /* CLISocketErrnoProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5343004A1B2C3D4E5F60719 /* CLISocketErrnoProviding.swift */; };
+		C5343005A1B2C3D4E5F60719 /* CLISocketExpectedAvailabilityError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5343006A1B2C3D4E5F60719 /* CLISocketExpectedAvailabilityError.swift */; };
 		B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */; };
+		C5343007A1B2C3D4E5F60719 /* CLISocketReadEOFError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5343008A1B2C3D4E5F60719 /* CLISocketReadEOFError.swift */; };
+		C5343001A1B2C3D4E5F60719 /* CLISocketTransportError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5343002A1B2C3D4E5F60719 /* CLISocketTransportError.swift */; };
 		C10D51700000000000000002 /* ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D51700000000000000001 /* ClosedItemHistory.swift */; };
 		B9000025A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */; };
 		B9000023A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */; };
@@ -776,7 +780,11 @@
 		A5D41204A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyProcessIntegrationRegressionTests.swift; sourceTree = "<group>"; };
 		A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyProcessTestSupport.swift; sourceTree = "<group>"; };
 		A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRovoDevHookPersistenceTests.swift; sourceTree = "<group>"; };
+		C5343004A1B2C3D4E5F60719 /* CLISocketErrnoProviding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISocketErrnoProviding.swift; sourceTree = "<group>"; };
+		C5343006A1B2C3D4E5F60719 /* CLISocketExpectedAvailabilityError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISocketExpectedAvailabilityError.swift; sourceTree = "<group>"; };
 		B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISocketPathResolver.swift; sourceTree = "<group>"; };
+		C5343008A1B2C3D4E5F60719 /* CLISocketReadEOFError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISocketReadEOFError.swift; sourceTree = "<group>"; };
+		C5343002A1B2C3D4E5F60719 /* CLISocketTransportError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISocketTransportError.swift; sourceTree = "<group>"; };
 		C10D51700000000000000001 /* ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistory.swift; sourceTree = "<group>"; };
 		B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWindowConfirmDialogUITests.swift; sourceTree = "<group>"; };
 		B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceCmdDUITests.swift; sourceTree = "<group>"; };
@@ -1826,7 +1834,11 @@
 			children = (
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
 				FEEDC1A50000000000000002 /* FeedEventClassifier.swift */,
+				C5343004A1B2C3D4E5F60719 /* CLISocketErrnoProviding.swift */,
+				C5343006A1B2C3D4E5F60719 /* CLISocketExpectedAvailabilityError.swift */,
 				B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */,
+				C5343008A1B2C3D4E5F60719 /* CLISocketReadEOFError.swift */,
+				C5343002A1B2C3D4E5F60719 /* CLISocketTransportError.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
 				B9000030A1B2C3D4E5F60719 /* cmux_open.swift */,
 						B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */,
@@ -2720,7 +2732,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
+				C5343003A1B2C3D4E5F60719 /* CLISocketErrnoProviding.swift in Sources */,
+				C5343005A1B2C3D4E5F60719 /* CLISocketExpectedAvailabilityError.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
+				C5343007A1B2C3D4E5F60719 /* CLISocketReadEOFError.swift in Sources */,
+				C5343001A1B2C3D4E5F60719 /* CLISocketTransportError.swift in Sources */,
 					B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
 				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
 				D35110010000000000000003 /* CmuxApplicationSupportDirectories.swift in Sources */,

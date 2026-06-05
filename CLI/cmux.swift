@@ -64,6 +64,8 @@ private final class CLISocketSentryTelemetry {
     private var pendingBreadcrumbs: [PendingBreadcrumb] = []
 
 #if canImport(Sentry)
+    // Sentry initialization is a process-wide one-time side effect; this lock
+    // serializes only the startup flag and does not guard hot socket I/O.
     private static let startupLock = NSLock()
     private static var started = false
     private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
@@ -142,7 +144,11 @@ private final class CLISocketSentryTelemetry {
 
     func captureError(stage: String, error: Error, data: [String: Any] = [:]) {
         guard shouldEmit else { return }
+        guard !shouldSuppressCapture(stage: stage, error: error, data: data) else { return }
 #if canImport(Sentry)
+#if DEBUG
+        recordCaptureProbe(stage: stage, error: error)
+#endif
         Self.ensureStarted()
         flushPendingBreadcrumbs()
         var context = baseContext()
@@ -171,6 +177,36 @@ private final class CLISocketSentryTelemetry {
         !disabledByEnv
     }
 
+    private func shouldSuppressCapture(stage: String, error: Error, data: [String: Any]) -> Bool {
+        guard isSocketTransportStage(stage: stage, data: data) else {
+            return false
+        }
+
+        if error is CLISocketExpectedAvailabilityError {
+            return true
+        }
+
+        if let errnoProvider = error as? CLISocketErrnoProviding {
+            switch errnoProvider.socketErrnoValue {
+            case ENOENT, ECONNREFUSED, EPIPE:
+                return true
+            default:
+                return false
+            }
+        }
+
+        let description = String(describing: error).lowercased()
+        return description == "socket closed before reply" ||
+            description == "socket closed before complete reply"
+    }
+
+    private func isSocketTransportStage(stage: String, data: [String: Any]) -> Bool {
+        stage == "socket_connect" ||
+            stage.hasPrefix("socket_command") ||
+            data["socket_phase"] != nil ||
+            data["socket_operation"] != nil
+    }
+
 #if canImport(Sentry)
     private func flushPendingBreadcrumbs() {
         for pending in pendingBreadcrumbs {
@@ -188,6 +224,17 @@ private final class CLISocketSentryTelemetry {
         crumb.message = message
         crumb.data = payload
         SentrySDK.addBreadcrumb(crumb)
+    }
+#endif
+
+#if DEBUG
+    private func recordCaptureProbe(stage: String, error: Error) {
+        guard let path = processEnv["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return
+        }
+        let payload = "stage=\(stage)\nerror=\(String(describing: error))\n"
+        try? payload.write(toFile: NSString(string: path).expandingTildeInPath, atomically: true, encoding: .utf8)
     }
 #endif
 
@@ -1547,15 +1594,6 @@ final class SocketClient {
         let port: UInt16
     }
 
-    private struct SocketConnectError: Error, CustomStringConvertible {
-        let path: String
-        let errnoValue: Int32
-
-        var description: String {
-            "Failed to connect to socket at \(path) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))"
-        }
-    }
-
     private struct RelayCredentials {
         let relayID: String
         let relayToken: Data
@@ -1772,10 +1810,20 @@ final class SocketClient {
                 operation.sawNewline = sawNewline
                 recordOperation(operation)
                 if data.isEmpty {
-                    throw CLIError(message: "Socket closed before reply")
+                    throw CLISocketReadEOFError(
+                        message: String(
+                            localized: "cli.socket.error.closedBeforeReply",
+                            defaultValue: "Socket closed before reply"
+                        )
+                    )
                 }
                 if !sawNewline {
-                    throw CLIError(message: "Socket closed before complete reply")
+                    throw CLISocketReadEOFError(
+                        message: String(
+                            localized: "cli.socket.error.closedBeforeCompleteReply",
+                            defaultValue: "Socket closed before complete reply"
+                        )
+                    )
                 }
                 receivedCompleteResponse = true
                 break
@@ -1853,7 +1901,7 @@ final class SocketClient {
         // Verify socket is owned by the current user to prevent fake-socket attacks.
         var st = stat()
         guard stat(path, &st) == 0 else {
-            throw CLIError(message: "Socket not found at \(path)")
+            throw CLISocketTransportError(connectPath: path, errnoValue: errno)
         }
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
             throw CLIError(message: "Path exists at \(path) but is not a Unix socket")
@@ -1897,14 +1945,14 @@ final class SocketClient {
         let connectErrno = errno
         Darwin.close(socketFD)
         socketFD = -1
-        throw SocketConnectError(path: path, errnoValue: connectErrno)
+        throw CLISocketTransportError(connectPath: path, errnoValue: connectErrno)
     }
 
     private static func shouldRetryConnect(_ error: Error) -> Bool {
-        guard let error = error as? SocketConnectError else {
+        guard let error = error as? CLISocketErrnoProviding else {
             return false
         }
-        switch error.errnoValue {
+        switch error.socketErrnoValue {
         case ECONNREFUSED, EAGAIN, EWOULDBLOCK:
             return true
         default:
@@ -2083,8 +2131,9 @@ final class SocketClient {
                         throw CLIError(message: timeoutMessage)
                     }
                     let reason = String(cString: strerror(errorCode))
-                    throw CLIError(
-                        message: "\(failureMessage) (\(reason), errno \(errorCode))"
+                    throw CLISocketTransportError(
+                        message: "\(failureMessage) (\(reason), errno \(errorCode))",
+                        errnoValue: errorCode
                     )
                 }
                 if written == 0 {
