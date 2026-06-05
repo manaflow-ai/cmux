@@ -24890,6 +24890,9 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
     : profilesFull
       ? settingsProfileLimitTitle()
       : "Save the active browser page as a reusable profile.";
+  const saveSetupTitle = profilesFull
+    ? settingsProfileLimitTitle()
+    : "Save the current browser setup as a reusable Settings profile.";
   const actions = [
     quickOverviewControlButton("Open home", () => createPanel("browser", newPaneDirection(), { workspaceId: workspace?.id, url: state.settings.browserHomeUrl }), {
       disabled: !hasWorkspace,
@@ -24919,6 +24922,11 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
       disabled: !activeBrowser || profilesFull,
       title: saveProfileTitle,
       search: "quick setup browser save active page profile reusable settings"
+    }),
+    quickOverviewControlButton("Save setup", saveCurrentBrowserProfile, {
+      disabled: profilesFull,
+      title: saveSetupTitle,
+      search: "quick setup browser save setup profile reusable settings home launch external profile suspend pane chrome zoom"
     }),
     quickOverviewControlButton("Copy setup", copyBrowserSetup, {
       title: "Copy browser home, launch mode, external profile, suspend setting, pane chrome, and pane zoom as JSON.",
@@ -24966,7 +24974,7 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
     className: "quick-overview-browser",
     title: "Browser controls",
     meta: `${homeHost} / ${chrome} chrome / ${browserTabSessionsMeta(tabEntries)}`,
-    search: `quick setup browser controls home tabs recent profile setup pane chrome tabs address controls full compact content zoom ${homeHost} ${recentHost} ${activeBrowserTitle} ${browserCount} browsers ${chrome}`,
+    search: `quick setup browser controls home tabs recent profile setup save pane chrome tabs address controls full compact content zoom ${homeHost} ${recentHost} ${activeBrowserTitle} ${browserCount} browsers ${chrome}`,
     actions
   });
 }
