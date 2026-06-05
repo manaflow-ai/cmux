@@ -4585,7 +4585,7 @@ function currentBackgroundSetSaveModel(workspace = activeWorkspace()) {
   };
 }
 
-async function saveCurrentBackgroundSetToLibrary(workspace = activeWorkspace()) {
+async function saveCurrentBackgroundSetToLibrary(workspace = activeWorkspace(), options = {}) {
   const model = currentBackgroundSetSaveModel(workspace);
   if (model.disabled) {
     toast(model.title);
@@ -4602,7 +4602,7 @@ async function saveCurrentBackgroundSetToLibrary(workspace = activeWorkspace()) 
     toast(failedCount ? "Current backgrounds could not be saved." : "Current background set is already saved.");
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
   if (failedCount) {
     toast(`${savedCount} background${savedCount === 1 ? "" : "s"} saved. ${failedCount} could not be loaded.`);
   } else {
@@ -4833,7 +4833,7 @@ function savedBackgroundImageImportsFromPayload(payload) {
   return backgrounds.length ? backgrounds : null;
 }
 
-function applySavedBackgroundImageImports(backgrounds) {
+function applySavedBackgroundImageImports(backgrounds, options = {}) {
   if (!backgrounds) {
     toast("Clipboard does not contain saved backgrounds.");
     return false;
@@ -4849,7 +4849,7 @@ function applySavedBackgroundImageImports(backgrounds) {
     if (upsertSavedBackgroundImage(background, { render: false, toast: false })) savedCount += 1;
   }
   if (savedCount > 0) {
-    renderSettingsInspector();
+    if (options.render !== false) renderSettingsInspector();
     toast(skippedCount
       ? `Saved ${savedCount} background${savedCount === 1 ? "" : "s"}; ${skippedCount} skipped by limit.`
       : `${savedCount} background${savedCount === 1 ? "" : "s"} saved.`);
@@ -4859,7 +4859,7 @@ function applySavedBackgroundImageImports(backgrounds) {
   return false;
 }
 
-async function pasteSavedBackgroundImages() {
+async function pasteSavedBackgroundImages(options = {}) {
   const payload = await readBackgroundImageFromClipboard();
   if (!payload) return false;
   const raw = String(payload.value || "").trim();
@@ -4871,7 +4871,7 @@ async function pasteSavedBackgroundImages() {
       parsedPayload = payload.background;
     }
   }
-  return applySavedBackgroundImageImports(savedBackgroundImageImportsFromPayload(parsedPayload));
+  return applySavedBackgroundImageImports(savedBackgroundImageImportsFromPayload(parsedPayload), options);
 }
 
 function savedLibraryPayload() {
@@ -26384,25 +26384,25 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
     noTerminalTitle: "Open a terminal pane before choosing all terminal backgrounds."
   });
   const actions = [
-    quickOverviewControlButton("Choose app", () => chooseBackgroundImageForTarget({ target: "app" }), {
+    quickOverviewControlButton("Choose app", () => refreshQuickSettingsAfterAction(chooseBackgroundImageForTarget({ target: "app", render: false })), {
       title: "Choose a background image for the whole app.",
       search: "quick setup background app image choose wallpaper whole window"
     }),
-    quickOverviewControlButton("Paste app", () => pasteBackgroundImageFromClipboard({ target: "app" }), {
+    quickOverviewControlButton("Paste app", () => refreshQuickSettingsAfterAction(pasteBackgroundImageFromClipboard({ target: "app", render: false })), {
       title: "Paste an image URL, path, or copied image as the app background.",
       search: "quick setup background app image paste clipboard url path copied wallpaper"
     }),
-    quickOverviewControlButton("Save app", () => saveCustomBackgroundImage({ url: appSave.background }), {
+    quickOverviewControlButton("Save app", () => refreshQuickSettingsAfterAction(saveCustomBackgroundImage({ url: appSave.background }, { render: false })), {
       disabled: appSave.disabled,
       title: appSave.title,
       search: "quick setup background app image save saved library reusable wallpaper"
     }),
-    quickOverviewControlButton("Terminal", () => chooseBackgroundImageForTarget({ target: "pane" }), {
+    quickOverviewControlButton("Terminal", () => refreshQuickSettingsAfterAction(chooseBackgroundImageForTarget({ target: "pane", render: false })), {
       disabled: paneOption.disabled,
       title: paneTitle,
       search: `quick setup background active terminal pane image choose wallpaper ${paneOption.meta}`
     }),
-    quickOverviewControlButton("All terminals", () => chooseWorkspaceTerminalBackground(workspace), {
+    quickOverviewControlButton("All terminals", () => refreshQuickSettingsAfterAction(chooseWorkspaceTerminalBackground(workspace, { render: false })), {
       disabled: allChoose.disabled,
       title: allChoose.title,
       search: `quick setup background ${allChoose.search} ${allOption.meta}`
@@ -26417,17 +26417,17 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
       title: cycleTemplateModel.title,
       search: `quick setup background cycle selected target template wallpaper app pane all terminals ${cycleTemplateModel.search}`
     }),
-    quickOverviewControlButton("Save terminal", () => saveCustomBackgroundImage({ url: terminalSave.background }), {
+    quickOverviewControlButton("Save terminal", () => refreshQuickSettingsAfterAction(saveCustomBackgroundImage({ url: terminalSave.background }, { render: false })), {
       disabled: terminalSave.disabled,
       title: terminalSave.title,
       search: "quick setup background active terminal image save saved library reusable wallpaper"
     }),
-    quickOverviewControlButton("Save set", () => saveCurrentBackgroundSetToLibrary(workspace), {
+    quickOverviewControlButton("Save set", () => refreshQuickSettingsAfterAction(saveCurrentBackgroundSetToLibrary(workspace, { render: false })), {
       disabled: backgroundSetSave.disabled,
       title: backgroundSetSave.title,
       search: `quick setup background save current set app terminal panes reusable library ${backgroundSetSave.search}`
     }),
-    quickOverviewControlButton("Save profile", saveCurrentBackgroundProfile, {
+    quickOverviewControlButton("Save profile", () => refreshQuickSettingsAfterAction(saveCurrentBackgroundProfile({ render: false })), {
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save the current app background and tuning as a reusable Settings profile.",
       search: "quick setup background app image tuning save profile reusable settings wallpaper opacity fit position effects chrome"
@@ -26462,7 +26462,7 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
       title: hasSavedBackgrounds ? "Copy saved background images as JSON." : "Saved background library is empty.",
       search: "quick setup background saved library copy export clipboard json"
     }),
-    quickOverviewControlButton("Paste library", pasteSavedBackgroundImages, {
+    quickOverviewControlButton("Paste library", () => refreshQuickSettingsAfterAction(pasteSavedBackgroundImages({ render: false })), {
       title: "Merge copied saved background images into the library.",
       search: "quick setup background saved library paste import clipboard json"
     }),
@@ -33307,12 +33307,12 @@ async function chooseBackgroundImage(options = {}) {
   if (options.save) {
     const saved = await applyAndSaveCustomBackgroundImage({ url }, { render: false });
     if (!saved) return;
-    renderSettingsInspector();
+    if (options.render !== false) renderSettingsInspector();
     return;
   }
   const changed = await applyCustomBackgroundImage(url, { render: false, toast: true });
   if (changed === null) return;
-  renderSettingsInspector();
+  if (options.render !== false) renderSettingsInspector();
 }
 
 async function chooseBackgroundImageForTarget(options = {}) {
@@ -33329,16 +33329,18 @@ async function chooseBackgroundImageForTarget(options = {}) {
   }
   if (state.backgroundApplyTarget !== target) {
     state.backgroundApplyTarget = target;
-    refreshBackgroundPreviewNodes();
-    refreshBackgroundLibraryPanels();
+    if (options.render !== false) {
+      refreshBackgroundPreviewNodes();
+      refreshBackgroundLibraryPanels();
+    }
   }
   const url = await window.cmuxNative.pickBackgroundImage();
   if (!url) return null;
   if (options.save) {
-    return applyAndSaveBackgroundImageToTarget({ url }, target, { render: true });
+    return applyAndSaveBackgroundImageToTarget({ url }, target, { render: options.render });
   }
   const changed = await applyBackgroundValueToTarget(url, target, { render: false, toast: true });
-  if (changed !== null) renderSettingsInspector();
+  if (changed !== null && options.render !== false) renderSettingsInspector();
   return changed;
 }
 
@@ -33381,25 +33383,25 @@ async function pasteBackgroundImageFromClipboard(options = {}) {
   if (options.target) {
     const target = typeof options.target === "function" ? options.target() : options.target;
     if (options.save) {
-      const saved = await applyAndSaveBackgroundImageToTarget(background, target, { resetInput: options.input });
+      const saved = await applyAndSaveBackgroundImageToTarget(background, target, { render: options.render, resetInput: options.input });
       if (saved && options.input) options.input.value = pastedImage ? "" : saved.url;
       return saved;
     }
-    const changed = await applyBackgroundValueToTarget(value, target, { resetInput: options.input, toast: true });
+    const changed = await applyBackgroundValueToTarget(value, target, { render: options.render, resetInput: options.input, toast: true });
     if (changed !== null && pastedImage && options.input) options.input.value = "";
     return changed;
   }
   if (options.save) {
-    const saved = await applyAndSaveCustomBackgroundImage(background, { resetInput: options.input });
+    const saved = await applyAndSaveCustomBackgroundImage(background, { render: options.render, resetInput: options.input });
     if (saved && options.input) options.input.value = pastedImage ? "" : saved.url;
     return saved;
   }
-  const changed = await applyCustomBackgroundImage(value, { resetInput: options.input, toast: true });
+  const changed = await applyCustomBackgroundImage(value, { render: options.render, resetInput: options.input, toast: true });
   if (changed !== null && pastedImage && options.input) options.input.value = "";
   return changed;
 }
 
-async function chooseWorkspaceTerminalBackground(workspace = activeWorkspace()) {
+async function chooseWorkspaceTerminalBackground(workspace = activeWorkspace(), options = {}) {
   if (!workspace) return null;
   if (!window.cmuxNative?.pickBackgroundImage) {
     toast("Local image picker is unavailable.");
@@ -33408,16 +33410,16 @@ async function chooseWorkspaceTerminalBackground(workspace = activeWorkspace()) 
   const url = await window.cmuxNative.pickBackgroundImage();
   if (!url) return null;
   const changed = await applyWorkspaceBackgroundImageToTerminals(url, workspace, { render: false, toast: true });
-  if (changed !== null && state.inspectorMode === "settings") renderSettingsInspector();
+  if (changed !== null && options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
   return changed;
 }
 
-async function pasteWorkspaceTerminalBackgroundFromClipboard(workspace = activeWorkspace()) {
+async function pasteWorkspaceTerminalBackgroundFromClipboard(workspace = activeWorkspace(), options = {}) {
   if (!workspace) return null;
   const payload = await readBackgroundImageFromClipboard();
   if (!payload) return null;
   const changed = await applyWorkspaceBackgroundImageToTerminals(payload.value, workspace, { render: false, toast: true });
-  if (changed !== null && state.inspectorMode === "settings") renderSettingsInspector();
+  if (changed !== null && options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
   return changed;
 }
 
@@ -33757,11 +33759,12 @@ function saveCurrentLayoutProfile() {
   });
 }
 
-function saveCurrentBackgroundProfile() {
+function saveCurrentBackgroundProfile(options = {}) {
   return saveCurrentSettingsProfile({
     title: "Save background profile",
     message: "Save the current app background image and tuning together with the current look, layout, terminal, browser, and performance settings.",
-    baseName: "Background profile"
+    baseName: "Background profile",
+    ...options
   });
 }
 
