@@ -7377,6 +7377,31 @@ extension BrowserPanel {
         return image
     }
 
+    func captureAutomationVisibleViewportSnapshot(
+        completion: @escaping (Result<NSImage, Error>) -> Void
+    ) {
+        guard visualAutomationCaptureGate.begin() else {
+            completion(.failure(BrowserScreenshotError.emptySnapshot))
+            return
+        }
+
+        withVisualAutomationRenderLease(
+            reason: "browser.screenshot",
+            timeout: 15.0,
+            operation: { webView, afterScreenUpdates, finish in
+                BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
+                    from: webView,
+                    afterScreenUpdates: afterScreenUpdates,
+                    completion: finish
+                )
+            },
+            completion: { [visualAutomationCaptureGate] result in
+                visualAutomationCaptureGate.end()
+                completion(result)
+            }
+        )
+    }
+
     private func withVisualAutomationRenderLease<T>(
         reason: String,
         operation: (_ webView: WKWebView, _ afterScreenUpdates: Bool) async throws -> T
@@ -7412,7 +7437,77 @@ extension BrowserPanel {
             captureWebView,
             expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil
         )
-        return try await operation(captureWebView, true)
+        // Automation snapshots should observe the frame that WebKit has already
+        // laid out and painted, not wait on an AppKit screen update that may
+        // never arrive while the app/window is not actively being displayed.
+        return try await operation(captureWebView, false)
+    }
+
+    private func withVisualAutomationRenderLease<T>(
+        reason: String,
+        timeout: TimeInterval,
+        operation: @escaping (
+            _ webView: WKWebView,
+            _ afterScreenUpdates: Bool,
+            _ finish: @escaping (Result<T, Error>) -> Void
+        ) -> Void,
+        completion: @escaping (Result<T, Error>) -> Void
+    ) {
+        activeVisualAutomationCaptureCount += 1
+        cancelHiddenWebViewDiscard()
+
+        let expectedURLForRestoredWebView = restoredHistoryCurrentURL ?? currentURL
+        let restoredDiscardedWebView = restoreDiscardedWebViewIfNeeded(reason: "\(reason).restore")
+        let viewportSize = visualAutomationViewportSize()
+        let captureWebView = webView
+        var timeoutTimer: Timer?
+        var didFinish = false
+        let usesOffscreenRenderHost = shouldUseOffscreenRenderHostForVisualAutomation
+
+        let finish: (Result<T, Error>) -> Void = { result in
+            guard !didFinish else { return }
+            didFinish = true
+            timeoutTimer?.invalidate()
+            timeoutTimer = nil
+
+            self.activeVisualAutomationCaptureCount = max(0, self.activeVisualAutomationCaptureCount - 1)
+            self.refreshWebViewLifecycleState()
+            if self.activeVisualAutomationCaptureCount == 0, !self.isWebViewVisibleInUI {
+                self.scheduleHiddenWebViewDiscardIfNeeded(reason: "\(reason).finished")
+            }
+
+            completion(result)
+        }
+
+        if usesOffscreenRenderHost {
+            BrowserScreenshotWebViewSnapshotter.withOffscreenRenderHost(
+                captureWebView,
+                viewportSize: viewportSize,
+                expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil,
+                timeout: timeout,
+                operation: { operationFinish in
+                    operation(captureWebView, false, operationFinish)
+                },
+                completion: finish
+            )
+            return
+        }
+
+        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
+            finish(.failure(BrowserScreenshotError.emptySnapshot))
+        }
+
+        BrowserScreenshotWebViewSnapshotter.prepareForVisualCapture(
+            captureWebView,
+            expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil
+        ) { result in
+            switch result {
+            case .success:
+                operation(captureWebView, false, finish)
+            case .failure(let error):
+                finish(.failure(error))
+            }
+        }
     }
 
     private var shouldUseOffscreenRenderHostForVisualAutomation: Bool {
