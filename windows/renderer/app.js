@@ -23969,11 +23969,39 @@ function performanceTuningPresetSettings(preset) {
   return performanceSetupUpdatesFromPayload({ settings: preset?.settings });
 }
 
-function performanceTuningPresetSearchText(preset, settings = performanceTuningPresetSettings(preset)) {
+function performanceTuningPresetProfileSettings(preset) {
+  const settings = performanceTuningPresetSettings(preset);
+  if (!settings) return null;
+  return normalizeSettings({
+    ...state.settings,
+    ...settings
+  });
+}
+
+function savedSettingsProfileForPerformanceTuningPreset(preset) {
+  const settings = performanceTuningPresetProfileSettings(preset);
+  if (!settings) return null;
+  return state.savedSettingsProfiles.find((profile) => settingsProfileMatchesSettings(profile, settings)) || null;
+}
+
+function performanceTuningPresetProfileSaveTitle(preset, savedProfile = savedSettingsProfileForPerformanceTuningPreset(preset)) {
+  if (!preset) return "Choose a performance tuning preset first.";
+  if (savedProfile) return `${savedProfile.label} already saves ${preset.label}.`;
+  if (savedSettingsProfilesFull()) return settingsProfileLimitTitle();
+  return "Save this performance tuning preset as a reusable profile.";
+}
+
+function performanceTuningPresetProfileSaveSearchText(preset, settings = performanceTuningPresetSettings(preset), savedProfile = null) {
+  const summary = performanceSetupSummaryForSettings(settings || {});
+  return normalizeSettingsQuery(`performance tuning preset save profile reusable settings speed lag smooth ${savedProfile ? "saved unavailable " : savedSettingsProfilesFull() ? "limit full unavailable " : "ready "}${settingsProfileSaveStateSearch(savedProfile)} ${preset?.label || ""} ${preset?.body || ""} ${summary.mode} ${summary.motion} ${summary.background} ${summary.backgroundChrome} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.browserChrome} ${summary.history}`);
+}
+
+function performanceTuningPresetSearchText(preset, settings = performanceTuningPresetSettings(preset), savedProfile = null) {
   const summary = performanceSetupSummaryForSettings(settings || {});
   const active = isActivePerformanceTuningPreset(preset);
   return normalizeSettingsQuery([
     `performance tuning preset setup apply copy speed lag smooth low motion ${active ? "active current unavailable " : "ready "}speed snappy balanced calm live panes workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy result limit focused balanced extended results placement position top center wide quick actions auto hidden command list details metadata shortcuts compact labels switcher workspace pane keyboard hud pane surface controls split dividers resize grip line minimal active pane emphasis spacing gap gutter padding surface depth shadow background opacity effects glass flat chrome readable soft immersive terminal output browser preview pane chrome compact content full controls tabs address suspend history scrollback`,
+    performanceTuningPresetProfileSaveSearchText(preset, settings, savedProfile),
     preset?.label,
     preset?.body,
     summary.mode,
@@ -24035,6 +24063,7 @@ function updatePerformanceTuningPresetButton(button, preset) {
   const settings = performanceTuningPresetSettings(preset);
   if (!settings) return false;
   const active = isActivePerformanceTuningPreset(preset);
+  const savedProfile = savedSettingsProfileForPerformanceTuningPreset(preset);
   const card = button.closest(".performance-tune-card");
   let changed = false;
   if (card) changed = toggleClassIfChanged(card, "is-active", active) || changed;
@@ -24043,7 +24072,7 @@ function updatePerformanceTuningPresetButton(button, preset) {
   setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
   const status = button.querySelector(".performance-tune-status");
   if (status) changed = setTextIfChanged(status, active ? "Active" : "") || changed;
-  const search = performanceTuningPresetSearchText(preset, settings);
+  const search = performanceTuningPresetSearchText(preset, settings, savedProfile);
   if (button.dataset.settingsSearch !== search) {
     button.dataset.settingsSearch = search;
     updateSettingsSearchIndexItemSearch(button, search);
@@ -24053,6 +24082,19 @@ function updatePerformanceTuningPresetButton(button, preset) {
     card.dataset.settingsSearch = search;
     updateSettingsSearchIndexItemSearch(card, search);
     changed = true;
+  }
+  const save = card?.querySelector(`[data-performance-tuning-save="${preset.id}"]`);
+  if (save) {
+    const saveSearch = performanceTuningPresetProfileSaveSearchText(preset, settings, savedProfile);
+    changed = setSettingsActionLabel(save, savedProfile ? "Saved" : "Save") || changed;
+    changed = setDisabledIfChanged(save, Boolean(savedProfile) || savedSettingsProfilesFull()) || changed;
+    changed = toggleClassIfChanged(save, "primary", Boolean(savedProfile)) || changed;
+    changed = setTitleIfChanged(save, performanceTuningPresetProfileSaveTitle(preset, savedProfile)) || changed;
+    if (save.dataset.settingsSearch !== saveSearch) {
+      save.dataset.settingsSearch = saveSearch;
+      updateSettingsSearchIndexItemSearch(save, saveSearch);
+      changed = true;
+    }
   }
   const copy = card?.querySelector(`[data-performance-tuning-copy="${preset.id}"]`);
   if (copy) {
@@ -24089,6 +24131,33 @@ function applyPerformanceTuningPreset(presetId) {
     toastText: `${preset.label} tuning applied.`,
     alreadyText: `${preset.label} tuning already active.`
   });
+}
+
+function savePerformanceTuningPresetProfile(presetId) {
+  const preset = performanceTuningPresetById(presetId);
+  if (!preset) {
+    toast("Performance tuning preset not found.");
+    return null;
+  }
+  const existing = savedSettingsProfileForPerformanceTuningPreset(preset);
+  if (existing) {
+    toast(`${existing.label} profile already saves ${preset.label}.`);
+    return existing;
+  }
+  if (savedSettingsProfilesFull()) {
+    toast(settingsProfileLimitTitle());
+    return null;
+  }
+  const saved = upsertSavedSettingsProfile({
+    id: createSettingsProfileId(),
+    label: defaultSettingsProfileName(`${preset.label} speed`),
+    settings: performanceTuningPresetProfileSettings(preset),
+    createdAt: Date.now()
+  });
+  if (!saved) return null;
+  renderSettingsInspector();
+  toast(`${saved.label} profile saved.`);
+  return saved;
 }
 
 function copyPerformanceTuningPreset(presetId) {
@@ -27007,8 +27076,9 @@ function performanceTuningPresetGrid() {
     const settings = performanceTuningPresetSettings(preset);
     if (!settings) continue;
     const active = isActivePerformanceTuningPreset(preset);
+    const savedProfile = savedSettingsProfileForPerformanceTuningPreset(preset);
     const summary = performanceSetupSummaryForSettings(settings);
-    const search = performanceTuningPresetSearchText(preset, settings);
+    const search = performanceTuningPresetSearchText(preset, settings, savedProfile);
     const card = document.createElement("div");
     card.className = `performance-tune-card${active ? " is-active" : ""}`;
     card.dataset.settingsSearch = search;
@@ -27046,10 +27116,14 @@ function performanceTuningPresetGrid() {
     };
     const actions = document.createElement("div");
     actions.className = "performance-tune-actions";
+    const save = settingsActionButton(savedProfile ? "Saved" : "Save", () => savePerformanceTuningPresetProfile(preset.id), savedProfile ? "primary" : "", performanceTuningPresetProfileSaveSearchText(preset, settings, savedProfile));
+    save.dataset.performanceTuningSave = preset.id;
+    save.disabled = Boolean(savedProfile) || savedSettingsProfilesFull();
+    save.title = performanceTuningPresetProfileSaveTitle(preset, savedProfile);
     const copy = settingsActionButton("Copy", () => copyPerformanceTuningPreset(preset.id), "", performanceTuningPresetCopySearchText(preset, settings));
     copy.dataset.performanceTuningCopy = preset.id;
     copy.title = performanceTuningPresetCopyTitle(preset);
-    actions.append(copy);
+    actions.append(save, copy);
     card.append(button, actions);
     updatePerformanceTuningPresetButton(button, preset);
     grid.append(card);
@@ -31484,10 +31558,9 @@ function settingsActionIconMarkup(label, tone = "") {
 function setSettingsActionLabel(button, label) {
   const labelNode = button?.querySelector?.(".settings-action-label");
   if (labelNode) {
-    setTextIfChanged(labelNode, label);
-    return;
+    return setTextIfChanged(labelNode, label);
   }
-  setTextIfChanged(button, label);
+  return setTextIfChanged(button, label);
 }
 
 function settingsActionButton(label, onClick, tone = "", searchTerms = "") {
@@ -35506,6 +35579,7 @@ function paletteEntries() {
     const settings = performanceTuningPresetSettings(preset);
     if (!settings) continue;
     const active = isActivePerformanceTuningPreset(preset);
+    const savedProfile = savedSettingsProfileForPerformanceTuningPreset(preset);
     const summary = performanceSetupSummaryForSettings(settings);
     entries.push({
       id: `performanceTunePreset.${preset.id}`,
@@ -35515,8 +35589,18 @@ function paletteEntries() {
       active,
       disabled: active,
       title: performanceTuningPresetTitle(preset, active),
-      search: performanceTuningPresetSearchText(preset, settings),
+      search: performanceTuningPresetSearchText(preset, settings, savedProfile),
       run: () => applyPerformanceTuningPreset(preset.id)
+    });
+    entries.push({
+      id: `performanceTunePreset.save.${preset.id}`,
+      label: `Save performance profile: ${preset.label}`,
+      meta: settingsProfileSaveStateMeta(savedProfile),
+      shortcut: savedProfile ? "Saved" : "Save",
+      disabled: Boolean(savedProfile) || savedSettingsProfilesFull(),
+      title: performanceTuningPresetProfileSaveTitle(preset, savedProfile),
+      search: performanceTuningPresetProfileSaveSearchText(preset, settings, savedProfile),
+      run: () => savePerformanceTuningPresetProfile(preset.id)
     });
     entries.push({
       id: `performanceTunePreset.copy.${preset.id}`,
