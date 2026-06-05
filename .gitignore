@@ -25,6 +25,7 @@ GhosttyKit.xcframework.bak-*/
 cmux-*.zip
 cmux-macos.dmg
 appcast.xml
+windows/release/
 
 # Python
 __pycache__/

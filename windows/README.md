@@ -13,6 +13,18 @@ npm start
 `npm start` builds the Vite/React settings renderer before launching Electron. Use
 `npm run build:renderer` when you only need to refresh the renderer bundle.
 
+## Build the Windows installer
+
+```powershell
+cd windows
+npm install
+npm run dist:win
+```
+
+The installer is written to `windows/release/cmux-windows-0.1.0-setup.exe`.
+This is an unofficial community Windows build; official upstream cmux releases
+remain macOS-focused.
+
 ## CLI
 
 With the app running, run these commands from a cmux terminal pane so the
@@ -59,5 +71,5 @@ Not complete yet:
 
 - Full Ghostty renderer parity.
 - WebView2-native browser automation.
-- Windows installer/updater.
+- Automatic Windows updater.
 - Complete macOS shortcut/config parity.
