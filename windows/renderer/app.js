@@ -311,6 +311,9 @@ const browserViewBoundsSyncFrames = 3;
 const settingsDisclosureSearchMountBatchSize = 3;
 const settingsDisclosureSearchMountSlowBatchSize = 1;
 const settingsSearchInteractiveFilterDelayMs = 90;
+const settingsSearchFilterChunkWorkThreshold = 260;
+const settingsSearchFilterFrameBudgetMs = 6;
+const settingsSearchFilterSlowFrameBudgetMs = 4;
 const toastFeedbackModeTokens = new Map([
   ["quiet", { limit: 2, duration: 2200 }],
   ["balanced", { limit: 4, duration: 3200 }],
@@ -1235,6 +1238,8 @@ const state = {
   browserSettingsPreviewFrame: 0,
   settingsFilterFrame: 0,
   settingsFilterTimer: 0,
+  settingsFilterJob: null,
+  settingsFilterJobFrame: 0,
   performanceMetricsRefreshFrame: 0,
   performanceMetricsRefreshTimer: 0,
   performanceMetricsRefreshAt: 0,
@@ -17101,7 +17106,11 @@ function renderSettingsChrome(host) {
       if (!wasSearching && isSearching) queueSettingsSearchAutoScroll();
       if (wasSearching !== isSearching) {
         state.settingsSearchFocusPending = true;
-        scheduleSettingsInspectorRender({ resetScroll: true });
+        setSettingsSearchBusy(isSearching);
+        scheduleSettingsInspectorRender({
+          resetScroll: true,
+          delayMs: isSearching ? settingsSearchInteractiveFilterDelayMs : 0
+        });
       } else {
         setSettingsSearchResultText(state.settingsSearchResultText);
         scheduleSettingsFilter({ delay: settingsSearchInteractiveFilterDelayMs });
@@ -17132,7 +17141,11 @@ function settingsSearch() {
     if (!wasSearching && isSearching) queueSettingsSearchAutoScroll();
     if (wasSearching !== isSearching) {
       state.settingsSearchFocusPending = true;
-      scheduleSettingsInspectorRender({ resetScroll: true });
+      setSettingsSearchBusy(isSearching);
+      scheduleSettingsInspectorRender({
+        resetScroll: true,
+        delayMs: isSearching ? settingsSearchInteractiveFilterDelayMs : 0
+      });
       return;
     }
     scheduleSettingsFilter({ delay: settingsSearchInteractiveFilterDelayMs });
@@ -23789,6 +23802,7 @@ function settingSegmentedControl(settingKey, choices, searchTerms = "", options 
 }
 
 function scheduleSettingsFilter(options = {}) {
+  cancelSettingsFilterJob();
   const delay = Math.max(0, Number(options.delay) || 0);
   if (delay > 0 && !state.settingsFilterFrame) {
     if (state.settingsFilterTimer) window.clearTimeout(state.settingsFilterTimer);
@@ -23807,6 +23821,14 @@ function scheduleSettingsFilter(options = {}) {
     state.settingsFilterFrame = 0;
     applySettingsFilter();
   });
+}
+
+function cancelSettingsFilterJob() {
+  if (state.settingsFilterJobFrame) {
+    cancelAnimationFrame(state.settingsFilterJobFrame);
+    state.settingsFilterJobFrame = 0;
+  }
+  state.settingsFilterJob = null;
 }
 
 function buildSettingsSearchIndex() {
@@ -23982,6 +24004,135 @@ function syncSettingsSearchFilterControls(query, visibleSections) {
   if (clear) setDisabledIfChanged(clear, !query);
 }
 
+function settingsSearchFilterWorkCount(sections) {
+  return sections.reduce((total, section) => total + 1 + section.items.length + section.groups.length, 0);
+}
+
+function settingsSearchFilterShouldChunk(query, sections) {
+  if (!query) return false;
+  const workCount = settingsSearchFilterWorkCount(sections);
+  const threshold = (state.settings.performanceMode || state.renderStats.avgMs >= renderSlowFrameMs)
+    ? Math.max(80, Math.floor(settingsSearchFilterChunkWorkThreshold / 2))
+    : settingsSearchFilterChunkWorkThreshold;
+  return workCount >= threshold;
+}
+
+function settingsSearchFilterFrameBudget() {
+  if (state.settings.performanceMode || state.renderStats.avgMs >= renderSlowFrameMs) {
+    return settingsSearchFilterSlowFrameBudgetMs;
+  }
+  return settingsSearchFilterFrameBudgetMs;
+}
+
+function createSettingsFilterJob({
+  query,
+  tokens,
+  sections,
+  filterSignature,
+  shouldAutoScroll
+}) {
+  return {
+    query,
+    tokens,
+    sections,
+    filterSignature,
+    shouldAutoScroll,
+    sectionIndex: 0,
+    visibleSections: 0,
+    matchingItems: 0,
+    bestTarget: null
+  };
+}
+
+function processSettingsFilterSection(job, sectionRecord) {
+  const { section, sectionSearch, sectionTitle, items, groups } = sectionRecord;
+  const sectionMatches = settingsSearchMatchesNormalized(sectionSearch, job.tokens);
+  let sectionVisible = sectionMatches;
+  if (sectionMatches) {
+    job.matchingItems += 1;
+    job.bestTarget = maybeUpdateSettingsSearchTarget(job.bestTarget, section, sectionTitle);
+  }
+  for (const { item, search } of items) {
+    const itemMatches = settingsSearchMatchesNormalized(search, job.tokens);
+    const visible = itemMatches || sectionMatches;
+    setHiddenIfChanged(item, !visible);
+    sectionVisible ||= visible;
+    if (itemMatches) {
+      job.matchingItems += 1;
+      job.bestTarget = maybeUpdateSettingsSearchTarget(job.bestTarget, item, sectionTitle);
+    }
+  }
+  for (const { group, search, cards } of groups) {
+    const cardVisible = cards.some((card) => !card.hidden);
+    const groupMatches = settingsSearchMatchesNormalized(search, job.tokens);
+    const groupVisible = cardVisible || groupMatches || sectionMatches;
+    setHiddenIfChanged(group, !groupVisible);
+    sectionVisible ||= groupVisible;
+    if (groupMatches) {
+      job.matchingItems += 1;
+      job.bestTarget = maybeUpdateSettingsSearchTarget(job.bestTarget, group, sectionTitle);
+    }
+  }
+  setHiddenIfChanged(section, !sectionVisible);
+  if (sectionVisible) job.visibleSections += 1;
+}
+
+function finishSettingsFilterJob(job) {
+  state.settingsFilterJob = null;
+  syncSettingsSearchFilterControls(job.query, job.visibleSections);
+  setSettingsSearchResultText(settingsSearchResultMessage(job.matchingItems, job.visibleSections));
+  if (state.settingsSearchAutoScrollQuery === job.query) state.settingsSearchAutoScrollQuery = "";
+  if (job.shouldAutoScroll && job.visibleSections > 0) scrollSettingsSearchTargetIntoView(job.bestTarget?.item);
+  setSettingsSearchBusy(false);
+  setSettingsSearchLayoutNeeded(false);
+  state.settingsSearchLastFilterSignature = job.filterSignature;
+}
+
+function runSettingsFilterJob() {
+  const job = state.settingsFilterJob;
+  if (!job) return;
+  if (normalizeSettingsQuery(state.settingsQuery) !== job.query) {
+    state.settingsFilterJob = null;
+    scheduleSettingsFilter();
+    return;
+  }
+  const startedAt = performance.now();
+  const budgetMs = settingsSearchFilterFrameBudget();
+  let processed = 0;
+  while (
+    job.sectionIndex < job.sections.length
+    && (processed === 0 || performance.now() - startedAt < budgetMs)
+  ) {
+    processSettingsFilterSection(job, job.sections[job.sectionIndex]);
+    job.sectionIndex += 1;
+    processed += 1;
+  }
+  if (job.sectionIndex < job.sections.length) {
+    setSettingsSearchBusy(true);
+    setSettingsSearchResultText(t("settings.searching"));
+    syncSettingsSearchFilterControls(job.query, 1);
+    scheduleSettingsFilterJobFrame();
+    return;
+  }
+  finishSettingsFilterJob(job);
+}
+
+function scheduleSettingsFilterJobFrame() {
+  if (state.settingsFilterJobFrame) return;
+  state.settingsFilterJobFrame = requestAnimationFrame(() => {
+    state.settingsFilterJobFrame = 0;
+    runSettingsFilterJob();
+  });
+}
+
+function startSettingsFilterJob(job) {
+  state.settingsFilterJob = job;
+  setSettingsSearchBusy(true);
+  setSettingsSearchResultText(t("settings.searching"));
+  syncSettingsSearchFilterControls(job.query, 1);
+  runSettingsFilterJob();
+}
+
 function applySettingsFilter() {
   const query = normalizeSettingsQuery(state.settingsQuery);
   const disclosureSync = syncSettingsDisclosuresForSearch(query);
@@ -24004,64 +24155,44 @@ function applySettingsFilter() {
   const searchLayoutNeeded = Boolean(query && (searchStillMounting || mayAutoScroll));
   setSettingsSearchLayoutNeeded(searchLayoutNeeded);
   const filterSignature = `${query}\u001e${state.settingsSearchIndexVersion}\u001e${pendingAutoScroll ? "scroll" : ""}`;
+  if (state.settingsFilterJob?.filterSignature === filterSignature) return;
   if (filterSignature === state.settingsSearchLastFilterSignature) {
     if (!searchStillMounting) setSettingsSearchLayoutNeeded(false);
+    if (!searchStillMounting) setSettingsSearchBusy(false);
     return;
   }
-  state.settingsSearchLastFilterSignature = filterSignature;
   if (!query) {
     restoreSettingsFilterVisibility(sections);
     syncSettingsSearchFilterControls(query, sections.length);
     setSettingsSearchResultText("");
+    setSettingsSearchBusy(false);
     setSettingsSearchLayoutNeeded(false);
+    state.settingsSearchLastFilterSignature = filterSignature;
     return;
   }
   const tokens = settingsSearchTokensNormalized(query);
-  let visibleSections = 0;
-  let matchingItems = 0;
-  let bestTarget = null;
-  for (const sectionRecord of sections) {
-    const { section, sectionSearch, sectionTitle, items, groups } = sectionRecord;
-    const sectionMatches = settingsSearchMatchesNormalized(sectionSearch, tokens);
-    let sectionVisible = sectionMatches;
-    if (query && sectionMatches) {
-      matchingItems += 1;
-      bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, section, sectionTitle);
-    }
-    for (const { item, search } of items) {
-      const itemMatches = settingsSearchMatchesNormalized(search, tokens);
-      const visible = itemMatches || sectionMatches;
-      setHiddenIfChanged(item, !visible);
-      sectionVisible ||= visible;
-      if (query && itemMatches) {
-        matchingItems += 1;
-        bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, item, sectionTitle);
-      }
-    }
-    for (const { group, search, cards } of groups) {
-      const cardVisible = cards.some((card) => !card.hidden);
-      const groupMatches = settingsSearchMatchesNormalized(search, tokens);
-      const groupVisible = cardVisible || groupMatches || sectionMatches;
-      setHiddenIfChanged(group, !groupVisible);
-      sectionVisible ||= groupVisible;
-      if (query && groupMatches) {
-        matchingItems += 1;
-        bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, group, sectionTitle);
-      }
-    }
-    setHiddenIfChanged(section, !sectionVisible);
-    if (sectionVisible) visibleSections += 1;
+  const job = createSettingsFilterJob({
+    query,
+    tokens,
+    sections,
+    filterSignature,
+    shouldAutoScroll: mayAutoScroll
+  });
+  if (settingsSearchFilterShouldChunk(query, sections)) {
+    startSettingsFilterJob(job);
+    return;
   }
-  syncSettingsSearchFilterControls(query, visibleSections);
-  setSettingsSearchResultText(query
-    ? searchStillMounting
-      ? t("settings.searching")
-      : settingsSearchResultMessage(matchingItems, visibleSections)
-    : "");
+  for (const sectionRecord of sections) {
+    processSettingsFilterSection(job, sectionRecord);
+  }
+  syncSettingsSearchFilterControls(query, job.visibleSections);
+  setSettingsSearchResultText(settingsSearchResultMessage(job.matchingItems, job.visibleSections));
   const shouldAutoScroll = mayAutoScroll;
   if (!searchStillMounting && state.settingsSearchAutoScrollQuery === query) state.settingsSearchAutoScrollQuery = "";
-  if (shouldAutoScroll && visibleSections > 0) scrollSettingsSearchTargetIntoView(bestTarget?.item);
+  if (shouldAutoScroll && job.visibleSections > 0) scrollSettingsSearchTargetIntoView(job.bestTarget?.item);
+  if (!searchStillMounting) setSettingsSearchBusy(false);
   if (!searchStillMounting) setSettingsSearchLayoutNeeded(false);
+  state.settingsSearchLastFilterSignature = filterSignature;
 }
 
 function formatMs(value) {
