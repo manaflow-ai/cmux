@@ -1832,6 +1832,10 @@ body.reduce-motion *::after {
   flex: 0 0 auto;
 }
 
+#settingsButton {
+  order: -1;
+}
+
 .tool-button.add-tool {
   --tool-accent: var(--color-accent);
   position: relative;
@@ -1949,6 +1953,8 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
 .shell.toolbar-minimal .tool-button,
 .shell.toolbar-compact .tool-button {
   width: 32px;
+  min-width: 32px;
+  max-width: 32px;
   padding: 0;
   gap: 0;
 }
@@ -2108,23 +2114,28 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
   height: 44px;
   display: flex;
   align-items: stretch;
-  margin: 0 calc(var(--space-2) * -1) 0 var(--space-1);
-  flex: 0 0 auto;
+  min-width: 138px;
+  margin: 0 0 0 var(--space-1);
+  flex: 0 0 138px;
+  border-left: 1px solid color-mix(in oklch, var(--color-line) 64%, transparent);
+  background: color-mix(in oklch, var(--color-chrome-surface) 88%, var(--color-pane) 12%);
 }
 
 .window-control {
   width: 46px;
+  min-width: 46px;
   height: 44px;
   display: grid;
   place-items: center;
   border: 0;
   border-radius: 0;
-  color: var(--color-muted);
+  color: color-mix(in oklch, var(--color-text) 76%, var(--color-muted) 24%);
   font-family: var(--font-ui);
   font-size: 14px;
   line-height: 1;
   user-select: none;
   touch-action: manipulation;
+  opacity: .88;
 }
 
 .window-control:hover {
