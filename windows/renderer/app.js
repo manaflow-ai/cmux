@@ -25877,6 +25877,38 @@ function quickSavedCommandControlsPanel() {
   });
 }
 
+function quickRecentCommandControlsPanel() {
+  if (state.recentCommands.length === 0) return null;
+  const terminalTarget = activeTerminalRunTarget();
+  const terminalReady = Boolean(terminalTarget.panel);
+  const previewLimit = 4;
+  const visibleCommands = state.recentCommands.slice(0, previewLimit);
+  const hiddenCommandCount = Math.max(0, state.recentCommands.length - visibleCommands.length);
+  const actions = visibleCommands.map((command) => {
+    const commandText = normalizeTerminalCommand(command);
+    return quickOverviewControlButton(commandText, () => runTerminalCommand(commandText, terminalTarget.panel), {
+      disabled: !terminalReady || !commandText,
+      title: terminalReady
+        ? `Run "${commandText}" in ${terminalTarget.title}.`
+        : "Focus or create a terminal pane before running recent commands.",
+      search: normalizeSettingsQuery(`quick setup recent terminal command run shell history ${terminalReady ? "ready " : "needs terminal "}${commandText} ${terminalTarget.title} ${terminalTarget.location}`)
+    });
+  });
+  if (hiddenCommandCount > 0) {
+    actions.push(quickOverviewControlButton("More", () => openSettingsCategory("data", { query: "recent commands", focusSearch: false }), {
+      title: `Open all ${state.recentCommands.length} recent terminal commands.`,
+      search: normalizeSettingsQuery(`quick setup recent terminal commands more full data settings manage history run shell ${state.recentCommands.join(" ")}`)
+    }));
+  }
+  return quickOverviewControlsPanel({
+    className: "quick-overview-terminal",
+    title: "Recent commands",
+    meta: `${terminalTarget.title}: ${state.recentCommands.length}/${recentCommandsLimit} recent${hiddenCommandCount ? ` / ${hiddenCommandCount} more` : ""}`,
+    search: `quick setup recent terminal commands run shell history ${terminalReady ? "ready" : "needs terminal"} ${terminalTarget.title} ${terminalTarget.location} ${visibleCommands.join(" ")}`,
+    actions
+  });
+}
+
 function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   const workspace = activeWorkspace();
   const panels = workspace?.panels || [];
@@ -25942,6 +25974,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     <div data-quick-pane-controls></div>
     <div data-quick-pane-preset-controls></div>
     <div data-quick-terminal-controls></div>
+    <div data-quick-recent-command-controls></div>
     <div data-quick-command-controls></div>
     <div data-quick-saved-command-controls></div>
     <div data-quick-browser-controls></div>
@@ -26047,6 +26080,10 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   if (panePresetControls) panePresetSlot.replaceWith(panePresetControls);
   else panePresetSlot.remove();
   panel.querySelector("[data-quick-terminal-controls]").replaceWith(quickTerminalControlsPanel(workspace, terminalCount));
+  const recentCommandControls = quickRecentCommandControlsPanel();
+  const recentCommandSlot = panel.querySelector("[data-quick-recent-command-controls]");
+  if (recentCommandControls) recentCommandSlot.replaceWith(recentCommandControls);
+  else recentCommandSlot.remove();
   panel.querySelector("[data-quick-command-controls]").replaceWith(quickCommandActionControlsPanel());
   const savedCommandControls = quickSavedCommandControlsPanel();
   const savedCommandSlot = panel.querySelector("[data-quick-saved-command-controls]");
