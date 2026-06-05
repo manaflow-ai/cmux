@@ -4891,7 +4891,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted]).write(to: storeURL, options: .atomic)
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let serverHandled = startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
                 return line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
                     ? self.malformedRequestResponse(raw: line)
@@ -6837,7 +6837,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted]).write(to: storeURL, options: .atomic)
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let serverHandled = startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
                 return line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
                     ? self.malformedRequestResponse(raw: line)

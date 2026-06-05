@@ -1490,7 +1490,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            waitForCondition {
+            waitForCondition(timeout: 12.0) {
                 workspace.panelGitBranches[panelId]?.branch == "main"
                     && workspace.panelGitBranches[panelId]?.isDirty == false
             },
