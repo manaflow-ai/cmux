@@ -515,7 +515,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let paneId = "33333333-3333-3333-3333-333333333333"
         let windowId = "44444444-4444-4444-4444-444444444444"
-        v2Response(
+        return v2Response(
             id: id,
             ok: true,
             result: [
