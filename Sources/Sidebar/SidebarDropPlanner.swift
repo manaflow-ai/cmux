@@ -83,6 +83,83 @@ enum SidebarDropPlanner {
         return resolvedTargetIndex(from: fromIndex, insertionPosition: legalInsertionPosition, totalCount: tabIds.count)
     }
 
+    /// Where a workspace dragged in from *another window* should land in this
+    /// window's sidebar, plus the indicator to render while it hovers.
+    ///
+    /// Unlike ``indicator(draggedTabId:targetTabId:tabIds:pinnedTabIds:pointerY:targetHeight:)``
+    /// and ``targetIndex(draggedTabId:targetTabId:indicator:tabIds:pinnedTabIds:)``,
+    /// the dragged workspace is **not** a member of `tabIds` — it currently
+    /// lives in a different window — so there is no source index to remove and
+    /// the returned index is a plain insertion position in `0...tabIds.count`.
+    ///
+    /// - Parameters:
+    ///   - targetTabId: The hovered row's workspace id, or `nil` for the
+    ///     end-of-list / empty area (append).
+    ///   - draggedIsPinned: Whether the incoming workspace is pinned, so it is
+    ///     clamped into the legal pinned/unpinned region.
+    ///   - indicator: A previously computed indicator (used at drop time to
+    ///     recover the exact insertion the user saw); pass `nil` to derive the
+    ///     position from `targetTabId` and the pointer.
+    ///   - tabIds: This window's workspace ids, in sidebar order.
+    ///   - pinnedTabIds: The subset of `tabIds` that are pinned.
+    ///   - pointerY: Pointer y within the hovered row, used to pick the edge.
+    ///   - targetHeight: The hovered row's height, paired with `pointerY`.
+    /// - Returns: The clamped insertion index and the indicator to render.
+    static func crossWindowInsertion(
+        targetTabId: UUID?,
+        draggedIsPinned: Bool,
+        indicator: SidebarDropIndicator?,
+        tabIds: [UUID],
+        pinnedTabIds: Set<UUID>,
+        pointerY: CGFloat? = nil,
+        targetHeight: CGFloat? = nil
+    ) -> (insertionIndex: Int, indicator: SidebarDropIndicator) {
+        let proposed: Int
+        if let indicator, let indicatorInsertion = insertionPositionForIndicator(indicator, tabIds: tabIds) {
+            proposed = indicatorInsertion
+        } else if let targetTabId, let targetTabIndex = tabIds.firstIndex(of: targetTabId) {
+            let edge: SidebarDropEdge
+            if let pointerY, let targetHeight {
+                edge = edgeForPointer(locationY: pointerY, targetHeight: targetHeight)
+            } else {
+                edge = .top
+            }
+            proposed = (edge == .bottom) ? targetTabIndex + 1 : targetTabIndex
+        } else {
+            proposed = tabIds.count
+        }
+
+        let legalInsertion = legalCrossWindowInsertionPosition(
+            proposedInsertionPosition: proposed,
+            draggedIsPinned: draggedIsPinned,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedTabIds
+        )
+        return (legalInsertion, indicatorForInsertionPosition(legalInsertion, tabIds: tabIds))
+    }
+
+    /// Clamp a cross-window insertion so a pinned workspace lands inside the
+    /// leading pinned block and an unpinned one lands after it.
+    ///
+    /// The clamp applies even when `pinnedCount` is zero: a pinned workspace
+    /// dragged into a window with no existing pins must still land at the front
+    /// (index `0`), not wherever the pointer happens to be, otherwise it would
+    /// sit below unpinned rows and break the leading-pinned-segment invariant.
+    private static func legalCrossWindowInsertionPosition(
+        proposedInsertionPosition: Int,
+        draggedIsPinned: Bool,
+        tabIds: [UUID],
+        pinnedTabIds: Set<UUID>
+    ) -> Int {
+        let clampedInsertion = max(0, min(proposedInsertionPosition, tabIds.count))
+        let pinnedCount = tabIds.reduce(into: 0) { count, tabId in
+            if pinnedTabIds.contains(tabId) {
+                count += 1
+            }
+        }
+        return draggedIsPinned ? min(clampedInsertion, pinnedCount) : max(clampedInsertion, pinnedCount)
+    }
+
     struct WorkspaceDropTarget: Equatable {
         let workspaceId: UUID
         let isPinned: Bool
