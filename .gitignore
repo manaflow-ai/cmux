@@ -58,7 +58,6 @@ tmp/
 tmp-*/
 .iter-logs/
 .claude/worktrees/
-cmux-assets/
 
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/
