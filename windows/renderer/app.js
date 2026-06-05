@@ -25504,6 +25504,31 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
   });
 }
 
+function quickPerformanceHealthFixControlsPanel() {
+  const checks = performanceHealthCheckDefinitions.filter(performanceHealthCheckNeedsFix);
+  if (checks.length === 0) return null;
+  const previewLimit = 5;
+  const visibleChecks = checks.slice(0, previewLimit);
+  const hiddenCheckCount = Math.max(0, checks.length - visibleChecks.length);
+  const actions = visibleChecks.map((check) => quickOverviewControlButton(check.label, () => applyPerformanceHealthFix(check.id), {
+    title: `Apply the ${check.label.toLowerCase()} performance fix. ${check.meta?.() || ""}`,
+    search: performanceHealthCheckSearchText(check, true, check.meta?.() || "")
+  }));
+  if (hiddenCheckCount > 0) {
+    actions.push(quickOverviewControlButton("More", () => openSettingsCategory("performance", { query: "health", focusSearch: false }), {
+      title: `Open all ${checks.length} performance health fixes.`,
+      search: normalizeSettingsQuery(`quick setup lag fixes performance health more full checklist ${performanceHealthAllSearchText(checks.length)}`)
+    }));
+  }
+  return quickOverviewControlsPanel({
+    className: "quick-overview-performance",
+    title: "Lag fixes",
+    meta: `${performanceHealthIssueCountLabel(checks.length)} available${hiddenCheckCount ? ` / ${hiddenCheckCount} more` : ""}`,
+    search: `quick setup lag fixes performance health tune speed smooth ${checks.map((check) => `${check.label} ${check.body} ${check.search} ${check.meta?.() || ""}`).join(" ")}`,
+    actions
+  });
+}
+
 function quickPerformancePresetControlsPanel() {
   const presets = performanceTuningPresets
     .map((preset) => ({ preset, settings: performanceTuningPresetSettings(preset) }))
@@ -26103,6 +26128,7 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
       </span>
     </button>
     <div data-quick-performance-controls></div>
+    <div data-quick-performance-health-controls></div>
     <div data-quick-performance-preset-controls></div>
     <div data-quick-background-controls></div>
     <div data-quick-background-preset-controls></div>
@@ -26238,6 +26264,10 @@ function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
     if (state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
   };
   panel.querySelector("[data-quick-performance-controls]").replaceWith(quickPerformanceControlsPanel(performance));
+  const performanceHealthControls = quickPerformanceHealthFixControlsPanel();
+  const performanceHealthSlot = panel.querySelector("[data-quick-performance-health-controls]");
+  if (performanceHealthControls) performanceHealthSlot.replaceWith(performanceHealthControls);
+  else performanceHealthSlot.remove();
   const performancePresetControls = quickPerformancePresetControlsPanel();
   const performancePresetSlot = panel.querySelector("[data-quick-performance-preset-controls]");
   if (performancePresetControls) performancePresetSlot.replaceWith(performancePresetControls);
