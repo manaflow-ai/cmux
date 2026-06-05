@@ -30733,6 +30733,15 @@ function refreshTerminalProfileSaveSettings(options = {}) {
   scheduleSettingsInspectorRender({ ifChanged: true });
 }
 
+function refreshTerminalColorSettings(options = {}) {
+  if (options.render === false || state.inspectorMode !== "settings") return;
+  if (state.settingsCategory === "terminal" && !normalizeSettingsQuery(state.settingsQuery)) {
+    scheduleTerminalSettingsPreviewRefresh();
+    return;
+  }
+  scheduleSettingsInspectorRender({ ifChanged: true });
+}
+
 function colorPicker(activeColor, onPick, fallback = "#5d8cff", options = {}) {
   const wrapper = document.createElement("div");
   wrapper.className = "color-picker";
@@ -33607,7 +33616,7 @@ function terminalColorUpdatesFromPayload(payload) {
   return Object.keys(updates).length ? updates : null;
 }
 
-function applyTerminalColorUpdates(updates, toastText = "Terminal colors applied.") {
+function applyTerminalColorUpdates(updates, toastText = "Terminal colors applied.", options = {}) {
   if (!updates) {
     toast("Clipboard does not contain terminal colors.");
     return false;
@@ -33617,7 +33626,7 @@ function applyTerminalColorUpdates(updates, toastText = "Terminal colors applied
     toast("Terminal colors already match.");
     return false;
   }
-  renderSettingsInspector();
+  refreshTerminalColorSettings(options);
   toast(toastText);
   return true;
 }
@@ -33648,7 +33657,7 @@ function applyTerminalColorPreset(preset, options = {}) {
     toast(`${preset.label} terminal colors already active.`);
     return false;
   }
-  if (options.render !== false) renderSettingsInspector();
+  refreshTerminalColorSettings(options);
   toast(`${preset.label} terminal colors applied.`);
   return true;
 }
