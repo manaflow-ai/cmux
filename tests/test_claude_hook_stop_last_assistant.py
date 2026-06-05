@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import glob
+import base64
 import json
 import os
 import shutil
@@ -253,10 +254,42 @@ def main() -> int:
             return 1
 
         notify = notify_commands[-1]
-        expected_payload = f"notify_target_async {workspace_id} {surface_id} Claude Code|Completed in fun|2"
-        if notify != expected_payload:
+        prefix = f"notify_target_async {workspace_id} {surface_id} "
+        if not notify.startswith(prefix):
+            print("FAIL: expected stop notification to target workspace and surface")
+            print(f"expected_prefix={prefix!r}")
+            print(f"actual={notify!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        raw_payload = notify.removeprefix(prefix)
+        if raw_payload.startswith("json64:"):
+            try:
+                notification = json.loads(base64.b64decode(raw_payload.removeprefix("json64:")).decode("utf-8"))
+            except Exception as exc:
+                print("FAIL: expected stop notification json64 payload to decode")
+                print(f"error={exc}")
+                print(f"actual={notify!r}")
+                return 1
+        else:
+            parts = raw_payload.split("|", 2)
+            notification = {
+                "title": parts[0] if len(parts) > 0 else "",
+                "subtitle": parts[1] if len(parts) > 1 else "",
+                "body": parts[2] if len(parts) > 2 else "",
+                "body_format": "plain",
+            }
+
+        expected_notification = {
+            "title": "Claude Code",
+            "subtitle": "Completed in fun",
+            "body": "2",
+            "body_format": "markdown",
+        }
+        if notification != expected_notification:
             print("FAIL: expected stop notification to use final assistant text")
-            print(f"expected={expected_payload!r}")
+            print(f"expected={expected_notification!r}")
+            print(f"actual_notification={notification!r}")
             print(f"actual={notify!r}")
             print(f"commands={server.commands!r}")
             return 1

@@ -356,6 +356,92 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         detectedBinding.isProcessDetected && (isProcessDetected || isAgentHookBinding)
     }
 
+    func replacingDirectClaudeResumeWithBundledWrapperIfNeeded() -> SurfaceResumeBindingSnapshot {
+        guard kind == "claude",
+              source == "agent-hook",
+              let wrapperPath = Self.currentBundledClaudeWrapperPath(),
+              let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: command),
+              let resumeIndex = tokens.firstIndex(of: "--resume"),
+              let executableIndex = Self.claudeExecutableIndex(beforeResumeIndex: resumeIndex, in: tokens),
+              resumeIndex + 1 < tokens.count else {
+            return self
+        }
+
+        let executable = tokens[executableIndex]
+        guard (executable as NSString).lastPathComponent != "cmux",
+              executable != wrapperPath,
+              !(executableIndex > 0 && tokens[tokens.index(before: executableIndex)] == "claude-teams") else {
+            return self
+        }
+
+        let sessionId = tokens[resumeIndex + 1]
+        let preResumeArguments = Array(tokens[tokens.index(after: executableIndex)..<resumeIndex])
+        let preservedArguments = Array(tokens.dropFirst(resumeIndex + 2))
+        let wrappedParts = [wrapperPath] + preResumeArguments + ["--resume", sessionId] + preservedArguments
+        let wrappedCommand = wrappedParts.map(Self.shellSingleQuoted).joined(separator: " ")
+        let wrappedCommandWithCwd = TerminalStartupWorkingDirectoryPrefix.prefix(
+            wrappedCommand,
+            workingDirectory: cwd
+        )
+        var wrappedEnvironment = environment ?? [:]
+        for (key, value) in Self.inlineEnvironmentAssignments(beforeExecutableIndex: executableIndex, in: tokens) {
+            wrappedEnvironment[key] = value
+        }
+        wrappedEnvironment["CMUX_CUSTOM_CLAUDE_PATH"] = executable
+        return SurfaceResumeBindingSnapshot(
+            name: name,
+            kind: kind,
+            command: wrappedCommandWithCwd,
+            cwd: cwd,
+            checkpointId: checkpointId,
+            source: source,
+            environment: wrappedEnvironment,
+            autoResume: autoResume,
+            approvalPolicy: approvalPolicy,
+            approvalRecordId: approvalRecordId,
+            updatedAt: updatedAt
+        )
+    }
+
+    private static func claudeExecutableIndex(beforeResumeIndex resumeIndex: Int, in tokens: [String]) -> Int? {
+        let commandStart = tokens.lastIndex(of: "&&").map { tokens.index(after: $0) } ?? tokens.startIndex
+        guard commandStart < resumeIndex else { return nil }
+        var index = commandStart
+        if tokens[index] == "env" || tokens[index] == "/usr/bin/env" {
+            index = tokens.index(after: index)
+            while index < resumeIndex, tokens[index].contains("="), !tokens[index].hasPrefix("-") {
+                index = tokens.index(after: index)
+            }
+        }
+        guard index < resumeIndex,
+              (tokens[index] as NSString).lastPathComponent == "claude" else {
+            return nil
+        }
+        return index
+    }
+
+    private static func inlineEnvironmentAssignments(beforeExecutableIndex executableIndex: Int, in tokens: [String]) -> [String: String] {
+        let commandStart = tokens.lastIndex(of: "&&").map { tokens.index(after: $0) } ?? tokens.startIndex
+        guard commandStart < executableIndex,
+              (tokens[commandStart] == "env" || tokens[commandStart] == "/usr/bin/env") else {
+            return [:]
+        }
+
+        var result: [String: String] = [:]
+        var index = tokens.index(after: commandStart)
+        while index < executableIndex, tokens[index].contains("="), !tokens[index].hasPrefix("-") {
+            let token = tokens[index]
+            if let separator = token.firstIndex(of: "=") {
+                let key = String(token[..<separator])
+                if !key.isEmpty {
+                    result[key] = String(token[token.index(after: separator)...])
+                }
+            }
+            index = tokens.index(after: index)
+        }
+        return result
+    }
+
     static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
 
     var startupInput: String? {
@@ -454,6 +540,28 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     private static func isSafeEnvironmentValue(_ value: String) -> Bool {
         !value.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
+    }
+
+    private static func currentBundledClaudeWrapperPath() -> String? {
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+           let bundlePath = normalized(Bundle.main.resourceURL?.appendingPathComponent("bin/claude").path),
+           (bundlePath as NSString).lastPathComponent == "claude",
+           FileManager.default.isExecutableFile(atPath: bundlePath) {
+            return bundlePath
+        }
+        guard let path = normalized(ProcessInfo.processInfo.environment["CMUX_BUNDLED_CLI_PATH"]),
+              (path as NSString).lastPathComponent == "cmux" else {
+            return nil
+        }
+        let wrapperPath = URL(fileURLWithPath: path)
+            .deletingLastPathComponent()
+            .appendingPathComponent("claude", isDirectory: false)
+            .path
+        guard FileManager.default.isExecutableFile(atPath: wrapperPath)
+                || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil else {
+            return nil
+        }
+        return wrapperPath
     }
 
     private static func isSensitiveEnvironmentKey(_ key: String) -> Bool {
@@ -1636,6 +1744,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     var title: String
     var subtitle: String
     var body: String
+    var bodyFormat: TerminalNotificationBodyFormat?
     var createdAt: TimeInterval
     var isRead: Bool
     var paneFlash: Bool?
@@ -1646,6 +1755,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         title: String,
         subtitle: String,
         body: String,
+        bodyFormat: TerminalNotificationBodyFormat? = nil,
         createdAt: TimeInterval,
         isRead: Bool,
         paneFlash: Bool? = nil,
@@ -1655,6 +1765,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         self.title = title
         self.subtitle = subtitle
         self.body = body
+        self.bodyFormat = bodyFormat
         self.createdAt = createdAt
         self.isRead = isRead
         self.paneFlash = paneFlash
@@ -1667,6 +1778,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,
+            bodyFormat: notification.bodyFormat == .plain ? nil : notification.bodyFormat,
             createdAt: notification.createdAt.timeIntervalSince1970,
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
@@ -1683,6 +1795,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             title: title,
             subtitle: subtitle,
             body: body,
+            bodyFormat: bodyFormat ?? .plain,
             createdAt: Date(timeIntervalSince1970: createdAt),
             isRead: isRead,
             paneFlash: paneFlash ?? true,

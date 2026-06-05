@@ -11715,10 +11715,8 @@ struct VerticalTabsSidebar: View {
             remoteDisplayTarget: workspace.remoteDisplayTarget,
             remoteConnectionState: workspace.remoteConnectionState.rawValue,
             unreadCount: notificationStore.unreadCount(forTabId: workspace.id),
-            latestNotificationText: notificationStore.latestNotification(forTabId: workspace.id).flatMap {
-                let text = $0.body.isEmpty ? $0.title : $0.body
-                return text.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-            },
+            latestNotificationText: notificationStore.latestNotification(forTabId: workspace.id)
+                .flatMap(TerminalNotificationStore.sidebarPreviewText(for:)),
             latestSubmittedMessage: workspace.latestSubmittedMessage,
             latestSubmittedAt: workspace.latestSubmittedAt,
             listeningPorts: workspace.listeningPorts,
@@ -12488,9 +12486,7 @@ struct VerticalTabsSidebar: View {
                   let notification = notificationStore.latestNotification(forTabId: tab.id) else {
                 return nil
             }
-            let text = notification.body.isEmpty ? notification.title : notification.body
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
+            return TerminalNotificationStore.sidebarPreviewText(for: notification)
         }()
         let liveShowsModifierShortcutHints = modifierKeyMonitor.isModifierPressed
         let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy.resolved(

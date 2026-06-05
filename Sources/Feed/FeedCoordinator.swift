@@ -25,6 +25,7 @@ final class FeedCoordinator: @unchecked Sendable {
     /// handler signals the semaphore after filling the slot.
     private let waiterLock = NSLock()
     private var waiters: [String: PendingWaiter] = [:]
+    @MainActor private var attentionTargets: [String: AttentionTarget] = [:]
 
     /// One kqueue-backed DispatchSource per distinct agent PID we've
     /// ever seen. The kernel fires `.exit` the instant the process
@@ -118,6 +119,7 @@ final class FeedCoordinator: @unchecked Sendable {
                 if let ppid = event.ppid, ppid > 0 {
                     FeedCoordinator.shared.armPidWatcher(ppid: ppid)
                 }
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(event: event, requestId: requestId)
                 #if DEBUG
                 FeedCoordinatorTestHooks.afterBlockingEventIngested?(event, requestId)
                 #endif
@@ -139,14 +141,17 @@ final class FeedCoordinator: @unchecked Sendable {
         switch waitResult {
         case .success:
             if let decision = w?.decision {
+                clearBlockingDecisionAttention(requestId: requestId)
                 return .resolved(itemId: itemIdSlot.value, decision: decision)
             }
             cancelNotification(requestId: requestId)
             expireTimedOutItem(itemIdSlot.value)
+            clearBlockingDecisionAttention(requestId: requestId)
             return .timedOut(itemId: itemIdSlot.value)
         case .timedOut:
             cancelNotification(requestId: requestId)
             expireTimedOutItem(itemIdSlot.value)
+            clearBlockingDecisionAttention(requestId: requestId)
             return .timedOut(itemId: itemIdSlot.value)
         }
     }
@@ -177,6 +182,7 @@ final class FeedCoordinator: @unchecked Sendable {
         }
 
         cancelNotification(requestId: requestId)
+        clearBlockingDecisionAttention(requestId: requestId)
     }
 
     fileprivate func isAwaitingDecision(requestId: String) -> Bool {
@@ -219,6 +225,173 @@ final class FeedCoordinator: @unchecked Sendable {
         }
     }
 
+    @MainActor
+    private func surfaceBlockingDecisionAttention(event: WorkstreamEvent, requestId: String) {
+        guard Self.isBlockingDecision(event),
+              let statusKey = Self.statusKey(for: event.source),
+              let target = resolveAttentionTarget(event: event, statusKey: statusKey)
+        else { return }
+
+        #if DEBUG
+        FeedCoordinatorTestHooks.attentionObserver?(event, requestId, statusKey, target.workspaceId, target.surfaceId)
+        #endif
+
+        guard let manager = Self.tabManager(containing: target.workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == target.workspaceId })
+        else { return }
+
+        let existingWorkspaceStatusTarget = attentionTargets.values.first {
+            $0.workspaceId == target.workspaceId &&
+                $0.statusKey == target.statusKey
+        }
+        let existingPanelLifecycleTarget = attentionTargets.values.first {
+            $0.workspaceId == target.workspaceId &&
+                $0.surfaceId == target.surfaceId &&
+                $0.statusKey == target.statusKey
+        }
+        let resolvedTarget = AttentionTarget(
+            workspaceId: target.workspaceId,
+            surfaceId: target.surfaceId,
+            statusKey: target.statusKey,
+            previousStatusEntry: existingWorkspaceStatusTarget?.previousStatusEntry ?? workspace.statusEntries[statusKey],
+            previousLifecycle: existingPanelLifecycleTarget?.previousLifecycle ?? target.surfaceId.flatMap {
+                workspace.agentLifecycle(key: target.statusKey, panelId: $0)
+            }
+        )
+        attentionTargets[requestId] = resolvedTarget
+
+        workspace.statusEntries[statusKey] = SidebarStatusEntry(
+            key: statusKey,
+            value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100
+        )
+        if let surfaceId = target.surfaceId {
+            workspace.setAgentLifecycle(
+                key: statusKey,
+                panelId: surfaceId,
+                lifecycle: .needsInput
+            )
+        }
+        if WorkspaceAutoReorderSettings.isEnabled() {
+            manager.moveTabToTopForNotification(target.workspaceId)
+        }
+        NSApp.requestUserAttention(.informationalRequest)
+    }
+
+    private func clearBlockingDecisionAttention(requestId: String) {
+        Task { @MainActor in
+            FeedCoordinator.shared.clearBlockingDecisionAttentionOnMain(requestId: requestId)
+        }
+    }
+
+    @MainActor
+    private func clearBlockingDecisionAttentionOnMain(requestId: String) {
+        guard let target = attentionTargets.removeValue(forKey: requestId),
+              let manager = Self.tabManager(containing: target.workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == target.workspaceId })
+        else { return }
+        let hasWorkspaceSiblingPendingDecision = attentionTargets.values.contains {
+            $0.workspaceId == target.workspaceId &&
+                $0.statusKey == target.statusKey
+        }
+        let hasPanelSiblingPendingDecision = attentionTargets.values.contains {
+            $0.workspaceId == target.workspaceId &&
+                $0.surfaceId == target.surfaceId &&
+                $0.statusKey == target.statusKey
+        }
+        if !hasWorkspaceSiblingPendingDecision,
+           let entry = workspace.statusEntries[target.statusKey],
+           entry.value == String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
+           entry.icon == "bell.fill",
+           entry.color == "#4C8DFF" {
+            if let previousStatusEntry = target.previousStatusEntry {
+                workspace.statusEntries[target.statusKey] = previousStatusEntry
+            } else {
+                workspace.statusEntries.removeValue(forKey: target.statusKey)
+            }
+        }
+        if !hasPanelSiblingPendingDecision,
+           let surfaceId = target.surfaceId,
+           workspace.agentLifecycle(key: target.statusKey, panelId: surfaceId) == .needsInput {
+            if let previousLifecycle = target.previousLifecycle {
+                workspace.setAgentLifecycle(key: target.statusKey, panelId: surfaceId, lifecycle: previousLifecycle)
+            } else {
+                _ = workspace.clearAgentLifecycle(key: target.statusKey, panelId: surfaceId)
+            }
+        }
+    }
+
+    @MainActor
+    private func resolveAttentionTarget(event: WorkstreamEvent, statusKey: String) -> AttentionTarget? {
+        let resolved = FeedJumpResolver.parse(event.sessionId).flatMap {
+            FeedJumpResolver.lookup(agent: $0.agent, sessionId: $0.sessionId)
+        }
+        if let workspaceId = event.workspaceId.flatMap(UUID.init(uuidString:)) {
+            var resolvedSurfaceId: UUID?
+            if resolved?.workspaceId == workspaceId.uuidString {
+                resolvedSurfaceId = resolved.flatMap { UUID(uuidString: $0.surfaceId) }
+            }
+            return AttentionTarget(
+                workspaceId: workspaceId,
+                surfaceId: resolvedSurfaceId,
+                statusKey: statusKey,
+                previousStatusEntry: nil,
+                previousLifecycle: nil
+            )
+        }
+        let workspaceString = resolved?.workspaceId
+        guard let workspaceId = workspaceString.flatMap(UUID.init(uuidString:)) else { return nil }
+        let surfaceId = resolved.flatMap { UUID(uuidString: $0.surfaceId) }
+        return AttentionTarget(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            statusKey: statusKey,
+            previousStatusEntry: nil,
+            previousLifecycle: nil
+        )
+    }
+
+    @MainActor
+    private static func tabManager(containing workspaceId: UUID) -> TabManager? {
+        guard let app = AppDelegate.shared else { return nil }
+        if let manager = app.tabManagerFor(tabId: workspaceId) {
+            return manager
+        }
+        if let manager = app.tabManager,
+           manager.tabs.contains(where: { $0.id == workspaceId }) {
+            return manager
+        }
+        return nil
+    }
+
+    private static func isBlockingDecision(_ event: WorkstreamEvent) -> Bool {
+        switch event.hookEventName {
+        case .permissionRequest, .askUserQuestion, .exitPlanMode:
+            return event.requestId != nil
+        default:
+            return false
+        }
+    }
+
+    private static func statusKey(for source: String) -> String? {
+        switch source {
+        case "claude", "claude_code":
+            return "claude_code"
+        case "agy":
+            return "antigravity"
+        case "rovo":
+            return "rovodev"
+        case "amp", "antigravity", "codebuddy", "codex", "copilot", "cursor", "factory", "gemini", "grok", "kiro", "opencode", "pi", "qoder", "rovodev":
+            return source
+        case "hermes", "hermes-agent":
+            return "hermes-agent"
+        default:
+            return nil
+        }
+    }
+
     enum IngestBlockingResult {
         case acknowledged(itemId: UUID?)
         case resolved(itemId: UUID?, decision: WorkstreamDecision)
@@ -251,6 +424,7 @@ enum FeedCoordinatorTestHooks {
     static var afterBlockingEventIngested: (@Sendable (WorkstreamEvent, String) -> Void)?
     static var isAppActiveOverride: (@Sendable () -> Bool)?
     static var notificationPostObserver: (@Sendable (WorkstreamEvent, String) -> Void)?
+    static var attentionObserver: (@Sendable (WorkstreamEvent, String, String, UUID, UUID?) -> Void)?
 }
 #endif
 
@@ -335,7 +509,37 @@ enum FeedJumpResolver {
         let surfaceId: String
     }
 
+    private static let knownAgentPrefixes = [
+        "hermes-agent",
+        "antigravity",
+        "codebuddy",
+        "claude_code",
+        "rovodev",
+        "claude",
+        "cursor",
+        "factory",
+        "gemini",
+        "opencode",
+        "codex",
+        "grok",
+        "kiro",
+        "qoder",
+        "copilot",
+        "hermes",
+        "agy",
+        "amp",
+        "rovo",
+        "pi",
+    ]
+
     static func parse(_ workstreamId: String) -> (agent: String, sessionId: String)? {
+        for agent in knownAgentPrefixes {
+            let prefix = "\(agent)-"
+            guard workstreamId.hasPrefix(prefix) else { continue }
+            let sessionId = String(workstreamId.dropFirst(prefix.count))
+            guard !sessionId.isEmpty else { return nil }
+            return (agent, sessionId)
+        }
         guard let dash = workstreamId.firstIndex(of: "-") else { return nil }
         let agent = String(workstreamId[..<dash])
         let sessionId = String(workstreamId[workstreamId.index(after: dash)...])
