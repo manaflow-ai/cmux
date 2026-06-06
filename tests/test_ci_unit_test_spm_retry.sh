@@ -74,7 +74,7 @@ ISOLATED_RUNNER_PATTERNS=(
 	  'in_flight_test = test_identifier'
 	  'Restarting after unexpected exit, crash, or test timeout'
   'retry_identifier="${test_identifier#cmuxTests/}"'
-  'retry_identifier="${retry_identifier//\\/}"'
+  'retry_identifier="${retry_identifier//\\\\/}"'
   'retry_identifier="${retry_identifier/./\/}"'
   'retry_only_testing="cmuxTests/$retry_identifier"'
   '"-only-testing:$retry_only_testing"'
@@ -105,6 +105,25 @@ done
 
 if grep -Fq -- "-skip-testing" "$ISOLATED_RUNNER"; then
   echo "FAIL: run-cmux-unit-tests-isolated.sh must not skip cmuxTests classes"
+  exit 1
+fi
+
+normalize_retry_identifier() {
+  local test_identifier="$1"
+  local retry_identifier
+  retry_identifier="${test_identifier#cmuxTests/}"
+  retry_identifier="${retry_identifier//\\/}"
+  retry_identifier="${retry_identifier/./\/}"
+  printf 'cmuxTests/%s\n' "$retry_identifier"
+}
+
+if [ "$(normalize_retry_identifier 'CLIHookNoResponseTests\/genericLifecycleFeedTelemetryDoesNotWaitForSocketResponse')" != "cmuxTests/CLIHookNoResponseTests/genericLifecycleFeedTelemetryDoesNotWaitForSocketResponse" ]; then
+  echo "FAIL: retry selector normalization must strip XCTest escaped slash backslashes"
+  exit 1
+fi
+
+if [ "$(normalize_retry_identifier 'CLIHookNoResponseTests.genericLifecycleFeedTelemetryDoesNotWaitForSocketResponse')" != "cmuxTests/CLIHookNoResponseTests/genericLifecycleFeedTelemetryDoesNotWaitForSocketResponse" ]; then
+  echo "FAIL: retry selector normalization must convert XCTest dot identifiers to -only-testing paths"
   exit 1
 fi
 

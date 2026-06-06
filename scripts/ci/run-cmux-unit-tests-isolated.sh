@@ -375,7 +375,7 @@ print("" if total is None else total)
         retry_index=0
         for test_identifier in "${CRASH_RETRY_TESTS[@]}"; do
           retry_identifier="${test_identifier#cmuxTests/}"
-          retry_identifier="${retry_identifier//\\/}"
+          retry_identifier="${retry_identifier//\\\\/}"
           retry_identifier="${retry_identifier/./\/}"
           retry_only_testing="cmuxTests/$retry_identifier"
           retry_label="${BATCH_LABEL}-crash-retry-${retry_index}"
