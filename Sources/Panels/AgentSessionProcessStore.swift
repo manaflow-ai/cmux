@@ -143,7 +143,7 @@ final class AgentSessionProcessStore {
         guard let session = sessions[sessionId] else {
             throw AgentSessionBridgeError.sessionNotFound(sessionId)
         }
-        requestTermination(for: session, escalateIfNeeded: false)
+        requestTermination(for: session, escalateIfNeeded: true)
     }
 
     func closeAll() {
@@ -198,7 +198,7 @@ final class AgentSessionProcessStore {
         }
         emitActiveProviderStateIfNeeded()
         cancelSessionTasks(session)
-        requestTermination(for: session, escalateIfNeeded: false)
+        requestTermination(for: session, escalateIfNeeded: true)
         emitExit(
             sessionId: session.sessionId,
             providerID: session.providerID,
@@ -341,7 +341,7 @@ final class AgentSessionProcessStore {
                 }
                 self.emitActiveProviderStateIfNeeded()
                 self.cancelSessionTasks(session)
-                self.requestTermination(for: session, escalateIfNeeded: false)
+                self.requestTermination(for: session, escalateIfNeeded: true)
                 let message = (error as? AgentSessionBridgeError)?.localizedDescription
                     ?? String(
                         localized: "agentSession.opencode.error.sessionCreateFailed",
