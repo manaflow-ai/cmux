@@ -13089,6 +13089,9 @@ final class GhosttySurfaceScrollView: NSView {
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
         guard let window else { return }
+        if let terminalSurface = surfaceView.terminalSurface {
+            attachSurface(terminalSurface)
+        }
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
