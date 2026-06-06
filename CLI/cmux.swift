@@ -4315,7 +4315,11 @@ struct CMUXCLI {
         case "rename-page":
             let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
             let (pageOpt, rem1) = parseOption(pageContextOptions.remaining, name: "--page")
-            let (positionalPage, renameTitleArgs) = splitOptionalPositionalPageHandle(rem1, explicitPage: pageOpt)
+            let (positionalPage, renameTitleArgs) = splitOptionalPositionalPageHandle(
+                rem1,
+                explicitPage: pageOpt,
+                requiresTrailingTitle: true
+            )
             let titleArgs = renameTitleArgs.dropFirst(renameTitleArgs.first == "--" ? 1 : 0)
             let title = titleArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else {
@@ -15247,16 +15251,24 @@ struct CMUXCLI {
 
     private func splitOptionalPositionalPageHandle(
         _ args: [String],
-        explicitPage: String?
+        explicitPage: String?,
+        requiresTrailingTitle: Bool = false
     ) -> (page: String?, titleArgs: [String]) {
-        let positionalArgs = positionalArgsAfterOptionalTerminator(args)
+        guard args.first != "--" else {
+            return (nil, args)
+        }
+        let positionalArgs = args
         guard explicitPage == nil,
               let first = positionalArgs.first,
               looksLikePageHandle(first)
         else {
             return (nil, args)
         }
-        return (first, Array(positionalArgs.dropFirst()))
+        let titleArgs = Array(positionalArgs.dropFirst())
+        if requiresTrailingTitle, titleArgs.isEmpty {
+            return (nil, args)
+        }
+        return (first, titleArgs)
     }
 
     private func looksLikePageHandle(_ raw: String) -> Bool {
