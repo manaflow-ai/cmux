@@ -1,10 +1,28 @@
+import {
+  createHashHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
+import { AgentSessionApp } from "./agent-session/react/main";
+import agentSessionStyles from "./agent-session/shared/styles.css?inline";
+import { applyCodexDocumentMetadata } from "./agent-session/shared/theme";
 import { App } from "./App";
 import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "./appearance";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "./status";
-import styles from "./styles.css?inline";
+import diffViewerStyles from "./styles.css?inline";
 import type { DiffViewerConfig } from "./types";
+
+type WebviewKind = "agent-session" | "diff";
+
+type DiffViewerRuntime = {
+  config: DiffViewerConfig;
+  initialStatus: ReturnType<typeof initialDiffViewerStatus>;
+};
 
 function readConfig(): DiffViewerConfig {
   const element = document.getElementById("cmux-diff-viewer-config");
@@ -14,29 +32,96 @@ function readConfig(): DiffViewerConfig {
   return JSON.parse(element.textContent);
 }
 
-function installStyles() {
+function installStyles(id: string, styles: string) {
   const style = document.createElement("style");
-  style.dataset.cmuxDiffViewerStyle = "true";
+  style.dataset.cmuxWebviewStyle = id;
   style.textContent = styles;
   document.head.append(style);
 }
 
-const config = readConfig();
-installStyles();
-applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
-if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
-  document.title = config.payload.title;
+function resolveWebviewKind(): WebviewKind {
+  if (
+    document.documentElement.dataset.cmuxWebviewKind === "agent-session" ||
+    document.body.dataset.cmuxWebviewKind === "agent-session" ||
+    document.getElementById("cmux-agent-session-config")
+  ) {
+    return "agent-session";
+  }
+  return "diff";
 }
-const label = createDiffViewerLabelResolver(config.payload?.labels, {
-  assertMissing: shouldAssertMissingLabels(),
-});
-const initialStatus = initialDiffViewerStatus(config, label);
-document.body.dataset.filesHidden = "false";
-applyDiffViewerStatusToDocument(initialStatus);
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
-  throw new Error("Missing cmux diff viewer root");
+  throw new Error("Missing cmux webview root");
 }
 
-createRoot(rootElement).render(<App config={config} initialStatus={initialStatus} />);
+const webviewKind = resolveWebviewKind();
+const diffRuntime = webviewKind === "diff" ? setupDiffViewer() : null;
+if (webviewKind === "agent-session") {
+  setupAgentSession();
+}
+
+function setupDiffViewer(): DiffViewerRuntime {
+  const config = readConfig();
+  installStyles("diff", diffViewerStyles);
+  applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
+  if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
+    document.title = config.payload.title;
+  }
+  const label = createDiffViewerLabelResolver(config.payload?.labels, {
+    assertMissing: shouldAssertMissingLabels(),
+  });
+  const initialStatus = initialDiffViewerStatus(config, label);
+  document.body.dataset.filesHidden = "false";
+  applyDiffViewerStatusToDocument(initialStatus);
+  return { config, initialStatus };
+}
+
+function setupAgentSession() {
+  installStyles("agent-session", agentSessionStyles);
+  applyCodexDocumentMetadata();
+  document.documentElement.dataset.cmuxWebviewKind = "agent-session";
+  document.body.dataset.cmuxWebviewKind = "agent-session";
+}
+
+function RoutedWebview() {
+  if (webviewKind === "agent-session") {
+    return <AgentSessionApp />;
+  }
+  if (!diffRuntime) {
+    throw new Error("Missing cmux diff viewer runtime");
+  }
+  return <App config={diffRuntime.config} initialStatus={diffRuntime.initialStatus} />;
+}
+
+const rootRoute = createRootRoute({
+  component: Outlet,
+});
+const indexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/",
+  component: RoutedWebview,
+});
+const diffRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/diff",
+  component: RoutedWebview,
+});
+const agentSessionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/agent-session",
+  component: RoutedWebview,
+});
+const routeTree = rootRoute.addChildren([indexRoute, diffRoute, agentSessionRoute]);
+const router = createRouter({
+  history: createHashHistory(),
+  routeTree,
+});
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router;
+  }
+}
+
+createRoot(rootElement).render(<RouterProvider router={router} />);

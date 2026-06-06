@@ -19,14 +19,14 @@ fi
 rm -rf "$OUT_REACT" "$OUT_SOLID"
 mkdir -p "$OUT_REACT/assets" "$OUT_SOLID/assets"
 
-bun build "$ROOT/AgentSessionWeb/src/react/main.ts" \
+bun build "$ROOT/webviews/src/agent-session/react/standalone.ts" \
   --target browser \
   --format esm \
   --production \
   --minify \
   --outfile "$OUT_REACT/assets/app.js"
 
-bun build "$ROOT/AgentSessionWeb/src/solid/main.ts" \
+bun build "$ROOT/webviews/src/agent-session/solid/main.ts" \
   --target browser \
   --format esm \
   --production \
@@ -39,7 +39,7 @@ if ! command -v bunx >/dev/null 2>&1; then
 fi
 
 bunx tailwindcss \
-  -i "$ROOT/AgentSessionWeb/src/shared/styles.css" \
+  -i "$ROOT/webviews/src/agent-session/shared/styles.css" \
   -o "$OUT_REACT/assets/styles.css" \
   --minify
 cp "$OUT_REACT/assets/styles.css" "$OUT_SOLID/assets/styles.css"

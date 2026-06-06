@@ -1,7 +1,7 @@
 {
   "scripts": {
     "agent-session-web:build": "sh scripts/build-agent-session-web.sh",
-    "agent-session-web:test": "bun test AgentSessionWeb/src/shared/*.test.ts",
+    "agent-session-web:test": "bun test webviews/src/agent-session/shared/*.test.ts",
     "feed-tui": "bun Resources/feed-tui/index.ts"
   },
   "dependencies": {

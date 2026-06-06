@@ -192,11 +192,12 @@ extension AgentSessionWebRenderer {
             guard let webView, webView.window != nil else {
                 return
             }
-            guard let resourceDirectoryURL = Bundle.main.resourceURL?
-                .appendingPathComponent(rendererKind.resourceDirectoryName, isDirectory: true) else {
+            guard let resourceDirectoryURL = Bundle.main.resourceURL else {
                 return
             }
-            let indexURL = resourceDirectoryURL.appendingPathComponent("index.html", isDirectory: false)
+            let indexURL = rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
+                $0.appendingPathComponent($1, isDirectory: false)
+            }
 #if DEBUG
             cmuxDebugLog(
                 "agentSession.web.load renderer=\(rendererKind.rawValue) " +
