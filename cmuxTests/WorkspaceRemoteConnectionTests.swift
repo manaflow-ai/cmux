@@ -952,9 +952,39 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
-        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
-        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 0)
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 1)
+    }
+
+    @MainActor
+    func testRemoteReconnectTreatsKnownTTYForTrackedTerminalAsReady() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:test-pty-readiness-tty-reconnect",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "cmux vm-pty-attach --id test-pty-readiness-tty-reconnect",
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        workspace.surfaceTTYNames[terminalPanel.id] = "/dev/ttys042"
+
+        workspace.reconnectRemoteConnection()
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 1)
     }
 
     @MainActor

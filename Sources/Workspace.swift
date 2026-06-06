@@ -10714,6 +10714,28 @@ final class Workspace: Identifiable, ObservableObject {
         applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
+    private func resetRemoteTerminalReadiness(preservingExistingSignals: Bool) {
+        guard preservingExistingSignals else {
+            readyRemoteTerminalSurfaceIds.removeAll()
+            pendingReadyRemoteTerminalSurfaceIds.removeAll()
+            return
+        }
+
+        let activeTerminalSurfaceIds = activeRemoteTerminalSurfaceIds.filter { panels[$0] is TerminalPanel }
+        var preservedReadySurfaceIds = readyRemoteTerminalSurfaceIds.intersection(activeTerminalSurfaceIds)
+        preservedReadySurfaceIds.formUnion(pendingReadyRemoteTerminalSurfaceIds.intersection(activeTerminalSurfaceIds))
+        for panelId in activeTerminalSurfaceIds {
+            if surfaceTTYNames[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                preservedReadySurfaceIds.insert(panelId)
+            }
+        }
+
+        readyRemoteTerminalSurfaceIds = preservedReadySurfaceIds
+        pendingReadyRemoteTerminalSurfaceIds = pendingReadyRemoteTerminalSurfaceIds.filter { panelId in
+            panels[panelId] is TerminalPanel && !activeTerminalSurfaceIds.contains(panelId)
+        }
+    }
+
     private var hasProxyOnlyRemoteSidebarError: Bool {
         guard let entry = statusEntries[Self.remoteErrorStatusKey]?.value else { return false }
         return entry.lowercased().contains("remote proxy unavailable")
@@ -13253,6 +13275,9 @@ final class Workspace: Identifiable, ObservableObject {
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
+        let preservesExistingTerminalReadiness = previousConfiguration.map { previous in
+            previous == configuration || previous.hasSamePersistentPTYIdentity(as: configuration)
+        } ?? false
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         if let previousConfiguration,
            previousConfiguration != configuration,
@@ -13265,8 +13290,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteTransportConnectionState = .disconnected
         remoteTransportConnectionDetail = nil
         remoteConnectionDetail = nil
-        readyRemoteTerminalSurfaceIds.removeAll()
-        pendingReadyRemoteTerminalSurfaceIds.removeAll()
+        resetRemoteTerminalReadiness(preservingExistingSignals: preservesExistingTerminalReadiness)
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
