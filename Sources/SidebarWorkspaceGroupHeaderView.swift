@@ -22,6 +22,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
             lhs.shortcutHintXOffset == rhs.shortcutHintXOffset &&
             lhs.shortcutHintYOffset == rhs.shortcutHintYOffset &&
+            lhs.fontScale == rhs.fontScale &&
             lhs.cwdContextMenuItems == rhs.cwdContextMenuItems &&
             lhs.newWorkspacePlacement == rhs.newWorkspacePlacement &&
             lhs.rowSpacing == rhs.rowSpacing &&
@@ -45,6 +46,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let showsShortcutHint: Bool
     let shortcutHintXOffset: Double
     let shortcutHintYOffset: Double
+    let fontScale: CGFloat
     let cwdContextMenuItems: [CmuxResolvedConfigContextMenuItem]
     let newWorkspacePlacement: WorkspaceGroupNewPlacement?
     let rowSpacing: CGFloat
@@ -66,6 +68,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
     @State private var isHovered = false
     @State private var rowHeight: CGFloat = 1
+
+    private var metrics: SidebarWorkspaceGroupHeaderMetrics {
+        SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale)
+    }
 
     private var iconColor: Color {
         if let tintHex, let nsColor = NSColor(hex: tintHex) {
@@ -100,9 +106,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: metrics.chevronFontSize, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 14, height: 14)
+                .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
                 .onTapGesture { onToggleCollapsed() }
                 .accessibilityAddTraits(.isButton)
@@ -116,21 +122,21 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
             HStack(spacing: 6) {
                 Image(systemName: displayedIconSymbol)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: metrics.iconFontSize, weight: .semibold))
                     .foregroundStyle(iconColor)
-                    .frame(width: 14, height: 14)
+                    .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
                 Text(name)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: metrics.nameFontSize, weight: .semibold))
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if anchorUnreadCount > 0 {
                     Text("\(anchorUnreadCount)")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: metrics.unreadFontSize, weight: .semibold))
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
+                        .padding(.horizontal, metrics.unreadHorizontalPadding)
+                        .padding(.vertical, metrics.unreadVerticalPadding)
                         .background(Capsule().fill(Color.accentColor))
                         .accessibilityLabel(Text(String.localizedStringWithFormat(
                             String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
@@ -151,14 +157,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             let plusVisible = isHovered && !showsShortcutHint
             Button(action: onTapPlus) {
                 Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: metrics.plusFontSize, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 18, height: 18)
+                    .frame(width: metrics.plusFrame, height: metrics.plusFrame)
                     .contentShape(Rectangle())
                     .opacity(plusVisible ? 1 : 0)
             }
             .buttonStyle(.plain)
-            .frame(width: 18, height: 18)
+            .frame(width: metrics.plusFrame, height: metrics.plusFrame)
             .allowsHitTesting(plusVisible)
             .accessibilityHidden(!plusVisible)
             .accessibilityLabel(Text(String(
