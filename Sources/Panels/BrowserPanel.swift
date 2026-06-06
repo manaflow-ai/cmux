@@ -8,8 +8,6 @@ import CFNetwork
 import SQLite3
 import CryptoKit
 import Darwin
-import ObjectiveC
-import os
 import UniformTypeIdentifiers
 #if canImport(CommonCrypto)
 import CommonCrypto
@@ -17,11 +15,6 @@ import CommonCrypto
 #if canImport(Security)
 import Security
 #endif
-
-nonisolated private let browserDownloadLogger = Logger(
-    subsystem: "com.cmuxterm.app",
-    category: "browser.download"
-)
 
 enum BrowserAddressBarFocusSelectionIntent: Equatable {
     case preserveFieldEditorSelection
@@ -8768,6 +8761,7 @@ private final class WeakWindow {
 
 /// Handles WKDownload lifecycle by saving to a temp file synchronously (no UI
 /// during WebKit callbacks), then showing NSSavePanel after the download finishes.
+@MainActor
 class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     private final class DownloadState {
         let tempURL: URL
@@ -8784,7 +8778,6 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     /// Tracks active downloads keyed by WKDownload identity.
     private var activeDownloads: [ObjectIdentifier: DownloadState] = [:]
     private var downloadWindows: [ObjectIdentifier: WeakWindow] = [:]
-    private let activeDownloadsLock = NSLock()
     private var activeSavePanels: [ObjectIdentifier: NSSavePanel] = [:]
     var onDownloadStarted: ((String) -> Void)?
     var onDownloadReadyToSave: (() -> Void)?
@@ -8822,7 +8815,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         return fallbackExtension.isEmpty ? nil : fallbackExtension
     }
 
-    private static func filename(
+    static func filename(
         from suggestedFilename: String,
         fallbackURL: URL?,
         mimeType: String?
@@ -8837,42 +8830,25 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     }
 
     func prepareForDownload(_ download: WKDownload, presentingWindow: NSWindow?) {
-        activeDownloadsLock.lock()
         downloadWindows[ObjectIdentifier(download)] = WeakWindow(presentingWindow)
-        activeDownloadsLock.unlock()
     }
 
     private func storeState(_ state: DownloadState, for download: WKDownload) {
-        activeDownloadsLock.lock()
         activeDownloads[ObjectIdentifier(download)] = state
-        activeDownloadsLock.unlock()
     }
 
     private func removeState(for download: WKDownload) -> DownloadState? {
-        activeDownloadsLock.lock()
         let identifier = ObjectIdentifier(download)
         let state = activeDownloads.removeValue(forKey: identifier)
         downloadWindows.removeValue(forKey: identifier)
-        activeDownloadsLock.unlock()
         return state
     }
 
     private func presentingWindow(for download: WKDownload) -> NSWindow? {
-        activeDownloadsLock.lock()
-        let window = downloadWindows[ObjectIdentifier(download)]?.window
-        activeDownloadsLock.unlock()
-        return window
+        downloadWindows[ObjectIdentifier(download)]?.window
     }
 
-    private func notifyOnMain(_ action: @escaping () -> Void) {
-        if Thread.isMainThread {
-            action()
-        } else {
-            DispatchQueue.main.async(execute: action)
-        }
-    }
-
-    private func presentSavePanel(
+    func presentSavePanel(
         _ savePanel: NSSavePanel,
         presentingWindow: NSWindow?,
         completionHandler: @escaping (NSApplication.ModalResponse) -> Void
@@ -8917,9 +8893,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             ),
             for: download
         )
-        notifyOnMain { [weak self] in
-            self?.onDownloadStarted?(safeFilename)
-        }
+        onDownloadStarted?(safeFilename)
         #if DEBUG
         cmuxDebugLog("download.decideDestination file=\(safeFilename)")
         #endif
@@ -8939,193 +8913,42 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         #endif
         NSLog("BrowserPanel download finished: %@", info.suggestedFilename)
 
-        // Show NSSavePanel on the next runloop iteration (safe context).
-        DispatchQueue.main.async {
-            self.onDownloadReadyToSave?()
-            let savePanel = NSSavePanel()
-            savePanel.nameFieldStringValue = info.suggestedFilename
-            savePanel.canCreateDirectories = true
-            savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        onDownloadReadyToSave?()
+        let savePanel = NSSavePanel()
+        savePanel.nameFieldStringValue = info.suggestedFilename
+        savePanel.canCreateDirectories = true
+        savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
 
-            let handleResult: (NSApplication.ModalResponse) -> Void = { result in
-                guard result == .OK, let destURL = savePanel.url else {
-                    try? FileManager.default.removeItem(at: info.tempURL)
-                    return
-                }
-                do {
-                    try? FileManager.default.removeItem(at: destURL)
-                    try FileManager.default.moveItem(at: info.tempURL, to: destURL)
-                    NSLog("BrowserPanel download saved: %@", destURL.path)
-                } catch {
-                    NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
-                    try? FileManager.default.removeItem(at: info.tempURL)
-                    self.onDownloadSaveFailed?(error)
-                }
+        let handleResult: (NSApplication.ModalResponse) -> Void = { result in
+            guard result == .OK, let destURL = savePanel.url else {
+                try? FileManager.default.removeItem(at: info.tempURL)
+                return
             }
-
-            self.presentSavePanel(savePanel, presentingWindow: info.presentingWindow, completionHandler: handleResult)
+            do {
+                try? FileManager.default.removeItem(at: destURL)
+                try FileManager.default.moveItem(at: info.tempURL, to: destURL)
+                NSLog("BrowserPanel download saved: %@", destURL.path)
+            } catch {
+                NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
+                try? FileManager.default.removeItem(at: info.tempURL)
+                self.onDownloadSaveFailed?(error)
+            }
         }
+
+        presentSavePanel(savePanel, presentingWindow: info.presentingWindow, completionHandler: handleResult)
     }
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         if let info = removeState(for: download) {
             try? FileManager.default.removeItem(at: info.tempURL)
         }
-        notifyOnMain { [weak self] in
-            self?.onDownloadFailed?(error)
-        }
+        onDownloadFailed?(error)
         #if DEBUG
         cmuxDebugLog("download.failed error=\(error.localizedDescription)")
         #endif
         NSLog("BrowserPanel download failed: %@", error.localizedDescription)
     }
 
-    func savePDFPreviewData(
-        _ data: Data,
-        suggestedFilename: String?,
-        mimeType: String?,
-        originatingURL: URL?,
-        presentingWindow: NSWindow?
-    ) {
-        let safeFilename = Self.filename(
-            from: suggestedFilename ?? "",
-            fallbackURL: originatingURL,
-            mimeType: mimeType ?? "application/pdf"
-        )
-
-        notifyOnMain { [weak self] in
-            self?.onDownloadStarted?(safeFilename)
-        }
-
-        DispatchQueue.main.async {
-            self.onDownloadReadyToSave?()
-
-            let savePanel = NSSavePanel()
-            savePanel.nameFieldStringValue = safeFilename
-            savePanel.canCreateDirectories = true
-            savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-
-            let handleResult: (NSApplication.ModalResponse) -> Void = { result in
-                guard result == .OK, let destURL = savePanel.url else {
-                    return
-                }
-
-                DispatchQueue.global(qos: .utility).async { [weak self] in
-                    do {
-                        try? FileManager.default.removeItem(at: destURL)
-                        try data.write(to: destURL, options: .atomic)
-                        DispatchQueue.main.async {
-                            browserDownloadLogger.notice("PDF preview download saved path=\(destURL.path, privacy: .private)")
-                        }
-                    } catch {
-                        DispatchQueue.main.async {
-                            self?.onDownloadSaveFailed?(error)
-                            browserDownloadLogger.error("PDF preview download save failed: \(error.localizedDescription, privacy: .private)")
-                        }
-                    }
-                }
-            }
-
-            self.presentSavePanel(savePanel, presentingWindow: presentingWindow, completionHandler: handleResult)
-        }
-    }
-}
-
-enum BrowserPDFPreviewActionSupport {
-    private static var printCompletionKey: UInt8 = 0
-    private static let fallbackDownloadDelegate = BrowserDownloadDelegate()
-
-    private final class PrintCompletion: NSObject {
-        private let completionHandler: () -> Void
-
-        init(completionHandler: @escaping () -> Void) {
-            self.completionHandler = completionHandler
-        }
-
-        @objc func printOperationDidRun(
-            _ printOperation: NSPrintOperation,
-            success: Bool,
-            contextInfo: UnsafeMutableRawPointer?
-        ) {
-            objc_setAssociatedObject(
-                printOperation,
-                &BrowserPDFPreviewActionSupport.printCompletionKey,
-                nil,
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-            completionHandler()
-        }
-    }
-
-    static func saveDataToFile(
-        _ data: NSData?,
-        suggestedFilename: String?,
-        mimeType: String?,
-        originatingURL: URL?,
-        from webView: WKWebView,
-        downloadDelegate: BrowserDownloadDelegate?
-    ) {
-        guard let data, data.length > 0 else {
-#if DEBUG
-            cmuxDebugLog("browser.pdfPreview.save skipped reason=emptyData")
-#endif
-            return
-        }
-
-        let delegate = downloadDelegate ?? fallbackDownloadDelegate
-        delegate.savePDFPreviewData(
-            data as Data,
-            suggestedFilename: suggestedFilename,
-            mimeType: mimeType,
-            originatingURL: originatingURL ?? webView.url,
-            presentingWindow: webView.window
-        )
-    }
-
-    static func printFrame(
-        from webView: WKWebView,
-        pdfFirstPageSize: CGSize,
-        completionHandler: @escaping () -> Void
-    ) {
-        DispatchQueue.main.async {
-            let printInfo = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo()
-            if pdfFirstPageSize.width > 0, pdfFirstPageSize.height > 0 {
-                printInfo.paperSize = pdfFirstPageSize
-            }
-
-            let printOperation = webView.printOperation(with: printInfo)
-            printOperation.showsPrintPanel = true
-            printOperation.showsProgressPanel = true
-            printOperation.jobTitle = [
-                webView.title,
-                webView.url?.lastPathComponent,
-                webView.url?.host
-            ].compactMap { value in
-                let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return trimmed.isEmpty ? nil : trimmed
-            }.first ?? String(localized: "browser.pdfPreview.printJobTitle", defaultValue: "PDF")
-
-            guard let window = webView.window else {
-                _ = printOperation.run()
-                completionHandler()
-                return
-            }
-
-            let completion = PrintCompletion(completionHandler: completionHandler)
-            objc_setAssociatedObject(
-                printOperation,
-                &printCompletionKey,
-                completion,
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-            printOperation.runModal(
-                for: window,
-                delegate: completion,
-                didRun: #selector(PrintCompletion.printOperationDidRun(_:success:contextInfo:)),
-                contextInfo: nil
-            )
-        }
-    }
 }
 
 // MARK: - Navigation Delegate
