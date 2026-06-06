@@ -1038,7 +1038,7 @@ struct FeedRowActions {
             },
             sendText: { workstreamId, text in
                 MainActor.assumeIsolated {
-                    FeedCoordinator.shared.sendTextToWorkstream(
+                    _ = FeedCoordinator.shared.sendTextToWorkstream(
                         workstreamId: workstreamId,
                         text: text
                     )
