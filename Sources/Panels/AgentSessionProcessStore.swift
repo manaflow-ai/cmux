@@ -83,8 +83,8 @@ final class AgentSessionProcessStore {
         }
         sessions[sessionId] = running
 
-        installReadHandler(stdout.fileHandleForReading, sessionId: sessionId, stream: "stdout")
-        installReadHandler(stderr.fileHandleForReading, sessionId: sessionId, stream: "stderr")
+        running.stdoutReadTask = makeReadTask(stdout.fileHandleForReading, sessionId: sessionId, stream: "stdout")
+        running.stderrReadTask = makeReadTask(stderr.fileHandleForReading, sessionId: sessionId, stream: "stderr")
         process.terminationHandler = { [weak self] process in
             Task { @MainActor in
                 guard let self,
@@ -151,27 +151,38 @@ final class AgentSessionProcessStore {
         }
     }
 
-    private func installReadHandler(_ fileHandle: FileHandle, sessionId: String, stream: String) {
-        fileHandle.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            Task { @MainActor in
-                guard let self,
-                      let session = self.sessions[sessionId] else {
-                    return
+    private func makeReadTask(_ fileHandle: FileHandle, sessionId: String, stream: String) -> Task<Void, Never> {
+        Task.detached(priority: .utility) { [weak self] in
+            while !Task.isCancelled {
+                let data: Data
+                do {
+                    data = try fileHandle.read(upToCount: 64 * 1024) ?? Data()
+                } catch {
+                    data = Data()
                 }
+
+                await self?.consumeOutputData(data, sessionId: sessionId, stream: stream)
                 if data.isEmpty {
-                    handle.readabilityHandler = nil
-                    for text in session.flushBufferedOutput(stream: stream) {
-                        self.handleOutputLine(text, session: session, stream: stream)
-                    }
-                    session.drainedStreams.insert(stream)
-                    self.finishSessionIfExitedAndDrained(session)
                     return
-                }
-                for text in session.appendOutputData(data, stream: stream) {
-                    self.handleOutputLine(text, session: session, stream: stream)
                 }
             }
+        }
+    }
+
+    private func consumeOutputData(_ data: Data, sessionId: String, stream: String) {
+        guard let session = sessions[sessionId] else {
+            return
+        }
+        if data.isEmpty {
+            for text in session.flushBufferedOutput(stream: stream) {
+                handleOutputLine(text, session: session, stream: stream)
+            }
+            session.drainedStreams.insert(stream)
+            finishSessionIfExitedAndDrained(session)
+            return
+        }
+        for text in session.appendOutputData(data, stream: stream) {
+            handleOutputLine(text, session: session, stream: stream)
         }
     }
 
@@ -218,7 +229,12 @@ final class AgentSessionProcessStore {
     }
 
     private func cancelSessionTasks(_ session: AgentSessionRunningSession) {
+        session.stdoutReadTask?.cancel()
+        session.stdoutReadTask = nil
+        session.stderrReadTask?.cancel()
+        session.stderrReadTask = nil
         session.openCodeEventTask?.cancel()
+        session.openCodeEventTask = nil
     }
 
     private func handleOutputLine(_ text: String, session: AgentSessionRunningSession, stream: String) {

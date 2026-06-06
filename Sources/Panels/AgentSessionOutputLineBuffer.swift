@@ -37,11 +37,17 @@ struct AgentSessionOutputLineBuffer {
     }
 
     private mutating func drainBufferedLines(into lines: inout [String]) {
-        while let newlineIndex = buffer.firstIndex(of: 0x0A) {
-            let lineData = buffer[..<newlineIndex]
-            buffer.removeSubrange(...newlineIndex)
+        var cursor = buffer.startIndex
+        var consumedEnd: Data.Index?
+        while cursor < buffer.endIndex,
+              let newlineIndex = buffer[cursor...].firstIndex(of: 0x0A) {
+            let lineData = buffer[cursor..<newlineIndex]
             lines.append(String(decoding: lineData, as: UTF8.self) + "\n")
+            cursor = buffer.index(after: newlineIndex)
+            consumedEnd = cursor
+        }
+        if let consumedEnd {
+            buffer.removeSubrange(buffer.startIndex..<consumedEnd)
         }
     }
 }
-

@@ -14,6 +14,8 @@ final class AgentSessionRunningSession {
     var openCodeBaseURL: URL?
     var openCodeSessionID: String?
     var isOpenCodeSessionCreateInFlight = false
+    var stdoutReadTask: Task<Void, Never>?
+    var stderrReadTask: Task<Void, Never>?
     var openCodeEventTask: Task<Void, Never>?
     var pendingExitStatus: Int32?
     var drainedStreams: Set<String> = []
