@@ -16620,10 +16620,33 @@ struct TabItemView: View, Equatable {
 
     private func setWorkspacesHidden(_ targetIds: [UUID], hidden: Bool) {
         guard !targetIds.isEmpty else { return }
-        for targetId in targetIds {
-            _ = tabManager.setWorkspaceHidden(tabId: targetId, hidden: hidden)
+        guard !hidden else {
+            for targetId in targetIds {
+                _ = tabManager.setWorkspaceHidden(tabId: targetId, hidden: true)
+            }
+            syncSelectionAfterMutation()
+            return
         }
-        syncSelectionAfterMutation()
+
+        var selectedWokenWorkspaceId: UUID?
+        for targetId in targetIds {
+            if selectedWokenWorkspaceId == nil {
+                guard tabManager.selectWorkspaceRevealingIfNeeded(tabId: targetId) else { continue }
+                selectedWokenWorkspaceId = targetId
+            } else {
+                _ = tabManager.setWorkspaceHidden(tabId: targetId, hidden: false)
+            }
+        }
+
+        guard let selectedWokenWorkspaceId else {
+            syncSelectionAfterMutation()
+            return
+        }
+
+        selectedTabIds = [selectedWokenWorkspaceId]
+        lastSidebarSelectionIndex = tabManager.visibleWorkspaceTabs.firstIndex { $0.id == selectedWokenWorkspaceId }
+        tabManager.setSidebarSelectedWorkspaceIds(selectedTabIds)
+        setSelectionToTabs()
     }
 
     private func markTabsRead(_ targetIds: [UUID]) {
