@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-Regression coverage for issue #1565.
+Regression coverage for bash job-control noise from cmux shell integration.
 
-The bash integration runs several prompt-time reporters in the background. The
-test drives a real interactive bash through a PTY so bash job-control
-notifications are observable, then fails if the integration leaks `[N] Done`
-lines into the prompt stream.
+The bug only appears in an interactive bash attached to a tty. A normal
+subprocess cannot reproduce the prompt-time "[N] Done" notifications, so this
+test drives bash through a PTY.
 """
 
 from __future__ import annotations
@@ -14,164 +13,201 @@ import os
 import pty
 import re
 import select
-import shutil
+import shlex
+import signal
 import socket
 import tempfile
 import time
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
-BASH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-bash-integration.bash"
-PROMPT = "__CMUX_PROMPT__> "
-DONE_LINE_RE = re.compile(r"\[\d+\][+-]?\s+Done\b")
+PROMPT = "__CMUX_TEST_PROMPT__ "
+JOB_DONE_RE = re.compile(r"^\[[0-9]+\][^\n\r]*\bDone\b", re.MULTILINE)
 
 
-def _read_available(fd: int, *, timeout: float = 0.2) -> str:
-    deadline = time.monotonic() + timeout
-    output = bytearray()
-    while time.monotonic() < deadline:
-        readable, _, _ = select.select([fd], [], [], 0.02)
-        if fd not in readable:
-            continue
-        try:
-            chunk = os.read(fd, 4096)
-        except OSError:
-            break
-        if not chunk:
-            break
-        output.extend(chunk)
-        deadline = time.monotonic() + 0.05
-    return output.decode("utf-8", "replace")
+class InteractiveBash:
+    def __init__(self, env: dict[str, str]) -> None:
+        self.env = env
+        self.pid: int | None = None
+        self.fd: int | None = None
+        self.output = bytearray()
 
+    def __enter__(self) -> "InteractiveBash":
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.execvpe("bash", ["bash", "--noprofile", "--norc", "-i"], self.env)
+        self.pid = pid
+        self.fd = fd
+        self.run(f"PS1='{PROMPT}'")
+        return self
 
-def _read_until_prompt(fd: int, *, timeout: float = 5.0) -> str:
-    deadline = time.monotonic() + timeout
-    output = bytearray()
-    prompt = PROMPT.encode()
-    while time.monotonic() < deadline:
-        readable, _, _ = select.select([fd], [], [], 0.05)
-        if fd not in readable:
-            continue
-        try:
-            chunk = os.read(fd, 4096)
-        except OSError:
-            break
-        if not chunk:
-            break
-        output.extend(chunk)
-        if prompt in output:
-            return output.decode("utf-8", "replace")
-    raise TimeoutError(f"timed out waiting for bash prompt; output so far:\n{output.decode('utf-8', 'replace')}")
-
-
-def _send_command(fd: int, command: str) -> str:
-    os.write(fd, f"{command}\n".encode())
-    return _read_until_prompt(fd)
-
-
-def _run_interactive_bash(socket_path: Path) -> str:
-    bash = shutil.which("bash")
-    if not bash:
-        raise RuntimeError("bash not found")
-
-    pid, fd = pty.fork()
-    if pid == 0:
-        os.chdir(ROOT)
-        os.environ.update(
-            {
-                "LC_ALL": "C",
-                "TERM": "xterm-256color",
-                "PS1": PROMPT,
-            }
-        )
-        os.execv(bash, [bash, "--noprofile", "--norc", "-i"])
-        os._exit(1)
-
-    transcript = _read_until_prompt(fd)
-    commands = [
-        "set -m",
-        "bind 'set enable-bracketed-paste off'",
-        f"source {shlex_quote(BASH_INTEGRATION)}",
-        "_cmux_send() { :; }",
-        f"CMUX_SOCKET_PATH={shlex_quote(socket_path)}",
-        "CMUX_TAB_ID=tab-issue-1565",
-        "CMUX_PANEL_ID=panel-issue-1565",
-        "_CMUX_TTY_NAME=ttys-issue-1565",
-        "_CMUX_TTY_REPORTED=0",
-        "_CMUX_PORTS_LAST_RUN=0",
-        "_CMUX_PWD_LAST_PWD=/cmux-issue-1565-old-pwd",
-        '_CMUX_LAST_PR_ACTION="checkout"',
-        '_CMUX_LAST_PR_TARGET="issue-1565"',
-        "_cmux_report_tty_once",
-        "_cmux_report_shell_activity_state running",
-        "_cmux_ports_kick command",
-        "_cmux_emit_pr_command_hint",
-        "_cmux_prompt_command",
-        ":",
-        ":",
-        "echo __CMUX_DONE__",
-    ]
-    try:
-        for command in commands:
-            transcript += _send_command(fd, command)
-        os.write(fd, b"exit\n")
-        transcript += _read_available(fd, timeout=0.5)
-    finally:
-        try:
-            os.kill(pid, 15)
-        except ProcessLookupError:
-            pass
-        try:
-            os.waitpid(pid, os.WNOHANG)
-        except ChildProcessError:
-            pass
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-    return transcript
-
-
-def shlex_quote(path: Path) -> str:
-    return "'" + str(path).replace("'", "'\\''") + "'"
-
-
-def main() -> int:
-    if not BASH_INTEGRATION.exists():
-        print(f"FAIL: missing bash integration at {BASH_INTEGRATION}")
-        return 1
-
-    with tempfile.TemporaryDirectory(prefix="cmux-bash-done-notifications-") as tmp:
-        socket_path = Path(tmp) / "cmux.sock"
-        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        try:
-            listener.bind(str(socket_path))
-            listener.listen(1)
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self.fd is not None:
             try:
-                transcript = _run_interactive_bash(socket_path)
-            except TimeoutError as error:
-                print(f"FAIL: {error}")
-                return 1
+                os.write(self.fd, b"exit\n")
+                self._read_until(b"exit", timeout=1)
+            except OSError:
+                pass
+            try:
+                os.close(self.fd)
+            except OSError:
+                pass
+        if self.pid is not None:
+            try:
+                os.kill(self.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    def run(self, command: str, timeout: float = 5) -> None:
+        if self.fd is None:
+            raise RuntimeError("bash PTY is not open")
+        self._drain()
+        os.write(self.fd, command.encode("utf-8") + b"\n")
+        chunk = self._read_until(PROMPT.encode("utf-8"), timeout=timeout)
+        if PROMPT.encode("utf-8") not in chunk:
+            raise AssertionError(
+                f"timed out waiting for prompt after {command!r}\n\n"
+                f"Captured output:\n{self.text}"
+            )
+
+    def _read_until(self, marker: bytes, *, timeout: float) -> bytes:
+        if self.fd is None:
+            raise RuntimeError("bash PTY is not open")
+        deadline = time.time() + timeout
+        captured = bytearray()
+        while time.time() < deadline:
+            ready, _, _ = select.select([self.fd], [], [], 0.1)
+            if self.fd not in ready:
+                continue
+            try:
+                data = os.read(self.fd, 4096)
+            except OSError:
+                break
+            if not data:
+                break
+            captured.extend(data)
+            self.output.extend(data)
+            if marker in captured:
+                break
+        return bytes(captured)
+
+    def _drain(self) -> None:
+        if self.fd is None:
+            raise RuntimeError("bash PTY is not open")
+        while True:
+            ready, _, _ = select.select([self.fd], [], [], 0.05)
+            if self.fd not in ready:
+                return
+            try:
+                data = os.read(self.fd, 4096)
+            except OSError:
+                return
+            if not data:
+                return
+            self.output.extend(data)
+
+    @property
+    def text(self) -> str:
+        return self.output.decode("utf-8", errors="replace")
+
+
+def test_bash_integration_does_not_emit_done_notifications() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    integration_script = repo_root / "Resources/shell-integration/cmux-bash-integration.bash"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        socket_path = tmp_path / "cmux.sock"
+        repo_path = tmp_path / "repo"
+        git_dir = repo_path / ".git"
+        bin_path = tmp_path / "bin"
+        gh_stub = bin_path / "gh"
+        send_log = tmp_path / "send.log"
+
+        git_dir.mkdir(parents=True)
+        (git_dir / "HEAD").write_text("ref: refs/heads/feature/bash-done\n", encoding="utf-8")
+        bin_path.mkdir()
+        gh_stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        gh_stub.chmod(0o755)
+
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.bind(str(socket_path))
+            sock.listen(1)
+
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("CMUX")
+            }
+            env.update(
+                {
+                    "LC_ALL": "C",
+                    "LANG": "C",
+                    "PATH": f"{bin_path}{os.pathsep}{os.environ.get('PATH', '')}",
+                }
+            )
+
+            with InteractiveBash(env) as bash:
+                bash.run("set -m")
+                bash.run("HISTCONTROL=ignorespace")
+                bash.run(f"source {integration_script}")
+                bash.run(
+                    "_cmux_send() { printf '%s\\n' \"$1\" >> "
+                    f"{shlex.quote(str(send_log))}; }}"
+                )
+                bash.run(f"export CMUX_SOCKET_PATH={shlex.quote(str(socket_path))}")
+                bash.run("export CMUX_TAB_ID=tab-test")
+                bash.run("export CMUX_PANEL_ID=panel-test")
+                bash.run("_CMUX_TTY_NAME=ttys-test")
+                bash.run(f"cd {repo_path}")
+
+                # The next prompts exercise the shell-state, port-kick, TTY,
+                # CWD, PR-action, and git-branch reporters.
+                bash.run("gh pr merge 123")
+                bash.run(" true")
+                bash.run("cd ..")
+                bash.run("true")
+                bash.run("sleep 0.2")
+                bash.run("echo __CMUX_DONE_CHECK__")
+
+                sent_payloads = (
+                    send_log.read_text(encoding="utf-8")
+                    if send_log.exists()
+                    else ""
+                )
+                expected_payload = (
+                    'report_pr_action merge --tab=tab-test '
+                    '--panel=panel-test --target="123"'
+                )
+                payload_count = sent_payloads.splitlines().count(expected_payload)
+                if payload_count != 1:
+                    raise AssertionError(
+                        "bash integration did not emit exactly one PR action "
+                        "payload after the real gh preexec path.\n\n"
+                        f"Expected payload:\n{expected_payload}\n\n"
+                        f"Observed count: {payload_count}\n\n"
+                        f"Sent payloads:\n{sent_payloads}\n\n"
+                        f"Full PTY output:\n{bash.text}"
+                    )
+
+                done_lines = JOB_DONE_RE.findall(bash.text)
+                if done_lines:
+                    matching_lines = [
+                        line
+                        for line in bash.text.splitlines()
+                        if JOB_DONE_RE.search(line)
+                    ]
+                    raise AssertionError(
+                        "bash integration emitted job completion notifications:\n"
+                        + "\n".join(matching_lines)
+                        + "\n\nFull PTY output:\n"
+                        + bash.text
+                    )
         finally:
-            listener.close()
-
-    done_lines = [line for line in transcript.splitlines() if DONE_LINE_RE.search(line)]
-    if done_lines:
-        print("FAIL: bash integration leaked job completion notifications:")
-        for line in done_lines[:20]:
-            print(line)
-        if len(done_lines) > 20:
-            print(f"... {len(done_lines) - 20} more Done lines omitted")
-        return 1
-
-    if "no job control" in transcript:
-        print("FAIL: bash did not run with interactive job control")
-        return 1
-
-    print("PASS: bash integration emitted no '[N] Done' job-control notifications")
-    return 0
+            sock.close()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    test_bash_integration_does_not_emit_done_notifications()
+    print("PASS: no bash job completion notifications observed")

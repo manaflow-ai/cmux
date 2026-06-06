@@ -32,22 +32,36 @@ _cmux_send() {
     esac
 }
 
-_cmux_run_bg() {
+_cmux_detach_bg() {
     ( "$@" >/dev/null 2>&1 & ) >/dev/null 2>&1
-}
-
-_cmux_start_tracked_bg() {
-    (
-        set -m
-        "$@" >/dev/null 2>&1 &
-        printf '%s\n' "$!"
-    ) 2>/dev/null
 }
 
 _cmux_send_bg() {
     local payload="$1"
-    [[ -n "$payload" ]] || return 0
-    _cmux_run_bg _cmux_send "$payload"
+    if [[ "${_CMUX_IN_PREEXEC:-}" == "1" ]]; then
+        {
+            _cmux_send "$payload"
+        } >/dev/null 2>&1 &
+        disown
+        return 0
+    fi
+    _cmux_detach_bg _cmux_send "$payload"
+}
+
+_cmux_start_tracked_bg() {
+    local __pid_var="$1"
+    shift
+    local __pid_file="${TMPDIR:-/tmp}/cmux-bg-pid-$$-${RANDOM:-0}"
+    local __pid=""
+    (
+        "$@" >/dev/null 2>&1 &
+        printf '%s\n' "$!" > "$__pid_file"
+    )
+    if [[ -r "$__pid_file" ]]; then
+        IFS= read -r __pid < "$__pid_file" || __pid=""
+        /bin/rm -f -- "$__pid_file" >/dev/null 2>&1 || true
+    fi
+    printf -v "$__pid_var" '%s' "$__pid"
 }
 
 _cmux_socket_is_unix() {
@@ -90,7 +104,7 @@ _cmux_relay_rpc_bg() {
     local relay_cli=""
     _cmux_socket_uses_remote_relay || return 1
     relay_cli="$(_cmux_relay_cli_path)" || return 1
-    _cmux_run_bg "$relay_cli" rpc "$method" "$params"
+    _cmux_detach_bg "$relay_cli" rpc "$method" "$params"
 }
 
 _cmux_relay_rpc() {
@@ -201,6 +215,7 @@ _CMUX_GIT_JOB_STARTED_AT="${_CMUX_GIT_JOB_STARTED_AT:-0}"
 _CMUX_GIT_HEAD_LAST_PWD="${_CMUX_GIT_HEAD_LAST_PWD:-}"
 _CMUX_GIT_HEAD_PATH="${_CMUX_GIT_HEAD_PATH:-}"
 _CMUX_GIT_HEAD_SIGNATURE="${_CMUX_GIT_HEAD_SIGNATURE:-}"
+_CMUX_GIT_ACTIVE_PWD_FILE="${_CMUX_GIT_ACTIVE_PWD_FILE:-$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-git-active-pwd.XXXXXX" 2>/dev/null || true)}"
 _CMUX_PR_POLL_PID="${_CMUX_PR_POLL_PID:-}"
 _CMUX_PR_POLL_PWD="${_CMUX_PR_POLL_PWD:-}"
 _CMUX_PR_LAST_BRANCH="${_CMUX_PR_LAST_BRANCH:-}"
@@ -211,6 +226,8 @@ _CMUX_PR_DEBUG="${_CMUX_PR_DEBUG:-0}"
 _CMUX_ASYNC_JOB_TIMEOUT="${_CMUX_ASYNC_JOB_TIMEOUT:-20}"
 _CMUX_LAST_PR_ACTION="${_CMUX_LAST_PR_ACTION:-}"
 _CMUX_LAST_PR_TARGET="${_CMUX_LAST_PR_TARGET:-}"
+_CMUX_PR_ACTION_HINT_FILE="${_CMUX_PR_ACTION_HINT_FILE:-${TMPDIR:-/tmp}/cmux-pr-action-$$}"
+_CMUX_BASH_HISTORY_LAST_FILE="${_CMUX_BASH_HISTORY_LAST_FILE:-${TMPDIR:-/tmp}/cmux-history-last-$$}"
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
@@ -393,16 +410,41 @@ _cmux_git_branch_for_path() {
     printf '%s\n' "${head_line#$prefix}"
 }
 
+_cmux_set_git_active_pwd() {
+    local active_pwd="$1"
+    [[ -n "$active_pwd" ]] || return 0
+    [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] || return 0
+    printf '%s\n' "$active_pwd" >| "$_CMUX_GIT_ACTIVE_PWD_FILE" 2>/dev/null || true
+}
+
+_cmux_git_report_path_is_active() {
+    local repo_path="$1"
+    [[ -n "$repo_path" ]] || return 1
+    [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] || return 0
+    [[ -r "$_CMUX_GIT_ACTIVE_PWD_FILE" ]] || return 0
+
+    local active_pwd=""
+    IFS= read -r active_pwd < "$_CMUX_GIT_ACTIVE_PWD_FILE" || active_pwd=""
+    # No recorded cwd yet, or the report targets the current cwd exactly: allow.
+    [[ -z "$active_pwd" || "$repo_path" == "$active_pwd" ]] && return 0
+
+    # Otherwise the report is valid only when the current cwd is in the SAME
+    # repository as repo_path. This keeps live branch updates flowing after an
+    # in-repo `cd pkg` while still dropping a report once the shell has left the
+    # repo entirely (the stale-branch case). Resolve both HEAD paths without
+    # invoking git and compare.
+    local repo_head active_head
+    repo_head="$(_cmux_git_resolve_head_path "$repo_path" 2>/dev/null || true)"
+    active_head="$(_cmux_git_resolve_head_path "$active_pwd" 2>/dev/null || true)"
+    [[ -n "$repo_head" && "$repo_head" == "$active_head" ]]
+}
+
 _cmux_report_git_branch_for_path() {
     local repo_path="$1"
-    [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && return 0
-    [[ -n "$repo_path" ]] || return 0
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
-    [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
-
+    _cmux_git_report_path_is_active "$repo_path" || return 0
     local branch dirty_opt="--status=unknown"
     branch="$(_cmux_git_branch_for_path "$repo_path" 2>/dev/null || true)"
+    _cmux_git_report_path_is_active "$repo_path" || return 0
     if [[ -n "$branch" ]]; then
         _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     else
@@ -488,10 +530,45 @@ _cmux_clear_pr_for_panel() {
     _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
+_cmux_clear_pr_command_hint_file() {
+    [[ -n "${_CMUX_PR_ACTION_HINT_FILE:-}" ]] || return 0
+    /bin/rm -f -- "$_CMUX_PR_ACTION_HINT_FILE" >/dev/null 2>&1 || true
+}
+
+_cmux_store_pr_command_hint() {
+    [[ -n "${_CMUX_PR_ACTION_HINT_FILE:-}" ]] || return 0
+    if [[ -z "$_CMUX_LAST_PR_ACTION" ]]; then
+        _cmux_clear_pr_command_hint_file
+        return 0
+    fi
+
+    local target="$_CMUX_LAST_PR_TARGET"
+    target="${target//$'\n'/ }"
+    target="${target//$'\r'/ }"
+    target="${target//$'\t'/ }"
+    printf '%s\t%s\n' "$_CMUX_LAST_PR_ACTION" "$target" > "$_CMUX_PR_ACTION_HINT_FILE" 2>/dev/null || true
+}
+
+_cmux_load_pr_command_hint() {
+    [[ -n "${_CMUX_PR_ACTION_HINT_FILE:-}" && -r "$_CMUX_PR_ACTION_HINT_FILE" ]] || return 0
+
+    local action="" target=""
+    IFS=$'\t' read -r action target < "$_CMUX_PR_ACTION_HINT_FILE" || true
+    _cmux_clear_pr_command_hint_file
+
+    case "$action" in
+        merge|close|reopen|create|checkout|ready|edit|view)
+            _CMUX_LAST_PR_ACTION="$action"
+            _CMUX_LAST_PR_TARGET="$target"
+            ;;
+    esac
+}
+
 _cmux_record_pr_command_hint() {
     local cmd="$1"
     _CMUX_LAST_PR_ACTION=""
     _CMUX_LAST_PR_TARGET=""
+    _cmux_clear_pr_command_hint_file
 
     local -a words=()
     read -r -a words <<< "$cmd"
@@ -557,12 +634,18 @@ _cmux_record_pr_command_hint() {
                 break ;;
         esac
     done
+
+    _cmux_store_pr_command_hint
 }
 
 _cmux_emit_pr_command_hint() {
+    [[ "${CMUX_NO_PR_WATCH:-}" == "1" ]] && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    if [[ -z "$_CMUX_LAST_PR_ACTION" ]]; then
+        _cmux_load_pr_command_hint
+    fi
     [[ -n "$_CMUX_LAST_PR_ACTION" ]] || return 0
 
     local payload="report_pr_action $_CMUX_LAST_PR_ACTION --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
@@ -573,6 +656,7 @@ _cmux_emit_pr_command_hint() {
     _cmux_send_bg "$payload"
     _CMUX_LAST_PR_ACTION=""
     _CMUX_LAST_PR_TARGET=""
+    _cmux_clear_pr_command_hint_file
 }
 
 _cmux_pr_output_indicates_no_pull_request() {
@@ -891,6 +975,11 @@ _cmux_pr_request_probe() {
 _cmux_report_pr_for_path() {
     local repo_path="$1"
     local force_probe="${2:-0}"
+    if [[ "${CMUX_NO_PR_WATCH:-}" == "1" ]]; then
+        _cmux_pr_cache_clear
+        _cmux_clear_pr_for_panel
+        return 0
+    fi
     [[ -n "$repo_path" ]] || {
         _cmux_pr_cache_clear
         _cmux_clear_pr_for_panel
@@ -1076,12 +1165,10 @@ _cmux_run_pr_probe_with_timeout() {
 
 _cmux_halt_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
-        # _cmux_start_tracked_bg starts the poller as a process-group leader, so
-        # negative PID kills the loop + all descendants (gh, sleep) without the
-        # synchronous /bin/ps + awk of tree-kill (~5-13ms).
-        kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null \
-            || kill -KILL "$_CMUX_PR_POLL_PID" 2>/dev/null \
-            || true
+        # Process-group kill: background jobs are process-group leaders, so
+        # negative PID kills the loop + all descendants (gh, sleep) without
+        # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
+        kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
     fi
     local signal_path=""
     signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
@@ -1095,34 +1182,11 @@ _cmux_stop_pr_poll_loop() {
     _cmux_pr_cache_clear
 }
 
-_cmux_pr_poll_loop_body() {
-    local watch_pwd="$1"
-    local watch_shell_pid="$2"
-    local interval="$3"
-    local signal_path=""
-    signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
-    while :; do
-        kill -0 "$watch_shell_pid" 2>/dev/null || return 0
-        local force_probe=0
-        if [[ -n "$signal_path" && -f "$signal_path" ]]; then
-            force_probe=1
-            /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
-        fi
-        _cmux_run_pr_probe_with_timeout "$watch_pwd" "$force_probe" || true
-
-        local slept=0
-        while (( slept < interval )); do
-            kill -0 "$watch_shell_pid" 2>/dev/null || return 0
-            if [[ -n "$signal_path" && -f "$signal_path" ]]; then
-                break
-            fi
-            sleep 1
-            slept=$(( slept + 1 ))
-        done
-    done
-}
-
 _cmux_start_pr_poll_loop() {
+    if [[ "${CMUX_NO_PR_WATCH:-}" == "1" ]]; then
+        _cmux_stop_pr_poll_loop
+        return 0
+    fi
     [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
@@ -1145,13 +1209,36 @@ _cmux_start_pr_poll_loop() {
     fi
     _CMUX_PR_POLL_PWD="$watch_pwd"
 
-    _CMUX_PR_POLL_PID="$(
-        _cmux_start_tracked_bg _cmux_pr_poll_loop_body "$watch_pwd" "$watch_shell_pid" "$interval"
-    )"
+    {
+        local signal_path=""
+        signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
+        while :; do
+            kill -0 "$watch_shell_pid" 2>/dev/null || break
+            local force_probe=0
+            if [[ -n "$signal_path" && -f "$signal_path" ]]; then
+                force_probe=1
+                /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
+            fi
+            _cmux_run_pr_probe_with_timeout "$watch_pwd" "$force_probe" || true
+
+            local slept=0
+            while (( slept < interval )); do
+                kill -0 "$watch_shell_pid" 2>/dev/null || exit 0
+                if [[ -n "$signal_path" && -f "$signal_path" ]]; then
+                    break
+                fi
+                sleep 1
+                slept=$(( slept + 1 ))
+            done
+        done
+    } >/dev/null 2>&1 &
+    _CMUX_PR_POLL_PID=$!
+    disown "$_CMUX_PR_POLL_PID" 2>/dev/null || disown
 }
 
 _cmux_bash_cleanup() {
     _cmux_stop_pr_poll_loop
+    [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] && /bin/rm -f -- "$_CMUX_GIT_ACTIVE_PWD_FILE" >/dev/null 2>&1 || true
 }
 
 _cmux_command_starts_nested_shell() {
@@ -1230,8 +1317,44 @@ _cmux_preexec_command() {
     fi
 }
 
+_cmux_bash_history_command() {
+    local HISTTIMEFORMAT=
+    local history_file="${TMPDIR:-/tmp}/cmux-history-$$-${RANDOM:-0}"
+    local line="" history_number="" last_number=""
+    builtin history 1 > "$history_file" 2>/dev/null || {
+        /bin/rm -f -- "$history_file" >/dev/null 2>&1 || true
+        return 1
+    }
+    IFS= read -r line < "$history_file" || line=""
+    /bin/rm -f -- "$history_file" >/dev/null 2>&1 || true
+    if [[ "$line" =~ ^[[:space:]]*([0-9]+)[[:space:]]+(.*)$ ]]; then
+        history_number="${BASH_REMATCH[1]}"
+        if [[ -n "${_CMUX_BASH_HISTORY_LAST_FILE:-}" && -r "$_CMUX_BASH_HISTORY_LAST_FILE" ]]; then
+            IFS= read -r last_number < "$_CMUX_BASH_HISTORY_LAST_FILE" || last_number=""
+        fi
+        [[ "$history_number" == "$last_number" ]] && return 1
+        if [[ -n "${_CMUX_BASH_HISTORY_LAST_FILE:-}" ]]; then
+            printf '%s\n' "$history_number" > "$_CMUX_BASH_HISTORY_LAST_FILE" 2>/dev/null || true
+        fi
+        printf '%s\n' "${BASH_REMATCH[2]}"
+        return 0
+    fi
+    return 1
+}
+
 _cmux_bash_preexec_hook() {
-    _cmux_preexec_command "$@"
+    local cmd="${1:-}"
+    local history_cmd=""
+    history_cmd="$(_cmux_bash_history_command 2>/dev/null || true)"
+    if [[ -n "$history_cmd" ]]; then
+        cmd="$history_cmd"
+    fi
+    _cmux_preexec_command "$cmd"
+}
+
+_cmux_bash_preexec_hook_subshell() {
+    local _CMUX_IN_PREEXEC=1
+    _cmux_bash_preexec_hook "$@"
 }
 
 _cmux_prompt_command() {
@@ -1267,6 +1390,7 @@ _cmux_prompt_command() {
 
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     local pwd="$PWD"
+    _cmux_set_git_active_pwd "$pwd"
 
     # Post-wake socket writes can occasionally leave a probe process wedged.
     # If one probe is stale, clear the guard so fresh async probes can resume.
@@ -1314,6 +1438,7 @@ _cmux_prompt_command() {
         _CMUX_PR_FORCE=0
         _CMUX_LAST_PR_ACTION=""
         _CMUX_LAST_PR_TARGET=""
+        _cmux_clear_pr_command_hint_file
     else
         if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
             _CMUX_GIT_HEAD_LAST_PWD="$pwd"
@@ -1354,9 +1479,7 @@ _cmux_prompt_command() {
     if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]] && { [[ -z "$_CMUX_GIT_JOB_PID" ]] || ! kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; }; then
         _CMUX_GIT_LAST_PWD="$pwd"
         _CMUX_GIT_LAST_RUN=$now
-        _CMUX_GIT_JOB_PID="$(
-            _cmux_start_tracked_bg _cmux_report_git_branch_for_path "$pwd"
-        )"
+        _cmux_start_tracked_bg _CMUX_GIT_JOB_PID _cmux_report_git_branch_for_path "$pwd"
         _CMUX_GIT_JOB_STARTED_AT=$now
     fi
 
@@ -1369,6 +1492,7 @@ _cmux_prompt_command() {
     else
         _CMUX_LAST_PR_ACTION=""
         _CMUX_LAST_PR_TARGET=""
+        _cmux_clear_pr_command_hint_file
     fi
 
     # Ports: lightweight kick to the app's batched scanner every ~10s.
@@ -1407,9 +1531,9 @@ _cmux_install_prompt_command() {
 
         if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
         if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
-            builtin readonly _CMUX_BASH_PS0='${ _cmux_bash_preexec_hook "$BASH_COMMAND"; }'
+            builtin readonly _CMUX_BASH_PS0='${ _cmux_bash_preexec_hook; }'
         else
-            builtin readonly _CMUX_BASH_PS0='$(_cmux_bash_preexec_hook "$BASH_COMMAND" >/dev/null)'
+            builtin readonly _CMUX_BASH_PS0='$(_cmux_bash_preexec_hook_subshell >/dev/null)'
         fi
         if [[ "$PS0" != *"${_CMUX_BASH_PS0}"* ]]; then
             PS0=$PS0"${_CMUX_BASH_PS0}"

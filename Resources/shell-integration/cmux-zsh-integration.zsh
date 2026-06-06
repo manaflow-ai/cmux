@@ -9,6 +9,28 @@ if zmodload zsh/net/unix 2>/dev/null; then
     _CMUX_HAS_ZSOCKET=1
 fi
 
+typeset -g _CMUX_HAS_ZSH_JOBSTATES=0
+if zmodload zsh/parameter 2>/dev/null && (( ${+jobstates} )); then
+    _CMUX_HAS_ZSH_JOBSTATES=1
+fi
+
+_cmux_zsh_job_table_saturated() {
+    (( _CMUX_HAS_ZSH_JOBSTATES )) || return 1
+
+    local limit="${CMUX_ZSH_JOB_TABLE_SOFT_LIMIT:-900}"
+    case "$limit" in
+        ''|*[!0-9]*) limit=900 ;;
+    esac
+    (( limit > 0 )) || limit=900
+
+    local job_count=${#jobstates}
+    (( job_count >= limit ))
+}
+
+_cmux_restore_status() {
+    builtin return "$1"
+}
+
 _cmux_send() {
     local payload="$1"
     if (( _CMUX_HAS_ZSOCKET )); then
@@ -38,6 +60,7 @@ _cmux_send_bg() {
     if (( _CMUX_HAS_ZSOCKET )); then
         _cmux_send "$1"
     else
+        _cmux_zsh_job_table_saturated && return 0
         { _cmux_send "$1" } >/dev/null 2>&1 &!
     fi
 }
@@ -80,6 +103,7 @@ _cmux_relay_rpc_bg() {
     local method="$1"
     local params="$2"
     local relay_cli=""
+    _cmux_zsh_job_table_saturated && return 1
     _cmux_socket_uses_remote_relay || return 1
     relay_cli="$(_cmux_relay_cli_path)" || return 1
     { "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true } >/dev/null 2>&1 &!
@@ -215,6 +239,7 @@ typeset -g _CMUX_GIT_HEAD_LAST_PWD=""
 typeset -g _CMUX_GIT_HEAD_PATH=""
 typeset -g _CMUX_GIT_HEAD_SIGNATURE=""
 typeset -g _CMUX_GIT_HEAD_WATCH_PID=""
+typeset -g _CMUX_GIT_ACTIVE_PWD_FILE="${_CMUX_GIT_ACTIVE_PWD_FILE:-$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-git-active-pwd.XXXXXX" 2>/dev/null || true)}"
 typeset -g _CMUX_PR_POLL_PID=""
 typeset -g _CMUX_PR_POLL_PWD=""
 typeset -g _CMUX_PR_LAST_BRANCH=""
@@ -408,6 +433,86 @@ _cmux_patch_ghostty_semantic_redraw() {
 }
 _cmux_patch_ghostty_semantic_redraw
 
+_cmux_prepend_job_table_guard_to_function() {
+    local fn_name="$1"
+    (( $+functions[$fn_name] )) || return 0
+    local saved_var="__cmux_${fn_name}_saved_status"
+    [[ "${functions[$fn_name]}" == *"$saved_var"* ]] && return 0
+
+    functions[$fn_name]="builtin local ${saved_var}=\$?
+_cmux_zsh_job_table_saturated && builtin return 0
+_cmux_restore_status \"\$${saved_var}\"
+${functions[$fn_name]}"
+}
+
+_cmux_insert_job_table_guard_after_declaration() {
+    builtin emulate -L zsh -o extended_glob -o no_aliases
+
+    local fn_name="$1"
+    local target_name="$2"
+    local guard="$3"
+    (( $+functions[$fn_name] )) || return 0
+
+    local body="${functions[$fn_name]}"
+    [[ "$body" == *"$guard"* ]] && return 0
+
+    local -a lines patched_lines declaration_names
+    lines=("${(@f)body}")
+    local line trimmed declaration candidate
+    local inserted=0
+
+    for line in "${lines[@]}"; do
+        patched_lines+=("$line")
+        (( inserted )) && continue
+
+        trimmed="${line##[[:space:]]#}"
+        [[ "$trimmed" == *"{"* ]] || continue
+
+        declaration="${trimmed%%\{}"
+        declaration="${declaration//\(\)/ }"
+        if [[ "$declaration" == function[[:space:]]* ]]; then
+            declaration="${declaration#function}"
+        fi
+        declaration_names=("${(@z)declaration}")
+
+        for candidate in "${declaration_names[@]}"; do
+            if [[ "$candidate" == "$target_name" ]]; then
+                patched_lines+=("${(@f)guard}")
+                inserted=1
+                break
+            fi
+        done
+    done
+
+    (( inserted )) || return 0
+    functions[$fn_name]="${(F)patched_lines}"
+}
+
+_cmux_patch_ghostty_job_table_guard() {
+    local guard_precmd=$'        builtin local __cmux__ghostty_precmd_saved_status=$?\n        _cmux_zsh_job_table_saturated && builtin return 0\n        _cmux_restore_status "$__cmux__ghostty_precmd_saved_status"'
+    local guard_preexec=$'        builtin local __cmux__ghostty_preexec_saved_status=$?\n        _cmux_zsh_job_table_saturated && builtin return 0\n        _cmux_restore_status "$__cmux__ghostty_preexec_saved_status"'
+    local guard_zle_init=$'          builtin local __cmux__ghostty_zle_line_init_saved_status=$?\n          _cmux_zsh_job_table_saturated && builtin return 0\n          _cmux_restore_status "$__cmux__ghostty_zle_line_init_saved_status"'
+    local guard_zle_finish=$'          builtin local __cmux__ghostty_zle_line_finish_saved_status=$?\n          _cmux_zsh_job_table_saturated && builtin return 0\n          _cmux_restore_status "$__cmux__ghostty_zle_line_finish_saved_status"'
+    local guard_zle_keymap=$'          builtin local __cmux__ghostty_zle_keymap_select_saved_status=$?\n          _cmux_zsh_job_table_saturated && builtin return 0\n          _cmux_restore_status "$__cmux__ghostty_zle_keymap_select_saved_status"'
+
+    # Patch deferred definitions before Ghostty's first precmd installs and
+    # invokes its live hook functions.
+    if (( $+functions[_ghostty_deferred_init] )); then
+        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_precmd "$guard_precmd"
+        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_preexec "$guard_preexec"
+        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_zle_line_init "$guard_zle_init"
+        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_zle_line_finish "$guard_zle_finish"
+        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_zle_keymap_select "$guard_zle_keymap"
+    fi
+
+    _cmux_prepend_job_table_guard_to_function _ghostty_precmd
+    _cmux_prepend_job_table_guard_to_function _ghostty_preexec
+    _cmux_prepend_job_table_guard_to_function _ghostty_zle_line_init
+    _cmux_prepend_job_table_guard_to_function _ghostty_zle_line_finish
+    _cmux_prepend_job_table_guard_to_function _ghostty_zle_keymap_select
+}
+_cmux_patch_ghostty_job_table_guard
+
 _cmux_prompt_wrap_guard() {
     local cmd_start="$1"
     local pwd="$2"
@@ -505,6 +610,35 @@ _cmux_git_branch_for_path() {
     print -r -- "${head_line#$prefix}"
 }
 
+_cmux_set_git_active_pwd() {
+    local active_pwd="$1"
+    [[ -n "$active_pwd" ]] || return 0
+    [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] || return 0
+    print -r -- "$active_pwd" >| "$_CMUX_GIT_ACTIVE_PWD_FILE" 2>/dev/null || true
+}
+
+_cmux_git_report_path_is_active() {
+    local repo_path="$1"
+    [[ -n "$repo_path" ]] || return 1
+    [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] || return 0
+    [[ -r "$_CMUX_GIT_ACTIVE_PWD_FILE" ]] || return 0
+
+    local active_pwd=""
+    IFS= read -r active_pwd < "$_CMUX_GIT_ACTIVE_PWD_FILE" || active_pwd=""
+    # No recorded cwd yet, or the report targets the current cwd exactly: allow.
+    [[ -z "$active_pwd" || "$repo_path" == "$active_pwd" ]] && return 0
+
+    # Otherwise the report is valid only when the current cwd is in the SAME
+    # repository as repo_path. This keeps live branch updates flowing after an
+    # in-repo `cd pkg` (the HEAD watch still reports the preexec watch_pwd) while
+    # still dropping a report once the shell has left the repo entirely (the
+    # stale-branch case). Resolve both HEAD paths without invoking git and compare.
+    local repo_head active_head
+    repo_head="$(_cmux_git_resolve_head_path "$repo_path" 2>/dev/null || true)"
+    active_head="$(_cmux_git_resolve_head_path "$active_pwd" 2>/dev/null || true)"
+    [[ -n "$repo_head" && "$repo_head" == "$active_head" ]]
+}
+
 _cmux_report_tty_payload() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$_CMUX_TTY_NAME" ]] || return 0
@@ -581,9 +715,11 @@ _cmux_report_git_branch_for_path() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _cmux_git_report_path_is_active "$repo_path" || return 0
 
     local branch dirty_opt="--status=unknown"
     branch="$(_cmux_git_branch_for_path "$repo_path" 2>/dev/null || true)"
+    _cmux_git_report_path_is_active "$repo_path" || return 0
     if [[ -n "$branch" ]]; then
         _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     else
@@ -662,6 +798,7 @@ _cmux_record_pr_command_hint() {
 }
 
 _cmux_emit_pr_command_hint() {
+    [[ "${CMUX_NO_PR_WATCH:-}" == "1" ]] && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
@@ -999,6 +1136,11 @@ _cmux_pr_request_probe() {
 _cmux_report_pr_for_path() {
     local repo_path="$1"
     local force_probe="${2:-0}"
+    if [[ "${CMUX_NO_PR_WATCH:-}" == "1" ]]; then
+        _cmux_pr_cache_clear
+        _cmux_clear_pr_for_panel
+        return 0
+    fi
     [[ -n "$repo_path" ]] || {
         _cmux_pr_cache_clear
         _cmux_clear_pr_for_panel
@@ -1157,6 +1299,8 @@ _cmux_run_pr_probe_with_timeout() {
     local started_at="${EPOCHSECONDS:-$SECONDS}"
     local now=$started_at
 
+    _cmux_zsh_job_table_saturated && return 1
+
     (
         _cmux_report_pr_for_path "$repo_path" "$force_probe"
     ) &
@@ -1183,15 +1327,13 @@ _cmux_run_pr_probe_with_timeout() {
 }
 
 _cmux_halt_pr_poll_loop() {
-    if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
-        # Process-group kill: background jobs are process-group leaders, so
-        # negative PID kills the loop + all descendants (gh, sleep) without
-        # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
-        kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
-    fi
+    # Process-group kill: background jobs are process-group leaders, so
+    # negative PID kills the loop + all descendants (gh, sleep) without
+    # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
+    [[ -z "$_CMUX_PR_POLL_PID" ]] || kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
     local signal_path=""
-    signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
-    [[ -n "$signal_path" ]] && /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
+    [[ -n "$CMUX_PANEL_ID" ]] && signal_path="/tmp/cmux-pr-force-${CMUX_PANEL_ID}"
+    [[ -z "$signal_path" ]] || /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
     _CMUX_PR_POLL_PID=""
     _CMUX_PR_POLL_PWD=""
 }
@@ -1202,10 +1344,15 @@ _cmux_stop_pr_poll_loop() {
 }
 
 _cmux_start_pr_poll_loop() {
+    if [[ "${CMUX_NO_PR_WATCH:-}" == "1" ]]; then
+        _cmux_stop_pr_poll_loop
+        return 0
+    fi
     [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _cmux_zsh_job_table_saturated && return 0
 
     local watch_pwd="${1:-$PWD}"
     local force_restart="${2:-0}"
@@ -1251,10 +1398,9 @@ _cmux_start_pr_poll_loop() {
 }
 
 _cmux_stop_git_head_watch() {
-    if [[ -n "$_CMUX_GIT_HEAD_WATCH_PID" ]]; then
-        kill "$_CMUX_GIT_HEAD_WATCH_PID" >/dev/null 2>&1 || true
-        _CMUX_GIT_HEAD_WATCH_PID=""
-    fi
+    [[ -n "$_CMUX_GIT_HEAD_WATCH_PID" ]] || return 0
+    kill "$_CMUX_GIT_HEAD_WATCH_PID" >/dev/null 2>&1 || true
+    _CMUX_GIT_HEAD_WATCH_PID=""
 }
 
 _cmux_start_git_head_watch() {
@@ -1262,6 +1408,7 @@ _cmux_start_git_head_watch() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _cmux_zsh_job_table_saturated && return 0
 
     local watch_pwd="$PWD"
     local watch_head_path
@@ -1276,9 +1423,11 @@ _cmux_start_git_head_watch() {
     _CMUX_GIT_HEAD_SIGNATURE="$watch_head_signature"
 
     _cmux_stop_git_head_watch
+    local watch_shell_pid="$$"
     {
         local last_signature="$watch_head_signature"
         while true; do
+            kill -0 "$watch_shell_pid" >/dev/null 2>&1 || break
             sleep 1
 
             local signature
@@ -1345,12 +1494,16 @@ _cmux_command_starts_nested_shell() {
 }
 
 _cmux_preexec() {
+    local cmd="${1## }"
+    _cmux_halt_pr_poll_loop
+    _cmux_stop_git_head_watch
+    _cmux_zsh_job_table_saturated && return 0
+
     _cmux_normalize_claude_config_dir
     if (( ! _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
         _cmux_restore_terminal_identity_after_startup
     fi
     _cmux_tmux_sync_cmux_environment
-    local cmd="${1## }"
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
@@ -1373,8 +1526,6 @@ _cmux_preexec() {
     # Register TTY + kick batched port scan for foreground commands (servers).
     _cmux_report_tty_once
     _cmux_ports_kick command
-    _cmux_halt_pr_poll_loop
-    _cmux_stop_git_head_watch
     if _cmux_command_starts_nested_shell "$cmd"; then
         return 0
     fi
@@ -1383,11 +1534,17 @@ _cmux_preexec() {
 
 _cmux_precmd() {
     local last_status=$?
+    # Handle cases where Ghostty integration initializes after this file. This
+    # is pure function-body patching, so it remains safe under job saturation.
+    _cmux_patch_ghostty_job_table_guard
+    (( _CMUX_GHOSTTY_SEMANTIC_PATCHED )) || _cmux_patch_ghostty_semantic_redraw
+    _cmux_stop_git_head_watch
+    _cmux_zsh_job_table_saturated && return 0
+
     _cmux_normalize_claude_config_dir
     if (( _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
         _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=0
     fi
-    _cmux_stop_git_head_watch
     _cmux_tmux_sync_cmux_environment
 
     local cmux_has_unix_socket=0
@@ -1398,9 +1555,6 @@ _cmux_precmd() {
         _cmux_reset_terminal_keyboard_protocols
         _cmux_report_shell_activity_state prompt
     fi
-
-    # Handle cases where Ghostty integration initializes after this file.
-    (( _CMUX_GHOSTTY_SEMANTIC_PATCHED )) || _cmux_patch_ghostty_semantic_redraw
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
@@ -1428,6 +1582,7 @@ _cmux_precmd() {
 
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     local pwd="$PWD"
+    _cmux_set_git_active_pwd "$pwd"
 
     _cmux_prompt_wrap_guard "$cmd_start" "$pwd"
 
@@ -1579,6 +1734,17 @@ _cmux_fix_path() {
     add-zsh-hook -d precmd _cmux_fix_path
 }
 
+_cmux_chpwd() {
+    # Only refresh the active-cwd marker so async git reporters (the HEAD-watch
+    # loop and deferred prompt probes) are scoped to the new cwd. Do NOT tear the
+    # HEAD watch down here: chpwd fires mid-line for compound commands such as
+    # `cd foo && pnpm dev`, and killing the watcher would drop live branch updates
+    # during the long-running step. The marker guard already suppresses any stale
+    # report for the path the shell just left, and precmd stops the watch at the
+    # next prompt.
+    _cmux_set_git_active_pwd "$PWD"
+}
+
 _cmux_restore_terminal_identity_after_startup() {
     if [[ -n "${CMUX_ZSH_RESTORE_TERM:-}" ]]; then
         builtin export TERM="$CMUX_ZSH_RESTORE_TERM"
@@ -1590,10 +1756,12 @@ _cmux_restore_terminal_identity_after_startup() {
 _cmux_zshexit() {
     _cmux_stop_git_head_watch
     _cmux_stop_pr_poll_loop
+    [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] && /bin/rm -f -- "$_CMUX_GIT_ACTIVE_PWD_FILE" >/dev/null 2>&1 || true
 }
 
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec _cmux_preexec
 add-zsh-hook precmd _cmux_precmd
 add-zsh-hook precmd _cmux_fix_path
+add-zsh-hook chpwd _cmux_chpwd
 add-zsh-hook zshexit _cmux_zshexit
