@@ -236,6 +236,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         await send("session.status", status("running"));
         await send("session.error", { info, error: { message: "upstream quota" } });
         await send("permission.asked", { info, message: "approve" });
+        await send("session.updated", { info: { ...info, title: "metadata refresh" } });
         await send("session.idle", { info });
         await send("permission.replied", { sessionID: sessionId });
         await send("session.idle", { info });

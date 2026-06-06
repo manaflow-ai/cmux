@@ -25643,6 +25643,15 @@ function markSessionNotIdle(event) {
   record.errorNotified = false;
 }
 
+function markSessionUpdated(event) {
+  const record = lifecycleRecordFor(event);
+  if (!record) return false;
+  if (record.phase === "needs-input" || record.phase === "error") return false;
+  record.phase = "active";
+  record.errorNotified = false;
+  return true;
+}
+
 function markSessionNeedsInput(event) {
   const record = lifecycleRecordFor(event);
   if (!record) return;
@@ -25768,8 +25777,9 @@ const CMUXSessionRestore = async (ctx) => {
             sendHook("session-end", ctx, event);
             forgetSessionLifecycle(event);
           } else {
-            markSessionNotIdle(event);
-            sendHook("session-start", ctx, event);
+            if (markSessionUpdated(event)) {
+              sendHook("session-start", ctx, event);
+            }
           }
           break;
         case "session.status": {
