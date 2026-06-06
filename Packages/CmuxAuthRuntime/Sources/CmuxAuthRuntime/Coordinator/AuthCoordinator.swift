@@ -484,6 +484,7 @@ public final class AuthCoordinator {
     ///   session is definitively gone (also clears local auth state).
     public func accessToken() async throws -> String {
         if let token = await client.accessToken() {
+            lastAuthErrorDescription = nil
             return token
         }
         #if DEBUG
@@ -498,6 +499,7 @@ public final class AuthCoordinator {
                 setLoading: false
             )
             if let token = await client.accessToken() {
+                lastAuthErrorDescription = nil
                 return token
             }
         }
@@ -544,6 +546,7 @@ public final class AuthCoordinator {
             recordAuthError(error)
             throw error
         }
+        lastAuthErrorDescription = nil
         return (access, refresh)
     }
 
@@ -561,6 +564,7 @@ public final class AuthCoordinator {
     ///   root scene routes to the sign-in page instead of showing a stale shell.
     public func forceRefreshAccessToken() async throws -> String {
         if let token = await client.forceRefreshAccessToken() {
+            lastAuthErrorDescription = nil
             return token
         }
         // A surviving refresh token means the failure was transient

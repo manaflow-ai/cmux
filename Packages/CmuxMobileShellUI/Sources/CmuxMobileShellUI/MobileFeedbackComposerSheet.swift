@@ -153,8 +153,11 @@ struct MobileFeedbackComposerSheet: View {
                             .controlSize(.small)
                         Text(L10n.string("mobile.feedback.diagnosticsPreparing", defaultValue: "Preparing…"))
                             .foregroundStyle(.secondary)
-                    } else {
+                    } else if diagnosticsReport != nil {
                         Text(L10n.string("mobile.feedback.diagnosticsReady", defaultValue: "Ready"))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(L10n.string("mobile.feedback.diagnosticsNotReady", defaultValue: "Not Ready"))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -257,6 +260,7 @@ struct MobileFeedbackComposerSheet: View {
     @MainActor
     private func loadSelectedPhotos(_ items: [PhotosPickerItem]) async {
         guard items.isEmpty == false else { return }
+        guard isPreparingPhotos == false else { return }
 
         isPreparingPhotos = true
         defer {
@@ -264,19 +268,36 @@ struct MobileFeedbackComposerSheet: View {
             selectedPhotoItems = []
         }
 
-        var updatedAttachments = photoAttachments
         var firstIssue: String?
+        let startingPhotoBytes = photoAttachments.reduce(0) { $0 + $1.data.count }
+        let startingCount = photoAttachments.count
         let finalCount = min(
             MobileFeedbackSettings.maxPhotoAttachmentCount,
-            updatedAttachments.count + items.count
+            startingCount + items.count
         )
-        let perAttachmentBudget = max(
-            1,
-            MobileFeedbackSettings.targetTotalPhotoUploadBytes / max(finalCount, 1)
-        )
+        let requestedNewCount = max(0, finalCount - startingCount)
+        guard requestedNewCount > 0 else {
+            submissionErrorMessage = L10n.string(
+                "mobile.feedback.tooManyPhotos",
+                defaultValue: "You can attach up to 10 photos."
+            )
+            return
+        }
+
+        let remainingPhotoBytes = MobileFeedbackSettings.targetTotalPhotoUploadBytes - startingPhotoBytes
+        guard remainingPhotoBytes > 0 else {
+            submissionErrorMessage = L10n.string(
+                "mobile.feedback.totalPhotosTooLarge",
+                defaultValue: "These photos are too large to send together. Remove a few and try again."
+            )
+            return
+        }
+
+        let perAttachmentBudget = max(1, remainingPhotoBytes / requestedNewCount)
+        var preparedAttachments: [MobileFeedbackPhotoAttachment] = []
 
         for item in items {
-            guard updatedAttachments.count < MobileFeedbackSettings.maxPhotoAttachmentCount else {
+            guard preparedAttachments.count < requestedNewCount else {
                 firstIssue = L10n.string(
                     "mobile.feedback.tooManyPhotos",
                     defaultValue: "You can attach up to 10 photos."
@@ -287,10 +308,15 @@ struct MobileFeedbackComposerSheet: View {
             do {
                 let attachment = try await MobileFeedbackPhotoAttachment.make(
                     from: item,
-                    index: updatedAttachments.count + 1,
+                    index: startingCount + preparedAttachments.count + 1,
                     maximumByteCount: perAttachmentBudget
                 )
-                updatedAttachments.append(attachment)
+                preparedAttachments.append(attachment)
+            } catch MobileFeedbackSubmissionError.photoPreparationFailed {
+                firstIssue = L10n.string(
+                    "mobile.feedback.totalPhotosTooLarge",
+                    defaultValue: "These photos are too large to send together. Remove a few and try again."
+                )
             } catch {
                 firstIssue = L10n.string(
                     "mobile.feedback.invalidPhotoSelection",
@@ -299,7 +325,18 @@ struct MobileFeedbackComposerSheet: View {
             }
         }
 
-        photoAttachments = updatedAttachments
+        if preparedAttachments.isEmpty == false {
+            let openSlots = max(0, MobileFeedbackSettings.maxPhotoAttachmentCount - photoAttachments.count)
+            if openSlots > 0 {
+                photoAttachments.append(contentsOf: preparedAttachments.prefix(openSlots))
+            }
+            if preparedAttachments.count > openSlots {
+                firstIssue = L10n.string(
+                    "mobile.feedback.tooManyPhotos",
+                    defaultValue: "You can attach up to 10 photos."
+                )
+            }
+        }
         submissionErrorMessage = firstIssue
     }
 
@@ -311,6 +348,7 @@ struct MobileFeedbackComposerSheet: View {
 
     @MainActor
     private func submitFeedback() async {
+        guard isSubmitting == false else { return }
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedMessage = trimmedMessage
 
@@ -338,17 +376,13 @@ struct MobileFeedbackComposerSheet: View {
             return
         }
 
-        guard let report = await ensureDiagnosticsReport() else {
-            submissionErrorMessage = L10n.string(
-                "mobile.feedback.diagnosticsUnavailable",
-                defaultValue: "Diagnostics are still being prepared. Try again in a moment."
-            )
-            return
-        }
-
-        email = trimmedEmail
         submissionErrorMessage = nil
         isSubmitting = true
+        defer { isSubmitting = false }
+
+        let report = await refreshDiagnosticsReport()
+
+        email = trimmedEmail
 
         do {
             let metadata = MobileFeedbackAppMetadata.current()
@@ -359,13 +393,20 @@ struct MobileFeedbackComposerSheet: View {
                 photoAttachments: photoAttachments,
                 metadata: metadata
             )
-            isSubmitting = false
             didSend = true
             photoAttachments = []
         } catch {
-            isSubmitting = false
             submissionErrorMessage = userFacingErrorMessage(for: error)
         }
+    }
+
+    @MainActor
+    private func refreshDiagnosticsReport() async -> MobileDiagnosticsReport {
+        isPreparingDiagnostics = true
+        defer { isPreparingDiagnostics = false }
+        let report = await buildDiagnosticsReport()
+        diagnosticsReport = report
+        return report
     }
 
     private func isValidEmail(_ rawValue: String) -> Bool {

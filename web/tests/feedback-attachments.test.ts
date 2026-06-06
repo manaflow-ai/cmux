@@ -72,6 +72,97 @@ describe("feedback attachments", () => {
     expect(result.error.code).toBe("ERROR_UNSUPPORTED_DIAGNOSTICS_TYPE");
   });
 
+  test("rejects more than ten image attachments", async () => {
+    const result = await prepareFeedbackAttachments(
+      Array.from({ length: 11 }, (_, index) => (
+        new File(["image"], `photo-${index}.jpg`, { type: "image/jpeg" })
+      )),
+    );
+
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) {
+      throw new Error("expected an error");
+    }
+    expect(result.error.status).toBe(400);
+    expect(result.error.code).toBe("ERROR_TOO_MANY_IMAGES");
+  });
+
+  test("rejects unsupported image MIME types", async () => {
+    const result = await prepareFeedbackAttachments([
+      new File(["image"], "photo.bmp", { type: "image/bmp" }),
+    ]);
+
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) {
+      throw new Error("expected an error");
+    }
+    expect(result.error.status).toBe(415);
+    expect(result.error.code).toBe("ERROR_UNSUPPORTED_IMAGE_TYPE");
+  });
+
+  test("rejects image attachments over four megabytes", async () => {
+    const result = await prepareFeedbackAttachments([
+      new File(
+        [new Uint8Array(4 * 1024 * 1024 + 1)],
+        "photo.jpg",
+        { type: "image/jpeg" },
+      ),
+    ]);
+
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) {
+      throw new Error("expected an error");
+    }
+    expect(result.error.status).toBe(413);
+    expect(result.error.code).toBe("ERROR_IMAGE_ATTACHMENT_TOO_LARGE");
+  });
+
+  test("rejects diagnostics attachments over five hundred twelve kilobytes", async () => {
+    const result = await prepareFeedbackAttachments(
+      [],
+      [
+        new File(
+          [new Uint8Array(512 * 1024 + 1)],
+          "cmux-diagnostics.txt",
+          { type: "text/plain" },
+        ),
+      ],
+    );
+
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) {
+      throw new Error("expected an error");
+    }
+    expect(result.error.status).toBe(413);
+    expect(result.error.code).toBe("ERROR_DIAGNOSTICS_ATTACHMENT_TOO_LARGE");
+  });
+
+  test("rejects aggregate attachment payloads over four megabytes", async () => {
+    const result = await prepareFeedbackAttachments(
+      [
+        new File(
+          [new Uint8Array(3_700_000)],
+          "photo.jpg",
+          { type: "image/jpeg" },
+        ),
+      ],
+      [
+        new File(
+          [new Uint8Array(512 * 1024)],
+          "cmux-diagnostics.txt",
+          { type: "text/plain" },
+        ),
+      ],
+    );
+
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) {
+      throw new Error("expected an error");
+    }
+    expect(result.error.status).toBe(413);
+    expect(result.error.code).toBe("ERROR_TOTAL_ATTACHMENTS_TOO_LARGE");
+  });
+
   test("rejects malformed attachment parts", async () => {
     const result = await prepareFeedbackAttachments(
       ["not-a-file"],

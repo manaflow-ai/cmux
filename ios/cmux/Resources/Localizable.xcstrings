@@ -936,6 +936,23 @@
         }
       }
     },
+    "mobile.feedback.diagnosticsNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Ready"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未準備"
+          }
+        }
+      }
+    },
     "mobile.feedback.diagnosticsReady": {
       "extractionState": "manual",
       "localizations": {

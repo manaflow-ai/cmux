@@ -136,6 +136,37 @@ import Testing
         #expect(coordinator.lastAuthErrorDescription?.contains("Session expired") == true)
     }
 
+    @Test func accessTokenSuccessClearsPreviousDiagnosticsError() async throws {
+        let client = FakeAuthClient()
+        let (coordinator, _) = makeCoordinator(client: client)
+        await #expect(throws: AuthError.unauthorized) {
+            _ = try await coordinator.accessToken()
+        }
+        #expect(coordinator.lastAuthErrorDescription != nil)
+
+        await client.setTokens(access: "access-1", refresh: "refresh-1")
+        let token = try await coordinator.accessToken()
+
+        #expect(token == "access-1")
+        #expect(coordinator.lastAuthErrorDescription == nil)
+    }
+
+    @Test func forceRefreshSuccessClearsPreviousDiagnosticsError() async throws {
+        let client = FakeAuthClient(refresh: "refresh-1")
+        await client.setForceRefreshResult(nil)
+        let (coordinator, _) = makeCoordinator(client: client)
+        await #expect(throws: AuthError.networkError) {
+            _ = try await coordinator.forceRefreshAccessToken()
+        }
+        #expect(coordinator.lastAuthErrorDescription != nil)
+
+        await client.setForceRefreshResult("access-2")
+        let token = try await coordinator.forceRefreshAccessToken()
+
+        #expect(token == "access-2")
+        #expect(coordinator.lastAuthErrorDescription == nil)
+    }
+
     @Test func signInRefreshesTeamsAndResolvesSelection() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)

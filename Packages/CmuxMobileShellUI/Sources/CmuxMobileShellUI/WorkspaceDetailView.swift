@@ -344,13 +344,11 @@ struct WorkspaceDetailView: View {
     }
 
     private var diagnosticsConnectionState: String {
-        switch connectionStatus {
+        switch store.connectionState {
         case .connected:
             return "connected"
-        case .reconnecting:
-            return "reconnecting"
-        case .unavailable:
-            return "unavailable"
+        case .disconnected:
+            return "disconnected"
         }
     }
 

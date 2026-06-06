@@ -25,7 +25,7 @@ public struct MobileFeedbackPhotoProcessor: Sendable {
         maximumByteCount: Int
     ) async throws -> MobileFeedbackPhotoAttachment {
         try await Task.detached(priority: .userInitiated) {
-            let boundedMaximumByteCount = max(maximumByteCount, 128 * 1_024)
+            let boundedMaximumByteCount = max(maximumByteCount, 1)
             let jpegData = try optimizedMobileFeedbackJPEGData(
                 from: sourceData,
                 maximumByteCount: boundedMaximumByteCount

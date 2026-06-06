@@ -70,56 +70,61 @@ public actor MobileDiagnosticsOSLogReader {
     /// produce a stable sanitized unavailability note.
     ///
     /// - Returns: The formatted entries text, or an unavailability note.
-    public func recentEntriesText() -> String {
+    public func recentEntriesText() async -> String {
         #if canImport(OSLog)
-        do {
-            let store = try OSLogStore(scope: .currentProcessIdentifier)
-            let since = store.position(date: Date().addingTimeInterval(-lookback))
-            let entries = try store.getEntries(at: since)
+        let includedSubsystems = self.subsystems
+        let lookback = self.lookback
+        let maxEntries = self.maxEntries
+        let maxBytes = self.maxBytes
+        return await Task.detached(priority: .utility) {
+            do {
+                let store = try OSLogStore(scope: .currentProcessIdentifier)
+                let since = store.position(date: Date().addingTimeInterval(-lookback))
+                let entries = try store.getEntries(at: since)
 
-            let formatter = DateFormatter()
-            formatter.dateFormat = "HH:mm:ss.SSS"
+                let formatter = DateFormatter()
+                formatter.dateFormat = "HH:mm:ss.SSS"
 
-            var lines: [String] = []
-            var renderedBytes = 0
-            var truncated = false
-            for entry in entries {
-                guard let logEntry = entry as? OSLogEntryLog else { continue }
-                guard subsystems.contains(logEntry.subsystem) else { continue }
-                let time = formatter.string(from: logEntry.date)
-                let level = mobileDiagnosticsOSLogLevelLabel(logEntry.level)
-                let category = logEntry.category.isEmpty ? "-" : logEntry.category
-                let line = "\(time) \(category) [\(level)] \(logEntry.subsystem): \(logEntry.composedMessage)"
-                guard appendMobileDiagnosticsCappedLine(
-                    line,
-                    to: &lines,
-                    renderedBytes: &renderedBytes,
-                    maxEntries: maxEntries,
-                    maxBytes: maxBytes
-                ) else {
-                    truncated = true
-                    break
+                var lines: [String] = []
+                var renderedBytes = 0
+                var truncated = false
+                for entry in entries {
+                    guard let logEntry = entry as? OSLogEntryLog else { continue }
+                    guard includedSubsystems.contains(logEntry.subsystem) else { continue }
+                    let time = formatter.string(from: logEntry.date)
+                    let level = mobileDiagnosticsOSLogLevelLabel(logEntry.level)
+                    let category = logEntry.category.isEmpty ? "-" : logEntry.category
+                    let line = "\(time) \(category) [\(level)] \(logEntry.subsystem): \(logEntry.composedMessage)"
+                    if appendMobileDiagnosticsRecentLine(
+                        line,
+                        to: &lines,
+                        renderedBytes: &renderedBytes,
+                        maxEntries: maxEntries,
+                        maxBytes: maxBytes
+                    ) {
+                        truncated = true
+                    }
                 }
-            }
 
-            if lines.isEmpty {
-                return truncated
-                    ? "(os log truncated before first matching entry)"
-                    : "(no matching os log entries in the last \(Int(lookback))s)"
+                if lines.isEmpty {
+                    return truncated
+                        ? "(os log lines exceeded diagnostics limit)"
+                        : "(no matching os log entries in the last \(Int(lookback))s)"
+                }
+                if truncated {
+                    _ = appendMobileDiagnosticsRecentLine(
+                        "(os log truncated to latest matching entries)",
+                        to: &lines,
+                        renderedBytes: &renderedBytes,
+                        maxEntries: maxEntries,
+                        maxBytes: maxBytes
+                    )
+                }
+                return lines.joined(separator: "\n")
+            } catch {
+                return "(os log unavailable: read failed)"
             }
-            if truncated {
-                _ = appendMobileDiagnosticsCappedLine(
-                    "(os log truncated)",
-                    to: &lines,
-                    renderedBytes: &renderedBytes,
-                    maxEntries: maxEntries,
-                    maxBytes: maxBytes
-                )
-            }
-            return lines.joined(separator: "\n")
-        } catch {
-            return "(os log unavailable: read failed)"
-        }
+        }.value
         #else
         return "(os log unavailable: OSLog not importable on this platform)"
         #endif
@@ -145,21 +150,29 @@ private func mobileDiagnosticsOSLogLevelLabel(_ level: OSLogEntryLog.Level) -> S
 #endif
 
 @discardableResult
-func appendMobileDiagnosticsCappedLine(
+func appendMobileDiagnosticsRecentLine(
     _ line: String,
     to lines: inout [String],
     renderedBytes: inout Int,
     maxEntries: Int,
     maxBytes: Int
 ) -> Bool {
-    guard maxEntries > 0, maxBytes > 0 else { return false }
-    guard lines.count < maxEntries else { return false }
-    let separatorBytes = lines.isEmpty ? 0 : 1
+    guard maxEntries > 0, maxBytes > 0 else { return true }
     let candidateBytes = line.utf8.count
-    guard renderedBytes + separatorBytes + candidateBytes <= maxBytes else {
-        return false
-    }
+    guard candidateBytes <= maxBytes else { return true }
+
+    let separatorBytes = lines.isEmpty ? 0 : 1
     lines.append(line)
     renderedBytes += separatorBytes + candidateBytes
-    return true
+
+    var droppedOlderLines = false
+    while lines.count > maxEntries || renderedBytes > maxBytes {
+        let removed = lines.removeFirst()
+        renderedBytes -= removed.utf8.count
+        if lines.isEmpty == false {
+            renderedBytes -= 1
+        }
+        droppedOlderLines = true
+    }
+    return droppedOlderLines
 }
