@@ -15293,12 +15293,7 @@ final class GhosttySurfaceScrollView: NSView {
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
 
-        // Track if user has scrolled away from bottom to review scrollback
-        if scrollOffset > Self.scrollToBottomThreshold {
-            userScrolledAwayFromBottom = true
-        } else if scrollOffset <= 0 {
-            userScrolledAwayFromBottom = false
-        }
+        userScrolledAwayFromBottom = !scrollOffsetIsAtBottom(scrollOffset)
 
         let row = Int(scrollOffset / cellHeight)
 
@@ -15361,6 +15356,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func scrollbarIsAtBottom(_ scrollbar: GhosttyScrollbar) -> Bool {
         scrollbar.offset >= scrollbar.total || scrollbar.len >= scrollbar.total - scrollbar.offset
+    }
+
+    private func scrollOffsetIsAtBottom(_ scrollOffset: CGFloat) -> Bool {
+        scrollOffset <= Self.scrollToBottomThreshold
     }
 
     private func handleTerminalScrollBarPreferenceChange() {

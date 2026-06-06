@@ -4201,6 +4201,49 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    func testNearBottomLiveScrollResumesBottomFollowing() {
+        guard let harness = makeReviewScrollbackHarness() else { return }
+        defer { harness.window.orderOut(nil) }
+        guard scrollHarnessToReviewPosition(harness) else { return }
+
+        guard let documentView = harness.scrollView.documentView else {
+            XCTFail("Expected hosted terminal document view")
+            return
+        }
+
+        let nearBottomOriginY = max(
+            0,
+            documentView.frame.height - harness.scrollView.contentView.bounds.height - 2
+        )
+        XCTAssertGreaterThan(
+            nearBottomOriginY,
+            0,
+            "Expected enough scrollback geometry to exercise a near-bottom live-scroll position"
+        )
+        harness.scrollView.contentView.scroll(to: CGPoint(x: 0, y: nearBottomOriginY))
+        harness.scrollView.reflectScrolledClipView(harness.scrollView.contentView)
+
+        NotificationCenter.default.post(
+            name: NSScrollView.didLiveScrollNotification,
+            object: harness.scrollView
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: harness.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertEqual(
+            harness.scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "A live scroll within the bottom threshold should resume following passive bottom packets"
+        )
+    }
+
     func testStreamingOutputPreservesManualScrollbackPosition() {
         guard let harness = makeReviewScrollbackHarness() else { return }
         defer { harness.window.orderOut(nil) }
