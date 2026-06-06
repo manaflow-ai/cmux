@@ -5410,12 +5410,8 @@ class TabManager: ObservableObject {
         guard tabs.contains(where: { $0.id == workspace.id }) else { return false }
         if workspace.isPinned {
             if force {
-                return closeWorkspaceIfRunningProcess(
-                    workspace,
-                    requiresConfirmation: false,
-                    operationId: operationId,
-                    skipAnchorConfirmation: true
-                )
+                NSSound.beep()
+                return false
             }
             guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
             return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false, operationId: operationId)
@@ -5431,10 +5427,14 @@ class TabManager: ObservableObject {
 
     func confirmWorkspaceCloseForHistoryRedo(_ workspace: Workspace, force: Bool = false) -> Bool {
         guard tabs.contains(where: { $0.id == workspace.id }) else { return false }
-        guard !force else { return true }
         if workspace.isPinned {
+            guard !force else {
+                NSSound.beep()
+                return false
+            }
             guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
         }
+        guard !force else { return true }
         if let groupId = workspace.groupId,
            let group = workspaceGroups.first(where: { $0.id == groupId }),
            group.anchorWorkspaceId == workspace.id {
