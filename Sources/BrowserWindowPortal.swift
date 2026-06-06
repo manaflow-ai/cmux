@@ -468,11 +468,17 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        let routingContext = WindowInputRoutingContext(event: NSApp.currentEvent)
+        guard routingContext.allowsPortalPointerHitTesting else {
+            let hitView = super.hitTest(point)
+            return hitView === self ? nil : hitView
+        }
+
         let dividerHit = splitDividerHit(at: point)
         let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
         updateDividerCursor(at: point, dividerHit: dividerHit, hostedInspectorHit: hostedInspectorHit)
 
-        let eventType = NSApp.currentEvent?.type
+        let eventType = routingContext.eventType
         let titlebarPassThrough = shouldPassThroughToTitlebar(at: point)
         let tabStripPassThrough = shouldPassThroughToPaneTabBar(at: point, eventType: eventType)
         let sidebarPassThrough = shouldPassThroughToSidebarResizer(
@@ -538,10 +544,11 @@ final class WindowBrowserHostView: NSView {
         // pass through to SwiftUI drop targets behind the portal host.
         // Browser hover routing also arrives as cursor/enter events and may not
         // report a pressed-button state, so include that path here.
-        if Self.shouldPassThroughToDragTargets(
+        if routingContext.allowsBrowserPortalDragRouting,
+           Self.shouldPassThroughToDragTargets(
             pasteboardTypes: NSPasteboard(name: .drag).types,
-            eventType: NSApp.currentEvent?.type
-        ) {
+            eventType: eventType
+           ) {
             return nil
         }
 
@@ -886,25 +893,10 @@ final class WindowBrowserHostView: NSView {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
-        if DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+        DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: eventType
-        ) {
-            return true
-        }
-
-        guard let eventType else { return false }
-        switch eventType {
-        case .cursorUpdate, .mouseEntered, .mouseExited, .mouseMoved:
-            // Browser-side tab drags can surface as hover events with a mixed
-            // pasteboard payload (tabtransfer plus promised-file UTIs). Prefer
-            // the explicit Bonsplit drag types so WKWebView cannot steal the
-            // session as a file upload.
-            return DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-                || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
-        default:
-            return false
-        }
+        )
     }
 
     private func hostedInspectorDividerHit(at point: NSPoint) -> HostedInspectorDividerHit? {

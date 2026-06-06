@@ -9,13 +9,45 @@ export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"
 export HOMEBREW_NO_INSTALL_CLEANUP="${HOMEBREW_NO_INSTALL_CLEANUP:-1}"
 export HOMEBREW_NO_ENV_HINTS="${HOMEBREW_NO_ENV_HINTS:-1}"
 
-if command -v zig >/dev/null 2>&1; then
-  INSTALLED_ZIG_VERSION="$(zig version 2>/dev/null || true)"
-  if [ "$INSTALLED_ZIG_VERSION" = "$ZIG_REQUIRED" ]; then
-    echo "zig ${ZIG_REQUIRED} already installed"
-    exit 0
+publish_zig_for_later_steps() {
+  local zig_path="$1"
+  local zig_dir
+  zig_dir="$(cd "$(dirname "$zig_path")" && pwd)"
+  zig_path="${zig_dir}/$(basename "$zig_path")"
+  if [ -n "${GITHUB_PATH:-}" ]; then
+    echo "$zig_dir" >> "$GITHUB_PATH"
   fi
-fi
+  if [ -n "${GITHUB_ENV:-}" ]; then
+    echo "CMUX_ZIG=$zig_path" >> "$GITHUB_ENV"
+  fi
+}
+
+zig_has_required_version() {
+  local zig_path="$1"
+  [ -x "$zig_path" ] || return 1
+  [ "$("$zig_path" version 2>/dev/null || true)" = "$ZIG_REQUIRED" ]
+}
+
+use_existing_zig_if_available() {
+  local candidate
+  local seen=" "
+  for candidate in "$(command -v zig 2>/dev/null || true)" /opt/homebrew/bin/zig /usr/local/bin/zig; do
+    [ -n "$candidate" ] || continue
+    [ -x "$candidate" ] || continue
+    candidate="$(cd "$(dirname "$candidate")" && pwd)/$(basename "$candidate")"
+    case "$seen" in
+      *" $candidate "*) continue ;;
+    esac
+    seen="${seen}${candidate} "
+    if zig_has_required_version "$candidate"; then
+      echo "zig ${ZIG_REQUIRED} already installed at $candidate"
+      publish_zig_for_later_steps "$candidate"
+      exit 0
+    fi
+  done
+}
+
+use_existing_zig_if_available
 
 case "$(uname -m)" in
   arm64 | aarch64) ZIG_ARCH="aarch64" ;;
