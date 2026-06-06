@@ -5871,28 +5871,26 @@ class TabManager: ObservableObject {
         in workspace: Workspace,
         panelIds candidatePanelIds: [UUID]? = nil
     ) -> Set<UUID>? {
-        let affectedCount = blockPolicyEphemeralWorktreePanelIds(
-            in: workspace,
-            panelIds: candidatePanelIds
-        ).count
-        guard confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(affectedCount: affectedCount) else {
-            return nil
-        }
-        return Set(blockPolicyEphemeralWorktreePanelIds(
+        let panelIds = Set(blockPolicyEphemeralWorktreePanelIds(
             in: workspace,
             panelIds: candidatePanelIds
         ))
+        let affectedCount = panelIds.count
+        guard confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(affectedCount: affectedCount) else {
+            return nil
+        }
+        return panelIds
     }
 
     func confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
         for workspaces: [Workspace]
     ) -> [UUID: Set<UUID>]? {
-        let currentPanelIdsByWorkspace = blockPolicyEphemeralWorktreePanelIdsByWorkspace(for: workspaces)
-        let affectedCount = currentPanelIdsByWorkspace.values.reduce(0) { $0 + $1.count }
+        let panelIdsByWorkspace = blockPolicyEphemeralWorktreePanelIdsByWorkspace(for: workspaces)
+        let affectedCount = panelIdsByWorkspace.values.reduce(0) { $0 + $1.count }
         guard confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(affectedCount: affectedCount) else {
             return nil
         }
-        return blockPolicyEphemeralWorktreePanelIdsByWorkspace(for: workspaces)
+        return panelIdsByWorkspace
     }
 
     func confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(

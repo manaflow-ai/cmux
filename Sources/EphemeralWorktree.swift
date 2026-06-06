@@ -324,7 +324,7 @@ nonisolated struct EphemeralWorktreeGitClient {
 }
 
 // Sendable safety: registry persistence is synchronous and all JSON store mutations are serialized by `lock`.
-// Async/background entry points run blocking git subprocesses on `gitWorkQueue`, not Swift's cooperative executor.
+// Async/background entry points run blocking git subprocesses on dedicated GCD queues, not Swift's cooperative executor.
 final class EphemeralWorktreeRegistry: @unchecked Sendable {
     static let shared = EphemeralWorktreeRegistry()
     private nonisolated static let logger = Logger(
@@ -335,22 +335,29 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
     private let storeURL: URL
     private let git: EphemeralWorktreeGitClient
     private let fileManager: FileManager
-    private let gitWorkQueue: DispatchQueue
+    // User-initiated creation must not wait behind startup orphan reconciliation.
+    private let gitCreationQueue: DispatchQueue
+    private let gitMaintenanceQueue: DispatchQueue
     private let lock = NSLock()
 
     init(
         storeURL: URL = EphemeralWorktreeRegistry.defaultStoreURL(),
         git: EphemeralWorktreeGitClient = EphemeralWorktreeGitClient(),
         fileManager: FileManager = .default,
-        gitWorkQueue: DispatchQueue = DispatchQueue(
-            label: "com.cmux.ephemeral-worktree.git",
+        gitMaintenanceQueue: DispatchQueue = DispatchQueue(
+            label: "com.cmux.ephemeral-worktree.git.maintenance",
             qos: .utility
+        ),
+        gitCreationQueue: DispatchQueue = DispatchQueue(
+            label: "com.cmux.ephemeral-worktree.git.create",
+            qos: .userInitiated
         )
     ) {
         self.storeURL = storeURL
         self.git = git
         self.fileManager = fileManager
-        self.gitWorkQueue = gitWorkQueue
+        self.gitCreationQueue = gitCreationQueue
+        self.gitMaintenanceQueue = gitMaintenanceQueue
     }
 
     static func defaultStoreURL(
@@ -437,7 +444,7 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
         cleanupPolicy: EphemeralWorktreeCleanupPolicy = .defaultPolicy
     ) async throws -> EphemeralWorktreeRecord {
         try await withCheckedThrowingContinuation { continuation in
-            gitWorkQueue.async {
+            gitCreationQueue.async {
                 let result: Result<EphemeralWorktreeRecord, Error> = Result {
                     try self.create(
                         sourceDirectory: sourceDirectory,
@@ -457,7 +464,7 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
     }
 
     func registerInBackground(_ record: EphemeralWorktreeRecord, reason: String) {
-        gitWorkQueue.async {
+        gitMaintenanceQueue.async {
             do {
                 try self.register(record)
             } catch {
@@ -515,7 +522,7 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
     func cleanupInBackground(_ record: EphemeralWorktreeRecord, userConfirmed: Bool = false) {
         // This is a sync-to-background bridge for git worktree removal after UI teardown.
         // Keeping it off the main actor prevents pane closure from waiting on git I/O.
-        gitWorkQueue.async {
+        gitMaintenanceQueue.async {
             do {
                 _ = try self.cleanup(record, userConfirmed: userConfirmed)
             } catch {
@@ -543,7 +550,7 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
     }
 
     func reconcileOrphansInBackground(activeSessionIds: Set<String>) {
-        gitWorkQueue.async {
+        gitMaintenanceQueue.async {
             _ = self.reconcileOrphans(activeSessionIds: activeSessionIds)
         }
     }
