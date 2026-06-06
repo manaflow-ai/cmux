@@ -18,24 +18,17 @@ struct TerminalSearchOverlayMouseReleaseTests {
         let (hostedView, window) = try attachToWindow(surface: surface)
         defer { window.orderOut(nil) }
 
-        surface.startRuntimeSurfaceForTesting()
-        #expect(waitUntil(description: "runtime surface to start") {
-            surface.surface != nil
-        })
-
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
         #expect(waitUntil(description: "search overlay to mount") {
             hostedView.debugHasSearchOverlay()
         })
 
-        let terminalView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
         let overlay = try #require(hostedView.debugSearchOverlayHostingViewForTesting())
 
-        let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
-        terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))
+        hostedView.debugSetSurfacePendingLeftMouseReleaseForTesting(true)
         #expect(
             hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
-            "Terminal selection should own the left-button release after mouseDown"
+            "Terminal selection should own the left-button release before the overlay sees mouse events"
         )
 
         let overlayLocation = overlay.convert(NSPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: nil)
@@ -60,21 +53,14 @@ struct TerminalSearchOverlayMouseReleaseTests {
         let (hostedView, window) = try attachToWindow(surface: surface)
         defer { window.orderOut(nil) }
 
-        surface.startRuntimeSurfaceForTesting()
-        #expect(waitUntil(description: "runtime surface to start") {
-            surface.surface != nil
-        })
-
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
         #expect(waitUntil(description: "search overlay to mount") {
             hostedView.debugHasSearchOverlay()
         })
 
-        let terminalView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
         let overlay = try #require(hostedView.debugSearchOverlayHostingViewForTesting())
 
-        let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
-        terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))
+        hostedView.debugSetSurfacePendingLeftMouseReleaseForTesting(true)
         #expect(hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting())
 
         surface.releaseSurfaceForTesting()
@@ -136,15 +122,6 @@ struct TerminalSearchOverlayMouseReleaseTests {
             preconditionFailure("Failed to create \(type) mouse event")
         }
         return event
-    }
-
-    private func surfaceView(in hostedView: GhosttySurfaceScrollView) -> NSView? {
-        hostedView.subviews
-            .compactMap { $0 as? NSScrollView }
-            .first?
-            .documentView?
-            .subviews
-            .first
     }
 
     private func waitUntil(

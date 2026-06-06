@@ -7918,14 +7918,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         callbackContext?.release()
     }
 
-    /// Test-only helper for view tests that need a live Ghostty runtime surface
-    /// without depending on AppKit window insertion timing.
-    @MainActor
-    func startRuntimeSurfaceForTesting() {
-        guard surface == nil else { return }
-        createSurface(for: attachedView ?? surfaceView)
-    }
-
     /// Test-only helper to simulate a stale Swift wrapper whose native surface
     /// was already freed out-of-band.
     @MainActor
@@ -11651,6 +11643,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func debugHasPendingLeftMouseReleaseForTesting() -> Bool {
         hasPendingLeftMouseRelease
     }
+
+    func debugSetPendingLeftMouseReleaseForTesting(_ pending: Bool) {
+        hasPendingLeftMouseRelease = pending
+    }
 #endif
 
     override func scrollWheel(with event: NSEvent) {
@@ -14013,6 +14009,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugSurfaceHasPendingLeftMouseReleaseForTesting() -> Bool {
         surfaceView.debugHasPendingLeftMouseReleaseForTesting()
+    }
+
+    func debugSetSurfacePendingLeftMouseReleaseForTesting(_ pending: Bool) {
+        surfaceView.debugSetPendingLeftMouseReleaseForTesting(pending)
     }
 
     func debugHasKeyboardCopyModeIndicator() -> Bool {
