@@ -7939,6 +7939,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
         runtimeSurfaceFreedOutOfBandForTesting = false
         TerminalSurfaceRegistry.shared.registerRuntimeSurface(runtimeSurface, ownerId: id)
     }
+
+    @MainActor
+    static func enqueueRuntimeSurfaceTeardownForTesting(
+        surface: ghostty_surface_t,
+        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void
+    ) {
+        enqueueTerminalSurfaceRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "testing",
+            surface: surface,
+            callbackContext: nil,
+            freeSurface: freeSurface
+        )
+    }
 #endif
 
     deinit {

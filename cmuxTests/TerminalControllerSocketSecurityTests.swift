@@ -782,25 +782,16 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let windowId = UUID()
         let tabManager = TabManager(createInitialWorkspace: false)
         let fileExplorerState = FileExplorerState()
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
 
         appDelegate.fileExplorerState = fileExplorerState
         appDelegate.registerMainWindowContextForTesting(
             windowId: windowId,
             tabManager: tabManager,
             fileExplorerState: fileExplorerState,
-            window: window,
             notifyObservers: false
         )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId, notifyObservers: false)
-            window.close()
         }
 
         fileExplorerState.setVisible(false)
