@@ -524,6 +524,10 @@ final class MobileHostService {
                 probe.cancel()
                 continuation.resume(returning: available)
             }
+            // NWListener does not reach `.ready` unless a newConnectionHandler is
+            // set before `start()`; without it the probe would hang on a free
+            // port. We never accept on the probe — reject any arrival immediately.
+            probe.newConnectionHandler = { connection in connection.cancel() }
             probe.start(queue: probeQueue)
         }
     }
