@@ -537,9 +537,14 @@ private:
     [_byName removeObjectForKey:name];
     // CefRequestContext destruction is async; we wait for the CEF UI thread
     // to drop it before nuking the cache dir.
-    NSString *cachePath = [bridge.cachePath copy];
-    BOOL usesSharedDefaultCache = [[cachePath lastPathComponent] isEqualToString:@"Default"];
-    if ([name hasPrefix:@"isolated-"] && !usesSharedDefaultCache) {
+    // In the current Chrome-runtime fallback every live context reports the
+    // shared Default cache. Isolated profile cleanup must use the profile's
+    // intended path instead, while still refusing to remove Default.
+    NSString *cachePath = [[[self resolveProfilesRoot] stringByAppendingPathComponent:[self pathSafeName:name]] copy];
+    BOOL shouldRemoveEphemeralCache =
+        [name hasPrefix:@"isolated-"] &&
+        ![[cachePath lastPathComponent] isEqualToString:@"Default"];
+    if (shouldRemoveEphemeralCache) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             [[NSFileManager defaultManager] removeItemAtPath:cachePath error:nil];
