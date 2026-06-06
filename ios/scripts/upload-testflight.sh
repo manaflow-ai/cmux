@@ -173,6 +173,11 @@ fi
 # block a publish (the timestamp scheme is already correct; this is a backstop).
 GUARD_BUILD_NUMBER="$BUILD_NUMBER"
 GUARD_REUSED_ARCHIVE=0
+# Set to 1 only once a reused archive's embedded version is actually compared
+# against the App Store Connect max. A reused archive that reaches the upload
+# without this set (e.g. the Apple ID upload path, which has no ASC API creds to
+# query) is refused below, since it can't be renumbered or verified.
+REUSED_ARCHIVE_VERIFIED=0
 RUN_GUARD=1
 if [[ -n "$ARCHIVE_PATH" ]]; then
   # Reused archive: BUILD_NUMBER is never stamped into it, so the only number
@@ -201,6 +206,9 @@ if [[ "$RUN_GUARD" -eq 1 && "$EXPORT_ONLY" -ne 1 && -n "${ASC_API_KEY_ID:-}" && 
   if ASC_MAX="$(ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
       ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
       python3 "$SCRIPT_DIR/asc_max_build.py" --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER")"; then
+    # Reached only with a real ASC max in hand: the reused archive is now verified
+    # (it either passes the comparison below or the script exits).
+    REUSED_ARCHIVE_VERIFIED=1
     if [[ "$ASC_MAX" =~ ^[0-9]+$ && "$GUARD_BUILD_NUMBER" =~ ^[0-9]+$ ]] && (( 10#$GUARD_BUILD_NUMBER <= 10#$ASC_MAX )); then
       if [[ "$GUARD_REUSED_ARCHIVE" -eq 1 ]]; then
         echo "error: reused archive CFBundleVersion $GUARD_BUILD_NUMBER <= App Store Connect max $ASC_MAX; TestFlight will not offer it as an update. Re-archive with a higher --build-number." >&2
@@ -325,6 +333,16 @@ echo "IPA_PATH=$IPA_PATH"
 
 if [[ "$EXPORT_ONLY" -eq 1 ]]; then
   exit 0
+fi
+
+# Final fail-closed gate for reused archives. A reused --archive-path cannot be
+# renumbered, so it must be verified monotonic against App Store Connect before
+# upload. If the guard above never verified it (e.g. the Apple ID upload path,
+# which has no ASC API creds to query), refuse rather than ship a build that may
+# not be offered as an update.
+if [[ "$GUARD_REUSED_ARCHIVE" -eq 1 && "$REUSED_ARCHIVE_VERIFIED" -ne 1 ]]; then
+  echo "error: refusing to upload a reused --archive-path that was not verified monotonic against App Store Connect (no ASC API credentials available to check). Re-archive with --build-number, or provide ASC_API_KEY_ID/ASC_API_ISSUER_ID/ASC_API_KEY_PATH." >&2
+  exit 1
 fi
 
 if [[ -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" ]]; then
