@@ -333,6 +333,9 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 			return "", err
 		}
 	}
+	// Defensive boundary check before interpolating the path into NODE_OPTIONS.
+	// claudeNodeOptionsCacheDir owns candidate selection and should only return
+	// safe paths, but this keeps future branches from bypassing that invariant.
 	if pathUnsafeForNodeOptions(dir) {
 		return "", fmt.Errorf("NODE_OPTIONS restore module path is unsafe for --require: %s", dir)
 	}
