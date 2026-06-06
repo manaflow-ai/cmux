@@ -726,6 +726,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearRemoteConnectionContext()
     }
 
+    /// Disconnect the live connection and forget the currently-active paired Mac
+    /// (drops it from the store), returning the UI to the pairing flow. Backs the
+    /// "Rescan QR" action.
     public func disconnectAndForgetActiveMac() {
         let staleMacID = activeTicket?.macDeviceID
         disconnectLiveConnection()
