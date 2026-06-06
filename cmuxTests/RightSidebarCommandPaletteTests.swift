@@ -58,15 +58,40 @@ struct RightSidebarCommandPaletteTests {
 
     @Test
     func commandPaletteOffersOpenFeedAsPane() {
-        let descriptors = ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
-        #expect(
-            descriptors.contains { $0.mode == .feed },
-            "Command palette should expose an 'Open Feed as Pane' command, consistent with the header button"
-        )
-        #expect(
-            !descriptors.contains { $0.mode == .dock },
-            "Dock stays excluded from open-as-pane entrypoints"
-        )
+        withSavedBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+            let descriptors = ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
+            #expect(
+                descriptors.contains { $0.mode == .feed },
+                "Command palette should expose an 'Open Feed as Pane' command when Feed is enabled, consistent with the header button"
+            )
+            #expect(
+                !descriptors.contains { $0.mode == .dock },
+                "Dock stays excluded from open-as-pane entrypoints"
+            )
+        }
+    }
+
+    @Test
+    func commandPaletteHidesOpenFeedPaneWhenFeedDisabled() {
+        withSavedBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+            let descriptors = ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
+            #expect(
+                !descriptors.contains { $0.mode == .feed },
+                "Command palette should not expose Feed pane commands while the Feed beta feature is disabled"
+            )
+            #expect(
+                !descriptors.contains { $0.mode == .dock },
+                "Dock stays excluded from open-as-pane entrypoints"
+            )
+        }
     }
 
     @Test
