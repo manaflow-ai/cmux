@@ -35,6 +35,10 @@ public protocol AuthClient: Sendable {
     /// - Returns: The mapped current user value, if any.
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser?
 
+    /// List the teams the signed-in user belongs to.
+    /// - Returns: The user's teams; empty when no user is signed in.
+    func listTeams() async throws -> [CMUXAuthTeam]
+
     /// Send a magic-link email and return the opaque nonce to combine with the
     /// user-entered code.
     /// - Parameters:

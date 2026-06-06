@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAuthRuntime
 import CmuxSettings
 import CryptoKit
 import Foundation
@@ -257,11 +258,29 @@ final class MobileHostService {
     private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var stickyViewportClientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
+    /// Injected once via `configure(auth:)` at app startup, before the
+    /// listener starts accepting connections.
+    private var auth: AuthCoordinator?
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
     #endif
 
     private init() {}
+
+    /// Inject the auth dependency. Call once at the composition root.
+    func configure(auth: AuthCoordinator) {
+        self.auth = auth
+    }
+
+    /// The signed-in local user's id, awaiting launch session restore first so
+    /// pairing checks can't race it. `nil` when signed out (or before the auth
+    /// graph is configured), which the authorization policy rejects.
+    func currentAuthenticatedLocalUserID() async -> String? {
+        guard let auth else { return nil }
+        await auth.awaitBootstrapped()
+        guard auth.isAuthenticated else { return nil }
+        return auth.currentUser?.id
+    }
 
     /// Fan out a server-pushed event to every connection subscribed to `topic`.
     /// Safe to call from any actor/queue.
@@ -297,8 +316,6 @@ final class MobileHostService {
 
     /// User-default key for the opt-in Mac-side iOS pairing listener.
     nonisolated static let listeningEnabledDefaultsKey = SettingCatalog().mobile.iOSPairingHost.userDefaultsKey
-    nonisolated private static let legacyListeningEnabledDefaultsKey = "cmuxMobilePairingHostEnabled"
-    nonisolated private static let legacyBetaListeningEnabledDefaultsKey = "ios.beta.pairingHost.enabled"
 
     /// Whether the mobile pairing host should bind a network listener at all.
     ///
@@ -323,12 +340,6 @@ final class MobileHostService {
     nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
         if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
             return override
-        }
-        if let legacyOverride = defaults.object(forKey: legacyListeningEnabledDefaultsKey) as? Bool {
-            return legacyOverride
-        }
-        if let legacyBetaOverride = defaults.object(forKey: legacyBetaListeningEnabledDefaultsKey) as? Bool {
-            return legacyBetaOverride
         }
         return SettingCatalog().mobile.iOSPairingHost.defaultValue
     }
@@ -355,8 +366,6 @@ final class MobileHostService {
     nonisolated private static func canPublishRoutesWithoutListenerForXCTest(defaults: UserDefaults) -> Bool {
         guard isRunningUnderXCTest else { return false }
         return defaults.object(forKey: listeningEnabledDefaultsKey) == nil
-            && defaults.object(forKey: legacyListeningEnabledDefaultsKey) == nil
-            && defaults.object(forKey: legacyBetaListeningEnabledDefaultsKey) == nil
     }
 
     private func publishRoutesWithoutListenerForXCTest() {
@@ -1250,13 +1259,7 @@ private actor MobileHostStackAuthVerifier {
     }
 
     private func currentAuthenticatedLocalUserID() async -> String? {
-        await AuthManager.shared.awaitBootstrapped()
-        return await MainActor.run {
-            guard AuthManager.shared.isAuthenticated else {
-                return nil
-            }
-            return AuthManager.shared.currentUser?.id
-        }
+        await MobileHostService.shared.currentAuthenticatedLocalUserID()
     }
 }
 

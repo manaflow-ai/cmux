@@ -21,6 +21,7 @@ private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 ///     client: StackAuthClient(config: config, tokenStore: .keychain),
 ///     sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "auth_has_tokens"),
 ///     userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "auth_cached_user"),
+///     teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "auth_selected_team"),
 ///     anchor: AuthPresentationContextProvider(),
 ///     config: config,
 ///     launch: launchOptions
@@ -38,19 +39,36 @@ public final class AuthCoordinator {
     public private(set) var isLoading = false
     /// Whether a cached session is being restored/validated at launch.
     public private(set) var isRestoringSession = false
+    /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
+    public private(set) var availableTeams: [CMUXAuthTeam] = []
+    /// The user's selected team id. Writes persist through the injected
+    /// ``CMUXAuthCore/CMUXAuthTeamSelectionStore``.
+    public var selectedTeamID: String? {
+        didSet {
+            guard selectedTeamID != oldValue else { return }
+            teamSelection.selectedTeamID = selectedTeamID
+        }
+    }
+
+    /// The team id API calls should target: the persisted selection while it is
+    /// still one of ``availableTeams``, else the first available team.
+    public var resolvedTeamID: String? {
+        Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: availableTeams)
+    }
 
     private let client: any AuthClient
     private let sessionCache: CMUXAuthSessionCache
     private let userCache: CMUXAuthIdentityStore
+    private let teamSelection: CMUXAuthTeamSelectionStore
     private let anchor: any AuthPresentationAnchoring
     private let config: AuthConfig
     private let launch: AuthLaunchOptions
     private let isOnline: @Sendable () async -> Bool
     private let onSignedIn: @Sendable () async -> Void
-    private let errorMapper = AuthErrorMapper()
 
     private var pendingNonce: String?
     private var debugCredentials: CMUXAuthAutoLoginCredentials?
+    private var bootstrapTask: Task<Void, Never>?
     private var isRevalidatingSession = false
 
     /// Creates an auth coordinator.
@@ -59,6 +77,7 @@ public final class AuthCoordinator {
     ///   - client: The auth backend seam (production: ``StackAuthClient``).
     ///   - sessionCache: Persists the "has tokens" flag (injected key-value store).
     ///   - userCache: Persists the cached user (injected key-value store).
+    ///   - teamSelection: Persists the selected team id (injected key-value store).
     ///   - anchor: Presentation anchor provider for OAuth flows.
     ///   - config: Resolved auth configuration (callback URL, project, API base).
     ///   - launch: Launch-time priming inputs (UI-test fixtures, dev-auth flag).
@@ -71,6 +90,7 @@ public final class AuthCoordinator {
         client: any AuthClient,
         sessionCache: CMUXAuthSessionCache,
         userCache: CMUXAuthIdentityStore,
+        teamSelection: CMUXAuthTeamSelectionStore,
         anchor: any AuthPresentationAnchoring,
         config: AuthConfig,
         launch: AuthLaunchOptions,
@@ -80,18 +100,34 @@ public final class AuthCoordinator {
         self.client = client
         self.sessionCache = sessionCache
         self.userCache = userCache
+        self.teamSelection = teamSelection
         self.anchor = anchor
         self.config = config
         self.launch = launch
         self.isOnline = isOnline
         self.onSignedIn = onSignedIn
+        self.selectedTeamID = teamSelection.selectedTeamID
         primeSessionState()
     }
 
     /// Begin asynchronous session restore. Call once after construction at the
-    /// composition root. Idempotent priming already ran in `init`.
+    /// composition root. Idempotent priming already ran in `init`, and repeat
+    /// calls are no-ops.
     public func start() {
-        Task { await checkExistingSession() }
+        guard bootstrapTask == nil else { return }
+        bootstrapTask = Task { await checkExistingSession() }
+    }
+
+    /// Await the launch session restore started by ``start()``. Returns
+    /// immediately once restore has finished (or when ``start()`` was never
+    /// called).
+    ///
+    /// Any probe that needs a definitive ``isAuthenticated`` value (socket
+    /// `auth.status`, CLI-facing checks, token reads racing app launch) must
+    /// await this first, otherwise it can observe the transient signed-out
+    /// state while stored tokens are still being validated.
+    public func awaitBootstrapped() async {
+        await bootstrapTask?.value
     }
 
     /// Re-validate the persisted session against the live token store.
@@ -258,8 +294,8 @@ public final class AuthCoordinator {
             // definitive rejection (the refresh token was 400/401'd and the SDK
             // deleted it from the store) and a transient `/users/me` failure (the
             // SDK's getUser swallows network/server errors into the same "no user"
-            // path). The error code cannot tell them apart, so the mapper's
-            // code-based decision would preserve a session whose tokens are already
+            // path). The error code cannot tell them apart, so the code-based
+            // decision would preserve a session whose tokens are already
             // gone — exactly the stale "signed in" shell that then fails at connect
             // time with a confusing host-side message. The live token store is the
             // ground truth: if no refresh token survives, the session is genuinely
@@ -272,7 +308,8 @@ public final class AuthCoordinator {
                 clearAuthState()
                 return
             }
-            let action = errorMapper.cachedSessionValidationFailureAction(for: error)
+            let action = AuthError(displaySafe: error)?.cachedSessionValidationFailureAction
+                ?? .preserveCachedSession
             authLog.error(
                 "Session validation failed action=\(action.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
             )
@@ -309,7 +346,7 @@ public final class AuthCoordinator {
             )
             pendingNonce = nonce
         } catch {
-            throw errorMapper.displaySafe(error)
+            throw AuthError(displaySafe: error) ?? error
         }
     }
 
@@ -322,12 +359,12 @@ public final class AuthCoordinator {
         isLoading = true
         defer { isLoading = false }
 
-        let fullCode = CMUXAuthMagicLinkCode.compose(code: code, nonce: nonce)
+        let fullCode = CMUXAuthMagicLinkCode(code: code, nonce: nonce).composed
         do {
             try await client.signInWithMagicLink(code: fullCode)
             try await completeSignIn()
         } catch {
-            throw errorMapper.displaySafe(error)
+            throw AuthError(displaySafe: error) ?? error
         }
         pendingNonce = nil
     }
@@ -342,7 +379,7 @@ public final class AuthCoordinator {
             try await client.signInWithCredential(email: email, password: password)
             try await completeSignIn()
         } catch {
-            throw errorMapper.displaySafe(error)
+            throw AuthError(displaySafe: error) ?? error
         }
     }
 
@@ -364,7 +401,7 @@ public final class AuthCoordinator {
             try await client.signInWithOAuth(provider: provider, anchor: anchor)
             try await completeSignIn()
         } catch {
-            throw errorMapper.displaySafe(error)
+            throw AuthError(displaySafe: error) ?? error
         }
     }
 
@@ -373,6 +410,24 @@ public final class AuthCoordinator {
             throw AuthError.unauthorized
         }
         await applySignedInUser(user)
+    }
+
+    /// Complete a sign-in whose credentials were established outside the
+    /// ``AuthClient`` seam, e.g. the macOS hosted-browser flow that seeds the
+    /// auth-callback tokens directly into the injected token store.
+    ///
+    /// Validates the now-stored session and publishes the signed-in state
+    /// (user, caches, teams, the `onSignedIn` hook).
+    /// - Throws: ``AuthError/unauthorized`` when no signed-in user could be
+    ///   fetched with the seeded tokens; other display-safe errors otherwise.
+    public func completeExternalSignIn() async throws {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            try await completeSignIn()
+        } catch {
+            throw AuthError(displaySafe: error) ?? error
+        }
     }
 
     /// Sign out and clear local + persisted session state.
@@ -443,6 +498,28 @@ public final class AuthCoordinator {
         await client.refreshToken()
     }
 
+    /// Both tokens for the current session, for callers that talk to
+    /// cmux-owned backend endpoints (e.g. the cloud VM service) with the
+    /// `Authorization: Bearer <access>` + `X-Stack-Refresh-Token: <refresh>`
+    /// header pair.
+    ///
+    /// Awaits the launch restore first: RPCs firing before the restore
+    /// finishes could otherwise observe an empty token store on a
+    /// refresh-token-only start and report "Not signed in" even though a valid
+    /// session becomes available moments later.
+    /// - Returns: The access and refresh tokens.
+    /// - Throws: ``AuthError/unauthorized`` when either token is missing.
+    public func currentTokens() async throws -> (accessToken: String, refreshToken: String) {
+        await awaitBootstrapped()
+        guard let access = await client.accessToken(), !access.isEmpty else {
+            throw AuthError.unauthorized
+        }
+        guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
+            throw AuthError.unauthorized
+        }
+        return (access, refresh)
+    }
+
     /// Force-mint a fresh access token, bypassing the cached-token freshness
     /// check. Call this after the host rejected the current token so the retry
     /// presents a genuinely new credential instead of the same rejected one.
@@ -477,13 +554,39 @@ public final class AuthCoordinator {
         isRestoringSession = false
         saveCachedUser(user)
         sessionCache.setHasTokens(true)
+        await refreshTeams()
         await onSignedIn()
+    }
+
+    /// Refresh ``availableTeams`` from the client, tolerating failure so a
+    /// flaky team fetch never blocks or unwinds a successful sign-in.
+    private func refreshTeams() async {
+        do {
+            let teams = try await client.listTeams()
+            availableTeams = teams
+            selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
+        } catch {
+            authLog.error("Failed to list teams: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    private static func resolveTeamID(
+        selectedTeamID: String?,
+        teams: [CMUXAuthTeam]
+    ) -> String? {
+        if let selectedTeamID,
+           teams.contains(where: { $0.id == selectedTeamID }) {
+            return selectedTeamID
+        }
+        return teams.first?.id
     }
 
     private func clearAuthState() {
         pendingNonce = nil
         userCache.clear()
         sessionCache.clear()
+        availableTeams = []
+        selectedTeamID = nil
         apply(.cleared())
     }
 
@@ -538,16 +641,16 @@ public final class AuthCoordinator {
     }
 
     private var autoLoginCredentials: CMUXAuthAutoLoginCredentials? {
-        CMUXAuthLaunchConfig.autoLoginCredentials(
-            from: launch.environment,
+        CMUXAuthAutoLoginCredentials(
+            environment: launch.environment,
             clearAuth: launch.clearAuthRequested,
             mockDataEnabled: launch.mockDataEnabled
         )
     }
 
     private var fixtureUser: CMUXAuthUser? {
-        CMUXAuthLaunchConfig.fixtureUser(
-            from: launch.environment,
+        CMUXAuthUser(
+            uiTestFixtureEnvironment: launch.environment,
             clearAuth: launch.clearAuthRequested,
             mockDataEnabled: launch.mockDataEnabled
         )
