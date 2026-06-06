@@ -739,6 +739,21 @@ struct WorkspaceGroupTests {
         #expect(RenderableSystemSymbol.isRenderable(overlong) == false)
     }
 
+    @Test func emojiCatalogSearchesByKeyword() {
+        // Keyword search is the whole point: typing a name finds the emoji.
+        #expect(WorkspaceGroupEmojiCatalog.search("rocket").contains("🚀"))
+        #expect(WorkspaceGroupEmojiCatalog.search("fire").contains("🔥"))
+        #expect(WorkspaceGroupEmojiCatalog.search("folder").contains("📁"))
+        // Exact-name matches rank first.
+        #expect(WorkspaceGroupEmojiCatalog.search("rocket").first == "🚀")
+        // An empty query browses the whole catalog.
+        #expect(WorkspaceGroupEmojiCatalog.search("").count > 100)
+        // A pasted emoji echoes itself.
+        #expect(WorkspaceGroupEmojiCatalog.search("🚀") == ["🚀"])
+        // Non-matching text yields nothing (so the picker shows its empty state).
+        #expect(WorkspaceGroupEmojiCatalog.search("zzzznotanemoji").isEmpty)
+    }
+
     // Regression for #5404: renaming a group must update the name shown in
     // window chrome (the custom title bar / NSWindow title / toolbar label),
     // not just the sidebar header. The chrome derives a grouped anchor's

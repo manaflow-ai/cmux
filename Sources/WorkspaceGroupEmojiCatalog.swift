@@ -1,56 +1,47 @@
 import Foundation
 
 enum WorkspaceGroupEmojiCatalog {
-    /// A small, hand-picked set rendered instantly while the full catalog builds off the main thread.
-    static let commonEmoji = [
-        "🚀", "💻", "🧠", "⚙️", "🔥", "✅", "📁", "🧪", "🎯", "✨", "⚡️", "⭐️",
-        "🔧", "📌", "📝", "🔍", "🎨", "🧩", "📦", "🌐", "🔒", "💬", "🏁", "📊",
-        "🛠️", "🧰", "📣", "💡", "🕹️", "🧵", "🪄", "🧱", "📎", "🗂️", "📚", "🔬"
-    ]
+    /// Every emoji in browse order (common first), from the baked dataset. No runtime scan.
+    static let allEmoji: [String] = WorkspaceGroupEmojiData.entries.map(\.value)
 
-    /// The full de-duplicated browse catalog, scanned from the emoji scalar ranges exactly once.
+    /// Emoji matching `rawQuery`, ranked by match quality.
     ///
-    /// Building this walks ~15k Unicode scalars, so it must never run inside a SwiftUI `body`.
-    /// Access it from a background task (see ``WorkspaceGroupIconPickerView``) so the one-time scan
-    /// stays off the main thread; the value is cached for every later read.
-    static let allEmoji: [String] = buildAllEmoji()
+    /// An empty query returns the full browse list. A single pasted emoji echoes itself.
+    /// Otherwise every whitespace-separated token must appear in an entry's keywords (AND),
+    /// and results are ordered exact-name, then word-prefix, then substring.
+    static func search(_ rawQuery: String) -> [String] {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return allEmoji }
 
-    /// The emoji to surface for a picker query.
-    ///
-    /// An empty query browses the whole `catalog`. A single-emoji query echoes just that emoji.
-    /// Any other query (for example an SF Symbol name) yields no emoji.
-    static func browseResults(query rawQuery: String, catalog: [String]) -> [String] {
-        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return catalog }
-        if let emoji = RenderableSystemSymbol.normalizedEmoji(query) {
+        if let emoji = RenderableSystemSymbol.normalizedEmoji(rawQuery) {
             return [emoji]
         }
-        return []
-    }
 
-    private static func buildAllEmoji() -> [String] {
-        var values: [String] = []
-        var seen = Set<String>()
+        let tokens = query.split(separator: " ").map(String.init)
+        var exact: [String] = []
+        var wordPrefix: [String] = []
+        var substring: [String] = []
 
-        for emoji in commonEmoji where seen.insert(emoji).inserted {
-            values.append(emoji)
-        }
+        for entry in WorkspaceGroupEmojiData.entries {
+            let keywords = entry.keywords
+            guard tokens.allSatisfy({ keywords.contains($0) }) else { continue }
 
-        for range in emojiScalarRanges {
-            for value in range {
-                guard let scalar = UnicodeScalar(value) else { continue }
-                let emoji = String(Character(scalar))
-                guard RenderableSystemSymbol.normalizedEmoji(emoji) != nil,
-                      seen.insert(emoji).inserted else { continue }
-                values.append(emoji)
+            if keywords == query {
+                exact.append(entry.value)
+            } else if Self.anyWord(in: keywords, hasPrefix: tokens) {
+                wordPrefix.append(entry.value)
+            } else {
+                substring.append(entry.value)
             }
         }
 
-        return values
+        return exact + wordPrefix + substring
     }
 
-    private static let emojiScalarRanges: [ClosedRange<Int>] = [
-        0x203C ... 0x3299,
-        0x1F000 ... 0x1FAFF
-    ]
+    /// Whether any keyword word starts with the first query token (a "rocket" query should
+    /// rank `rocket` above `water pistol` even though both contain the substring).
+    private static func anyWord(in keywords: String, hasPrefix tokens: [String]) -> Bool {
+        guard let first = tokens.first else { return false }
+        return keywords.split(separator: " ").contains { $0.hasPrefix(first) }
+    }
 }

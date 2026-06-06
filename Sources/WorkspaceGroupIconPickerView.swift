@@ -8,7 +8,6 @@ struct WorkspaceGroupIconPickerView: View {
     let onSelect: (String?) -> Void
 
     @State private var searchText = ""
-    @State private var emojiCatalog = WorkspaceGroupEmojiCatalog.commonEmoji
     @State private var visibleEmojiCount = pageSize
 
     init(currentSymbol: String?, onSelect: @escaping (String?) -> Void) {
@@ -38,12 +37,12 @@ struct WorkspaceGroupIconPickerView: View {
     }
 
     private var matchedEmoji: [String] {
-        WorkspaceGroupEmojiCatalog.browseResults(query: searchText, catalog: emojiCatalog)
+        WorkspaceGroupEmojiCatalog.search(searchText)
     }
 
     var body: some View {
-        // `matchedEmoji` is a cached-array slice, so this is O(1); `visibleEmoji` caps how many
-        // cells are ever instantiated so view materialization stays bounded as the catalog grows.
+        // The baked dataset makes search a fast in-memory scan; `visibleEmoji` caps how many
+        // cells are ever instantiated so view materialization stays bounded.
         let matched = matchedEmoji
         let visibleEmoji = Array(matched.prefix(visibleEmojiCount))
 
@@ -160,12 +159,5 @@ struct WorkspaceGroupIconPickerView: View {
         }
         .padding(12)
         .frame(width: 344, height: 394)
-        .task {
-            guard emojiCatalog.count == WorkspaceGroupEmojiCatalog.commonEmoji.count else { return }
-            let full = await Task.detached(priority: .userInitiated) {
-                WorkspaceGroupEmojiCatalog.allEmoji
-            }.value
-            emojiCatalog = full
-        }
     }
 }
