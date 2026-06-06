@@ -7309,15 +7309,28 @@ class TerminalController {
         }
 
         let requestedPageId = v2UUID(params, "page_id")
+        if v2HasNonNullParam(params, "page_id"), requestedPageId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid page_id", data: nil)
+        }
         let title = v2String(params, "title")
         let select = v2FocusAllowed(requested: v2Bool(params, "select") ?? true)
         var result: V2CallResult = .err(code: "not_found", message: "Page not found", data: nil)
 
         v2MainSync {
             guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
-            let sourcePageId = requestedPageId.flatMap { candidate in
-                workspace.pageIndex(pageId: candidate) != nil ? candidate : nil
-            } ?? workspace.activePageId
+            let sourcePageId: UUID
+            if let requestedPageId {
+                guard workspace.pageIndex(pageId: requestedPageId) != nil else {
+                    result = .err(code: "not_found", message: "Page not found", data: [
+                        "page_id": requestedPageId.uuidString,
+                        "page_ref": v2Ref(kind: .page, uuid: requestedPageId)
+                    ])
+                    return
+                }
+                sourcePageId = requestedPageId
+            } else {
+                sourcePageId = workspace.activePageId
+            }
 
             guard workspace.pageIndex(pageId: sourcePageId) != nil else {
                 result = .err(code: "not_found", message: "Page not found", data: [
@@ -7540,36 +7553,33 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        }
-        guard let pageId = v2UUID(params, "page_id") else {
+
+        let requestedPageId = v2UUID(params, "page_id")
+        if v2HasNonNullParam(params, "page_id"), requestedPageId == nil {
             return .err(code: "invalid_params", message: "Missing or invalid page_id", data: nil)
         }
         guard let title = v2String(params, "title") else {
             return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
         }
 
-        var found = false
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
         var payload: [String: Any]?
         v2MainSync {
-            guard workspace.pageIndex(pageId: pageId) != nil else { return }
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let pageId = requestedPageId ?? workspace.activePageId
+            guard workspace.pageIndex(pageId: pageId) != nil else {
+                result = .err(code: "not_found", message: "Page not found", data: [
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+                return
+            }
             workspace.setPageTitle(pageId: pageId, title: title)
-            found = true
             payload = v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: pageId)
         }
 
-        guard found else {
-            return .err(code: "not_found", message: "Page not found", data: [
-                "page_id": pageId.uuidString,
-                "page_ref": v2Ref(kind: .page, uuid: pageId)
-            ])
-        }
         guard let payload else {
-            return .err(code: "internal_error", message: "Failed to build page result", data: [
-                "page_id": pageId.uuidString,
-                "page_ref": v2Ref(kind: .page, uuid: pageId)
-            ])
+            return result
         }
         return .ok(payload)
     }
