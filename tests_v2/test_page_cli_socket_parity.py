@@ -248,6 +248,23 @@ def main() -> int:
             )
             _must(str(created_page.get("page_title") or "") == "editor", f"new-page did not set title: {created_page}")
 
+            positional_renamed = _run_cli_json(
+                cli,
+                ["rename-page", "--workspace", workspace_id, first_page_ref, "agents-positional"],
+            )
+            _must(
+                str(positional_renamed.get("page_id") or "") == first_page_id,
+                f"rename-page positional handle targeted wrong page: {positional_renamed}",
+            )
+            _must(
+                str(positional_renamed.get("page_title") or "") == "agents-positional",
+                f"rename-page positional handle did not set title: {positional_renamed}",
+            )
+            _run_cli_json(
+                cli,
+                ["rename-page", "--workspace", workspace_id, "--page", first_page_ref, "agents"],
+            )
+
             with tempfile.TemporaryDirectory() as temp_dir:
                 Path(temp_dir, "list-pages").mkdir()
                 listed_from_path_collision = _run_cli_json(
