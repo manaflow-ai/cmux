@@ -17,6 +17,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private let installGate: UpdateInstallGate
     /// Host actions the driver delegates upward. Held weak; set by ``UpdateController``.
     weak var actionDelegate: (any UpdateActionDelegate)?
+    var installDeferred: (@MainActor () -> Void)?
 
     private let minimumCheckDuration: TimeInterval = UpdateTiming.minimumCheckDisplayDuration
     private let checkTimeoutDuration: TimeInterval = UpdateTiming.checkTimeoutDuration
@@ -223,6 +224,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
         guard confirmUpdateInstallAfterTerminalWarning() else {
             log.append("update install deferred after terminal session warning")
+            installDeferred?()
             deferred?()
             return
         }
@@ -238,6 +240,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             },
             dismiss: { [weak self] in
                 self?.confirmedTerminalSessionSummary = nil
+                reply(.dismiss)
                 self?.model.setState(.idle)
             }
         )))

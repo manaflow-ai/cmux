@@ -105,10 +105,15 @@ import Testing
         let delegate = DriverGateDelegate(summary: summary, confirmationResult: false)
         let driver = makeDriver(delegate: delegate)
         let recorder = UpdateChoiceRecorder()
+        var deferredCount = 0
+        driver.installDeferred = {
+            deferredCount += 1
+        }
 
         driver.showReady(toInstallAndRelaunch: { recorder.record($0) })
 
         #expect(recorder.snapshot().isEmpty)
+        #expect(deferredCount == 1)
         if case .installing = driver.model.state {
             #expect(true)
         } else {
@@ -138,6 +143,29 @@ import Testing
 
         #expect(recorder.snapshot() == [.install])
         #expect(delegate.promptCount == 2)
+    }
+
+    @Test func driverDismissesDeferredReadyInstallByReplyingDismissToSparkle() {
+        let summary = UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 1,
+            workspaceCount: 1,
+            terminalCount: 1,
+            runningCommandCount: 1
+        )
+        let delegate = DriverGateDelegate(summary: summary, confirmationResult: false)
+        let driver = makeDriver(delegate: delegate)
+        let recorder = UpdateChoiceRecorder()
+
+        driver.showReady(toInstallAndRelaunch: { recorder.record($0) })
+
+        guard case .installing(let installing) = driver.model.state else {
+            #expect(Bool(false), "declined ready install should become retryable")
+            return
+        }
+        installing.dismiss()
+
+        #expect(recorder.snapshot() == [.dismiss])
+        #expect(driver.model.state == .idle)
     }
 
     private func makeDriver(delegate: DriverGateDelegate) -> UpdateDriver {
