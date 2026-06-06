@@ -3811,16 +3811,12 @@ struct CMUXCLI {
             )
 
         case "undo":
-            var undoParams: [String: Any] = [:]
-            try applyWindowOrCallerContext(
-                to: &undoParams,
-                client: client,
-                windowRaw: historyWindowOnlyRaw(
-                    args: commandArgs,
-                    windowOverride: windowId,
-                    commandLabel: "cmux undo"
-                )
+            try validateHistoryGlobalActionArgs(
+                args: commandArgs,
+                windowOverride: windowId,
+                commandLabel: "cmux undo"
             )
+            let undoParams: [String: Any] = [:]
             let undoPayload = try client.sendV2(method: "history.undo", params: undoParams)
             printV2Payload(
                 undoPayload,
@@ -3830,16 +3826,12 @@ struct CMUXCLI {
             )
 
         case "redo":
-            var redoParams: [String: Any] = [:]
-            try applyWindowOrCallerContext(
-                to: &redoParams,
-                client: client,
-                windowRaw: historyWindowOnlyRaw(
-                    args: commandArgs,
-                    windowOverride: windowId,
-                    commandLabel: "cmux redo"
-                )
+            try validateHistoryGlobalActionArgs(
+                args: commandArgs,
+                windowOverride: windowId,
+                commandLabel: "cmux redo"
             )
+            let redoParams: [String: Any] = [:]
             let redoPayload = try client.sendV2(method: "history.redo", params: redoParams)
             printV2Payload(
                 redoPayload,
@@ -7122,12 +7114,19 @@ struct CMUXCLI {
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
     }
 
-    private func historyWindowOnlyRaw(
+    private func validateHistoryGlobalActionArgs(
         args: [String],
         windowOverride: String?,
         commandLabel: String
-    ) throws -> String? {
+    ) throws {
         let (windowOpt, remaining) = parseOption(args, name: "--window")
+        if windowOpt != nil || windowOverride != nil {
+            throw CLIError(message: localizedFormat(
+                "cli.history.error.windowUnsupportedForGlobalAction",
+                defaultValue: "%@ does not support --window because closed-item history undo/redo is global",
+                commandLabel
+            ))
+        }
         if let unexpected = remaining.first {
             throw CLIError(message: localizedFormat(
                 "cli.history.error.unexpectedArgument",
@@ -7136,7 +7135,6 @@ struct CMUXCLI {
                 unexpected
             ))
         }
-        return windowOpt ?? windowOverride
     }
 
     /// Top-level `cmux history <subcommand>` namespace. Dispatches to the same
@@ -7213,29 +7211,21 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "history.reopen", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.reopened", defaultValue: "Reopened"))
         case "undo":
-            var params: [String: Any] = [:]
-            try applyWindowOrCallerContext(
-                to: &params,
-                client: client,
-                windowRaw: historyWindowOnlyRaw(
-                    args: rest,
-                    windowOverride: windowOverride,
-                    commandLabel: "cmux history undo"
-                )
+            try validateHistoryGlobalActionArgs(
+                args: rest,
+                windowOverride: windowOverride,
+                commandLabel: "cmux history undo"
             )
+            let params: [String: Any] = [:]
             let payload = try client.sendV2(method: "history.undo", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.reopened", defaultValue: "Reopened"))
         case "redo":
-            var params: [String: Any] = [:]
-            try applyWindowOrCallerContext(
-                to: &params,
-                client: client,
-                windowRaw: historyWindowOnlyRaw(
-                    args: rest,
-                    windowOverride: windowOverride,
-                    commandLabel: "cmux history redo"
-                )
+            try validateHistoryGlobalActionArgs(
+                args: rest,
+                windowOverride: windowOverride,
+                commandLabel: "cmux history redo"
             )
+            let params: [String: Any] = [:]
             let payload = try client.sendV2(method: "history.redo", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.reclosed", defaultValue: "Re-closed"))
         case "clear":

@@ -10355,6 +10355,16 @@ class TerminalController {
     }
 
     private func v2HistoryUndo(params: [String: Any]) -> V2CallResult {
+        guard !v2HasNonNullParam(params, "window_id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "terminal.history.error.undoRedoDoesNotSupportWindowId",
+                    defaultValue: "history undo/redo does not support window_id because closed-item history undo/redo is global"
+                ),
+                data: nil
+            )
+        }
         let resolved = v2HistoryPreferredTabManager(params: params)
         if let error = resolved.error { return error }
         var reopened = false
@@ -10375,6 +10385,16 @@ class TerminalController {
     }
 
     private func v2HistoryRedo(params: [String: Any]) -> V2CallResult {
+        guard !v2HasNonNullParam(params, "window_id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "terminal.history.error.undoRedoDoesNotSupportWindowId",
+                    defaultValue: "history undo/redo does not support window_id because closed-item history undo/redo is global"
+                ),
+                data: nil
+            )
+        }
         let resolved = v2HistoryPreferredTabManager(params: params)
         if let error = resolved.error { return error }
         var didRedo = false
