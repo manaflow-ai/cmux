@@ -14502,11 +14502,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let candidateIds: [UUID] = orderedSelectedIds
         // Match the workspace context-menu eligibility filter so the shortcut
         // doesn't silently create an anchor-only group when every selected
-        // target is pinned or is already an existing group's anchor.
+        // target is already an existing group's anchor.
         let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
         let eligibleIds: [UUID] = candidateIds.filter { id in
-            guard let tab = tabManager.tabs.first(where: { $0.id == id }) else { return false }
-            return !tab.isPinned && !existingAnchorIds.contains(id)
+            tabManager.tabs.contains(where: { $0.id == id }) && !existingAnchorIds.contains(id)
         }
         guard eligibleIds.count >= 2 else {
             // Don't consume the event — let it propagate to the next handler

@@ -4839,16 +4839,16 @@ class TerminalController {
         }
         let childIds = parsedChildIds
         // When the caller explicitly listed children, refuse to create an
-        // anchor-only group if every one of them was ineligible (pinned or
-        // already an anchor of another group). The keyboard-shortcut path
+        // anchor-only group if every one of them was already an anchor of
+        // another group. The keyboard-shortcut path
         // already enforces this; the socket/CLI path used to return OK with
         // a fresh empty group, hiding the real failure.
         if childrenExplicit, !parsedChildIds.isEmpty {
             let ineligible: [String] = v2MainSync {
                 let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
                 return parsedChildIds.compactMap { id -> String? in
-                    guard let tab = tabManager.tabs.first(where: { $0.id == id }) else { return nil }
-                    if tab.isPinned || existingAnchorIds.contains(id) {
+                    guard tabManager.tabs.contains(where: { $0.id == id }) else { return nil }
+                    if existingAnchorIds.contains(id) {
                         return id.uuidString
                     }
                     return nil
@@ -4857,7 +4857,10 @@ class TerminalController {
             if ineligible.count == parsedChildIds.count {
                 return .err(
                     code: "invalid_state",
-                    message: "All requested children are ineligible (pinned or already an anchor); ungroup or unpin them first",
+                    message: String(
+                        localized: "workspaceGroup.error.allChildrenAreAnchors",
+                        defaultValue: "All requested children are ineligible because they are already group anchors; ungroup them first"
+                    ),
                     data: ["ineligible_workspace_ids": ineligible]
                 )
             }
@@ -5002,20 +5005,19 @@ class TerminalController {
             guard let tab = tabManager.tabs.first(where: { $0.id == wsId }), hasGroup else {
                 return
             }
-            // addWorkspaceToGroup silently no-ops for pinned workspaces and
-            // for anchors of other groups. Confirm membership actually
-            // changed before reporting success so scripts don't get OK on a
-            // no-op.
+            // addWorkspaceToGroup silently no-ops for anchors of other
+            // groups. Confirm membership actually changed before reporting
+            // success so scripts don't get OK on a no-op.
             tabManager.addWorkspaceToGroup(workspaceId: wsId, groupId: gid)
             if tab.groupId == gid {
                 ok = true
             } else {
-                if tab.isPinned {
+                if tabManager.workspaceGroups.contains(where: { $0.id != gid && $0.anchorWorkspaceId == wsId }) {
                     failureCode = "invalid_state"
-                    failureMessage = "Workspace is pinned and cannot join a group"
-                } else if tabManager.workspaceGroups.contains(where: { $0.id != gid && $0.anchorWorkspaceId == wsId }) {
-                    failureCode = "invalid_state"
-                    failureMessage = "Workspace is the anchor of another group; ungroup it first"
+                    failureMessage = String(
+                        localized: "workspaceGroup.error.workspaceIsOtherGroupAnchor",
+                        defaultValue: "Workspace is the anchor of another group; ungroup it first"
+                    )
                 }
             }
         }
