@@ -345,6 +345,7 @@ def run_wrapper_auth_env(
     *,
     argv: list[str],
     inherited_env: dict[str, str],
+    hooks_disabled: bool = False,
     setup_env=None,
 ) -> tuple[int, dict[str, str], list[str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-auth-env-") as td:
@@ -440,6 +441,8 @@ exit 0
             env["CMUX_SOCKET_PATH"] = socket_path
             env["FAKE_AUTH_ENV_LOG"] = str(auth_env_log)
             env["FAKE_ARGS_LOG"] = str(args_log)
+            if hooks_disabled:
+                env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
             if setup_env is not None:
                 env.update(setup_env(tmp))
             env.update(inherited_env)
@@ -639,24 +642,58 @@ def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
 
 
 def test_agents_subcommand_removes_cmux_terminal_fingerprint(failures: list[str]) -> None:
-    scenarios = [
-        ("agents env probe", {}),
-        ("agents hooks-disabled env probe", {"hooks_disabled": True}),
-    ]
-    for label, kwargs in scenarios:
-        code, observed_env, real_argv, stderr, expected_keys = run_wrapper_terminal_env_probe(["agents"], **kwargs)
-        expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
-        expect(real_argv == ["agents"], f"{label}: expected raw argv, got {real_argv}", failures)
+    code, observed_env, real_argv, stderr, expected_keys = run_wrapper_terminal_env_probe(["agents"])
+    expect(code == 0, f"agents env probe: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["agents"], f"agents env probe: expected raw argv, got {real_argv}", failures)
+    expect(
+        set(observed_env) == expected_keys,
+        f"agents env probe: expected probed keys {sorted(expected_keys)}, got {sorted(observed_env)}",
+        failures,
+    )
+
+    for key, value in observed_env.items():
         expect(
-            set(observed_env) == expected_keys,
-            f"{label}: expected probed keys {sorted(expected_keys)}, got {sorted(observed_env)}",
+            value == "__UNSET__",
+            f"agents env probe: expected {key} unset, got {value!r}",
             failures,
         )
 
-        for key, value in observed_env.items():
+
+def test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures: list[str]) -> None:
+    scenarios = [
+        ("interactive", ["hello"]),
+        ("command-like", ["agents"]),
+    ]
+    for label, argv in scenarios:
+        code, observed_env, real_argv, stderr, expected_keys = run_wrapper_terminal_env_probe(
+            argv,
+            hooks_disabled=True,
+        )
+        expect(code == 0, f"hooks-disabled {label} env probe: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == argv, f"hooks-disabled {label} env probe: expected raw argv, got {real_argv}", failures)
+        expect(
+            set(observed_env) == expected_keys,
+            f"hooks-disabled {label} env probe: expected probed keys {sorted(expected_keys)}, got {sorted(observed_env)}",
+            failures,
+        )
+
+        for key, expected_value in {
+            "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.envprobe",
+            "CMUX_CLAUDE_HOOKS_DISABLED": "1",
+            "CMUX_PANEL_ID": "panel:test",
+            "CMUX_SURFACE_ID": "surface:test",
+            "CMUX_TAB_ID": "tab:test",
+            "CMUX_WORKSPACE_ID": "workspace:test",
+        }.items():
             expect(
-                value == "__UNSET__",
-                f"{label}: expected {key} unset, got {value!r}",
+                observed_env.get(key) == expected_value,
+                f"hooks-disabled {label} env probe: expected {key} preserved as {expected_value!r}, got {observed_env.get(key)!r}",
+                failures,
+            )
+        for key in sorted(k for k in expected_keys if k.startswith("CMUX_")):
+            expect(
+                observed_env.get(key) != "__UNSET__",
+                f"hooks-disabled {label} env probe: expected {key} to survive passthrough, got unset",
                 failures,
             )
 
@@ -687,6 +724,29 @@ def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures
     ]:
         expect(auth_env.get(key) == "__UNSET__", f"fresh auth env: expected {key} unset, got {auth_env.get(key)!r}", failures)
     expect("--session-id" in real_argv, f"fresh auth env: expected session injection, got {real_argv}", failures)
+
+
+def test_hooks_disabled_clears_stale_auth_selection_before_passthrough(failures: list[str]) -> None:
+    inherited = {
+        "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
+        "ANTHROPIC_API_KEY": "stale-api-key",
+        "ANTHROPIC_MODEL": "stale-model",
+        "ANTHROPIC_SMALL_FAST_MODEL": "stale-small-model",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["hello"],
+        hooks_disabled=True,
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"hooks-disabled auth env: wrapper exited {code}: {stderr}", failures)
+    expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/claude-config", f"hooks-disabled auth env: expected CLAUDE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+    for key in [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+    ]:
+        expect(auth_env.get(key) == "__UNSET__", f"hooks-disabled auth env: expected {key} unset, got {auth_env.get(key)!r}", failures)
+    expect(real_argv == ["hello"], f"hooks-disabled auth env: expected passthrough args, got {real_argv}", failures)
 
 
 def test_live_socket_normalizes_subrouter_claude_config_dir(failures: list[str]) -> None:
@@ -1110,7 +1170,9 @@ def main() -> int:
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
+    test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
+    test_hooks_disabled_clears_stale_auth_selection_before_passthrough(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)

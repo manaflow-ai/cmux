@@ -13,10 +13,17 @@ struct GhosttyConfig {
 
     private static let loadCacheLock = NSLock()
     private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
+    static let defaultSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize)
+    static let minSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minSidebarFontSize)
+    static let maxSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSidebarFontSize)
+    static let defaultSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize)
+    static let minSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize)
+    static let maxSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize)
 
     var fontFamily: String = "Menlo"
     var fontSize: CGFloat = 12
-    var surfaceTabBarFontSize: CGFloat = 11
+    var surfaceTabBarFontSize: CGFloat = Self.defaultSurfaceTabBarFontSize
+    var sidebarFontSize: CGFloat = Self.defaultSidebarFontSize
     var theme: String?
     var workingDirectory: String?
     var windowInheritWorkingDirectory = true
@@ -393,7 +400,14 @@ struct GhosttyConfig {
     ) {
         let lines = contents.components(separatedBy: .newlines)
         for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            var trimmed = line.trimmingCharacters(in: .whitespaces)
+            // Strip a leading UTF-8 BOM so a BOM-encoded first line (e.g. a
+            // `sidebar-font-size` setting) is still parsed instead of silently
+            // ignored, matching `CmuxGhosttyConfigSettingEditor.parsedSetting`.
+            if trimmed.hasPrefix("\u{FEFF}") {
+                trimmed.removeFirst()
+                trimmed = trimmed.trimmingCharacters(in: .whitespaces)
+            }
             if trimmed.isEmpty || trimmed.hasPrefix("#") {
                 continue
             }
@@ -411,8 +425,12 @@ struct GhosttyConfig {
                         fontSize = CGFloat(size)
                     }
                 case "surface-tab-bar-font-size":
-                    if let size = Double(value) {
-                        surfaceTabBarFontSize = CGFloat(size)
+                    if let size = Double(value), size.isFinite {
+                        surfaceTabBarFontSize = Self.clampedSurfaceTabBarFontSize(CGFloat(size))
+                    }
+                case "sidebar-font-size":
+                    if let size = Double(value), size.isFinite {
+                        sidebarFontSize = Self.clampedSidebarFontSize(CGFloat(size))
                     }
                 case "theme":
                     theme = value
@@ -688,6 +706,14 @@ struct GhosttyConfig {
         default:
             return nil
         }
+    }
+
+    static func clampedSidebarFontSize(_ value: CGFloat) -> CGFloat {
+        CGFloat(CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(Double(value)))
+    }
+
+    static func clampedSurfaceTabBarFontSize(_ value: CGFloat) -> CGFloat {
+        CGFloat(CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize(Double(value)))
     }
 
     private static func parseBackgroundBlur(_ value: String) -> GhosttyBackgroundBlur? {
