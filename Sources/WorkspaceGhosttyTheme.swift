@@ -110,6 +110,35 @@ struct WorkspaceGhosttyThemeSelection: Codable, Equatable, Sendable {
 }
 
 enum WorkspaceGhosttyThemeCatalog {
+    private static let cacheLock = NSLock()
+    private static var cachedThemeNames: [String]?
+
+    static func cachedAvailableThemeNames() -> [String] {
+        cacheLock.lock()
+        if let cachedThemeNames {
+            cacheLock.unlock()
+            return cachedThemeNames
+        }
+        cacheLock.unlock()
+
+        let resolved = availableThemeNames()
+
+        cacheLock.lock()
+        if let cachedThemeNames {
+            cacheLock.unlock()
+            return cachedThemeNames
+        }
+        cachedThemeNames = resolved
+        cacheLock.unlock()
+        return resolved
+    }
+
+    static func invalidateCachedAvailableThemeNames() {
+        cacheLock.lock()
+        cachedThemeNames = nil
+        cacheLock.unlock()
+    }
+
     static func availableThemeNames(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundleResourceURL: URL? = Bundle.main.resourceURL,
