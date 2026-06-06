@@ -2,7 +2,16 @@
 public import CmuxMobileDiagnostics
 import Foundation
 
+/// Submits mobile feedback through an injected feedback transport.
 public protocol MobileFeedbackSubmitting: Sendable {
+    /// Sends one feedback report.
+    ///
+    /// - Parameters:
+    ///   - email: Reporter email address.
+    ///   - message: Reporter-written feedback body.
+    ///   - diagnosticsReport: Scrubbed diagnostics report to upload.
+    ///   - photoAttachments: Optional prepared photo attachments.
+    ///   - metadata: App/device metadata to include with the report.
     func submit(
         email: String,
         message: String,
@@ -12,26 +21,45 @@ public protocol MobileFeedbackSubmitting: Sendable {
     ) async throws
 }
 
+/// Minimal HTTP transport seam for feedback submissions.
 public protocol MobileFeedbackHTTPTransport: Sendable {
+    /// Performs a URL request and returns the response body and metadata.
+    ///
+    /// - Parameter request: Fully prepared feedback API request.
+    /// - Returns: Response data and URL response.
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
 }
 
+/// URLSession-backed implementation of ``MobileFeedbackHTTPTransport``.
 public struct URLSessionMobileFeedbackTransport: MobileFeedbackHTTPTransport {
     private let session: URLSession
 
+    /// Creates a transport around a URLSession.
+    ///
+    /// - Parameter session: URLSession used for network requests.
     public init(session: URLSession = .shared) {
         self.session = session
     }
 
+    /// Performs a URL request through the wrapped URLSession.
+    ///
+    /// - Parameter request: Fully prepared feedback API request.
+    /// - Returns: Response data and URL response.
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         try await session.data(for: request)
     }
 }
 
+/// Multipart feedback client used by the iOS feedback form.
 public actor MobileFeedbackClient: MobileFeedbackSubmitting {
     private let settings: MobileFeedbackSettings?
     private let transport: any MobileFeedbackHTTPTransport
 
+    /// Creates a feedback client.
+    ///
+    /// - Parameters:
+    ///   - settings: Endpoint and upload limits. Pass `nil` to force endpoint errors in tests.
+    ///   - transport: HTTP transport used to submit requests.
     public init(
         settings: MobileFeedbackSettings? = .live(),
         transport: any MobileFeedbackHTTPTransport = URLSessionMobileFeedbackTransport()
@@ -40,6 +68,14 @@ public actor MobileFeedbackClient: MobileFeedbackSubmitting {
         self.transport = transport
     }
 
+    /// Sends one feedback report to the configured feedback endpoint.
+    ///
+    /// - Parameters:
+    ///   - email: Reporter email address.
+    ///   - message: Reporter-written feedback body.
+    ///   - diagnosticsReport: Scrubbed diagnostics report to upload.
+    ///   - photoAttachments: Optional prepared photo attachments.
+    ///   - metadata: App/device metadata to include with the report.
     public func submit(
         email: String,
         message: String,

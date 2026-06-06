@@ -89,6 +89,11 @@ private func makeMobileDiagnosticsSecretPatterns() -> [(regex: NSRegularExpressi
     // Base64url alphabet used by JWTs and most opaque tokens.
     let b64url = "[A-Za-z0-9_-]"
     let raw: [(String, Int)] = [
+        // PEM private-key blocks from terminal output (`OPENSSH PRIVATE KEY`,
+        // `RSA PRIVATE KEY`, `EC PRIVATE KEY`, `PRIVATE KEY`, PGP private key
+        // blocks). Redact the whole block, including newlines.
+        ("(-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\\s\\S]*?-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----)", 1),
+
         // `Bearer <token>` (Authorization headers, curl output). Case-insensitive
         // keyword; the value is any run of token-ish characters.
         ("(?i)(\\bBearer\\s+)([A-Za-z0-9._~+/=-]{8,})", 2),

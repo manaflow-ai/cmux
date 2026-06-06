@@ -4,7 +4,18 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
+/// Background image encoder for optional mobile feedback photo attachments.
 public enum MobileFeedbackPhotoProcessor {
+    /// Builds a bounded JPEG attachment from raw image bytes.
+    ///
+    /// The decode, resize, and JPEG compression loop runs in a detached task so
+    /// selecting large photos does not block SwiftUI's main actor.
+    ///
+    /// - Parameters:
+    ///   - sourceData: Original image data loaded from PhotosPicker.
+    ///   - index: 1-based attachment index used in the generated filename.
+    ///   - maximumByteCount: Per-photo byte budget.
+    /// - Returns: A prepared JPEG attachment.
     public static func makeAttachment(
         from sourceData: Data,
         index: Int,

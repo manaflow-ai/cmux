@@ -44,6 +44,28 @@ import Testing
         #expect(scrubber.scrub("ghp_abcdefghij0123456789abcdef").contains("<redacted>"))
     }
 
+    @Test func redactsPrivateKeyBlocks() {
+        let openSSH = """
+        -----BEGIN OPENSSH PRIVATE KEY-----
+        b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAA
+        -----END OPENSSH PRIVATE KEY-----
+        """
+        let rsa = """
+        prefix
+        -----BEGIN RSA PRIVATE KEY-----
+        MIIEowIBAAKCAQEAtestprivatekeypayload
+        -----END RSA PRIVATE KEY-----
+        suffix
+        """
+
+        let scrubbedOpenSSH = scrubber.scrub(openSSH)
+        let scrubbedRSA = scrubber.scrub(rsa)
+
+        #expect(scrubbedOpenSSH == "<redacted>")
+        #expect(scrubbedRSA.contains("<redacted>"))
+        #expect(!scrubbedRSA.contains("testprivatekeypayload"))
+    }
+
     @Test func redactsUpperSnakeEnvVarSecrets() {
         for sample in [
             "API_TOKEN=plainopaquevalue123",

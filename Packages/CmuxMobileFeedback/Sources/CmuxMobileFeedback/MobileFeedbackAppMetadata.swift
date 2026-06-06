@@ -3,18 +3,42 @@ public import CmuxMobileDiagnostics
 import Foundation
 import UIKit
 
+/// App and device metadata included alongside mobile feedback.
 public struct MobileFeedbackAppMetadata: Sendable {
+    /// User-visible app version.
     public let appVersion: String
+    /// App build number.
     public let appBuild: String
+    /// Source commit baked into the app, when available.
     public let appCommit: String
+    /// App bundle identifier.
     public let bundleIdentifier: String
+    /// Operating system version string.
     public let osVersion: String
+    /// Preferred locale identifier.
     public let localeIdentifier: String
+    /// Hardware model identifier.
     public let hardwareModel: String
+    /// Physical memory formatted in whole GB.
     public let memoryGB: String
+    /// CPU architecture string.
     public let architecture: String
+    /// Display count and size summary.
     public let displayInfo: String
 
+    /// Creates metadata from already-collected fields.
+    ///
+    /// - Parameters:
+    ///   - appVersion: User-visible app version.
+    ///   - appBuild: App build number.
+    ///   - appCommit: Source commit baked into the app, when available.
+    ///   - bundleIdentifier: App bundle identifier.
+    ///   - osVersion: Operating system version string.
+    ///   - localeIdentifier: Preferred locale identifier.
+    ///   - hardwareModel: Hardware model identifier.
+    ///   - memoryGB: Physical memory formatted in whole GB.
+    ///   - architecture: CPU architecture string.
+    ///   - displayInfo: Display count and size summary.
     public init(
         appVersion: String,
         appBuild: String,
@@ -39,6 +63,10 @@ public struct MobileFeedbackAppMetadata: Sendable {
         self.displayInfo = displayInfo
     }
 
+    /// Captures metadata for the currently running app and device.
+    ///
+    /// - Parameter environment: Diagnostics environment used for app/device facts.
+    /// - Returns: Metadata ready to include in a feedback submission.
     @MainActor
     public static func current(environment: MobileDiagnosticsEnvironment = .current()) -> MobileFeedbackAppMetadata {
         let infoDictionary = Bundle.main.infoDictionary ?? [:]
