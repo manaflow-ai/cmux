@@ -220,27 +220,38 @@ final class SessionIndexStore: ObservableObject {
     /// are removed; others are rejected with a beep.
     ///
     /// - Parameter entry: The session to delete.
-    /// - Returns: `true` when the transcript was moved to Trash and the row removed.
+    /// - Returns: `true` when deletion was accepted and scheduled.
     @discardableResult
     func delete(_ entry: SessionEntry) -> Bool {
         guard let url = entry.deletableFileURL else {
             NSSound.beep()
             return false
         }
-        do {
-            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-        } catch {
-            sessionIndexLogger.error("Failed to move session transcript to Trash: \(error.localizedDescription, privacy: .public)")
-            NSSound.beep()
-            return false
+        let entryId = entry.id
+        Task.detached(priority: .userInitiated) { [weak self, url, entryId] in
+            do {
+                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            } catch {
+                await MainActor.run {
+                    sessionIndexLogger.error("Failed to move session transcript to Trash: \(error.localizedDescription, privacy: .public)")
+                    NSSound.beep()
+                }
+                return
+            }
+            await MainActor.run {
+                self?.completeDelete(entryId: entryId)
+            }
         }
+        return true
+    }
+
+    private func completeDelete(entryId: String) {
         loadTask?.cancel()
         loadGeneration &+= 1
         isLoading = false
-        entries.removeAll { $0.id == entry.id }
+        entries.removeAll { $0.id == entryId }
         directorySnapshotGeneration += 1
         invalidateDirectorySnapshots()
-        return true
     }
 
     @Published var grouping: SessionGrouping {
