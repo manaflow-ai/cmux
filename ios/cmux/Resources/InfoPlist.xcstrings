@@ -1,40 +1,52 @@
 {
-  "sourceLanguage" : "en",
-  "strings" : {
-    "NSCameraUsageDescription" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scan cmux pairing QR codes from your Mac terminal."
+  "sourceLanguage": "en",
+  "strings": {
+    "NSCameraUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan cmux pairing QR codes from your Mac terminal."
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mac のターミナルに表示された cmux のペアリング QR コードをスキャンします。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac のターミナルに表示された cmux のペアリング QR コードをスキャンします。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从你的 Mac 终端扫描 cmux 配对二维码。"
           }
         }
       }
     },
-    "NSLocalNetworkUsageDescription" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Connect to your Mac on the local network for cmux mobile pairing and terminal sync."
+    "NSLocalNetworkUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to your Mac on the local network for cmux mobile pairing and terminal sync."
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux モバイルのペアリングとターミナル同期のため、ローカルネットワーク上の Mac に接続します。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux モバイルのペアリングとターミナル同期のため、ローカルネットワーク上の Mac に接続します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在本地网络中连接到你的 Mac，以进行 cmux 移动端配对和终端同步。"
           }
         }
       }
     }
   },
-  "version" : "1.0"
+  "version": "1.0"
 }
