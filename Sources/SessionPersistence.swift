@@ -1793,6 +1793,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitle: String?
     var customDescription: String?
     var customColor: String?
+    var ghosttyThemeSelection: WorkspaceGhosttyThemeSelection? = nil
     var isPinned: Bool
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil

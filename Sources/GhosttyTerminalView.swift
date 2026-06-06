@@ -2441,7 +2441,8 @@ class GhosttyApp {
     func loadDefaultConfigFilesWithLegacyFallback(
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference(),
-        conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil
+        conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
+        additionalConfigContents: String? = nil
     ) -> Bool {
         // Surface-only reloads may use a terminal-derived scheme for background
         // handling, while Ghostty split-theme pairs follow app appearance.
@@ -2487,6 +2488,15 @@ class GhosttyApp {
             )
         }
         #endif
+        if let additionalConfigContents,
+           !additionalConfigContents.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            loadInlineGhosttyConfig(
+                additionalConfigContents,
+                into: config,
+                prefix: "cmux-workspace-theme",
+                logLabel: "workspace theme override"
+            )
+        }
         loadCJKFontFallbackIfNeeded(config)
         let renderingModeChanged = setUsesHostLayerBackground(
             true,
@@ -4758,7 +4768,8 @@ class GhosttyApp {
                     target.target.surface,
                     soft: soft,
                     source: source,
-                    preferredColorScheme: preferredColorScheme
+                    preferredColorScheme: preferredColorScheme,
+                    workspaceTheme: surfaceView.terminalSurface?.workspaceThemeSelection
                 )
                 surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
                 surfaceView.terminalSurface?.forceRefresh(reason: "surface.reloadConfig")
@@ -5403,6 +5414,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         var environment = additionalEnvironment
         environment.removeValue(forKey: SessionScrollbackReplayStore.environmentKey)
         return environment
+    }
+    var workspaceThemeSelectionProvider: (() -> WorkspaceGhosttyThemeSelection?)?
+    var workspaceThemeSelection: WorkspaceGhosttyThemeSelection? {
+        workspaceThemeSelectionProvider?()
     }
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
@@ -6755,6 +6770,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 let action = String(format: "set_font_size:%.3f", inheritedFontPoints)
                 _ = performBindingAction(action)
             }
+        }
+
+        if let surface, let workspaceThemeSelection {
+            GhosttyApp.shared.reloadSurfaceConfiguration(
+                surface,
+                soft: false,
+                source: "surface.create.workspaceTheme",
+                preferredColorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference,
+                workspaceTheme: workspaceThemeSelection
+            )
         }
 
         // Re-apply the desired focus state after creation so the live runtime

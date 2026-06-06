@@ -330,6 +330,12 @@ struct WorkspaceContentView: View {
         .onChange(of: workspaceManualUnreadPanelId) { _, _ in
             syncBonsplitNotificationBadges()
         }
+        .onChange(of: workspace.ghosttyThemeSelection) { _, _ in
+            refreshGhosttyAppearanceConfig(
+                reason: "workspaceGhosttyThemeChanged",
+                forceInitialApply: true
+            )
+        }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
         }
@@ -626,7 +632,8 @@ struct WorkspaceContentView: View {
         let previousBackgroundHex = config.backgroundColor.hexString()
         let next = Self.resolveGhosttyAppearanceConfig(
             reason: reason,
-            backgroundOverride: backgroundOverride
+            backgroundOverride: backgroundOverride,
+            workspaceTheme: workspace.ghosttyThemeSelection
         )
         let nextUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
         let nextSignature = Self.ghosttyAppearanceSignature(

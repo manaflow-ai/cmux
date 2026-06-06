@@ -256,6 +256,28 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testSaveAndLoadRoundTripPreservesWorkspaceGhosttyThemeSelection() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces[0].ghosttyThemeSelection = WorkspaceGhosttyThemeSelection(
+            light: "Catppuccin Latte",
+            dark: "Catppuccin Mocha"
+        )
+
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+
+        let loaded = SessionPersistenceStore.load(fileURL: snapshotURL)
+        XCTAssertEqual(
+            loaded?.windows.first?.tabManager.workspaces.first?.ghosttyThemeSelection,
+            WorkspaceGhosttyThemeSelection(light: "Catppuccin Latte", dark: "Catppuccin Mocha")
+        )
+    }
+
     func testSaveSkipsRewritingIdenticalSnapshotData() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -289,6 +311,19 @@ final class SessionPersistenceTests: XCTestCase {
 
         let decoded = try JSONDecoder().decode(AppSessionSnapshot.self, from: data)
         XCTAssertNil(decoded.windows.first?.tabManager.workspaces.first?.customColor)
+    }
+
+    func testWorkspaceGhosttyThemeDecodeSupportsMissingLegacyField() throws {
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces[0].ghosttyThemeSelection = nil
+
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(snapshot)
+        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertFalse(json.contains("\"ghosttyThemeSelection\""))
+
+        let decoded = try JSONDecoder().decode(AppSessionSnapshot.self, from: data)
+        XCTAssertNil(decoded.windows.first?.tabManager.workspaces.first?.ghosttyThemeSelection)
     }
 
     func testLoadRejectsSchemaVersionMismatch() {

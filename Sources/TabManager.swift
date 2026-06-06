@@ -4004,6 +4004,21 @@ class TabManager: ObservableObject {
         applyWorkspaceColor(color, toWorkspaceIds: workspaceIds)
     }
 
+    func setWorkspaceGhosttyTheme(
+        _ selection: WorkspaceGhosttyThemeSelection?,
+        toWorkspaceIds workspaceIds: [UUID]
+    ) {
+        guard !workspaceIds.isEmpty else { return }
+        let targetIds = Set(workspaceIds)
+        for tab in tabs where targetIds.contains(tab.id) {
+            tab.setGhosttyThemeSelection(selection)
+        }
+    }
+
+    func applyWorkspaceGhosttyTheme(named name: String, toWorkspaceIds workspaceIds: [UUID]) {
+        setWorkspaceGhosttyTheme(.single(name), toWorkspaceIds: workspaceIds)
+    }
+
     func setWorkspaceTerminalScrollBarHidden(tabId: UUID, hidden: Bool) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.setTerminalScrollBarHidden(hidden)

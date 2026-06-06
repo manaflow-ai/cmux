@@ -7072,6 +7072,105 @@ struct CMUXCLI {
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
     }
 
+    private func runWorkspaceThemeCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "get"
+        let rest = commandArgs.isEmpty ? [] : Array(commandArgs.dropFirst())
+
+        if subcommand == "list" {
+            let themes = availableThemeNames()
+            if jsonOutput {
+                print(jsonString(["themes": themes.map { ["name": $0] }]))
+            } else if themes.isEmpty {
+                print("No themes found.")
+            } else {
+                for theme in themes {
+                    print(theme)
+                }
+            }
+            return
+        }
+
+        let (workspaceArg, rem0) = parseOption(rest, name: "--workspace")
+        let (windowArg, rem1) = parseOption(rem0, name: "--window")
+        let windowRaw = windowArg ?? windowOverride
+        let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
+        let targetWorkspace = try normalizeWorkspaceHandle(
+            workspaceArg ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
+            client: client,
+            windowHandle: windowHandle
+        )
+        var params: [String: Any] = [:]
+        if let windowHandle { params["window_id"] = windowHandle }
+        if let targetWorkspace { params["workspace_id"] = targetWorkspace }
+
+        switch subcommand {
+        case "get", "current":
+            if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
+                throw CLIError(message: "workspace theme get: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>")
+            }
+            let payload = try client.sendV2(method: "workspace.theme.get", params: params)
+            printWorkspaceThemePayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "set":
+            let (lightOpt, rem2) = parseOption(rem1, name: "--light")
+            let (darkOpt, rem3) = parseOption(rem2, name: "--dark")
+            if let unknown = rem3.first(where: { $0.hasPrefix("--") }) {
+                throw CLIError(message: "workspace theme set: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>, --light <theme>, --dark <theme>")
+            }
+            if lightOpt == nil && darkOpt == nil {
+                let theme = rem3.dropFirst(rem3.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !theme.isEmpty else {
+                    throw CLIError(message: "workspace theme set requires a theme name or --light/--dark")
+                }
+                params["theme"] = theme
+            } else {
+                guard rem3.isEmpty else {
+                    throw CLIError(message: "workspace theme set: unexpected argument '\(rem3.joined(separator: " "))'")
+                }
+                if let lightOpt { params["light"] = lightOpt }
+                if let darkOpt { params["dark"] = darkOpt }
+            }
+            let payload = try client.sendV2(method: "workspace.theme.set", params: params)
+            printWorkspaceThemePayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "clear", "reset":
+            if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
+                throw CLIError(message: "workspace theme clear: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>")
+            }
+            let payload = try client.sendV2(method: "workspace.theme.clear", params: params)
+            printWorkspaceThemePayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        default:
+            throw CLIError(message: "Unknown workspace theme subcommand: \(subcommand). Try: list, get, set, clear")
+        }
+    }
+
+    private func printWorkspaceThemePayload(
+        _ payload: [String: Any],
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) {
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+            return
+        }
+
+        let workspace = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown"
+        guard let theme = payload["ghostty_theme"] as? [String: Any] else {
+            print("OK workspace=\(workspace) theme=inherit")
+            return
+        }
+        let light = theme["light"] as? String
+        let dark = theme["dark"] as? String
+        print("OK workspace=\(workspace) light=\(light ?? "-") dark=\(dark ?? "-")")
+    }
+
     /// Top-level `cmux workspace <subcommand>` namespace. Dispatches to the
     /// same v2 socket methods that legacy verbs use (`new-workspace`,
     /// `list-workspaces`, etc.) so behavior matches. Legacy verbs keep working
@@ -7084,7 +7183,7 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "workspace requires a subcommand. Try: list, create, close, rename, select, group")
+            throw CLIError(message: "workspace requires a subcommand. Try: list, create, close, rename, select, theme, group")
         }
         let rest = Array(commandArgs.dropFirst())
         switch sub {
@@ -7144,8 +7243,16 @@ struct CMUXCLI {
                 windowOverride: windowOverride,
                 requireWorkspaceFlag: false
             )
+        case "theme":
+            try runWorkspaceThemeCommand(
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
         default:
-            throw CLIError(message: "Unknown workspace subcommand: \(sub). Try: list, create, close, rename, select, group")
+            throw CLIError(message: "Unknown workspace subcommand: \(sub). Try: list, create, close, rename, select, theme, group")
         }
     }
 
@@ -13477,12 +13584,18 @@ struct CMUXCLI {
               close <workspace>       Close a workspace
               rename <workspace> --title <new>
               select <workspace>      Make a workspace active
+              theme list              List available Ghostty themes
+              theme get               Show this workspace's theme override
+              theme set <theme>       Set a theme for this workspace
+              theme clear             Clear this workspace's theme override
               group <subcommand>      Workspace group operations (see cmux workspace-group --help)
 
             Examples:
               cmux workspace list --json
               cmux workspace create --name Build --cwd ~/projects/myapp
               cmux workspace close workspace:3
+              cmux workspace theme set "Catppuccin Mocha"
+              cmux workspace theme set --light "Catppuccin Latte" --dark "Catppuccin Mocha"
             """
         case "workspace-group":
             return """

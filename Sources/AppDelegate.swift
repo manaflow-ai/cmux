@@ -5464,7 +5464,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         surface,
                         soft: soft,
                         source: source,
-                        preferredColorScheme: preferredColorScheme
+                        preferredColorScheme: preferredColorScheme,
+                        workspaceTheme: terminalPanel.surface.workspaceThemeSelection
                     )
                 },
                 applySurfaceColorScheme: {
