@@ -1366,9 +1366,10 @@ _cmux_bash_preexec_hook_subshell() {
 }
 
 _cmux_bash_preexec_inline_ps0() {
+    local cmd="${1:-${BASH_COMMAND:-}}"
     _CMUX_BASH_PS0_INLINE_ACTIVE=1
     {
-        _cmux_bash_preexec_hook "$BASH_COMMAND"
+        _cmux_bash_preexec_hook "$cmd"
         _CMUX_BASH_PS0_INLINE_ACTIVE=0
     } || _CMUX_BASH_PS0_INLINE_ACTIVE=0
 }
@@ -1547,7 +1548,7 @@ _cmux_install_prompt_command() {
 
     if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
         if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
-            builtin readonly _CMUX_BASH_PS0='${ _cmux_bash_preexec_inline_ps0; }'
+            builtin readonly _CMUX_BASH_PS0='${ _cmux_bash_preexec_inline_ps0 "$BASH_COMMAND"; }'
         else
             builtin readonly _CMUX_BASH_PS0='$(_cmux_bash_preexec_hook_subshell >/dev/null)'
         fi

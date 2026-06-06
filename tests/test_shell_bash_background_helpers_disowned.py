@@ -143,14 +143,22 @@ def _terminate_child(pid: int, *, grace: float = 0.5) -> None:
         os.waitpid(pid, 0)
 
 
-def _run_interactive_bash(bash_path: str, tmp: Path) -> tuple[int, str]:
+def _run_interactive_bash(bash_path: str, tmp: Path) -> tuple[int, str, str]:
     socket_path = tmp / "cmux.sock"
+    send_log_path = tmp / "send.log"
     bin_dir = tmp / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
 
-    fake_send_tool = "#!/bin/sh\nsleep 0.05\nexit 0\n"
+    fake_send_tool = (
+        "#!/bin/sh\n"
+        'cat >> "$CMUX_TEST_SEND_LOG"\n'
+        'printf "\\n" >> "$CMUX_TEST_SEND_LOG"\n'
+        "sleep 0.05\n"
+        "exit 0\n"
+    )
     for tool in ("ncat", "socat", "nc"):
         _write_executable(bin_dir / tool, fake_send_tool)
+    _write_executable(bin_dir / "gh", "#!/bin/sh\nexit 0\n")
 
     env = dict(os.environ)
     env.update(
@@ -160,6 +168,7 @@ def _run_interactive_bash(bash_path: str, tmp: Path) -> tuple[int, str]:
             "CMUX_WORKSPACE_ID": "workspace-bash-done-noise",
             "CMUX_TAB_ID": "tab-bash-done-noise",
             "CMUX_PANEL_ID": "panel-bash-done-noise",
+            "CMUX_TEST_SEND_LOG": str(send_log_path),
             "PS1": "CMUX_TEST_PROMPT> ",
             "PROMPT_COMMAND": "",
         }
@@ -174,7 +183,9 @@ def _run_interactive_bash(bash_path: str, tmp: Path) -> tuple[int, str]:
         commands = "\n".join(
             [
                 f'source "{SHELL_DIR / "cmux-bash-integration.bash"}"',
+                "_cmux_bash_history_command() { return 1; }",
                 "echo OK",
+                "gh pr view 123",
                 "sleep 0.2",
                 "echo AFTER",
                 "sleep 0.2",
@@ -207,9 +218,12 @@ def _run_interactive_bash(bash_path: str, tmp: Path) -> tuple[int, str]:
         else:
             _terminate_child(pid)
             _drain_pty(fd, output, quiet_after=0.05)
-            return 124, output.decode(errors="replace")
+            return 124, output.decode(errors="replace"), ""
 
-    return exit_status, output.decode(errors="replace")
+    send_log = ""
+    if send_log_path.exists():
+        send_log = send_log_path.read_text(encoding="utf-8", errors="replace")
+    return exit_status, output.decode(errors="replace"), send_log
 
 
 def main() -> int:
@@ -222,7 +236,7 @@ def main() -> int:
         return 0
 
     with tempfile.TemporaryDirectory(prefix="cmux-bash-done-noise-") as td:
-        rc, output = _run_interactive_bash(bash_path, Path(td))
+        rc, output, send_log = _run_interactive_bash(bash_path, Path(td))
 
     if rc == 124:
         print("FAIL: timed out waiting for interactive bash to exit")
@@ -232,6 +246,15 @@ def main() -> int:
     if "OK" not in output or "AFTER" not in output:
         print(f"FAIL: interactive bash did not run the probe commands, rc={rc}")
         print(output)
+        return 1
+
+    expected_pr_action = (
+        'report_pr_action view --tab=tab-bash-done-noise '
+        '--panel=panel-bash-done-noise --target="123"'
+    )
+    if expected_pr_action not in send_log:
+        print("FAIL: Bash 5.3 PS0 preexec did not preserve the user command")
+        print(send_log)
         return 1
 
     done_lines = [
