@@ -16,7 +16,7 @@ extension MobileFeedbackPhotoAttachment {
             throw MobileFeedbackSubmissionError.photoReadFailed
         }
 
-        return try await MobileFeedbackPhotoProcessor.makeAttachment(
+        return try await MobileFeedbackPhotoProcessor().makeAttachment(
             from: sourceData,
             index: index,
             maximumByteCount: maximumByteCount

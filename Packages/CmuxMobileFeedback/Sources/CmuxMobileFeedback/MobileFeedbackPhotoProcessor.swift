@@ -5,7 +5,10 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// Background image encoder for optional mobile feedback photo attachments.
-public enum MobileFeedbackPhotoProcessor {
+public struct MobileFeedbackPhotoProcessor: Sendable {
+    /// Creates a photo processor.
+    public init() {}
+
     /// Builds a bounded JPEG attachment from raw image bytes.
     ///
     /// The decode, resize, and JPEG compression loop runs in a detached task so
@@ -16,7 +19,7 @@ public enum MobileFeedbackPhotoProcessor {
     ///   - index: 1-based attachment index used in the generated filename.
     ///   - maximumByteCount: Per-photo byte budget.
     /// - Returns: A prepared JPEG attachment.
-    public static func makeAttachment(
+    public func makeAttachment(
         from sourceData: Data,
         index: Int,
         maximumByteCount: Int
