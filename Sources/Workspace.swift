@@ -14373,7 +14373,7 @@ final class Workspace: Identifiable, ObservableObject {
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
-        let effectiveStartupEnvironment = terminalStartupEnvironment(
+        var effectiveStartupEnvironment = terminalStartupEnvironment(
             base: startupEnvironment,
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
@@ -14421,9 +14421,9 @@ final class Workspace: Identifiable, ObservableObject {
             "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
         )
 #endif
-        let remoteInitialWorkingDirectory = remoteTerminalStartupCommand == nil ? nil : splitWorkingDirectory
-        let localWorkingDirectory = remoteTerminalStartupCommand == nil ? splitWorkingDirectory : nil
-        var effectiveStartupEnvironment = startupEnvironment
+        let usesWorkspaceRemoteStartup = remoteStartupCommandForEnvironment != nil
+        let remoteInitialWorkingDirectory = usesWorkspaceRemoteStartup ? splitWorkingDirectory : nil
+        let localWorkingDirectory = usesWorkspaceRemoteStartup ? nil : splitWorkingDirectory
         if let remoteInitialWorkingDirectory {
             effectiveStartupEnvironment["CMUX_REMOTE_INITIAL_CWD"] = remoteInitialWorkingDirectory
         }
@@ -14564,7 +14564,7 @@ final class Workspace: Identifiable, ObservableObject {
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
-        let effectiveStartupEnvironment = terminalStartupEnvironment(
+        var effectiveStartupEnvironment = terminalStartupEnvironment(
             base: startupEnvironment,
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
@@ -14578,9 +14578,8 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         let requestedWorkingDirectory = (trimmedWorkingDirectory?.isEmpty == false) ? trimmedWorkingDirectory : nil
-        var effectiveStartupEnvironment = startupEnvironment
         let localWorkingDirectory: String?
-        if remoteTerminalStartupCommand != nil {
+        if remoteStartupCommandForEnvironment != nil {
             localWorkingDirectory = nil
             if let requestedWorkingDirectory {
                 effectiveStartupEnvironment["CMUX_REMOTE_INITIAL_CWD"] = requestedWorkingDirectory
