@@ -41,6 +41,20 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testOpenCodeEventStreamParserBoundsUnterminatedDataEvents() {
+        var parser = OpenCodeEventStreamParser()
+
+        expectEqual(parser.consumeLine("data: \(String(repeating: "a", count: 1024 * 1024 + 1))").count, 0)
+        expectEqual(parser.consumeLine("").count, 0)
+        expectEqual(parser.consumeLine(#"data: {"type":"server.connected","properties":{}}"#).count, 0)
+
+        let events = parser.consumeLine("")
+
+        expectEqual(events.count, 1)
+        expectEqual(events.first?["type"] as? String, "server.connected")
+    }
+
+    @Test
     func testAgentSessionOutputLineBufferBoundsNewlineFreeOutput() {
         var buffer = AgentSessionOutputLineBuffer()
         let oversizedLine = Data(repeating: 97, count: 2 * 1024 * 1024 + 5)

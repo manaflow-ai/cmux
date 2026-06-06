@@ -114,6 +114,33 @@ struct AgentExecutableResolverTests {
     }
 
     @Test
+    func testResolvesExecutableInsideAnotherAppBundleResourceBin() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let otherAppBin = root
+            .appendingPathComponent("Other.app/Contents/Resources/bin", isDirectory: true)
+        let cmuxResources = root
+            .appendingPathComponent("cmux.app/Contents/Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: otherAppBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: cmuxResources, withIntermediateDirectories: true)
+        let executable = otherAppBin.appendingPathComponent("codex")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": otherAppBin.path, "HOME": root.path],
+            bundleResourceURL: cmuxResources,
+            includeStandardSearchDirectories: false
+        )
+
+        let plan = try resolver.resolve(.codex)
+
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+    }
+
+    @Test
     func testResolvesConfiguredClaudePathBeforePath() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(

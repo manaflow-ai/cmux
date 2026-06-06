@@ -196,9 +196,6 @@ struct AgentExecutableResolver {
            standardized == bundleBin {
             return true
         }
-        if Self.isAppBundleResourceBinDirectory(standardized) {
-            return true
-        }
         return false
     }
 
@@ -234,9 +231,6 @@ struct AgentExecutableResolver {
 
     private func isBundledProviderExecutable(_ url: URL) -> Bool {
         let path = url.standardizedFileURL.path
-        if Self.isAppBundleResourceBinChild(path) {
-            return true
-        }
         guard let resourcePath = bundleResourceURL?.standardizedFileURL.path else { return false }
         return path.hasPrefix(resourcePath + "/")
     }
@@ -250,31 +244,4 @@ struct AgentExecutableResolver {
         return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
     }
 
-    private static func isAppBundleResourceBinDirectory(_ path: String) -> Bool {
-        appBundleResourceBinComponentIndex(path).map { index in
-            URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.pathComponents.count == index + 4
-        } ?? false
-    }
-
-    private static func isAppBundleResourceBinChild(_ path: String) -> Bool {
-        appBundleResourceBinComponentIndex(path).map { index in
-            URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL.pathComponents.count > index + 4
-        } ?? false
-    }
-
-    private static func appBundleResourceBinComponentIndex(_ path: String) -> Int? {
-        let components = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
-        guard components.count >= 4 else { return nil }
-        for index in components.indices {
-            guard components[index].hasSuffix(".app"),
-                  components.indices.contains(index + 3),
-                  components[index + 1] == "Contents",
-                  components[index + 2] == "Resources",
-                  components[index + 3] == "bin" else {
-                continue
-            }
-            return index
-        }
-        return nil
-    }
 }

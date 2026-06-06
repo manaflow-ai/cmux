@@ -1,7 +1,10 @@
 import Foundation
 
 struct OpenCodeEventStreamParser {
+    private static let maxEventDataBytes = 1024 * 1024
+
     private var dataLines: [String] = []
+    private var dataByteCount = 0
 
     mutating func consumeLine(_ line: String) -> [[String: Any]] {
         let line = line.trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
@@ -16,6 +19,12 @@ struct OpenCodeEventStreamParser {
         if data.hasPrefix(" ") {
             data.removeFirst()
         }
+        let separatorBytes = dataLines.isEmpty ? 0 : 1
+        dataByteCount += data.utf8.count + separatorBytes
+        guard dataByteCount <= Self.maxEventDataBytes else {
+            reset()
+            return []
+        }
         dataLines.append(data)
         return []
     }
@@ -23,12 +32,16 @@ struct OpenCodeEventStreamParser {
     mutating func flush() -> [[String: Any]] {
         guard !dataLines.isEmpty else { return [] }
         let data = dataLines.joined(separator: "\n")
-        dataLines.removeAll()
+        reset()
         guard let payload = data.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
             return []
         }
         return [object]
     }
-}
 
+    private mutating func reset() {
+        dataLines.removeAll(keepingCapacity: true)
+        dataByteCount = 0
+    }
+}
