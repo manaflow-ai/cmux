@@ -2686,14 +2686,6 @@ final class TerminalArrowNubView: UIView {
 
     private enum Direction {
         case up, down, left, right
-        var escapeSequence: Data {
-            switch self {
-            case .up:    return Data([0x1B, 0x5B, 0x41])
-            case .down:  return Data([0x1B, 0x5B, 0x42])
-            case .right: return Data([0x1B, 0x5B, 0x43])
-            case .left:  return Data([0x1B, 0x5B, 0x44])
-            }
-        }
 
         var repeatDirection: TerminalArrowRepeatService.Direction {
             switch self {
