@@ -5619,10 +5619,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let refreshedPanelIdsByWorkspace = unauthorizedBlockPolicyEphemeralWorktreePanelIdsByWorkspace(
-            in: tabManager
-        )
-        for (workspace, panelIds) in refreshedPanelIdsByWorkspace {
+        for (workspace, panelIds) in unauthorizedPanelIdsByWorkspace {
             workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: panelIds)
         }
         return true
