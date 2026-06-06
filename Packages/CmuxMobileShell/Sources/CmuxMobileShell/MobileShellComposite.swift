@@ -98,8 +98,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var hasKnownPairedMac: Bool {
         didSet {
             pairingHintDefaults.set(hasKnownPairedMac, forKey: Self.hasKnownPairedMacDefaultsKey)
+            // Writing the hint resolves the "undetermined" upgrade window.
+            pairedMacHintUndetermined = false
         }
     }
+
+    /// Whether the persisted paired-Mac hint has never been written on this
+    /// install (the key was absent at launch). True only for installs that
+    /// predate ``hasKnownPairedMac`` — those users may already have an active Mac
+    /// in the paired-Mac store, so the restoring gate treats "undetermined" like
+    /// "may have a paired Mac" until the first reconnect attempt resolves and
+    /// writes the hint. Cleared the moment ``hasKnownPairedMac`` is written.
+    public private(set) var pairedMacHintUndetermined: Bool
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
               activeTicket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
@@ -224,6 +234,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.identityProvider = identityProvider
         self.reachability = reachability
         self.pairingHintDefaults = pairingHintDefaults
+        // Distinguish "key absent" (an install that predates the hint and may
+        // already have a paired Mac in SQLite) from "key present and false" (we
+        // determined there is no paired Mac). didSet is not called for these
+        // initial assignments, so the undetermined flag is not clobbered here.
+        self.pairedMacHintUndetermined = pairingHintDefaults.object(forKey: Self.hasKnownPairedMacDefaultsKey) == nil
         self.hasKnownPairedMac = pairingHintDefaults.bool(forKey: Self.hasKnownPairedMacDefaultsKey)
         self.clientID = clientIDRepository.clientID
         self.isSignedIn = isSignedIn

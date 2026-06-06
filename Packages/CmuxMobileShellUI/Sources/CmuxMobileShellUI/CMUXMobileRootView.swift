@@ -174,6 +174,7 @@ struct CMUXMobileRootView: View {
             connectionState: store.connectionState,
             isReconnectingStoredMac: store.isReconnectingStoredMac,
             hasKnownPairedMac: store.hasKnownPairedMac,
+            pairedMacHintUndetermined: store.pairedMacHintUndetermined,
             didFinishStoredMacReconnectAttempt: store.didFinishStoredMacReconnectAttempt
         )
     }
