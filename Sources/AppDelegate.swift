@@ -1446,8 +1446,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // hotkeys, or debug harnesses. Keeping startup inert prevents a failing
         // retry from crashing before the selected test method begins.
         if isPureUnitTestAppHost {
-            SystemWideHotkeySettings.reset()
-            KeyboardShortcutSettings.resetAll()
             StartupBreadcrumbLog.append("appDelegate.didFinish.runtime.skip", fields: ["reason": "unitTest"])
             return
         }
