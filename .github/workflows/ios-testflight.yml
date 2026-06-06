@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       build_number:
-        description: CFBundleVersion to stamp (defaults to UTC yyyyMMddHHmm)
+        description: CFBundleVersion to stamp (defaults to UTC yyyyMMddHHmmss)
         required: false
         default: ""
       force:
@@ -175,7 +175,12 @@ jobs:
           set -euo pipefail
           BN="${INPUT_BUILD_NUMBER:-}"
           if [ -z "$BN" ]; then
-            BN="$(date -u +%Y%m%d%H%M)"
+            # 14-digit UTC stamp (with seconds). CFBundleVersion must increase
+            # monotonically as an integer or TestFlight never offers the build as
+            # an update. Legacy builds used yyyyMMddHHmmss (e.g. 20260520031606
+            # ~2e13); a 12-digit yyyyMMddHHmm (~2e11) is numerically LOWER, so it
+            # would regress below the existing max and never surface. Keep seconds.
+            BN="$(date -u +%Y%m%d%H%M%S)"
           fi
           echo "build_number=$BN" >> "$GITHUB_OUTPUT"
           echo "Using CFBundleVersion: $BN"
