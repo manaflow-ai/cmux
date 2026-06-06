@@ -1667,8 +1667,7 @@ final class BrowserPDFPreviewActionDelegateTests: XCTestCase {
             configuration: WKWebViewConfiguration(),
             windowFeatures: WKWindowFeatures(),
             browserContext: BrowserPopupBrowserContext(
-                websiteDataStore: .nonPersistent(),
-                processPool: WKProcessPool()
+                websiteDataStore: .nonPersistent()
             ),
             openerPanel: nil
         )
