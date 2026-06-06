@@ -125,6 +125,7 @@ struct WorkspaceDetailView: View {
         }
         .sheet(isPresented: $isFeedbackComposerPresented) {
             MobileFeedbackComposerSheet(
+                initialEmail: feedbackInitialEmail,
                 initialDiagnosticsReport: diagnosticsReport,
                 buildDiagnosticsReport: buildDiagnosticsReport,
                 client: feedbackClient
@@ -377,6 +378,15 @@ struct WorkspaceDetailView: View {
                 ?? persistedActivePairedMac?.macDeviceID,
             connectionError: store.connectionError
         )
+    }
+
+    private var feedbackInitialEmail: String? {
+        guard authManager.isAuthenticated,
+              let email = authManager.currentUser?.primaryEmail?.trimmingCharacters(in: .whitespacesAndNewlines),
+              email.isEmpty == false else {
+            return nil
+        }
+        return email
     }
 
     private var diagnosticsConnectionState: String {

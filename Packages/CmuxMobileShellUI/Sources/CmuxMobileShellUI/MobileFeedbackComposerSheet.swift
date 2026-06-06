@@ -18,7 +18,9 @@ struct MobileFeedbackComposerSheet: View {
     @State private var isSubmitting = false
     @State private var submissionErrorMessage: String?
     @State private var didSend = false
+    @State private var didApplyInitialEmail = false
 
+    private let initialEmail: String?
     private let buildDiagnosticsReport: @MainActor () async -> MobileDiagnosticsReport
     private let client: any MobileFeedbackSubmitting
 
@@ -37,10 +39,12 @@ struct MobileFeedbackComposerSheet: View {
     }
 
     init(
+        initialEmail: String? = nil,
         initialDiagnosticsReport: MobileDiagnosticsReport?,
         buildDiagnosticsReport: @escaping @MainActor () async -> MobileDiagnosticsReport,
         client: any MobileFeedbackSubmitting
     ) {
+        self.initialEmail = Self.normalizedInitialEmail(initialEmail)
         self.buildDiagnosticsReport = buildDiagnosticsReport
         self.client = client
         _diagnosticsReport = State(initialValue: initialDiagnosticsReport)
@@ -87,6 +91,7 @@ struct MobileFeedbackComposerSheet: View {
             }
         }
         .task {
+            await applyInitialEmailIfNeeded()
             await ensureDiagnosticsReport()
         }
         .onChange(of: selectedPhotoItems) { _, newItems in
@@ -240,6 +245,16 @@ struct MobileFeedbackComposerSheet: View {
                 .accessibilityLabel(L10n.string("mobile.feedback.message", defaultValue: "Message"))
                 .accessibilityIdentifier("MobileFeedbackMessageEditor")
         }
+    }
+
+    @MainActor
+    private func applyInitialEmailIfNeeded() {
+        guard didApplyInitialEmail == false else { return }
+        didApplyInitialEmail = true
+        guard let initialEmail else { return }
+        let currentEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard currentEmail != initialEmail else { return }
+        email = initialEmail
     }
 
     @MainActor
@@ -414,6 +429,14 @@ struct MobileFeedbackComposerSheet: View {
         guard value.isEmpty == false else { return false }
         let pattern = #"^[A-Z0-9a-z._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"#
         return NSPredicate(format: "SELF MATCHES %@", pattern).evaluate(with: value)
+    }
+
+    static func normalizedInitialEmail(_ rawValue: String?) -> String? {
+        guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              value.isEmpty == false else {
+            return nil
+        }
+        return value
     }
 
     private func userFacingErrorMessage(for error: Error) -> String {

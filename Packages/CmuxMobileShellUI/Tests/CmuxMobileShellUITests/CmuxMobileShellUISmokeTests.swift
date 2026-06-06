@@ -8,4 +8,10 @@ import Testing
     @Test func moduleLinks() {
         #expect(Bool(true))
     }
+
+    @Test func normalizesInitialFeedbackEmail() {
+        #expect(MobileFeedbackComposerSheet.normalizedInitialEmail("  user@example.com  ") == "user@example.com")
+        #expect(MobileFeedbackComposerSheet.normalizedInitialEmail("   ") == nil)
+        #expect(MobileFeedbackComposerSheet.normalizedInitialEmail(nil) == nil)
+    }
 }
