@@ -65,7 +65,11 @@ final class ClosedItemHistoryStore {
         self.didFinishPersistedRecordsLoad = !loadPersisted || fileURL == nil
         if loadPersisted, let fileURL {
             if loadsPersistedRecordsSynchronously {
-                records = Self.loadRecords(fileURL: fileURL)
+                let persisted = Self.loadRecordSnapshot(fileURL: fileURL)
+                records = persisted.records
+                if let persistedRevision = persisted.revision {
+                    revision = max(revision, persistedRevision)
+                }
                 trimToCapacityIfNeeded()
                 didFinishPersistedRecordsLoad = true
             } else {
@@ -505,9 +509,12 @@ final class ClosedItemHistoryStore {
 
     private func loadPersistedRecordsAsync(from fileURL: URL) {
         Task { @MainActor [weak self] in
-            let loadedRecords = await ClosedItemHistoryPersistenceActor.shared.load(fileURL: fileURL)
+            let persisted = await ClosedItemHistoryPersistenceActor.shared.load(fileURL: fileURL)
             guard let self, !didFinishPersistedRecordsLoad else { return }
-            finishPersistedRecordsLoad(loadedRecords)
+            if let persistedRevision = persisted.revision {
+                revision = max(revision, persistedRevision)
+            }
+            finishPersistedRecordsLoad(persisted.records)
             if needsPersistenceAfterPersistedRecordsLoad {
                 needsPersistenceAfterPersistedRecordsLoad = false
                 persistRecords()
@@ -693,12 +700,18 @@ final class ClosedItemHistoryStore {
     }
 
     nonisolated fileprivate static func loadRecords(fileURL: URL) -> [ClosedItemHistoryRecord] {
+        loadRecordSnapshot(fileURL: fileURL).records
+    }
+
+    nonisolated fileprivate static func loadRecordSnapshot(
+        fileURL: URL
+    ) -> (records: [ClosedItemHistoryRecord], revision: UInt64?) {
         if let snapshot = loadPersistenceSnapshot(fileURL: fileURL),
            snapshot.version == ClosedItemHistoryPersistenceSnapshot.currentVersion {
-            return snapshot.records
+            return (snapshot.records, snapshot.revision)
         }
-        guard let data = try? Data(contentsOf: fileURL) else { return [] }
-        return (try? JSONDecoder().decode([ClosedItemHistoryRecord].self, from: data)) ?? []
+        guard let data = try? Data(contentsOf: fileURL) else { return ([], nil) }
+        return ((try? JSONDecoder().decode([ClosedItemHistoryRecord].self, from: data)) ?? [], nil)
     }
 
     nonisolated fileprivate static func loadPersistedRevision(fileURL: URL) -> UInt64? {
@@ -903,8 +916,8 @@ private actor ClosedItemHistoryPersistenceActor {
 
     private var latestRevisionByPath: [String: UInt64] = [:]
 
-    func load(fileURL: URL) -> [ClosedItemHistoryRecord] {
-        ClosedItemHistoryStore.loadRecords(fileURL: fileURL)
+    func load(fileURL: URL) -> (records: [ClosedItemHistoryRecord], revision: UInt64?) {
+        ClosedItemHistoryStore.loadRecordSnapshot(fileURL: fileURL)
     }
 
     func save(_ records: [ClosedItemHistoryRecord], fileURL: URL, revision: UInt64) {
