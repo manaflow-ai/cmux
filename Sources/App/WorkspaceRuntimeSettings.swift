@@ -110,10 +110,28 @@ enum TerminalScrollBarSettings {
 }
 
 enum TerminalTextBoxInputSettings {
+    static let showOnNewTerminalsKey = "terminal.showTextBoxOnNewTerminals"
+    static let focusOnNewTerminalsKey = "terminal.focusTextBoxOnNewTerminals"
+    static let defaultShowOnNewTerminals = false
+    static let defaultFocusOnNewTerminals = false
     static let maxLinesKey = "terminal.textBoxMaxLines"
     static let defaultMaxLines = 10
     static let minimumMaxLines = 1
     static let maximumMaxLines = 20
+
+    static func showOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showOnNewTerminalsKey) == nil {
+            return defaultShowOnNewTerminals
+        }
+        return defaults.bool(forKey: showOnNewTerminalsKey)
+    }
+
+    static func focusOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: focusOnNewTerminalsKey) == nil {
+            return defaultFocusOnNewTerminals
+        }
+        return defaults.bool(forKey: focusOnNewTerminalsKey)
+    }
 
     static func resolvedMaxLines(_ value: Int) -> Int {
         min(max(value, minimumMaxLines), maximumMaxLines)
@@ -269,12 +287,41 @@ enum TerminalRegexHighlightSettings {
     static let didChangeNotification = Notification.Name("cmux.terminalRegexHighlightSettingsDidChange")
 
     private static let runtimeStateLock = NSLock()
+    private static var runtimeRawHighlights = rawHighlights()
     private static var runtimeHasRules = hasCompiledRules()
+    private static var userDefaultsObserver: NSObjectProtocol?
 
     static func hasRuntimeRules() -> Bool {
+        startObservingUserDefaultsChanges()
         runtimeStateLock.lock()
         defer { runtimeStateLock.unlock() }
         return runtimeHasRules
+    }
+
+    static func startObservingUserDefaultsChanges(notificationCenter: NotificationCenter = .default) {
+        runtimeStateLock.lock()
+        if userDefaultsObserver != nil {
+            runtimeStateLock.unlock()
+            return
+        }
+        runtimeStateLock.unlock()
+
+        let observer = notificationCenter.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            synchronizeRuntimeStateIfNeeded()
+        }
+
+        runtimeStateLock.lock()
+        if userDefaultsObserver == nil {
+            userDefaultsObserver = observer
+            runtimeStateLock.unlock()
+        } else {
+            runtimeStateLock.unlock()
+            notificationCenter.removeObserver(observer)
+        }
     }
 
     static func rawHighlights(defaults: UserDefaults = .standard) -> String {
@@ -338,19 +385,40 @@ enum TerminalRegexHighlightSettings {
         defaults: UserDefaults = .standard,
         notificationCenter: NotificationCenter = .default
     ) {
-        refreshRuntimeRuleState(defaults: defaults)
+        updateRuntimeRuleState(rawValue: rawHighlights(defaults: defaults))
         notificationCenter.post(name: didChangeNotification, object: nil)
     }
 
-    private static func refreshRuntimeRuleState(defaults: UserDefaults = .standard) {
-        let hasRules = hasCompiledRules(defaults: defaults)
+    @discardableResult
+    static func synchronizeRuntimeStateIfNeeded(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let rawValue = rawHighlights(defaults: defaults)
         runtimeStateLock.lock()
+        let didChange = rawValue != runtimeRawHighlights
+        runtimeStateLock.unlock()
+
+        guard didChange else { return false }
+        updateRuntimeRuleState(rawValue: rawValue)
+        notificationCenter.post(name: didChangeNotification, object: nil)
+        return true
+    }
+
+    private static func updateRuntimeRuleState(rawValue: String) {
+        let hasRules = hasCompiledRules(from: rawValue)
+        runtimeStateLock.lock()
+        runtimeRawHighlights = rawValue
         runtimeHasRules = hasRules
         runtimeStateLock.unlock()
     }
 
     private static func hasCompiledRules(defaults: UserDefaults = .standard) -> Bool {
-        !TerminalRegexHighlightMatcher.compiledRules(from: rules(defaults: defaults)).isEmpty
+        hasCompiledRules(from: rawHighlights(defaults: defaults))
+    }
+
+    private static func hasCompiledRules(from rawValue: String) -> Bool {
+        !TerminalRegexHighlightMatcher.compiledRules(from: rules(from: rawValue)).isEmpty
     }
 
     private static func isSupportedHexColor(_ rawValue: String) -> Bool {
@@ -504,7 +572,9 @@ enum AgentHibernationSettings {
     static let confirmationSecondsKey = "terminal.agentHibernation.confirmationSeconds"
 
     static let defaultEnabled = false
-    static let defaultIdleSeconds: TimeInterval = 60 * 60
+    // Hibernation is opt-in. Once enabled, reclaim idle background agents quickly:
+    // the maxLiveTerminals cap and the confirmationSeconds settle window keep this safe.
+    static let defaultIdleSeconds: TimeInterval = 5
     static let defaultMaxLiveTerminals = 12
     static let defaultConfirmationSeconds: TimeInterval = 60
     static let didChangeNotification = Notification.Name("cmux.agentHibernationSettingsDidChange")
@@ -614,9 +684,16 @@ enum AgentHibernationTrackingGate {
 }
 
 enum RightSidebarBetaFeatureSettings {
+    static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
 
+    static let defaultFeedEnabled = false
     static let defaultDockEnabled = false
+
+    nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: feedEnabledKey) != nil else { return defaultFeedEnabled }
+        return defaults.bool(forKey: feedEnabledKey)
+    }
 
     nonisolated static func isDockEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: dockEnabledKey) != nil else { return defaultDockEnabled }

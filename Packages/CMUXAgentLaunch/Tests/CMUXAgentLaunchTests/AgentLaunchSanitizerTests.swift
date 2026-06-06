@@ -413,6 +413,49 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Drops OMP session selectors without replaying prompts")
+    func dropsOmpSessionSelectorsWithoutReplayingPrompts() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "omp",
+                    "-r",
+                    "old-session",
+                    "--model",
+                    "anthropic/claude-sonnet-4-5",
+                    "initial prompt should not replay",
+                ],
+                launcher: "omp",
+                fallbackKind: "omp"
+            ) == [
+                "omp",
+                "--model",
+                "anthropic/claude-sonnet-4-5",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["omp", "--resume=old-session", "--theme", "dark"],
+                launcher: "omp",
+                fallbackKind: "omp"
+            ) == ["omp", "--theme", "dark"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["omp", "--session", "old-session", "--model", "anthropic/claude-sonnet-4-5"],
+                launcher: "omp",
+                fallbackKind: "omp"
+            ) == ["omp", "--model", "anthropic/claude-sonnet-4-5"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["omp", "--session=old-session", "--theme", "dark"],
+                launcher: "omp",
+                fallbackKind: "omp"
+            ) == ["omp", "--theme", "dark"]
+        )
+    }
+
     @Test("Rejects noninteractive Antigravity launches")
     func rejectsNoninteractiveAntigravityLaunches() {
         #expect(
@@ -566,10 +609,10 @@ struct AgentLaunchSanitizerTests {
     func dropsHermesWorktreeValueBeforePreservingLaterOptions() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
-                ["hermes", "--worktree", "/tmp/repo", "--model", "anthropic/claude-sonnet-4.6"],
+                ["hermes", "--worktree", "/tmp/repo", "--model", "gpt-5.4"],
                 launcher: "hermes-agent",
                 fallbackKind: "hermes-agent"
-            ) == ["hermes", "--model", "anthropic/claude-sonnet-4.6"]
+            ) == ["hermes", "--model", "gpt-5.4"]
         )
     }
 
@@ -577,10 +620,10 @@ struct AgentLaunchSanitizerTests {
     func allowsOnlyHermesChatOrDefaultSessionLaunch() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
-                ["hermes", "chat", "--tui", "--model", "anthropic/claude-sonnet-4.6", "initial prompt"],
+                ["hermes", "chat", "--tui", "--model", "gpt-5.4", "initial prompt"],
                 launcher: "hermes-agent",
                 fallbackKind: "hermes-agent"
-            ) == ["hermes", "--tui", "--model", "anthropic/claude-sonnet-4.6"]
+            ) == ["hermes", "--tui", "--model", "gpt-5.4"]
         )
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
@@ -602,10 +645,46 @@ struct AgentLaunchSanitizerTests {
     func treatsHermesSkillsAsSingleValueOptions() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
-                ["hermes", "--skills", "skill1", "skill2", "--model", "anthropic/claude-sonnet-4.6"],
+                ["hermes", "--skills", "skill1", "skill2", "--model", "gpt-5.4"],
                 launcher: "hermes-agent",
                 fallbackKind: "hermes-agent"
             ) == ["hermes", "--skills", "skill1"]
+        )
+    }
+
+    @Test("Preserves explicit Hermes provider")
+    func preservesExplicitHermesProvider() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "--provider", "anthropic", "--model", "anthropic/claude-sonnet-4.6"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--provider", "anthropic", "--model", "anthropic/claude-sonnet-4.6"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "--provider=anthropic", "--model", "anthropic/claude-sonnet-4.6"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--provider=anthropic", "--model", "anthropic/claude-sonnet-4.6"]
+        )
+    }
+
+    @Test("Rewrites stale Hermes Codex provider")
+    func rewritesStaleHermesCodexProvider() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "--provider", "openai-codex", "--model", "gpt-5.5"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--provider", "custom", "--model", "gpt-5.5"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "--provider=openai-codex", "--model", "gpt-5.5"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--provider=custom", "--model", "gpt-5.5"]
         )
     }
 
@@ -648,6 +727,34 @@ struct AgentLaunchSanitizerTests {
                 launcher: "amp",
                 fallbackKind: "amp"
             ) == ["amp", "--mode", "geppetto"]
+        )
+    }
+
+    @Test("Removes cwd options that duplicate the saved working directory")
+    func removesSavedWorkingDirectoryOptions() {
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["codex", "resume", "session", "--cd", "/tmp/project", "--model", "gpt-5.4"],
+                workingDirectory: "/tmp/project"
+            ) == ["codex", "resume", "session", "--model", "gpt-5.4"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["grok", "-r", "session", "--cwd=/tmp/project", "--model", "grok-4"],
+                workingDirectory: "/tmp/project"
+            ) == ["grok", "-r", "session", "--model", "grok-4"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["qoder", "--workspace", "/tmp/other", "--cwd", "/tmp/project"],
+                workingDirectory: "/tmp/project"
+            ) == ["qoder", "--workspace", "/tmp/other"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["qoder", "-w", "/tmp/project", "--model", "best"],
+                workingDirectory: "/tmp/project"
+            ) == ["qoder", "--model", "best"]
         )
     }
 }
