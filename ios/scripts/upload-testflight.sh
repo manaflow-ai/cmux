@@ -173,18 +173,29 @@ fi
 # block a publish (the timestamp scheme is already correct; this is a backstop).
 GUARD_BUILD_NUMBER="$BUILD_NUMBER"
 GUARD_REUSED_ARCHIVE=0
-if [[ -n "$ARCHIVE_PATH" && -e "$ARCHIVE_PATH/Info.plist" ]]; then
+RUN_GUARD=1
+if [[ -n "$ARCHIVE_PATH" ]]; then
+  # Reused archive: BUILD_NUMBER is never stamped into it, so the only number
+  # that ships is the embedded CFBundleVersion, and it can't be self-healed. If
+  # we can't read it, bumping BUILD_NUMBER would be a no-op that falsely claims a
+  # fix, so skip the guard with a warning instead.
+  GUARD_REUSED_ARCHIVE=1
+  # PlistBuddy prints "File Doesn't Exist..." to stdout (and exits non-zero) when
+  # the archive or key is missing, so require a NUMERIC result rather than just
+  # non-empty output; otherwise the error text would be mistaken for a version.
   ARCHIVE_BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleVersion' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
-  if [[ -n "$ARCHIVE_BUILD_NUMBER" ]]; then
+  if [[ "$ARCHIVE_BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
     GUARD_BUILD_NUMBER="$ARCHIVE_BUILD_NUMBER"
-    GUARD_REUSED_ARCHIVE=1
+  else
+    echo "warning: --archive-path given but could not read a numeric CFBundleVersion; skipping monotonic build-number guard" >&2
+    RUN_GUARD=0
   fi
 fi
 
-if [[ "$EXPORT_ONLY" -ne 1 && -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && ( -n "${ASC_API_KEY_PATH:-}" || -n "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+if [[ "$RUN_GUARD" -eq 1 && "$EXPORT_ONLY" -ne 1 && -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && ( -n "${ASC_API_KEY_PATH:-}" || -n "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
   if ASC_MAX="$(ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
       ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
-      "$SCRIPT_DIR/asc_max_build.py" --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER")"; then
+      python3 "$SCRIPT_DIR/asc_max_build.py" --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER")"; then
     if [[ "$ASC_MAX" =~ ^[0-9]+$ && "$GUARD_BUILD_NUMBER" =~ ^[0-9]+$ ]] && (( 10#$GUARD_BUILD_NUMBER <= 10#$ASC_MAX )); then
       if [[ "$GUARD_REUSED_ARCHIVE" -eq 1 ]]; then
         echo "error: reused archive CFBundleVersion $GUARD_BUILD_NUMBER <= App Store Connect max $ASC_MAX; TestFlight will not offer it as an update. Re-archive with a higher --build-number." >&2

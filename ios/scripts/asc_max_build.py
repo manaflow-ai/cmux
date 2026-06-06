@@ -70,6 +70,18 @@ def _token():
     return (signing_input + b"." + _b64u(sig)).decode()
 
 
+def _asc_error_code(body):
+    """Extract the App Store Connect error code, never the raw payload.
+
+    Error responses can echo request/response detail; surfacing only the status
+    and this scalar code keeps upstream content out of CI logs.
+    """
+    try:
+        return str(((body.get("errors") or [{}])[0]).get("code", "unknown"))
+    except Exception:
+        return "unknown"
+
+
 def _api(token, path):
     req = urllib.request.Request(API_BASE + path, method="GET")
     req.add_header("Authorization", "Bearer " + token)
@@ -86,7 +98,7 @@ def _resolve_app_id(token, bundle_id):
         token, f"/v1/apps?filter[bundleId]={bundle_id}&fields[apps]=bundleId&limit=1"
     )
     if status != 200:
-        raise RuntimeError(f"apps lookup HTTP {status}: {json.dumps(body)[:300]}")
+        raise RuntimeError(f"apps lookup HTTP {status} (code={_asc_error_code(body)})")
     data = body.get("data", [])
     if not data:
         raise RuntimeError(f"no app found for bundle id {bundle_id}")
@@ -101,15 +113,16 @@ def _max_build(token, app_id):
     Fetch pages and compute the max as an integer instead.
     """
     highest = 0
-    saw_any = False
     path = f"/v1/builds?filter[app]={app_id}&fields[builds]=version&limit=200"
     pages = 0
     # Page until App Store Connect stops returning a `next` link. NEVER return a
     # partial max: a truncated read could be below the true max, which would let
     # the caller self-heal to a number still <= the real max (the exact
-    # non-updatable build this guard prevents). MAX_PAGES (200 * 50 = 10,000
-    # builds) is only a runaway backstop; hitting it with more pages pending is
-    # an error so the caller fails open instead of trusting an incomplete result.
+    # non-updatable build this guard prevents). So every way pagination could end
+    # early (page cap, or a `next` URL we can't follow) RAISES instead of
+    # returning what was seen so far; the caller then fails open. MAX_PAGES
+    # (200 * 50 = 10,000 builds) is only a runaway backstop. `highest` is 0 when
+    # the app has no integer builds, which is the correct "no floor" sentinel.
     MAX_PAGES = 50
     while path:
         if pages >= MAX_PAGES:
@@ -118,22 +131,22 @@ def _max_build(token, app_id):
             )
         status, body = _api(token, path)
         if status != 200:
-            raise RuntimeError(f"builds lookup HTTP {status}: {json.dumps(body)[:300]}")
+            raise RuntimeError(f"builds lookup HTTP {status} (code={_asc_error_code(body)})")
         for b in body.get("data", []):
-            saw_any = True
             v = (b.get("attributes") or {}).get("version")
             try:
                 n = int(str(v).strip())
             except (TypeError, ValueError):
                 continue  # ignore non-integer historical versions
-            if n > highest:
-                highest = n
+            highest = max(highest, n)
         nxt = (body.get("links") or {}).get("next")
-        # `next` is an absolute URL; strip the base so _api can re-add it.
-        path = nxt[len(API_BASE):] if nxt and nxt.startswith(API_BASE) else None
+        if not nxt:
+            path = None
+        elif nxt.startswith(API_BASE):
+            path = nxt[len(API_BASE):]  # `next` is absolute; _api re-adds the base
+        else:
+            raise RuntimeError("unexpected App Store Connect pagination URL; refusing to return a partial max")
         pages += 1
-    if not saw_any:
-        return 0
     return highest
 
 
