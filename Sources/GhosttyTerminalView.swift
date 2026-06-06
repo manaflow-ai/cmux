@@ -5612,6 +5612,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         hostedView.window?.displayIfNeeded()
         hostedView.window?.contentView?.layoutSubtreeIfNeeded()
         hostedView.layoutSubtreeIfNeeded()
+        if surface == nil {
+            createSurface(for: surfaceView)
+        }
         hostedView.attachSurface(self)
     }
 
