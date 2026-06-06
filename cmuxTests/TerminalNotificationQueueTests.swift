@@ -153,6 +153,123 @@ final class TerminalNotificationQueueTests: XCTestCase {
         XCTAssertEqual(status.priority, 0)
     }
 
+    func testMarkReadKeepsAgentStatusWhenMatchingQueuedNotificationIsPending() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+        TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            TerminalMutationBus.shared.discardPendingNotifications()
+            TerminalMutationBus.shared.setDrainsSuspendedForTesting(false)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100
+        )
+        workspace.recordAgentPID(
+            key: "claude_code.session-queued-needs-input",
+            pid: pid_t(12345),
+            panelId: focusedPanelId,
+            refreshPorts: false
+        )
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: focusedPanelId,
+            title: "Claude Code",
+            subtitle: "Waiting",
+            body: "Claude needs your input",
+            structuredAgentStatusKey: "claude_code"
+        )
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: workspace.id,
+            surfaceId: focusedPanelId,
+            title: "Localized Claude Code",
+            subtitle: "Waiting",
+            body: "Claude still needs your input",
+            structuredAgentStatusKey: "claude_code"
+        )
+
+        let deliveredNotification = try XCTUnwrap(store.notifications.first)
+        store.markRead(id: deliveredNotification.id)
+
+        let statusBeforeQueuedDelivery = try XCTUnwrap(workspace.statusEntries["claude_code"])
+        XCTAssertEqual(statusBeforeQueuedDelivery.value, "Needs input")
+        XCTAssertEqual(statusBeforeQueuedDelivery.icon, "bell.fill")
+
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
+    }
+
+    func testNotifyTargetAsyncMalformedAgentStatusOptionPreservesPayloadText() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+        TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            TerminalMutationBus.shared.discardPendingNotifications()
+            TerminalMutationBus.shared.setDrainsSuspendedForTesting(false)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let args = """
+        \(workspace.id.uuidString) \(focusedPanelId.uuidString) --agent-status-key=claude_codeTitle|Waiting|Body
+        """
+        XCTAssertEqual(TerminalController.debugNotifyTargetQueuedResponseForTesting(args), "OK")
+        TerminalMutationBus.shared.drainForTesting()
+
+        let notification = try XCTUnwrap(store.notifications.first)
+        XCTAssertEqual(notification.title, "claude_codeTitle")
+        XCTAssertEqual(notification.subtitle, "Waiting")
+        XCTAssertEqual(notification.body, "Body")
+        XCTAssertNil(notification.structuredAgentStatusKey)
+    }
+
     func testClearNotificationsDropsQueuedNotifyBeforeDrain() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
