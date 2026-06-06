@@ -144,19 +144,6 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
     }
 }
 
-// lint:allow namespace-enum — surface-teardown helper on the off-limits render path; its serial DispatchQueue is the sanctioned libghostty free-after-detach carve-out. Reshape deferred to the GhosttySurfaceView split wave.
-private enum GhosttySurfaceDisposer {
-    static let queue = DispatchQueue(label: "GhosttySurfaceDisposer.queue")
-
-    static func dispose(surface: ghostty_surface_t, bridge: GhosttySurfaceBridge) {
-        let retainedBridge = Unmanaged.passRetained(bridge)
-        queue.async {
-            ghostty_surface_free(surface)
-            retainedBridge.release()
-        }
-    }
-}
-
 struct TerminalHardwareKeyCommand: Sendable {
     let input: String
     let modifierFlags: UIKeyModifierFlags
@@ -1659,7 +1646,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
         bridge.detach()
-        GhosttySurfaceDisposer.dispose(surface: surface, bridge: bridge)
+        // Free on the SAME serial `outputQueue` that runs `process_output`,
+        // `render_now`, and `binding_action` (all of which capture this C
+        // surface pointer), not a separate queue. FIFO ordering guarantees the
+        // free runs after every already-enqueued block that captured the
+        // pointer, so a dismantled/removed surface's queued libghostty work can
+        // never use-after-free against the free, and no two of them ever touch
+        // the surface concurrently. `processOutput`'s main-actor guard stops new
+        // work from being enqueued once `surface` is nil, so only the bounded
+        // backlog drains before the free. (Retain the bridge across the hop; it
+        // owns the userdata libghostty still references until the free.)
+        let retainedBridge = Unmanaged.passRetained(bridge)
+        Self.outputQueue.async {
+            ghostty_surface_free(surface)
+            retainedBridge.release()
+        }
     }
 
     private var preferredScreenScale: CGFloat {
