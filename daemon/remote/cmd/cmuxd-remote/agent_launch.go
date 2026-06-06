@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 )
 
 const claudeNodeOptionsRestoreModuleScript = `const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
@@ -267,7 +269,7 @@ func createTmuxShimDir(dirName string, tmuxScript string) (string, error) {
 		return "", err
 	}
 	tmuxPath := filepath.Join(dir, "tmux")
-	if err := writeShimIfChanged(tmuxPath, tmuxScript); err != nil {
+	if err := writeShimIfChanged(tmuxPath, tmuxScript, 0755); err != nil {
 		return "", err
 	}
 	return dir, nil
@@ -279,16 +281,16 @@ func createOMOShimDir() (string, error) {
 		return "", err
 	}
 	notifierPath := filepath.Join(dir, "terminal-notifier")
-	if err := writeShimIfChanged(notifierPath, omoNotifierShimScript); err != nil {
+	if err := writeShimIfChanged(notifierPath, omoNotifierShimScript, 0755); err != nil {
 		return "", err
 	}
 	return dir, nil
 }
 
-func writeShimIfChanged(path string, content string) error {
+func writeShimIfChanged(path string, content string, mode os.FileMode) error {
 	existing, err := os.ReadFile(path)
 	if err == nil && string(existing) == content {
-		return nil
+		return os.Chmod(path, mode)
 	}
 	dir := filepath.Dir(path)
 	tempFile, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
@@ -304,7 +306,7 @@ func writeShimIfChanged(path string, content string) error {
 	if err := tempFile.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tempPath, 0755); err != nil {
+	if err := os.Chmod(tempPath, mode); err != nil {
 		return err
 	}
 	if err := os.Rename(tempPath, path); err != nil {
@@ -314,15 +316,130 @@ func writeShimIfChanged(path string, content string) error {
 }
 
 func ensureClaudeNodeOptionsRestoreModule() (string, error) {
-	dir := filepath.Join(os.TempDir(), "cmux-claude-node-options")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	// Use the user's cache directory rather than os.TempDir() so the guard
+	// module survives macOS `periodic` cleanup of /var/folders/.../T/
+	// (which reaps temp files after ~3 days of no access and breaks
+	// long-running Claude sessions). The path must not contain whitespace
+	// or quotes, since Node.js parses NODE_OPTIONS syntax and the
+	// --require=<path> flag is not quoted downstream.
+	homeDir, homeDirErr := claudeNodeOptionsHomeDir()
+	if homeDirErr != nil {
+		homeDir = ""
+		fmt.Fprintf(os.Stderr, "cmux: warning: could not determine home directory for NODE_OPTIONS cache: %v; using fallback cache path\n", homeDirErr)
+	}
+	dir, fallbackBase := claudeNodeOptionsCacheDir(runtime.GOOS, os.Getenv("XDG_CACHE_HOME"), homeDir, os.Getuid())
+	if fallbackBase != "" {
+		if err := ensurePrivateNodeOptionsCacheBase(fallbackBase, os.Getuid()); err != nil {
+			return "", err
+		}
+	}
+	// Defensive boundary check before interpolating the path into NODE_OPTIONS.
+	// claudeNodeOptionsCacheDir owns candidate selection and should only return
+	// safe paths, but this keeps future branches from bypassing that invariant.
+	if pathUnsafeForNodeOptions(dir) {
+		return "", fmt.Errorf("NODE_OPTIONS restore module path is unsafe for --require: %s", dir)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
+	if fallbackBase != "" {
+		if err := chmodNodeOptionsFallbackDirs(dir, fallbackBase); err != nil {
+			return "", err
+		}
+	} else {
+		if err := os.Chmod(dir, 0700); err != nil {
+			return "", err
+		}
+	}
 	restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
-	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript); err != nil {
+	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript, 0600); err != nil {
 		return "", err
 	}
 	return restoreModulePath, nil
+}
+
+func claudeNodeOptionsHomeDir() (string, error) {
+	if homeDir, ok := os.LookupEnv("HOME"); ok {
+		return homeDir, nil
+	}
+	return os.UserHomeDir()
+}
+
+func claudeNodeOptionsCacheDir(goos, xdgCacheHome, homeDir string, uid int) (dir string, fallbackBase string) {
+	if goos == "darwin" {
+		if homeDir != "" {
+			dir := filepath.Join(homeDir, "Library", "Caches", "com.cmuxterm.app", "cmux-claude-node-options")
+			if !pathUnsafeForNodeOptions(dir) {
+				return dir, ""
+			}
+		}
+		fallbackBase = claudeNodeOptionsFallbackBase(uid)
+		return filepath.Join(fallbackBase, "com.cmuxterm.app", "cmux-claude-node-options"), fallbackBase
+	}
+
+	if xdgCacheHome != "" && filepath.IsAbs(xdgCacheHome) && !pathUnsafeForNodeOptions(xdgCacheHome) {
+		return filepath.Join(xdgCacheHome, "cmux", "cmux-claude-node-options"), ""
+	}
+	if homeDir != "" {
+		dir := filepath.Join(homeDir, ".cache", "cmux", "cmux-claude-node-options")
+		if !pathUnsafeForNodeOptions(dir) {
+			return dir, ""
+		}
+	}
+	fallbackBase = claudeNodeOptionsFallbackBase(uid)
+	return filepath.Join(fallbackBase, "cmux-claude-node-options"), fallbackBase
+}
+
+func claudeNodeOptionsFallbackBase(uid int) string {
+	return filepath.Join("/var/tmp", fmt.Sprintf("cmux-%d", uid))
+}
+
+func ensurePrivateNodeOptionsCacheBase(path string, uid int) error {
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("NODE_OPTIONS fallback cache base is a symlink: %s", path)
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(path, 0700); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("NODE_OPTIONS fallback cache base is a symlink: %s", path)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("could not determine NODE_OPTIONS fallback cache base owner: %s", path)
+	}
+	if int(stat.Uid) != uid {
+		return fmt.Errorf("NODE_OPTIONS fallback cache base owner is %d, expected %d: %s", stat.Uid, uid, path)
+	}
+	return os.Chmod(path, 0700)
+}
+
+func chmodNodeOptionsFallbackDirs(dir, fallbackBase string) error {
+	for path := dir; strings.HasPrefix(path, fallbackBase+string(os.PathSeparator)); path = filepath.Dir(path) {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("NODE_OPTIONS fallback cache directory is a symlink: %s", path)
+		}
+		if err := os.Chmod(path, 0700); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func pathUnsafeForNodeOptions(path string) bool {
+	return strings.IndexFunc(path, func(r rune) bool {
+		return unicode.IsSpace(r) || r == '"' || r == '\''
+	}) >= 0
 }
 
 // --- Focused context ---
