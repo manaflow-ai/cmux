@@ -5749,12 +5749,12 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
-            workingDirectory: "/Users/cmux/project",
+            workingDirectory: "/Users/cmux/project ",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "codex",
                 executablePath: "/Users/example/.bun/bin/codex",
                 arguments: ["/Users/example/.bun/bin/codex"],
-                workingDirectory: "/Users/cmux/project",
+                workingDirectory: "/Users/cmux/project ",
                 environment: nil,
                 capturedAt: 123,
                 source: "process"
@@ -5771,8 +5771,8 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertEqual(forkPanel.surface.debugInitialCommand(), "ssh cmux-macmini")
         XCTAssertNil(forkPanel.requestedWorkingDirectory)
-        XCTAssertEqual(forkPanel.surface.startupEnvironmentValue("CMUX_REMOTE_INITIAL_CWD"), "/Users/cmux/project")
-        XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/project")
+        XCTAssertEqual(forkPanel.surface.startupEnvironmentValue("CMUX_REMOTE_INITIAL_CWD"), "/Users/cmux/project ")
+        XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/project ")
         XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, initialRemoteSessionCount + 1)
     }

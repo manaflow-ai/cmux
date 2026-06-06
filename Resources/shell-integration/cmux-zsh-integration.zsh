@@ -115,12 +115,23 @@ _cmux_relay_rpc_bg_ack_pwd() {
     local pwd="$3"
     local ack_file="$4"
     local relay_cli=""
+    local response=""
+    local response_status=0
     _cmux_zsh_job_table_saturated && return 1
     _cmux_socket_uses_remote_relay || return 1
     [[ -n "$ack_file" ]] || return 1
     relay_cli="$(_cmux_relay_cli_path)" || return 1
     {
-        if "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1; then
+        response="$("$relay_cli" rpc "$method" "$params" 2>/dev/null)"
+        response_status="$?"
+        response="${response//$'\n'/}"
+        response="${response//$'\r'/}"
+        if (( response_status == 0 )) &&
+           [[ "$response" != *'"ok":false'* &&
+              "$response" != *'"ok": false'* &&
+              "$response" != *'"pending":true'* &&
+              "$response" != *'"pending": true'*
+           ]]; then
             print -r -- "$pwd" >| "$ack_file" 2>/dev/null || true
         fi
     } >/dev/null 2>&1 &!

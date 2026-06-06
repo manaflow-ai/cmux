@@ -18045,7 +18045,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let forkedPanel,
            remoteStartupCommand != nil,
            let workingDirectory {
-            updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
+            updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory, preserveExactDirectory: true)
         }
         if forkedPanel == nil, let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
@@ -18062,7 +18062,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelDirectories[panelId],
             terminalPanel(for: panelId)?.requestedWorkingDirectory,
             currentDirectory
-        ])
+        ], preserveExact: isRemoteTerminalSurface(panelId))
     }
 
     /// Synchronous availability check used by the tab right-click context menu to decide
@@ -18140,7 +18140,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let forkedPanel {
             _ = reorderSurface(panelId: forkedPanel.id, toIndex: targetIndex)
             if remoteStartupCommand != nil, let workingDirectory {
-                updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
+                updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory, preserveExactDirectory: true)
             }
         } else if let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
@@ -18166,7 +18166,17 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private static func firstNonEmptyPath(_ candidates: [String?]) -> String? {
+        firstNonEmptyPath(candidates, preserveExact: false)
+    }
+
+    private static func firstNonEmptyPath(_ candidates: [String?], preserveExact: Bool) -> String? {
         for candidate in candidates {
+            if preserveExact {
+                if let candidate, !candidate.isEmpty {
+                    return candidate
+                }
+                continue
+            }
             let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let trimmed, !trimmed.isEmpty {
                 return trimmed
@@ -19635,7 +19645,11 @@ extension Workspace: BonsplitDelegate {
         if let workingDirectory = launch.workingDirectory,
            launch.terminalWorkingDirectory == nil,
            let forkPanelId = forkWorkspace.focusedPanelId {
-            forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
+            forkWorkspace.updatePanelDirectory(
+                panelId: forkPanelId,
+                directory: workingDirectory,
+                preserveExactDirectory: launch.remoteConfiguration != nil
+            )
         }
         return true
     }
