@@ -16,6 +16,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let surfaceID: String
     let store: CMUXMobileShellStore
     let fontSize: Float32
+    /// Whether the mounted surface should grab the keyboard when it attaches to
+    /// a window. Driven by the host's autofocus-suppression state so chrome
+    /// actions (create workspace/terminal, switch terminal) do not pop the
+    /// software keyboard.
+    var autoFocusOnWindowAttach: Bool = true
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
@@ -38,15 +43,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             delegate: context.coordinator,
             fontSize: fontSize
         )
+        view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         context.coordinator.attach(surfaceView: view)
         return view
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        // No prop-driven mutations yet; bytes flow via the byte sink.
+        (uiView as? GhosttySurfaceView)?.autoFocusOnWindowAttach = autoFocusOnWindowAttach
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        (uiView as? GhosttySurfaceView)?.prepareForDismantle()
         coordinator.detach()
     }
 

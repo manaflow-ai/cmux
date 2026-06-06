@@ -148,19 +148,6 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
     }
 }
 
-// lint:allow namespace-enum — surface-teardown helper on the off-limits render path; its serial DispatchQueue is the sanctioned libghostty free-after-detach carve-out. Reshape deferred to the GhosttySurfaceView split wave.
-private enum GhosttySurfaceDisposer {
-    static let queue = DispatchQueue(label: "GhosttySurfaceDisposer.queue")
-
-    static func dispose(surface: ghostty_surface_t, bridge: GhosttySurfaceBridge) {
-        let retainedBridge = Unmanaged.passRetained(bridge)
-        queue.async {
-            ghostty_surface_free(surface)
-            retainedBridge.release()
-        }
-    }
-}
-
 struct TerminalHardwareKeyCommand: Sendable {
     let input: String
     let modifierFlags: UIKeyModifierFlags
@@ -525,6 +512,12 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
 }
 
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
+    /// The surface whose hidden text input is currently first responder, if any.
+    ///
+    /// Tracked statically so chrome (SwiftUI overlays presented over the
+    /// terminal) can dismiss the live keyboard via ``resignActiveInput()``
+    /// without holding a reference to the specific surface.
+    private static weak var activeInputSurface: GhosttySurfaceView?
     private weak var runtime: GhosttyRuntime?
     private weak var delegate: GhosttySurfaceViewDelegate?
     private let fontSize: Float32
@@ -800,7 +793,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             // Toggle: dismiss when the keyboard is up, bring it back when down.
             if self.inputProxy.isFirstResponder {
-                self.inputProxy.resignFirstResponder()
+                self.resignInput()
             } else {
                 self.focusInput()
             }
@@ -977,6 +970,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// flush with the grid bottom (no gap) and its bottom rests on the keyboard
     /// edge (up) or above the home indicator (down).
     private weak var dockedToolbar: UIView?
+    /// True once SwiftUI has dismantled the hosting representable for this
+    /// surface. A dismantled surface performs no render, output, or
+    /// accessibility work so a view SwiftUI has removed cannot keep driving the
+    /// renderer or the accessibility tree.
+    private var isDismantled = false
+    /// Whether the hidden terminal input should become first responder when the
+    /// surface attaches to a window. Set to `false` to suppress autofocus after
+    /// chrome actions (create workspace/terminal, switch terminal) so the
+    /// software keyboard does not pop up unprompted.
     public var autoFocusOnWindowAttach = true
 
     @objc private func handleKeyboardWillShow(_ notification: Notification) {
@@ -1365,6 +1367,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         MobileDebugLog.anchormux("surface.didMoveToWindow window=\(window != nil)")
         syncSurfaceVisibility()
         if window != nil {
+            isDismantled = false
+            #if DEBUG
+            debugAccessibilityProxy.isAccessibilityElement = true
+            #endif
             setNeedsGeometrySync()
             setFocus(true)
             if autoFocusOnWindowAttach {
@@ -1372,15 +1378,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             startDisplayLink()
         } else {
-            stopDisplayLink()
-            setFocus(false)
+            prepareForReuseAfterDetach()
         }
     }
 
     private var lastProcessOutputLogTime: CFTimeInterval = 0
 
     public func processOutput(_ data: Data) {
-        guard let surface else { return }
+        guard let surface, !isDismantled else { return }
         #if DEBUG
         if lastInputTimestamp > 0 {
             let elapsed = (CACurrentMediaTime() - lastInputTimestamp) * 1000.0
@@ -1432,7 +1437,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             #endif
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, !self.isDismantled else { return }
                 self.needsDraw = true
                 if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
                     self.hostCursorVisible = cursorVisibilityDelta
@@ -1502,9 +1507,52 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @objc
     func focusInput() {
         onFocusInputRequestedForTesting?()
+        Self.activeInputSurface = self
         setNeedsGeometrySync()
         inputProxy.updateAccessoryLayoutInsets()
         inputProxy.becomeFirstResponder()
+    }
+
+    /// Resigns the currently focused terminal input proxy, if any.
+    ///
+    /// Use before presenting SwiftUI chrome over the terminal so UIKit releases
+    /// the hidden text input and the terminal can recalculate full-height
+    /// geometry after the keyboard leaves.
+    public static func resignActiveInput() {
+        activeInputSurface?.resignInput()
+    }
+
+    /// Resigns this surface's hidden text input and clears keyboard geometry.
+    public func resignInput() {
+        inputProxy.resignFirstResponder()
+        if Self.activeInputSurface === self {
+            Self.activeInputSurface = nil
+        }
+        // Don't zero `keyboardHeight` here. `resignFirstResponder()` triggers
+        // `keyboardWillHide`, which owns the full hide cleanup (proxy state,
+        // docked-toolbar animation, geometry). Pre-zeroing would make that
+        // handler's `keyboardHeight != 0` guard short-circuit, leaving the
+        // toolbar at the old keyboard edge with a stale glyph.
+    }
+
+    /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
+    public func prepareForDismantle() {
+        isDismantled = true
+        prepareForReuseAfterDetach()
+    }
+
+    /// Quiesces the surface on window detach: resigns input, stops the display
+    /// link, drops focus, and removes the debug accessibility carrier from the
+    /// tree. Does not set ``isDismantled`` so a transient detach can re-attach
+    /// and resume; only ``prepareForDismantle()`` marks the surface dead.
+    private func prepareForReuseAfterDetach() {
+        resignInput()
+        stopDisplayLink()
+        setFocus(false)
+        #if DEBUG
+        debugAccessibilityProxy.accessibilityLabel = nil
+        debugAccessibilityProxy.isAccessibilityElement = false
+        #endif
     }
 
     func simulateTextInputForTesting(_ text: String) {
@@ -1631,7 +1679,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
         bridge.detach()
-        GhosttySurfaceDisposer.dispose(surface: surface, bridge: bridge)
+        // Free on the SAME serial `outputQueue` that runs `process_output`,
+        // `render_now`, and `binding_action` (all of which capture this C
+        // surface pointer), not a separate queue. FIFO ordering guarantees the
+        // free runs after every already-enqueued block that captured the
+        // pointer, so a dismantled/removed surface's queued libghostty work can
+        // never use-after-free against the free, and no two of them ever touch
+        // the surface concurrently. `processOutput`'s main-actor guard stops new
+        // work from being enqueued once `surface` is nil, so only the bounded
+        // backlog drains before the free. (Retain the bridge across the hop; it
+        // owns the userdata libghostty still references until the free.)
+        let retainedBridge = Unmanaged.passRetained(bridge)
+        Self.outputQueue.async {
+            ghostty_surface_free(surface)
+            retainedBridge.release()
+        }
     }
 
     private var preferredScreenScale: CGFloat {
@@ -1838,7 +1900,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // now bounded in libghostty (so a foreground stall self-heals as a
         // skipped frame the display link re-drives), but we still gate on
         // suspension; `resumeRendering` clears it on the next active transition.
-        guard !renderingSuspended, let surface else { return }
+        guard !renderingSuspended, let surface, !isDismantled else { return }
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)
         if renderInFlight {
@@ -1856,6 +1918,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.renderInFlight = false
+                guard !self.isDismantled else {
+                    self.needsAnotherRender = false
+                    return
+                }
                 if self.needsAnotherRender {
                     self.needsAnotherRender = false
                     self.requestRender()
@@ -2360,7 +2426,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func drawForWakeup() {
-        guard surface != nil, window != nil else { return }
+        guard surface != nil, window != nil, !isDismantled else { return }
         // Don't call `ghostty_surface_refresh` here: that wakes the renderer
         // thread to present asynchronously (`setSurface` → `dispatch_async` to
         // main → size-guard discard), which both blanks frames and competes

@@ -3502,6 +3502,40 @@
           }
         }
       }
+    },
+    "mobile.notifications.enable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify Me About Agents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント通知を受け取る"
+          }
+        }
+      }
+    },
+    "mobile.notifications.disable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn Off Agent Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント通知をオフにする"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
