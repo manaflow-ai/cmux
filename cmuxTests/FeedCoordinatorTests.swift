@@ -251,6 +251,22 @@ final class FeedCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
+                method: "item/fileChange/requestApproval",
+                params: [:],
+                mode: "always"
+            )?["decision"] as? String,
+            "acceptForSession"
+        )
+        XCTAssertEqual(
+            CMUXCLI.codexTeamsAppServerApprovalResponse(
+                method: "item/fileChange/requestApproval",
+                params: ["availableDecisions": ["accept", "decline"]],
+                mode: "always"
+            )?["decision"] as? String,
+            "accept"
+        )
+        XCTAssertEqual(
+            CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/commandExecution/requestApproval",
                 params: params,
                 mode: "deny"

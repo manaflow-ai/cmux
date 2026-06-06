@@ -18811,8 +18811,8 @@ struct CMUXCLI {
 
     static func codexTeamsFileChangeApprovalDecision(params: [String: Any], mode: String) -> String {
         if mode == "deny" { return "decline" }
-        if codexTeamsModeRequestsPersistentApproval(mode),
-           codexTeamsAvailableDecisions(params).contains("acceptForSession") {
+        if codexTeamsModeRequestsPersistentApproval(mode)
+            && codexTeamsDecisionAvailableOrUnspecified("acceptForSession", params: params) {
             return "acceptForSession"
         }
         return "accept"
@@ -18840,6 +18840,13 @@ struct CMUXCLI {
             return []
         }
         return Set(codexTeamsDecisionNames(raw))
+    }
+
+    static func codexTeamsDecisionAvailableOrUnspecified(_ decision: String, params: [String: Any]) -> Bool {
+        guard params["availableDecisions"] != nil || params["available_decisions"] != nil else {
+            return true
+        }
+        return codexTeamsAvailableDecisions(params).contains(decision)
     }
 
     static func codexTeamsDecisionNames(_ raw: Any) -> [String] {
