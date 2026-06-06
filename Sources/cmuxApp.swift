@@ -47,7 +47,6 @@ struct cmuxApp: App {
 
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
-    @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
