@@ -26,7 +26,9 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const themeInitScript = `(function(){try{var t=localStorage.getItem("theme");var light=t==="light"||(t==="system"&&window.matchMedia("(prefers-color-scheme:light)").matches);if(!light)document.documentElement.classList.add("dark");var m=document.querySelector('meta[name="theme-color"]');if(m)m.content=light?"#fafafa":"#0a0a0a"}catch(e){}})()`;
+const darkThemeColor = "#0a0a0a";
+const lightThemeColor = "#fafafa";
+const themeColorScript = `(function(){try{var t=localStorage.getItem("theme");var light=t==="light"||(t==="system"&&window.matchMedia("(prefers-color-scheme:light)").matches);if(!light)return;document.querySelectorAll('meta[name="theme-color"]').forEach(function(m){m.content="${lightThemeColor}"})}catch(e){}})()`;
 
 export async function generateMetadata({
   params,
@@ -112,10 +114,10 @@ export default async function LocaleLayout({
   return (
     <html lang={locale} dir={dir} suppressHydrationWarning>
       <head>
-        <meta name="theme-color" content="#0a0a0a" />
+        <meta name="theme-color" content={darkThemeColor} />
         <script type="application/ld+json">{jsonLdScript}</script>
-        <Script id="cmux-theme-init" strategy="beforeInteractive">
-          {themeInitScript}
+        <Script id="cmux-theme-color" strategy="afterInteractive">
+          {themeColorScript}
         </Script>
       </head>
       <body
