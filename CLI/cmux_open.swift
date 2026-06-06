@@ -281,11 +281,6 @@ extension CMUXCLI {
         var files: [URL]
     }
 
-    private struct DiffViewerAppAssets {
-        var sourceDirectory: URL
-        var targetDirectoryName: String
-    }
-
     private struct DiffViewerAllowedFile: Codable {
         var requestPath: String
         var filePath: String
@@ -5786,7 +5781,9 @@ extension CMUXCLI {
         )
     }
 
-    private func diffViewerBundledAppAssetDirectory(nextTo sourceDirectory: URL) throws -> DiffViewerAppAssets {
+    private func diffViewerBundledAppAssetDirectory(
+        nextTo sourceDirectory: URL
+    ) throws -> (sourceDirectory: URL, targetDirectoryName: String) {
         let sourceRoot = sourceDirectory.deletingLastPathComponent()
         let candidates: [(sourceName: String, targetName: String)] = [
             ("webviews-app", "cmux-webviews-app"),
@@ -5801,10 +5798,7 @@ extension CMUXCLI {
             if FileManager.default.fileExists(atPath: appDirectory.path, isDirectory: &isDirectory),
                isDirectory.boolValue,
                FileManager.default.fileExists(atPath: entry.path) {
-                return DiffViewerAppAssets(
-                    sourceDirectory: appDirectory,
-                    targetDirectoryName: candidate.targetName
-                )
+                return (sourceDirectory: appDirectory, targetDirectoryName: candidate.targetName)
             }
         }
         throw CLIError(message: "Bundled cmux diff viewer app assets not found")
