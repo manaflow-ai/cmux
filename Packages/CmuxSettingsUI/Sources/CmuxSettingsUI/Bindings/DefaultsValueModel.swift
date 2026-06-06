@@ -37,7 +37,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
 
     /// Owns the change-stream subscription and cancels it when this model
     /// deallocates.
-    @ObservationIgnored private let observation = SettingReadDriver<Value>()
+    @ObservationIgnored private let observation = SettingReadDriver<UserDefaultsSettingState<Value>>()
 
     /// Creates a model bound to ``key`` in ``store``.
     ///
