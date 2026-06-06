@@ -5609,6 +5609,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard allowsRuntimeSurfaceCreation() else { return }
         guard surface == nil else { return }
         ensureHeadlessStartupWindowIfNeeded(reason: reason)
+        hostedView.window?.displayIfNeeded()
+        hostedView.window?.contentView?.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
         hostedView.attachSurface(self)
     }
 

@@ -3188,6 +3188,8 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
         contentView.layoutSubtreeIfNeeded()
         hostedView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
