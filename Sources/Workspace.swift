@@ -17901,21 +17901,30 @@ final class Workspace: Identifiable, ObservableObject {
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
-        let effectiveStartupEnvironment = terminalStartupEnvironment(
+        let remoteInitialWorkingDirectory = startupCommand == nil ? nil : resolvedTerminalStartupWorkingDirectory(
+            explicitWorkingDirectory: workingDirectory,
+            targetPaneId: paneId,
+            preserveExact: true
+        )
+        var effectiveStartupEnvironment = terminalStartupEnvironment(
             base: [:],
             remoteStartupCommand: startupCommand
         )
+        if let remoteInitialWorkingDirectory {
+            effectiveStartupEnvironment["CMUX_REMOTE_INITIAL_CWD"] = remoteInitialWorkingDirectory
+        }
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
             inheritedConfig = template
         }
+        let terminalWorkingDirectory = startupCommand == nil ? workingDirectory : nil
 
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: terminalWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             initialInput: initialInput,
@@ -18029,7 +18038,7 @@ final class Workspace: Identifiable, ObservableObject {
             targetPane: paneId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
-            workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
+            workingDirectory: workingDirectory,
             initialInput: startupInput,
             remoteStartupCommand: remoteStartupCommand
         )

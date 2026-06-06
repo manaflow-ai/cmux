@@ -109,6 +109,23 @@ _cmux_relay_rpc_bg() {
     { "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true } >/dev/null 2>&1 &!
 }
 
+_cmux_relay_rpc_bg_ack_pwd() {
+    local method="$1"
+    local params="$2"
+    local pwd="$3"
+    local ack_file="$4"
+    local relay_cli=""
+    _cmux_zsh_job_table_saturated && return 1
+    _cmux_socket_uses_remote_relay || return 1
+    [[ -n "$ack_file" ]] || return 1
+    relay_cli="$(_cmux_relay_cli_path)" || return 1
+    {
+        if "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1; then
+            print -r -- "$pwd" >| "$ack_file" 2>/dev/null || true
+        fi
+    } >/dev/null 2>&1 &!
+}
+
 _cmux_relay_rpc() {
     local method="$1"
     local params="$2"
@@ -176,7 +193,21 @@ _cmux_report_pwd_via_relay() {
     local pwd_json params
     pwd_json="$(_cmux_json_escape "$pwd")"
     params="{\"workspace_id\":\"$workspace_id\",\"surface_id\":\"$surface_id\",\"directory\":\"$pwd_json\"}"
-    _cmux_relay_rpc_bg "surface.report_pwd" "$params"
+    _cmux_relay_rpc_bg_ack_pwd "surface.report_pwd" "$params" "$pwd" "$_CMUX_PWD_RELAY_ACK_FILE"
+}
+
+_cmux_apply_relay_pwd_ack() {
+    local ack_file="${_CMUX_PWD_RELAY_ACK_FILE:-}"
+    local ack=""
+    [[ -n "$ack_file" && -r "$ack_file" ]] || return 0
+    IFS= read -r ack < "$ack_file" || ack=""
+    /bin/rm -f -- "$ack_file" >/dev/null 2>&1 || true
+    [[ -n "$ack" ]] || return 0
+    _CMUX_PWD_LAST_PWD="$ack"
+    if [[ "${_CMUX_PWD_RELAY_PENDING_PWD:-}" == "$ack" ]]; then
+        _CMUX_PWD_RELAY_PENDING_PWD=""
+        _CMUX_PWD_RELAY_PENDING_STARTED_AT=0
+    fi
 }
 
 _cmux_restore_scrollback_once() {
@@ -245,6 +276,10 @@ _cmux_normalize_claude_config_dir
 
 # Throttle heavy work to avoid prompt latency.
 typeset -g _CMUX_PWD_LAST_PWD=""
+typeset -g _CMUX_PWD_RELAY_ACK_FILE="${TMPDIR:-/tmp}/cmux-pwd-relay-ack-$$"
+typeset -g _CMUX_PWD_RELAY_PENDING_PWD=""
+typeset -g _CMUX_PWD_RELAY_PENDING_STARTED_AT=0
+typeset -g _CMUX_PWD_RELAY_RETRY_INTERVAL=2
 typeset -g _CMUX_GIT_LAST_PWD=""
 typeset -g _CMUX_GIT_LAST_RUN=0
 typeset -g _CMUX_GIT_JOB_PID=""
@@ -1591,9 +1626,24 @@ _cmux_precmd() {
     local pwd="$PWD"
 
     if (( ! cmux_has_unix_socket )); then
+        _cmux_apply_relay_pwd_ack
         if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
-            if _cmux_report_pwd_via_relay "$pwd"; then
-                _CMUX_PWD_LAST_PWD="$pwd"
+            local should_report_pwd=1
+            local pending_started="${_CMUX_PWD_RELAY_PENDING_STARTED_AT:-0}"
+            local retry_interval="${_CMUX_PWD_RELAY_RETRY_INTERVAL:-2}"
+            case "$pending_started" in
+                ''|*[!0-9]*) pending_started=0 ;;
+            esac
+            case "$retry_interval" in
+                ''|*[!0-9]*) retry_interval=2 ;;
+            esac
+            if [[ "$pwd" == "${_CMUX_PWD_RELAY_PENDING_PWD:-}" ]] &&
+               (( now - pending_started < retry_interval )); then
+                should_report_pwd=0
+            fi
+            if (( should_report_pwd )) && _cmux_report_pwd_via_relay "$pwd"; then
+                _CMUX_PWD_RELAY_PENDING_PWD="$pwd"
+                _CMUX_PWD_RELAY_PENDING_STARTED_AT="$now"
             fi
         fi
         if (( cmd_dur >= 2 || now - _CMUX_PORTS_LAST_RUN >= 10 )); then

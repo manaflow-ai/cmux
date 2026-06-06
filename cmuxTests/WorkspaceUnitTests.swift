@@ -5771,6 +5771,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertEqual(forkPanel.surface.debugInitialCommand(), "ssh cmux-macmini")
         XCTAssertNil(forkPanel.requestedWorkingDirectory)
+        XCTAssertEqual(forkPanel.surface.startupEnvironmentValue("CMUX_REMOTE_INITIAL_CWD"), "/Users/cmux/project")
         XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/project")
         XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, initialRemoteSessionCount + 1)
@@ -5820,6 +5821,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertEqual(forkPanel.surface.debugInitialCommand(), "ssh cmux-macmini")
         XCTAssertNil(forkPanel.requestedWorkingDirectory)
+        XCTAssertEqual(
+            forkPanel.surface.startupEnvironmentValue("CMUX_REMOTE_INITIAL_CWD"),
+            "/Users/cmux/fallback repo"
+        )
         XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/fallback repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
