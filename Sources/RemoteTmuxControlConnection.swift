@@ -233,6 +233,13 @@ final class RemoteTmuxControlConnection {
     /// screen, enters it on the mirror surface (emits `ESC[?1049h`) before the
     /// captured rows so they land on the matching screen and resize behaves like the
     /// remote (the alternate screen does not reflow).
+    ///
+    /// After the paint it restores terminal state the live `%output` doesn't carry
+    /// (it set before cmux attached): scroll region, DEC private modes, the mouse
+    /// tracking mode, and the cursor. Restoring the mouse mode means clicks, scroll,
+    /// and drag in the mirror are forwarded to the remote app — so drag-to-select
+    /// becomes the app's own selection/OSC 52 copy, and **Shift+drag** does a native
+    /// cmux copy (exactly as a local terminal behaves with a mouse-mode app).
     func capturePane(paneId: Int) {
         // Match the remote pane's screen (primary vs alternate) BEFORE seeding the
         // captured rows. An alt-screen TUI (e.g. claude) must render on the mirror's
@@ -246,28 +253,20 @@ final class RemoteTmuxControlConnection {
             kind: .paneAltScreen(paneId)
         )
         sendInternal("capture-pane -p -e -t %\(paneId)", kind: .capturePane(paneId))
-        // After the paint, restore the pane's terminal STATE — scroll region
-        // (DECSTBM) + DEC private modes + cursor. The live %output only carries
-        // changes made AFTER cmux attached, so state the app set earlier (most
-        // importantly the scroll region) is otherwise missing on the mirror, and an
-        // inline TUI's region-relative redraws then land on the wrong rows even at a
-        // static size. tmux exposes all of this as formats. Sent after capture-pane
-        // so it applies on top of the painted rows.
-        //
-        // Mouse tracking is deliberately NOT seeded: forwarding the local surface's
-        // mouse events to the remote pane would capture drag-to-select (turning it
-        // into the remote app's OSC 52 copy) and wheel scrolling, which is the
-        // "VIM scrolling" feel we want to avoid — native cmux selection/scroll is
-        // preferred. (tmux's mouse_*_flag → DECSET mapping is also ambiguous between
-        // the tmux docs and ghostty's viewer, so seeding it would be a guess.)
-        // Faithful mouse forwarding can be a deliberate follow-up.
+        // Query the pane's terminal STATE; tmux exposes it all as formats. Sent
+        // after capture-pane so it applies on top of the painted rows (the seed
+        // escapes are built in `paneStateSeedSequence`). See the doc comment for why
+        // restoring this matters.
         sendInternal(
             "display-message -p -t %\(paneId) -F \""
                 + "cursor_x=#{cursor_x},cursor_y=#{cursor_y},"
                 + "scroll_region_upper=#{scroll_region_upper},scroll_region_lower=#{scroll_region_lower},"
                 + "cursor_flag=#{cursor_flag},insert_flag=#{insert_flag},"
                 + "keypad_cursor_flag=#{keypad_cursor_flag},keypad_flag=#{keypad_flag},"
-                + "wrap_flag=#{wrap_flag},origin_flag=#{origin_flag},pane_height=#{pane_height}\"",
+                + "wrap_flag=#{wrap_flag},origin_flag=#{origin_flag},pane_height=#{pane_height},"
+                + "mouse_all_flag=#{mouse_all_flag},mouse_button_flag=#{mouse_button_flag},"
+                + "mouse_standard_flag=#{mouse_standard_flag},"
+                + "mouse_sgr_flag=#{mouse_sgr_flag},mouse_utf8_flag=#{mouse_utf8_flag}\"",
             kind: .paneState(paneId)
         )
     }
@@ -524,15 +523,13 @@ final class RemoteTmuxControlConnection {
     /// Builds the escape sequence that restores a pane's terminal state onto the
     /// mirror surface, from a `display-message` `key=value,…` line. Sets the scroll
     /// region (DECSTBM), the DEC private modes (wrap/cursor/insert/app-cursor-keys/
-    /// keypad), origin mode, and finally the cursor position.
+    /// keypad), mouse tracking, origin mode, and finally the cursor position.
     ///
     /// The cursor placement is emitted LAST on purpose: setting the scroll region
     /// (DECSTBM) and changing origin mode (DECOM) each move the cursor to the home
     /// position, so any earlier cursor placement would be lost. When origin mode is
     /// on with a restricted region, tmux's absolute cursor row is translated to the
     /// region-relative row the (origin-relative) CUP then expects.
-    ///
-    /// Mouse tracking is intentionally not restored — see ``capturePane(paneId:)``.
     nonisolated static func paneStateSeedSequence(from line: String) -> Data {
         var fields: [String: String] = [:]
         for pair in line.split(separator: ",") {
@@ -567,6 +564,22 @@ final class RemoteTmuxControlConnection {
         seq += on("insert_flag") ? "\u{1b}[4h" : "\u{1b}[4l"           // IRM
         seq += on("keypad_cursor_flag") ? "\u{1b}[?1h" : "\u{1b}[?1l"   // DECCKM (app cursor keys)
         seq += on("keypad_flag") ? "\u{1b}=" : "\u{1b}>"              // DECKPAM / DECKPNM
+        // Mouse: enable the active tracking mode + encoding so clicks/scroll/drag in
+        // the mirror reach the remote app (the surface defaults to off). The
+        // tmux-flag → xterm DECSET mapping below was verified empirically against
+        // tmux 3.6a (set the DECSET in a pane, read the flags back):
+        //   ?1000h → mouse_standard_flag,  ?1002h → mouse_button_flag,
+        //   ?1003h → mouse_all_flag,  and mouse_any_flag is set for ALL of them.
+        // So enable the most aggressive concrete flag that is on, plus the encoding
+        // (SGR/1006 preferred over UTF-8/1005). `mouse_any_flag` is deliberately NOT
+        // used: it is tmux's aggregate "any mouse mode on" OR-flag, not a concrete
+        // level. (NOTE: ghostty's vendored tmux viewer uses a different, one-slot-
+        // shifted mapping — do not "align" to it; the above matches real tmux.)
+        if on("mouse_all_flag") { seq += "\u{1b}[?1003h" }
+        else if on("mouse_button_flag") { seq += "\u{1b}[?1002h" }
+        else if on("mouse_standard_flag") { seq += "\u{1b}[?1000h" }
+        if on("mouse_sgr_flag") { seq += "\u{1b}[?1006h" }
+        else if on("mouse_utf8_flag") { seq += "\u{1b}[?1005h" }
         // (Bracketed-paste mode is intentionally not seeded: tmux exposes no
         // reliable pane format for it, and paste fidelity is handled by tmux's own
         // `paste-buffer -p` in ``pastePane(paneId:text:)``.)

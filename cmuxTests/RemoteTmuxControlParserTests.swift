@@ -170,8 +170,54 @@ import Testing
         // Cursor placed LAST and region-relative: row = cy(10) - upper(3) = 7 → 8
         // (1-based), col = cx(4) + 1 = 5.
         #expect(seq.hasSuffix("\u{1b}[8;5H"))
-        // Mouse tracking is intentionally not seeded.
+        // No mouse flags in this fixture → no mouse DECSET is emitted.
         for mode in ["?1003h", "?1002h", "?1000h", "?9h", "?1006h", "?1005h"] {
+            #expect(!seq.contains(mode))
+        }
+    }
+
+    /// Builds a pane-state line with one concrete mouse tracking flag set (+ SGR).
+    private func mouseSeedLine(flag: String) -> String {
+        "cursor_x=0,cursor_y=0,"
+            + "scroll_region_upper=0,scroll_region_lower=51,"
+            + "cursor_flag=1,insert_flag=0,keypad_cursor_flag=0,keypad_flag=0,"
+            + "wrap_flag=1,origin_flag=0,pane_height=52,"
+            + "\(flag)=1,mouse_sgr_flag=1"
+    }
+
+    @Test(arguments: [
+        ("mouse_all_flag", "\u{1b}[?1003h"),      // any-event / all-motion
+        ("mouse_button_flag", "\u{1b}[?1002h"),   // button-event
+        ("mouse_standard_flag", "\u{1b}[?1000h"), // normal
+    ])
+    func paneStateSeedRestoresConcreteMouseTrackingLevel(flag: String, expected: String) {
+        // Each concrete tmux flag maps to its xterm DECSET tracking level, and ONLY
+        // that level is enabled (so the app gets exactly the mode it requested).
+        let seq = String(
+            decoding: RemoteTmuxControlConnection.paneStateSeedSequence(from: mouseSeedLine(flag: flag)),
+            as: UTF8.self
+        )
+        #expect(seq.contains(expected))
+        #expect(seq.contains("\u{1b}[?1006h"))   // SGR encoding
+        for other in ["\u{1b}[?1003h", "\u{1b}[?1002h", "\u{1b}[?1000h"] where other != expected {
+            #expect(!seq.contains(other))
+        }
+    }
+
+    @Test func paneStateSeedIgnoresAggregateMouseAnyFlag() {
+        // `mouse_any_flag` is tmux's aggregate "any mouse mode on" OR-flag, not a
+        // concrete level — on its own it must NOT enable any tracking mode (else a
+        // pane that only requested 1000/1002 would be over-escalated).
+        let line = "cursor_x=0,cursor_y=0,"
+            + "scroll_region_upper=0,scroll_region_lower=51,"
+            + "cursor_flag=1,insert_flag=0,keypad_cursor_flag=0,keypad_flag=0,"
+            + "wrap_flag=1,origin_flag=0,pane_height=52,"
+            + "mouse_any_flag=1,mouse_all_flag=0,mouse_button_flag=0,mouse_standard_flag=0,mouse_sgr_flag=1"
+        let seq = String(
+            decoding: RemoteTmuxControlConnection.paneStateSeedSequence(from: line),
+            as: UTF8.self
+        )
+        for mode in ["\u{1b}[?1003h", "\u{1b}[?1002h", "\u{1b}[?1000h"] {
             #expect(!seq.contains(mode))
         }
     }
