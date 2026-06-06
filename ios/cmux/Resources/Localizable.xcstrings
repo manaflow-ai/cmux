@@ -806,13 +806,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in on your computer with the same account, or pair with a QR/link from that computer."
+            "value": "Couldn't verify your account with this Mac. Make sure both devices use the same cmux account and a matching build (both release, or both development), then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータで同じアカウントにサインインするか、そのコンピュータの QR/リンクでペアリングしてください。"
+            "value": "この Mac でアカウントを確認できませんでした。両方のデバイスで同じ cmux アカウントと一致するビルド（どちらもリリース版、またはどちらも開発版）を使用していることを確認してから、もう一度お試しください。"
           }
         }
       }
