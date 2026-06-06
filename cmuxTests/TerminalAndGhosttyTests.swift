@@ -3067,6 +3067,81 @@ struct GhosttyTextInputCommandForwardingTests {
     }
 
     @Test
+    func deleteBackwardTextInputCommandWithAKeyFieldsForwardsCanonicalBackspace() throws {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        let contentView = try #require(window.contentView)
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        let surfaceView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
+        try #require(
+            surface.hasLiveSurface,
+            "Ghostty surface must initialize so key forwarding can be observed."
+        )
+        #expect(window.makeFirstResponder(surfaceView))
+
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        defer {
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttyNSView.debugTextInputEventHandler = { view, _ in
+            view.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+            return true
+        }
+
+        var forwardedKeyEvents: [ghostty_input_key_s] = []
+        var forwardedTexts: [String?] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwardedKeyEvents.append(keyEvent)
+            forwardedTexts.append(keyEvent.text.map { String(cString: $0) })
+        }
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_A)
+        ))
+
+        withExtendedLifetime(surface) {
+            surfaceView.keyDown(with: event)
+        }
+
+        let forwarded = try #require(forwardedKeyEvents.first)
+        #expect(forwardedKeyEvents.count == 1)
+        #expect(forwarded.keycode == UInt32(kVK_Delete))
+        #expect(forwarded.unshifted_codepoint == 0x7F)
+        #expect(forwardedTexts == ["\u{7F}"])
+    }
+
+    @Test
     func modifiedDeleteBackwardCommandStaysOnOriginalKeyPath() throws {
         let window = makeWindow()
         defer { window.orderOut(nil) }
