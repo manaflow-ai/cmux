@@ -272,6 +272,65 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         )
     }
 
+    /// Verifies surface notification clearing removes panel, surface alias, and nil-fallback anchors.
+    func testClearNotificationsForSurfaceRemovesPromptSubmitOpenAnchorAliases() {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let bonsplitSurfaceId = UUID()
+        let otherSurfaceId = UUID()
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspaceId,
+                surfaceId: bonsplitSurfaceId,
+                panelId: panelId,
+                title: "Agent finished",
+                subtitle: "codex",
+                body: "Done",
+                createdAt: Date(),
+                isRead: false
+            )
+        ])
+        store.recordPromptSubmitOpenAnchor(
+            TerminalNotificationOpenAnchor(scrollbarOffset: 42),
+            forTabId: workspaceId,
+            surfaceId: panelId
+        )
+        store.recordPromptSubmitOpenAnchor(
+            TerminalNotificationOpenAnchor(scrollbarOffset: 43),
+            forTabId: workspaceId,
+            surfaceId: bonsplitSurfaceId
+        )
+        store.recordPromptSubmitOpenAnchor(
+            TerminalNotificationOpenAnchor(scrollbarOffset: 44),
+            forTabId: workspaceId,
+            surfaceId: nil
+        )
+        store.recordPromptSubmitOpenAnchor(
+            TerminalNotificationOpenAnchor(scrollbarOffset: 64),
+            forTabId: workspaceId,
+            surfaceId: otherSurfaceId
+        )
+
+        store.clearNotifications(
+            forTabId: workspaceId,
+            surfaceId: panelId,
+            discardQueuedNotifications: false
+        )
+
+        XCTAssertNil(store.promptSubmitOpenAnchor(forTabId: workspaceId, surfaceId: panelId))
+        XCTAssertNil(store.promptSubmitOpenAnchor(forTabId: workspaceId, surfaceId: bonsplitSurfaceId))
+        XCTAssertNil(store.promptSubmitOpenAnchor(forTabId: workspaceId, surfaceId: nil))
+        XCTAssertEqual(
+            store.promptSubmitOpenAnchor(forTabId: workspaceId, surfaceId: otherSurfaceId)?.scrollbarOffset,
+            64
+        )
+    }
+
     func testFeedPromptSubmitEventExtractsToolInputMessage() throws {
         let manager = TabManager()
         let first = manager.tabs[0]

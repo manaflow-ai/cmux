@@ -1261,6 +1261,26 @@ final class TerminalNotificationStore: ObservableObject {
         return promptSubmitOpenAnchors[TabSurfaceKey(tabId: tabId, surfaceId: nil)]
     }
 
+    /// Removes prompt-submit anchors for a tab and the supplied surface aliases.
+    ///
+    /// - Parameters:
+    ///   - tabId: Workspace identifier whose anchors should be pruned.
+    ///   - surfaceIds: Surface, panel, or Bonsplit alias identifiers to remove.
+    ///   - removesNilFallback: Whether to remove the tab-level fallback anchor.
+    private func removePromptSubmitOpenAnchors(
+        forTabId tabId: UUID,
+        surfaceIds: Set<UUID>,
+        removesNilFallback: Bool
+    ) {
+        promptSubmitOpenAnchors = promptSubmitOpenAnchors.filter { entry in
+            guard entry.key.tabId == tabId else { return true }
+            guard let surfaceId = entry.key.surfaceId else {
+                return !removesNilFallback
+            }
+            return !surfaceIds.contains(surfaceId)
+        }
+    }
+
     func clearLatestNotification(forTabId tabId: UUID) {
         guard let latestNotification = indexes.latestByTabId[tabId] else { return }
         remove(id: latestNotification.id)
@@ -1928,21 +1948,35 @@ final class TerminalNotificationStore: ObservableObject {
         discardQueuedNotifications: Bool = true
     ) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId) }
-        promptSubmitOpenAnchors = promptSubmitOpenAnchors.filter { entry in
-            !(entry.key.tabId == tabId && entry.key.surfaceId == surfaceId)
-        }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false
         let hadRestoredWorkspaceUnread = surfaceId == nil && restoredUnreadWorkspaceIds.contains(tabId)
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
+        var promptSubmitOpenAnchorSurfaceIds = Set<UUID>()
+        if let surfaceId {
+            promptSubmitOpenAnchorSurfaceIds.insert(surfaceId)
+        }
+        var removesPromptSubmitOpenAnchorNilFallback = false
         for notification in notifications {
             if notification.matches(tabId: tabId, surfaceId: surfaceId) {
                 idsToClear.append(notification.id.uuidString)
+                removesPromptSubmitOpenAnchorNilFallback = true
+                if let surfaceId = notification.surfaceId {
+                    promptSubmitOpenAnchorSurfaceIds.insert(surfaceId)
+                }
+                if let panelId = notification.panelId {
+                    promptSubmitOpenAnchorSurfaceIds.insert(panelId)
+                }
             } else {
                 updated.append(notification)
             }
         }
+        removePromptSubmitOpenAnchors(
+            forTabId: tabId,
+            surfaceIds: promptSubmitOpenAnchorSurfaceIds,
+            removesNilFallback: removesPromptSubmitOpenAnchorNilFallback
+        )
         guard !idsToClear.isEmpty || hadFocusedReadIndicator || hadRestoredWorkspaceUnread else { return }
         if !idsToClear.isEmpty {
             replaceNotificationsForClear(updated)
