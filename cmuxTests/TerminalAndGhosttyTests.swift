@@ -1192,6 +1192,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    /// Verifies OSC 11 is queued as terminal output bytes instead of literal shell input.
     func testColdSocketInputQueuesOSC11AsRawTerminalBytes() {
         let panel = TerminalPanel(workspaceId: UUID())
 

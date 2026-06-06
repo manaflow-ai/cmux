@@ -228,6 +228,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertTrue(plan.usesWindowGlass)
     }
 
+    /// Verifies pane-local OSC colors paint on the host layer over a shared root backdrop.
     func testOSCOverrideUsesSurfaceHostFillWhenWindowRootBackdropIsShared() {
         let plan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: .windowHostBackdrop,
@@ -243,6 +244,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertTrue(plan.clearsSharedWindowBackdrop)
     }
 
+    /// Verifies translucent OSC colors use one host-layer fill with configured opacity.
     func testTranslucentOSCOverrideUsesOneSurfaceHostFillWithConfiguredOpacity() {
         let plan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: .windowHostBackdrop,
@@ -259,6 +261,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertTrue(plan.clearsSharedWindowBackdrop)
     }
 
+    /// Verifies default backgrounds keep the shared backdrop intact.
     func testSharedWindowBackdropDoesNotCutOutForDefaultBackgrounds() {
         let plan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: .windowHostBackdrop,
@@ -274,6 +277,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertFalse(plan.clearsSharedWindowBackdrop)
     }
 
+    /// Verifies Bonsplit-owned pane backdrops stay authoritative when no cutout is available.
     func testOSCOverrideKeepsBonsplitPaneBackdropOwnerWhenNoCutoutIsAvailable() {
         let plan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: .windowHostBackdrop,
@@ -289,6 +293,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertFalse(plan.clearsSharedWindowBackdrop)
     }
 
+    /// Verifies non-shared window backdrops let OSC colors paint directly on the host layer.
     func testOSCOverrideUsesSurfaceHostFillWhenWindowBackdropIsNotShared() {
         let plan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: .windowHostBackdrop,
@@ -305,6 +310,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertFalse(plan.clearsSharedWindowBackdrop)
     }
 
+    /// Verifies renderer-owned backgrounds keep cmux host layers clear.
     func testRendererOwnedOSCOverrideKeepsHostLayerClearWhenWindowRootBackdropIsShared() {
         let plan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: .ghosttyRendererOwnedBackgroundImage,

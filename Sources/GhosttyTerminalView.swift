@@ -5204,21 +5204,28 @@ final class TerminalSurfaceRegistry {
     }
 }
 
+/// Core Image filter that cuts a pane-local terminal fill out of the shared window backdrop.
 private final class TerminalSharedBackdropCutoutFilter: CIFilter {
     private static let filterInputKeys = [kCIInputImageKey, kCIInputBackgroundImageKey]
     private static let filterOutputKeys = [kCIOutputImageKey]
 
+    /// The mask image supplied by AppKit for the cutout view.
     @objc dynamic var inputImage: CIImage?
+
+    /// The already-rendered shared backdrop behind the terminal surface.
     @objc dynamic var inputBackgroundImage: CIImage?
 
+    /// Input keys advertised to AppKit's Core Image compositing pipeline.
     override var inputKeys: [String] {
         Self.filterInputKeys
     }
 
+    /// Output keys advertised to AppKit's Core Image compositing pipeline.
     override var outputKeys: [String] {
         Self.filterOutputKeys
     }
 
+    /// The backdrop image with the cutout mask removed.
     override var outputImage: CIImage? {
         guard let inputImage, let inputBackgroundImage else { return nil }
         return CIBlendKernel.destinationOut.apply(
@@ -5273,6 +5280,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private enum PendingSocketInput {
         case pasteText(Data)
         case inputText(Data)
+        /// Bytes that must be processed as terminal output, not user input.
         case processOutput(Data)
         case key(PendingKeyEvent)
 
@@ -5288,6 +5296,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private enum ParsedSocketInput {
         case rawBytes(Data)
+        /// A complete terminal string control sequence such as OSC, DCS, PM, or APC.
         case terminalBytes(Data)
         case key(PendingKeyEvent)
     }
@@ -7395,6 +7404,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return events
     }
 
+    /// Returns the byte-like scalar length for a complete terminal string control sequence.
     private static func terminalControlSequenceLength(
         _ scalars: [Unicode.Scalar],
         from start: Int
@@ -7411,6 +7421,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    /// Finds the terminator for ESC-prefixed string controls without accepting partial sequences.
     private static func stringControlSequenceLength(
         _ scalars: [Unicode.Scalar],
         from start: Int,
@@ -7627,6 +7638,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    /// Sends bytes through Ghostty's PTY-output parser so OSC commands affect terminal state.
     private func writeProcessOutputData(_ data: Data, to surface: ghostty_surface_t) {
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
@@ -13195,6 +13207,7 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.onTriggerFlash = handler
     }
 
+    /// Applies the host-layer terminal fill and optionally clears the shared backdrop behind it.
     func setBackgroundColor(_ color: NSColor, clearsSharedWindowBackdrop: Bool = false) {
         guard let layer = backgroundView.layer else { return }
         CATransaction.begin()
@@ -13205,6 +13218,7 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
+    /// Keeps the shared-backdrop cutout view present only while a pane-local fill needs it.
     private func synchronizeSharedBackdropCutout(visible: Bool) {
         if visible {
             let cutoutView = sharedBackdropCutoutView ?? makeSharedBackdropCutoutView()
@@ -13216,8 +13230,10 @@ final class GhosttySurfaceScrollView: NSView {
         sharedBackdropCutoutView = nil
     }
 
-    // AppKit requires layerUsesCoreImageFilters to be configured before display.
-    // Create the filtered view only while a pane-local cutout is needed.
+    /// Creates the Core Image filtered view that subtracts pane-local fills from shared backdrop.
+    ///
+    /// AppKit requires `layerUsesCoreImageFilters` to be configured before display, so the
+    /// cutout view is created lazily only when a pane-local OSC background override needs it.
     private func makeSharedBackdropCutoutView() -> NSView {
         let sharedBackdropCutoutFilter = TerminalSharedBackdropCutoutFilter()
         sharedBackdropCutoutFilter.name = "terminalSharedBackdropCutout"
