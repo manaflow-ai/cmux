@@ -6584,15 +6584,13 @@ struct CMUXCLI {
         }
 
         let windowHandle = try normalizeWindowHandle(windowOpt ?? windowOverride, client: client)
-        let trimmedWorkspaceRaw = workspaceRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isPlainIndexHandle = Int(trimmedWorkspaceRaw) != nil
         // Plain numeric indices match the default visible workspace list. Hidden
         // workspaces remain addressable by stable UUIDs and workspace refs.
         let workspaceHandle = try normalizeWorkspaceHandle(
             workspaceRaw,
             client: client,
             windowHandle: windowHandle,
-            includeHidden: !hidden && !isPlainIndexHandle
+            includeHidden: !hidden && shouldResolveHiddenWorkspaceRefs(workspaceRaw)
         )
 
         var params: [String: Any] = [:]
@@ -7118,7 +7116,12 @@ struct CMUXCLI {
         var params: [String: Any] = [:]
         let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
         if let winId { params["window_id"] = winId }
-        let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
+        let wsId = try normalizeWorkspaceHandle(
+            target,
+            client: client,
+            windowHandle: winId,
+            includeHidden: shouldResolveHiddenWorkspaceRefs(target)
+        )
         if !requireWorkspaceFlag {
             guard let wsId else {
                 throw CLIError(message: "\(commandName): could not resolve workspace handle")
@@ -7129,6 +7132,12 @@ struct CMUXCLI {
         }
         let payload = try client.sendV2(method: "workspace.select", params: params)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+    }
+
+    private func shouldResolveHiddenWorkspaceRefs(_ raw: String?) -> Bool {
+        guard let raw else { return false }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && Int(trimmed) == nil
     }
 
     private func runWorkspaceRenameCommand(
