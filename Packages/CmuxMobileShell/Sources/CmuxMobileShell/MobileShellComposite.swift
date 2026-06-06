@@ -321,10 +321,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func renameWorkspace(id: MobileWorkspacePreview.ID, title: String) async {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let client = remoteClient else { return }
-        let previous = workspaces
-        if let index = workspaces.firstIndex(where: { $0.id == id }) {
-            workspaces[index].name = trimmed
-        }
+        guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        let previousName = workspaces[index].name
+        workspaces[index].name = trimmed
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "workspace.action",
@@ -337,7 +336,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             _ = try await client.sendRequest(request)
         } catch {
-            workspaces = previous
+            // Roll back only this workspace's name, and only if our optimistic
+            // value is still present: a reconnect or an authoritative
+            // `workspace.updated` refresh may have replaced the list while the
+            // request was in flight, and we must not clobber that newer state.
+            if let current = workspaces.firstIndex(where: { $0.id == id }),
+               workspaces[current].name == trimmed {
+                workspaces[current].name = previousName
+            }
             mobileShellLog.error("workspace rename failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
     }
@@ -350,10 +356,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///   - pinned: `true` to pin, `false` to unpin.
     public func setWorkspacePinned(id: MobileWorkspacePreview.ID, _ pinned: Bool) async {
         guard let client = remoteClient else { return }
-        let previous = workspaces
-        if let index = workspaces.firstIndex(where: { $0.id == id }) {
-            workspaces[index].isPinned = pinned
-        }
+        guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        let previousPinned = workspaces[index].isPinned
+        workspaces[index].isPinned = pinned
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "workspace.action",
@@ -365,7 +370,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             _ = try await client.sendRequest(request)
         } catch {
-            workspaces = previous
+            // Roll back only this workspace's pin state, and only if our
+            // optimistic value is still present, so a concurrent authoritative
+            // refresh is never reverted (see `renameWorkspace`).
+            if let current = workspaces.firstIndex(where: { $0.id == id }),
+               workspaces[current].isPinned == pinned {
+                workspaces[current].isPinned = previousPinned
+            }
             mobileShellLog.error("workspace pin failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
     }
