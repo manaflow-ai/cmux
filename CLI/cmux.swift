@@ -18891,6 +18891,10 @@ struct CMUXCLI {
             throw CLIError(message: "cmux codex-teams must be started from a cmux terminal surface")
         }
         let rootWorkspaceId = rootIdentity.workspaceId ?? focusedContext.workspaceId
+        try Self.validateCodexTeamsWorkingDirectory(
+            commandArgs: commandArgs,
+            baseDirectory: launcherEnvironment["PWD"] ?? FileManager.default.currentDirectoryPath
+        )
 
         let codexExecutablePath = resolveCodexExecutable(searchPath: launcherEnvironment["PATH"])
         let codexExecutableForShell = codexExecutablePath ?? "codex"
@@ -19085,6 +19089,58 @@ struct CMUXCLI {
             .map(String.init)
             .filter { !$0.isEmpty }
             .joined(separator: ":") ?? ""
+    }
+
+    static func codexTeamsResolvedWorkingDirectory(
+        commandArgs: [String],
+        baseDirectory: String
+    ) -> String? {
+        let valueOptions: Set<String> = ["-C", "--cd", "--cwd"]
+        let optionPrefixes = valueOptions.map { "\($0)=" }
+        var index = 0
+        var requested: String?
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            if arg == "--" { break }
+            if valueOptions.contains(arg), index + 1 < commandArgs.count {
+                requested = commandArgs[index + 1]
+                index += 2
+                continue
+            }
+            if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
+                requested = String(arg.dropFirst(prefix.count))
+            }
+            index += 1
+        }
+        guard let requested = requested?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !requested.isEmpty else {
+            return nil
+        }
+        let expanded = (requested as NSString).expandingTildeInPath
+        if expanded.hasPrefix("/") {
+            return URL(fileURLWithPath: expanded).standardizedFileURL.path
+        }
+        return URL(
+            fileURLWithPath: expanded,
+            relativeTo: URL(fileURLWithPath: baseDirectory, isDirectory: true)
+        ).standardizedFileURL.path
+    }
+
+    static func validateCodexTeamsWorkingDirectory(
+        commandArgs: [String],
+        baseDirectory: String
+    ) throws {
+        guard let cwd = codexTeamsResolvedWorkingDirectory(
+            commandArgs: commandArgs,
+            baseDirectory: baseDirectory
+        ) else {
+            return
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            throw CLIError(message: "cmux codex-teams cwd does not exist: \(cwd)")
+        }
     }
 
     private func codexTeamsAppendPathEntry(

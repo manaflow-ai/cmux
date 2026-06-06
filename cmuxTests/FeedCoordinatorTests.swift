@@ -8,6 +8,52 @@ import CMUXWorkstream
 #endif
 
 final class FeedCoordinatorTests: XCTestCase {
+    func testCodexTeamsResolvesExplicitWorkingDirectoryFlags() throws {
+        let base = "/tmp/cmux-base"
+
+        XCTAssertEqual(
+            CMUXCLI.codexTeamsResolvedWorkingDirectory(
+                commandArgs: ["-C", "child", "prompt"],
+                baseDirectory: base
+            ),
+            "/tmp/cmux-base/child"
+        )
+        XCTAssertEqual(
+            CMUXCLI.codexTeamsResolvedWorkingDirectory(
+                commandArgs: ["--cwd=/tmp/cmux-review", "--cd", "/tmp/cmux-final"],
+                baseDirectory: base
+            ),
+            "/tmp/cmux-final"
+        )
+        XCTAssertNil(
+            CMUXCLI.codexTeamsResolvedWorkingDirectory(
+                commandArgs: ["--", "-C", "/tmp/inside-prompt"],
+                baseDirectory: base
+            )
+        )
+    }
+
+    func testCodexTeamsValidatesExplicitWorkingDirectoryExists() throws {
+        let existing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-teams-cwd-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: existing) }
+
+        XCTAssertNoThrow(
+            try CMUXCLI.validateCodexTeamsWorkingDirectory(
+                commandArgs: ["-C", existing.path],
+                baseDirectory: "/tmp"
+            )
+        )
+
+        XCTAssertThrowsError(
+            try CMUXCLI.validateCodexTeamsWorkingDirectory(
+                commandArgs: ["-C", existing.appendingPathComponent("missing").path],
+                baseDirectory: "/tmp"
+            )
+        )
+    }
+
     func testClaudePermissionActionPolicyKeepsBypassUserOwned() {
         XCTAssertTrue(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .claude))
         XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .claude))
