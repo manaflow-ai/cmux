@@ -292,6 +292,20 @@ extension AppDelegate {
         return closedAll
     }
 
+    func historyRedoNeedsInteractiveConfirmation(preferredTabManager: TabManager? = nil) -> Bool {
+        if let opId = ClosedItemHistoryStore.shared.lastRestoredOperationId {
+            let liveRefs = ClosedItemHistoryStore.shared.recordsForOperation(opId).compactMap { record -> ReopenedItemRef? in
+                guard let ref = ClosedItemHistoryStore.shared.restoredRef(for: record.id),
+                      closedItemTargetIsLive(ref) else { return nil }
+                return ref
+            }
+            if !liveRefs.isEmpty {
+                return liveRefs.contains { reopenedRefNeedsInteractiveConfirmation($0) }
+            }
+        }
+        return redoTargetNeedsInteractiveConfirmation(preferredTabManager: preferredTabManager)
+    }
+
     @discardableResult
     private func closeReopenedRef(_ ref: ReopenedItemRef, operationId: UUID, force: Bool = false) -> Bool {
         switch ref {
@@ -324,6 +338,32 @@ extension AppDelegate {
             return manager.confirmWorkspaceCloseForHistoryRedo(workspace, force: force)
         case .window(let windowId):
             return confirmMainWindowForHistoryRedo(windowId: windowId, force: force)
+        }
+    }
+
+    private func redoTargetNeedsInteractiveConfirmation(preferredTabManager: TabManager? = nil) -> Bool {
+        guard let target = ClosedItemHistoryStore.shared.redoTarget,
+              closedItemTargetIsLive(target) else { return false }
+        return reopenedRefNeedsInteractiveConfirmation(target, preferredTabManager: preferredTabManager)
+    }
+
+    private func reopenedRefNeedsInteractiveConfirmation(
+        _ ref: ReopenedItemRef,
+        preferredTabManager: TabManager? = nil
+    ) -> Bool {
+        switch ref {
+        case .panel(let workspaceId, let panelId):
+            guard let (workspace, _) = workspaceContainingPanel(
+                panelId: panelId,
+                preferredWorkspaceId: workspaceId
+            ) else { return false }
+            return workspace.panelCloseNeedsInteractiveConfirmationForHistoryRedo(panelId)
+        case .workspace(let workspaceId):
+            guard let manager = tabManagerFor(tabId: workspaceId) ?? preferredTabManager ?? tabManager,
+                  let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
+            return manager.workspaceCloseNeedsInteractiveConfirmationForHistoryRedo(workspace)
+        case .window(let windowId):
+            return tabManagerFor(windowId: windowId) != nil
         }
     }
 

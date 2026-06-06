@@ -5459,6 +5459,23 @@ class TabManager: ObservableObject {
         )
     }
 
+    func workspaceCloseNeedsInteractiveConfirmationForHistoryRedo(_ workspace: Workspace) -> Bool {
+        guard tabs.contains(where: { $0.id == workspace.id }) else { return false }
+        if workspace.isPinned {
+            return shouldConfirmClose(requiresConfirmation: true, source: .workspace)
+        }
+        if let groupId = workspace.groupId,
+           let group = workspaceGroups.first(where: { $0.id == groupId }),
+           group.anchorWorkspaceId == workspace.id,
+           !WorkspaceGroupAnchorCloseSettings.suppressed() {
+            return true
+        }
+        return shouldConfirmClose(
+            requiresConfirmation: workspaceNeedsConfirmClose(workspace),
+            source: .workspace
+        )
+    }
+
     @discardableResult
     func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {

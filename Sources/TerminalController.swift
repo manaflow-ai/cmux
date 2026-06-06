@@ -10397,6 +10397,16 @@ class TerminalController {
         }
         let resolved = v2HistoryPreferredTabManager(params: params)
         if let error = resolved.error { return error }
+        if AppDelegate.shared?.historyRedoNeedsInteractiveConfirmation(preferredTabManager: resolved.tabManager) == true {
+            return .err(
+                code: "requires_confirmation",
+                message: String(
+                    localized: "terminal.history.error.redoRequiresConfirmation",
+                    defaultValue: "history redo requires an interactive close confirmation"
+                ),
+                data: nil
+            )
+        }
         var didRedo = false
         v2MainSync {
             didRedo = AppDelegate.shared?.redoLastDestructiveAction(

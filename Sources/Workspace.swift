@@ -15720,6 +15720,16 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    func panelCloseNeedsInteractiveConfirmationForHistoryRedo(_ panelId: UUID) -> Bool {
+        guard surfaceIdFromPanelId(panelId) != nil else { return false }
+        guard panels[panelId] != nil else { return false }
+        guard !isPanelPinned(panelId) else { return false }
+        return CloseTabConfirmationPolicy.shouldConfirm(
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+            source: .shortcut
+        )
+    }
+
     func requestCloseTab(_ tabId: TabID, force: Bool) -> Bool {
         if force { forceCloseTabIds.insert(tabId) }
         let closed = bonsplitController.closeTab(tabId); if force && !closed { forceCloseTabIds.remove(tabId) }
