@@ -504,28 +504,60 @@ private final class ClaudeHookSessionStore {
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxRememberedTerminalPromptTurnIds = 32
 
-    private let statePath: String
+    private let statePathCandidates: [String]
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
+
+    private struct StorageError: Error, CustomStringConvertible {
+        let message: String
+        var description: String { message }
+    }
 
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) {
+        let resolvedStatePath: String
         if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !overridePath.isEmpty {
-            self.statePath = NSString(string: overridePath).expandingTildeInPath
+            resolvedStatePath = NSString(string: overridePath).expandingTildeInPath
         } else if let overrideDirectory = processEnv["CMUX_AGENT_HOOK_STATE_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !overrideDirectory.isEmpty {
-            self.statePath = URL(fileURLWithPath: NSString(string: overrideDirectory).expandingTildeInPath, isDirectory: true)
+            resolvedStatePath = URL(fileURLWithPath: NSString(string: overrideDirectory).expandingTildeInPath, isDirectory: true)
                 .appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
                 .path
         } else {
-            self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
+            resolvedStatePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
+        self.statePathCandidates = Self.uniqueStatePathCandidates([
+            resolvedStatePath,
+            Self.fallbackStatePath(for: resolvedStatePath),
+        ])
         self.fileManager = fileManager
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    }
+
+    private static func fallbackStatePath(for primaryPath: String) -> String {
+        let digest = SHA256.hash(data: Data(primaryPath.utf8))
+            .prefix(12)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-claude-hook-state", isDirectory: true)
+            .appendingPathComponent("claude-hook-sessions-\(digest).json", isDirectory: false)
+            .path
+    }
+
+    private static func uniqueStatePathCandidates(_ paths: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for path in paths {
+            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+            guard seen.insert(standardized).inserted else { continue }
+            result.append(standardized)
+        }
+        return result
     }
 
     func lookup(sessionId: String) throws -> ClaudeHookSessionRecord? {
@@ -1347,26 +1379,58 @@ private final class ClaudeHookSessionStore {
     }
 
     private func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
+        var lastStorageError: StorageError?
+        for candidate in statePathCandidates {
+            do {
+                return try withLockedState(at: candidate, body)
+            } catch let error as StorageError {
+                lastStorageError = error
+            }
+        }
+        if let lastStorageError {
+            throw lastStorageError
+        }
+        throw CLIError(message: "Failed to access Claude hook state")
+    }
+
+    private func withLockedState<T>(
+        at statePath: String,
+        _ body: (inout ClaudeHookSessionStoreFile) throws -> T
+    ) throws -> T {
         let lockPath = statePath + ".lock"
+        let lockURL = URL(fileURLWithPath: lockPath)
+        do {
+            try fileManager.createDirectory(
+                at: lockURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+        } catch {
+            throw StorageError(message: "Failed to create Claude hook state lock directory: \(lockPath)")
+        }
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
-            throw CLIError(message: "Failed to open Claude hook state lock: \(lockPath)")
+            throw StorageError(message: "Failed to open Claude hook state lock: \(lockPath)")
         }
         defer { Darwin.close(fd) }
 
         if flock(fd, LOCK_EX) != 0 {
-            throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
+            throw StorageError(message: "Failed to lock Claude hook state: \(lockPath)")
         }
         defer { _ = flock(fd, LOCK_UN) }
 
-        var state = loadUnlocked()
+        var state = loadUnlocked(at: statePath)
         pruneExpired(&state)
         let result = try body(&state)
-        try saveUnlocked(state)
+        do {
+            try saveUnlocked(state, at: statePath)
+        } catch {
+            throw StorageError(message: "Failed to save Claude hook state: \(statePath)")
+        }
         return result
     }
 
-    private func loadUnlocked() -> ClaudeHookSessionStoreFile {
+    private func loadUnlocked(at statePath: String) -> ClaudeHookSessionStoreFile {
         guard fileManager.fileExists(atPath: statePath) else {
             return ClaudeHookSessionStoreFile()
         }
@@ -1377,7 +1441,7 @@ private final class ClaudeHookSessionStore {
         return decoded
     }
 
-    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile) throws {
+    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile, at statePath: String) throws {
         let stateURL = URL(fileURLWithPath: statePath)
         let parentURL = stateURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: parentURL, withIntermediateDirectories: true, attributes: nil)

@@ -464,6 +464,10 @@ def main() -> int:
             state_failure_env,
         )
 
+        notify_commands = [
+            command for command in server.commands
+            if command.startswith(f"notify_target_async {workspace_id} {surface_id} ")
+        ]
         if not has_command_with(
             server.commands,
             f"notify_target_async {workspace_id} {surface_id} Claude Code|Waiting|",
@@ -477,6 +481,28 @@ def main() -> int:
 
         if has_command_with(server.commands, "/tmp/state-secret"):
             print("FAIL: state-failure AskUserQuestion notification should redact sensitive question text")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        state_failure_duplicate_payload = {
+            "session_id": state_failure_session_id,
+            "hook_event_name": "Notification",
+            "message": "Claude needs your input",
+        }
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            state_failure_duplicate_payload,
+            state_failure_env,
+        )
+
+        post_state_failure_notify_commands = [
+            command for command in server.commands
+            if command.startswith(f"notify_target_async {workspace_id} {surface_id} ")
+        ]
+        if len(post_state_failure_notify_commands) != len(notify_commands):
+            print("FAIL: primary state-path failure should not duplicate AskUserQuestion notification")
             print(f"commands={server.commands!r}")
             return 1
 
