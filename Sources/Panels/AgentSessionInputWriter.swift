@@ -55,7 +55,7 @@ actor AgentSessionInputWriter {
 
         if shouldStartDrain {
             Task(priority: .utility) {
-                await self.drain()
+                self.drain()
             }
         }
     }
