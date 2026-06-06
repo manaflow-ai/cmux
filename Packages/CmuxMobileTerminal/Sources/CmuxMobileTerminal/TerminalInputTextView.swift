@@ -6,6 +6,11 @@ final class TerminalInputTextView: UITextView {
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
     var onEscapeSequence: ((Data) -> Void)?
+    /// Invoked when the Paste accessory button reads an image off the system
+    /// clipboard. The host forwards the bytes (+ a lowercase format hint) to the
+    /// Mac, which injects the resulting file path into the terminal. Clipboard
+    /// *text* does not use this path; it rides ``onText``.
+    var onPasteImage: ((Data, String) -> Void)?
     var onZoom: ((TerminalFontZoomDirection) -> Void)?
     var onHideKeyboard: (() -> Void)?
     /// Fired by the trailing "customize" button so the SwiftUI host can present
@@ -195,7 +200,7 @@ final class TerminalInputTextView: UITextView {
     /// user-configurable shortcuts. Command is created but kept out of the
     /// stack until ``applyModifierPresentation()`` inserts it for a Mac remote.
     private static let pinnedLeadingActions: [TerminalInputAccessoryAction] = [
-        .control, .alternate, .command,
+        .control, .alternate, .command, .paste,
     ]
 
     /// The structural buttons pinned to the end of the bar, after the
@@ -541,6 +546,15 @@ final class TerminalInputTextView: UITextView {
     }
 
     private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
+        if action == .paste {
+            // Paste is a clipboard read, not a key sequence: ignore any armed
+            // modifier and route clipboard content to the host directly.
+            disarmAllModifiers()
+            refreshAccessoryButtonStyles()
+            handlePasteAction()
+            return
+        }
+
         if let zoomDirection = action.zoomDirection {
             disarmAllModifiers()
             refreshAccessoryButtonStyles()
@@ -594,6 +608,35 @@ final class TerminalInputTextView: UITextView {
             if let output = action.output {
                 onEscapeSequence?(output)
             }
+        }
+    }
+
+    /// Read the system clipboard for the Paste button. An image is forwarded via
+    /// ``onPasteImage`` (the host uploads it to the Mac as `terminal.paste_image`
+    /// and the Mac injects the resulting file path); plain text rides the normal
+    /// ``onText`` input path. Images win when both are present. A large image
+    /// falls back to JPEG so it stays under the Mac's 10 MB cap. Accessing the
+    /// pasteboard contents here is what shows iOS's one-shot paste banner, which
+    /// is the expected confirmation for an explicit Paste tap.
+    private func handlePasteAction() {
+        let pasteboard = UIPasteboard.general
+        if pasteboard.hasImages, let image = pasteboard.image {
+            let maxImageBytes = 8 * 1024 * 1024
+            if let png = image.pngData(), png.count <= maxImageBytes {
+                onPasteImage?(png, "png")
+                return
+            }
+            if let jpeg = image.jpegData(compressionQuality: 0.8) {
+                onPasteImage?(jpeg, "jpg")
+                return
+            }
+            if let png = image.pngData() {
+                onPasteImage?(png, "png")
+                return
+            }
+        }
+        if pasteboard.hasStrings, let string = pasteboard.string, !string.isEmpty {
+            onText?(string)
         }
     }
 

@@ -55,12 +55,18 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// The user tapped the "customize" button at the end of the input-accessory
     /// bar; the host should present the toolbar shortcuts editor. Optional.
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView)
+    /// Forward an image the user pasted from the system clipboard. The host
+    /// uploads `data` to the Mac, which materializes a temp file and injects its
+    /// path into the terminal so a running TUI (e.g. Claude Code) attaches it.
+    /// `format` is a lowercase file-extension hint (e.g. `"png"`). Optional.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String)
 }
 
 public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
 }
 
 @MainActor
@@ -257,6 +263,11 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     case end
     case pageUp
     case pageDown
+    /// Paste the system clipboard into the terminal: an image is forwarded to
+    /// the Mac as `terminal.paste_image`, plain text rides the normal input
+    /// path. Unlike the other actions it carries no fixed byte ``output``; the
+    /// host reads the pasteboard when it is tapped.
+    case paste
     var title: String {
         title(isMacRemote: false)
     }
@@ -317,6 +328,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return "@"
         case .pageDown:
             return String(localized: "terminal.input_accessory.title.pageDown", defaultValue: "PgDn")
+        case .paste:
+            return ""
         }
     }
 
@@ -349,6 +362,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .end: return "terminal.inputAccessory.end"
         case .pageUp: return "terminal.inputAccessory.pageUp"
         case .pageDown: return "terminal.inputAccessory.pageDown"
+        case .paste: return "terminal.inputAccessory.paste"
         }
     }
 
@@ -358,6 +372,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
         case .zoomIn:
             return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
+        case .paste:
+            return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
         default:
             return nil
         }
@@ -369,6 +385,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return "minus.magnifyingglass"
         case .zoomIn:
             return "plus.magnifyingglass"
+        case .paste:
+            return "doc.on.clipboard"
         default:
             return nil
         }
@@ -395,7 +413,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
 
     var output: Data? {
         switch self {
-        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn:
+        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn, .paste:
             return nil
         case .escape:
             return Data([0x1B])
@@ -505,6 +523,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .end: return String(localized: "terminal.shortcut.name.end", defaultValue: "End")
         case .pageUp: return String(localized: "terminal.shortcut.name.pageUp", defaultValue: "Page Up")
         case .pageDown: return String(localized: "terminal.shortcut.name.pageDown", defaultValue: "Page Down")
+        case .paste: return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
         case .control, .alternate, .command, .shift, .zoomIn, .zoomOut:
             return title
         }
@@ -785,6 +804,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self.resetCursorBlink()
             TerminalInputDebugLog.log("surface.onEscape data=\(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
+        }
+        inputProxy.onPasteImage = { [weak self] data, format in
+            guard let self else { return }
+            TerminalInputDebugLog.log("surface.onPasteImage bytes=\(data.count) format=\(format)")
+            self.delegate?.ghosttySurfaceView(self, didPasteImage: data, format: format)
         }
         inputProxy.onZoom = { [weak self] direction in
             self?.performFontZoom(direction)

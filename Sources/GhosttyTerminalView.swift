@@ -949,6 +949,39 @@ enum GhosttyPasteboardHelper {
             .map { escapeForShell($0.path) }
     }
 
+    /// Writes raw image bytes forwarded from a remote client (e.g. an image
+    /// pasted on the paired iOS app) to a temporary file and returns its
+    /// shell-escaped path, ready to inject as terminal input exactly the way
+    /// ``saveClipboardImageIfNeeded(from:assumeNoText:)`` does for a local paste.
+    ///
+    /// Returns `nil` when the payload is empty, exceeds the 10 MB clipboard-image
+    /// cap, or cannot be written. The temp file is registered as owned so the
+    /// usual cleanup paths reclaim it.
+    static func saveImageData(_ data: Data, fileExtension: String) -> String? {
+        // Mirrors the cap in materializeImageFileURLs(from:).
+        let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
+        guard !data.isEmpty, data.count <= maxClipboardImageSize else { return nil }
+
+        let fileURL = temporaryImageFileURL(fileExtension: sanitizedImageFileExtension(fileExtension))
+        do {
+            try data.write(to: fileURL)
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL)
+            return nil
+        }
+        registerOwnedTemporaryImageFile(fileURL)
+        return escapeForShell(fileURL.path)
+    }
+
+    /// Constrains a client-supplied image extension to a known-good lowercase
+    /// token, defaulting to `png`, so the temp filename can never carry path
+    /// separators or other hostile characters.
+    private static func sanitizedImageFileExtension(_ raw: String) -> String {
+        let token = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tiff", "bmp"]
+        return allowed.contains(token) ? token : "png"
+    }
+
     static func cleanupTransferredTemporaryImageFiles(_ fileURLs: [URL]) {
         for fileURL in fileURLs {
             let normalizedURL = fileURL.standardizedFileURL
