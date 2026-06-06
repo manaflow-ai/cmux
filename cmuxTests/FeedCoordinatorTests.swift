@@ -57,15 +57,23 @@ final class FeedCoordinatorTests: XCTestCase {
     func testClaudePermissionActionPolicyKeepsBypassUserOwned() {
         XCTAssertTrue(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .claude))
         XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .claude))
+        XCTAssertTrue(CMUXCLI.feedSourceSupportsPersistentPermissionModes("claude"))
+        XCTAssertFalse(CMUXCLI.feedSourceSupportsBypassPermissions("claude"))
 
         XCTAssertTrue(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .codex))
         XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .codex))
+        XCTAssertTrue(CMUXCLI.feedSourceSupportsPersistentPermissionModes("codex"))
+        XCTAssertFalse(CMUXCLI.feedSourceSupportsBypassPermissions("codex"))
 
         XCTAssertTrue(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .opencode))
         XCTAssertTrue(FeedPermissionActionPolicy.supportsBypassPermissions(source: .opencode))
+        XCTAssertTrue(CMUXCLI.feedSourceSupportsPersistentPermissionModes("opencode"))
+        XCTAssertTrue(CMUXCLI.feedSourceSupportsBypassPermissions("opencode"))
 
         XCTAssertFalse(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .hermesAgent))
         XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .hermesAgent))
+        XCTAssertFalse(CMUXCLI.feedSourceSupportsPersistentPermissionModes("hermes-agent"))
+        XCTAssertFalse(CMUXCLI.feedSourceSupportsBypassPermissions("hermes-agent"))
     }
 
     func testCodexAppServerApprovalBuildsActionableFeedEvent() throws {

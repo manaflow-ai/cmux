@@ -30524,11 +30524,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private func feedTUISourceSupportsPersistentPermissionModes(_ source: String) -> Bool {
-        source != "codex"
+        CMUXCLI.feedSourceSupportsPersistentPermissionModes(source)
     }
 
     private func feedTUISourceSupportsBypassPermissions(_ source: String) -> Bool {
-        source != "codex" && source != "claude"
+        CMUXCLI.feedSourceSupportsBypassPermissions(source)
+    }
+
+    static func feedSourceSupportsPersistentPermissionModes(_ source: String) -> Bool {
+        source != "hermes-agent"
+    }
+
+    static func feedSourceSupportsBypassPermissions(_ source: String) -> Bool {
+        source != "codex" && source != "claude" && source != "hermes-agent"
     }
 
     private func resolveFeedTUIItem(
