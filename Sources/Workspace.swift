@@ -12002,35 +12002,35 @@ final class Workspace: Identifiable, ObservableObject {
 
         withClosedPanelHistorySuppressed {
             collapseBonsplitToSinglePaneForSessionRestore()
-        }
-        let leafEntries = restoreSessionLayout(runtimeState.layout)
-        for entry in leafEntries {
-            let placeholderPanelIds = bonsplitController
-                .tabs(inPane: entry.paneId)
-                .compactMap { panelIdFromSurfaceId($0.id) }
+            let leafEntries = restoreSessionLayout(runtimeState.layout)
+            for entry in leafEntries {
+                let placeholderPanelIds = bonsplitController
+                    .tabs(inPane: entry.paneId)
+                    .compactMap { panelIdFromSurfaceId($0.id) }
 
-            let desiredPanelIds = entry.snapshot.panelIds.filter { runtimeState.detachedSurfaces[$0] != nil }
-            var attachedPanelIds: [UUID] = []
-            for desiredPanelId in desiredPanelIds {
-                guard let detached = runtimeState.detachedSurfaces[desiredPanelId] else { continue }
-                guard let attachedPanelId = attachDetachedSurface(detached, inPane: entry.paneId, focus: false) else { continue }
-                attachedPanelIds.append(attachedPanelId)
-            }
+                let desiredPanelIds = entry.snapshot.panelIds.filter { runtimeState.detachedSurfaces[$0] != nil }
+                var attachedPanelIds: [UUID] = []
+                for desiredPanelId in desiredPanelIds {
+                    guard let detached = runtimeState.detachedSurfaces[desiredPanelId] else { continue }
+                    guard let attachedPanelId = attachDetachedSurface(detached, inPane: entry.paneId, focus: false) else { continue }
+                    attachedPanelIds.append(attachedPanelId)
+                }
 
-            for placeholderPanelId in placeholderPanelIds {
-                _ = closePanel(placeholderPanelId, force: true)
-            }
+                for placeholderPanelId in placeholderPanelIds {
+                    _ = closePanel(placeholderPanelId, force: true)
+                }
 
-            for (targetIndex, attachedPanelId) in attachedPanelIds.enumerated() {
-                _ = reorderSurface(panelId: attachedPanelId, toIndex: targetIndex)
-            }
+                for (targetIndex, attachedPanelId) in attachedPanelIds.enumerated() {
+                    _ = reorderSurface(panelId: attachedPanelId, toIndex: targetIndex)
+                }
 
-            let selectedPanelId = entry.snapshot.selectedPanelId.flatMap { desiredPanelIds.contains($0) ? $0 : nil }
-                ?? attachedPanelIds.first
-            if let selectedPanelId,
-               let selectedTabId = surfaceIdFromPanelId(selectedPanelId) {
-                bonsplitController.focusPane(entry.paneId)
-                bonsplitController.selectTab(selectedTabId)
+                let selectedPanelId = entry.snapshot.selectedPanelId.flatMap { desiredPanelIds.contains($0) ? $0 : nil }
+                    ?? attachedPanelIds.first
+                if let selectedPanelId,
+                   let selectedTabId = surfaceIdFromPanelId(selectedPanelId) {
+                    bonsplitController.focusPane(entry.paneId)
+                    bonsplitController.selectTab(selectedTabId)
+                }
             }
         }
 
