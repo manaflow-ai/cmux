@@ -51,6 +51,10 @@ public final class TerminalAccessoryConfiguration {
     public private(set) var customActions: [CustomToolbarAction]
 
     @ObservationIgnored private let defaults: UserDefaults
+    // Rebuilt whenever the custom-action set changes, so the configurable id list
+    // (built-ins + customs) stays in sync. The curated built-in default order
+    // from `TerminalInputAccessoryAction.defaultConfigurableOrder` is threaded
+    // through `makeReducer` so a fresh install gets the redesigned bar layout.
     @ObservationIgnored private var reducer: TerminalAccessoryLayoutReducer<ToolbarItemID>
     @ObservationIgnored private let migration = ToolbarLayoutMigration()
 
@@ -183,7 +187,10 @@ public final class TerminalAccessoryConfiguration {
     ) -> TerminalAccessoryLayoutReducer<ToolbarItemID> {
         let builtin = TerminalInputAccessoryAction.configurableActions.map(\.itemID)
         let custom = customActions.map(\.itemID)
-        return TerminalAccessoryLayoutReducer(configurable: builtin + custom)
+        // The redesigned bar's curated built-in arrangement first, then customs,
+        // so a fresh install shows the new default layout.
+        let defaultOrder = TerminalInputAccessoryAction.defaultConfigurableOrder.map(\.itemID) + custom
+        return TerminalAccessoryLayoutReducer(configurable: builtin + custom, defaultOrder: defaultOrder)
     }
 
     private static func loadCustomActions(from defaults: UserDefaults) -> [CustomToolbarAction] {

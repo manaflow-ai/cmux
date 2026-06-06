@@ -30,20 +30,46 @@ public import Foundation
 /// ```
 public struct TerminalAccessoryLayoutReducer<ID: Hashable & Sendable>: Sendable {
     /// The configurable action identifiers in canonical order. This is the
-    /// complete set the reducer will ever surface and the default arrangement.
+    /// complete valid set of identifiers the reducer will ever surface; every
+    /// value it returns is drawn from here.
     public let configurable: [ID]
+
+    /// The identifiers in their default on-bar arrangement, used on a fresh
+    /// install and by ``defaultLayout()``, and as the tail order for forward-compat
+    /// appends in ``load(savedOrder:savedEnabled:)``.
+    ///
+    /// Always a permutation of ``configurable``: the init drops unknown ids and
+    /// appends any configurable id the caller omitted, so a curated default
+    /// arrangement can never make an action vanish from the bar.
+    public let defaultOrder: [ID]
 
     private let configurableSet: Set<ID>
 
     /// Creates a reducer over the given configurable action identifiers.
     ///
-    /// - Parameter configurable: Every user-configurable action identifier, in
-    ///   canonical order (built-ins in enum order, then custom actions in their
-    ///   stored order). Order matters: it is the default arrangement and the tail
-    ///   order for forward-compat appends.
-    public init(configurable: [ID]) {
+    /// - Parameters:
+    ///   - configurable: Every user-configurable action identifier, in canonical
+    ///     order (built-ins in enum order, then custom actions in their stored
+    ///     order). This is the valid identifier set.
+    ///   - defaultOrder: The default on-bar arrangement of those identifiers. Pass
+    ///     `nil` (the default) to arrange them in canonical order. Unknown ids are
+    ///     dropped and any omitted configurable id is appended, so the resolved
+    ///     ``defaultOrder`` is always a permutation of `configurable`.
+    public init(configurable: [ID], defaultOrder: [ID]? = nil) {
+        let configurableSet = Set(configurable)
         self.configurable = configurable
-        self.configurableSet = Set(configurable)
+        self.configurableSet = configurableSet
+
+        var seen = Set<ID>()
+        var resolved: [ID] = []
+        for identifier in defaultOrder ?? configurable
+        where configurableSet.contains(identifier) && seen.insert(identifier).inserted {
+            resolved.append(identifier)
+        }
+        for identifier in configurable where seen.insert(identifier).inserted {
+            resolved.append(identifier)
+        }
+        self.defaultOrder = resolved
     }
 
     /// An immutable snapshot of the configurable region's state.
@@ -85,7 +111,7 @@ public struct TerminalAccessoryLayoutReducer<ID: Hashable & Sendable>: Sendable 
     public func load(savedOrder: [ID], savedEnabled: [ID]?) -> Layout {
         var order = savedOrder.filter { configurableSet.contains($0) }
         var seen = Set(order)
-        for identifier in configurable where !seen.contains(identifier) {
+        for identifier in defaultOrder where !seen.contains(identifier) {
             order.append(identifier)
             seen.insert(identifier)
         }
@@ -140,8 +166,8 @@ public struct TerminalAccessoryLayoutReducer<ID: Hashable & Sendable>: Sendable 
         return Layout(order: order, enabled: layout.enabled)
     }
 
-    /// The default layout: canonical order with every shortcut shown.
+    /// The default layout: ``defaultOrder`` with every shortcut shown.
     public func defaultLayout() -> Layout {
-        Layout(order: configurable, enabled: configurableSet)
+        Layout(order: defaultOrder, enabled: configurableSet)
     }
 }

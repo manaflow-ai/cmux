@@ -834,6 +834,125 @@
         }
       }
     },
+    "mobile.hostPicker.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブ"
+          }
+        }
+      }
+    },
+    "mobile.hostPicker.addMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair Another Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のMacをペアリング"
+          }
+        }
+      }
+    },
+    "mobile.hostPicker.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No paired Macs yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みのMacはまだありません。"
+          }
+        }
+      }
+    },
+    "mobile.hostPicker.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch which Mac this device controls. Pairing another Mac keeps the others, so you can hop between them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスが操作するMacを切り替えます。別のMacをペアリングしても他のMacは保持されるので、行き来できます。"
+          }
+        }
+      }
+    },
+    "mobile.hostPicker.forget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forget"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "mobile.hostPicker.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired Macs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みのMac"
+          }
+        }
+      }
+    },
+    "mobile.hostPicker.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macを切り替え"
+          }
+        }
+      }
+    },
     "mobile.pairing.attachTicketExpired": {
       "extractionState": "manual",
       "localizations": {
@@ -1306,6 +1425,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "再試行"
+          }
+        }
+      }
+    },
+    "mobile.settings.switchMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macを切り替え"
           }
         }
       }
@@ -2908,6 +3044,74 @@
         }
       }
     },
+    "mobile.workspace.pin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留め"
+          }
+        }
+      }
+    },
+    "mobile.workspace.rename.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を変更"
+          }
+        }
+      }
+    },
+    "mobile.workspace.rename.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名"
+          }
+        }
+      }
+    },
+    "mobile.workspace.rename.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの名前を変更"
+          }
+        }
+      }
+    },
     "mobile.workspace.terminalCountFormat.one": {
       "extractionState": "manual",
       "localizations": {
@@ -2938,6 +3142,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d 個のターミナル"
+          }
+        }
+      }
+    },
+    "mobile.workspace.unpin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpin"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留めを解除"
           }
         }
       }
@@ -3023,6 +3244,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Alt"
+          }
+        }
+      }
+    },
+    "terminal.input_accessory.title.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリア"
           }
         }
       }
@@ -3142,6 +3380,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "縮小"
+          }
+        }
+      }
+    },
+    "terminal.shortcut.name.ctrlL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear (Control-L)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリア (Control-L)"
           }
         }
       }
