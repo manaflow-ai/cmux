@@ -10400,8 +10400,7 @@ class TerminalController {
         var didRedo = false
         v2MainSync {
             didRedo = AppDelegate.shared?.redoLastDestructiveAction(
-                preferredTabManager: resolved.tabManager,
-                force: true
+                preferredTabManager: resolved.tabManager
             ) ?? false
         }
         guard didRedo else {
