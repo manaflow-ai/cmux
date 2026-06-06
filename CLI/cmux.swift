@@ -3816,7 +3816,8 @@ struct CMUXCLI {
                 windowOverride: windowId,
                 commandLabel: "cmux undo"
             )
-            let undoParams: [String: Any] = [:]
+            var undoParams: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &undoParams, client: client, windowRaw: nil)
             let undoPayload = try client.sendV2(method: "history.undo", params: undoParams)
             printV2Payload(
                 undoPayload,
@@ -3831,7 +3832,8 @@ struct CMUXCLI {
                 windowOverride: windowId,
                 commandLabel: "cmux redo"
             )
-            let redoParams: [String: Any] = [:]
+            var redoParams: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &redoParams, client: client, windowRaw: nil)
             let redoPayload = try client.sendV2(method: "history.redo", params: redoParams)
             printV2Payload(
                 redoPayload,
@@ -7216,7 +7218,8 @@ struct CMUXCLI {
                 windowOverride: windowOverride,
                 commandLabel: "cmux history undo"
             )
-            let params: [String: Any] = [:]
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
             let payload = try client.sendV2(method: "history.undo", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.reopened", defaultValue: "Reopened"))
         case "redo":
@@ -7225,7 +7228,8 @@ struct CMUXCLI {
                 windowOverride: windowOverride,
                 commandLabel: "cmux history redo"
             )
-            let params: [String: Any] = [:]
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
             let payload = try client.sendV2(method: "history.redo", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.reclosed", defaultValue: "Re-closed"))
         case "clear":

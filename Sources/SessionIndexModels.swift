@@ -309,19 +309,23 @@ struct SessionEntry: Identifiable, Hashable {
     /// Database-backed agents (OpenCode, Hermes) and shared-history layouts are
     /// excluded until per-entry deletion is implemented for them.
     var isDeletable: Bool {
-        guard fileURL != nil else { return false }
-        switch agent {
-        case .claude:
-            return true
-        case .codex, .grok, .opencode, .rovodev, .hermesAgent, .registered:
-            return false
-        }
+        deletableFileURL != nil
     }
 
     /// The transcript file to move to Trash when deleting this session, or `nil`
     /// when the session is not safely deletable. See ``isDeletable``.
     var deletableFileURL: URL? {
-        isDeletable ? fileURL : nil
+        guard agent == .claude,
+              let fileURL,
+              fileURL.isFileURL,
+              fileURL.pathExtension == "jsonl" else {
+            return nil
+        }
+        guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+              values.isRegularFile == true else {
+            return nil
+        }
+        return fileURL
     }
 
     /// Shell command that resumes this session after guarding the launch directory.
