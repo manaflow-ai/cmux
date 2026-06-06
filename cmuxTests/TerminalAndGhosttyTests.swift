@@ -3947,6 +3947,19 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private final class BindingActionProbeSurfaceView: GhosttyNSView {
+        private(set) var performedBindingActions: [String] = []
+
+        /// Records Ghostty binding actions without sending them to a real surface.
+        ///
+        /// - Parameter action: Ghostty binding action requested by the scroll view.
+        /// - Returns: `true` so callers treat the action as accepted.
+        override func performBindingAction(_ action: String) -> Bool {
+            performedBindingActions.append(action)
+            return true
+        }
+    }
+
     private final class KeyStatusTestWindow: NSWindow {
         override var isKeyWindow: Bool { true }
     }
@@ -3985,6 +3998,25 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             ),
             0
         )
+    }
+
+    /// Verifies notification reopen scrolling is queued until Ghostty publishes scrollbar state.
+    func testNotificationOpenAnchorWaitsForScrollbarBeforeScrolling() {
+        let surfaceView = BindingActionProbeSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let anchor = TerminalNotificationOpenAnchor(scrollbarOffset: 80)
+
+        XCTAssertTrue(hostedView.scrollToNotificationOpenAnchor(anchor))
+        XCTAssertTrue(surfaceView.performedBindingActions.isEmpty)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 150, offset: 130, len: 20)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertEqual(surfaceView.performedBindingActions, ["scroll_to_row:50"])
     }
 
     override func tearDown() {

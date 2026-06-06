@@ -12304,6 +12304,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     private var allowExplicitScrollbarSync = false
+    private var pendingNotificationOpenAnchor: TerminalNotificationOpenAnchor?
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -15269,15 +15270,43 @@ final class GhosttySurfaceScrollView: NSView {
     /// Scrolls Ghostty back to the prompt-submit anchor for a reopened notification.
     ///
     /// - Parameter anchor: The absolute scrollback anchor captured when the prompt was submitted.
-    /// - Returns: `true` if the scroll action was sent to Ghostty.
+    /// - Returns: `true` if the scroll action was sent to Ghostty or queued for the next scrollbar update.
     @discardableResult
     func scrollToNotificationOpenAnchor(_ anchor: TerminalNotificationOpenAnchor) -> Bool {
-        guard let scrollbar = surfaceView.scrollbar else { return false }
+        guard let scrollbar = surfaceView.scrollbar else {
+            pendingNotificationOpenAnchor = anchor
+            return true
+        }
+        pendingNotificationOpenAnchor = nil
+        return applyNotificationOpenAnchor(anchor, scrollbar: scrollbar)
+    }
+
+    /// Applies a notification open anchor using a known Ghostty scrollbar state.
+    ///
+    /// - Parameters:
+    ///   - anchor: The absolute scrollback anchor captured when the prompt was submitted.
+    ///   - scrollbar: Current Ghostty scrollbar state used for row conversion.
+    /// - Returns: `true` if Ghostty accepted the scroll binding action.
+    @discardableResult
+    private func applyNotificationOpenAnchor(
+        _ anchor: TerminalNotificationOpenAnchor,
+        scrollbar: GhosttyScrollbar
+    ) -> Bool {
         let row = Self.notificationOpenScrollRow(for: anchor, scrollbar: scrollbar)
         userScrolledAwayFromBottom = row > 0
         allowExplicitScrollbarSync = true
         lastSentRow = row
         return surfaceView.performBindingAction("scroll_to_row:\(row)")
+    }
+
+    /// Applies a queued notification open anchor once Ghostty reports scrollbar readiness.
+    ///
+    /// - Parameter scrollbar: Current Ghostty scrollbar state from the readiness notification.
+    private func applyPendingNotificationOpenAnchorIfPossible(scrollbar: GhosttyScrollbar) {
+        guard let pendingNotificationOpenAnchor else { return }
+        if applyNotificationOpenAnchor(pendingNotificationOpenAnchor, scrollbar: scrollbar) {
+            self.pendingNotificationOpenAnchor = nil
+        }
     }
 
     private func synchronizeScrollView() {
@@ -15367,9 +15396,11 @@ final class GhosttySurfaceScrollView: NSView {
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
+            applyPendingNotificationOpenAnchorIfPossible(scrollbar: scrollbar)
             return
         }
         synchronizeScrollView()
+        applyPendingNotificationOpenAnchorIfPossible(scrollbar: scrollbar)
     }
 
     @discardableResult

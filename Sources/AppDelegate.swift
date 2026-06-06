@@ -16242,13 +16242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let terminalPanel = workspace.terminalPanel(for: panelId) else {
             return false
         }
-        let didScroll = terminalPanel.scrollToNotificationOpenAnchor(openAnchor)
-        if !didScroll {
-            DispatchQueue.main.async { [weak terminalPanel] in
-                _ = terminalPanel?.scrollToNotificationOpenAnchor(openAnchor)
-            }
-        }
-        return didScroll
+        return terminalPanel.scrollToNotificationOpenAnchor(openAnchor)
     }
 
 #if DEBUG
