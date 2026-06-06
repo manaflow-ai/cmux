@@ -4492,17 +4492,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID = UUID(),
         tabManager: TabManager,
         cmuxConfigStore: CmuxConfigStore? = nil,
-        fileExplorerState: FileExplorerState? = nil
+        fileExplorerState: FileExplorerState? = nil,
+        isQuickTerminal: Bool = false,
+        window: NSWindow? = nil
     ) -> UUID {
-        mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
+        let contextKey = window.map { ObjectIdentifier($0) } ?? ObjectIdentifier(tabManager)
+        mainWindowContexts[contextKey] = MainWindowContext(
             windowId: windowId,
             tabManager: tabManager,
             sidebarState: SidebarState(),
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore,
-            isQuickTerminal: false,
-            window: nil
+            isQuickTerminal: isQuickTerminal,
+            window: window
         )
         ensureMobileWorkspaceListObserver(for: tabManager)
         notifyMainWindowContextsDidChange()
@@ -6998,7 +7001,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shouldActivate: Bool = true,
         suppressWelcome: Bool = false
     ) -> UUID {
-        for context in sortedMainWindowContextsForSessionSnapshot() {
+        for context in sortedMainWindowContextsForSessionSnapshot(includeQuickTerminal: false) {
             guard let window = resolvedWindow(for: context) else { continue }
             if shouldActivate {
                 mainWindowVisibilityController.focus(
@@ -7018,7 +7021,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func hasVisibleMainTerminalWindow() -> Bool {
-        mainWindowContexts.values.contains { context in
+        sortedMainWindowContextsForSessionSnapshot(includeQuickTerminal: false).contains { context in
             guard let window = resolvedWindow(for: context) else { return false }
             return window.isVisible && !window.isMiniaturized && window.alphaValue > 0.001
         }
