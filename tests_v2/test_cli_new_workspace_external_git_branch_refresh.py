@@ -20,10 +20,44 @@ from cmux import cmux, cmuxError
 def _resolve_socket_path() -> str:
     socket_path = os.environ.get("CMUX_SOCKET_PATH", "").strip()
     if not socket_path:
-        raise cmuxError("CMUX_SOCKET_PATH is required (expected /tmp/cmux-debug-<tag>.sock)")
-    if not re.fullmatch(r"/tmp/cmux-debug-[^/]+\.sock", socket_path):
+        raise cmuxError("CMUX_SOCKET_PATH is required (expected a tagged DEV socket)")
+    if not (
+        _is_legacy_tagged_debug_socket(socket_path)
+        or _is_state_tagged_debug_socket(socket_path)
+    ):
         raise cmuxError(f"CMUX_SOCKET_PATH must be a tagged debug socket, got: {socket_path!r}")
     return socket_path
+
+
+def _path_forms(path: str) -> set[str]:
+    forms = {os.path.abspath(os.path.expanduser(path)), os.path.realpath(os.path.expanduser(path))}
+    for form in list(forms):
+        if form.startswith("/private/tmp/"):
+            forms.add("/tmp/" + form.removeprefix("/private/tmp/"))
+        elif form.startswith("/tmp/"):
+            forms.add("/private/tmp/" + form.removeprefix("/tmp/"))
+    return forms
+
+
+def _paths_match(lhs: str, rhs: str) -> bool:
+    return bool(_path_forms(lhs).intersection(_path_forms(rhs)))
+
+
+def _is_legacy_tagged_debug_socket(socket_path: str) -> bool:
+    path = Path(socket_path).expanduser()
+    return (
+        re.fullmatch(r"cmux-debug-[^/]+\.sock", path.name) is not None
+        and any(_paths_match(str(path.parent), tmp_dir) for tmp_dir in ["/tmp", "/private/tmp"])
+    )
+
+
+def _is_state_tagged_debug_socket(socket_path: str) -> bool:
+    path = Path(socket_path).expanduser()
+    state_dir = Path("~/.local/state/cmux").expanduser()
+    return (
+        re.fullmatch(r"com\.cmuxterm\.app\.dev\.[^/]+\.sock", path.name) is not None
+        and _paths_match(str(path.parent), str(state_dir))
+    )
 
 
 SOCKET_PATH = _resolve_socket_path()

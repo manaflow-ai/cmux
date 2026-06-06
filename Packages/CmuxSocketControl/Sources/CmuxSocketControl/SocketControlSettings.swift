@@ -21,13 +21,19 @@ public struct SocketControlSettings {
     public static let launchTagEnvKey = "CMUX_TAG"
     /// Base bundle identifier shared by all debug builds.
     public static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
-    private static let stableSocketFileName = "cmux.sock"
-    /// Legacy stable socket path used before the Application Support location.
+    private static let stableSocketFileName = SocketPathMarkerFiles.releaseSocketFileName
+    /// Legacy `/tmp` stable socket path used before the state-directory location.
     public static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
 
     /// The stable build's default socket path (within ``CmuxStateDirectory``, falling back to `/tmp`).
     public static var stableDefaultSocketPath: String {
         stableSocketFileURL()?.path ?? legacyStableDefaultSocketPath
+    }
+
+    private static var legacyStateStableSocketPath: String {
+        stableSocketDirectoryURL()?
+            .appendingPathComponent(SocketPathMarkerFiles.legacyReleaseSocketFileName, isDirectory: false)
+            .path ?? legacyStableDefaultSocketPath
     }
 
     /// The result of probing the stable default socket path on disk.
@@ -334,6 +340,7 @@ public struct SocketControlSettings {
         }
         return [
             stableDefaultSocketPath,
+            legacyStateStableSocketPath,
             userScopedStableSocketPath(currentUserID: currentUserID),
             legacyStableDefaultSocketPath,
             legacyUserScopedStableSocketPath(currentUserID: currentUserID),
@@ -360,6 +367,7 @@ public struct SocketControlSettings {
                 currentUserID: currentUserID,
                 probeStableDefaultPathEntry: probeStableDefaultPathEntry
             ),
+            appSupportDirectory: stableSocketDirectoryURL(),
             baseDebugBundleIdentifier: baseDebugBundleIdentifier
         )
     }

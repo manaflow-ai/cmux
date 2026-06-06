@@ -32,7 +32,12 @@ from pathlib import Path
 from typing import Callable, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
 from cmux import cmux, cmuxError
+from cmux_socket_paths import socket_path_for_file_name
 
 NEW_WORKSPACES = int(os.environ.get("CMUX_LAG_NEW_WORKSPACES", "20"))
 SWITCH_PASSES = int(os.environ.get("CMUX_LAG_SWITCH_PASSES", "1"))
@@ -52,6 +57,7 @@ MIN_BASELINE_AVG_MS_FOR_RATIO = float(os.environ.get("CMUX_LAG_MIN_BASELINE_AVG_
 MAX_CPU_PERCENT = float(os.environ.get("CMUX_LAG_MAX_CPU_PERCENT", "180.0"))
 ENFORCE_CPU = os.environ.get("CMUX_LAG_ENFORCE_CPU", "0") == "1"
 ALLOW_MAIN_SOCKET = os.environ.get("CMUX_LAG_ALLOW_MAIN_SOCKET", "0") == "1"
+APP_SUPPORT_SOCKET_DIR = Path.home() / "Library" / "Application Support" / "cmux"
 
 
 @dataclass
@@ -179,10 +185,43 @@ def resolve_target_socket() -> str:
     socket_path = os.environ.get("CMUX_SOCKET_PATH")
     if not socket_path:
         raise cmuxError(
-            "CMUX_SOCKET_PATH is required. Point it to a tagged dev socket (for example /tmp/cmux-debug-<tag>.sock)."
+            "CMUX_SOCKET_PATH is required. Point it to a tagged DEV socket."
         )
     base = os.path.basename(socket_path)
-    if not ALLOW_MAIN_SOCKET and base in {"cmux.sock", "cmux-debug.sock"}:
+    tag = os.environ.get("CMUX_TAG", "").strip()
+    expected_tagged_dev_paths = set()
+    if tag:
+        expected_tagged_dev_paths.add(
+            str(socket_path_for_file_name(f"com.cmuxterm.app.dev.{tag}.sock"))
+        )
+        expected_tagged_dev_paths.add(f"/tmp/cmux-debug-{tag}.sock")
+
+    socket_parent = Path(socket_path).expanduser().parent
+    is_app_support_socket = socket_parent == APP_SUPPORT_SOCKET_DIR
+    prefix = "com.cmuxterm.app.dev."
+    is_unshortened_tagged_dev_socket = (
+        base.startswith(prefix)
+        and base.endswith(".sock")
+        and base != "com.cmuxterm.app.dev.sock"
+        and len(base) > len(prefix) + len(".sock")
+    )
+    # Tagged DEV sockets are the intended target for this harness; reject
+    # release, staging, nightly, and untagged DEV App Support sockets.
+    is_allowed_tagged_dev_socket = (
+        socket_path in expected_tagged_dev_paths
+        or (not is_app_support_socket and base.startswith("cmux-debug-"))
+        or (is_app_support_socket and is_unshortened_tagged_dev_socket)
+    )
+    is_main_socket = (
+        base in {"cmux.sock", "cmux-debug.sock"}
+        or (is_app_support_socket and not is_allowed_tagged_dev_socket)
+        or (
+            base.startswith("com.cmuxterm.app")
+            and not is_unshortened_tagged_dev_socket
+            and not is_allowed_tagged_dev_socket
+        )
+    )
+    if not ALLOW_MAIN_SOCKET and is_main_socket:
         raise cmuxError(
             f"Refusing to run against main socket '{socket_path}'. Set CMUX_SOCKET_PATH to a tagged dev instance."
         )

@@ -883,7 +883,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserWebViewFirstResponderObserver: NSObjectProtocol?
     let updateLog = UpdateLogStore()
     let focusLog = FocusLogStore()
-    private lazy var updateController = UpdateController(log: updateLog)
+    private lazy var updateController = UpdateController(
+        log: updateLog,
+        startupSkipReason: {
+            SocketControlSettings.isTaggedDevBuild() ? "tagged dev build" : nil
+        }
+    )
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?

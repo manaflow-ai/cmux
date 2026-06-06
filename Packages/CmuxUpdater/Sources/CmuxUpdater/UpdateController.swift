@@ -24,6 +24,7 @@ public final class UpdateController {
     private let defaults: UserDefaults
     private let fileManager: FileManager
     private let hostBundle: Bundle
+    private let startupSkipReason: @MainActor @Sendable () -> String?
     private let backgroundProbeInterval: TimeInterval
 
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
@@ -67,17 +68,21 @@ public final class UpdateController {
     ///   - defaults: The `UserDefaults` the settings are applied to.
     ///   - fileManager: Filesystem access for the Sparkle installation-cache workaround;
     ///     injectable so tests can avoid touching the real filesystem.
+    ///   - startupSkipReason: A policy hook returning a log reason when Sparkle startup
+    ///     should be skipped for this process. Defaults to never skipping.
     public init(log: any UpdateLogging,
                 clock: any UpdateClock = SystemUpdateClock(),
                 settings: UpdateSettings = UpdateSettings(),
                 hostBundle: Bundle = .main,
                 defaults: UserDefaults = .standard,
-                fileManager: FileManager = .default) {
+                fileManager: FileManager = .default,
+                startupSkipReason: @escaping @MainActor @Sendable () -> String? = { nil }) {
         self.log = log
         self.clock = clock
         self.defaults = defaults
         self.fileManager = fileManager
         self.hostBundle = hostBundle
+        self.startupSkipReason = startupSkipReason
         self.backgroundProbeInterval = settings.scheduledCheckInterval
         settings.apply(to: defaults)
 
@@ -300,6 +305,11 @@ public final class UpdateController {
     /// Start the updater. If startup fails, the error is shown via the custom UI.
     public func startUpdaterIfNeeded() {
         guard !didStartUpdater else { return }
+        if let reason = startupSkipReason() {
+            didStartUpdater = true
+            log.append("updater skipped (\(reason))")
+            return
+        }
         ensureSparkleInstallationCache()
 #if DEBUG
         // Keep the permission-related defaults resettable for UI tests even though the

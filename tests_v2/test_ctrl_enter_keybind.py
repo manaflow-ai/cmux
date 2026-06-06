@@ -9,6 +9,7 @@ Requires:
 """
 
 import os
+import re
 import sys
 import time
 import subprocess
@@ -24,6 +25,13 @@ from cmux import cmux, cmuxError
 class SkipTest(Exception):
     """Raised to skip this test when the environment can't support it."""
 
+
+def sanitize_tag_slug(raw: str) -> Optional[str]:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower())
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+    return cleaned or None
+
+
 def infer_app_name_for_osascript(socket_path: str) -> str:
     """
     Infer the app display name from the socket path.
@@ -31,10 +39,24 @@ def infer_app_name_for_osascript(socket_path: str) -> str:
     Examples:
       - /tmp/cmux-debug.sock          -> "cmux DEV"
       - /tmp/cmux-debug-foo.sock      -> "cmux DEV foo"
-      - ~/Library/Application Support/cmux/cmux.sock -> "cmux"
+      - ~/Library/Application Support/cmux/com.cmuxterm.app.sock -> "cmux"
       - /tmp/cmux-foo.sock            -> "cmux foo"
     """
     base = Path(socket_path).name
+    env_tag = sanitize_tag_slug(os.environ.get("CMUX_TAG") or "")
+    if base in {"com.cmuxterm.app.dev.sock", "cmux-debug.sock"}:
+        return "cmux DEV"
+    if env_tag and (base.startswith("com.cmuxterm.app.dev.") or base.startswith("cmux-debug-")):
+        return f"cmux DEV {env_tag}"
+    if base == "com.cmuxterm.app.sock":
+        return "cmux"
+    if base == "com.cmuxterm.app.nightly.sock":
+        return "cmux NIGHTLY"
+    if base == "com.cmuxterm.app.staging.sock":
+        return "cmux STAGING"
+    if base.startswith("com.cmuxterm.app.dev.") and base.endswith(".sock"):
+        tag = base[len("com.cmuxterm.app.dev.") : -len(".sock")].strip()
+        return f"cmux DEV {tag}" if tag else "cmux DEV"
     if base.startswith("cmux-debug") and base.endswith(".sock"):
         suffix = base[len("cmux-debug") : -len(".sock")]
         if suffix.startswith("-") and suffix[1:]:

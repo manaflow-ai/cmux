@@ -10,10 +10,16 @@ import plistlib
 import re
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
 from cmux import cmux
+from cmux_socket_paths import socket_path_for_file_name
 
 
 def _bundle_id(app_path: Path) -> str:
@@ -46,6 +52,7 @@ def _socket_candidates(app_path: Path, preferred: Path) -> list[Path]:
     if app_name.startswith(prefix):
         tag = app_name[len(prefix):]
         slug = _sanitize_tag_slug(tag)
+        candidates.append(socket_path_for_file_name(f"com.cmuxterm.app.dev.{slug}.sock"))
         candidates.append(Path(f"/tmp/cmux-debug-{slug}.sock"))
     deduped: list[Path] = []
     seen: set[str] = set()

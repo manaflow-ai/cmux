@@ -25,7 +25,7 @@ public import Foundation
 /// // The stable control socket; app and CLI agree on the same path by passing
 /// // the real account home (`FileManager.default.homeDirectoryForCurrentUser`):
 /// let home = FileManager.default.homeDirectoryForCurrentUser
-/// let socket = CmuxStateDirectory.url(homeDirectory: home).appendingPathComponent("cmux.sock")
+/// let socket = CmuxStateDirectory.url(homeDirectory: home).appendingPathComponent("com.cmuxterm.app.sock")
 /// ```
 public enum CmuxStateDirectory {
     /// The directory name segment under `~/.local/state` (and the legacy name

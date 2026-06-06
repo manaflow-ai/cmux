@@ -87,11 +87,21 @@ enum CLISocketPathResolver {
         case inaccessible(errnoCode: Int32)
     }
 
-    private static let stableSocketFileName = "cmux.sock"
+    private static let stableSocketFileName = SocketPathMarkerFiles.releaseSocketFileName
+    private static let legacyStableSocketFileName = SocketPathMarkerFiles.legacyReleaseSocketFileName
     static let legacyDefaultSocketPath = "/tmp/cmux.sock"
-    private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
-    private static let nightlySocketPath = "/tmp/cmux-nightly.sock"
-    private static let stagingSocketPath = "/tmp/cmux-staging.sock"
+    private static let fallbackSocketPath = SocketPathMarkerFiles.defaultDebugSocketPath
+    private static let nightlySocketPath = SocketPathMarkerFiles.defaultNightlySocketPath
+    private static let stagingSocketPath = SocketPathMarkerFiles.defaultStagingSocketPath
+    private static let socketProbeTimeout: TimeInterval = 0.35
+    private static let minimumSocketProbeTimeout: TimeInterval = 0.01
+
+    private enum SocketProbeResult {
+        case cmux
+        case notCmux
+        case indeterminate
+        case unavailable
+    }
 
     static func defaultSocketPath(
         bundleIdentifier: String?,
@@ -102,6 +112,7 @@ enum CLISocketPathResolver {
             environment: environment,
             isDebugBuild: false,
             stableSocketPath: stableDefaultSocketPath,
+            appSupportDirectory: stableSocketDirectoryURL(),
             debugSocketPath: fallbackSocketPath,
             nightlySocketPath: nightlySocketPath,
             stagingSocketPath: stagingSocketPath
@@ -150,7 +161,11 @@ enum CLISocketPathResolver {
 
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         if case .stable = variant,
-           canConnect(to: requestedPath, currentUserID: currentUserID, inspectSocketPathEntry: inspectSocketPathEntry) {
+           probeCmuxSocket(
+            at: requestedPath,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+           ) == .cmux {
             return requestedPath
         }
 
@@ -159,18 +174,28 @@ enum CLISocketPathResolver {
             environment: environment,
             bundleIdentifier: bundleIdentifier
         ))
+        var rejectedPaths: Set<String> = []
 
-        // Prefer sockets that are currently accepting connections.
-        for path in candidates where canConnect(
-            to: path,
-            currentUserID: currentUserID,
-            inspectSocketPathEntry: inspectSocketPathEntry
-        ) {
-            return path
+        // Prefer sockets that prove they speak the cmux protocol. Another
+        // process can bind a Unix socket path and accept connections.
+        for path in candidates {
+            switch probeCmuxSocket(
+                at: path,
+                currentUserID: currentUserID,
+                inspectSocketPathEntry: inspectSocketPathEntry
+            ) {
+            case .cmux:
+                return path
+            case .notCmux:
+                rejectedPaths.insert(path)
+            case .indeterminate, .unavailable:
+                break
+            }
         }
 
-        // If the listener is still starting, prefer existing socket files.
-        for path in candidates where isOwnedSocketFile(
+        // If the listener is still starting, prefer existing socket files that
+        // were not proven to be a different protocol.
+        for path in candidates where !rejectedPaths.contains(path) && isOwnedSocketFile(
             path,
             currentUserID: currentUserID,
             inspectSocketPathEntry: inspectSocketPathEntry
@@ -191,7 +216,11 @@ enum CLISocketPathResolver {
         let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
 
         candidates.append(defaultPath)
-        if let last = readLastSocketPath(bundleIdentifier: bundleIdentifier, environment: environment) {
+        if let last = readLastSocketPath(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment,
+            variant: variant
+        ) {
             candidates.append(last)
         }
         if shouldIncludeImplicitRequestedPath(
@@ -230,9 +259,38 @@ enum CLISocketPathResolver {
         switch variant {
         case .stable:
             return stableImplicitDefaultPaths()
-        case .nightly, .staging, .dev:
-            return []
+        case .nightly(let slug):
+            if let slug {
+                return ["/tmp/cmux-nightly-\(slug).sock"]
+            }
+            return [nightlySocketPath]
+        case .staging(let slug):
+            if let slug {
+                return ["/tmp/cmux-staging-\(slug).sock"]
+            }
+            return [stagingSocketPath]
+        case .dev(let slug):
+            if let slug {
+                return [
+                    "/tmp/cmux-debug-\(slug).sock",
+                    "/tmp/cmux-\(slug).sock",
+                ]
+            }
+            return [fallbackSocketPath]
         }
+    }
+
+    private static func shouldUseLastSocketPath(_ path: String, variant: SocketPathVariant) -> Bool {
+        switch variant {
+        case .stable:
+            return isStableImplicitSocketPath(path)
+        case .nightly, .staging, .dev:
+            return true
+        }
+    }
+
+    private static func isStableImplicitSocketPath(_ path: String) -> Bool {
+        containsPath(stableImplicitDefaultPaths(), path)
     }
 
     private static func shouldDiscoverTaggedSockets(
@@ -254,14 +312,16 @@ enum CLISocketPathResolver {
 
     private static func readLastSocketPath(
         bundleIdentifier: String?,
-        environment: [String: String]
+        environment: [String: String],
+        variant: SocketPathVariant
     ) -> String? {
         let candidates = lastSocketPathFiles(bundleIdentifier: bundleIdentifier, environment: environment)
         for candidate in candidates {
             guard let data = try? String(contentsOfFile: candidate, encoding: .utf8) else {
                 continue
             }
-            if let value = normalized(data) {
+            if let value = normalized(data),
+               shouldUseLastSocketPath(value, variant: variant) {
                 return value
             }
         }
@@ -275,7 +335,7 @@ enum CLISocketPathResolver {
                 continue
             }
             discovered.reserveCapacity(min(limit, discovered.count + entries.count))
-            for name in entries where name.hasPrefix("cmux-debug-") && name.hasSuffix(".sock") {
+            for name in entries where isDiscoverableTaggedSocketName(name) {
                 let path = URL(fileURLWithPath: directory)
                     .appendingPathComponent(name, isDirectory: false)
                     .path
@@ -292,6 +352,29 @@ enum CLISocketPathResolver {
 
         discovered.sort { $0.mtime > $1.mtime }
         return dedupe(discovered.prefix(limit).map(\.path))
+    }
+
+    private static func isDiscoverableTaggedSocketName(_ name: String) -> Bool {
+        let socketSuffix = ".sock"
+        guard name.hasSuffix(socketSuffix) else { return false }
+        let stem = String(name.dropLast(socketSuffix.count))
+        let appSupportTaggedDevPrefix = "\(SocketPathMarkerFiles.releaseBundleIdentifier).dev."
+        if stem.hasPrefix(appSupportTaggedDevPrefix) {
+            return stem.count > appSupportTaggedDevPrefix.count
+        }
+        if stem.hasPrefix("cmux-debug-") {
+            return true
+        }
+        if stem == "cmux-debug" {
+            return false
+        }
+        if stem == "cmux-nightly" || stem.hasPrefix("cmux-nightly-") {
+            return false
+        }
+        if stem == "cmux-staging" || stem.hasPrefix("cmux-staging-") {
+            return false
+        }
+        return stem.hasPrefix("cmux-")
     }
 
     private static func isSocketFile(_ path: String) -> Bool {
@@ -326,29 +409,116 @@ enum CLISocketPathResolver {
         return .other(ownerUserID: st.st_uid)
     }
 
-    private static func canConnect(
-        to path: String,
+    private static func probeCmuxSocket(
+        at path: String,
         currentUserID: uid_t,
         inspectSocketPathEntry: (String) -> SocketPathEntry
-    ) -> Bool {
+    ) -> SocketProbeResult {
+        let deadline = ProcessInfo.processInfo.systemUptime + socketProbeTimeout
+        let legacyResult = probeLegacyCmuxSocket(
+            at: path,
+            timeout: socketProbeTimeout,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        )
+        if legacyResult == .cmux {
+            return .cmux
+        }
+
+        guard let remainingTimeout = socketProbeTimeoutRemaining(until: deadline) else {
+            return legacyResult
+        }
+
+        let v2Result = probeV2CmuxSocket(
+            at: path,
+            timeout: remainingTimeout,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        )
+        if v2Result == .cmux {
+            return .cmux
+        }
+
+        if legacyResult == .notCmux || v2Result == .notCmux {
+            return .notCmux
+        }
+        if legacyResult == .indeterminate || v2Result == .indeterminate {
+            return .indeterminate
+        }
+        return .unavailable
+    }
+
+    private static func socketProbeTimeoutRemaining(until deadline: TimeInterval) -> TimeInterval? {
+        let remaining = deadline - ProcessInfo.processInfo.systemUptime
+        guard remaining > minimumSocketProbeTimeout else { return nil }
+        return remaining
+    }
+
+    private static func probeLegacyCmuxSocket(
+        at path: String,
+        timeout: TimeInterval,
+        currentUserID: uid_t,
+        inspectSocketPathEntry: (String) -> SocketPathEntry
+    ) -> SocketProbeResult {
+        withConnectedSocket(
+            at: path,
+            timeout: timeout,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        ) { fd, deadline in
+            guard writeAll(Data("ping\n".utf8), to: fd, until: deadline) else { return .notCmux }
+            guard let response = readFirstLine(from: fd, until: deadline) else {
+                return .indeterminate
+            }
+            return response == "PONG" ? .cmux : .notCmux
+        }
+    }
+
+    private static func probeV2CmuxSocket(
+        at path: String,
+        timeout: TimeInterval,
+        currentUserID: uid_t,
+        inspectSocketPathEntry: (String) -> SocketPathEntry
+    ) -> SocketProbeResult {
+        withConnectedSocket(
+            at: path,
+            timeout: timeout,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        ) { fd, deadline in
+            let payload = #"{"id":1,"method":"system.ping","params":{}}"# + "\n"
+            guard writeAll(Data(payload.utf8), to: fd, until: deadline) else { return .notCmux }
+            guard let response = readFirstLine(from: fd, until: deadline) else {
+                return .indeterminate
+            }
+            return isSuccessfulV2PingResponse(response) ? .cmux : .notCmux
+        }
+    }
+
+    private static func withConnectedSocket(
+        at path: String,
+        timeout: TimeInterval,
+        currentUserID: uid_t,
+        inspectSocketPathEntry: (String) -> SocketPathEntry,
+        perform: (Int32, TimeInterval) -> SocketProbeResult
+    ) -> SocketProbeResult {
         guard isOwnedSocketFile(
             path,
             currentUserID: currentUserID,
             inspectSocketPathEntry: inspectSocketPathEntry
         ) else {
-            return false
+            return .unavailable
         }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
+        guard fd >= 0 else { return .unavailable }
         defer { Darwin.close(fd) }
-        let originalFlags = fcntl(fd, F_GETFL, 0)
-        guard originalFlags >= 0 else { return false }
-        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return false }
-        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
+        configureNoSigPipe(fd)
+        let deadline = ProcessInfo.processInfo.systemUptime + max(timeout, minimumSocketProbeTimeout)
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
+        guard path.utf8CString.count <= maxLength else { return .unavailable }
         path.withCString { ptr in
             withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
                 let buf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
@@ -356,35 +526,200 @@ enum CLISocketPathResolver {
             }
         }
 
-        let result = withUnsafePointer(to: &addr) { ptr in
+        guard connectSocketWithTimeout(fd, to: &addr, timeout: timeout) else {
+            return .unavailable
+        }
+        guard socketProbeTimeoutRemaining(until: deadline) != nil else {
+            return .indeterminate
+        }
+
+        let originalFlags = fcntl(fd, F_GETFL, 0)
+        guard originalFlags >= 0 else { return .unavailable }
+        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return .unavailable }
+        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
+
+        return perform(fd, deadline)
+    }
+
+    private static func connectSocketWithTimeout(
+        _ fd: Int32,
+        to address: inout sockaddr_un,
+        timeout: TimeInterval
+    ) -> Bool {
+        let originalFlags = fcntl(fd, F_GETFL, 0)
+        guard originalFlags >= 0 else { return false }
+        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return false }
+        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
+
+        let result = withUnsafePointer(to: &address) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
                 Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        if result == 0 {
+        if result == 0 || errno == EISCONN {
             return true
         }
-        let connectErrno = errno
-        guard connectErrno == EINPROGRESS || connectErrno == EAGAIN || connectErrno == EWOULDBLOCK else {
+        guard errno == EINPROGRESS || errno == EALREADY else {
             return false
         }
 
-        var pollFD = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-        guard poll(&pollFD, 1, 150) > 0 else {
-            return false
+        return waitForSocketConnect(fd, timeout: timeout)
+    }
+
+    private static func waitForSocketConnect(_ fd: Int32, timeout: TimeInterval) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + max(timeout, 0.01)
+        while true {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { return false }
+
+            var descriptor = pollfd(
+                fd: fd,
+                events: Int16(POLLOUT),
+                revents: 0
+            )
+            let timeoutMilliseconds = Int32(max(1, ceil(remaining * 1_000)))
+            let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+            if ready < 0 {
+                if errno == EINTR { continue }
+                return false
+            }
+            guard ready > 0 else {
+                return false
+            }
+            guard descriptor.revents != 0 else {
+                return false
+            }
+
+            var socketError: Int32 = 0
+            var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+            let status = withUnsafeMutablePointer(to: &socketError) { ptr in
+                getsockopt(fd, SOL_SOCKET, SO_ERROR, UnsafeMutableRawPointer(ptr), &socketErrorLength)
+            }
+            return status == 0 && socketError == 0
         }
-        guard (pollFD.revents & Int16(POLLOUT)) != 0 else {
+    }
+
+    private static func isSuccessfulV2PingResponse(_ response: String) -> Bool {
+        guard let data = response.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return false
         }
 
-        var socketError: Int32 = 0
-        var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
-        let optionResult = withUnsafeMutablePointer(to: &socketError) { errorPointer in
-            withUnsafeMutablePointer(to: &socketErrorLength) { lengthPointer in
-                getsockopt(fd, SOL_SOCKET, SO_ERROR, errorPointer, lengthPointer)
+        guard isV2PingResponseID(object["id"]) else {
+            return false
+        }
+        guard object["ok"] as? Bool == true else {
+            return false
+        }
+        if let result = object["result"] as? [String: Any] {
+            return result["pong"] as? Bool == true
+        }
+        return object["result"] as? Bool == true
+    }
+
+    private static func isV2PingResponseID(_ value: Any?) -> Bool {
+        if let id = value as? Int {
+            return id == 1
+        }
+        if let id = value as? NSNumber {
+            return id.intValue == 1
+        }
+        return false
+    }
+
+    private static func configureNoSigPipe(_ fd: Int32) {
+#if os(macOS)
+        var noSigPipe: Int32 = 1
+        _ = withUnsafePointer(to: &noSigPipe) { ptr in
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, ptr, socklen_t(MemoryLayout<Int32>.size))
+        }
+#else
+        _ = fd
+#endif
+    }
+
+    private static func writeAll(_ data: Data, to fd: Int32, until deadline: TimeInterval) -> Bool {
+        data.withUnsafeBytes { rawBuffer in
+            guard var cursor = rawBuffer.baseAddress else { return true }
+            var remaining = rawBuffer.count
+            while remaining > 0 {
+                let written = Darwin.write(fd, cursor, remaining)
+                if written < 0 {
+                    if errno == EINTR { continue }
+                    if errno == EAGAIN || errno == EWOULDBLOCK {
+                        guard waitForSocketEvent(fd, events: Int16(POLLOUT), until: deadline) else {
+                            return false
+                        }
+                        continue
+                    }
+                    return false
+                }
+                guard written > 0 else { return false }
+                remaining -= written
+                cursor = cursor.advanced(by: written)
+            }
+            return true
+        }
+    }
+
+    private static func readFirstLine(from fd: Int32, until deadline: TimeInterval) -> String? {
+        var bytes: [UInt8] = []
+        var buffer = [UInt8](repeating: 0, count: 128)
+        while bytes.count < 512 {
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count < 0 {
+                if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    guard waitForSocketEvent(fd, events: Int16(POLLIN), until: deadline) else {
+                        break
+                    }
+                    continue
+                }
+                if !bytes.isEmpty { break }
+                return nil
+            }
+            guard count > 0 else { break }
+            bytes.append(contentsOf: buffer.prefix(count))
+            if bytes.contains(0x0A) { break }
+        }
+        guard !bytes.isEmpty else {
+            return nil
+        }
+        let response = String(decoding: bytes, as: UTF8.self)
+        return response
+            .components(separatedBy: .newlines)
+            .first
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+
+    private static func waitForSocketEvent(_ fd: Int32, events: Int16, until deadline: TimeInterval) -> Bool {
+        while true {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { return false }
+
+            var descriptor = pollfd(
+                fd: fd,
+                events: events,
+                revents: 0
+            )
+            let timeoutMilliseconds = Int32(max(1, ceil(remaining * 1_000)))
+            let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+            if ready < 0 {
+                if errno == EINTR { continue }
+                return false
+            }
+            guard ready > 0 else {
+                return false
+            }
+
+            let errorMask = Int16(POLLERR) | Int16(POLLNVAL)
+            if descriptor.revents & errorMask != 0 {
+                return false
+            }
+            if descriptor.revents & (events | Int16(POLLHUP)) != 0 {
+                return true
             }
         }
-        return optionResult == 0 && socketError == 0
     }
 
     private static func knownImplicitDefaultPaths(
@@ -393,19 +728,19 @@ enum CLISocketPathResolver {
     ) -> [String] {
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
-        if case .stable = variant {
-            return stableImplicitDefaultPaths()
-        }
         return dedupe(
-            [defaultPath] + stableImplicitDefaultPaths()
+            [defaultPath]
+                + implicitFallbackCandidatePaths(for: variant)
+                + stableImplicitDefaultPaths()
         )
     }
 
     private static func stableImplicitDefaultPaths() -> [String] {
         dedupe([
             stableDefaultSocketPath,
-            legacyDefaultSocketPath,
             userScopedStableSocketPath(),
+            legacyStableSocketPath,
+            legacyDefaultSocketPath,
             legacyUserScopedStableSocketPath(),
         ])
     }
@@ -413,6 +748,7 @@ enum CLISocketPathResolver {
     private static func allKnownDefaultSocketPaths() -> Set<String> {
         Set(dedupe([
             stableDefaultSocketPath,
+            legacyStableSocketPath,
             legacyDefaultSocketPath,
             userScopedStableSocketPath(),
             legacyUserScopedStableSocketPath(),
@@ -469,6 +805,12 @@ enum CLISocketPathResolver {
     }
 
     static func currentAppBundleIdentifier() -> String? {
+        if let bundleIdentifier = ProcessInfo.processInfo.environment["CMUX_BUNDLE_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !bundleIdentifier.isEmpty {
+            return bundleIdentifier
+        }
+
         if let bundleIdentifier = CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !bundleIdentifier.isEmpty {
@@ -503,6 +845,13 @@ enum CLISocketPathResolver {
     /// composition root, so it names the concrete `FileManager.default` here.
     private static func stableSocketDirectoryURL() -> URL? {
         CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    private static var legacyStableSocketPath: String {
+        let stablePath: String? = stableSocketDirectoryURL()?
+            .appendingPathComponent(legacyStableSocketFileName, isDirectory: false)
+            .path
+        return stablePath ?? legacyDefaultSocketPath
     }
 
     private static func socketDiscoveryDirectories() -> [String] {
