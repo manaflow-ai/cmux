@@ -900,6 +900,48 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testCodexSubmitBlocksReentrantTurnWhileWriteIsPending() async throws {
+        var sentLines: [String] = []
+        var pendingTurnWrite: CheckedContinuation<Void, Never>?
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                let line = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
+                if line.contains(#""method":"turn/start""#) {
+                    await withCheckedContinuation { continuation in
+                        pendingTurnWrite = continuation
+                    }
+                }
+                sentLines.append(line)
+            },
+            outputSink: { _, _ in }
+        )
+
+        try await session.start()
+        session.consumeStdout(
+            #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
+                + "\n")
+        await Task.yield()
+        session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
+
+        let firstSubmit = Task { try await session.submit("first prompt") }
+        while pendingTurnWrite == nil {
+            await Task.yield()
+        }
+
+        await expectThrowsErrorAsync {
+            try await session.submit("second prompt")
+        }
+
+        pendingTurnWrite?.resume()
+        try await firstSubmit.value
+        expectEqual(sentLines.count, 4)
+        let turnParams = try #require(jsonLine(sentLines[3])["params"] as? [String: Any])
+        let input = try #require(turnParams["input"] as? [[String: Any]])
+        expectEqual(input.first?["text"] as? String, "first prompt")
+    }
+
+    @Test
     func testCodexApprovalRequestsOnlyAutoApproveForFullAccessMode() async throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(

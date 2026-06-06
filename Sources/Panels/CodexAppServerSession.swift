@@ -587,13 +587,19 @@ final class CodexAppServerSession {
         for (key, value) in permissionMode.codexTurnOverrides {
             params[key] = value
         }
-        let requestID = try await sendRequest(
-            method: "turn/start",
-            params: params
-        )
         activePermissionMode = permissionMode
         isTurnInFlight = true
-        turnStartRequestIDs.insert(requestID)
+        do {
+            let requestID = try await sendRequest(
+                method: "turn/start",
+                params: params
+            )
+            turnStartRequestIDs.insert(requestID)
+        } catch {
+            activePermissionMode = .standard
+            isTurnInFlight = false
+            throw error
+        }
     }
 
     @discardableResult
