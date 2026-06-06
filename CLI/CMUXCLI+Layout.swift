@@ -128,19 +128,27 @@ extension CMUXCLI {
             ))
         }
 
-        let directory = layoutPresetDirectoryURL()
+        let presetDirectory = layoutPresetDirectory()
+        let directory = presetDirectory.url
         let fileManager = FileManager.default
-        guard let urls = try? fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else {
-            if jsonOutput {
-                print(jsonString(["presets": []]))
-            } else {
-                print(String(localized: "cli.layout.output.noPresets", defaultValue: "No layout presets"))
-            }
+        if !presetDirectory.fromEnvironment,
+           !fileManager.fileExists(atPath: directory.path) {
+            printLayoutNoPresets(jsonOutput: jsonOutput)
             return
+        }
+        let urls: [URL]
+        do {
+            urls = try fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.layout.error.listReadFailed", defaultValue: "Failed to read layout preset directory %@: %@"),
+                directory.path,
+                String(describing: error)
+            ))
         }
 
         let presets: [[String: Any]] = urls
@@ -180,7 +188,7 @@ extension CMUXCLI {
         }
 
         if presets.isEmpty {
-            print(String(localized: "cli.layout.output.noPresets", defaultValue: "No layout presets"))
+            printLayoutNoPresets(jsonOutput: jsonOutput)
             return
         }
 
@@ -194,6 +202,14 @@ extension CMUXCLI {
                 )
             } ?? ""
             print("\(name)\(cwd)\(error)")
+        }
+    }
+
+    private func printLayoutNoPresets(jsonOutput: Bool) {
+        if jsonOutput {
+            print(jsonString(["presets": []]))
+        } else {
+            print(String(localized: "cli.layout.output.noPresets", defaultValue: "No layout presets"))
         }
     }
 
@@ -408,16 +424,21 @@ extension CMUXCLI {
         )
     }
 
-    private func layoutPresetDirectoryURL() -> URL {
+    private func layoutPresetDirectory() -> (url: URL, fromEnvironment: Bool) {
         let envOverride = ProcessInfo.processInfo.environment["CMUX_LAYOUT_PRESET_DIR"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fromEnvironment = envOverride?.isEmpty == false
         let path: String
-        if let envOverride, !envOverride.isEmpty {
+        if let envOverride, fromEnvironment {
             path = resolvePath(envOverride)
         } else {
             path = NSString(string: "~/.config/cmux/layouts").expandingTildeInPath
         }
-        return URL(fileURLWithPath: path, isDirectory: true)
+        return (URL(fileURLWithPath: path, isDirectory: true), fromEnvironment)
+    }
+
+    private func layoutPresetDirectoryURL() -> URL {
+        layoutPresetDirectory().url
     }
 
     private func layoutPresetURL(name: String) -> URL {

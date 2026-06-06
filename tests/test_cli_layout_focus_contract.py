@@ -182,6 +182,32 @@ def run_cli_without_socket(
     return proc.stdout.strip()
 
 
+def assert_cli_without_socket_fails(
+    cli: str,
+    args: list[str],
+    expected: str,
+    env_overrides: dict[str, str] | None = None,
+) -> None:
+    env = dict(os.environ)
+    for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
+        env.pop(key, None)
+    if env_overrides:
+        env.update(env_overrides)
+    proc = subprocess.run(
+        [cli, *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=5,
+    )
+    if proc.returncode == 0:
+        raise AssertionError(f"CLI unexpectedly succeeded ({' '.join(args)}): {proc.stdout}")
+    merged = f"{proc.stdout}\n{proc.stderr}"
+    if expected not in merged:
+        raise AssertionError(f"expected failure containing {expected!r}, got {merged!r}")
+
+
 def assert_cli_fails(cli: str, socket_path: str, args: list[str], expected: str) -> None:
     env = dict(os.environ)
     for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
@@ -246,6 +272,15 @@ def main() -> int:
             listed = json.loads(list_text)
             if listed != {"presets": []}:
                 raise AssertionError(f"layout list should work without a socket: {listed!r}")
+
+            invalid_layout_dir = Path(tmp) / "layout-file"
+            invalid_layout_dir.write_text("not a directory", encoding="utf-8")
+            assert_cli_without_socket_fails(
+                cli,
+                ["layout", "list"],
+                "Failed to read layout preset directory",
+                {"CMUX_LAYOUT_PRESET_DIR": str(invalid_layout_dir)},
+            )
 
             assert_cli_fails(cli, socket_path, ["layout", "save", ".hidden"], "Preset names may not start with '.'")
 
