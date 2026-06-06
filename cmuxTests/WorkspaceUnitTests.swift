@@ -4480,6 +4480,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         let panelId = panel.id
 
         XCTAssertTrue(AppDelegate.shouldDiscardProvisionalDefaultCodeEditor(panel))
+        XCTAssertEqual(AppDelegate.provisionalDefaultCodeEditor(in: workspace, panelId: panelId)?.id, panelId)
         XCTAssertTrue(AppDelegate.discardProvisionalDefaultCodeEditor(in: workspace, panelId: panelId))
         XCTAssertNil(workspace.panels[panelId])
     }
@@ -4499,6 +4500,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         let panelId = panel.id
 
         XCTAssertFalse(AppDelegate.shouldDiscardProvisionalDefaultCodeEditor(panel))
+        XCTAssertNil(AppDelegate.provisionalDefaultCodeEditor(in: workspace, panelId: panelId))
         XCTAssertFalse(AppDelegate.discardProvisionalDefaultCodeEditor(in: workspace, panelId: panelId))
         XCTAssertNotNil(workspace.panels[panelId])
     }

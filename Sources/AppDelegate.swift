@@ -7394,7 +7394,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            targetTabManager.browserPanel(tabId: targetWorkspaceId, panelId: panelId)?
+            Self.provisionalDefaultCodeEditor(
+                tabManager: targetTabManager,
+                workspaceId: targetWorkspaceId,
+                panelId: panelId
+            )?
                 .navigate(to: openFolderURL)
         }
 
@@ -7419,11 +7423,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     static func discardProvisionalDefaultCodeEditor(in workspace: Workspace, panelId: UUID) -> Bool {
-        guard let panel = workspace.browserPanel(for: panelId),
-              shouldDiscardProvisionalDefaultCodeEditor(panel) else {
+        guard provisionalDefaultCodeEditor(in: workspace, panelId: panelId) != nil else {
             return false
         }
         return workspace.closePanel(panelId, force: true)
+    }
+
+    static func provisionalDefaultCodeEditor(
+        tabManager: TabManager,
+        workspaceId: UUID,
+        panelId: UUID
+    ) -> BrowserPanel? {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return nil
+        }
+        return provisionalDefaultCodeEditor(in: workspace, panelId: panelId)
+    }
+
+    static func provisionalDefaultCodeEditor(in workspace: Workspace, panelId: UUID) -> BrowserPanel? {
+        guard let panel = workspace.browserPanel(for: panelId),
+              shouldDiscardProvisionalDefaultCodeEditor(panel) else {
+            return nil
+        }
+        return panel
     }
 
     static func shouldDiscardProvisionalDefaultCodeEditor(_ panel: BrowserPanel) -> Bool {
