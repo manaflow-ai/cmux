@@ -145,8 +145,7 @@ enum BrowserPDFPreviewActionSupport {
                 return trimmed.isEmpty ? nil : trimmed
             }.first ?? String(localized: "browser.pdfPreview.printJobTitle", defaultValue: "PDF")
 
-            guard let window = webView.window else {
-                _ = printOperation.run()
+            guard let window = webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
                 completionHandler()
                 return
             }
