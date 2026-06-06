@@ -207,29 +207,35 @@ extension AppDelegate {
         shouldActivate: Bool = false
     ) -> Bool {
         var failedStoreRecordIds: Set<UUID> = []
-        let undoableOperation = ClosedItemHistoryStore.shared.firstUndoableOperation()
         let legacyManagers = recentlyClosedLegacyBrowserManagers(preferredTabManager: preferredTabManager)
-        if let legacyManager = legacyManagers.first,
-           let legacyClosedAt = legacyManager.mostRecentLegacyClosedBrowserPanelClosedAt(),
-           undoableOperation.map({ legacyClosedAt > $0.closedAt }) ?? true,
-           legacyManager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
-            ClosedItemHistoryStore.shared.clearRedoTarget()
-            return true
-        }
-        guard let op = undoableOperation else {
-            // Everything in the store is already live. Fall back to the legacy
-            // browser-tab stack only (never re-restore a store entry, which would
-            // duplicate something already on screen).
+        var failedLegacyManagerIds: Set<ObjectIdentifier> = []
+
+        func reopenNewestLegacyIfNeeded(newerThan storeClosedAt: Date?) -> Bool {
             for manager in legacyManagers {
+                guard !failedLegacyManagerIds.contains(ObjectIdentifier(manager)) else { continue }
+                guard let legacyClosedAt = manager.mostRecentLegacyClosedBrowserPanelClosedAt() else {
+                    continue
+                }
+                if let storeClosedAt, legacyClosedAt <= storeClosedAt {
+                    continue
+                }
                 if manager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
                     ClosedItemHistoryStore.shared.clearRedoTarget()
                     return true
                 }
+                failedLegacyManagerIds.insert(ObjectIdentifier(manager))
             }
             return false
         }
-        var currentOperation: ClosedOperationSnapshot? = op
-        while let op = currentOperation {
+
+        while true {
+            let currentOperation = ClosedItemHistoryStore.shared.firstUndoableOperation(excluding: failedStoreRecordIds)
+            if reopenNewestLegacyIfNeeded(newerThan: currentOperation?.closedAt) {
+                return true
+            }
+            guard let op = currentOperation else {
+                return false
+            }
             var restoredCount = 0
             for item in op.items where !item.isRestored {
                 if reopenClosedHistoryItem(
@@ -246,9 +252,7 @@ extension AppDelegate {
                 ClosedItemHistoryStore.shared.setLastRestoredOperation(op.id)
                 return true
             }
-            currentOperation = ClosedItemHistoryStore.shared.firstUndoableOperation(excluding: failedStoreRecordIds)
         }
-        return false
     }
 
     /// Op-atomic redo: re-closes the live items of the most recently restored
