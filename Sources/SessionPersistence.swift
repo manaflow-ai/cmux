@@ -1609,12 +1609,6 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     }
 }
 
-struct SessionAgentSessionPanelSnapshot: Codable, Sendable {
-    var rendererKind: AgentSessionRendererKind
-    var providerID: AgentSessionProviderID
-    var workingDirectory: String?
-}
-
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?

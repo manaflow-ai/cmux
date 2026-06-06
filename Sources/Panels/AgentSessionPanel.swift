@@ -1,9 +1,8 @@
 import AppKit
-import Combine
 import Foundation
 
 @MainActor
-final class AgentSessionPanel: Panel, ObservableObject {
+final class AgentSessionPanel: Panel {
     let id: UUID
     let panelType: PanelType = .agentSession
     private(set) var workspaceId: UUID
@@ -12,10 +11,15 @@ final class AgentSessionPanel: Panel, ObservableObject {
     let workingDirectory: String?
     let rendererSession = AgentSessionWebRendererSession()
 
-    @Published private(set) var currentProviderID: AgentSessionProviderID
-    @Published private(set) var displayTitle: String
+    private(set) var currentProviderID: AgentSessionProviderID
+    private(set) var displayTitle: String
     var displayIcon: String? { "sparkles.rectangle.stack" }
-    @Published var isDirty: Bool = false
+    private(set) var isDirty: Bool = false
+    var onDisplayStateChanged: ((String, Bool) -> Void)? {
+        didSet {
+            onDisplayStateChanged?(displayTitle, isDirty)
+        }
+    }
 
     init(
         workspaceId: UUID,
@@ -65,12 +69,18 @@ final class AgentSessionPanel: Panel, ObservableObject {
     private func setHasActiveProvider(_ hasActiveProvider: Bool) {
         guard isDirty != hasActiveProvider else { return }
         isDirty = hasActiveProvider
+        emitDisplayStateChanged()
     }
 
     private func setCurrentProviderID(_ providerID: AgentSessionProviderID) {
         guard currentProviderID != providerID else { return }
         currentProviderID = providerID
         displayTitle = Self.title(provider: providerID, rendererKind: rendererKind)
+        emitDisplayStateChanged()
+    }
+
+    private func emitDisplayStateChanged() {
+        onDisplayStateChanged?(displayTitle, isDirty)
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {

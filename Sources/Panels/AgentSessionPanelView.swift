@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct AgentSessionPanelView: View {
-    @ObservedObject var panel: AgentSessionPanel
+    let panel: AgentSessionPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int

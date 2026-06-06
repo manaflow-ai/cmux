@@ -6,16 +6,9 @@ final class AgentSessionWebHostView: NSView {
     var onDidMoveToWindow: (() -> Void)?
     var onGeometryChanged: (() -> Void)?
     private(set) var geometryRevision: UInt64 = 0
-    private var lastReportedGeometryState: GeometryState?
+    private var lastReportedAgentSessionWebHostGeometryState: AgentSessionWebHostGeometryState?
     private var hasPendingGeometryNotification = false
     private weak var hostedWebView: WKWebView?
-
-    private struct GeometryState: Equatable {
-        let frame: CGRect
-        let bounds: CGRect
-        let windowNumber: Int?
-        let superviewID: ObjectIdentifier?
-    }
 
     override var isOpaque: Bool { false }
 
@@ -48,8 +41,8 @@ final class AgentSessionWebHostView: NSView {
         markGeometryDirtyIfNeeded()
     }
 
-    private func currentGeometryState() -> GeometryState {
-        GeometryState(
+    private func currentAgentSessionWebHostGeometryState() -> AgentSessionWebHostGeometryState {
+        AgentSessionWebHostGeometryState(
             frame: frame,
             bounds: bounds,
             windowNumber: window?.windowNumber,
@@ -58,8 +51,8 @@ final class AgentSessionWebHostView: NSView {
     }
 
     private func markGeometryDirtyIfNeeded() {
-        let state = currentGeometryState()
-        guard state != lastReportedGeometryState else { return }
+        let state = currentAgentSessionWebHostGeometryState()
+        guard state != lastReportedAgentSessionWebHostGeometryState else { return }
         guard !hasPendingGeometryNotification else { return }
         hasPendingGeometryNotification = true
         Task { @MainActor [weak self] in
@@ -69,9 +62,9 @@ final class AgentSessionWebHostView: NSView {
 
     private func notifyGeometryChangedIfNeeded() {
         hasPendingGeometryNotification = false
-        let state = currentGeometryState()
-        guard state != lastReportedGeometryState else { return }
-        lastReportedGeometryState = state
+        let state = currentAgentSessionWebHostGeometryState()
+        guard state != lastReportedAgentSessionWebHostGeometryState else { return }
+        lastReportedAgentSessionWebHostGeometryState = state
         geometryRevision &+= 1
         onGeometryChanged?()
     }
@@ -98,19 +91,5 @@ final class AgentSessionWebHostView: NSView {
         if hostedWebView === webView {
             hostedWebView = nil
         }
-    }
-}
-
-@MainActor
-final class AgentSessionWebView: WKWebView {
-    var onPointerDown: (() -> Void)?
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        PaneFirstClickFocusSettings.isEnabled()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        onPointerDown?()
-        super.mouseDown(with: event)
     }
 }

@@ -10399,6 +10399,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
+    private var agentSessionPanelCallbackIds: Set<UUID> = []
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
@@ -11655,12 +11656,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installAgentSessionPanelSubscription(_ agentPanel: AgentSessionPanel) {
-        let subscription = Publishers.CombineLatest(
-            agentPanel.$displayTitle.removeDuplicates(),
-            agentPanel.$isDirty.removeDuplicates()
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak agentPanel] newTitle, isDirty in
+        agentPanel.onDisplayStateChanged = { [weak self, weak agentPanel] newTitle, isDirty in
             guard let self,
                   let agentPanel,
                   let tabId = self.surfaceIdFromPanelId(agentPanel.id) else { return }
@@ -11680,7 +11676,7 @@ final class Workspace: Identifiable, ObservableObject {
                 isDirty: dirtyUpdate
             )
         }
-        panelSubscriptions[agentPanel.id] = subscription
+        agentSessionPanelCallbackIds.insert(agentPanel.id)
     }
 
     private func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
@@ -16245,6 +16241,10 @@ final class Workspace: Identifiable, ObservableObject {
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
+            if let agentPanel = detached.panel as? AgentSessionPanel {
+                agentPanel.onDisplayStateChanged = nil
+                agentSessionPanelCallbackIds.remove(detached.panelId)
+            }
 #if DEBUG
             cmuxDebugLog(
                 "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
@@ -16304,7 +16304,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if let agentPanel = detached.panel as? AgentSessionPanel {
             agentPanel.updateWorkspaceId(id)
-            if panelSubscriptions[agentPanel.id] == nil {
+            if !agentSessionPanelCallbackIds.contains(agentPanel.id) {
                 installAgentSessionPanelSubscription(agentPanel)
             }
         }

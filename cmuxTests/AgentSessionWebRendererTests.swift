@@ -12,7 +12,7 @@ struct AgentSessionWebRendererTests {
     @Test
     func testTrustedShellURLAcceptsOnlyMatchingFileURL() {
         let resources = URL(fileURLWithPath: "/tmp/cmux DEV test.app/Contents/Resources", isDirectory: true)
-        let expected = AgentSessionWebRenderer.Coordinator.shellURL(
+        let expected = AgentSessionWebRendererCoordinator.shellURL(
             rendererKind: .react,
             resourceDirectoryURL: resources
         )
@@ -27,9 +27,9 @@ struct AgentSessionWebRendererTests {
             .appendingPathComponent("webviews-app", isDirectory: true)
             .appendingPathComponent("diff-viewer.html", isDirectory: false)
 
-        expectTrue(AgentSessionWebRenderer.Coordinator.isTrustedShellURL(expected, expected: expected))
-        expectTrue(AgentSessionWebRenderer.Coordinator.isTrustedShellURL(equivalent, expected: expected))
-        expectFalse(AgentSessionWebRenderer.Coordinator.isTrustedShellURL(otherBundledFile, expected: expected))
-        expectFalse(AgentSessionWebRenderer.Coordinator.isTrustedShellURL(URL(string: "https://example.com"), expected: expected))
+        expectTrue(AgentSessionWebRendererCoordinator.isTrustedShellURL(expected, expected: expected))
+        expectTrue(AgentSessionWebRendererCoordinator.isTrustedShellURL(equivalent, expected: expected))
+        expectFalse(AgentSessionWebRendererCoordinator.isTrustedShellURL(otherBundledFile, expected: expected))
+        expectFalse(AgentSessionWebRendererCoordinator.isTrustedShellURL(URL(string: "https://example.com"), expected: expected))
     }
 }

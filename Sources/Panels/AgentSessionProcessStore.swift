@@ -2,16 +2,6 @@ import Foundation
 
 @MainActor
 final class AgentSessionProcessStore {
-    struct StartedSession {
-        let sessionId: String
-    }
-
-    enum OpenCodeProcessOutputDisposition: Equatable {
-        case emit
-        case suppress
-        case serverURL(URL)
-    }
-
     var eventSink: (([String: Any]) -> Void)?
     var activeProviderSink: ((Bool) -> Void)? {
         didSet {
@@ -21,10 +11,10 @@ final class AgentSessionProcessStore {
     var hasActiveProviderSession: Bool {
         !sessions.isEmpty
     }
-    private var sessions: [String: RunningSession] = [:]
+    private var sessions: [String: AgentSessionRunningSession] = [:]
     private var lastEmittedHasActiveProviderSession: Bool?
 
-    func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) throws -> StartedSession {
+    func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) throws -> AgentSessionStartedSession {
         guard sessions.isEmpty else {
             throw AgentSessionBridgeError.sessionAlreadyRunning
         }
@@ -48,7 +38,7 @@ final class AgentSessionProcessStore {
         process.standardInput = stdin
         process.standardOutput = stdout
         process.standardError = stderr
-        let running = RunningSession(
+        let running = AgentSessionRunningSession(
             sessionId: sessionId,
             providerID: plan.provider,
             executablePath: plan.executableURL.path,
@@ -122,7 +112,7 @@ final class AgentSessionProcessStore {
         if plan.provider != .opencode {
             emitStarted(session: running)
         }
-        return StartedSession(sessionId: sessionId)
+        return AgentSessionStartedSession(sessionId: sessionId)
     }
 
     func writeLine(
@@ -188,7 +178,7 @@ final class AgentSessionProcessStore {
         }
     }
 
-    private func finishSessionIfExitedAndDrained(_ session: RunningSession) {
+    private func finishSessionIfExitedAndDrained(_ session: AgentSessionRunningSession) {
         guard let status = session.pendingExitStatus,
               session.drainedStreams.isSuperset(of: ["stdout", "stderr"]),
               sessions[session.sessionId] === session else {
@@ -220,7 +210,7 @@ final class AgentSessionProcessStore {
         )
     }
 
-    private func handleOutputLine(_ text: String, session: RunningSession, stream: String) {
+    private func handleOutputLine(_ text: String, session: AgentSessionRunningSession, stream: String) {
         if session.providerID == .opencode {
             switch Self.openCodeProcessOutputDisposition(text: text, stream: stream) {
             case .serverURL(let baseURL):
@@ -295,7 +285,7 @@ final class AgentSessionProcessStore {
         return url
     }
 
-    private func createOpenCodeSession(_ session: RunningSession) {
+    private func createOpenCodeSession(_ session: AgentSessionRunningSession) {
         guard !session.isOpenCodeSessionCreateInFlight,
               session.openCodeSessionID == nil,
               let baseURL = session.openCodeBaseURL else {
@@ -348,7 +338,7 @@ final class AgentSessionProcessStore {
         }
     }
 
-    private func postOpenCodePrompt(_ text: String, session: RunningSession) async throws {
+    private func postOpenCodePrompt(_ text: String, session: AgentSessionRunningSession) async throws {
         guard let baseURL = session.openCodeBaseURL,
               let openCodeSessionID = session.openCodeSessionID else {
             throw AgentSessionBridgeError.providerNotReady(session.providerID.displayName)
@@ -372,7 +362,7 @@ final class AgentSessionProcessStore {
         )
     }
 
-    private func startOpenCodeEventStream(_ session: RunningSession) {
+    private func startOpenCodeEventStream(_ session: AgentSessionRunningSession) {
         guard session.openCodeEventTask == nil,
               let baseURL = session.openCodeBaseURL,
               let openCodeSessionID = session.openCodeSessionID else {
@@ -543,7 +533,7 @@ final class AgentSessionProcessStore {
         try stdin.fileHandleForWriting.write(contentsOf: data)
     }
 
-    private func emitStarted(session: RunningSession) {
+    private func emitStarted(session: AgentSessionRunningSession) {
         eventSink?([
             "type": "provider.started",
             "sessionId": session.sessionId,
@@ -609,77 +599,5 @@ final class AgentSessionProcessStore {
         guard lastEmittedHasActiveProviderSession != hasActiveProviderSession else { return }
         lastEmittedHasActiveProviderSession = hasActiveProviderSession
         activeProviderSink?(hasActiveProviderSession)
-    }
-
-    private final class RunningSession {
-        let sessionId: String
-        let providerID: AgentSessionProviderID
-        let executablePath: String
-        let arguments: [String]
-        let workingDirectory: String?
-        let process: Process
-        let stdin: Pipe
-        let openCodeAuthorizationHeader: String?
-        var codexAppServerSession: CodexAppServerSession?
-        private var claudeStreamJSONAccumulator = ClaudeStreamJSONAccumulator()
-        var openCodeBaseURL: URL?
-        var openCodeSessionID: String?
-        var isOpenCodeSessionCreateInFlight = false
-        var openCodeEventTask: Task<Void, Never>?
-        var pendingExitStatus: Int32?
-        var drainedStreams: Set<String> = []
-        private var stdoutBuffer = AgentSessionOutputLineBuffer()
-        private var stderrBuffer = AgentSessionOutputLineBuffer()
-        private var openCodeEventTextAccumulator = OpenCodeEventTextAccumulator()
-
-        init(
-            sessionId: String,
-            providerID: AgentSessionProviderID,
-            executablePath: String,
-            arguments: [String],
-            workingDirectory: String?,
-            process: Process,
-            stdin: Pipe,
-            openCodeAuthorizationHeader: String?
-        ) {
-            self.sessionId = sessionId
-            self.providerID = providerID
-            self.executablePath = executablePath
-            self.arguments = arguments
-            self.workingDirectory = workingDirectory
-            self.process = process
-            self.stdin = stdin
-            self.openCodeAuthorizationHeader = openCodeAuthorizationHeader
-        }
-
-        func appendOutputData(_ data: Data, stream: String) -> [String] {
-            if stream == "stdout" {
-                return stdoutBuffer.append(data)
-            }
-            return stderrBuffer.append(data)
-        }
-
-        func flushBufferedOutput(stream: String) -> [String] {
-            if stream == "stdout" {
-                return stdoutBuffer.flush()
-            }
-            return stderrBuffer.flush()
-        }
-
-        func consumeClaudeStreamJSONLine(_ line: String) -> [String] {
-            claudeStreamJSONAccumulator.consumeLine(line)
-        }
-
-        func claudeStreamJSONLineCompletesTurn(_ line: String) -> Bool {
-            ClaudeStreamJSONAccumulator.completesAssistantTurn(line)
-        }
-
-        func consumeOpenCodeEvent(_ event: [String: Any], openCodeSessionID: String) -> [String] {
-            openCodeEventTextAccumulator.consumeEvent(event, sessionID: openCodeSessionID)
-        }
-
-        func openCodeEventCompletesAssistantTurn(_ event: [String: Any], openCodeSessionID: String) -> Bool {
-            OpenCodeEventTextAccumulator.completesAssistantTurn(event, sessionID: openCodeSessionID)
-        }
     }
 }

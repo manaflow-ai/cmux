@@ -1,0 +1,85 @@
+import Foundation
+
+enum CmuxRuntimeDebugCapture {
+    private static let configuration: CmuxRuntimeDebugCaptureConfiguration? = {
+        let env = ProcessInfo.processInfo.environment
+        guard let baseURLString = env["CMUX_RUNTIME_DEBUG_BASE_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let baseURL = URL(string: baseURLString),
+              let token = env["CMUX_RUNTIME_DEBUG_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !token.isEmpty,
+              let sessionID = env["CMUX_RUNTIME_DEBUG_SESSION_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return nil
+        }
+        return CmuxRuntimeDebugCaptureConfiguration(baseURL: baseURL, token: token, sessionID: sessionID)
+    }()
+
+    private static let sequence = CmuxRuntimeDebugCaptureSequence()
+
+    static func logIfConfigured(
+        hypothesisID: String,
+        source: String,
+        name: String,
+        expected: String? = nil,
+        actual: String? = nil,
+        data: [String: Any] = [:]
+    ) {
+        guard let configuration else { return }
+
+        Task {
+            let sequenceNumber = await sequence.next()
+            sendLog(
+                configuration: configuration,
+                sequenceNumber: sequenceNumber,
+                hypothesisID: hypothesisID,
+                source: source,
+                name: name,
+                expected: expected,
+                actual: actual,
+                data: data
+            )
+        }
+    }
+
+    private static func sendLog(
+        configuration: CmuxRuntimeDebugCaptureConfiguration,
+        sequenceNumber: Int,
+        hypothesisID: String,
+        source: String,
+        name: String,
+        expected: String?,
+        actual: String?,
+        data: [String: Any]
+    ) {
+        var payload: [String: Any] = [
+            "session_id": configuration.sessionID,
+            "hypothesis_id": hypothesisID,
+            "service": "cmux-macos",
+            "source": source,
+            "name": name,
+            "ts": ISO8601DateFormatter().string(from: Date()),
+            "mono_ms": ProcessInfo.processInfo.systemUptime * 1000,
+            "seq": sequenceNumber,
+            "data": data
+        ]
+        if let expected {
+            payload["expected"] = expected
+        }
+        if let actual {
+            payload["actual"] = actual
+        }
+
+        guard JSONSerialization.isValidJSONObject(payload),
+              let requestBody = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
+            return
+        }
+
+        var request = URLRequest(url: configuration.baseURL.appendingPathComponent("api/logs"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(configuration.token, forHTTPHeaderField: "X-Debug-Token")
+        request.httpBody = requestBody
+
+        URLSession.shared.dataTask(with: request).resume()
+    }
+}

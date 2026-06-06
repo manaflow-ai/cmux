@@ -8,11 +8,6 @@ final class CodexAppServerSession {
     typealias TurnCompleteSink = () -> Void
     typealias FailureSink = (_ details: String?) -> Void
 
-    private struct QueuedInput {
-        let text: String
-        let permissionMode: AgentSessionPermissionMode
-    }
-
     private let workingDirectory: String?
     private let writeData: DataWriter
     private let outputSink: OutputSink
@@ -24,7 +19,7 @@ final class CodexAppServerSession {
     private var didInitialize = false
     private var threadStartRequestID: Int?
     private var threadID: String?
-    private var queuedInputs: [QueuedInput] = []
+    private var queuedInputs: [CodexAppServerQueuedInput] = []
     private var stdoutBuffer = ""
     private var didFailStartup = false
 
@@ -67,7 +62,7 @@ final class CodexAppServerSession {
             throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
         }
         guard let threadID else {
-            queuedInputs.append(QueuedInput(text: text, permissionMode: permissionMode))
+            queuedInputs.append(CodexAppServerQueuedInput(text: text, permissionMode: permissionMode))
             if didInitialize {
                 try startThreadIfNeeded()
             }
@@ -136,7 +131,7 @@ final class CodexAppServerSession {
             }
             threadID = id
             threadStartRequestID = nil
-            drainQueuedInputs()
+            drainCodexAppServerQueuedInputs()
             return
         }
     }
@@ -158,7 +153,7 @@ final class CodexAppServerSession {
                let id = thread["id"] as? String {
                 threadID = id
                 threadStartRequestID = nil
-                drainQueuedInputs()
+                drainCodexAppServerQueuedInputs()
             }
         case "item/agentMessage/delta":
             if let delta = params?["delta"] as? String {
@@ -422,7 +417,7 @@ final class CodexAppServerSession {
         }
     }
 
-    private func drainQueuedInputs() {
+    private func drainCodexAppServerQueuedInputs() {
         guard let threadID else { return }
         let inputs = queuedInputs
         queuedInputs.removeAll()
@@ -567,35 +562,5 @@ final class CodexAppServerSession {
 
     private static func unknownWarningMessage() -> String {
         String(localized: "agentSession.codex.warning.unknown", defaultValue: "Codex app-server reported a warning.")
-    }
-}
-
-enum AgentSessionPermissionMode: String {
-    case standard = "default"
-    case autoReview = "auto-review"
-    case fullAccess = "full-access"
-    case custom
-
-    var codexTurnOverrides: [String: Any] {
-        switch self {
-        case .standard, .custom:
-            return [
-                "approvalPolicy": NSNull(),
-                "approvalsReviewer": NSNull(),
-                "sandboxPolicy": NSNull()
-            ]
-        case .autoReview:
-            return [
-                "approvalPolicy": "on-request",
-                "approvalsReviewer": "auto_review",
-                "sandboxPolicy": NSNull()
-            ]
-        case .fullAccess:
-            return [
-                "approvalPolicy": "never",
-                "approvalsReviewer": "user",
-                "sandboxPolicy": ["type": "dangerFullAccess"]
-            ]
-        }
     }
 }

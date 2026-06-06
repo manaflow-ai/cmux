@@ -2,16 +2,8 @@ import Foundation
 import CMUXAgentLaunch
 
 extension TerminalSurface {
-    struct ClaudeCommandShim: Equatable, Sendable {
-        let directoryPath: String
-        let executablePath: String
-    }
-
-    struct CmuxContextEnvironment: Equatable, Sendable {
-        let workspaceId: UUID
-        let surfaceId: UUID
-        let socketPath: String
-    }
+    typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
+    typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
 
     static let managedTerminalType = "xterm-256color"
     static let managedTerminalProgram = "ghostty"

@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class AgentSessionWebRendererSession {
-    private let ownedCoordinator = AgentSessionWebRenderer.Coordinator()
+    private let ownedCoordinator = AgentSessionWebRendererCoordinator()
     var onHasActiveProviderChanged: ((Bool) -> Void)? {
         didSet {
             ownedCoordinator.onHasActiveProviderChanged = onHasActiveProviderChanged
@@ -22,7 +22,7 @@ final class AgentSessionWebRendererSession {
         workingDirectory: String?,
         theme: AgentSessionWebTheme,
         isFocused: Bool
-    ) -> AgentSessionWebRenderer.Coordinator {
+    ) -> AgentSessionWebRendererCoordinator {
         ownedCoordinator.bind(
             panelId: panelId,
             workspaceId: workspaceId,
