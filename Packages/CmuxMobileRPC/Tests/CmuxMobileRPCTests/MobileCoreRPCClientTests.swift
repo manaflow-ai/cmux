@@ -5,10 +5,26 @@ import Testing
 
 @Suite struct MobileCoreRPCClientTests {
     @Test func rpcRequestTimeoutCancelsOperationWhenCallerIsCancelled() async throws {
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59125)
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(
+                transport: QueuedCancellationProbeTransport()
+            )
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
         let started = AsyncFlag()
         let cancelled = AsyncFlag()
         let task = Task {
-            try await MobileCoreRPCClient.debugWithRequestTimeout(
+            try await client.debugWithRequestTimeout(
                 timeoutNanoseconds: 60 * 1_000_000_000
             ) {
                 await started.set()
@@ -77,20 +93,13 @@ import Testing
             ticket: ticket,
             allowsStackAuthFallback: true
         )
-        let firstRequest = try MobileCoreRPCClient.requestData(
-            method: "terminal.input",
-            params: [
-                "workspace_id": "workspace-main",
-                "terminal_id": "terminal-main",
-                "text": "first",
-            ],
-            id: "first-input"
-        )
-        let queuedRequest = try MobileCoreRPCClient.requestData(
-            method: "workspace.create",
-            params: ["title": "queued-workspace"],
-            id: "queued-create"
-        )
+        let firstRequest = try MobileTerminalInputParams(
+            workspaceID: "workspace-main",
+            surfaceID: "terminal-main",
+            text: "first",
+            clientID: "client-1"
+        ).requestData(id: "first-input")
+        let queuedRequest = try MobileWorkspaceCreateParams().requestData(id: "queued-create")
 
         let firstTask = Task {
             try await client.sendRequest(firstRequest)

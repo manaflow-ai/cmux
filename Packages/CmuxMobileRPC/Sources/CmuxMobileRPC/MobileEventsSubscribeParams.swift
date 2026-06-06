@@ -1,5 +1,8 @@
 /// Parameters for `mobile.events.subscribe` requests.
-public struct MobileEventsSubscribeParams: Encodable, Sendable {
+public struct MobileEventsSubscribeParams: MobileRPCRequestParams {
+    /// The bound JSON-RPC method name.
+    public static let method = "mobile.events.subscribe"
+
     /// The client-chosen stream id echoed back on every pushed event.
     public var streamID: String
     /// The event topics to subscribe to.

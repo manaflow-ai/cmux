@@ -1,5 +1,8 @@
 /// Parameters for `mobile.attach_ticket.create` requests.
-public struct MobileAttachTicketCreateParams: Encodable, Sendable {
+public struct MobileAttachTicketCreateParams: MobileRPCRequestParams {
+    /// The bound JSON-RPC method name.
+    public static let method = "mobile.attach_ticket.create"
+
     /// Requested ticket lifetime in seconds.
     public var ttlSeconds: Int
     /// The requested ticket scope (e.g. `"mac"` for a Mac-wide ticket).

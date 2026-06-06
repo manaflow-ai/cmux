@@ -1,5 +1,8 @@
 /// Parameters for `mobile.terminal.scroll` requests.
-public struct MobileTerminalScrollParams: Encodable, Sendable {
+public struct MobileTerminalScrollParams: MobileRPCRequestParams {
+    /// The bound JSON-RPC method name.
+    public static let method = "mobile.terminal.scroll"
+
     /// The workspace owning the target terminal.
     public var workspaceID: String
     /// The target terminal surface.

@@ -1,5 +1,8 @@
 /// Parameters for `mobile.terminal.replay` requests (cold-attach/self-heal).
-public struct MobileTerminalReplayParams: Encodable, Sendable {
+public struct MobileTerminalReplayParams: MobileRPCRequestParams {
+    /// The bound JSON-RPC method name.
+    public static let method = "mobile.terminal.replay"
+
     /// The workspace owning the target terminal.
     public var workspaceID: String
     /// The target terminal surface.

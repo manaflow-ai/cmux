@@ -24,3 +24,22 @@ public protocol MobileSyncing: Sendable {
     /// - Throws: ``MobileShellConnectionError`` on failure or timeout.
     func sendRequest(_ requestData: Data, timeoutNanoseconds: UInt64?) async throws -> Data
 }
+
+extension MobileSyncing {
+    /// Build and send one typed RPC call, awaiting its response.
+    ///
+    /// The method name comes from the params type's one-to-one binding
+    /// (``MobileRPCRequestParams/method``), so a payload cannot be sent under
+    /// the wrong method.
+    /// - Parameters:
+    ///   - params: The typed request parameters.
+    ///   - timeoutNanoseconds: Optional per-request override of the runtime deadline.
+    /// - Returns: The raw JSON result payload.
+    /// - Throws: ``MobileShellConnectionError`` on failure or timeout.
+    public func send(
+        _ params: some MobileRPCRequestParams,
+        timeoutNanoseconds: UInt64? = nil
+    ) async throws -> Data {
+        try await sendRequest(params.requestData(), timeoutNanoseconds: timeoutNanoseconds)
+    }
+}

@@ -1,5 +1,8 @@
 /// Parameters for `terminal.create` / `mobile.terminal.create` requests.
-public struct MobileTerminalCreateParams: Encodable, Sendable {
+public struct MobileTerminalCreateParams: MobileRPCRequestParams {
+    /// The bound JSON-RPC method name.
+    public static let method = "terminal.create"
+
     /// The workspace the new terminal is created in.
     public var workspaceID: String
 

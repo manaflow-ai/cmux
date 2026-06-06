@@ -3,7 +3,10 @@
 /// The viewport fields ride along with input so the Mac can pin this device's
 /// viewport before applying the keystrokes; they are omitted from the wire when
 /// no viewport has been reported yet.
-public struct MobileTerminalInputParams: Encodable, Sendable {
+public struct MobileTerminalInputParams: MobileRPCRequestParams {
+    /// The bound JSON-RPC method name.
+    public static let method = "terminal.input"
+
     /// The workspace owning the target terminal.
     public var workspaceID: String
     /// The target terminal surface.

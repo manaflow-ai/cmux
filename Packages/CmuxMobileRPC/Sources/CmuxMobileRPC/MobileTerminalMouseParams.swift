@@ -1,5 +1,8 @@
 /// Parameters for `mobile.terminal.mouse` requests (a forwarded tap/click).
-public struct MobileTerminalMouseParams: Encodable, Sendable {
+public struct MobileTerminalMouseParams: MobileRPCRequestParams {
+    /// The bound JSON-RPC method name.
+    public static let method = "mobile.terminal.mouse"
+
     /// The workspace owning the target terminal.
     public var workspaceID: String
     /// The target terminal surface.

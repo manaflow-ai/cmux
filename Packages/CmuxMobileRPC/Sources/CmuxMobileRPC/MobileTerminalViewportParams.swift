@@ -4,7 +4,10 @@
 /// `viewport_columns`/`viewport_rows`, and a detach sends `clear: true`. Absent
 /// fields are omitted from the wire (not JSON nulls), matching the legacy
 /// `[String: Any]` envelopes.
-public struct MobileTerminalViewportParams: Encodable, Sendable {
+public struct MobileTerminalViewportParams: MobileRPCRequestParams {
+    /// The bound JSON-RPC method name.
+    public static let method = "mobile.terminal.viewport"
+
     /// The workspace owning the target terminal.
     public var workspaceID: String
     /// The target terminal surface.

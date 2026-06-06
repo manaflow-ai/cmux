@@ -2,7 +2,10 @@
 ///
 /// Both fields are optional: an unscoped list omits them from the wire entirely
 /// (absent keys, not JSON nulls), matching the legacy `[String: Any]` shape.
-public struct MobileWorkspaceListParams: Encodable, Sendable {
+public struct MobileWorkspaceListParams: MobileRPCRequestParams {
+    /// The bound JSON-RPC method name.
+    public static let method = "workspace.list"
+
     /// Restrict the list to one workspace; omitted from the wire when `nil`.
     public var workspaceID: String?
     /// Restrict the list to one terminal in that workspace; omitted when `nil`.

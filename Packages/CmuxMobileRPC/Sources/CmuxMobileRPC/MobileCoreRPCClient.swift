@@ -50,44 +50,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         await session.addEventListener(topics: topics).stream
     }
 
-    /// Build a JSON-RPC request frame for a method that takes no parameters.
-    ///
-    /// The wire shape still carries `"params": {}` so parameterless requests
-    /// are byte-compatible with the legacy `params: [:]` envelopes.
-    /// - Parameters:
-    ///   - method: The RPC method name.
-    ///   - id: The request id (defaults to a fresh UUID).
-    /// - Returns: The encoded request data.
-    /// - Throws: An encoding error if the envelope cannot be encoded.
-    public static func requestData(
-        method: String,
-        id: String = UUID().uuidString
-    ) throws -> Data {
-        try requestData(method: method, params: MobileRPCEmptyParams(), id: id)
-    }
-
-    /// Build a JSON-RPC request frame with the given method and typed params.
-    ///
-    /// Pass one of the per-method `Codable` param structs (for example
-    /// ``MobileTerminalInputParams`` or ``MobileWorkspaceListParams``) so the
-    /// request body is type-checked at the call site instead of assembled from
-    /// an untyped `[String: Any]`.
-    /// - Parameters:
-    ///   - method: The RPC method name.
-    ///   - params: The typed request parameters.
-    ///   - id: The request id (defaults to a fresh UUID).
-    /// - Returns: The encoded request data.
-    /// - Throws: An encoding error if the params are not JSON-encodable.
-    public static func requestData(
-        method: String,
-        params: some Encodable,
-        id: String = UUID().uuidString
-    ) throws -> Data {
-        try JSONEncoder().encode(
-            MobileRPCRequestEnvelope(id: id, method: method, params: params)
-        )
-    }
-
     public func sendRequest(_ requestData: Data, timeoutNanoseconds: UInt64? = nil) async throws -> Data {
         do {
             return try await sendAuthenticatedRequest(
@@ -149,23 +111,23 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         // connect/close per RPC, no head-of-line blocking between calls.
         // `forceID` mints a brand-new id on the retry pass so it never collides
         // with the first attempt's already-resolved pending continuation.
-        let (id, augmented) = try Self.requestWithGuaranteedID(
+        let (id, augmented) = try requestWithGuaranteedID(
             requestData,
             forceID: !allowAuthRetry
         )
         let authenticated = try await requestDataWithAuth(augmented)
-        return try await Self.withRequestTimeout(
+        return try await withRequestTimeout(
             timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
         ) {
             try await self.session.send(payload: authenticated, requestID: id)
         }
     }
 
-    private static func requestWithGuaranteedID(
+    private func requestWithGuaranteedID(
         _ requestData: Data,
         forceID: Bool = false
     ) throws -> (String, Data) {
-        guard var envelope = Self.decodedEnvelope(requestData) else {
+        guard var envelope = decodedEnvelope(requestData) else {
             throw MobileShellConnectionError.invalidResponse
         }
         let id: String
@@ -181,16 +143,16 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
     /// Decode an already-encoded request envelope into the lossless JSON model,
     /// or `nil` when the data is not a JSON object.
-    private static func decodedEnvelope(_ requestData: Data) -> [String: MobileRPCJSONValue]? {
+    private func decodedEnvelope(_ requestData: Data) -> [String: MobileRPCJSONValue]? {
         (try? JSONDecoder().decode(MobileRPCJSONValue.self, from: requestData))?.objectValue
     }
 
     private func requestDataWithAuth(_ requestData: Data) async throws -> Data {
-        guard var request = Self.decodedEnvelope(requestData) else {
+        guard var request = decodedEnvelope(requestData) else {
             return requestData
         }
-        let requestNeedsAuth = Self.requestRequiresAuth(request)
-        let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
+        let requestNeedsAuth = requestRequiresAuth(request)
+        let requestIsCoveredByAttachTicket = !requestNeedsStackAuthFallback(request)
         var auth: [String: MobileRPCJSONValue] = [:]
         let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachToken = attachToken?.isEmpty == false
@@ -245,9 +207,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return try JSONEncoder().encode(MobileRPCJSONValue.object(request))
     }
 
-    private static func requestNeedsStackAuthFallback(
-        _ request: [String: MobileRPCJSONValue],
-        ticket: CmxAttachTicket
+    private func requestNeedsStackAuthFallback(
+        _ request: [String: MobileRPCJSONValue]
     ) -> Bool {
         guard requestRequiresAuth(request) else {
             return false
@@ -273,7 +234,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport":
             return !ticketCoversTerminalRequest(
-                ticket: ticket,
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
@@ -284,7 +244,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
-    private static func requestRequiresAuth(_ request: [String: MobileRPCJSONValue]) -> Bool {
+    private func requestRequiresAuth(_ request: [String: MobileRPCJSONValue]) -> Bool {
         let method = request["method"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
         // Only the unauthenticated host probe is exempt. attach_ticket.create has no
         // attach token yet (it mints the ticket), so requiring auth routes it through
@@ -292,8 +252,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return method != "mobile.host.status"
     }
 
-    private static func ticketCoversTerminalRequest(
-        ticket: CmxAttachTicket,
+    private func ticketCoversTerminalRequest(
         workspaceSelection: String?,
         terminalSelection: String?
     ) -> Bool {
@@ -315,11 +274,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return workspaceSelection == ticketWorkspaceID
     }
 
-    private static func containsIgnoredAliasParameters(_ params: [String: MobileRPCJSONValue]) -> Bool {
+    private func containsIgnoredAliasParameters(_ params: [String: MobileRPCJSONValue]) -> Bool {
         params["workspaceID"] != nil || params["terminalID"] != nil
     }
 
-    private static func stringParamSelection(
+    private func stringParamSelection(
         _ params: [String: MobileRPCJSONValue],
         keys: [String]
     ) -> StringParamSelection {
@@ -343,7 +302,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let hasConflict: Bool
     }
 
-    private static func withRequestTimeout<T: Sendable>(
+    private func withRequestTimeout<T: Sendable>(
         timeoutNanoseconds: UInt64,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
@@ -373,7 +332,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 #if DEBUG
 extension MobileCoreRPCClient {
     /// Test-only hook exposing the private request-timeout race for unit tests.
-    public static func debugWithRequestTimeout<T: Sendable>(
+    public func debugWithRequestTimeout<T: Sendable>(
         timeoutNanoseconds: UInt64,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
