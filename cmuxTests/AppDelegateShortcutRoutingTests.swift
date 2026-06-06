@@ -5771,15 +5771,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         var requestedSourceKinds: [KeyboardLayout.InputSourceKind] = []
         var observedKeyCodes: [UInt16] = []
         var observedModifierFlags: [NSEvent.ModifierFlags] = []
-        KeyboardLayout.debugCharacterForInputSourceKind = { sourceKind, keyCode, modifierFlags in
+        var observedModes: [KeyboardLayout.TranslationMode] = []
+        var observedLowercasing: [Bool] = []
+        KeyboardLayout.debugCharacterForInputSourceKind = { sourceKind, keyCode, modifierFlags, mode, lowercased in
             requestedSourceKinds.append(sourceKind)
             observedKeyCodes.append(keyCode)
             observedModifierFlags.append(modifierFlags)
+            observedModes.append(mode)
+            observedLowercasing.append(lowercased)
             switch sourceKind {
             case .currentKeyboardInputSource:
                 return "ㅣ"
             case .currentKeyboardLayoutInputSource:
-                return "l"
+                return "L"
             case .currentASCIICapableKeyboardInputSource:
                 return "x"
             }
@@ -5798,6 +5802,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertEqual(observedKeyCodes, [UInt16(kVK_ANSI_L), UInt16(kVK_ANSI_L)])
         XCTAssertTrue(observedModifierFlags.allSatisfy { $0.contains(.command) && $0.contains(.shift) })
+        XCTAssertEqual(observedModes, [.shortcut, .shortcut])
+        XCTAssertEqual(observedLowercasing, [true, true])
 #else
         XCTFail("debugCharacterForInputSourceKind is only available in DEBUG")
 #endif

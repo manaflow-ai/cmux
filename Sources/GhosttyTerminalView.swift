@@ -1492,7 +1492,7 @@ func terminalKeyboardCopyModeAction(
     charactersIgnoringModifiers: String?,
     modifierFlags: NSEvent.ModifierFlags,
     hasSelection: Bool,
-    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.asciiCapableCharacter(forKeyCode:modifierFlags:)
 ) -> TerminalKeyboardCopyModeAction? {
     CmuxTerminalCopyMode.terminalKeyboardCopyModeAction(
         keyCode: keyCode,
@@ -1511,7 +1511,7 @@ func terminalKeyboardCopyModeResolve(
     modifierFlags: NSEvent.ModifierFlags,
     hasSelection: Bool,
     state: inout TerminalKeyboardCopyModeInputState,
-    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.asciiCapableCharacter(forKeyCode:modifierFlags:)
 ) -> TerminalKeyboardCopyModeResolution {
     CmuxTerminalCopyMode.terminalKeyboardCopyModeResolve(
         keyCode: keyCode,
