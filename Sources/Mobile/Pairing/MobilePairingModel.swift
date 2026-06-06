@@ -1,20 +1,27 @@
+import CMUXAuthCore
 import CMUXMobileCore
 import Foundation
 import Observation
 
-/// Drives the in-app iOS pairing window: turns on the Mac-side pairing host,
-/// mints a short-lived attach ticket, and exposes the QR payload plus a
-/// human-readable fallback (host:port routes) for the view to render.
+/// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
+/// in (authorization is a Stack same-account check), then turns on the
+/// pairing host, mints a short-lived attach ticket, and exposes the QR payload
+/// plus Tailscale reachability for the view.
 ///
-/// Opening the window auto-enables the pairing listener (writing the same
-/// `UserDefaults` flag the Settings toggle uses), which is what triggers the
-/// macOS Local Network permission prompt on first use.
+/// Opening the window does not touch the listener until the user is signed in.
+/// Once signed in, enabling the listener writes the same `UserDefaults` flag the
+/// Settings toggle uses, which is what triggers the macOS Local Network
+/// permission prompt on first use.
 @MainActor
 @Observable
 final class MobilePairingModel {
     /// The pairing window's render state.
     enum State: Equatable {
-        /// Bringing the listener up and minting the first ticket.
+        /// Resolving auth/listener state before anything is shown.
+        case loading
+        /// The Mac is not signed in; pairing can't be authorized yet.
+        case signedOut
+        /// Signed in; bringing the listener up and minting the first ticket.
         case preparing
         /// A ticket is ready to display.
         case ready(Ready)
@@ -28,12 +35,18 @@ final class MobilePairingModel {
         let attachURL: String
         /// The Mac's display name, shown above the code.
         let macName: String
-        /// Reachable `host:port` routes for the manual-entry fallback.
-        let routeLines: [String]
+        /// Reachable Tailscale `host:port` routes. Empty when Tailscale is not
+        /// detected, in which case a real iPhone cannot reach this Mac.
+        let tailscaleLines: [String]
+
+        /// Whether at least one Tailscale route resolved.
+        var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
     }
 
     /// The current render state, observed by ``MobilePairingView``.
-    private(set) var state: State = .preparing
+    private(set) var state: State = .loading
+    /// The signed-in account email, shown in the checklist. `nil` when signed out.
+    private(set) var signedInEmail: String?
 
     private let host: MobileHostService
     private let ticketTTL: TimeInterval
@@ -48,10 +61,17 @@ final class MobilePairingModel {
         self.ticketTTL = ticketTTL
     }
 
-    /// Enables the pairing host, waits for the listener to be ready, and mints
-    /// a fresh attach ticket. Safe to call repeatedly (e.g. from a Refresh
-    /// button); the latest result wins.
+    /// Re-evaluates sign-in state and, when signed in, brings the listener up
+    /// and mints a fresh attach ticket. Safe to call repeatedly (Refresh button).
     func refresh() async {
+        state = .loading
+        await AuthManager.shared.awaitBootstrapped()
+        guard AuthManager.shared.isAuthenticated else {
+            signedInEmail = nil
+            state = .signedOut
+            return
+        }
+        signedInEmail = AuthManager.shared.currentUser?.primaryEmail
         state = .preparing
         enablePairingHost()
         let status = await host.ensureListeningAndReady()
@@ -84,11 +104,23 @@ final class MobilePairingModel {
                 Ready(
                     attachURL: attachURL,
                     macName: Self.macDisplayName,
-                    routeLines: Self.routeLines(status.routes)
+                    tailscaleLines: Self.tailscaleLines(status.routes)
                 )
             )
         } catch {
             state = .failed(String(describing: error))
+        }
+    }
+
+    /// Launches the account sign-in flow and, on success, prepares a code.
+    func signIn() async {
+        state = .loading
+        let signedIn = await AuthManager.shared.beginSignInAndAwait(timeout: 180)
+        if signedIn {
+            await refresh()
+        } else {
+            signedInEmail = nil
+            state = .signedOut
         }
     }
 
@@ -100,12 +132,13 @@ final class MobilePairingModel {
         Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     }
 
-    private static func routeLines(_ routes: [CmxAttachRoute]) -> [String] {
+    private static func tailscaleLines(_ routes: [CmxAttachRoute]) -> [String] {
         routes.compactMap { route in
-            if case let .hostPort(host, port) = route.endpoint {
-                return "\(host):\(port)"
+            guard route.kind == .tailscale,
+                  case let .hostPort(host, port) = route.endpoint else {
+                return nil
             }
-            return nil
+            return "\(host):\(port)"
         }
     }
 }

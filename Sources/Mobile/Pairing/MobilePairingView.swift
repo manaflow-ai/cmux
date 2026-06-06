@@ -2,16 +2,21 @@ import SwiftUI
 
 /// The macOS onboarding window for pairing an iPhone with this Mac.
 ///
-/// Shows a scannable QR code (with a host:port fallback), step-by-step
-/// instructions, and the current pairing-host state. Opening the window
-/// turns the pairing listener on automatically.
+/// Walks the user through the two requirements (signed in to cmux, Tailscale
+/// reachable) and then shows a scannable QR code with step-by-step
+/// instructions. Pairing is gated on sign-in because authorization is a Stack
+/// same-account check; Tailscale is what gives the iPhone a route to this Mac.
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
 
+    private static let tailscaleDownloadURL = URL(string: "https://tailscale.com/download")!
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 18) {
                 header
+                requirements
+                Divider()
                 content
             }
             .padding(24)
@@ -36,11 +41,107 @@ struct MobilePairingView: View {
         }
     }
 
+    // MARK: Requirements checklist
+
+    private var requirements: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            signInRow
+            tailscaleRow
+        }
+    }
+
+    private var signInRow: some View {
+        let signedIn = model.signedInEmail != nil
+        return requirementRow(
+            systemImage: signedIn ? "checkmark.circle.fill" : "person.crop.circle",
+            tint: signedIn ? .green : .secondary,
+            title: String(localized: "mobile.pairing.req.signIn.title", defaultValue: "Signed in to cmux"),
+            subtitle: model.signedInEmail
+                ?? String(localized: "mobile.pairing.req.signIn.subtitle", defaultValue: "Sign in to authorize this Mac for pairing.")
+        ) {
+            EmptyView()
+        }
+    }
+
+    private var tailscaleRow: some View {
+        let reachable = tailscaleReachable
+        return requirementRow(
+            systemImage: reachable == true ? "checkmark.circle.fill" : (reachable == false ? "exclamationmark.triangle.fill" : "network"),
+            tint: reachable == true ? .green : (reachable == false ? .orange : .secondary),
+            title: String(localized: "mobile.pairing.req.tailscale.title", defaultValue: "Tailscale"),
+            subtitle: tailscaleSubtitle(reachable: reachable)
+        ) {
+            if reachable != true {
+                Link(
+                    String(localized: "mobile.pairing.req.tailscale.get", defaultValue: "Get Tailscale"),
+                    destination: Self.tailscaleDownloadURL
+                )
+                .font(.callout)
+            }
+        }
+    }
+
+    /// `true` reachable, `false` not detected, `nil` not yet known.
+    private var tailscaleReachable: Bool? {
+        if case let .ready(ready) = model.state {
+            return ready.reachableViaTailscale
+        }
+        return nil
+    }
+
+    private func tailscaleSubtitle(reachable: Bool?) -> String {
+        switch reachable {
+        case .some(true):
+            return String(localized: "mobile.pairing.req.tailscale.reachable", defaultValue: "Reachable over Tailscale.")
+        case .some(false):
+            return String(localized: "mobile.pairing.req.tailscale.missing", defaultValue: "Not detected. Install Tailscale on this Mac and your iPhone, signed in to the same account.")
+        case .none:
+            return String(localized: "mobile.pairing.req.tailscale.hint", defaultValue: "Your Mac and iPhone both need Tailscale to connect over the internet.")
+        }
+    }
+
+    private func requirementRow<Trailing: View>(
+        systemImage: String,
+        tint: Color,
+        title: String,
+        subtitle: String,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.callout.weight(.medium))
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            trailing()
+        }
+    }
+
+    // MARK: Gated content
+
     @ViewBuilder
     private var content: some View {
         switch model.state {
+        case .loading:
+            centered {
+                ProgressView().controlSize(.small)
+                Text(String(localized: "mobile.pairing.checking", defaultValue: "Checking…"))
+                    .foregroundStyle(.secondary)
+            }
+        case .signedOut:
+            signedOut
         case .preparing:
-            preparing
+            centered {
+                ProgressView().controlSize(.small)
+                Text(String(localized: "mobile.pairing.preparing", defaultValue: "Preparing a pairing code…"))
+                    .foregroundStyle(.secondary)
+            }
         case let .failed(message):
             failure(message: message)
         case let .ready(ready):
@@ -48,14 +149,21 @@ struct MobilePairingView: View {
         }
     }
 
-    private var preparing: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-            Text(String(localized: "mobile.pairing.preparing", defaultValue: "Preparing a pairing code…"))
+    private var signedOut: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "person.crop.circle.badge.plus")
+                .font(.system(size: 28))
+                .foregroundStyle(.tint)
+            Text(String(localized: "mobile.pairing.signIn.prompt", defaultValue: "Sign in with your cmux account to pair your iPhone."))
+                .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(String(localized: "mobile.pairing.signIn.button", defaultValue: "Sign In")) {
+                Task { await model.signIn() }
+            }
+            .buttonStyle(.borderedProminent)
         }
-        .frame(maxWidth: .infinity, minHeight: 240)
+        .frame(maxWidth: .infinity, minHeight: 200)
     }
 
     private func failure(message: String) -> some View {
@@ -71,7 +179,7 @@ struct MobilePairingView: View {
             }
             .buttonStyle(.borderedProminent)
         }
-        .frame(maxWidth: .infinity, minHeight: 240)
+        .frame(maxWidth: .infinity, minHeight: 200)
     }
 
     @ViewBuilder
@@ -96,7 +204,9 @@ struct MobilePairingView: View {
 
         steps
 
-        manualFallback(ready)
+        if ready.reachableViaTailscale {
+            manualFallback(ready)
+        }
 
         HStack {
             Spacer()
@@ -133,21 +243,24 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func manualFallback(_ ready: MobilePairingModel.Ready) -> some View {
-        if !ready.routeLines.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Add this Mac manually:"))
-                    .font(.caption.weight(.semibold))
+        VStack(alignment: .leading, spacing: 6) {
+            Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Add this Mac manually:"))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(ready.tailscaleLines, id: \.self) { line in
+                Text(line)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
                     .foregroundStyle(.secondary)
-                ForEach(ready.routeLines, id: \.self) { line in
-                    Text(line)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .foregroundStyle(.secondary)
-                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func centered<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        HStack(spacing: 10) { content() }
+            .frame(maxWidth: .infinity, minHeight: 200)
     }
 }
