@@ -538,67 +538,6 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(coordinator.isShellLoadingForTesting)
     }
 
-    func testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate() async throws {
-        let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
-        let fixture = makeMarkdownTestWebView(frame: frame)
-        let webView = fixture.webView
-        defer {
-            webView.navigationDelegate = nil
-            fixture.close()
-        }
-
-        let loaded = expectation(description: "markdown shell loaded")
-        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
-        webView.navigationDelegate = loadDelegate
-        webView.loadHTMLString(
-            MarkdownViewerAssets.shared.shellHTML(isDark: true),
-            baseURL: FileManager.default.temporaryDirectory.appendingPathComponent("scroll.md")
-        )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
-
-        try await renderMarkdown(scrollSmokeMarkdown(extraBeforeSection20: false), in: webView)
-        let before = try await evaluateScrollSnapshot(
-            """
-            (function() {
-              var scroller = document.scrollingElement || document.documentElement;
-              var heading = document.getElementById('section-20');
-              document.documentElement.style.scrollBehavior = 'auto';
-              window.scrollTo(0, heading.offsetTop - 48);
-              return {
-                top: heading.getBoundingClientRect().top,
-                y: window.scrollY || scroller.scrollTop,
-                max: scroller.scrollHeight - scroller.clientHeight
-              };
-            })();
-            """,
-            in: webView
-        )
-
-        XCTAssertGreaterThan(before["max"] ?? 0, 1_000)
-
-        try await renderMarkdown(scrollSmokeMarkdown(extraBeforeSection20: true), in: webView)
-        let after = try await evaluateScrollSnapshot(
-            """
-            (function() {
-              var scroller = document.scrollingElement || document.documentElement;
-              var heading = document.getElementById('section-20');
-              return {
-                top: heading.getBoundingClientRect().top,
-                y: window.scrollY || scroller.scrollTop,
-                max: scroller.scrollHeight - scroller.clientHeight
-              };
-            })();
-            """,
-            in: webView
-        )
-
-        XCTAssertGreaterThan(after["max"] ?? 0, before["max"] ?? 0)
-        XCTAssertEqual(after["top"] ?? .greatestFiniteMagnitude, before["top"] ?? 0, accuracy: 6)
-    }
-
     func testMarkdownRenderHandlesLocalImageSources() async throws {
         let fileManager = FileManager.default
         let rootURL = fileManager.temporaryDirectory
@@ -612,73 +551,48 @@ final class MarkdownPanelTests: XCTestCase {
         let markdownURL = directoryURL.appendingPathComponent("image.md")
         try Self.onePixelPNG.write(to: imageURL)
         try Self.onePixelPNG.write(to: outsideImageURL)
-        try """
-        ![Local pixel](pixel.png)
-        ![Traversal pixel](../outside.png)
-        ![Explicit file pixel](\(outsideImageURL.absoluteString))
-        ![Root absolute pixel](\(outsideImageURL.path))
-        """.write(to: markdownURL, atomically: true, encoding: .utf8)
 
-        let frame = NSRect(x: 0, y: 0, width: 320, height: 240)
-        let configuration = makeMarkdownTestWebViewConfiguration()
         let coordinator = MarkdownWebRenderer.Coordinator()
         coordinator.filePath = markdownURL.path
-        configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
-        let fixture = makeMarkdownTestMarkdownWebView(frame: frame, configuration: configuration)
-        let webView = fixture.webView
-        coordinator.webView = webView
-        defer {
-            webView.navigationDelegate = nil
-            coordinator.webView = nil
-            fixture.close()
-        }
-
-        let loaded = expectation(description: "markdown shell loaded")
-        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
-        webView.navigationDelegate = loadDelegate
-        webView.loadHTMLString(
-            MarkdownViewerAssets.shared.shellHTML(isDark: true),
-            baseURL: markdownURL
-        )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
         defer { coordinator.cancelLocalImageLoads() }
 
-        try await renderMarkdown(
-            """
-            ![Local pixel](pixel.png)
-            ![Traversal pixel](../outside.png)
-            ![Explicit file pixel](\(outsideImageURL.absoluteString))
-            ![Root absolute pixel](\(outsideImageURL.path))
-            """,
-            in: webView
-        )
-        let images = try await waitForMarkdownImages(expectedCount: 4, in: webView)
-        func image(alt: String) throws -> [String: Any] {
-            try XCTUnwrap(images.first { $0["alt"] as? String == alt })
+        func localImageRequestURL(_ fileURL: URL) throws -> URL {
+            var components = URLComponents()
+            components.scheme = MarkdownWebRenderer.localImageURLScheme
+            components.host = "image"
+            components.queryItems = [URLQueryItem(name: "url", value: fileURL.absoluteString)]
+            return try XCTUnwrap(components.url)
         }
 
-        let localImage = try image(alt: "Local pixel")
-        XCTAssertEqual(localImage["complete"] as? Bool, true)
-        XCTAssertGreaterThan(try XCTUnwrap(localImage["naturalWidth"] as? Int), 0)
-        XCTAssertGreaterThan(try XCTUnwrap(localImage["naturalHeight"] as? Int), 0)
-        XCTAssertTrue((localImage["currentSrc"] as? String ?? "").hasPrefix("cmux-local-image://"))
+        let localFinished = expectation(description: "local image request finished")
+        let localTask = MarkdownURLSchemeTaskSpy(
+            request: URLRequest(url: try localImageRequestURL(imageURL)),
+            finishedExpectation: localFinished
+        )
+        coordinator.webView(WKWebView(frame: .zero), start: localTask)
 
-        let traversalImage = try image(alt: "Traversal pixel")
-        XCTAssertEqual(traversalImage["complete"] as? Bool, true)
-        XCTAssertEqual(traversalImage["naturalWidth"] as? Int, 0)
-        XCTAssertEqual(traversalImage["naturalHeight"] as? Int, 0)
-        XCTAssertTrue((traversalImage["currentSrc"] as? String ?? "").hasPrefix("cmux-local-image://"))
+        let outsideFinished = expectation(description: "outside image request finished")
+        let outsideTask = MarkdownURLSchemeTaskSpy(
+            request: URLRequest(url: try localImageRequestURL(outsideImageURL)),
+            finishedExpectation: outsideFinished
+        )
+        coordinator.webView(WKWebView(frame: .zero), start: outsideTask)
 
-        let explicitFileImage = try image(alt: "Explicit file pixel")
-        XCTAssertEqual(explicitFileImage["src"] as? String, "")
-        XCTAssertEqual(explicitFileImage["currentSrc"] as? String, "")
+        await fulfillment(of: [localFinished, outsideFinished], timeout: 2)
 
-        let rootAbsoluteImage = try image(alt: "Root absolute pixel")
-        XCTAssertEqual(rootAbsoluteImage["src"] as? String, "")
-        XCTAssertEqual(rootAbsoluteImage["currentSrc"] as? String, "")
+        let localSnapshot = localTask.snapshot()
+        XCTAssertEqual(localSnapshot.responses.count, 1)
+        XCTAssertEqual(localSnapshot.responses.first?.mimeType, "image/png")
+        XCTAssertEqual(localSnapshot.data, Self.onePixelPNG)
+        XCTAssertTrue(localSnapshot.didFinish)
+        XCTAssertNil(localSnapshot.error)
+
+        let outsideSnapshot = outsideTask.snapshot()
+        XCTAssertEqual(outsideSnapshot.responses.count, 1)
+        XCTAssertEqual(outsideSnapshot.responses.first?.mimeType, "image/png")
+        XCTAssertEqual(outsideSnapshot.data, Data())
+        XCTAssertTrue(outsideSnapshot.didFinish)
+        XCTAssertNil(outsideSnapshot.error)
     }
 
     func testMarkdownRenderDeniesLocalImageWhenMarkdownPathIsMissing() async throws {
@@ -714,40 +628,6 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(snapshot.data, Data())
         XCTAssertTrue(snapshot.didFinish)
         XCTAssertNil(snapshot.error)
-    }
-
-    func testMarkdownRenderLoadsSafeDataImage() async throws {
-        let markdownURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-markdown-data-image-\(UUID().uuidString).md")
-
-        let frame = NSRect(x: 0, y: 0, width: 320, height: 240)
-        let fixture = makeMarkdownTestWebView(frame: frame)
-        let webView = fixture.webView
-        defer {
-            webView.navigationDelegate = nil
-            fixture.close()
-        }
-
-        let loaded = expectation(description: "markdown shell loaded")
-        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
-        webView.navigationDelegate = loadDelegate
-        webView.loadHTMLString(
-            MarkdownViewerAssets.shared.shellHTML(isDark: true),
-            baseURL: markdownURL
-        )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
-
-        try await renderMarkdown("![Inline pixel](\(Self.onePixelPNGDataURI))\n", in: webView)
-        let image = try await waitForMarkdownImage(in: webView)
-
-        XCTAssertEqual(image["found"] as? Bool, true)
-        XCTAssertEqual(image["complete"] as? Bool, true)
-        XCTAssertGreaterThan(try XCTUnwrap(image["naturalWidth"] as? Int), 0)
-        XCTAssertGreaterThan(try XCTUnwrap(image["naturalHeight"] as? Int), 0)
-        XCTAssertTrue((image["src"] as? String ?? "").hasPrefix("data:image/png;base64,"))
     }
 
     func testMarkdownRenderBlocksRemoteImagesUntilUserAction() throws {
@@ -954,132 +834,6 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
-    private func renderMarkdown(_ markdown: String, in webView: WKWebView) async throws {
-        let data = try JSONSerialization.data(withJSONObject: [markdown])
-        let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
-        _ = try await webView.evaluateJavaScript("window.__cmuxRenderMarkdown(\(literal)[0]);")
-    }
-
-    private func evaluateScrollSnapshot(_ script: String, in webView: WKWebView) async throws -> [String: Double] {
-        let result = try await webView.evaluateJavaScript(script)
-        let raw = try XCTUnwrap(result as? [String: Any])
-        var snapshot: [String: Double] = [:]
-        for (key, value) in raw {
-            if let number = value as? NSNumber {
-                snapshot[key] = number.doubleValue
-            }
-        }
-        return snapshot
-    }
-
-    private func waitForMarkdownImage(in webView: WKWebView) async throws -> [String: Any] {
-        let images = try await waitForMarkdownImages(expectedCount: 1, in: webView)
-        return try XCTUnwrap(images.first)
-    }
-
-    private func waitForMarkdownImages(expectedCount: Int, in webView: WKWebView) async throws -> [[String: Any]] {
-        let deadline = Date().addingTimeInterval(3)
-        var lastSnapshot: [[String: Any]] = []
-
-        while Date() < deadline {
-            let result = try await webView.evaluateJavaScript(
-                """
-                (function() {
-                  return Array.prototype.slice.call(document.querySelectorAll('img')).map(function(img) {
-                    return {
-                      found: true,
-                      alt: img.getAttribute('alt') || '',
-                      complete: !!img.complete,
-                      naturalWidth: img.naturalWidth || 0,
-                      naturalHeight: img.naturalHeight || 0,
-                      src: img.getAttribute('src') || '',
-                      currentSrc: img.currentSrc || '',
-                      hidden: !!img.hidden,
-                      remoteSrc: img.getAttribute('data-cmux-remote-src') || ''
-                    };
-                  });
-                })();
-                """
-            )
-            lastSnapshot = try XCTUnwrap(result as? [[String: Any]])
-            if lastSnapshot.count == expectedCount,
-               lastSnapshot.allSatisfy({ $0["complete"] as? Bool == true }) {
-                return lastSnapshot
-            }
-            try await Task.sleep(nanoseconds: 100_000_000)
-        }
-
-        throw NSError(
-            domain: "MarkdownPanelTests",
-            code: 1,
-            userInfo: [
-                NSLocalizedDescriptionKey: "Timed out waiting for markdown image to load. Last snapshot: \(lastSnapshot)"
-            ]
-        )
-    }
-
-    private func scrollSmokeMarkdown(extraBeforeSection20: Bool) -> String {
-        var lines: [String] = ["# Scroll Smoke", ""]
-        for section in 1...36 {
-            if section == 20, extraBeforeSection20 {
-                for line in 1...12 {
-                    lines.append("Inserted external edit line \(line), above the visible heading.")
-                }
-                lines.append("")
-            }
-
-            lines.append("## Section \(section)")
-            lines.append("")
-            for paragraph in 1...5 {
-                lines.append(
-                    "Paragraph \(paragraph) for section \(section). This gives the renderer enough height to exercise scroll restoration after an external file edit."
-                )
-                lines.append("")
-            }
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private func makeMarkdownTestWebViewConfiguration() -> WKWebViewConfiguration {
-        let configuration = WKWebViewConfiguration()
-        configuration.processPool = WKProcessPool()
-        configuration.websiteDataStore = .nonPersistent()
-        return configuration
-    }
-
-    private func makeMarkdownTestWebView(
-        frame: NSRect,
-        configuration: WKWebViewConfiguration? = nil
-    ) -> (webView: WKWebView, close: () -> Void) {
-        let resolvedConfiguration = configuration ?? makeMarkdownTestWebViewConfiguration()
-        let webView = WKWebView(frame: frame, configuration: resolvedConfiguration)
-        return attachMarkdownTestWebView(webView, frame: frame)
-    }
-
-    private func makeMarkdownTestMarkdownWebView(
-        frame: NSRect,
-        configuration: WKWebViewConfiguration
-    ) -> (webView: MarkdownWebView, close: () -> Void) {
-        let webView = MarkdownWebView(frame: frame, configuration: configuration)
-        return attachMarkdownTestWebView(webView, frame: frame)
-    }
-
-    private func attachMarkdownTestWebView<WebView: WKWebView>(
-        _ webView: WebView,
-        frame: NSRect
-    ) -> (webView: WebView, close: () -> Void) {
-        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.contentView = webView
-        webView.layoutSubtreeIfNeeded()
-        return (webView, {
-            webView.stopLoading()
-            webView.navigationDelegate = nil
-            webView.uiDelegate = nil
-            window.contentView = nil
-            window.close()
-        })
-    }
-
     private static func cssRGBAComponents(_ css: String) -> (red: Int, green: Int, blue: Int, alpha: Double)? {
         let pattern = #"rgba\((\d+), (\d+), (\d+), ([0-9.]+)\)"#
         guard let regex = try? NSRegularExpression(pattern: pattern),
@@ -1115,37 +869,6 @@ final class MarkdownPanelTests: XCTestCase {
         return png
     }()
 
-    private static let onePixelPNGDataURI = "data:image/png;base64,\(onePixelPNG.base64EncodedString())"
-}
-
-private final class MarkdownShellLoadDelegate: NSObject, WKNavigationDelegate {
-    let expectation: XCTestExpectation
-    var error: Error?
-    private var didFulfill = false
-
-    init(expectation: XCTestExpectation) {
-        self.expectation = expectation
-    }
-
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        fulfillOnce()
-    }
-
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        self.error = error
-        fulfillOnce()
-    }
-
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        self.error = error
-        fulfillOnce()
-    }
-
-    private func fulfillOnce() {
-        guard !didFulfill else { return }
-        didFulfill = true
-        expectation.fulfill()
-    }
 }
 
 private final class MarkdownURLSchemeTaskSpy: NSObject, WKURLSchemeTask {

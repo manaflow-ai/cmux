@@ -242,6 +242,168 @@ function placeholderForImage(document: Document, alt: string) {
   return { image, placeholder };
 }
 
+describe("markdown shell local image handling", () => {
+  test("rewrites only relative local image sources", () => {
+    const { window, document, cleanup } = createMarkdownShell();
+
+    try {
+      window.__cmuxRenderMarkdown(`
+![Local pixel](images/pixel.png)
+![Traversal pixel](../outside.png)
+![Explicit file pixel](file:///tmp/outside.png)
+![Root absolute pixel](/tmp/outside.png)
+`);
+
+      const localImage = document.querySelector('img[alt="Local pixel"]');
+      expect(localImage?.getAttribute("data-cmux-original-src")).toBe(
+        "images/pixel.png",
+      );
+      expect(localImage?.getAttribute("src")).toBe(
+        `cmux-local-image://image?url=${encodeURIComponent(
+          "file:///tmp/images/pixel.png",
+        )}`,
+      );
+
+      const traversalImage = document.querySelector(
+        'img[alt="Traversal pixel"]',
+      );
+      expect(traversalImage?.getAttribute("data-cmux-original-src")).toBe(
+        "../outside.png",
+      );
+      expect(traversalImage?.getAttribute("src")).toBe(
+        `cmux-local-image://image?url=${encodeURIComponent(
+          "file:///outside.png",
+        )}`,
+      );
+
+      const explicitFileImage = document.querySelector(
+        'img[alt="Explicit file pixel"]',
+      );
+      expect(explicitFileImage?.getAttribute("src")).toBeNull();
+      expect(explicitFileImage?.hasAttribute("data-cmux-original-src")).toBe(
+        false,
+      );
+
+      const rootAbsoluteImage = document.querySelector(
+        'img[alt="Root absolute pixel"]',
+      );
+      expect(rootAbsoluteImage?.getAttribute("src")).toBeNull();
+      expect(rootAbsoluteImage?.hasAttribute("data-cmux-original-src")).toBe(
+        false,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("keeps safe data image sources", () => {
+    const { window, document, cleanup } = createMarkdownShell();
+    const dataURL = "data:image/png;base64,AA==";
+
+    try {
+      window.__cmuxRenderMarkdown(`![Inline pixel](${dataURL})`);
+
+      const image = document.querySelector('img[alt="Inline pixel"]');
+      expect(image?.getAttribute("src")).toBe(dataURL);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("markdown shell scroll handling", () => {
+  test("keeps the visible heading anchored after content updates", () => {
+    const { window, document, cleanup } = createMarkdownShell();
+    const elementPrototype = window.HTMLElement.prototype;
+    const originalGetBoundingClientRect =
+      elementPrototype.getBoundingClientRect;
+    let scrollY = 480;
+
+    function markdown(extraBeforeSection20: boolean) {
+      const lines: string[] = [];
+      for (let section = 1; section <= 30; section++) {
+        if (section === 20 && extraBeforeSection20) {
+          for (let line = 0; line < 8; line++) {
+            lines.push(`Inserted external edit line ${line}.`);
+          }
+        }
+        lines.push(`# Section ${section}`);
+        lines.push(`Paragraph for section ${section}.`);
+      }
+      return lines.join("\n\n");
+    }
+
+    Object.defineProperty(window, "scrollY", {
+      configurable: true,
+      get: () => scrollY,
+    });
+    Object.defineProperty(document.documentElement, "clientHeight", {
+      configurable: true,
+      get: () => 600,
+    });
+    Object.defineProperty(document.documentElement, "scrollHeight", {
+      configurable: true,
+      get: () => 2_000,
+    });
+    Object.defineProperty(document.documentElement, "scrollTop", {
+      configurable: true,
+      get: () => scrollY,
+      set: (value) => {
+        scrollY = Number(value) || 0;
+      },
+    });
+    document.elementFromPoint = () => document.getElementById("section-20");
+    window.scrollTo = (xOrOptions?: number | ScrollToOptions, y?: number) => {
+      if (typeof xOrOptions === "object") {
+        scrollY = Number(xOrOptions.top) || 0;
+      } else {
+        scrollY = Number(y) || 0;
+      }
+    };
+    elementPrototype.getBoundingClientRect = function getBoundingClientRect() {
+      if ((this as HTMLElement).id === "section-20") {
+        const hasInsertedContent = document.body.textContent?.includes(
+          "Inserted external edit line",
+        );
+        const absoluteTop = hasInsertedContent ? 728 : 528;
+        return {
+          top: absoluteTop - scrollY,
+          bottom: absoluteTop - scrollY,
+          left: 0,
+          right: 0,
+          width: 0,
+          height: 0,
+          x: 0,
+          y: absoluteTop - scrollY,
+          toJSON: () => ({}),
+        } as DOMRect;
+      }
+      return {
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect;
+    };
+
+    try {
+      window.__cmuxRenderMarkdown(markdown(false));
+      expect(scrollY).toBe(480);
+
+      window.__cmuxRenderMarkdown(markdown(true));
+      expect(scrollY).toBe(680);
+    } finally {
+      elementPrototype.getBoundingClientRect = originalGetBoundingClientRect;
+      cleanup();
+    }
+  });
+});
+
 function expectedURLText(url: string) {
   return `Image URL: ${url}`;
 }
