@@ -905,6 +905,7 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.playSuppressedNotificationFeedback(for: notification, effects: effects)
     }
+    private var pendingPolicyStructuredAgentInputCounts: [StructuredAgentInputNotificationKey: Int] = [:]
     private struct NotificationHookFailureThrottleKey: Hashable {
         let hookId: String
         let sourcePath: String?
@@ -1298,8 +1299,12 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
+        let pendingPolicyStructuredAgentInputKey = beginPendingPolicyStructuredAgentInput(policyContext)
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer {
+                self.finishPendingPolicyStructuredAgentInput(pendingPolicyStructuredAgentInputKey)
+            }
             let authorizedHooks = await NotificationPolicyHookAuthorizer.authorize(
                 policyContext.hooks,
                 globalConfigPath: policyContext.globalConfigPath
@@ -1354,6 +1359,33 @@ final class TerminalNotificationStore: ObservableObject {
         let structuredAgentStatusKey: String?
         let hooks: [CmuxResolvedNotificationHook]
         let globalConfigPath: String?
+    }
+
+    private func beginPendingPolicyStructuredAgentInput(
+        _ context: NotificationPolicyContext
+    ) -> StructuredAgentInputNotificationKey? {
+        guard let statusKey = Self.structuredAgentStatusKey(
+            explicitStatusKey: context.structuredAgentStatusKey,
+            title: context.request.title
+        ) else {
+            return nil
+        }
+        let key = StructuredAgentInputNotificationKey(
+            tabId: context.request.tabId,
+            statusKey: statusKey
+        )
+        pendingPolicyStructuredAgentInputCounts[key, default: 0] += 1
+        return key
+    }
+
+    private func finishPendingPolicyStructuredAgentInput(_ key: StructuredAgentInputNotificationKey?) {
+        guard let key else { return }
+        let remainingCount = (pendingPolicyStructuredAgentInputCounts[key] ?? 0) - 1
+        if remainingCount > 0 {
+            pendingPolicyStructuredAgentInputCounts[key] = remainingCount
+        } else {
+            pendingPolicyStructuredAgentInputCounts.removeValue(forKey: key)
+        }
     }
 
     private func makeCooldownReservation(
@@ -1658,9 +1690,19 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    private static func structuredAgentStatusKey(
+        explicitStatusKey: String?,
+        title: String
+    ) -> String? {
+        AgentHibernationLifecycleStatusKeys.normalizedAllowedStatusKey(explicitStatusKey)
+            ?? AgentHibernationLifecycleStatusKeys.statusKey(forNotificationTitle: title)
+    }
+
     private static func structuredAgentStatusKey(for notification: TerminalNotification) -> String? {
-        notification.structuredAgentStatusKey
-            ?? AgentHibernationLifecycleStatusKeys.statusKey(forNotificationTitle: notification.title)
+        structuredAgentStatusKey(
+            explicitStatusKey: notification.structuredAgentStatusKey,
+            title: notification.title
+        )
     }
 
     private func acknowledgeStructuredAgentInputStatuses(for notificationsToAcknowledge: [TerminalNotification]) {
@@ -1696,6 +1738,7 @@ final class TerminalNotificationStore: ObservableObject {
             keys.insert(StructuredAgentInputNotificationKey(tabId: notification.tabId, statusKey: statusKey))
         }
         keys.formUnion(TerminalMutationBus.shared.pendingStructuredAgentInputNotificationKeys())
+        keys.formUnion(pendingPolicyStructuredAgentInputCounts.keys)
         return keys
     }
 
@@ -2462,6 +2505,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
+        pendingPolicyStructuredAgentInputCounts.removeAll()
     }
 #endif
 
