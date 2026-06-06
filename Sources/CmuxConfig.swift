@@ -1565,7 +1565,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             title = String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab")
             keywords = ["new", "browser", "tab", "surface"]
         case .newCodeEditor:
-            title = String(localized: "command.newCodeEditorTab.title", defaultValue: "New Code Editor Tab")
+            title = String(localized: "command.newCodeEditorTab.title", defaultValue: "New Tab (Code Editor)")
             keywords = ["new", "code", "editor", "tab", "surface", "vscode"]
         case .splitRight:
             title = String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")

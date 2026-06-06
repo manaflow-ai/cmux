@@ -105,7 +105,7 @@ struct SurfaceInsight: Identifiable {
         case .browser:
             return "globe"
         case .codeEditor:
-            return "chevron.left.forwardslash.chevron.right"
+            return "curlybraces.square"
         case .markdown:
             return "doc.text"
         case .filePreview:
