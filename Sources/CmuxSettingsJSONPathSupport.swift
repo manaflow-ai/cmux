@@ -1,6 +1,8 @@
 import CmuxSettings
 import Foundation
 
+typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
+
 enum SidebarWorkspaceDetailDefaults {
     static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
     static let showPullRequestsKey = "sidebarShowPullRequest"

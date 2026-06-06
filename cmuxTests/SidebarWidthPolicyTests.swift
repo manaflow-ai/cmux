@@ -1,5 +1,4 @@
 import AppKit
-import CmuxSettings
 import SwiftUI
 import XCTest
 
