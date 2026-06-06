@@ -6,6 +6,10 @@ import Foundation
 /// Returns `nil` for unsupported extensions or files above the size threshold,
 /// which routes the caller to the plain-text editor fallback.
 enum SyntaxLanguageDetector {
+    static let plainTextLanguage = CodeLanguage.detectLanguageFrom(
+        url: URL(fileURLWithPath: "__cmux_plain_text__")
+    )
+
     private static let supportedExtensions: Set<String> = [
         "agda",
         "bash", "sh",

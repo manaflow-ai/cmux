@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Carbon.HIToolbox
+import CodeEditLanguages
 import Quartz
 import XCTest
 
@@ -301,7 +302,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         ))
     }
 
-    func testHighlightedPreviewRouteStaysStableAcrossUnsavedLargeEdit() async throws {
+    func testHighlightedPreviewRouteStaysMountedAndDisablesSyntaxForUnsavedLargeEdit() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("swift")
@@ -313,11 +314,18 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         await panel.loadTextContent().value
 
         XCTAssertNotNil(panel.highlightedTextLanguage)
+        XCTAssertNotEqual(panel.highlightedTextLanguage?.id, .plainText)
 
         panel.updateTextContent(String(repeating: "a", count: 501_000))
 
         XCTAssertEqual(panel.textContentUTF8ByteCount, .some(501_000))
         XCTAssertNotNil(panel.highlightedTextLanguage)
+        XCTAssertEqual(panel.highlightedTextLanguage?.id, .plainText)
+
+        panel.updateTextContent("let value = 2\n")
+
+        XCTAssertNotNil(panel.highlightedTextLanguage)
+        XCTAssertNotEqual(panel.highlightedTextLanguage?.id, .plainText)
     }
 
     func testHighlightedPreviewRouteReevaluatesOnReloadedLargeContent() async throws {

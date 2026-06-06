@@ -32,6 +32,7 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
     private(set) var themeForeground: NSColor = .textColor
     private(set) var drawsBackground: Bool = true
     private(set) var wrapLines: Bool = false
+    private(set) var language: CodeLanguage = SyntaxLanguageDetector.plainTextLanguage
     @ObservationIgnored
     private(set) var isApplyingExternalUpdate = false
 
@@ -73,6 +74,10 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
 
     func setWrapLines(_ wrap: Bool) {
         if wrapLines != wrap { wrapLines = wrap }
+    }
+
+    func setLanguage(_ language: CodeLanguage) {
+        if self.language != language { self.language = language }
     }
 
     func adjustFontSize(by factor: CGFloat) {
@@ -413,13 +418,12 @@ final class HighlightedEditorContainerView: NSView {
 
 struct HighlightedSourceEditorCore: View {
     let bridge: HighlightedEditorBridge
-    let language: CodeLanguage
     @State private var editorState = SourceEditorState()
 
     var body: some View {
         SourceEditor(
             bridge.storage,
-            language: language,
+            language: bridge.language,
             configuration: makeConfiguration(),
             state: $editorState,
             coordinators: [bridge]
@@ -531,11 +535,12 @@ struct HighlightedFilePreviewEditor: NSViewRepresentable {
         bridge.setVisibleInUI(isVisibleInUI)
         bridge.updateThemeIfNeeded(background: themeBackgroundColor, foreground: themeForegroundColor, drawsBackground: drawsBackground)
         bridge.setWrapLines(wordWrap)
+        bridge.setLanguage(language)
 
         let container = HighlightedEditorContainerView(bridge: bridge)
         container.isHidden = !isVisibleInUI
 
-        let hostView = NSHostingView(rootView: HighlightedSourceEditorCore(bridge: bridge, language: language))
+        let hostView = NSHostingView(rootView: HighlightedSourceEditorCore(bridge: bridge))
         container.addSubview(hostView)
         container.hostView = hostView
 
@@ -551,6 +556,7 @@ struct HighlightedFilePreviewEditor: NSViewRepresentable {
         bridge.setContent(panel.textContent)
         bridge.updateThemeIfNeeded(background: themeBackgroundColor, foreground: themeForegroundColor, drawsBackground: drawsBackground)
         bridge.setWrapLines(wordWrap)
+        bridge.setLanguage(language)
     }
 
     static func dismantleNSView(_ container: HighlightedEditorContainerView, coordinator: HighlightedEditorBridge) {
