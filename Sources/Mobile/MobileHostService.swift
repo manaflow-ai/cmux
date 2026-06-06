@@ -408,6 +408,9 @@ final class MobileHostService {
             }
             lastErrorDescription = String(describing: error)
             mobileHostLog.error("mobile host listener failed to start: \(String(describing: error), privacy: .public)")
+            // No listener was registered, so no state callback will fire to drain
+            // readiness waiters; resolve them now instead of waiting for the deadline.
+            drainReadinessWaiters()
         }
     }
 

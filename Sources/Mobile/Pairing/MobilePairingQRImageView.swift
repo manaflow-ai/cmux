@@ -35,6 +35,12 @@ struct MobilePairingQRImageView: View {
                             .font(.system(size: dimension * 0.3))
                             .foregroundStyle(.secondary)
                     )
+                    .accessibilityLabel(
+                        String(
+                            localized: "mobile.pairing.qrUnavailable",
+                            defaultValue: "Pairing code unavailable. Tap Refresh Code."
+                        )
+                    )
             }
         }
     }

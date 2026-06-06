@@ -56,14 +56,21 @@ final class MobilePairingModel {
     /// Re-mints the ticket shortly before it expires so the displayed QR is
     /// never stale. Cancelled on every refresh and when the window closes.
     private var autoRefreshTask: Task<Void, Never>?
+    /// Bumped on each ``refresh()`` so a slower in-flight run (the UI fires
+    /// refresh from several places) can't overwrite a newer result with a stale
+    /// ticket. Each run captures its value and bails after an `await` if superseded.
+    private var refreshGeneration = 0
 
     /// Creates a pairing model.
     ///
     /// - Parameters:
-    ///   - host: The Mac-side pairing host service. Defaults to the shared instance.
+    ///   - host: The Mac-side pairing host service, or `nil` to use the shared
+    ///     instance. (Resolved in the `@MainActor` init body rather than as a
+    ///     default argument, since default args are evaluated nonisolated and
+    ///     `MobileHostService.shared` is main-actor isolated.)
     ///   - ticketTTL: Attach-ticket lifetime in seconds. Defaults to 600.
-    init(host: MobileHostService = .shared, ticketTTL: TimeInterval = 600) {
-        self.host = host
+    init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
+        self.host = host ?? .shared
         self.ticketTTL = ticketTTL
     }
 
@@ -74,6 +81,8 @@ final class MobilePairingModel {
     /// or the view re-running it when auth state settles).
     func refresh() async {
         autoRefreshTask?.cancel()
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
         state = .loading
         guard let coordinator else {
             state = .failed(
@@ -85,6 +94,7 @@ final class MobilePairingModel {
             return
         }
         await coordinator.awaitBootstrapped()
+        guard generation == refreshGeneration else { return }
         guard coordinator.isAuthenticated else {
             signedInEmail = nil
             state = .signedOut
@@ -94,13 +104,14 @@ final class MobilePairingModel {
         state = .preparing
         enablePairingHost()
         let status = await host.ensureListeningAndReady()
+        guard generation == refreshGeneration else { return }
         guard status.isRunning else {
+            // Show localized copy, not the raw NWListener error string.
             state = .failed(
-                status.lastErrorDescription
-                    ?? String(
-                        localized: "mobile.pairing.error.listenerOffline",
-                        defaultValue: "Could not start the pairing listener on this Mac."
-                    )
+                String(
+                    localized: "mobile.pairing.error.listenerOffline",
+                    defaultValue: "Could not start the pairing listener on this Mac."
+                )
             )
             return
         }
@@ -117,6 +128,7 @@ final class MobilePairingModel {
                 terminalID: nil,
                 ttl: ticketTTL
             )
+            guard generation == refreshGeneration else { return }
             guard let attachURL = payload["attach_url"] as? String, !attachURL.isEmpty else {
                 state = .failed(
                     String(

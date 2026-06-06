@@ -23,6 +23,9 @@ final class MobilePairingWindowController {
         NSApp.activate(ignoringOtherApps: true)
 
         if let existing = existingWindow() {
+            if existing.isMiniaturized {
+                existing.deminiaturize(nil)
+            }
             existing.makeKeyAndOrderFront(nil)
             existing.orderFrontRegardless()
             return
