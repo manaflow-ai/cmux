@@ -1,3 +1,4 @@
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -20,20 +21,41 @@ struct WorkspaceListView: View {
     /// previews), the menu is hidden.
     var rescanQR: (() -> Void)?
     var signOut: (() -> Void)?
+    /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
+    /// `nil` in previews.
+    var store: CMUXMobileShellStore?
+    /// Optional: rename a workspace on the Mac. When present, each row offers a
+    /// Rename context-menu action.
+    var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
+    /// Optional: pin/unpin a workspace on the Mac. When present, each row offers
+    /// a Pin/Unpin context-menu action and pinned workspaces sort to the top.
+    var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
 
+    /// Workspaces after search filtering, pinned ones first (stable within each
+    /// group so the Mac's order is otherwise preserved).
     private var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
-            return workspaces
+        let matches: [MobileWorkspacePreview]
+        if query.isEmpty {
+            matches = workspaces
+        } else {
+            matches = workspaces.filter { workspace in
+                workspace.name.localizedCaseInsensitiveContains(query)
+                    || workspace.previewLine.localizedCaseInsensitiveContains(query)
+                    || workspace.terminals.contains { $0.name.localizedCaseInsensitiveContains(query) }
+            }
         }
-        return workspaces.filter { workspace in
-            workspace.name.localizedCaseInsensitiveContains(query)
-                || workspace.previewLine.localizedCaseInsensitiveContains(query)
-                || workspace.terminals.contains { $0.name.localizedCaseInsensitiveContains(query) }
-        }
+        return matches.enumerated()
+            .sorted { lhs, rhs in
+                if lhs.element.isPinned != rhs.element.isPinned {
+                    return lhs.element.isPinned
+                }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
     }
 
     var body: some View {
@@ -53,7 +75,9 @@ struct WorkspaceListView: View {
                         connectionStatus: connectionStatus,
                         isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
                         navigationStyle: navigationStyle,
-                        selectWorkspace: selectWorkspace
+                        selectWorkspace: selectWorkspace,
+                        renameWorkspace: renameWorkspace,
+                        setPinned: setPinned
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                     .listRowSeparator(.hidden)
@@ -87,7 +111,8 @@ struct WorkspaceListView: View {
             MobileSettingsView(
                 connectedHostName: host,
                 rescanQR: rescanQR,
-                signOut: signOut
+                signOut: signOut,
+                store: store
             )
         }
         #endif

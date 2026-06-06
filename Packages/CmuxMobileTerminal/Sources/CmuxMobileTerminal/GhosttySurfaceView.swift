@@ -52,11 +52,15 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// The Mac's libghostty self-gates: a normal screen treats it as a harmless
     /// empty selection. Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int)
+    /// The user tapped the "customize" button at the end of the input-accessory
+    /// bar; the host should present the toolbar shortcuts editor. Optional.
+    func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView)
 }
 
 public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
+    func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
 }
 
 @MainActor
@@ -225,7 +229,7 @@ struct TerminalHardwareKeyResolver {
     }
 }
 
-public enum TerminalInputAccessoryAction: Int, CaseIterable {
+public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     case control
     case alternate
     case command
@@ -282,7 +286,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         case .ctrlZ:
             return "^Z"
         case .ctrlL:
-            return "^L"
+            return String(localized: "terminal.input_accessory.title.clear", defaultValue: "Clear")
         case .upArrow:
             return "↑"
         case .downArrow:
@@ -445,10 +449,35 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         output != nil && !isModifier
     }
 
-    /// Every user-configurable action in canonical (enum) order. This is both
-    /// the default arrangement and the full set the settings editor lists.
+    /// Every user-configurable action in canonical (enum) order. This is the full
+    /// set the settings editor lists and the valid identifier set; it is *not* the
+    /// default on-bar arrangement (see ``defaultConfigurableOrder``).
     public static var configurableActions: [TerminalInputAccessoryAction] {
         allCases.filter { $0.isUserConfigurable }
+    }
+
+    /// The default on-bar arrangement of the configurable shortcuts: the
+    /// high-traffic agent and control keys first (Tab, ^C/^D, the Claude/Codex
+    /// launchers, the arrow keys, Clear), then the punctuation and navigation
+    /// keys. Curated independently of the enum's `rawValue` order so the default
+    /// bar can be arranged without perturbing the persisted identifiers, which are
+    /// the `rawValue`s.
+    ///
+    /// Must stay a permutation of ``configurableActions``;
+    /// ``TerminalAccessoryLayoutReducer`` defensively appends any omission, so a
+    /// gap here can never drop an action from the bar.
+    public static var defaultConfigurableOrder: [TerminalInputAccessoryAction] {
+        [
+            .tab,
+            .ctrlC, .ctrlD,
+            .claude, .codex,
+            .upArrow, .downArrow, .leftArrow, .rightArrow,
+            .ctrlL,
+            .escape,
+            .tilde, .dollar, .slash, .atSign, .pipe,
+            .ctrlZ,
+            .home, .end, .pageUp, .pageDown,
+        ]
     }
 
     /// Human-readable name for the shortcuts settings editor (the bar itself
@@ -471,7 +500,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         case .ctrlC: return String(localized: "terminal.shortcut.name.ctrlC", defaultValue: "Control-C")
         case .ctrlD: return String(localized: "terminal.shortcut.name.ctrlD", defaultValue: "Control-D")
         case .ctrlZ: return String(localized: "terminal.shortcut.name.ctrlZ", defaultValue: "Control-Z")
-        case .ctrlL: return String(localized: "terminal.shortcut.name.ctrlL", defaultValue: "Control-L")
+        case .ctrlL: return String(localized: "terminal.shortcut.name.ctrlL", defaultValue: "Clear (Control-L)")
         case .home: return String(localized: "terminal.shortcut.name.home", defaultValue: "Home")
         case .end: return String(localized: "terminal.shortcut.name.end", defaultValue: "End")
         case .pageUp: return String(localized: "terminal.shortcut.name.pageUp", defaultValue: "Page Up")
@@ -768,6 +797,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             } else {
                 self.focusInput()
             }
+        }
+        inputProxy.onOpenToolbarSettings = { [weak self] in
+            guard let self else { return }
+            self.delegate?.ghosttySurfaceViewDidRequestToolbarSettings(self)
         }
         inputProxy.accessoryLayoutInsetsProvider = { [weak self] in
             guard let self,

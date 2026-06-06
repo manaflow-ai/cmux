@@ -1,10 +1,24 @@
 {
   "scripts": {
+    "agent-session-web:build": "sh scripts/build-agent-session-web.sh",
+    "agent-session-web:test": "bun test webviews/src/agent-session/shared/*.test.ts",
     "feed-tui": "bun Resources/feed-tui/index.ts"
   },
   "dependencies": {
     "@opentui/core": "^0.1.106",
+    "prosemirror-commands": "^1.7.1",
+    "prosemirror-model": "^1.25.7",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-view": "^1.41.8",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "solid-js": "1.9.13",
     "vercel": "^50.9.5"
   },
-  "license": "GPL-3.0-or-later"
+  "license": "GPL-3.0-or-later",
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.0",
+    "esbuild": "0.27.0",
+    "tailwindcss": "^4.3.0"
+  }
 }

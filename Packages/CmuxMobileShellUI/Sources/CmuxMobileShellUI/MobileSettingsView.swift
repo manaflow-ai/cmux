@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxAuthRuntime
+import CmuxMobileShell
 import CmuxMobileSupport
 import SwiftUI
 
@@ -13,6 +14,9 @@ struct MobileSettingsView: View {
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let signOut: (() -> Void)?
+    /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
+    /// where the "Switch Mac" entry is hidden.
+    var store: CMUXMobileShellStore?
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
@@ -21,6 +25,7 @@ struct MobileSettingsView: View {
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
+    @State private var showingHostPicker = false
 
     var body: some View {
         NavigationStack {
@@ -62,6 +67,17 @@ struct MobileSettingsView: View {
                             L10n.string("mobile.settings.mac", defaultValue: "Mac"),
                             value: connectedHostName
                         )
+                    }
+                    if store != nil {
+                        Button {
+                            showingHostPicker = true
+                        } label: {
+                            Label(
+                                L10n.string("mobile.settings.switchMac", defaultValue: "Switch Mac"),
+                                systemImage: "macbook.and.iphone"
+                            )
+                        }
+                        .accessibilityIdentifier("MobileSettingsSwitchMac")
                     }
                     if let rescanQR {
                         Button {
@@ -123,6 +139,11 @@ struct MobileSettingsView: View {
             }
             .sheet(isPresented: $showingShortcuts) {
                 TerminalShortcutsSettingsView()
+            }
+            .sheet(isPresented: $showingHostPicker) {
+                if let store {
+                    MobileHostPickerView(store: store)
+                }
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
