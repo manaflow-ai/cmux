@@ -482,7 +482,7 @@ final class ClosedItemHistoryStore {
         let recordsSnapshot = records
         let revisionSnapshot = revision
         if persistsRecordsSynchronously {
-            Self.saveRecords(recordsSnapshot, fileURL: fileURL)
+            Self.saveRecords(recordsSnapshot, fileURL: fileURL, revision: revisionSnapshot)
         } else {
             Task {
                 await ClosedItemHistoryPersistenceActor.shared.save(
@@ -500,7 +500,7 @@ final class ClosedItemHistoryStore {
             finishPersistedRecordsLoad(Self.loadRecords(fileURL: fileURL))
         }
         needsPersistenceAfterPersistedRecordsLoad = false
-        Self.saveRecords(records, fileURL: fileURL)
+        Self.saveRecords(records, fileURL: fileURL, revision: revision)
     }
 
     private func loadPersistedRecordsAsync(from fileURL: URL) {
@@ -693,17 +693,29 @@ final class ClosedItemHistoryStore {
     }
 
     nonisolated fileprivate static func loadRecords(fileURL: URL) -> [ClosedItemHistoryRecord] {
-        guard let data = try? Data(contentsOf: fileURL) else { return [] }
-        let decoder = JSONDecoder()
-        if let snapshot = try? decoder.decode(ClosedItemHistoryPersistenceSnapshot.self, from: data),
+        if let snapshot = loadPersistenceSnapshot(fileURL: fileURL),
            snapshot.version == ClosedItemHistoryPersistenceSnapshot.currentVersion {
             return snapshot.records
         }
-        return (try? decoder.decode([ClosedItemHistoryRecord].self, from: data)) ?? []
+        guard let data = try? Data(contentsOf: fileURL) else { return [] }
+        return (try? JSONDecoder().decode([ClosedItemHistoryRecord].self, from: data)) ?? []
     }
 
-    nonisolated fileprivate static func saveRecords(_ records: [ClosedItemHistoryRecord], fileURL: URL) {
-        guard !records.isEmpty else {
+    nonisolated fileprivate static func loadPersistedRevision(fileURL: URL) -> UInt64? {
+        loadPersistenceSnapshot(fileURL: fileURL)?.revision
+    }
+
+    nonisolated private static func loadPersistenceSnapshot(fileURL: URL) -> ClosedItemHistoryPersistenceSnapshot? {
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        return try? JSONDecoder().decode(ClosedItemHistoryPersistenceSnapshot.self, from: data)
+    }
+
+    nonisolated fileprivate static func saveRecords(
+        _ records: [ClosedItemHistoryRecord],
+        fileURL: URL,
+        revision: UInt64? = nil
+    ) {
+        guard !records.isEmpty || revision != nil else {
             do {
                 try FileManager.default.removeItem(at: fileURL)
             } catch {
@@ -722,7 +734,10 @@ final class ClosedItemHistoryStore {
                 withIntermediateDirectories: true,
                 attributes: nil
             )
-            let snapshot = ClosedItemHistoryPersistenceSnapshot(records: records)
+            let snapshot = ClosedItemHistoryPersistenceSnapshot(
+                revision: revision,
+                records: records
+            )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             let data = try encoder.encode(snapshot)
@@ -874,7 +889,13 @@ private struct ClosedItemHistoryPersistenceSnapshot: Codable {
     static let currentVersion = 1
 
     var version: Int = currentVersion
+    var revision: UInt64?
     var records: [ClosedItemHistoryRecord]
+
+    init(revision: UInt64?, records: [ClosedItemHistoryRecord]) {
+        self.revision = revision
+        self.records = records
+    }
 }
 
 private actor ClosedItemHistoryPersistenceActor {
@@ -888,10 +909,13 @@ private actor ClosedItemHistoryPersistenceActor {
 
     func save(_ records: [ClosedItemHistoryRecord], fileURL: URL, revision: UInt64) {
         let path = fileURL.standardizedFileURL.path
-        if let latestRevision = latestRevisionByPath[path], revision < latestRevision {
+        let knownRevision = latestRevisionByPath[path]
+        let persistedRevision = ClosedItemHistoryStore.loadPersistedRevision(fileURL: fileURL)
+        let latestRevision = max(knownRevision ?? 0, persistedRevision ?? 0)
+        if revision < latestRevision {
             return
         }
         latestRevisionByPath[path] = revision
-        ClosedItemHistoryStore.saveRecords(records, fileURL: fileURL)
+        ClosedItemHistoryStore.saveRecords(records, fileURL: fileURL, revision: revision)
     }
 }
