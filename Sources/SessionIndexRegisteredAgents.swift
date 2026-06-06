@@ -264,9 +264,7 @@ extension SessionIndexStore {
     nonisolated static let antigravityHistoryMinimumScanBytes = 2 * 1024 * 1024
     nonisolated static let antigravityHistoryMaximumScanBytes = 24 * 1024 * 1024
     nonisolated private static let antigravityHistoryBytesPerRequestedEntry = 256 * 1024
-    nonisolated static let antigravityHistoryMinimumScanLines = 512
     nonisolated static let antigravityHistoryMaximumScanLines = 12_000
-    nonisolated private static let antigravityHistoryLinesPerRequestedEntry = 64
 
     nonisolated static func loadGrokEntries(
         registration: CmuxVaultAgentRegistration,
@@ -499,7 +497,7 @@ extension SessionIndexStore {
         var sessionIDsInReverseHistoryOrder: [String] = []
         var targetSessionIDs = Set<String>()
         var stableTargetMetadataCount = 0
-        let scanLimits = antigravityHistoryScanLimits(
+        let maxScanBytes = antigravityHistoryScanBytes(
             offset: offset,
             limit: limit,
             usesSparseFilter: !needle.isEmpty || cwdFilter != nil
@@ -520,8 +518,8 @@ extension SessionIndexStore {
 
             forEachJSONLine(
                 url: historyURL,
-                maxBytes: scanLimits.maxBytes,
-                maxLines: scanLimits.maxLines,
+                maxBytes: maxScanBytes,
+                maxLines: nil,
                 direction: .reverse
             ) { object in
                 if Task.isCancelled { return true }
@@ -595,28 +593,21 @@ extension SessionIndexStore {
         return Array(entries.dropFirst(offset).prefix(limit))
     }
 
-    nonisolated private static func antigravityHistoryScanLimits(
+    nonisolated private static func antigravityHistoryScanBytes(
         offset: Int,
         limit: Int,
         usesSparseFilter: Bool
-    ) -> (maxBytes: Int, maxLines: Int) {
+    ) -> Int {
         if usesSparseFilter {
-            return (antigravityHistoryMaximumScanBytes, antigravityHistoryMaximumScanLines)
+            return antigravityHistoryMaximumScanBytes
         }
         let target = antigravityHistoryTarget(offset: offset, limit: limit)
-        let byteBudget = scaledBound(
+        return scaledBound(
             target: target,
             unit: antigravityHistoryBytesPerRequestedEntry,
             minimum: antigravityHistoryMinimumScanBytes,
             maximum: antigravityHistoryMaximumScanBytes
         )
-        let lineBudget = scaledBound(
-            target: target,
-            unit: antigravityHistoryLinesPerRequestedEntry,
-            minimum: antigravityHistoryMinimumScanLines,
-            maximum: antigravityHistoryMaximumScanLines
-        )
-        return (byteBudget, lineBudget)
     }
 
     nonisolated private static func antigravityHistoryTarget(offset: Int, limit: Int) -> Int {

@@ -254,6 +254,40 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.title, "needle prompt")
     }
 
+    func testBuiltInAntigravityRegistrationDoesNotSpendListBudgetOnDuplicateRows() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-vault-duplicate-rows-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let historyURL = tempDir.appendingPathComponent("history.jsonl", isDirectory: false)
+        var lines = [
+            """
+            {"display":"older prompt","timestamp":1779263000000,"workspace":"/tmp/antigravity repo","conversationId":"conversation-older"}
+            """
+        ]
+        lines.append(
+            contentsOf: (0..<700).map { index in
+                """
+                {"display":"latest prompt \(index)","timestamp":\(1_779_263_001_000 + index),"workspace":"/tmp/antigravity repo","conversationId":"conversation-latest"}
+                """
+            }
+        )
+        try (lines.joined(separator: "\n") + "\n").write(to: historyURL, atomically: true, encoding: .utf8)
+
+        var registration = CmuxVaultAgentRegistration.builtInAntigravity
+        registration.sessionDirectory = tempDir.path
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 2
+        )
+
+        XCTAssertEqual(entries.map(\.sessionId), ["conversation-latest", "conversation-older"])
+    }
+
     func testRegisteredAgentJSONLWorkspaceKeyIsSharedCWDMetadata() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-workspace-cwd-\(UUID().uuidString)", isDirectory: true)
