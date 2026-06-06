@@ -391,7 +391,7 @@ Implemented CLI surface:
 1. `list-pages [--workspace <id|ref|index>] [--window <id|ref|index>]`
 2. `current-page [--workspace <id|ref|index>] [--window <id|ref|index>]`
 3. `new-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>]`
-4. `duplicate-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index>] [--title <text>]`
+4. `duplicate-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index> | <id|ref|index>] [--title <text>]`
 5. `select-page --page <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]`
 6. `rename-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index>] <title>`
 7. `close-page [--page <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]`

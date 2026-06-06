@@ -3891,12 +3891,13 @@ struct CMUXCLI {
             let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
             let (pageOpt, rem1) = parseOption(pageContextOptions.remaining, name: "--page")
             let (titleOpt, rem2) = parseOption(rem1, name: "--title")
-            let trailingTitle = rem2.dropFirst(rem2.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            let (positionalPage, titleArgs) = splitOptionalPositionalPageHandle(rem2, explicitPage: pageOpt)
+            let trailingTitle = titleArgs.dropFirst(titleArgs.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             let title = titleOpt ?? (trailingTitle.isEmpty ? nil : trailingTitle)
             var params: [String: Any] = [:]
             let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
             applyPageCommandContext(pageContext, to: &params)
-            let pageId = try normalizePageHandle(pageOpt, client: client, workspaceHandle: pageContext.workspaceHandle, allowCurrent: true)
+            let pageId = try normalizePageHandle(pageOpt ?? positionalPage, client: client, workspaceHandle: pageContext.workspaceHandle, allowCurrent: true)
             if let pageId { params["page_id"] = pageId }
             if let title, !title.isEmpty { params["title"] = title }
             let payload = try client.sendV2(method: "page.duplicate", params: params)
@@ -13865,18 +13866,19 @@ struct CMUXCLI {
             """
         case "duplicate-page":
             return """
-            Usage: cmux duplicate-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index>] [--title <text>] [--] [title]
+            Usage: cmux duplicate-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index> | <id|ref|index>] [--title <text>] [--] [title]
 
             Duplicate a page. Defaults to the current page in the resolved workspace.
 
             Flags:
               --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace refs and indexes
-              --page <id|ref|index>        Page to duplicate (default: current page)
+              --page <id|ref|index>        Page to duplicate (default: current page; may also be passed positionally)
               --title <text>               Optional title override for the duplicated page
 
             Example:
               cmux duplicate-page
+              cmux duplicate-page page:2
               cmux duplicate-page --page page:2
               cmux duplicate-page --title "editor copy"
             """
@@ -15223,6 +15225,34 @@ struct CMUXCLI {
         if let workspaceHandle = context.workspaceHandle {
             params["workspace_id"] = workspaceHandle
         }
+    }
+
+    private func splitOptionalPositionalPageHandle(
+        _ args: [String],
+        explicitPage: String?
+    ) -> (page: String?, titleArgs: [String]) {
+        guard explicitPage == nil,
+              let first = args.first,
+              first != "--",
+              looksLikePageHandle(first)
+        else {
+            return (nil, args)
+        }
+        return (first, Array(args.dropFirst()))
+    }
+
+    private func looksLikePageHandle(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        if isUUID(trimmed) { return true }
+        if Int(trimmed) != nil { return true }
+        let pieces = trimmed.split(separator: ":", omittingEmptySubsequences: false)
+        guard pieces.count == 2,
+              pieces[0].lowercased() == "page"
+        else {
+            return false
+        }
+        return Int(String(pieces[1])) != nil
     }
 
     private func applyWindowOrCallerContext(to params: inout [String: Any], client: SocketClient, windowRaw: String?) throws {
@@ -32422,7 +32452,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           list-pages [--workspace <id|ref|index>] [--window <id|ref|index>]
           new-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>]
-          duplicate-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index>] [--title <text>]
+          duplicate-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index> | <id|ref|index>] [--title <text>]
           current-page [--workspace <id|ref|index>] [--window <id|ref|index>]
           select-page [--workspace <id|ref|index>] [--window <id|ref|index>] (--page <id|ref|index> | <id|ref|index>)
           rename-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index>] <title>
