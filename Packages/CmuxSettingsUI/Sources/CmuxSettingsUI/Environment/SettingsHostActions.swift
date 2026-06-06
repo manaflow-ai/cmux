@@ -128,12 +128,15 @@ public protocol SettingsHostActions: AnyObject {
 public extension SettingsHostActions {
     func browserHistoryEntryCount() -> Int? { nil }
 
+    /// Default: no status, for hosts without a live mobile service (previews/tests).
     func mobilePairingStatus() -> MobilePairingStatusSnapshot? { nil }
 
+    /// Default: an immediately-finished stream, for hosts without a live mobile service.
     func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot> {
         AsyncStream { $0.finish() }
     }
 
+    /// Default: empty, for hosts that cannot resolve the Mac's system name.
     func mobilePairingDefaultDisplayName() -> String { "" }
 
     func sidebarFontSize() -> SettingsFontSize {
