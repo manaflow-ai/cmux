@@ -12,13 +12,16 @@ public struct MobileSection: View {
     @State private var displayName: DefaultsValueModel<String>
     @State private var status: MobilePairingStatusModel
 
-    /// The port value being edited in the field. Local so editing does not
-    /// rebind the listener; only the **Apply** button does, after checking the
-    /// port is free.
-    @State private var draftPort: Int
-    /// Result of the most recent Apply, shown inline. Cleared when the draft
-    /// changes.
+    /// The user's in-progress port edit, or `nil` when the field should track
+    /// the persisted value. Local so editing does not rebind the listener; only
+    /// the **Apply** button does, after checking the port is free. `nil` lets the
+    /// field reflect `port.current` once `DefaultsValueModel` has loaded the
+    /// saved value (it seeds the catalog default first, then yields the real one).
+    @State private var editedPort: Int?
+    /// Result of the most recent Apply, shown inline. Cleared when the edit changes.
     @State private var applyResult: MobilePairingPortApplyResult?
+    /// Guards against overlapping Apply taps while a probe is in flight.
+    @State private var isApplying = false
 
     /// The Mac's system name, used as the display-name placeholder when no
     /// override is set. Captured once from the host; it does not change during a
@@ -27,7 +30,7 @@ public struct MobileSection: View {
 
     /// Applies a requested port through the host (availability-checked). Captured
     /// as a closure so the section holds no reference to the host bridge.
-    private let applyPort: (Int) -> MobilePairingPortApplyResult
+    private let applyPort: (Int) async -> MobilePairingPortApplyResult
 
     private static let columnWidth: CGFloat = 196
 
@@ -48,9 +51,14 @@ public struct MobileSection: View {
         _port = State(initialValue: portModel)
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
-        _draftPort = State(initialValue: portModel.current)
         defaultDisplayName = hostActions.mobilePairingDefaultDisplayName()
-        applyPort = { hostActions.applyMobilePairingPort($0) }
+        applyPort = { await hostActions.applyMobilePairingPort($0) }
+    }
+
+    /// The value shown in the field: the user's edit if any, otherwise the
+    /// persisted port (which updates once it loads).
+    private var draftPort: Int {
+        editedPort ?? port.current
     }
 
     /// The port currently in effect: the bound port when running, otherwise the
@@ -114,13 +122,13 @@ public struct MobileSection: View {
             HStack(spacing: 8) {
                 TextField(
                     "",
-                    value: Binding(get: { draftPort }, set: { draftPort = $0 }),
+                    value: Binding(get: { draftPort }, set: { editedPort = $0 }),
                     format: .number.grouping(.never)
                 )
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 90)
-                .onChange(of: draftPort) { applyResult = nil }
+                .onChange(of: editedPort) { applyResult = nil }
                 .onSubmit { applyDraftPort() }
                 .accessibilityIdentifier("SettingsMobilePairingPortField")
 
@@ -129,15 +137,24 @@ public struct MobileSection: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(!isDraftValid || draftPort == effectivePort)
+                .disabled(isApplying || !isDraftValid || draftPort == effectivePort)
                 .accessibilityIdentifier("SettingsMobilePairingPortApplyButton")
             }
         }
     }
 
     private func applyDraftPort() {
-        guard isDraftValid, draftPort != effectivePort else { return }
-        applyResult = applyPort(draftPort)
+        let requested = draftPort
+        guard !isApplying, isDraftValid, requested != effectivePort else { return }
+        isApplying = true
+        Task {
+            let result = await applyPort(requested)
+            applyResult = result
+            // Keep the field on the attempted value (with its warning) when the
+            // port is in use; otherwise let it track the persisted value again.
+            if case .portInUse = result {} else { editedPort = nil }
+            isApplying = false
+        }
     }
 
     /// Status under the port row: an out-of-range hint, the most recent Apply

@@ -266,8 +266,8 @@ final class HostSettingsActions: SettingsHostActions {
         Host.current().localizedName ?? ""
     }
 
-    func applyMobilePairingPort(_ port: Int) -> MobilePairingPortApplyResult {
-        switch MobileHostService.shared.applyConfiguredPort(port) {
+    func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult {
+        switch await MobileHostService.shared.applyConfiguredPort(port) {
         case .applied(let bound):
             return .applied(port: bound)
         case .portInUse:

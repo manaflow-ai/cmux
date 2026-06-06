@@ -1,11 +1,11 @@
 import CMUXMobileCore
 import CmuxSettings
 import CryptoKit
-import Darwin
 import Foundation
 @preconcurrency import Network
 import OSLog
 import StackAuth
+import os
 
 private let mobileHostLog = Logger(subsystem: "dev.cmux", category: "mobile-host")
 
@@ -436,49 +436,75 @@ final class MobileHostService {
     }
 
     /// Pure decision for an explicit "Apply port" request, factored out so it is
-    /// unit-testable with `isAvailable` injected (the real availability check
-    /// does I/O). `isAvailable` is only evaluated when a running listener would
-    /// have to move to a new port, so a no-op apply never probes.
+    /// unit-testable with a plain `isAvailable` value (the real check does I/O).
     ///
     /// - Parameters:
     ///   - enabled: Whether iOS pairing is enabled in settings.
     ///   - currentBoundPort: The port the listener is currently bound to, or `nil`.
     ///   - requestedPort: The port the user asked to apply.
-    ///   - isAvailable: Whether `requestedPort` can be bound (probed lazily).
+    ///   - isAvailable: Whether `requestedPort` can be bound. Ignored for an
+    ///     invalid/disabled request or when already bound to `requestedPort`.
     nonisolated static func portApplyDecision(
         enabled: Bool,
         currentBoundPort: Int?,
         requestedPort: Int,
-        isAvailable: @autoclosure () -> Bool
+        isAvailable: Bool
     ) -> MobileHostPortApplyOutcome {
         guard (1...65535).contains(requestedPort) else { return .invalid }
         guard enabled else { return .savedWhileDisabled }
         if currentBoundPort == requestedPort { return .applied(requestedPort) }
-        return isAvailable() ? .applied(requestedPort) : .portInUse
+        return isAvailable ? .applied(requestedPort) : .portInUse
     }
 
     /// Whether `port` can currently be bound for the pairing listener.
     ///
-    /// A synchronous one-shot bind probe on `INADDR_ANY` without
-    /// `SO_REUSEADDR`, matching `NWListener`'s default (`allowLocalEndpointReuse`
-    /// is false). It only gates whether an apply is attempted; the live bound-port
-    /// status remains the source of truth for what is displayed, so a rare
-    /// dual-stack disagreement self-corrects to the ephemeral-fallback warning.
-    nonisolated static func isPortAvailable(_ port: Int) -> Bool {
-        guard (1...65535).contains(port) else { return false }
-        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { return false }
-        defer { close(descriptor) }
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = in_port_t(port).bigEndian
-        address.sin_addr.s_addr = INADDR_ANY
-        let bindResult = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-                bind(descriptor, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
-            }
+    /// Probes with a throwaway `NWListener` using the *same* parameters the real
+    /// listener binds, so it agrees with the actual bind across all interfaces
+    /// (IPv4 and IPv6) rather than missing an IPv6-only conflict. Resolves to
+    /// `true` on `.ready`, `false` on `.failed` or `.waiting(addressUnavailable)`.
+    nonisolated static func isPortAvailable(_ port: Int) async -> Bool {
+        guard (1...65535).contains(port), let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
+            return false
         }
-        return bindResult == 0
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+        let probe: NWListener
+        do {
+            probe = try NWListener(using: NWParameters(tls: nil, tcp: tcpOptions), on: endpointPort)
+        } catch {
+            return false
+        }
+        let probeQueue = DispatchQueue(label: "dev.cmux.mobile.port-probe")
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            // One-shot resume guard: NWListener emits multiple states and must
+            // resume the continuation exactly once. Lock carve-out for a
+            // synchronous compare-and-set from the non-async state handler.
+            let resumed = OSAllocatedUnfairLock(initialState: false)
+            probe.stateUpdateHandler = { [probe] state in
+                let available: Bool?
+                switch state {
+                case .ready:
+                    available = true
+                case .failed:
+                    available = false
+                case let .waiting(error):
+                    available = isAddressUnavailable(error) ? false : nil
+                default:
+                    available = nil
+                }
+                guard let available else { return }
+                let alreadyResumed = resumed.withLock { state -> Bool in
+                    if state { return true }
+                    state = true
+                    return false
+                }
+                guard !alreadyResumed else { return }
+                probe.stateUpdateHandler = nil
+                probe.cancel()
+                continuation.resume(returning: available)
+            }
+            probe.start(queue: probeQueue)
+        }
     }
 
     /// Whether `error` means the address/port cannot be bound (in use, not
@@ -494,12 +520,18 @@ final class MobileHostService {
     /// be bound (or pairing is off); when the port is in use the running listener
     /// is left untouched so devices stay connected. On a successful apply the
     /// persisted-value change drives ``syncToSettings(defaults:)`` to rebind.
-    func applyConfiguredPort(_ port: Int, defaults: UserDefaults = .standard) -> MobileHostPortApplyOutcome {
+    func applyConfiguredPort(_ port: Int, defaults: UserDefaults = .standard) async -> MobileHostPortApplyOutcome {
+        let enabled = Self.isListeningEnabled(defaults: defaults)
+        let boundPort = listenerPort
+        // Probe only when a running listener would actually move to a different,
+        // in-range port; skip the bind probe for invalid/disabled/no-op applies.
+        let needsProbe = enabled && (1...65535).contains(port) && boundPort != port
+        let isAvailable = needsProbe ? await Self.isPortAvailable(port) : false
         let outcome = Self.portApplyDecision(
-            enabled: Self.isListeningEnabled(defaults: defaults),
-            currentBoundPort: listenerPort,
+            enabled: enabled,
+            currentBoundPort: boundPort,
             requestedPort: port,
-            isAvailable: Self.isPortAvailable(port)
+            isAvailable: isAvailable
         )
         switch outcome {
         case .invalid, .portInUse:

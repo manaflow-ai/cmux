@@ -129,7 +129,9 @@ public protocol SettingsHostActions: AnyObject {
     /// Mobile section calls this from its **Apply** button and renders the
     /// returned ``MobilePairingPortApplyResult`` as inline feedback; the live
     /// status stream then reflects the actual bound port.
-    func applyMobilePairingPort(_ port: Int) -> MobilePairingPortApplyResult
+    ///
+    /// `async` because the availability check probes a real bind.
+    func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult
 }
 
 public extension SettingsHostActions {
@@ -147,7 +149,7 @@ public extension SettingsHostActions {
     func mobilePairingDefaultDisplayName() -> String { "" }
 
     /// Default: save-for-later, for hosts without a live mobile service (previews/tests).
-    func applyMobilePairingPort(_ port: Int) -> MobilePairingPortApplyResult {
+    func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult {
         (1...65535).contains(port) ? .savedForLater(port: port) : .invalid(requestedPort: port)
     }
 

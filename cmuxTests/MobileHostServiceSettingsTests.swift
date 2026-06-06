@@ -85,17 +85,11 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: 58465, requestedPort: 58470, isAvailable: false) == .portInUse)
     }
 
-    @Test func portApplyDecisionDoesNotProbeForNoOpApply() {
-        // `isAvailable` must not be evaluated when already bound to the port.
-        var probed = false
-        let outcome = MobileHostService.portApplyDecision(
-            enabled: true,
-            currentBoundPort: 58465,
-            requestedPort: 58465,
-            isAvailable: { probed = true; return false }()
-        )
-        #expect(outcome == .applied(58465))
-        #expect(!probed)
+    @Test func portApplyDecisionIgnoresAvailabilityForNoOpApply() {
+        // Re-applying the already-bound port is accepted regardless of the
+        // availability value (the caller skips the probe in that case).
+        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: 58465, requestedPort: 58465, isAvailable: false) == .applied(58465))
+        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: 58465, requestedPort: 58465, isAvailable: true) == .applied(58465))
     }
 
     @Test func syncDecisionStartsStopsAndNoOpsForEnabledState() {
