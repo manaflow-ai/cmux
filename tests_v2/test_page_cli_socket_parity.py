@@ -369,6 +369,15 @@ def main() -> int:
                 f"select-page should accept a positional page after --: {selected_via_terminator}",
             )
 
+            selected_by_number = _run_cli_json(
+                cli,
+                ["select-page", "--workspace", workspace_id, "1"],
+            )
+            _must(
+                str(selected_by_number.get("page_id") or "") == first_page_id,
+                f"select-page 1 should select the first page: {selected_by_number}",
+            )
+
             current_after_select = c._call("page.current", {"workspace_id": workspace_id}) or {}
             _must(
                 str(current_after_select.get("page_id") or "") == first_page_id,
