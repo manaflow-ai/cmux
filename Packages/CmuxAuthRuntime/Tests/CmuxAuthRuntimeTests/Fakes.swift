@@ -110,16 +110,6 @@ actor HookFlag {
     func fire() { fired = true }
 }
 
-actor TokenSnapshot {
-    private(set) var access: String?
-    private(set) var refresh: String?
-
-    func capture(access: String?, refresh: String?) {
-        self.access = access
-        self.refresh = refresh
-    }
-}
-
 extension AuthLaunchOptions {
     static func plain(includesDevAuth: Bool = false) -> AuthLaunchOptions {
         AuthLaunchOptions(

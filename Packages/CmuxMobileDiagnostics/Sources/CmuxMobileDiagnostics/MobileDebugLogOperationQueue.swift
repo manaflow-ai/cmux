@@ -1,32 +1,9 @@
 import Foundation
 
 final class MobileDebugLogOperationQueue: Sendable {
-    private enum Operation: Sendable {
-        case append(String)
-        case clear(AsyncStream<Void>.Continuation)
-
-        func run(on sink: MobileDebugLogSink) async {
-            switch self {
-            case .append(let message):
-                await sink.append(message)
-            case .clear(let receipt):
-                await sink.clear()
-                receipt.yield(())
-                receipt.finish()
-            }
-        }
-
-        func runIfDropped(from sink: MobileDebugLogSink) {
-            guard case .clear = self else { return }
-            Task {
-                await run(on: sink)
-            }
-        }
-    }
-
     static let defaultPendingOperationLimit = 512
 
-    private let continuation: AsyncStream<Operation>.Continuation
+    private let continuation: AsyncStream<MobileDebugLogOperation>.Continuation
     private let sink: MobileDebugLogSink
 
     init(
@@ -34,7 +11,7 @@ final class MobileDebugLogOperationQueue: Sendable {
         pendingOperationLimit: Int = MobileDebugLogOperationQueue.defaultPendingOperationLimit
     ) {
         let stream = AsyncStream.makeStream(
-            of: Operation.self,
+            of: MobileDebugLogOperation.self,
             bufferingPolicy: .bufferingNewest(max(1, pendingOperationLimit))
         )
         self.sink = sink
@@ -59,7 +36,7 @@ final class MobileDebugLogOperationQueue: Sendable {
         }
     }
 
-    private func yield(_ operation: Operation) {
+    private func yield(_ operation: MobileDebugLogOperation) {
         switch continuation.yield(operation) {
         case .enqueued, .terminated:
             break
