@@ -162,7 +162,7 @@ download() {
   local url="$1"
   local out="$2"
   local tmp="${out}.partial.$$"
-  echo "fetch_cef: downloading ${url}"
+  echo "fetch_cef: downloading ${url}" >&2
   if curl -fSL --retry 3 --retry-delay 2 --connect-timeout 15 -o "${tmp}" "${url}"; then
     mv -f "${tmp}" "${out}"
     return 0
