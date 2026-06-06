@@ -40,10 +40,9 @@ extension CMUXCLI {
         /// action, which performs the destructive cleanup this flag suppresses.
         let sessionEndIsTurnBoundary: Bool
         /// Feed-hook events. Each entry installs a second hook for
-        /// `agentEvent` that invokes `cmux hooks feed --source <name>`
-        /// with a 120s timeout so the socket reply wait doesn't trip the
-        /// agent's default hook timeout when the user takes time to
-        /// approve/deny a permission / plan / question.
+        /// `agentEvent` that invokes `cmux hooks feed --source <name>`.
+        /// Installed hook commands return immediately and let cmux finish
+        /// socket work in the background.
         let feedHookEvents: [String]
         let postInstallAction: PostInstallAction?
         /// Optional CLI note printed after a successful install (or
@@ -391,7 +390,8 @@ extension CMUXCLI {
             return pinnedAgentHookShellCommand(command, for: def)
         }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
-        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || echo '{}'; else echo '{}'; fi"
+        let dispatch = "if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi"
+        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then \(backgroundHookShellCommand(dispatch)); else echo '{}'; fi"
     }
 
     private static func exitTwoPropagatingAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
@@ -446,7 +446,37 @@ extension CMUXCLI {
         } else {
             dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || echo '{}'"
         }
-        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+        let backgroundDispatch = backgroundHookShellCommand("\(dispatch); cmux_hook_status=$?; \(shellTraceExit)")
+        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(backgroundDispatch); }"
+    }
+
+    private static func backgroundHookShellCommand(_ command: String) -> String {
+        let pythonDetachedSpawn = """
+import os, subprocess, sys
+cmd = os.environ.get("CMUX_HOOK_COMMAND", "")
+input_path = os.environ.get("CMUX_HOOK_INPUT", os.devnull)
+pid = os.fork()
+if pid:
+    sys.exit(0)
+os.setsid()
+status = 1
+try:
+    stdin_path = input_path if input_path else os.devnull
+    with open(stdin_path, "rb") as stdin_file, open(os.devnull, "wb") as devnull:
+        status = subprocess.call(["/bin/sh", "-c", cmd], stdin=stdin_file, stdout=devnull, stderr=devnull)
+finally:
+    if input_path and input_path != os.devnull:
+        try:
+            os.unlink(input_path)
+        except OSError:
+            pass
+os._exit(status if isinstance(status, int) else 0)
+"""
+        let quotedCommand = shellSingleQuote(command)
+        let quotedPython = shellSingleQuote(pythonDetachedSpawn)
+        let fallbackWithInput = "( { \(command); } < \"$cmux_hook_input\" >/dev/null 2>&1; rm -f \"$cmux_hook_input\" ) & disown \"$!\" 2>/dev/null || true"
+        let fallbackWithoutInput = "( { \(command); } >/dev/null 2>&1 < /dev/null ) & disown \"$!\" 2>/dev/null || true"
+        return "cmux_hook_spawn() { if command -v python3 >/dev/null 2>&1; then CMUX_HOOK_COMMAND=\(quotedCommand) CMUX_HOOK_INPUT=\"${1:-/dev/null}\" python3 -c \(quotedPython) >/dev/null 2>&1 & else if [ -n \"${1:-}\" ] && [ \"${1:-}\" != \"/dev/null\" ]; then \(fallbackWithInput); else \(fallbackWithoutInput); fi; fi; }; cmux_hook_input=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-hook.XXXXXX\" 2>/dev/null || true)\"; if [ -n \"$cmux_hook_input\" ]; then cat > \"$cmux_hook_input\"; cmux_hook_spawn \"$cmux_hook_input\"; else cmux_hook_spawn /dev/null; fi; echo '{}'"
     }
 
     private static func pinnedHookInvocation(

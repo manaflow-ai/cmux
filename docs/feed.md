@@ -26,9 +26,9 @@ Anything else the agent does, including tool uses, assistant messages, session s
                               ┌─────────────────────▼────────┐
                               │ feed.push (V2 socket verb)   │
                               │ ─────────────────────────────│
-                              │ FeedCoordinator parks the    │
-                              │ hook on a semaphore keyed by │
-                              │ request_id (up to 120s).     │
+                              │ FeedCoordinator records the  │
+                              │ event while the hook process │
+                              │ already returned to agent.   │
                               └─────────────────────┬────────┘
                                                     │
                               ┌─────────────────────▼────────┐
@@ -43,9 +43,9 @@ Anything else the agent does, including tool uses, assistant messages, session s
                          └───────────────┘   └──────────────────┘
 ```
 
-Agents pipe their hook events into `cmux hooks feed --source <agent>`. The bridge forwards the event to the cmux socket as a `feed.push` V2 frame. The `FeedCoordinator` records it on the `@MainActor` `WorkstreamStore`, displays it in the sidebar (and posts a native notification if the window isn't focused), then blocks the hook on a semaphore keyed by the event's `request_id`.
+Agents pipe their hook events into `cmux hooks feed --source <agent>`. Most installed hook shims snapshot stdin, start the cmux socket call in the background, and return `{}` to the agent immediately. Claude `PermissionRequest` remains synchronous so Feed Allow/Deny decisions still reach Claude before the tool runs. The bridge forwards the event to the cmux socket as a `feed.push` V2 frame. The `FeedCoordinator` records it on the `@MainActor` `WorkstreamStore`, displays it in the sidebar, and posts a native notification if the window isn't focused.
 
-When you click Allow / Deny / Submit (either in Feed or in the notification's inline action buttons), `feed.permission.reply` / `feed.question.reply` / `feed.exit_plan.reply` delivers the decision back through `FeedCoordinator`, which wakes the hook. The hook emits the agent's expected decision JSON on stdout and the agent proceeds.
+When you click Allow / Deny / Submit (either in Feed or in the notification's inline action buttons), `feed.permission.reply` / `feed.question.reply` / `feed.exit_plan.reply` delivers the decision back through `FeedCoordinator`. Integrations with an async reply channel can still apply the decision in the background. Other agents fall through to their native prompt without waiting on cmux.
 
 All events (actionable and telemetry) are appended to `~/.cmuxterm/workstream.jsonl` for audit. Memory holds the most recent 2000 items in a ring; older items remain available in the JSONL audit log.
 
@@ -107,13 +107,13 @@ Pi, OMP, and Rovo Dev provide lifecycle and session-restore hooks only; they do 
 
 | Mode   | What cmux sends back to the agent                                             |
 |--------|--------------------------------------------------------------------------------|
-| Once   | Allow once through the agent's native permission hook.                         |
+| Once   | Allow once when the integration exposes an async reply channel.                |
 | Always | Allow and apply the agent's suggested persistent permission rule when present. |
 | All tools | Allow and apply the agent's suggested persistent permission rule when present. |
 | Bypass | Allow and request session-level bypass mode when the agent supports it.        |
-| Deny   | Deny through the agent's native permission hook.                               |
+| Deny   | Deny when the integration exposes an async reply channel.                      |
 
-For Claude Code, the cmux wrapper launches Claude with `--allow-dangerously-skip-permissions`. This does not enable bypass by default, but it lets a later `PermissionRequest` response switch the current session into `bypassPermissions`. Without that launch flag, Claude ignores `setMode: bypassPermissions`.
+For agents without an async reply channel, Feed records the request and the agent's own prompt remains the authoritative decision point.
 
 **Plan-mode decisions**
 
@@ -126,15 +126,15 @@ For Claude Code, the cmux wrapper launches Claude with `--allow-dangerously-skip
 
 **AskUserQuestion**
 
-For Claude Code, AskUserQuestion is answered by allowing the PermissionRequest with an updated tool input containing the selected answers. Other agents use their native question reply shape where available.
+Agents with async question reply APIs can receive Feed answers in the background. Other agents keep their native question prompt.
 
 Codex's `request_user_input` and `update_plan` currently surface through its app-server request/notification path, not through command hooks. A stock `codex` TUI running in a cmux terminal keeps those frames inside Codex's in-process app-server client, so its plan-mode questions still fall back to Codex's own TUI. cmux can route Codex permission approvals through `PermissionRequest`; showing Codex plan questions in Feed would require launching Codex against a shared standalone app server and adding a Codex app-server Feed adapter, or upstream Codex hook coverage for those frames.
 
 ## Timeout behavior
 
-Feed is advisory, not blocking. The hook waits at most 120 seconds for a user decision. On timeout the bridge emits `{}` (no decision) and the agent falls through to its own in-TUI prompt. This matches Vibe Island's "soft wait" model, it never freezes a workflow forever.
+Feed is advisory for most agents, not blocking. Installed cmux hooks usually return immediately with `{}` and keep socket work in a background process, so an unavailable or slow app does not hold up the agent. Claude `PermissionRequest` stays blocking because Claude has no separate async approval reply channel.
 
-Per-event timeout inside agent hook configs is raised to roughly 120 to 125 seconds for Feed bridge entries (Claude uses 125 seconds for PermissionRequest), so a user taking 30 seconds to approve something does not trip default 5 000 ms hook timeouts.
+Per-event timeouts inside agent hook configs are small watchdogs for the shell handoff, usually 1 to 5 seconds. Claude `PermissionRequest` is the exception: it keeps the longer blocking timeout because that hook is Claude's decision channel. Other user decisions happen through Feed or the agent's native fallback prompt after the hook has already resolved.
 
 ## Storage
 
@@ -162,7 +162,7 @@ Double-click a Feed row and cmux focuses the cmux workspace + surface where the 
 
 **Codex plan-mode question stays in the terminal.** Codex `request_user_input` is not a hook event in the stock TUI path. Feed only sees Codex permission hooks today.
 
-**Agent hangs on a permission request.** Feed never blocks the agent longer than 120 seconds; if you see a longer hang, the hook failed to reach the socket. Verify `$CMUX_SOCKET_PATH` matches the running app (default is `~/.config/cmux/cmux.sock`).
+**Agent hangs on a permission request.** Feed hooks return immediately. If the agent still hangs, it is likely waiting on its own native prompt or a non-cmux hook. Verify `$CMUX_SOCKET_PATH` matches the running app (default is `~/.config/cmux/cmux.sock`) if Feed rows are missing.
 
 **Notifications aren't showing inline buttons.** The three Feed categories (`CMUXFeedPermission`, `CMUXFeedExitPlan`, `CMUXFeedQuestion`) are registered at app launch. On first Feed use, macOS may prompt for notification authorization; if authorization is denied, Feed rows still appear in the sidebar but no native banner is delivered.
 

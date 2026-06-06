@@ -1,6 +1,7 @@
 # Agent hook integrations
 
 cmux uses agent hooks to show running state, Feed approvals, notifications, and to restore agent sessions after a normal app relaunch.
+Installed cmux hooks resolve immediately and continue socket work in the background, so a slow or unavailable app does not block the agent.
 
 Claude Code is handled by the cmux Claude wrapper when Claude Code integration is enabled in Settings. Other agents are installed with:
 

@@ -554,21 +554,22 @@ export const CMUXFeed = async (ctx) => {
               permissionMode: "opencode",
             },
           });
-          const result = await pushBlocking(frame, requestId);
-          if (result?.status === "resolved" && result.decision?.kind === "permission") {
-            const mode = result.decision.mode;
-            try {
-              await updateSessionPermission(sid, permissionSessionRulesForMode(permission, mode));
-            } catch (_) {}
-            try {
-              await replyPermission({
-                sessionId: sid,
-                requestId,
-                reply: permissionReplyForMode(mode),
-                message: mode === "deny" ? "User denied permission via cmux Feed." : undefined,
-              });
-            } catch (e) { /* ignore - opencode already moved on */ }
-          }
+          void pushBlocking(frame, requestId).then(async (result) => {
+            if (result?.status === "resolved" && result.decision?.kind === "permission") {
+              const mode = result.decision.mode;
+              try {
+                await updateSessionPermission(sid, permissionSessionRulesForMode(permission, mode));
+              } catch (_) {}
+              try {
+                await replyPermission({
+                  sessionId: sid,
+                  requestId,
+                  reply: permissionReplyForMode(mode),
+                  message: mode === "deny" ? "User denied permission via cmux Feed." : undefined,
+                });
+              } catch (e) { /* ignore - opencode already moved on */ }
+            }
+          }).catch(() => {});
           break;
         }
         case "question.asked": {
@@ -603,12 +604,13 @@ export const CMUXFeed = async (ctx) => {
                 permissionMode: "plan",
               },
             });
-            const result = await pushBlocking(frame, requestId);
-            if (result?.status === "resolved" && result.decision?.kind === "exit_plan") {
-              try {
-                await handleExitPlanDecision(sid, requestId, result.decision);
-              } catch (_) {}
-            }
+            void pushBlocking(frame, requestId).then(async (result) => {
+              if (result?.status === "resolved" && result.decision?.kind === "exit_plan") {
+                try {
+                  await handleExitPlanDecision(sid, requestId, result.decision);
+                } catch (_) {}
+              }
+            }).catch(() => {});
             break;
           }
 
@@ -618,14 +620,15 @@ export const CMUXFeed = async (ctx) => {
             tool_name: "question",
             tool_input: { questions },
           });
-          const result = await pushBlocking(frame, requestId);
-          if (result?.status === "resolved" && result.decision?.kind === "question") {
-            try {
-              await replyQuestion(requestId, questionAnswers(result.decision.selections));
-            } catch (_) {
-              try { await rejectQuestion(requestId); } catch (_) {}
+          void pushBlocking(frame, requestId).then(async (result) => {
+            if (result?.status === "resolved" && result.decision?.kind === "question") {
+              try {
+                await replyQuestion(requestId, questionAnswers(result.decision.selections));
+              } catch (_) {
+                try { await rejectQuestion(requestId); } catch (_) {}
+              }
             }
-          }
+          }).catch(() => {});
           break;
         }
         default:
