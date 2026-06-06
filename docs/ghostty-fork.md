@@ -13,22 +13,22 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `df789cd4b`, based on `176bd550f`, adding the
-cmd-click link refresh under mouse reporting (manaflow-ai/ghostty#71) plus the
-click/drag mouse-report suppression and hover-state follow-ups
-(manaflow-ai/ghostty#74, #75, #76, #77, #78, #79) for
-https://github.com/manaflow-ai/cmux/issues/5128 on top of the previous head's
+Current cmux pinned fork head: `e610c8e16`, merging the iOS render bounded-acquire
+line (`f78189ac1`) with the cmd-click link refresh under mouse reporting
+(`df789cd4b`, manaflow-ai/ghostty#71 and PRs #74 through #79) for
+https://github.com/manaflow-ai/cmux/issues/5128. This keeps the previous head's
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
-the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
-regex bound for spaced file paths followed by prose. This head keeps the cmux
-theme picker hooks, exposes the manual surface IO needed by libghostty iOS
-clients, bounds shaped glyph iteration during IME/preedit row rebuilds,
-prevents Cmd-hover from highlighting normal sentence text after a file path,
-and lets Cmd-click open links even while a mouse-reporting alt-screen TUI
+the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369,
+the URL/path regex bound for spaced file paths followed by prose, and the iOS
+render serial-queue bounded acquire fix from manaflow-ai/ghostty#80. This head
+keeps the cmux theme picker hooks, exposes the manual surface IO needed by
+libghostty iOS clients, bounds shaped glyph iteration during IME/preedit row
+rebuilds, prevents Cmd-hover from highlighting normal sentence text after a file
+path, and lets Cmd-click open links even while a mouse-reporting alt-screen TUI
 (Claude Code, Codex) has grabbed the mouse.
 It also supports Ctrl-N and Ctrl-P in the cmux theme picker.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-df789cd4ba1419ffb3c1c39865ad0400b2676e10-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e610c8e166ce3ac2dc13f36e542b287bb78f9cd3-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -292,10 +292,10 @@ tend to conflict together during rebases.
 
 The current cmux pin is the head listed above. It is reachable from
 `manaflow-ai/ghostty` through the
-`xcframework-df789cd4ba1419ffb3c1c39865ad0400b2676e10-crashsubdir-cmux-crash-v1`
-release tag and is an ancestor of `manaflow-ai/ghostty` `main` (PR #71, #74,
-#75, #76, #77, #78, and #79 are merged into fork `main`, keeping `df789cd4b` an ancestor).
-Published `xcframework-df789cd4ba1419ffb3c1c39865ad0400b2676e10-crashsubdir-cmux-crash-v1` and pinned its
+`xcframework-e610c8e166ce3ac2dc13f36e542b287bb78f9cd3-crashsubdir-cmux-crash-v1`
+release tag and is the current `manaflow-ai/ghostty` `main` head after PR #80
+merged the `df789cd4b` link-click fix line with `f78189ac1`.
+Published `xcframework-e610c8e166ce3ac2dc13f36e542b287bb78f9cd3-crashsubdir-cmux-crash-v1` and pinned its
 archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
 pin must be regenerated whenever this commit changes, even for comment-only
 amends, because the release tag is keyed by the Ghostty commit SHA.
