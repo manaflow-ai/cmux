@@ -1,0 +1,210 @@
+name: iOS TestFlight (beta)
+
+on:
+  # Publish to the beta lane on every iOS-affecting merge to main, so testers get
+  # changes immediately instead of waiting for the nightly. Path-filtered to the
+  # inputs that actually change the iOS app (the iOS target, the linked Swift
+  # packages, and GhosttyKit); macOS-only Sources/ changes don't rebuild the iOS
+  # app, so they don't trigger an upload. Push runs always build (the SHA gate is
+  # schedule-only); each merge is a new commit, so there's no duplicate upload.
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - "Packages/**"
+      - "ghostty"
+      - "scripts/ensure-ghosttykit.sh"
+      - "scripts/install-zig-ci.sh"
+      - "scripts/ghosttykit-checksums.txt"
+      - ".github/workflows/ios-testflight.yml"
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: CFBundleVersion to stamp (defaults to UTC yyyyMMddHHmmss)
+        required: false
+        default: ""
+      force:
+        # Manual (workflow_dispatch) runs always upload, so this only documents
+        # intent. It exists so the no-new-commits skip can be bypassed if the
+        # 24h commit-window check is ever extended to dispatch runs.
+        description: Force an upload (manual runs already always upload)
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # Nightly at 09:10 UTC. The decide job skips the run only when the current
+    # main HEAD was already uploaded by a prior successful run (SHA compare, not
+    # a wall-clock window), so a failed or missed nightly retries the
+    # not-yet-uploaded commit instead of permanently stranding it.
+    - cron: "10 9 * * *"
+
+concurrency:
+  group: ios-testflight-${{ github.ref_name }}
+  # Queue concurrent runs instead of canceling them so no upload is lost.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # decide reads this workflow's prior run history to find the last uploaded SHA.
+  actions: read
+
+jobs:
+  decide:
+    name: Decide whether a TestFlight upload is needed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      should_build: ${{ steps.decide.outputs.should_build }}
+    steps:
+      - name: Decide whether a TestFlight upload is needed
+        id: decide
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
+        with:
+          script: |
+            const forceBuild = process.env.FORCE_BUILD === 'true';
+            const { owner, repo } = context.repo;
+
+            // workflow_dispatch always builds (the operator asked for it).
+            // Scheduled runs build unless the current commit has ALREADY been
+            // uploaded by a prior successful run. We compare HEAD to the head_sha
+            // of the most recent successful run of this workflow, not a wall-clock
+            // window: a failed or missed nightly leaves the last success on an
+            // older SHA, so the next run retries the un-uploaded commit instead of
+            // stranding it. A successful run either uploaded HEAD or correctly
+            // skipped an already-uploaded HEAD, so its head_sha is always an
+            // uploaded commit.
+            let needsBuild = true;
+            let lastUploadedSha = null;
+            if (!forceBuild && context.eventName === 'schedule') {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: 'ios-testflight.yml',
+                status: 'success',
+                per_page: 1,
+              });
+              lastUploadedSha = runs.data.workflow_runs[0]?.head_sha ?? null;
+              needsBuild = lastUploadedSha !== context.sha;
+            }
+
+            const shouldBuild = forceBuild || context.eventName === 'workflow_dispatch' || needsBuild;
+            core.setOutput('should_build', shouldBuild ? 'true' : 'false');
+            core.summary
+              .addHeading('iOS TestFlight upload decision')
+              .addTable([
+                [{ data: 'event', header: true }, context.eventName],
+                [{ data: 'force', header: true }, String(forceBuild)],
+                [{ data: 'head sha', header: true }, context.sha],
+                [{ data: 'last uploaded sha (schedule only)', header: true }, String(lastUploadedSha)],
+                [{ data: 'should build', header: true }, String(shouldBuild)],
+              ])
+              .write();
+
+  upload:
+    name: Upload to TestFlight
+    needs: decide
+    # Only ever publish from main. push/schedule always run on main; this also
+    # blocks publishing arbitrary code by dispatching the workflow against a
+    # feature branch (the ASC secrets are only meant to ship reviewed main).
+    if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -z "$XCODE_APP" ]; then
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+            XCODE_DIR="$XCODE_APP/Contents/Developer"
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Provision GhosttyKit
+        run: |
+          # Downloads the prebuilt GhosttyKit.xcframework pinned in
+          # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
+          # falls back to a from-source build. The iOS app links GhosttyKit via
+          # a local-path binaryTarget, so it must exist before package resolve.
+          ./scripts/install-zig-ci.sh
+          ./scripts/ensure-ghosttykit.sh
+
+      - name: Materialize App Store Connect API key
+        env:
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ASC_API_KEY_ID:-}" ] || [ -z "${ASC_API_ISSUER_ID:-}" ] || [ -z "${ASC_API_KEY_P8_BASE64:-}" ]; then
+            echo "Missing one of ASC_API_KEY_ID / ASC_API_ISSUER_ID / ASC_API_KEY_P8_BASE64 secrets" >&2
+            exit 1
+          fi
+          # xcodebuild -allowProvisioningUpdates and altool both look for the key
+          # under ~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8.
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          KEY_PATH="$KEY_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
+          mkdir -p "$KEY_DIR"
+          # Decode without echoing the key contents to the log.
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          # Write the expanded path ($HOME, not ~) so later steps can read it.
+          echo "ASC_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Archive, export, and upload to TestFlight
+        id: upload
+        env:
+          # Only set for manual workflow_dispatch with an explicit build number.
+          # For push/schedule this is empty and the script generates a monotonic
+          # 14-digit UTC timestamp itself (single source of the numbering scheme,
+          # so the workflow can't drift from it the way it did before). An empty
+          # value here means "let the script decide", which also keeps the guard's
+          # fail-open path (generated timestamps are monotonic by construction;
+          # explicit values fail closed when App Store Connect can't be reached).
+          INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
+          # The script writes the CFBundleVersion that actually shipped here (the
+          # monotonic guard may bump it), so the summary reports the real value.
+          CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
+        run: |
+          set -euo pipefail
+          ARGS=(--lane beta --signing automatic)
+          if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
+            ARGS+=(--build-number "$INPUT_BUILD_NUMBER")
+          fi
+          ./ios/scripts/upload-testflight.sh "${ARGS[@]}"
+          if [ -f "$CMUX_BUILD_NUMBER_OUT_FILE" ]; then
+            FINAL_BN="$(cat "$CMUX_BUILD_NUMBER_OUT_FILE")"
+          else
+            FINAL_BN="${INPUT_BUILD_NUMBER:-unknown}"
+          fi
+          echo "final_build_number=$FINAL_BN" >> "$GITHUB_OUTPUT"
+          echo "Shipped CFBundleVersion: $FINAL_BN"
+
+      - name: Summary
+        if: always()
+        env:
+          BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number || github.event.inputs.build_number || 'unknown' }}
+        run: |
+          {
+            echo "### iOS TestFlight upload"
+            echo
+            echo "- lane: \`beta\` (bundle id \`dev.cmux.app.beta\`)"
+            echo "- signing: automatic (cloud-managed via ASC API key)"
+            echo "- build number (CFBundleVersion): \`${BUILD_NUMBER}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
