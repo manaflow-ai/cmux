@@ -26,9 +26,9 @@ struct WorkspaceGhosttyThemeSelection: Codable, Equatable, Sendable {
             return light
         case let (light?, dark?):
             return "light:\(light),dark:\(dark)"
-        case let (light?, nil):
+        case (_?, nil):
             return nil
-        case let (nil, dark?):
+        case (nil, _?):
             return nil
         case (nil, nil):
             return nil
