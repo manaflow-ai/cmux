@@ -1212,8 +1212,13 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
         XCTAssertEqual(
             pending.pasteTextItems,
+            0,
+            "OSC 11 must bypass paste input so it is not echoed by the shell."
+        )
+        XCTAssertEqual(
+            pending.processOutputItems,
             1,
-            "OSC 11 must be queued as one raw terminal-byte payload."
+            "OSC 11 must be queued as one terminal output payload."
         )
         XCTAssertEqual(pending.bytes, osc11.utf8.count)
     }
