@@ -6614,9 +6614,9 @@ class TerminalController {
         }
 
         if let requestedSurfaceId {
-            let fallbackTabManager = self.tabManager
-            DispatchQueue.main.async {
-                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) ?? fallbackTabManager,
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) ?? self.tabManager,
                       let tab = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
                     return
                 }
