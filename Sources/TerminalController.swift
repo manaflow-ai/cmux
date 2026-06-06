@@ -10397,7 +10397,10 @@ class TerminalController {
         }
         let resolved = v2HistoryPreferredTabManager(params: params)
         if let error = resolved.error { return error }
-        if AppDelegate.shared?.historyRedoNeedsInteractiveConfirmation(preferredTabManager: resolved.tabManager) == true {
+        let needsInteractiveConfirmation = v2MainSync {
+            AppDelegate.shared?.historyRedoNeedsInteractiveConfirmation(preferredTabManager: resolved.tabManager) == true
+        }
+        if needsInteractiveConfirmation {
             return .err(
                 code: "requires_confirmation",
                 message: String(
