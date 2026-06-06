@@ -10585,9 +10585,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .deleteBackward:
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let hasTerminalModifier = !flags.isDisjoint(with: [.control, .option, .command])
-            return !hasTerminalModifier &&
+            let hasEmptyText =
                 (event.characters ?? "").isEmpty &&
                 (event.charactersIgnoringModifiers ?? "").isEmpty
+            return !hasTerminalModifier &&
+                (hasEmptyText || event.keyCode == UInt16(kVK_ANSI_A))
         }
     }
 
