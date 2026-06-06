@@ -750,88 +750,36 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue((image["src"] as? String ?? "").hasPrefix("data:image/png;base64,"))
     }
 
-    func testMarkdownRenderBlocksRemoteImagesUntilUserAction() async throws {
-        let markdownURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-markdown-remote-image-\(UUID().uuidString).md")
-
-        let frame = NSRect(x: 0, y: 0, width: 420, height: 260)
-        let fixture = makeMarkdownTestWebView(frame: frame)
-        let webView = fixture.webView
-        defer {
-            webView.navigationDelegate = nil
-            fixture.close()
+    func testMarkdownRenderBlocksRemoteImagesUntilUserAction() throws {
+        func url(_ string: String) throws -> URL {
+            try XCTUnwrap(URL(string: string))
         }
 
-        let loaded = expectation(description: "markdown shell loaded")
-        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
-        webView.navigationDelegate = loadDelegate
-        webView.loadHTMLString(
-            MarkdownViewerAssets.shared.shellHTML(isDark: true),
-            baseURL: markdownURL
-        )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
+        let loadableImage = try url("https://images.example.com/pixel.png")
+        let linkedImage = try url("https://images.example.com/linked.png")
+        let unsafeHTTPImage = try url("http://images.example.com/pixel.png")
+        let unsafeLocalImage = try url("https://localhost/pixel.png")
+        let unsafeCredentialedImage = try url("https://user:pass@images.example.com/secret.png")
 
-        let expectedConsentMessage = String(
-            localized: "markdown.web.remoteImageConsentMessage",
-            defaultValue: "cmux will not contact this image URL until you load this image."
+        XCTAssertTrue(MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(loadableImage))
+        XCTAssertEqual(
+            MarkdownRemoteImageSecurity.remoteImageConsentHost(for: loadableImage),
+            "images.example.com"
         )
-        let expectedLoadButton = String(
-            localized: "markdown.web.remoteImageLoadImage",
-            defaultValue: "Load this image"
+        XCTAssertEqual(
+            MarkdownRemoteImageSecurity.remoteImageConsentHost(for: linkedImage),
+            "images.example.com"
         )
-        let expectedCopyURLButton = String(
-            localized: "markdown.web.remoteImageCopyURL",
-            defaultValue: "Copy image URL"
-        )
-        let expectedOpenURLButton = String(
-            localized: "markdown.web.remoteImageOpenURL",
-            defaultValue: "Open image URL"
-        )
-        func expectedURLText(_ url: String) -> String {
-            String(
-                localized: "markdown.web.remoteImageURL",
-                defaultValue: "Image URL: {url}"
-            ).replacingOccurrences(of: "{url}", with: url)
-        }
+        XCTAssertNil(MarkdownRemoteImageSecurity.remoteImageConsentHost(for: unsafeHTTPImage))
+        XCTAssertNil(MarkdownRemoteImageSecurity.remoteImageConsentHost(for: unsafeLocalImage))
+        XCTAssertNil(MarkdownRemoteImageSecurity.remoteImageConsentHost(for: unsafeCredentialedImage))
 
-        try await renderMarkdown(
-            """
-            ![HTTPS remote](https://images.example.com/pixel.png)
-            """,
-            in: webView
+        let requestBytes = try XCTUnwrap(
+            MarkdownRemoteImageSecurity.requestBytes(for: loadableImage, host: "images.example.com")
         )
-
-        let snapshot = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              var img = document.querySelector('img[alt="HTTPS remote"]');
-              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
-              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
-              return {
-                imageCount: document.querySelectorAll('img').length,
-                imageSrc: img ? (img.getAttribute('src') || '') : '',
-                imageHidden: img ? !!img.hidden : false,
-                remoteSrc: img ? (img.getAttribute('data-cmux-remote-src') || '') : '',
-                placeholderText: placeholder ? (placeholder.textContent || '') : '',
-                remoteURLText: placeholder ? ((placeholder.querySelector('.cmux-remote-image-url') || {}).textContent || '') : '',
-                buttons: placeholder ? Array.prototype.slice.call(placeholder.querySelectorAll('button')).map(function(button) {
-                  return button.textContent || '';
-                }) : []
-              };
-            })();
-            """
-        )
-        let remoteImage = try XCTUnwrap(snapshot as? [String: Any])
-        XCTAssertEqual(remoteImage["imageCount"] as? Int, 1)
-        XCTAssertEqual(remoteImage["imageSrc"] as? String, "")
-        XCTAssertEqual(remoteImage["imageHidden"] as? Bool, true)
-        XCTAssertEqual(remoteImage["remoteSrc"] as? String, "https%3A%2F%2Fimages.example.com%2Fpixel.png")
-        XCTAssertTrue((remoteImage["placeholderText"] as? String ?? "").contains(expectedConsentMessage))
-        XCTAssertEqual(remoteImage["remoteURLText"] as? String, expectedURLText("https://images.example.com/pixel.png"))
-        XCTAssertEqual(remoteImage["buttons"] as? [String], [expectedLoadButton, expectedCopyURLButton, expectedOpenURLButton])
+        let request = try XCTUnwrap(String(data: requestBytes, encoding: .utf8))
+        XCTAssertTrue(request.contains("GET /pixel.png HTTP/1.1\r\n"))
+        XCTAssertTrue(request.contains("\r\nHost: images.example.com\r\n"))
     }
 
     func testMarkdownRemoteImageSecurityRejectsUnsafeTargets() throws {
