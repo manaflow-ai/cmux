@@ -7462,9 +7462,6 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        }
         guard let pageId = v2UUID(params, "page_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid page_id", data: nil)
         }
@@ -7481,64 +7478,59 @@ class TerminalController {
             )
         }
 
-        var pageFound = false
-        var moved = false
-        var newIndex: Int?
-        var payload: [String: Any]?
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
         v2MainSync {
-            guard let currentIndex = workspace.pageIndex(pageId: pageId) else { return }
-            pageFound = true
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            guard let currentIndex = workspace.pageIndex(pageId: pageId) else {
+                result = .err(code: "not_found", message: "Page not found", data: [
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+                return
+            }
+
+            let moved: Bool
             if let index {
                 moved = workspace.movePage(pageId: pageId, toIndex: index)
             } else if let beforeId {
-                guard let beforeIndex = workspace.pageIndex(pageId: beforeId) else { return }
+                guard let beforeIndex = workspace.pageIndex(pageId: beforeId) else {
+                    result = .err(code: "not_found", message: "Anchor page (before_page_id) not found", data: [
+                        "before_page_id": beforeId.uuidString,
+                        "page_id": pageId.uuidString,
+                        "page_ref": v2Ref(kind: .page, uuid: pageId)
+                    ])
+                    return
+                }
                 let targetIndex = currentIndex < beforeIndex ? beforeIndex - 1 : beforeIndex
                 moved = workspace.movePage(pageId: pageId, toIndex: targetIndex)
             } else if let afterId {
-                guard let afterIndex = workspace.pageIndex(pageId: afterId) else { return }
+                guard let afterIndex = workspace.pageIndex(pageId: afterId) else {
+                    result = .err(code: "not_found", message: "Anchor page (after_page_id) not found", data: [
+                        "after_page_id": afterId.uuidString,
+                        "page_id": pageId.uuidString,
+                        "page_ref": v2Ref(kind: .page, uuid: pageId)
+                    ])
+                    return
+                }
                 let targetIndex = currentIndex < afterIndex + 1 ? afterIndex : afterIndex + 1
                 moved = workspace.movePage(pageId: pageId, toIndex: targetIndex)
+            } else {
+                moved = false
             }
-            newIndex = workspace.pageIndex(pageId: pageId)
-            guard moved else { return }
-            payload = v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: pageId)
-            payload?["index"] = v2OrNull(newIndex)
-        }
 
-        guard moved else {
-            if pageFound, let beforeId {
-                return .err(code: "not_found", message: "Anchor page (before_page_id) not found", data: [
-                    "before_page_id": beforeId.uuidString,
+            let newIndex = workspace.pageIndex(pageId: pageId)
+            guard moved else {
+                result = .err(code: "invalid_state", message: "Cannot reorder: workspace has only one page", data: [
                     "page_id": pageId.uuidString,
                     "page_ref": v2Ref(kind: .page, uuid: pageId)
                 ])
+                return
             }
-            if pageFound, let afterId {
-                return .err(code: "not_found", message: "Anchor page (after_page_id) not found", data: [
-                    "after_page_id": afterId.uuidString,
-                    "page_id": pageId.uuidString,
-                    "page_ref": v2Ref(kind: .page, uuid: pageId)
-                ])
-            }
-            if pageFound {
-                return .err(code: "invalid_state", message: "Cannot reorder: workspace has only one page", data: [
-                    "page_id": pageId.uuidString,
-                    "page_ref": v2Ref(kind: .page, uuid: pageId)
-                ])
-            }
-            return .err(code: "not_found", message: "Page not found", data: [
-                "page_id": pageId.uuidString,
-                "page_ref": v2Ref(kind: .page, uuid: pageId)
-            ])
+            var payload = v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: pageId)
+            payload["index"] = v2OrNull(newIndex)
+            result = .ok(payload)
         }
-        guard let payload else {
-            return .err(code: "internal_error", message: "Failed to build page result", data: [
-                "page_id": pageId.uuidString,
-                "page_ref": v2Ref(kind: .page, uuid: pageId),
-                "index": v2OrNull(newIndex)
-            ])
-        }
-        return .ok(payload)
+        return result
     }
 
     private func v2PageRename(params: [String: Any]) -> V2CallResult {
