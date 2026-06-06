@@ -1,0 +1,715 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light dark;
+  --cmux-diff-bg-light: #fff;
+  --cmux-diff-bg-dark: #000;
+  --cmux-diff-fg-light: #000;
+  --cmux-diff-fg-dark: #fff;
+  --cmux-diff-selection-bg-light: #abd8ff;
+  --cmux-diff-selection-bg-dark: #3f638b;
+  --cmux-diff-ui-font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --cmux-diff-ui-font-size: 12px;
+  --cmux-diff-ui-line-height: 16px;
+  --cmux-diff-code-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --cmux-diff-font-size: 10px;
+  --cmux-diff-line-height: 20px;
+  --cmux-diff-bg: var(--cmux-diff-bg-light);
+  --cmux-diff-fg: var(--cmux-diff-fg-light);
+  --cmux-diff-border: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  --cmux-diff-toolbar-bg: var(--cmux-diff-bg);
+  --cmux-diff-sidebar-bg: var(--cmux-diff-bg);
+  --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+  --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
+  --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
+  --cmux-diff-text-subtle: color-mix(in lab, var(--cmux-diff-fg) 84%, var(--cmux-diff-bg));
+
+  background: transparent;
+  color: var(--cmux-diff-fg);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cmux-diff-bg: var(--cmux-diff-bg-dark);
+    --cmux-diff-fg: var(--cmux-diff-fg-dark);
+  }
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+body {
+  margin: 0;
+  height: 100vh;
+  min-height: 0;
+  /* Transparent so the cmux window backdrop (faded terminal color for
+     transparent themes, solid otherwise) shows through, matching the markdown
+     and terminal panels. `--cmux-diff-bg` is still used opaque for blends. */
+  background: transparent;
+  color: var(--cmux-diff-fg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: var(--cmux-diff-ui-font-family);
+  font-size: var(--cmux-diff-ui-font-size);
+  line-height: var(--cmux-diff-ui-line-height);
+}
+#root {
+  height: 100%;
+  min-height: 0;
+  background: transparent;
+}
+#app {
+  height: 100vh;
+  min-height: 0;
+  display: grid;
+  /* Constrain the single column to the viewport. Without an explicit column
+     the implicit `auto` track sizes to content max-width, letting #content
+     (and its files sidebar) overflow the window and clip on the right. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  overscroll-behavior: contain;
+  contain: strict;
+  background: transparent;
+  color: inherit;
+}
+.copy-fallback-textarea {
+  position: fixed;
+  top: 0;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+#toolbar {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(124px, 0.9fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 3px 4px 3px 8px;
+  border-bottom: 1px solid var(--cmux-diff-border);
+  background: var(--cmux-diff-toolbar-bg);
+  color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
+  z-index: 50;
+}
+.toolbar-left,
+.toolbar-middle,
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.toolbar-left,
+.toolbar-middle {
+  gap: 6px;
+}
+.toolbar-left {
+  justify-self: stretch;
+}
+.toolbar-middle {
+  justify-content: center;
+}
+.toolbar-actions {
+  justify-self: end;
+  gap: 4px;
+}
+#source-select,
+#repo-select,
+#base-select,
+#jump-select {
+  appearance: none;
+  height: 24px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 24px 0 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background:
+    linear-gradient(45deg, transparent 50%, currentColor 50%) right 11px center / 4px 4px no-repeat,
+    linear-gradient(135deg, currentColor 50%, transparent 50%) right 7px center / 4px 4px no-repeat,
+    color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  color: inherit;
+  font: inherit;
+}
+#source-select {
+  flex: 0 1 118px;
+}
+#source-select:hover,
+#repo-select:hover,
+#base-select:hover,
+#jump-select:hover {
+  border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
+  background-color: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+}
+#source-select[hidden],
+#repo-select[hidden],
+#base-select[hidden],
+#jump-select[hidden] {
+  display: none;
+}
+#jump-select {
+  width: 100%;
+}
+#repo-select {
+  flex: 0 1 132px;
+}
+#base-select {
+  flex: 0 1 120px;
+}
+#source-select:focus,
+#repo-select:focus,
+#base-select:focus,
+#jump-select:focus,
+.toolbar-icon:focus-visible,
+.menu-item:focus-visible,
+.file-entry:focus-visible {
+  outline: 2px solid color-mix(in lab, var(--cmux-diff-fg) 36%, transparent);
+  outline-offset: 1px;
+}
+@media (max-width: 760px) {
+  #toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "source actions"
+      "jump actions";
+  }
+  .toolbar-left {
+    grid-area: source;
+  }
+  .toolbar-middle {
+    grid-area: jump;
+    justify-content: stretch;
+  }
+  .toolbar-actions {
+    grid-area: actions;
+  }
+}
+.toolbar-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
+  padding: 0;
+  cursor: pointer;
+}
+.toolbar-icon:hover,
+.toolbar-icon[aria-expanded="true"] {
+  border-color: color-mix(in lab, var(--cmux-diff-fg) 14%, transparent);
+  background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+  color: var(--cmux-diff-fg);
+}
+.toolbar-icon[aria-pressed="true"] {
+  color: color-mix(in lab, var(--cmux-diff-fg) 78%, var(--cmux-diff-bg));
+}
+.toolbar-icon[hidden] {
+  display: none;
+}
+.toolbar-icon svg,
+.menu-item svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#layout-toggle svg [data-diff-deletion],
+#layout-toggle svg [data-diff-addition] {
+  stroke: none;
+}
+#layout-toggle svg [data-diff-deletion] {
+  fill: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+}
+#layout-toggle svg [data-diff-addition] {
+  fill: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+}
+.toolbar-icon svg [data-precision-dot],
+.menu-item svg [data-precision-dot] {
+  stroke-width: 2;
+}
+#options-menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 10px;
+  min-width: 246px;
+  padding: 8px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+  border-radius: 8px;
+  background: var(--cmux-diff-bg);
+  box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
+  z-index: 100;
+}
+#options-menu[hidden] {
+  display: none;
+}
+.menu-separator {
+  height: 1px;
+  margin: 7px 6px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+}
+.menu-item {
+  width: 100%;
+  min-height: 31px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in lab, var(--cmux-diff-fg) 86%, var(--cmux-diff-bg));
+  font: inherit;
+  text-align: left;
+  padding: 0 7px;
+}
+.menu-item:hover:not(:disabled) {
+  background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  color: var(--cmux-diff-fg);
+}
+.menu-segment {
+  cursor: default;
+}
+.menu-segment:hover {
+  background: transparent;
+}
+.menu-segment-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: end;
+  padding: 2px;
+  border-radius: 7px;
+  background: transparent;
+}
+.segment-button {
+  width: 27px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: color-mix(in lab, var(--cmux-diff-fg) 62%, var(--cmux-diff-bg));
+  padding: 0;
+}
+.segment-button:hover,
+.segment-button[aria-pressed="true"] {
+  background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  color: var(--cmux-diff-fg);
+}
+.menu-item:disabled {
+  color: color-mix(in lab, var(--cmux-diff-fg) 36%, var(--cmux-diff-bg));
+}
+.menu-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-check {
+  justify-self: end;
+}
+#content {
+  --cmux-diff-files-width: 252px;
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--cmux-diff-files-width);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "viewer files";
+  overflow: hidden;
+  overscroll-behavior: contain;
+  contain: strict;
+  background: transparent;
+}
+body[data-files-hidden="true"] #content {
+  grid-template-columns: minmax(0, 1fr) 0;
+}
+body[data-status-only="true"] #content {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "viewer";
+}
+#files-sidebar {
+  grid-area: files;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--cmux-diff-border);
+  background: var(--cmux-diff-sidebar-bg);
+  contain: strict;
+  opacity: 1;
+  transition: opacity 100ms ease, visibility 0s linear 0s;
+}
+#files-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  width: 8px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  appearance: none;
+  background: transparent;
+  cursor: col-resize;
+  outline: none;
+}
+#files-resize-handle::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  content: "";
+  background: transparent;
+}
+body[data-files-hidden="true"] #files-sidebar {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 100ms ease, visibility 0s linear 100ms;
+}
+body[data-status-only="true"] #files-sidebar {
+  display: none;
+}
+#files-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 30px;
+  gap: 8px;
+  padding: 0 7px 0 10px;
+  border-bottom: 1px solid var(--cmux-diff-border);
+  background: var(--cmux-diff-sidebar-bg);
+  color: var(--cmux-diff-text-muted);
+}
+#files-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+#files-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+#file-search-toggle {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--cmux-diff-text-muted);
+  padding: 0;
+}
+#file-search-toggle:hover,
+#file-search-toggle[aria-pressed="true"] {
+  background: var(--cmux-diff-hover-bg);
+  color: var(--cmux-diff-fg);
+}
+#file-search-toggle svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#file-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--cmux-diff-sidebar-bg);
+  padding: 6px 4px 6px 6px;
+  --trees-bg-override: var(--cmux-diff-sidebar-bg);
+  --trees-fg-override: var(--cmux-diff-text-subtle);
+  --trees-fg-muted-override: var(--cmux-diff-text-muted);
+  --trees-bg-muted-override: var(--cmux-diff-hover-bg);
+  --trees-selected-bg-override: color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
+  --trees-selected-fg-override: var(--cmux-diff-fg);
+  --trees-selected-focused-border-color-override: transparent;
+  --trees-border-color-override: var(--cmux-diff-border);
+  --trees-focus-ring-color-override: color-mix(in lab, var(--cmux-diff-accent) 72%, transparent);
+  --trees-font-family-override: var(--cmux-diff-ui-font-family);
+  --trees-font-size-override: var(--cmux-diff-ui-font-size);
+  --trees-font-weight-semibold-override: 500;
+  --trees-density-override: 0.78;
+  --trees-border-radius-override: 5px;
+  --trees-item-padding-x-override: 7px;
+  --trees-item-margin-x-override: 0;
+  --trees-padding-inline-override: 8px;
+  --trees-search-bg-override: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+  --trees-status-added-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+  --trees-status-modified-override: var(--cmux-diff-accent);
+  --trees-status-renamed-override: light-dark(#a26300, #ffd166);
+  --trees-status-deleted-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+}
+body[data-loading="false"] .diff-loading-placeholder {
+  display: none;
+}
+body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
+  display: none;
+}
+#file-list file-tree-container {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.file-entry {
+  width: 100%;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 3px 7px;
+}
+.file-entry:hover,
+.file-entry[aria-current="true"] {
+  background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+}
+.file-status {
+  width: 17px;
+  height: 17px;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--cmux-diff-text-muted);
+}
+.file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-stats {
+  display: inline-flex;
+  gap: 5px;
+  color: var(--cmux-diff-text-muted);
+}
+.stat-add {
+  color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+}
+.stat-del {
+  color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+}
+#viewer {
+  --diffs-font-family: var(--cmux-diff-code-font-family);
+  --diffs-header-font-family: var(--cmux-diff-ui-font-family);
+  --diffs-font-size: var(--cmux-diff-font-size);
+  --diffs-line-height: var(--cmux-diff-line-height);
+  --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
+  grid-area: viewer;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: clip;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+  contain: strict;
+  border-bottom: 1px solid var(--cmux-diff-border);
+  background: transparent;
+}
+.code-view-root {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: clip;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+  contain: strict;
+}
+@media (max-width: 520px) {
+  #content,
+  body[data-files-hidden="true"] #content {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "viewer";
+  }
+  #files-sidebar {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #files-sidebar {
+    transition: none;
+  }
+}
+#viewer diffs-container {
+  --diffs-font-family: var(--cmux-diff-code-font-family);
+  --diffs-header-font-family: var(--cmux-diff-ui-font-family);
+  --diffs-font-size: var(--cmux-diff-font-size);
+  --diffs-line-height: var(--cmux-diff-line-height);
+  --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
+  display: block;
+  overflow: clip;
+  contain: layout paint style;
+}
+#loading-layer {
+  grid-area: viewer;
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: hidden;
+  pointer-events: none;
+  background: transparent;
+  contain: strict;
+}
+body[data-status-only="true"] #loading-layer {
+  display: flex;
+  position: static;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  pointer-events: auto;
+}
+#status {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 5;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  padding: 8px 12px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  border-radius: 7px;
+  background: var(--cmux-diff-bg);
+  font-family: var(--cmux-diff-ui-font-family);
+  font-size: 13px;
+  line-height: var(--cmux-diff-ui-line-height);
+  color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
+}
+/* Centered empty state (no diff to show): icon badge + message, like a polished
+   "nothing here" page rather than a thin status strip. */
+body[data-status-only="true"] #status {
+  position: static;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: auto;
+  max-width: 340px;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  text-align: center;
+  text-wrap: balance;
+  font-size: 14px;
+  line-height: 1.55;
+  color: color-mix(in lab, var(--cmux-diff-fg) 58%, var(--cmux-diff-bg));
+}
+body[data-status-only="true"] #status-text {
+  font-weight: 500;
+  letter-spacing: 0.005em;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+/* Icon badge: only for the friendly empty state, not errors or while loading. */
+#status-icon {
+  display: none;
+}
+body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+}
+body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon::before {
+  content: "";
+  display: block;
+  width: 26px;
+  height: 26px;
+  background-color: currentColor;
+  opacity: 0.8;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+#status[data-pending="true"]::before,
+body[data-loading="true"] #status::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
+  border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
+  border-radius: 50%;
+  animation: cmuxDiffPendingSpin 800ms linear infinite;
+}
+#status[data-error="true"] {
+  color: light-dark(#b42318, #ff8a80);
+}
+@keyframes cmuxDiffPendingSpin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #status[data-pending="true"]::before,
+  body[data-loading="true"] #status::before {
+    animation: none;
+  }
+}
