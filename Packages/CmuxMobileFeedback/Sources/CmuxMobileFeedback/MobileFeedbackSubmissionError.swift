@@ -1,6 +1,7 @@
+#if os(iOS)
 import Foundation
 
-enum MobileFeedbackSubmissionError: Error {
+public enum MobileFeedbackSubmissionError: Error {
     case invalidEndpoint
     case invalidResponse
     case rejected(statusCode: Int)
@@ -9,3 +10,4 @@ enum MobileFeedbackSubmissionError: Error {
     case diagnosticsPreparationFailed
     case transport(URLError)
 }
+#endif

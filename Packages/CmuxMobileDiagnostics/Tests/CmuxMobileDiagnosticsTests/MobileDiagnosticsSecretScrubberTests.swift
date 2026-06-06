@@ -22,6 +22,8 @@ import Testing
         #expect(!scrubber.scrub("password=hunter2longvalue").contains("hunter2longvalue"))
         #expect(scrubber.scrub("token=abcd1234efgh").contains("<redacted>"))
         #expect(scrubber.scrub("api_key: \"sekret-value-here\"").contains("<redacted>"))
+        #expect(scrubber.scrub("API_TOKEN='opaquevalue123'") == "API_TOKEN='<redacted>'")
+        #expect(scrubber.scrub("DB_PASSWORD='hunter2longvalue'") == "DB_PASSWORD='<redacted>'")
     }
 
     @Test func redactsFirstQueryStringSecrets() {
@@ -61,7 +63,9 @@ import Testing
     @Test func redactsCanonicalAWSCredentialEnvironmentVariables() {
         let samples = [
             ("AWS_ACCESS_KEY_ID=AKIAIOSDIAGNOSTICS123", "AKIAIOSDIAGNOSTICS123"),
+            ("AWS_ACCESS_KEY_ID='AKIAIOSDIAGNOSTICS123'", "AKIAIOSDIAGNOSTICS123"),
             ("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "wJalrXUtnFEMI"),
+            ("AWS_SECRET_ACCESS_KEY='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'", "wJalrXUtnFEMI"),
             ("AWS_SESSION_TOKEN=IQoJb3JpZ2luX2VjEFAaCXVzLXdlc3QtMiJHMEUCIQD", "IQoJb3JpZ2lu"),
             ("AWS_SECURITY_TOKEN=legacySecurityTokenValue123", "legacySecurityTokenValue123"),
         ]

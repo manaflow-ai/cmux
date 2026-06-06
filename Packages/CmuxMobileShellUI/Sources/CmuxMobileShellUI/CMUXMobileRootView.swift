@@ -5,6 +5,7 @@ import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
+import CmuxMobileFeedback
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
@@ -12,6 +13,9 @@ import AppKit
 
 struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
+    #if os(iOS)
+    let feedbackClient: any MobileFeedbackSubmitting
+    #endif
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
     #if os(iOS)
@@ -153,7 +157,11 @@ struct CMUXMobileRootView: View {
                 showAddDevice()
             }
         } else {
+            #if os(iOS)
+            WorkspaceShellView(store: store, signOut: signOut, feedbackClient: feedbackClient)
+            #else
             WorkspaceShellView(store: store, signOut: signOut)
+            #endif
         }
     }
 

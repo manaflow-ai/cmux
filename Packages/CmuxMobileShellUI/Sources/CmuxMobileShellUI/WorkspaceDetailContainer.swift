@@ -4,6 +4,7 @@ import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
+import CmuxMobileFeedback
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
@@ -14,6 +15,9 @@ struct WorkspaceDetailContainer: View {
     let workspaceID: MobileWorkspacePreview.ID?
     let createWorkspace: () -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    #if os(iOS)
+    let feedbackClient: any MobileFeedbackSubmitting
+    #endif
 
     private var workspace: MobileWorkspacePreview? {
         if let workspaceID {
@@ -24,21 +28,42 @@ struct WorkspaceDetailContainer: View {
 
     var body: some View {
         if let workspace {
-            WorkspaceDetailView(
-                host: store.connectedHostName,
-                connectionStatus: store.macConnectionStatus,
-                workspace: workspace,
-                store: store,
-                selectedTerminalID: Binding(
-                    get: { store.selectedTerminalID },
-                    set: { store.selectTerminal($0) }
-                ),
-                createWorkspace: createWorkspace,
-                createTerminal: store.createTerminal,
-                reportTerminalViewport: store.reportTerminalViewport,
-                sendTerminalInput: store.sendTerminalRawInput,
-                safeAreaContext: safeAreaContext
-            )
+            Group {
+                #if os(iOS)
+                WorkspaceDetailView(
+                    host: store.connectedHostName,
+                    connectionStatus: store.macConnectionStatus,
+                    workspace: workspace,
+                    store: store,
+                    selectedTerminalID: Binding(
+                        get: { store.selectedTerminalID },
+                        set: { store.selectTerminal($0) }
+                    ),
+                    createWorkspace: createWorkspace,
+                    createTerminal: store.createTerminal,
+                    reportTerminalViewport: store.reportTerminalViewport,
+                    sendTerminalInput: store.sendTerminalRawInput,
+                    safeAreaContext: safeAreaContext,
+                    feedbackClient: feedbackClient
+                )
+                #else
+                WorkspaceDetailView(
+                    host: store.connectedHostName,
+                    connectionStatus: store.macConnectionStatus,
+                    workspace: workspace,
+                    store: store,
+                    selectedTerminalID: Binding(
+                        get: { store.selectedTerminalID },
+                        set: { store.selectTerminal($0) }
+                    ),
+                    createWorkspace: createWorkspace,
+                    createTerminal: store.createTerminal,
+                    reportTerminalViewport: store.reportTerminalViewport,
+                    sendTerminalInput: store.sendTerminalRawInput,
+                    safeAreaContext: safeAreaContext
+                )
+                #endif
+            }
             .onAppear {
                 if store.selectedWorkspaceID != workspace.id {
                     store.selectedWorkspaceID = workspace.id

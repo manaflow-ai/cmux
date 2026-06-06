@@ -7,6 +7,7 @@ import CmuxMobileTerminal
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
+import CmuxMobileFeedback
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
@@ -24,6 +25,9 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    #if os(iOS)
+    let feedbackClient: any MobileFeedbackSubmitting
+    #endif
     @State private var isTerminalPickerPresented = false
     #if canImport(UIKit)
     @State private var diagnosticsReport: MobileDiagnosticsReport?
@@ -114,7 +118,8 @@ struct WorkspaceDetailView: View {
         .sheet(isPresented: $isFeedbackComposerPresented) {
             MobileFeedbackComposerSheet(
                 initialDiagnosticsReport: diagnosticsReport,
-                buildDiagnosticsReport: buildDiagnosticsReport
+                buildDiagnosticsReport: buildDiagnosticsReport,
+                client: feedbackClient
             )
             .presentationDetents([.large])
         }

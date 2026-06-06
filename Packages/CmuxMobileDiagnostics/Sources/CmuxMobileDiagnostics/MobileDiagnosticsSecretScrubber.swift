@@ -71,9 +71,7 @@ private func replaceMobileDiagnosticsSecretGroup(
         in: text,
         range: NSRange(location: 0, length: nsText.length)
     )
-    guard let mutable = nsText.mutableCopy() as? NSMutableString else {
-        return text
-    }
+    let mutable = (nsText.mutableCopy() as? NSMutableString) ?? NSMutableString(string: text)
     for match in matches.reversed() {
         guard match.numberOfRanges > group else { continue }
         let valueRange = match.range(at: group)
@@ -99,7 +97,7 @@ private func makeMobileDiagnosticsSecretPatterns() -> [(regex: NSRegularExpressi
         // include generic secret keywords in the right shape (`ACCESS_KEY_ID`
         // is the common miss), so cover them explicitly before the generic
         // key/value rule.
-        ("(?i)(?:^|[\\s\"'`({\\[,;&?])((?:AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|SECURITY_TOKEN))\\b\\s*[:=]\\s*\"?)([^\\s\"'&]{4,})",
+        ("(?i)(?:^|[\\s\"'`({\\[,;&?])((?:AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|SECURITY_TOKEN))\\b\\s*[:=]\\s*[\"']?)([^\\s\"'&]{4,})",
          2),
 
         // `token=...`, `password=...`, `secret=...`, `api[_-]?key=...`,
@@ -112,7 +110,7 @@ private func makeMobileDiagnosticsSecretPatterns() -> [(regex: NSRegularExpressi
         // trailing `\b` still rejects `tokenizer=` / `mytokenstuff=`. The
         // value capture group stays group 2. Value runs until whitespace,
         // quote, or `&`.
-        ("(?i)(?:^|[\\s\"'`({\\[,;&?])(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b(\\s*[:=]\\s*\"?)([^\\s\"'&]{4,})",
+        ("(?i)(?:^|[\\s\"'`({\\[,;&?])(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b(\\s*[:=]\\s*[\"']?)([^\\s\"'&]{4,})",
          2),
 
         // Provider-prefixed keys: OpenAI `sk-...`, GitHub `ghp_/gho_/ghu_/ghs_/ghr_...`,

@@ -1,15 +1,46 @@
 #if os(iOS)
-import CmuxMobileDiagnostics
+public import CmuxMobileDiagnostics
 import Foundation
 
-actor MobileFeedbackClient {
-    private let settings: MobileFeedbackSettings?
+public protocol MobileFeedbackSubmitting: Sendable {
+    func submit(
+        email: String,
+        message: String,
+        diagnosticsReport: MobileDiagnosticsReport,
+        photoAttachments: [MobileFeedbackPhotoAttachment],
+        metadata: MobileFeedbackAppMetadata
+    ) async throws
+}
 
-    init(settings: MobileFeedbackSettings? = .live()) {
-        self.settings = settings
+public protocol MobileFeedbackHTTPTransport: Sendable {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse)
+}
+
+public struct URLSessionMobileFeedbackTransport: MobileFeedbackHTTPTransport {
+    private let session: URLSession
+
+    public init(session: URLSession = .shared) {
+        self.session = session
     }
 
-    func submit(
+    public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await session.data(for: request)
+    }
+}
+
+public actor MobileFeedbackClient: MobileFeedbackSubmitting {
+    private let settings: MobileFeedbackSettings?
+    private let transport: any MobileFeedbackHTTPTransport
+
+    public init(
+        settings: MobileFeedbackSettings? = .live(),
+        transport: any MobileFeedbackHTTPTransport = URLSessionMobileFeedbackTransport()
+    ) {
+        self.settings = settings
+        self.transport = transport
+    }
+
+    public func submit(
         email: String,
         message: String,
         diagnosticsReport: MobileDiagnosticsReport,
@@ -73,7 +104,7 @@ actor MobileFeedbackClient {
 
         let response: URLResponse
         do {
-            (_, response) = try await URLSession.shared.data(for: request)
+            (_, response) = try await transport.data(for: request)
         } catch let error as URLError {
             throw MobileFeedbackSubmissionError.transport(error)
         } catch {

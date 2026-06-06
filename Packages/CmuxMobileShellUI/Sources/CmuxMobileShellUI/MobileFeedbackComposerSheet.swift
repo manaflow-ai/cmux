@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDiagnostics
+import CmuxMobileFeedback
 import CmuxMobileSupport
 import PhotosUI
 import SwiftUI
@@ -19,7 +20,7 @@ struct MobileFeedbackComposerSheet: View {
     @State private var didSend = false
 
     private let buildDiagnosticsReport: @MainActor () async -> MobileDiagnosticsReport
-    private let client: MobileFeedbackClient
+    private let client: any MobileFeedbackSubmitting
 
     private var trimmedMessage: String {
         message.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -38,7 +39,7 @@ struct MobileFeedbackComposerSheet: View {
     init(
         initialDiagnosticsReport: MobileDiagnosticsReport?,
         buildDiagnosticsReport: @escaping @MainActor () async -> MobileDiagnosticsReport,
-        client: MobileFeedbackClient = MobileFeedbackClient()
+        client: any MobileFeedbackSubmitting
     ) {
         self.buildDiagnosticsReport = buildDiagnosticsReport
         self.client = client

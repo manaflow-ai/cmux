@@ -1,22 +1,46 @@
 #if os(iOS)
-import CmuxMobileDiagnostics
+public import CmuxMobileDiagnostics
 import Foundation
 import UIKit
 
-struct MobileFeedbackAppMetadata: Sendable {
-    let appVersion: String
-    let appBuild: String
-    let appCommit: String
-    let bundleIdentifier: String
-    let osVersion: String
-    let localeIdentifier: String
-    let hardwareModel: String
-    let memoryGB: String
-    let architecture: String
-    let displayInfo: String
+public struct MobileFeedbackAppMetadata: Sendable {
+    public let appVersion: String
+    public let appBuild: String
+    public let appCommit: String
+    public let bundleIdentifier: String
+    public let osVersion: String
+    public let localeIdentifier: String
+    public let hardwareModel: String
+    public let memoryGB: String
+    public let architecture: String
+    public let displayInfo: String
+
+    public init(
+        appVersion: String,
+        appBuild: String,
+        appCommit: String,
+        bundleIdentifier: String,
+        osVersion: String,
+        localeIdentifier: String,
+        hardwareModel: String,
+        memoryGB: String,
+        architecture: String,
+        displayInfo: String
+    ) {
+        self.appVersion = appVersion
+        self.appBuild = appBuild
+        self.appCommit = appCommit
+        self.bundleIdentifier = bundleIdentifier
+        self.osVersion = osVersion
+        self.localeIdentifier = localeIdentifier
+        self.hardwareModel = hardwareModel
+        self.memoryGB = memoryGB
+        self.architecture = architecture
+        self.displayInfo = displayInfo
+    }
 
     @MainActor
-    static func current(environment: MobileDiagnosticsEnvironment = .current()) -> MobileFeedbackAppMetadata {
+    public static func current(environment: MobileDiagnosticsEnvironment = .current()) -> MobileFeedbackAppMetadata {
         let infoDictionary = Bundle.main.infoDictionary ?? [:]
         let env = ProcessInfo.processInfo.environment
         let commit = (infoDictionary["CMUXCommit"] as? String).flatMap { value in
