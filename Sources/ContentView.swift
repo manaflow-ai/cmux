@@ -10859,10 +10859,6 @@ struct VerticalTabsSidebar: View {
         return minimalModeSidebarTitlebarControlsTopInset(in: observedWindow)
     }
 
-    private var showsSidebarNotificationMessage: Bool {
-        tabItemSettingsStore.snapshot.showsNotificationMessage
-    }
-
     private var workspaceNumberShortcut: StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
