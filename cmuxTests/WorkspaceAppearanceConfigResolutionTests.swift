@@ -72,5 +72,4 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
 
         XCTAssertEqual(resolved.backgroundColor.hexString(), "#272822")
     }
-
 }
