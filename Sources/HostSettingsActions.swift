@@ -139,6 +139,10 @@ final class HostSettingsActions: SettingsHostActions {
         window.orderFrontRegardless()
     }
 
+    func openMobilePairingWindow() {
+        MobilePairingWindowController.shared.show()
+    }
+
     private func existingConfigWindow() -> NSWindow? {
         if let configWindow, configWindow.isVisible || configWindow.isMiniaturized {
             return configWindow

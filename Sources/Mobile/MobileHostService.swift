@@ -259,6 +259,8 @@ final class MobileHostService {
     /// Injected once via `configure(auth:)` at app startup, before the
     /// listener starts accepting connections.
     private var auth: AuthCoordinator?
+    private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
+    private var readinessTimeoutTask: Task<Void, Never>?
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
     #endif
@@ -406,6 +408,9 @@ final class MobileHostService {
             }
             lastErrorDescription = String(describing: error)
             mobileHostLog.error("mobile host listener failed to start: \(String(describing: error), privacy: .public)")
+            // No listener was registered, so no state callback will fire to drain
+            // readiness waiters; resolve them now instead of waiting for the deadline.
+            drainReadinessWaiters()
         }
     }
 
@@ -435,6 +440,7 @@ final class MobileHostService {
         MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.update(routes: [])
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
+        drainReadinessWaiters()
     }
 
     func statusSnapshot() -> MobileHostServiceStatus {
@@ -446,6 +452,49 @@ final class MobileHostService {
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: lastErrorDescription
         )
+    }
+
+    /// Starts the pairing listener (if enabled and not already bound) and
+    /// resolves once it can mint attach tickets, so the in-app pairing window
+    /// can render a QR code without polling the listener state machine.
+    ///
+    /// Resolves immediately when the listener is already ready, or when pairing
+    /// is disabled (the caller then renders an "off" state). Otherwise it awaits
+    /// the next listener-state transition (`ready`, terminal `failed`, or
+    /// `cancelled`) via a continuation, with a bounded safety deadline so the UI
+    /// never hangs on a listener that never settles.
+    func ensureListeningAndReady() async -> MobileHostServiceStatus {
+        start()
+        if listener == nil || listenerPort != nil {
+            return statusSnapshot()
+        }
+        return await withCheckedContinuation { continuation in
+            readinessWaiters.append(continuation)
+            if readinessTimeoutTask == nil {
+                // Bounded, cancellable deadline: a local NWListener normally
+                // reaches `.ready` within milliseconds; this only guards a
+                // never-settling listener. Cancelled on the normal drain path.
+                readinessTimeoutTask = Task { @MainActor [weak self] in
+                    try? await ContinuousClock().sleep(for: .seconds(6))
+                    guard let self, !Task.isCancelled else { return }
+                    self.drainReadinessWaiters()
+                }
+            }
+        }
+    }
+
+    /// Resumes every pending ``ensureListeningAndReady()`` caller with the
+    /// current status and clears the bounded readiness deadline.
+    private func drainReadinessWaiters() {
+        readinessTimeoutTask?.cancel()
+        readinessTimeoutTask = nil
+        guard !readinessWaiters.isEmpty else { return }
+        let snapshot = statusSnapshot()
+        let waiters = readinessWaiters
+        readinessWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume(returning: snapshot)
+        }
     }
 
     private func publicStatusSnapshot() async -> MobileHostServiceStatus {
@@ -983,6 +1032,7 @@ final class MobileHostService {
                 MobileHostPublicStatusCache.update(routes: [])
             }
             mobileHostLog.info("mobile host listener ready on port \(self.listenerPort ?? 0)")
+            drainReadinessWaiters()
         case let .failed(error):
             lastErrorDescription = String(describing: error)
             MobileHostPublicStatusCache.update(routes: [])
@@ -998,6 +1048,8 @@ final class MobileHostService {
             if shouldRetryWithEphemeralPort {
                 mobileHostLog.info("mobile host preferred port failed after start, falling back to an ephemeral port")
                 startListener(usePreferredPort: false)
+            } else {
+                drainReadinessWaiters()
             }
         case .cancelled:
             listenerGeneration = UUID()
@@ -1005,6 +1057,7 @@ final class MobileHostService {
             listenerUsesEphemeralFallback = false
             listenerPort = nil
             MobileHostPublicStatusCache.update(routes: [])
+            drainReadinessWaiters()
         case .setup, .waiting:
             listenerPort = nil
             MobileHostPublicStatusCache.update(routes: [])

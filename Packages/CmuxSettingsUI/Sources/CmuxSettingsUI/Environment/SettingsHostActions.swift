@@ -53,6 +53,11 @@ public protocol SettingsHostActions: AnyObject {
     /// window scene so the package can't open it directly.
     func openTerminalConfigWindow()
 
+    /// Opens the iOS pairing window, which shows a scannable QR code for
+    /// pairing an iPhone with this Mac. The host owns the window so the
+    /// package can't open it directly.
+    func openMobilePairingWindow()
+
     /// Plays the currently configured notification sound so the user
     /// can preview it from the Settings UI.
     func previewNotificationSound(value: String, customFilePath: String)
@@ -101,6 +106,8 @@ public protocol SettingsHostActions: AnyObject {
 }
 
 public extension SettingsHostActions {
+    func openMobilePairingWindow() {}
+
     func browserHistoryEntryCount() -> Int? { nil }
 
     func sidebarFontSize() -> SettingsFontSize {
@@ -141,6 +148,7 @@ public final class NoopSettingsHostActions: SettingsHostActions {
     public func openBrowserImportFlow() {}
     public func requestNotificationAuthorization() {}
     public func openTerminalConfigWindow() {}
+    public func openMobilePairingWindow() {}
     /// No-op notification sound preview used by tests, previews, and
     /// package-only settings hosts.
     public func previewNotificationSound(value: String, customFilePath: String) {}
