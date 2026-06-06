@@ -4297,7 +4297,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         var merged = windows
         if merged.count >= SessionPersistencePolicy.maxWindowsPerSnapshot {
-            // Keep pendingQuickTerminalSnapshot marked isQuickTerminal in merged by evicting the last regular window.
+            // `merged` holds regular windows here. If it is at capacity, evict
+            // the last regular snapshot so the `pendingQuickTerminalSnapshot`
+            // marked `isQuickTerminal` can still be appended and restored.
             merged.removeLast()
         }
         merged.append(pendingQuickTerminalSnapshot)
