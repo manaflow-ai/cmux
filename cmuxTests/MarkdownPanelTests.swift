@@ -1128,6 +1128,8 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(autoFailedButtons.filter { $0 == expectedLoadingButton }.count, 0)
         XCTAssertEqual(autoFailedButtons.filter { $0 == expectedCopyURLButton }.count, 1)
         XCTAssertEqual(autoFailedButtons.filter { $0 == expectedOpenURLButton }.count, 1)
+
+        try await clearMarkdownPage(in: webView)
     }
 
     func testMarkdownRemoteImageSecurityRejectsUnsafeTargets() throws {
@@ -1301,6 +1303,21 @@ final class MarkdownPanelTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: [markdown])
         let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
         _ = try await webView.evaluateJavaScript("window.__cmuxRenderMarkdown(\(literal)[0]);")
+    }
+
+    private func clearMarkdownPage(in webView: WKWebView) async throws {
+        _ = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              window.stop();
+              Array.prototype.slice.call(document.images || []).forEach(function(img) {
+                img.removeAttribute('src');
+                img.removeAttribute('srcset');
+              });
+              if (document.body) { document.body.replaceChildren(); }
+            })();
+            """
+        )
     }
 
     private func evaluateScrollSnapshot(_ script: String, in webView: WKWebView) async throws -> [String: Double] {

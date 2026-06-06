@@ -1001,6 +1001,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObservers: [NSObjectProtocol] = []
+    private var mainWindowWillCloseObservers: [ObjectIdentifier: NSObjectProtocol] = [:]
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
@@ -4816,6 +4817,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mobileWorkspaceListObservers.removeValue(forKey: ObjectIdentifier(tabManager))
     }
 
+    private func observeMainWindowClose(_ window: NSWindow) {
+        let key = ObjectIdentifier(window)
+        guard mainWindowWillCloseObservers[key] == nil else { return }
+        mainWindowWillCloseObservers[key] = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] note in
+            guard let self, let closing = note.object as? NSWindow else { return }
+            self.unregisterMainWindow(closing)
+        }
+    }
+
+    private func removeMainWindowCloseObserver(for window: NSWindow?) {
+        guard let window else { return }
+        let key = ObjectIdentifier(window)
+        guard let observer = mainWindowWillCloseObservers.removeValue(forKey: key) else { return }
+        NotificationCenter.default.removeObserver(observer)
+    }
+
     /// Register a terminal window with the AppDelegate so menu commands and socket control
     /// can target whichever window is currently active.
     func registerMainWindow(
@@ -4835,6 +4856,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let existing = mainWindowContexts[key] {
             tabManager.window = window
             existing.window = window
+            observeMainWindowClose(window)
             let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
             if let fileExplorerState {
                 existing.fileExplorerState = fileExplorerState
@@ -4869,6 +4891,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             tabManager.window = window
             existing.window = window
+            observeMainWindowClose(window)
             let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
             if let fileExplorerState {
                 existing.fileExplorerState = fileExplorerState
@@ -4893,14 +4916,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 cmuxConfigStore: cmuxConfigStore,
                 window: window
             )
-            NotificationCenter.default.addObserver(
-                forName: NSWindow.willCloseNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] note in
-                guard let self, let closing = note.object as? NSWindow else { return }
-                self.unregisterMainWindow(closing)
-            }
+            observeMainWindowClose(window)
         }
         commandPaletteVisibilityByWindowId[windowId] = false
         commandPaletteSelectionByWindowId[windowId] = 0
@@ -6369,6 +6385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in removedKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
+        removeMainWindowCloseObserver(for: window)
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
         removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
@@ -6386,6 +6403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
+        removeMainWindowCloseObserver(for: context.window)
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         if notifyObservers {
