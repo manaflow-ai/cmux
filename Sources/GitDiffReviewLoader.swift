@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 nonisolated enum GitDiffReviewLoader {
@@ -179,78 +180,132 @@ nonisolated enum GitDiffReviewLoader {
 }
 
 private final class GitDiffPipeDataReader: @unchecked Sendable {
+    private static let chunkSize = 64 * 1024
+
     private let handle: FileHandle
+    private let fileDescriptor: Int32
     private let lock = NSLock()
-    private var data = Data()
     private var continuation: CheckedContinuation<Data, Error>?
     private var completedResult: Result<Data, Error>?
+    private var isCancelled = false
+    private var hasStarted = false
 
     init(handle: FileHandle) {
         self.handle = handle
+        self.fileDescriptor = handle.fileDescriptor
     }
 
     func readAllData() async throws -> Data {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
             let resultToResume: Result<Data, Error>?
+            let threadToStart: Thread?
 
             lock.lock()
             if let completedResult {
                 resultToResume = completedResult
+                threadToStart = nil
+            } else if hasStarted {
+                resultToResume = .failure(GitDiffReviewLoadError.commandFailed)
+                threadToStart = nil
             } else {
                 resultToResume = nil
                 self.continuation = continuation
-                handle.readabilityHandler = { [weak self] readableHandle in
-                    self?.appendAvailableData(from: readableHandle)
-                }
+                hasStarted = true
+                threadToStart = makeReaderThread()
             }
             lock.unlock()
 
             if let resultToResume {
                 resume(continuation, with: resultToResume)
+            } else {
+                threadToStart?.start()
             }
         }
     }
 
     func cancel() {
+        lock.lock()
+        isCancelled = true
+        lock.unlock()
+
         finish(.failure(CancellationError()))
         try? handle.close()
     }
 
-    private func appendAvailableData(from readableHandle: FileHandle) {
-        let chunk = readableHandle.availableData
-        guard !chunk.isEmpty else {
-            finish(.success(Data()))
+    private func makeReaderThread() -> Thread {
+        let thread = Thread {
+            self.readToEndOfFileOnDedicatedThread()
+        }
+        thread.name = "cmux-code-review-pipe-reader"
+        return thread
+    }
+
+    private func readToEndOfFileOnDedicatedThread() {
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: Self.chunkSize)
+
+        while true {
+            let byteCount = buffer.withUnsafeMutableBytes { pointer -> Int in
+                guard let baseAddress = pointer.baseAddress else { return 0 }
+                return Darwin.read(fileDescriptor, baseAddress, Self.chunkSize)
+            }
+
+            if byteCount > 0 {
+                data.append(contentsOf: buffer[..<byteCount])
+                continue
+            }
+            if byteCount == 0 {
+                finishRead(data)
+                return
+            }
+
+            if errno == EINTR {
+                continue
+            }
+            finishReadFailure()
             return
         }
+    }
 
+    private func finishRead(_ data: Data) {
         lock.lock()
-        data.append(chunk)
+        let cancelled = isCancelled
         lock.unlock()
+
+        if cancelled {
+            finish(.failure(CancellationError()))
+        } else {
+            finish(.success(data))
+        }
+    }
+
+    private func finishReadFailure() {
+        lock.lock()
+        let cancelled = isCancelled
+        lock.unlock()
+
+        if cancelled {
+            finish(.failure(CancellationError()))
+        } else {
+            finish(.failure(GitDiffReviewLoadError.commandFailed))
+        }
     }
 
     private func finish(_ result: Result<Data, Error>) {
         let continuationToResume: CheckedContinuation<Data, Error>?
-        let resultToResume: Result<Data, Error>
 
         lock.lock()
         guard completedResult == nil else {
             lock.unlock()
             return
         }
-        handle.readabilityHandler = nil
         continuationToResume = continuation
         continuation = nil
-        switch result {
-        case .success:
-            resultToResume = .success(data)
-        case .failure(let error):
-            resultToResume = .failure(error)
-        }
-        completedResult = resultToResume
+        completedResult = result
         lock.unlock()
 
         guard let continuationToResume else { return }
-        resume(continuationToResume, with: resultToResume)
+        resume(continuationToResume, with: result)
     }
 
     private func resume(_ continuation: CheckedContinuation<Data, Error>, with result: Result<Data, Error>) {

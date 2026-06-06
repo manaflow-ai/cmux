@@ -205,6 +205,7 @@
 		7D5DA4DC51454ECDBF9AC978 /* CmuxWebViewMouseNavigationButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */; };
 		E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */; };
 		AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */ = {isa = PBXBuildFile; productRef = AA11BB22CC33DD44EE550002 /* CMUXWorkstream */; };
+		C60900000000000000000001 /* CodeReviewPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000002 /* CodeReviewPanelView.swift */; };
 		C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4041001000000000000001A /* CommandClickFileOpenRouter.swift */; };
 		C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */; };
 		C0DEC0DE000000000000F202 /* CommandPaletteNucleoFFILibrarySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */; };
@@ -221,18 +222,13 @@
 		C1713002C1713002C1713002 /* CommandPaletteShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1713001C1713001C1713001 /* CommandPaletteShortcutRouting.swift */; };
 		3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1013023B1013023B101 /* ConfigSettingsView.swift */; };
 		3023A1003023A1003023A100 /* ConfigSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1003023B1003023B100 /* ConfigSource.swift */; };
+		C0DEA7710000000000000001 /* ContentView+AuthCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000002 /* ContentView+AuthCommandPalette.swift */; };
 		C0DEF0A90000000000000001 /* ContentView+ForkAgentConversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */; };
 		D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */; };
 		C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */; };
 		C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */; };
 		A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
 		C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */; };
-		C60900000000000000000001 /* CodeReviewPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000002 /* CodeReviewPanelView.swift */; };
-		C60900000000000000000010 /* GitDiffReviewModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000011 /* GitDiffReviewModels.swift */; };
-		C60900000000000000000012 /* GitDiffReviewParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000013 /* GitDiffReviewParser.swift */; };
-		C60900000000000000000014 /* GitDiffReviewLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000015 /* GitDiffReviewLoader.swift */; };
-		C60900000000000000000016 /* GitDiffReviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000017 /* GitDiffReviewStore.swift */; };
-		C60900000000000000000003 /* GitDiffReviewParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000004 /* GitDiffReviewParserTests.swift */; };
 		A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */; };
 		A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001F000000000000000002 /* DetachedFolderDragIcon.swift */; };
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
@@ -320,6 +316,11 @@
 		D0B1000AA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1000BA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift */; };
 		D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */; };
 		D3284101A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */; };
+		C60900000000000000000014 /* GitDiffReviewLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000015 /* GitDiffReviewLoader.swift */; };
+		C60900000000000000000010 /* GitDiffReviewModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000011 /* GitDiffReviewModels.swift */; };
+		C60900000000000000000012 /* GitDiffReviewParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000013 /* GitDiffReviewParser.swift */; };
+		C60900000000000000000003 /* GitDiffReviewParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000004 /* GitDiffReviewParserTests.swift */; };
+		C60900000000000000000016 /* GitDiffReviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000017 /* GitDiffReviewStore.swift */; };
 		617C70C1617C70C1617C70C1 /* GitPollClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 617C70C2617C70C2617C70C2 /* GitPollClock.swift */; };
 		3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */; };
 		3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */; };
@@ -890,6 +891,7 @@
 		D0B1000DA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewDragRoutingTests.swift; sourceTree = "<group>"; };
 		43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewMouseNavigationButtonTests.swift; sourceTree = "<group>"; };
 		E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWorkspaceDefinition.swift; sourceTree = "<group>"; };
+		C60900000000000000000002 /* CodeReviewPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeReviewPanelView.swift; sourceTree = "<group>"; };
 		C4041001000000000000001A /* CommandClickFileOpenRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandClickFileOpenRouter.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteIdentifierClipboardUITests.swift; sourceTree = "<group>"; };
 		C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteNucleoFFILibrarySupport.swift; sourceTree = "<group>"; };
@@ -906,6 +908,7 @@
 		C1713001C1713001C1713001 /* CommandPaletteShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CommandPaletteShortcutRouting.swift; sourceTree = "<group>"; };
 		3023B1013023B1013023B101 /* ConfigSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSettingsView.swift; sourceTree = "<group>"; };
 		3023B1003023B1003023B100 /* ConfigSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSource.swift; sourceTree = "<group>"; };
+		C0DEA7710000000000000002 /* ContentView+AuthCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+AuthCommandPalette.swift"; sourceTree = "<group>"; };
 		C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ForkAgentConversation.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+RightSidebarCommandPalette.swift"; sourceTree = "<group>"; };
@@ -999,6 +1002,11 @@
 		D0B1000BA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalViewSupport.swift; sourceTree = "<group>"; };
 		D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalViewVisibilityPolicyTests.swift; sourceTree = "<group>"; };
 		D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTextInputSupport.swift; sourceTree = "<group>"; };
+		C60900000000000000000015 /* GitDiffReviewLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewLoader.swift; sourceTree = "<group>"; };
+		C60900000000000000000011 /* GitDiffReviewModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewModels.swift; sourceTree = "<group>"; };
+		C60900000000000000000013 /* GitDiffReviewParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewParser.swift; sourceTree = "<group>"; };
+		C60900000000000000000004 /* GitDiffReviewParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewParserTests.swift; sourceTree = "<group>"; };
+		C60900000000000000000017 /* GitDiffReviewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewStore.swift; sourceTree = "<group>"; };
 		617C70C2617C70C2617C70C2 /* GitPollClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitPollClock.swift; sourceTree = "<group>"; };
 		3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchCoordinator.swift; sourceTree = "<group>"; };
 		3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchDocuments.swift; sourceTree = "<group>"; };
@@ -1115,15 +1123,9 @@
 		AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeHeightUITests.swift; sourceTree = "<group>"; };
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarCommandPaletteTests.swift; sourceTree = "<group>"; };
-		C60900000000000000000004 /* GitDiffReviewParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewParserTests.swift; sourceTree = "<group>"; };
 		B37A00000000000000000004 /* RightSidebarMode+Availability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode+Availability.swift"; sourceTree = "<group>"; };
 		FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
 		B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommand.swift; sourceTree = "<group>"; };
-		C60900000000000000000002 /* CodeReviewPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeReviewPanelView.swift; sourceTree = "<group>"; };
-		C60900000000000000000011 /* GitDiffReviewModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewModels.swift; sourceTree = "<group>"; };
-		C60900000000000000000013 /* GitDiffReviewParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewParser.swift; sourceTree = "<group>"; };
-		C60900000000000000000015 /* GitDiffReviewLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewLoader.swift; sourceTree = "<group>"; };
-		C60900000000000000000017 /* GitDiffReviewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewStore.swift; sourceTree = "<group>"; };
 		FE0030A3 /* RightSidebarToolPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarToolPanel.swift; sourceTree = "<group>"; };
 		C46790000000000000000006 /* RosettaNativeRelaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RosettaNativeRelaunch.swift; sourceTree = "<group>"; };
 		C46790000000000000000008 /* RosettaNativeRelaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosettaNativeRelaunchTests.swift; sourceTree = "<group>"; };
@@ -1573,6 +1575,7 @@
 				C0DE35010000000000000002 /* SidebarScrim.swift */,
 				D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */,
 				D0B10025A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift */,
+				C0DEA7710000000000000002 /* ContentView+AuthCommandPalette.swift */,
 				C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */,
 				C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */,
 				C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */,
@@ -2551,6 +2554,7 @@
 				D7AB00000000000000000009 /* CmuxWebView+MoveTabToNewWorkspace.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */,
+				C60900000000000000000001 /* CodeReviewPanelView.swift in Sources */,
 				C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */,
 				C0DEFF100000000000000001 /* CommandPaletteNucleoSearch.swift in Sources */,
 				C0DEFF200000000000000001 /* CommandPaletteOverlay.swift in Sources */,
@@ -2560,6 +2564,7 @@
 				C1713002C1713002C1713002 /* CommandPaletteShortcutRouting.swift in Sources */,
 				3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */,
 				3023A1003023A1003023A100 /* ConfigSource.swift in Sources */,
+				C0DEA7710000000000000001 /* ContentView+AuthCommandPalette.swift in Sources */,
 				C0DEF0A90000000000000001 /* ContentView+ForkAgentConversation.swift in Sources */,
 				D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */,
 				C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */,
@@ -2621,6 +2626,10 @@
 				A5001005 /* GhosttyTerminalView.swift in Sources */,
 				D0B1000AA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift in Sources */,
 				D3284101A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift in Sources */,
+				C60900000000000000000014 /* GitDiffReviewLoader.swift in Sources */,
+				C60900000000000000000010 /* GitDiffReviewModels.swift in Sources */,
+				C60900000000000000000012 /* GitDiffReviewParser.swift in Sources */,
+				C60900000000000000000016 /* GitDiffReviewStore.swift in Sources */,
 					617C70C1617C70C1617C70C1 /* GitPollClock.swift in Sources */,
 				3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */,
 				3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */,
@@ -2701,11 +2710,6 @@
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
 				B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */,
 				FE0031A3 /* RightSidebarToolPanel.swift in Sources */,
-				C60900000000000000000010 /* GitDiffReviewModels.swift in Sources */,
-				C60900000000000000000012 /* GitDiffReviewParser.swift in Sources */,
-				C60900000000000000000014 /* GitDiffReviewLoader.swift in Sources */,
-				C60900000000000000000016 /* GitDiffReviewStore.swift in Sources */,
-				C60900000000000000000001 /* CodeReviewPanelView.swift in Sources */,
 				C46790000000000000000005 /* RosettaNativeRelaunch.swift in Sources */,
 				FE003105 /* RovoDevIndex.swift in Sources */,
 				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
@@ -3003,6 +3007,7 @@
 				3069F1D10000000000000003 /* GhosttyPasteboardFidelityTests.swift in Sources */,
 				C13519000000000000000003 /* GhosttyTerminalStartupEnvironmentTests.swift in Sources */,
 				D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */,
+				C60900000000000000000003 /* GitDiffReviewParserTests.swift in Sources */,
 				3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */,
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
 				C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */,
@@ -3032,7 +3037,6 @@
 					F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */,
 					F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */,
 				C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */,
-				C60900000000000000000003 /* GitDiffReviewParserTests.swift in Sources */,
 				C46790000000000000000007 /* RosettaNativeRelaunchTests.swift in Sources */,
 				F5310000A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift in Sources */,
 				F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */,

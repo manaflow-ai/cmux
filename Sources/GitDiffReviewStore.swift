@@ -8,6 +8,7 @@ final class GitDiffReviewStore {
 
     @ObservationIgnored private var rootPath: String?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private var activeLoadGeneration: Int?
     @ObservationIgnored private var generation = 0
 
     deinit {
@@ -24,8 +25,7 @@ final class GitDiffReviewStore {
         }
 
         rootPath = normalized
-        generation &+= 1
-        loadTask?.cancel()
+        cancelCurrentLoad()
 
         guard normalized != nil else {
             phase = .idle
@@ -43,8 +43,9 @@ final class GitDiffReviewStore {
 
         generation &+= 1
         let currentGeneration = generation
-        phase = .loading(rootPath: rootPath)
         loadTask?.cancel()
+        activeLoadGeneration = currentGeneration
+        phase = .loading(rootPath: rootPath)
         loadTask = Task(priority: .utility) { [weak self] in
             do {
                 let snapshot = try await GitDiffReviewLoader.load(rootPath: rootPath)
@@ -62,15 +63,31 @@ final class GitDiffReviewStore {
 
     private func completeLoad(_ snapshot: GitDiffReviewSnapshot, generation completedGeneration: Int) {
         guard completedGeneration == generation else { return }
+        finishCurrentLoad(generation: completedGeneration)
         phase = .loaded(snapshot)
     }
 
     private func completeFailure(_ error: GitDiffReviewLoadError, rootPath: String, generation completedGeneration: Int) {
         guard completedGeneration == generation else { return }
+        finishCurrentLoad(generation: completedGeneration)
         if case .cancelled = error {
+            phase = .idle
             return
         }
         phase = .failed(rootPath: rootPath, error: error)
+    }
+
+    private func cancelCurrentLoad() {
+        generation &+= 1
+        activeLoadGeneration = nil
+        loadTask?.cancel()
+        loadTask = nil
+    }
+
+    private func finishCurrentLoad(generation completedGeneration: Int) {
+        guard activeLoadGeneration == completedGeneration else { return }
+        activeLoadGeneration = nil
+        loadTask = nil
     }
 
     private static func normalizedRootPath(_ rawPath: String?) -> String? {
