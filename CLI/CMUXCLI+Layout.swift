@@ -4,14 +4,14 @@ extension CMUXCLI {
     private static let layoutPresetSchema = "cmux.workspacePreset.v1"
 
     func layoutCommandDoesNotNeedSocket(_ commandArgs: [String]) -> Bool {
-        let subcommand = commandArgs.first?.lowercased() ?? "help"
-        if subcommand == "help" || subcommand == "--help" || subcommand == "-h" {
+        let command = layoutCommandParts(commandArgs)
+        if layoutCommandIsHelp(command.subcommand) {
             return true
         }
-        if commandArgs.contains("--help") || commandArgs.contains("-h") {
+        if layoutHelpFlagRequested(subcommand: command.subcommand, args: command.args) {
             return true
         }
-        return ["import", "list", "ls", "path"].contains(subcommand)
+        return ["import", "list", "ls", "path"].contains(command.subcommand)
     }
 
     func runLayoutCommand(
@@ -20,10 +20,11 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let subcommand = commandArgs.first?.lowercased() ?? "help"
-        let args = Array(commandArgs.dropFirst())
+        let command = layoutCommandParts(commandArgs)
+        let subcommand = command.subcommand
+        let args = command.args
 
-        if args.contains("--help") || args.contains("-h") {
+        if layoutHelpFlagRequested(subcommand: subcommand, args: args) {
             print(layoutUsage())
             return
         }
@@ -101,6 +102,75 @@ extension CMUXCLI {
         """)
     }
 
+    private func layoutCommandParts(_ commandArgs: [String]) -> (subcommand: String, args: [String]) {
+        guard let first = commandArgs.first, first != "--" else {
+            return ("help", Array(commandArgs.dropFirst()))
+        }
+        return (first.lowercased(), Array(commandArgs.dropFirst()))
+    }
+
+    private func layoutCommandIsHelp(_ subcommand: String) -> Bool {
+        subcommand == "help" || subcommand == "--help" || subcommand == "-h"
+    }
+
+    private func layoutHelpFlagRequested(subcommand: String, args: [String]) -> Bool {
+        let valueOptions = layoutValueOptions(for: subcommand)
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--" {
+                return false
+            }
+            if arg == "--help" || arg == "-h" {
+                return true
+            }
+            if let equalsIndex = arg.firstIndex(of: "=") {
+                let option = String(arg[..<equalsIndex])
+                if valueOptions.contains(option) {
+                    index += 1
+                    continue
+                }
+            }
+            if valueOptions.contains(arg), index + 1 < args.count {
+                index += 2
+                continue
+            }
+            index += 1
+        }
+        return false
+    }
+
+    private func layoutValueOptions(for subcommand: String) -> Set<String> {
+        switch subcommand {
+        case "import":
+            return ["--name"]
+        case "save":
+            return ["--workspace", "--name"]
+        case "export":
+            return ["--workspace", "--name", "--out", "--output"]
+        case "open":
+            return ["--name", "--cwd", "--title", "--focus"]
+        default:
+            return []
+        }
+    }
+
+    private func layoutUnknownLongFlag(in args: [String]) -> String? {
+        for arg in args {
+            if arg == "--" {
+                return nil
+            }
+            if arg.hasPrefix("--") {
+                return arg
+            }
+        }
+        return nil
+    }
+
+    private func layoutPositionalArguments(from args: [String]) -> [String] {
+        args.filter { $0 != "--" }
+    }
+
     private func runLayoutPath(commandArgs: [String], jsonOutput: Bool) throws {
         let remaining = commandArgs.filter { $0 != "--json" }
         if let unknown = remaining.first {
@@ -145,9 +215,8 @@ extension CMUXCLI {
             )
         } catch {
             throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.layout.error.listReadFailed", defaultValue: "Failed to read layout preset directory %@: %@"),
-                directory.path,
-                String(describing: error)
+                String(localized: "cli.layout.error.listReadFailed", defaultValue: "Failed to read layout preset directory %@"),
+                directory.path
             ))
         }
 
@@ -177,7 +246,8 @@ extension CMUXCLI {
                         }
                     }
                 } catch {
-                    entry["error"] = String(describing: error)
+                    layoutDebugLogInvalidPresetListEntry(url: url, error: error)
+                    entry["error"] = String(localized: "cli.layout.output.invalidPresetStatus", defaultValue: "invalid preset")
                 }
                 return entry
             }
@@ -215,7 +285,7 @@ extension CMUXCLI {
 
     private func runLayoutImport(commandArgs: [String], jsonOutput: Bool) throws {
         let (nameOpt, rem0) = parseOption(commandArgs, name: "--name")
-        if let unknown = rem0.first(where: { $0.hasPrefix("--") }) {
+        if let unknown = layoutUnknownLongFlag(in: rem0) {
             throw CLIError(message: String.localizedStringWithFormat(
                 String(localized: "cli.layout.error.unknownFlagKnownFlags", defaultValue: "%@: unknown flag '%@'. Known flags: %@"),
                 "layout import",
@@ -223,7 +293,7 @@ extension CMUXCLI {
                 "--name <name>"
             ))
         }
-        let positional = rem0.filter { $0 != "--" && !$0.hasPrefix("-") }
+        let positional = layoutPositionalArguments(from: rem0)
         guard positional.count == 1, let path = positional.first else {
             throw CLIError(message: String(localized: "cli.layout.error.importUsage", defaultValue: "Usage: cmux layout import <path> [--name <name>]"))
         }
@@ -265,7 +335,7 @@ extension CMUXCLI {
     ) throws {
         let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
         let (nameOpt, rem1) = parseOption(rem0, name: "--name")
-        if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
+        if let unknown = layoutUnknownLongFlag(in: rem1) {
             throw CLIError(message: String.localizedStringWithFormat(
                 String(localized: "cli.layout.error.unknownFlagKnownFlags", defaultValue: "%@: unknown flag '%@'. Known flags: %@"),
                 "layout save",
@@ -273,7 +343,7 @@ extension CMUXCLI {
                 "--workspace <id|ref|index>, --name <name>"
             ))
         }
-        let positional = rem1.filter { $0 != "--" && !$0.hasPrefix("-") }
+        let positional = layoutPositionalArguments(from: rem1)
         let rawName: String?
         if let nameOpt {
             if let extra = positional.first {
@@ -333,7 +403,7 @@ extension CMUXCLI {
         let (nameOpt, rem1) = parseOption(rem0, name: "--name")
         let (outOpt, rem2) = parseOption(rem1, name: "--out")
         let (outputOpt, rem3) = parseOption(rem2, name: "--output")
-        if let unknown = rem3.first(where: { $0.hasPrefix("--") }) {
+        if let unknown = layoutUnknownLongFlag(in: rem3) {
             throw CLIError(message: String.localizedStringWithFormat(
                 String(localized: "cli.layout.error.unknownFlagKnownFlags", defaultValue: "%@: unknown flag '%@'. Known flags: %@"),
                 "layout export",
@@ -398,7 +468,7 @@ extension CMUXCLI {
         let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
         let (titleOpt, rem2) = parseOption(rem1, name: "--title")
         let (focusOpt, rem3) = parseOption(rem2, name: "--focus")
-        if let unknown = rem3.first(where: { $0.hasPrefix("--") }) {
+        if let unknown = layoutUnknownLongFlag(in: rem3) {
             throw CLIError(message: String.localizedStringWithFormat(
                 String(localized: "cli.layout.error.unknownFlagKnownFlags", defaultValue: "%@: unknown flag '%@'. Known flags: %@"),
                 "layout open",
@@ -406,7 +476,7 @@ extension CMUXCLI {
                 "--name <name>, --cwd <path>, --title <title>, --focus <true|false>"
             ))
         }
-        let positional = rem3.filter { $0 != "--" && !$0.hasPrefix("-") }
+        let positional = layoutPositionalArguments(from: rem3)
         let rawName: String?
         if let nameOpt {
             if let extra = positional.first {
@@ -516,9 +586,8 @@ extension CMUXCLI {
             data = try Data(contentsOf: url)
         } catch {
             throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.layout.error.readFailed", defaultValue: "Failed to read %@: %@"),
-                url.path,
-                String(describing: error)
+                String(localized: "cli.layout.error.readFailed", defaultValue: "Failed to read %@"),
+                url.path
             ))
         }
 
@@ -544,9 +613,8 @@ extension CMUXCLI {
             throw error
         } catch {
             throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.layout.error.parseFailed", defaultValue: "Failed to parse %@: %@"),
-                url.path,
-                String(describing: error)
+                String(localized: "cli.layout.error.parseFailed", defaultValue: "Failed to parse %@"),
+                url.path
             ))
         }
     }
@@ -664,6 +732,12 @@ extension CMUXCLI {
             return number.stringValue
         }
         return nil
+    }
+
+    private func layoutDebugLogInvalidPresetListEntry(url: URL, error _: Error) {
+        #if DEBUG
+        FileHandle.standardError.write(Data("[cmux layout] invalid preset \(url.path)\n".utf8))
+        #endif
     }
 
 }

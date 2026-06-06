@@ -273,6 +273,19 @@ def main() -> int:
             if listed != {"presets": []}:
                 raise AssertionError(f"layout list should work without a socket: {listed!r}")
 
+            Path(layout_dir).mkdir(parents=True, exist_ok=True)
+            invalid_preset = Path(layout_dir) / "broken.json"
+            invalid_preset.write_text("{ invalid", encoding="utf-8")
+            invalid_list_text = run_cli_without_socket(cli, ["layout", "list"], layout_env)
+            if "[invalid: invalid preset]" not in invalid_list_text:
+                raise AssertionError(f"layout list should sanitize invalid preset errors: {invalid_list_text!r}")
+            if "Failed to parse" in invalid_list_text or "JSON" in invalid_list_text:
+                raise AssertionError(f"layout list exposed raw parser details: {invalid_list_text!r}")
+            invalid_list_json = json.loads(run_cli_without_socket(cli, ["layout", "list", "--json"], layout_env))
+            if invalid_list_json["presets"][0].get("error") != "invalid preset":
+                raise AssertionError(f"layout list JSON should use a stable invalid status: {invalid_list_json!r}")
+            invalid_preset.unlink()
+
             invalid_layout_dir = Path(tmp) / "layout-file"
             invalid_layout_dir.write_text("not a directory", encoding="utf-8")
             assert_cli_without_socket_fails(
@@ -298,6 +311,34 @@ def main() -> int:
 
             run_cli(cli, socket_path, ["new-workspace", "--name", "agent"])
             assert_last_call(state, "workspace.create", {"title": "agent", "focus": False})
+
+            run_cli(cli, socket_path, ["layout", "save", "--name", "--help"], layout_env)
+            assert_last_call(state, "workspace.layout_export", {"name": "--help"})
+            if not (Path(layout_dir) / "--help.json").exists():
+                raise AssertionError("layout save should accept --help as a --name value")
+
+            run_cli(cli, socket_path, ["layout", "save", "--", "-dev"], layout_env)
+            assert_last_call(state, "workspace.layout_export", {"name": "-dev"})
+            if not (Path(layout_dir) / "-dev.json").exists():
+                raise AssertionError("layout save should accept dash-prefixed positional names after --")
+
+            source_preset = Path(tmp) / "source-preset.json"
+            source_preset.write_text(
+                json.dumps(
+                    {
+                        "schema": "cmux.workspacePreset.v1",
+                        "name": "source",
+                        "workspace": {
+                            "name": "Imported Workspace",
+                            "layout": {"pane": {"surfaces": [{"type": "terminal"}]}},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            run_cli_without_socket(cli, ["layout", "import", str(source_preset), "--name", "-h"], layout_env)
+            if not (Path(layout_dir) / "-h.json").exists():
+                raise AssertionError("layout import should accept -h as a --name value")
 
             exported = json.loads(run_cli(cli, socket_path, ["layout", "export"]))
             if exported.get("name") != "Agent-Workspace":
