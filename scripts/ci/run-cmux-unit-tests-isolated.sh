@@ -399,7 +399,35 @@ print("" if total is None else total)
             tail -n 1200 "$retry_log" >&2
             exit 1
           fi
-          assert_executed_tests "$retry_label" "$retry_log" "$retry_result"
+          retry_executed_count="$(executed_test_count "$retry_log" "$retry_result")"
+          case "$retry_executed_count" in
+            ''|*[!0-9]*)
+              echo "FAIL $retry_label could not determine executed test count" >&2
+              echo "===== $retry_label log =====" >&2
+              tail -n 1200 "$retry_log" >&2
+              exit 1
+              ;;
+          esac
+          if [ "$retry_executed_count" -eq 0 ]; then
+            retry_suite_identifier="${retry_identifier%%/*}"
+            retry_suite_only_testing="cmuxTests/$retry_suite_identifier"
+            retry_suite_label="${retry_label}-suite-fallback"
+            retry_suite_log="$LOG_ROOT/$retry_suite_label.log"
+            retry_suite_result="$RESULT_ROOT/$retry_suite_label.xcresult"
+            retry_suite_home="${RUNNER_TEMP:-/tmp}/cmux-unit-home-$retry_suite_label"
+            echo "$retry_label method selector reported zero tests; retrying containing suite: $retry_suite_only_testing" >&2
+            set +e
+            run_xctest_batch "$retry_suite_label" "$retry_suite_log" "$retry_suite_result" "$retry_suite_home" "-only-testing:$retry_suite_only_testing"
+            retry_suite_exit_code=$?
+            set -e
+            if [ "$retry_suite_exit_code" -ne 0 ]; then
+              echo "FAIL $retry_suite_label exited $retry_suite_exit_code" >&2
+              echo "===== $retry_suite_label log =====" >&2
+              tail -n 1200 "$retry_suite_log" >&2
+              exit "$retry_suite_exit_code"
+            fi
+            assert_executed_tests "$retry_suite_label" "$retry_suite_log" "$retry_suite_result"
+          fi
           retry_index=$((retry_index + 1))
         done
         rerun_label="${BATCH_LABEL}-crash-rerun"
