@@ -530,25 +530,38 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             pairedMacs = []
             return
         }
+        let loaded: [MobilePairedMac]
         do {
-            pairedMacs = try await pairedMacStore.loadAll(stackUserID: stackUserID)
+            loaded = try await pairedMacStore.loadAll(stackUserID: stackUserID)
         } catch {
             mobileShellLog.error("paired mac store loadAll failed: \(String(describing: error), privacy: .public)")
+            return
         }
+        // The await above suspended the main actor; a sign-out or user switch may
+        // have run meanwhile. Discard the result unless we are still the same
+        // signed-in user, so a slow load can never repopulate another user's hosts.
+        guard isSignedIn, identityProvider?.currentUserID == stackUserID else {
+            pairedMacs = []
+            return
+        }
+        pairedMacs = loaded
     }
 
     /// Switch the live connection to `macDeviceID`, persisting it as the active
     /// pairing only on a successful connect.
     ///
-    /// Connecting first means a failed switch (the Mac is offline or its saved
-    /// route is stale) leaves the previously-working Mac active and reachable,
-    /// instead of stranding the user on an unreachable Mac that recovery keeps
-    /// retrying. A no-op when already connected to that Mac.
+    /// The underlying connect path is destructive (it replaces the live client),
+    /// so a failed switch to an offline/stale Mac would drop the working session.
+    /// To avoid stranding the user, the store's active row is only updated on a
+    /// successful connect, and on failure the previously-active Mac (still the
+    /// active row) is reconnected. A no-op when already connected to that Mac.
     /// - Parameter macDeviceID: The stored Mac to switch to.
     public func switchToMac(macDeviceID: String) async {
         guard let pairedMacStore,
               let target = pairedMacs.first(where: { $0.macDeviceID == macDeviceID }) else { return }
         if target.isActive, connectionState == .connected { return }
+        // The currently-active Mac to fall back to if the switch fails.
+        let previousActive = pairedMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
             target.routes,
@@ -571,6 +584,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } catch {
                 mobileShellLog.error("paired mac store setActive failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             }
+        } else if previousActive != nil, connectionState != .connected {
+            // The switch did not connect and the destructive connect path dropped
+            // the previous session; reconnect to the still-active previous Mac so
+            // the user is not left stranded on a failed switch.
+            _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
         }
         await loadPairedMacs()
     }
