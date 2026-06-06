@@ -75,7 +75,7 @@ final class ClosedItemHistoryStore {
     }
 
     var canReopen: Bool {
-        !records.isEmpty
+        records.contains { !isRecordRestored($0.id) }
     }
 
     func push(_ entry: ClosedItemHistoryEntry, operationId: UUID? = nil) {
