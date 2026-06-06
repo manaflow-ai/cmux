@@ -568,6 +568,174 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         XCTAssertTrue(window.ignoresMouseEvents)
     }
 
+    func testQuickTerminalToggleDuringShowQueuesHideAfterShowAnimation() {
+        let appDelegate = AppDelegate()
+        let configuration = QuickTerminalConfiguration(
+            position: .top,
+            screenFraction: 0.5,
+            animationDuration: 0.18
+        )
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800),
+            configuration: configuration
+        )
+        let window = makeCmuxWindow(frame: placement.visibleFrame)
+        defer { window.orderOut(nil) }
+        let windowId = UUID()
+        var animationFrames: [NSRect] = []
+        var animationCompletions: [@MainActor () -> Void] = []
+        let controller = QuickTerminalController(
+            appDelegate: appDelegate,
+            configurationProvider: { configuration },
+            placementProvider: { _ in placement },
+            dependencies: makeQuickTerminalDependencies(
+                createMainWindow: { _, _, _ in windowId },
+                windowForMainWindowId: { _, id in id == windowId ? window : nil },
+                focusQuickTerminalWindow: { _, window in
+                    window.orderFront(nil)
+                    return true
+                },
+                animateFrame: { _, frame, _, completion in
+                    animationFrames.append(frame)
+                    animationCompletions.append(completion)
+                }
+            )
+        )
+
+        controller.toggle()
+        controller.toggle()
+
+        XCTAssertEqual(animationFrames.count, 1)
+        XCTAssertEqual(animationFrames.map { $0.origin.y }, [placement.visibleFrame.origin.y])
+
+        animationCompletions.removeFirst()()
+
+        XCTAssertEqual(animationFrames.count, 2)
+        XCTAssertEqual(animationFrames.map { $0.origin.y }, [
+            placement.visibleFrame.origin.y,
+            placement.hiddenFrame.origin.y
+        ])
+
+        animationCompletions.removeFirst()()
+
+        XCTAssertEqual(window.alphaValue, 0, accuracy: 0.001)
+        XCTAssertTrue(window.ignoresMouseEvents)
+    }
+
+    func testQuickTerminalCloseShortcutDuringShowQueuesHideAfterShowAnimation() {
+        let appDelegate = AppDelegate()
+        let configuration = QuickTerminalConfiguration(
+            position: .top,
+            screenFraction: 0.5,
+            animationDuration: 0.18
+        )
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800),
+            configuration: configuration
+        )
+        let window = makeCmuxWindow(frame: placement.visibleFrame)
+        defer { window.orderOut(nil) }
+        let windowId = UUID()
+        var animationFrames: [NSRect] = []
+        var animationCompletions: [@MainActor () -> Void] = []
+        let controller = QuickTerminalController(
+            appDelegate: appDelegate,
+            configurationProvider: { configuration },
+            placementProvider: { _ in placement },
+            dependencies: makeQuickTerminalDependencies(
+                createMainWindow: { _, _, _ in windowId },
+                windowForMainWindowId: { _, id in id == windowId ? window : nil },
+                focusQuickTerminalWindow: { _, window in
+                    window.orderFront(nil)
+                    return true
+                },
+                animateFrame: { _, frame, _, completion in
+                    animationFrames.append(frame)
+                    animationCompletions.append(completion)
+                }
+            )
+        )
+
+        controller.toggle()
+        controller.hideFromCloseShortcut(window)
+
+        XCTAssertEqual(animationFrames.count, 1)
+        XCTAssertEqual(animationFrames.map { $0.origin.y }, [placement.visibleFrame.origin.y])
+
+        animationCompletions.removeFirst()()
+
+        XCTAssertEqual(animationFrames.count, 2)
+        XCTAssertEqual(animationFrames.map { $0.origin.y }, [
+            placement.visibleFrame.origin.y,
+            placement.hiddenFrame.origin.y
+        ])
+
+        animationCompletions.removeFirst()()
+
+        XCTAssertEqual(window.alphaValue, 0, accuracy: 0.001)
+        XCTAssertTrue(window.ignoresMouseEvents)
+    }
+
+    func testQuickTerminalToggleDuringHideQueuesShowAfterHideAnimation() {
+        let appDelegate = AppDelegate()
+        let configuration = QuickTerminalConfiguration(
+            position: .top,
+            screenFraction: 0.5,
+            animationDuration: 0.18
+        )
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800),
+            configuration: configuration
+        )
+        let window = makeCmuxWindow(frame: placement.visibleFrame)
+        defer { window.orderOut(nil) }
+        let windowId = UUID()
+        var animationFrames: [NSRect] = []
+        var animationCompletions: [@MainActor () -> Void] = []
+        let controller = QuickTerminalController(
+            appDelegate: appDelegate,
+            configurationProvider: { configuration },
+            placementProvider: { _ in placement },
+            dependencies: makeQuickTerminalDependencies(
+                createMainWindow: { _, _, _ in windowId },
+                windowForMainWindowId: { _, id in id == windowId ? window : nil },
+                focusQuickTerminalWindow: { _, window in
+                    window.orderFront(nil)
+                    return true
+                },
+                animateFrame: { _, frame, _, completion in
+                    animationFrames.append(frame)
+                    animationCompletions.append(completion)
+                }
+            )
+        )
+
+        controller.toggle()
+        animationCompletions.removeFirst()()
+        controller.toggle()
+        controller.toggle()
+
+        XCTAssertEqual(animationFrames.count, 2)
+        XCTAssertEqual(animationFrames.map { $0.origin.y }, [
+            placement.visibleFrame.origin.y,
+            placement.hiddenFrame.origin.y
+        ])
+
+        animationCompletions.removeFirst()()
+
+        XCTAssertEqual(animationFrames.count, 3)
+        XCTAssertEqual(animationFrames.map { $0.origin.y }, [
+            placement.visibleFrame.origin.y,
+            placement.hiddenFrame.origin.y,
+            placement.visibleFrame.origin.y
+        ])
+
+        animationCompletions.removeFirst()()
+
+        XCTAssertEqual(window.alphaValue, 1, accuracy: 0.001)
+        XCTAssertFalse(window.ignoresMouseEvents)
+    }
+
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),

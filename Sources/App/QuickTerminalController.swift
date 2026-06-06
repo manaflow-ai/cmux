@@ -3,6 +3,17 @@ import Foundation
 
 @MainActor
 final class QuickTerminalController {
+    private enum AnimationPhase {
+        case idle
+        case showing
+        case hiding
+    }
+
+    private enum PendingAnimationIntent {
+        case show
+        case hide
+    }
+
     @MainActor
     struct Dependencies {
         var createMainWindow: @MainActor (AppDelegate, QuickTerminalPlacement, SessionWindowSnapshot?) -> UUID
@@ -54,7 +65,8 @@ final class QuickTerminalController {
     private weak var appDelegate: AppDelegate?
     private var quickTerminalWindowId: UUID?
     private var pendingSessionSnapshot: SessionWindowSnapshot?
-    private var isAnimating = false
+    private var animationPhase = AnimationPhase.idle
+    private var pendingAnimationIntent: PendingAnimationIntent?
     private let configurationProvider: @MainActor () -> QuickTerminalConfiguration
     private let placementProvider: @MainActor (QuickTerminalConfiguration) -> QuickTerminalPlacement?
     private let dependencies: Dependencies
@@ -74,9 +86,12 @@ final class QuickTerminalController {
     }
 
     func toggle() {
+        if queueToggleIfAnimating() {
+            return
+        }
+
         let configuration = configurationProvider()
-        guard !isAnimating,
-              let appDelegate,
+        guard let appDelegate,
               let placement = placementProvider(configuration) else {
             return
         }
@@ -103,7 +118,10 @@ final class QuickTerminalController {
     }
 
     func hideFromCloseShortcut(_ window: CmuxMainWindow) {
-        guard !isAnimating else { return }
+        if queueHideIfAnimating() {
+            return
+        }
+
         let configuration = configurationProvider()
         guard let placement = placementProvider(configuration) else {
             window.orderOut(nil)
@@ -115,6 +133,55 @@ final class QuickTerminalController {
 
     private func shouldHide(_ window: NSWindow) -> Bool {
         isShown(window)
+    }
+
+    private func queueToggleIfAnimating() -> Bool {
+        switch animationPhase {
+        case .idle:
+            return false
+        case .showing:
+            pendingAnimationIntent = .hide
+            return true
+        case .hiding:
+            pendingAnimationIntent = .show
+            return true
+        }
+    }
+
+    private func queueHideIfAnimating() -> Bool {
+        switch animationPhase {
+        case .idle:
+            return false
+        case .showing:
+            pendingAnimationIntent = .hide
+            return true
+        case .hiding:
+            pendingAnimationIntent = nil
+            return true
+        }
+    }
+
+    private func runPendingAnimationIntent() {
+        guard let pendingAnimationIntent else { return }
+        self.pendingAnimationIntent = nil
+
+        let configuration = configurationProvider()
+        guard let appDelegate,
+              let placement = placementProvider(configuration) else {
+            return
+        }
+
+        guard let window = quickTerminalWindow(appDelegate: appDelegate, placement: placement) else {
+            dependencies.beep()
+            return
+        }
+
+        switch pendingAnimationIntent {
+        case .show:
+            show(window, placement: placement, configuration: configuration, appDelegate: appDelegate)
+        case .hide:
+            hide(window, placement: placement, configuration: configuration)
+        }
     }
 
     private func isShown(_ window: NSWindow) -> Bool {
@@ -172,7 +239,7 @@ final class QuickTerminalController {
             return
         }
 
-        isAnimating = true
+        animationPhase = .showing
         window.setFrame(placement.hiddenFrame, display: false)
         window.setSoftHiddenForVisibilityController(false)
         _ = dependencies.focusQuickTerminalWindow(appDelegate, window)
@@ -180,7 +247,9 @@ final class QuickTerminalController {
         cmuxDebugLog("quickTerminal.show frame={\(NSStringFromRect(placement.visibleFrame))}")
 #endif
         dependencies.animateFrame(window, placement.visibleFrame, configuration.animationDuration) { [weak self] in
-            self?.isAnimating = false
+            guard let self else { return }
+            self.animationPhase = .idle
+            self.runPendingAnimationIntent()
         }
     }
 
@@ -194,13 +263,14 @@ final class QuickTerminalController {
             return
         }
 
-        isAnimating = true
+        animationPhase = .hiding
 #if DEBUG
         cmuxDebugLog("quickTerminal.hide frame={\(NSStringFromRect(placement.hiddenFrame))}")
 #endif
         dependencies.animateFrame(window, placement.hiddenFrame, configuration.animationDuration * 0.8) { [weak self, window] in
             guard let self else { return }
             self.completeHide(window, placement: placement)
+            self.runPendingAnimationIntent()
         }
     }
 
@@ -208,6 +278,6 @@ final class QuickTerminalController {
         window.orderOut(nil)
         window.setFrame(placement.visibleFrame, display: false)
         window.setSoftHiddenForVisibilityController(true)
-        isAnimating = false
+        animationPhase = .idle
     }
 }
