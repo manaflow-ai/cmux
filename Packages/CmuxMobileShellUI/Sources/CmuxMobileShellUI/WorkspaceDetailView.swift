@@ -32,6 +32,8 @@ struct WorkspaceDetailView: View {
     #if canImport(UIKit)
     @State private var diagnosticsReport: MobileDiagnosticsReport?
     @State private var diagnosticsPreparationTask: Task<MobileDiagnosticsReport, Never>?
+    @State private var diagnosticsShareSheetItem: MobileDiagnosticsActivityView.Item?
+    @State private var pendingDiagnosticsShareSheetItem: MobileDiagnosticsActivityView.Item?
     @State private var isPreparingDiagnostics = false
     @State private var isFeedbackComposerPresented = false
     @State private var shouldPresentFeedbackAfterPickerDismisses = false
@@ -116,6 +118,9 @@ struct WorkspaceDetailView: View {
         #endif
         }
         #if canImport(UIKit)
+        .sheet(item: $diagnosticsShareSheetItem) { item in
+            MobileDiagnosticsActivityView(item: item)
+        }
         .sheet(isPresented: $isFeedbackComposerPresented) {
             MobileFeedbackComposerSheet(
                 initialDiagnosticsReport: diagnosticsReport,
@@ -149,6 +154,7 @@ struct WorkspaceDetailView: View {
             diagnosticsReport = nil
             diagnosticsPreparationTask?.cancel()
             diagnosticsPreparationTask = nil
+            pendingDiagnosticsShareSheetItem = nil
             isPreparingDiagnostics = false
             #endif
             isTerminalPickerPresented = true
@@ -263,48 +269,47 @@ struct WorkspaceDetailView: View {
 
     /// Shares the assembled, scrubbed diagnostics report.
     ///
-    /// `ShareLink` needs the shared item synchronously, so the diagnostics
-    /// section prepares the report as it appears and enables sharing only once
-    /// the text is ready.
+    /// `ShareLink` needs the shared item synchronously. Once a report is cached
+    /// this renders as a real `ShareLink`; the initial tap builds the report
+    /// from the explicit user action and presents the same iOS activity sheet.
     @ViewBuilder
     private var diagnosticsShareButton: some View {
-        Group {
-            if let report = diagnosticsReport {
-                ShareLink(
-                    item: report.text,
-                    preview: SharePreview(
-                        L10n.string("mobile.diagnostics.shareTitle", defaultValue: "cmux Diagnostics")
-                    )
-                ) {
-                    Label(
-                        L10n.string("mobile.diagnostics.share", defaultValue: "Share Diagnostics"),
-                        systemImage: "square.and.arrow.up"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
-            } else {
-                Button(action: {}) {
-                    diagnosticsActionLabel(
-                        title: L10n.string("mobile.diagnostics.preparing", defaultValue: "Preparing Diagnostics…"),
-                        systemImage: "square.and.arrow.up"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(true)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
+        if let report = diagnosticsReport {
+            ShareLink(
+                item: report.text,
+                preview: SharePreview(
+                    L10n.string("mobile.diagnostics.shareTitle", defaultValue: "cmux Diagnostics")
+                )
+            ) {
+                Label(
+                    L10n.string("mobile.diagnostics.share", defaultValue: "Share Diagnostics"),
+                    systemImage: "square.and.arrow.up"
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-        }
-        .task {
-            await prepareDiagnosticsForSharing()
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
+        } else {
+            Button {
+                Task { await prepareAndPresentDiagnosticsShareSheet() }
+            } label: {
+                diagnosticsActionLabel(
+                    title: isPreparingDiagnostics
+                        ? L10n.string("mobile.diagnostics.preparing", defaultValue: "Preparing Diagnostics…")
+                        : L10n.string("mobile.diagnostics.share", defaultValue: "Share Diagnostics"),
+                    systemImage: "square.and.arrow.up"
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isPreparingDiagnostics)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
         }
     }
 
@@ -389,8 +394,10 @@ struct WorkspaceDetailView: View {
     }
 
     @MainActor
-    private func prepareDiagnosticsForSharing() async {
-        _ = await prepareDiagnosticsReport()
+    private func prepareAndPresentDiagnosticsShareSheet() async {
+        let report = await prepareDiagnosticsReport()
+        pendingDiagnosticsShareSheetItem = .init(text: report.text)
+        isTerminalPickerPresented = false
     }
 
     /// Builds the diagnostics report (in-process log + OS log + live state +
@@ -426,6 +433,11 @@ struct WorkspaceDetailView: View {
     }
 
     private func presentPendingFeedbackComposerIfNeeded() {
+        if let pendingDiagnosticsShareSheetItem {
+            self.pendingDiagnosticsShareSheetItem = nil
+            diagnosticsShareSheetItem = pendingDiagnosticsShareSheetItem
+            return
+        }
         guard shouldPresentFeedbackAfterPickerDismisses else { return }
         shouldPresentFeedbackAfterPickerDismisses = false
         isFeedbackComposerPresented = true
