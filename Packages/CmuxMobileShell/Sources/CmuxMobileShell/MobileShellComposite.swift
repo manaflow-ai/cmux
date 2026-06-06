@@ -312,18 +312,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     // MARK: - Workspace actions
 
-    /// Rename a workspace on the Mac. Updates the local list optimistically and
-    /// rolls back if the RPC fails; the Mac's authoritative `workspace.updated`
-    /// push reconciles the final title.
+    /// Rename a workspace on the Mac.
+    ///
+    /// Fire-and-forget against the authoritative state: the Mac applies the title
+    /// and its workspace-list observer pushes `workspace.updated`, which refreshes
+    /// this list. No local optimistic mutation, so overlapping actions can never
+    /// leave stale state.
     /// - Parameters:
     ///   - id: The workspace to rename.
     ///   - title: The new title. Whitespace-only titles are ignored.
     public func renameWorkspace(id: MobileWorkspacePreview.ID, title: String) async {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let client = remoteClient else { return }
-        guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
-        let previousName = workspaces[index].name
-        workspaces[index].name = trimmed
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "workspace.action",
@@ -336,29 +336,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             _ = try await client.sendRequest(request)
         } catch {
-            // Roll back only this workspace's name, and only if our optimistic
-            // value is still present: a reconnect or an authoritative
-            // `workspace.updated` refresh may have replaced the list while the
-            // request was in flight, and we must not clobber that newer state.
-            if let current = workspaces.firstIndex(where: { $0.id == id }),
-               workspaces[current].name == trimmed {
-                workspaces[current].name = previousName
-            }
             mobileShellLog.error("workspace rename failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
     }
 
-    /// Pin or unpin a workspace on the Mac. Updates the local list optimistically
-    /// and rolls back if the RPC fails; the Mac's authoritative `workspace.updated`
-    /// push reconciles the final pin state.
+    /// Pin or unpin a workspace on the Mac.
+    ///
+    /// Fire-and-forget against the authoritative state: the Mac toggles the pin
+    /// and its workspace-list observer (which watches `$isPinned`) pushes
+    /// `workspace.updated`, which refreshes this list. No local optimistic
+    /// mutation, so overlapping pin/unpin taps can never leave stale state.
     /// - Parameters:
     ///   - id: The workspace to pin or unpin.
     ///   - pinned: `true` to pin, `false` to unpin.
     public func setWorkspacePinned(id: MobileWorkspacePreview.ID, _ pinned: Bool) async {
         guard let client = remoteClient else { return }
-        guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
-        let previousPinned = workspaces[index].isPinned
-        workspaces[index].isPinned = pinned
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "workspace.action",
@@ -370,13 +362,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             _ = try await client.sendRequest(request)
         } catch {
-            // Roll back only this workspace's pin state, and only if our
-            // optimistic value is still present, so a concurrent authoritative
-            // refresh is never reverted (see `renameWorkspace`).
-            if let current = workspaces.firstIndex(where: { $0.id == id }),
-               workspaces[current].isPinned == pinned {
-                workspaces[current].isPinned = previousPinned
-            }
             mobileShellLog.error("workspace pin failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
     }
