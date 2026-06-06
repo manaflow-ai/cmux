@@ -5067,7 +5067,22 @@ final class BrowserEngineSettingsTests: XCTestCase {
         defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
 
         XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), .systemDefault)
+        XCTAssertTrue(defaults.bool(forKey: BrowserAvailabilitySettings.disabledKey))
         XCTAssertTrue(BrowserAvailabilitySettings.isDisabled(defaults: defaults))
+    }
+
+    func testCurrentEngineReconcilesLegacyDisabledMirrorFromStoredEngine() {
+        defaults.set(BrowserEngine.systemDefault.rawValue, forKey: BrowserEngineSettings.engineKey)
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+
+        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), .systemDefault)
+        XCTAssertTrue(defaults.bool(forKey: BrowserAvailabilitySettings.disabledKey))
+
+        defaults.set(BrowserEngine.webKit.rawValue, forKey: BrowserEngineSettings.engineKey)
+        defaults.set(true, forKey: BrowserAvailabilitySettings.disabledKey)
+
+        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), .webKit)
+        XCTAssertFalse(defaults.bool(forKey: BrowserAvailabilitySettings.disabledKey))
     }
 
     func testCurrentEngineFallsBackToLegacyDisabledOverrideWhenEngineUnset() {

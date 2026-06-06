@@ -578,6 +578,7 @@ enum BrowserEngineSettings {
 
     static func currentEngine(defaults: UserDefaults = .standard) -> BrowserEngine {
         if let engine = engine(for: defaults.string(forKey: engineKey)) {
+            defaults.set(!engine.usesEmbeddedBrowser, forKey: legacyDisabledKey)
             return engine
         }
         if defaults.object(forKey: legacyDisabledKey) != nil {
