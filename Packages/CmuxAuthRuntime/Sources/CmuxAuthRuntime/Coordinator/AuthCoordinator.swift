@@ -440,9 +440,20 @@ public final class AuthCoordinator {
     ///   `client.signOut()` the token is gone and a server-side DELETE would be
     ///   silently skipped, leaving the device receiving pushes for a signed-out
     ///   account. Defaults to a no-op.
-    public func signOut(onSignedOut: @Sendable () async -> Void = {}) async {
-        // Run the teardown hook first, while tokens are still valid (see note).
-        await onSignedOut()
+    public func signOut(onSignedOut: @escaping @Sendable () async -> Void = {}) async {
+        // Give token-authenticated teardown (the push-token DELETE) a bounded
+        // chance to run while tokens are still valid, but never block local
+        // sign-out on a slow/stuck network call: proceed as soon as the hook
+        // finishes or the deadline elapses, whichever comes first.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await onSignedOut() }
+            group.addTask {
+                // Bounded teardown deadline (cancelled below once one task wins).
+                try? await Task.sleep(for: .seconds(5))
+            }
+            await group.next()
+            group.cancelAll()
+        }
         do {
             try await client.signOut()
         } catch {

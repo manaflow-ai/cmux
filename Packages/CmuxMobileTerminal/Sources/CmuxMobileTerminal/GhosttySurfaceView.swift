@@ -1504,14 +1504,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Resigns this surface's hidden text input and clears keyboard geometry.
     public func resignInput() {
-        let wasFirstResponder = inputProxy.isFirstResponder
         inputProxy.resignFirstResponder()
         if Self.activeInputSurface === self {
             Self.activeInputSurface = nil
         }
-        guard wasFirstResponder, keyboardHeight != 0 else { return }
-        keyboardHeight = 0
-        setNeedsGeometrySync()
+        // Don't zero `keyboardHeight` here. `resignFirstResponder()` triggers
+        // `keyboardWillHide`, which owns the full hide cleanup (proxy state,
+        // docked-toolbar animation, geometry). Pre-zeroing would make that
+        // handler's `keyboardHeight != 0` guard short-circuit, leaving the
+        // toolbar at the old keyboard edge with a stale glyph.
     }
 
     /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
