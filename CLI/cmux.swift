@@ -25569,7 +25569,23 @@ function descriptorForOpenCodeStatus(rawStatus) {
   return null;
 }
 
+function sessionLifecycleLimit() {
+  const parsed = Number.parseInt(process.env.CMUX_OPENCODE_SESSION_LIFECYCLE_LIMIT || "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 128;
+}
+
+const SESSION_LIFECYCLE_LIMIT = sessionLifecycleLimit();
 const SESSION_LIFECYCLE = new Map();
+
+function rememberLifecycleRecord(sessionId, record) {
+  SESSION_LIFECYCLE.delete(sessionId);
+  SESSION_LIFECYCLE.set(sessionId, record);
+  while (SESSION_LIFECYCLE.size > SESSION_LIFECYCLE_LIMIT) {
+    const oldestSessionId = SESSION_LIFECYCLE.keys().next().value;
+    if (oldestSessionId == null) return;
+    SESSION_LIFECYCLE.delete(oldestSessionId);
+  }
+}
 
 function lifecycleRecordFor(event) {
   const sessionId = sessionIdFor(event);
@@ -25577,8 +25593,8 @@ function lifecycleRecordFor(event) {
   let record = SESSION_LIFECYCLE.get(sessionId);
   if (!record) {
     record = { phase: "unknown", errorNotified: false };
-    SESSION_LIFECYCLE.set(sessionId, record);
   }
+  rememberLifecycleRecord(sessionId, record);
   return record;
 }
 
@@ -27774,7 +27790,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 icon: "exclamationmark.triangle.fill",
                 color: "#FF3B30",
                 priority: 100,
-                lifecycle: .needsInput,
+                lifecycle: .error,
                 runtimeStatus: .error
             )
         default:
@@ -27976,8 +27992,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             switch notificationStatus {
             case .idle?:
                 return .idle
-            case .needsInput?, .error?:
+            case .needsInput?:
                 return .needsInput
+            case .error?:
+                return .error
             case nil:
                 return nil
             }

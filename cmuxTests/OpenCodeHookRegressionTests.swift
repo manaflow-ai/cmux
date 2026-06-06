@@ -215,6 +215,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         """.write(to: fakeCmuxURL, atomically: true, encoding: .utf8)
         chmod(fakeCmuxURL.path, 0o755)
 
+        let lifecycleEvictionSessionCount = 12
         let scriptURL = root.appendingPathComponent("drive-opencode-plugin.mjs", isDirectory: false)
         try """
         const plugin = (await import(process.env.CMUX_TEST_PLUGIN_URL)).default;
@@ -237,6 +238,12 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         await send("session.idle", { note: "missing session id" });
         await send("session.status", status("running"));
         await send("session.idle", { info });
+        for (let index = 0; index < \(lifecycleEvictionSessionCount); index += 1) {
+          const otherInfo = { id: `opencode-session-${index + 2}`, directory: cwd };
+          await send("session.created", { info: otherInfo });
+          await send("session.status", { info: { ...otherInfo, status: { type: "idle" } } });
+        }
+        await send("session.idle", { info });
         """.write(to: scriptURL, atomically: true, encoding: .utf8)
 
         let pluginURL = configDir.appendingPathComponent("plugins/cmux-session.js", isDirectory: false)
@@ -248,6 +255,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         runtimeEnvironment["CMUX_TEST_CWD"] = root.path
         runtimeEnvironment["CMUX_TEST_LOG"] = logURL.path
         runtimeEnvironment["CMUX_TEST_PLUGIN_URL"] = pluginURL.absoluteString
+        runtimeEnvironment["CMUX_OPENCODE_SESSION_LIFECYCLE_LIMIT"] = "8"
 
         let result = runProcess(
             executablePath: nodePath,
@@ -263,7 +271,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let errorNotifications = commands.filter { $0.contains("hooks opencode runtime-notification error") }
         XCTAssertEqual(errorNotifications.count, 2, log)
         let stopHooks = commands.filter { $0 == "hooks opencode stop" }
-        XCTAssertEqual(stopHooks.count, 2, log)
+        XCTAssertEqual(stopHooks.count, lifecycleEvictionSessionCount + 3, log)
     }
 
     private func bundledCLIPath() throws -> String {
