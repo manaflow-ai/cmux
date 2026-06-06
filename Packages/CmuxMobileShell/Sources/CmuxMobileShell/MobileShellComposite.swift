@@ -110,6 +110,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// "may have a paired Mac" until the first reconnect attempt resolves and
     /// writes the hint. Cleared the moment ``hasKnownPairedMac`` is written.
     public private(set) var pairedMacHintUndetermined: Bool
+
+    /// Monotonically-increasing token identifying the latest stored-Mac reconnect
+    /// attempt. Overlapping reconnects (multiple launch paths, network recovery,
+    /// sign-out, forget) each claim a generation; only the current generation may
+    /// resolve the restoring-gate flags, so a superseded older attempt can't clear
+    /// the gate while a newer reconnect is still in progress.
+    private var storedMacReconnectGeneration = 0
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
               activeTicket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
@@ -311,7 +318,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacs = []
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the forget path. On a real account switch the next reconnect's no-mac
-        // branch clears the hint.
+        // branch clears the hint. Bump the reconnect generation so any in-flight
+        // reconnect is superseded and can't re-set these flags after sign-out.
+        storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
         replaceRemoteClient(with: nil)
@@ -617,15 +626,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
         lastReconnectStackUserID = stackUserID
         startObservingNetworkPathChanges()
+        // Claim this attempt's generation. Only the current generation may resolve
+        // the restoring-gate flags, so an older superseded attempt can't clear the
+        // gate (or clobber the hint) while a newer reconnect is still running.
+        storedMacReconnectGeneration &+= 1
+        let generation = storedMacReconnectGeneration
         // No store / not signed in: can't determine a stored Mac here. Resolve the
         // restoring gate (so a returning user doesn't spin on RestoringSessionView)
         // but leave the persisted hint intact for a future attempt.
         guard let pairedMacStore else {
-            finishStoredMacReconnectAttempt()
+            finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
         guard isSignedIn else {
-            finishStoredMacReconnectAttempt()
+            finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
         let saved: MobilePairedMac?
@@ -636,14 +650,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // A read failure means "couldn't determine," not "no mac": keep the
             // hint so a transient SQLite error doesn't erase a returning user's
             // paired state.
-            finishStoredMacReconnectAttempt()
+            finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
         guard let mac = saved else {
             // Definitively no active Mac: clear the hint so future launches show
             // the add-device sheet immediately with no restoring flash.
-            hasKnownPairedMac = false
-            finishStoredMacReconnectAttempt()
+            setHasKnownPairedMac(false, generation: generation)
+            finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
@@ -653,24 +667,41 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ) else {
             // Found a Mac but no usable route to reach it: treat as no reconnect
             // target and fall through to add-device.
-            hasKnownPairedMac = false
-            finishStoredMacReconnectAttempt()
+            setHasKnownPairedMac(false, generation: generation)
+            finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
-        hasKnownPairedMac = true
+        // A newer attempt may have started while we awaited the store read; if so,
+        // let it own the flags rather than marking ourselves the active reconnect.
+        guard generation == storedMacReconnectGeneration else { return false }
+        setHasKnownPairedMac(true, generation: generation)
         isReconnectingStoredMac = true
         await connectManualHost(name: mac.displayName ?? host, host: host, port: port)
+        // A newer attempt may have started during the connect; it now owns the flags.
+        guard generation == storedMacReconnectGeneration else { return false }
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = true
         return connectionState == .connected
     }
 
-    /// Mark the first launch reconnect attempt resolved without a live connection.
+    /// Writes the persisted paired-Mac hint only when `generation` is still the
+    /// current reconnect attempt, so a superseded attempt can't clobber a newer
+    /// attempt's determination.
+    private func setHasKnownPairedMac(_ value: Bool, generation: Int) {
+        guard generation == storedMacReconnectGeneration else { return }
+        hasKnownPairedMac = value
+    }
+
+    /// Mark the stored-Mac reconnect attempt resolved without a live connection,
+    /// but only when `generation` is still current.
     ///
     /// Clears ``isReconnectingStoredMac`` and sets
     /// ``didFinishStoredMacReconnectAttempt`` so the root scene falls through to
     /// the disconnected/add-device view instead of spinning on the restoring UI.
-    private func finishStoredMacReconnectAttempt() {
+    /// A superseded attempt (older `generation`) is a no-op so it can't resolve the
+    /// gate while a newer reconnect is in progress.
+    private func finishStoredMacReconnectAttempt(generation: Int) {
+        guard generation == storedMacReconnectGeneration else { return }
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = true
     }
@@ -904,7 +935,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let staleMacID = activeTicket?.macDeviceID
         disconnectLiveConnection()
         // Forgetting the active Mac clears the restoring hint so the next launch
-        // (and the current disconnected view) shows add-device immediately.
+        // (and the current disconnected view) shows add-device immediately. Bump
+        // the reconnect generation first so an in-flight reconnect can't re-set the
+        // hint or the gate flags after the user forgot the Mac.
+        storedMacReconnectGeneration &+= 1
         hasKnownPairedMac = false
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
