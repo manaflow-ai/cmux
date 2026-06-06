@@ -125,6 +125,10 @@ public struct MobileDiagnosticsSecretScrubber: Sendable {
             ("(?i)(?:^|[\\s\"'`({\\[,;&?])(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b(\\s*[:=]\\s*[\"']?)([^\\s\"'&]{4,})",
              2),
 
+            // Connection URLs with userinfo credentials, e.g.
+            // `postgres://user:password@host` or `redis://:password@host`.
+            ("(?i)\\b([A-Za-z][A-Za-z0-9+.-]{1,32}://[^\\s/?#@]*?:)([^\\s/?#@]{4,})(@)", 2),
+
             // Provider-prefixed keys: OpenAI `sk-...`, GitHub
             // `ghp_/gho_/ghu_/ghs_/ghr_...`, Stack `pck_/sck_...`, generic
             // `key-...`. Require a meaningful length.

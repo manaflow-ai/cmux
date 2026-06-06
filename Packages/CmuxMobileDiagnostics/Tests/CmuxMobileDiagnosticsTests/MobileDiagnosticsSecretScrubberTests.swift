@@ -40,6 +40,20 @@ import Testing
         }
     }
 
+    @Test func redactsConnectionURLCredentials() {
+        let samples = [
+            ("DATABASE_URL=postgres://user:dbpass1234@example.com/app", "DATABASE_URL=postgres://user:<redacted>@example.com/app", "dbpass1234"),
+            ("REDIS_URL=redis://:cachepass123@host:6379", "REDIS_URL=redis://:<redacted>@host:6379", "cachepass123"),
+            ("PG_URL=postgres://user:pa:ssword123@db.internal/app", "PG_URL=postgres://user:<redacted>@db.internal/app", "pa:ssword123"),
+        ]
+
+        for (sample, expected, leakedFragment) in samples {
+            let out = scrubber.scrub(sample)
+            #expect(out == expected)
+            #expect(!out.contains(leakedFragment), "value leaked for \(sample): \(out)")
+        }
+    }
+
     @Test func redactsFirstQueryStringSecrets() {
         let accessTokenURL = "https://example.com/callback?access_token=abcd1234efgh&ok=1"
         let apiKeyURL = "https://example.com/search?api_key=sekretvalue123&q=cmux"
