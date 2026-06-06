@@ -4074,10 +4074,10 @@ class TerminalController {
     private func v2WorkspaceGhosttyThemePayload(_ selection: WorkspaceGhosttyThemeSelection?) -> Any {
         guard let selection else { return NSNull() }
         return [
-            "raw_value": selection.rawValue ?? NSNull(),
-            "light": selection.light ?? NSNull(),
-            "dark": selection.dark ?? NSNull(),
-            "display_name": selection.displayName ?? NSNull()
+            "raw_value": v2OrNull(selection.rawValue),
+            "light": v2OrNull(selection.light),
+            "dark": v2OrNull(selection.dark),
+            "display_name": v2OrNull(selection.displayName)
         ] as [String: Any]
     }
 
