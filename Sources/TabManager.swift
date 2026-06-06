@@ -1022,6 +1022,12 @@ struct WorkspaceGroup: Identifiable, Equatable, Sendable {
 
 @MainActor
 class TabManager: ObservableObject {
+    enum WorkspaceDetachResult {
+        case detached(Workspace)
+        case notFound
+        case lastVisibleWorkspace
+    }
+
     private enum WorkspacePullRequestSnapshot: Equatable {
         case deferred
         case unsupportedRepository
@@ -5630,8 +5636,19 @@ class TabManager: ObservableObject {
     /// Used by the socket API for cross-window moves.
     @discardableResult
     func detachWorkspace(tabId: UUID) -> Workspace? {
-        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
-        guard canRemoveWorkspacePreservingVisibleInvariant(tabs[index]) else { return nil }
+        switch detachWorkspaceResult(tabId: tabId) {
+        case .detached(let workspace):
+            return workspace
+        case .notFound, .lastVisibleWorkspace:
+            return nil
+        }
+    }
+
+    /// Detach a workspace and preserve the reason when the move is rejected.
+    @discardableResult
+    func detachWorkspaceResult(tabId: UUID) -> WorkspaceDetachResult {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return .notFound }
+        guard canRemoveWorkspacePreservingVisibleInvariant(tabs[index]) else { return .lastVisibleWorkspace }
         clearWorkspaceGitProbes(workspaceId: tabId)
         sidebarSelectedWorkspaceIds.remove(tabId)
         invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
@@ -5662,7 +5679,7 @@ class TabManager: ObservableObject {
             selectedTabId = visibleWorkspaceIdForFocus(afterRemovingAt: index) ?? tabs[nextIndex].id
         }
 
-        return removed
+        return .detached(removed)
     }
 
     private func ensureAtLeastOneVisibleWorkspace() {

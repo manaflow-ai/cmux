@@ -6584,11 +6584,15 @@ struct CMUXCLI {
         }
 
         let windowHandle = try normalizeWindowHandle(windowOpt ?? windowOverride, client: client)
+        let trimmedWorkspaceRaw = workspaceRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isPlainIndexHandle = Int(trimmedWorkspaceRaw) != nil
+        // Plain numeric indices match the default visible workspace list. Hidden
+        // workspaces remain addressable by stable UUIDs and workspace refs.
         let workspaceHandle = try normalizeWorkspaceHandle(
             workspaceRaw,
             client: client,
             windowHandle: windowHandle,
-            includeHidden: !hidden
+            includeHidden: !hidden && !isPlainIndexHandle
         )
 
         var params: [String: Any] = [:]

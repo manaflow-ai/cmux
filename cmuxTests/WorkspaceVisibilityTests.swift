@@ -89,6 +89,12 @@ final class WorkspaceVisibilityTests: XCTestCase {
 
         XCTAssertFalse(manager.canCloseWorkspace(first, allowPinned: true))
         XCTAssertNil(manager.detachWorkspace(tabId: first.id))
+        switch manager.detachWorkspaceResult(tabId: first.id) {
+        case .lastVisibleWorkspace:
+            break
+        case .detached, .notFound:
+            XCTFail("Expected detaching the last visible workspace to preserve the last-visible failure reason")
+        }
         XCTAssertEqual(manager.visibleWorkspaceTabs.map(\.id), [first.id])
         XCTAssertEqual(manager.hiddenWorkspaceTabs.map(\.id), [second.id])
     }

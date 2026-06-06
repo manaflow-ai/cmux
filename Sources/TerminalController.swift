@@ -4518,6 +4518,13 @@ class TerminalController {
         )
     }
 
+    private func workspaceLastVisibleMoveMessage() -> String {
+        String(
+            localized: "workspace.moveLastVisible.message",
+            defaultValue: "Cannot move the last visible workspace. Wake or create another workspace first."
+        )
+    }
+
     private func v2WorkspaceMoveToWindow(params: [String: Any]) -> V2CallResult {
         guard let wsId = v2UUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -4537,7 +4544,19 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString])
                 return
             }
-            guard let ws = srcTM.detachWorkspace(tabId: wsId) else {
+            let detachResult = srcTM.detachWorkspaceResult(tabId: wsId)
+            guard case .detached(let ws) = detachResult else {
+                if case .lastVisibleWorkspace = detachResult {
+                    result = .err(
+                        code: "last_visible_workspace",
+                        message: workspaceLastVisibleMoveMessage(),
+                        data: [
+                            "workspace_id": wsId.uuidString,
+                            "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
+                        ]
+                    )
+                    return
+                }
                 result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
                 return
             }
@@ -17159,24 +17178,34 @@ class TerminalController {
         guard let wsId = UUID(uuidString: parts[0]) else { return "ERROR: Invalid workspace id" }
         guard let windowId = UUID(uuidString: parts[1]) else { return "ERROR: Invalid window id" }
 
-        var ok = false
+        var response = "ERROR: Move failed"
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
-                  let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
-                  let ws = srcTM.detachWorkspace(tabId: wsId) else {
-                ok = false
+            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId) else {
+                response = "ERROR: Workspace not found"
                 return
             }
-            dstTM.attachWorkspace(ws, select: focus)
-            if focus {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(dstTM)
+            guard let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId) else {
+                response = "ERROR: Window not found"
+                return
             }
-            ok = true
+
+            switch srcTM.detachWorkspaceResult(tabId: wsId) {
+            case .detached(let ws):
+                dstTM.attachWorkspace(ws, select: focus)
+                if focus {
+                    _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                    setActiveTabManager(dstTM)
+                }
+                response = "OK"
+            case .notFound:
+                response = "ERROR: Workspace not found"
+            case .lastVisibleWorkspace:
+                response = "ERROR: \(workspaceLastVisibleMoveMessage())"
+            }
         }
 
-        return ok ? "OK" : "ERROR: Move failed"
+        return response
     }
 
     private func listWorkspaces() -> String {
