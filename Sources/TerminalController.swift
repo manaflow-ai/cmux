@@ -10287,17 +10287,35 @@ class TerminalController {
             return (v2ResolveTabManager(params: params), nil)
         }
         guard let windowId = v2UUID(params, "window_id") else {
-            return (nil, .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil))
+            return (nil, .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "terminal.history.error.invalidWindowId",
+                    defaultValue: "Missing or invalid window_id"
+                ),
+                data: nil
+            ))
         }
         guard let tabManager = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) else {
-            return (nil, .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString]))
+            return (nil, .err(
+                code: "not_found",
+                message: String(localized: "terminal.history.error.windowNotFound", defaultValue: "Window not found"),
+                data: ["window_id": windowId.uuidString]
+            ))
         }
         return (tabManager, nil)
     }
 
     private func v2HistoryReopen(params: [String: Any]) -> V2CallResult {
         guard let historyId = v2UUID(params, "history_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid history_id", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "terminal.history.error.invalidHistoryId",
+                    defaultValue: "Missing or invalid history_id"
+                ),
+                data: nil
+            )
         }
         let resolved = v2HistoryPreferredTabManager(params: params)
         if let error = resolved.error { return error }
@@ -10312,7 +10330,10 @@ class TerminalController {
         guard reopened else {
             return .err(
                 code: "not_found",
-                message: "History entry not found or not restorable",
+                message: String(
+                    localized: "terminal.history.error.entryNotRestorable",
+                    defaultValue: "History entry not found or not restorable"
+                ),
                 data: ["history_id": historyId.uuidString]
             )
         }
@@ -10330,7 +10351,11 @@ class TerminalController {
             ) ?? false
         }
         guard reopened else {
-            return .err(code: "not_found", message: "Nothing to reopen", data: nil)
+            return .err(
+                code: "not_found",
+                message: String(localized: "terminal.history.error.nothingToReopen", defaultValue: "Nothing to reopen"),
+                data: nil
+            )
         }
         return .ok(["reopened": true])
     }
@@ -10346,7 +10371,11 @@ class TerminalController {
             ) ?? false
         }
         guard didRedo else {
-            return .err(code: "not_found", message: "Nothing to redo", data: nil)
+            return .err(
+                code: "not_found",
+                message: String(localized: "terminal.history.error.nothingToRedo", defaultValue: "Nothing to redo"),
+                data: nil
+            )
         }
         return .ok(["redone": true])
     }
@@ -10355,7 +10384,10 @@ class TerminalController {
         guard !v2HasNonNullParam(params, "window_id") else {
             return .err(
                 code: "invalid_params",
-                message: "history.clear does not support window_id because closed-item history is global",
+                message: String(
+                    localized: "terminal.history.error.clearDoesNotSupportWindowId",
+                    defaultValue: "history.clear does not support window_id because closed-item history is global"
+                ),
                 data: nil
             )
         }
@@ -10363,7 +10395,7 @@ class TerminalController {
         if let error = resolved.error { return error }
         var count = 0
         v2MainSync {
-            count = ClosedItemHistoryStore.shared.menuSnapshot(maxItemCount: nil).totalItemCount
+            count = ClosedItemHistoryStore.shared.totalRecordCount
             AppDelegate.shared?.clearRecentlyClosedHistory(preferredTabManager: resolved.tabManager)
         }
         return .ok(["cleared": count])

@@ -430,6 +430,10 @@ final class ClosedItemHistoryStore: ObservableObject {
         persistRecords()
     }
 
+    var totalRecordCount: Int {
+        records.count
+    }
+
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
         let allItems = records.reversed()
             .filter { !isRecordRestored($0.id) }
