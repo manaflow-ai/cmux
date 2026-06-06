@@ -10638,6 +10638,7 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    @State private var workspaceGhosttyThemeNames: [String] = []
     /// Bumped whenever any workspace's currentDirectory changes; the group
     /// header's resolved cwd-based config (color/icon/context menu /
     /// newWorkspacePlacement) reads it through the body, so a state
@@ -11009,7 +11010,7 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
-        let workspaceGhosttyThemeNames = WorkspaceGhosttyThemeCatalogCache.availableThemeNames()
+        let workspaceGhosttyThemeNamesSnapshot = workspaceGhosttyThemeNames
         let draggedSidebarTabId = dragState.draggedTabId
         let sidebarReorderIds = draggedSidebarTabId.map {
             tabManager.sidebarReorderWorkspaceIds(
@@ -11034,7 +11035,7 @@ struct VerticalTabsSidebar: View {
             workspaceGroups: workspaceGroups,
             workspaceGroupById: workspaceGroupById,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
-            workspaceGhosttyThemeNames: workspaceGhosttyThemeNames
+            workspaceGhosttyThemeNames: workspaceGhosttyThemeNamesSnapshot
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -11073,6 +11074,14 @@ struct VerticalTabsSidebar: View {
                 tabId: nil,
                 reason: "sidebar_appear"
             )
+        }
+        .task {
+            await refreshWorkspaceGhosttyThemeNames()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            Task {
+                await refreshWorkspaceGhosttyThemeNames()
+            }
         }
         .onDisappear {
             modifierKeyMonitor.stop()
@@ -11293,6 +11302,14 @@ struct VerticalTabsSidebar: View {
                 }
             }
         }
+    }
+
+    private func refreshWorkspaceGhosttyThemeNames() async {
+        let names = await Task.detached(priority: .utility) {
+            WorkspaceGhosttyThemeCatalog.availableThemeNames()
+        }.value
+        guard names != workspaceGhosttyThemeNames else { return }
+        workspaceGhosttyThemeNames = names
     }
 
     @ViewBuilder
