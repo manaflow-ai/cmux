@@ -3870,6 +3870,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 id: id,
                 ok: true,
                 result: [
+                    "active": [
+                        "window_ref": "window:1",
+                        "workspace_ref": "workspace:2",
+                        "pane_ref": "pane:3",
+                        "surface_ref": "surface:4",
+                    ],
+                    "caller": NSNull(),
                     "windows": [
                         [
                             "id": "11111111-1111-1111-1111-111111111111",
@@ -3894,6 +3901,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                                                     "index": 0,
                                                     "type": "terminal",
                                                     "selected": true,
+                                                    "focused": true,
                                                     "title": "agent shell",
                                                     "tty": "/dev/ttys123",
                                                 ],
@@ -3912,6 +3920,39 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                                                     "type": "terminal",
                                                     "title": "other shell",
                                                     "tty": "/dev/ttys456",
+                                                ],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                        [
+                            "id": "77777777-7777-7777-7777-777777777777",
+                            "ref": "window:7",
+                            "index": 1,
+                            "workspaces": [
+                                [
+                                    "id": "88888888-8888-8888-8888-888888888888",
+                                    "ref": "workspace:8",
+                                    "index": 0,
+                                    "title": "Background",
+                                    "panes": [
+                                        [
+                                            "id": "99999999-9999-9999-9999-999999999999",
+                                            "ref": "pane:9",
+                                            "index": 0,
+                                            "focused": true,
+                                            "surfaces": [
+                                                [
+                                                    "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                                                    "ref": "surface:10",
+                                                    "index": 0,
+                                                    "type": "terminal",
+                                                    "selected": true,
+                                                    "focused": true,
+                                                    "title": "background shell",
+                                                    "tty": "/dev/ttys789",
                                                 ],
                                             ],
                                         ],
@@ -3944,8 +3985,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(result.stdout.contains("* surface:4"), result.stdout)
         XCTAssertFalse(result.stdout.contains("* surface:6"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("* surface:10"), result.stdout)
+        let starredRows = result.stdout.split(separator: "\n").filter { $0.hasPrefix("* ") }
+        XCTAssertEqual(starredRows.count, 1, result.stdout)
         XCTAssertTrue(result.stdout.contains("surface:4"), result.stdout)
         XCTAssertTrue(result.stdout.contains("surface:6"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("surface:10"), result.stdout)
         XCTAssertTrue(result.stdout.contains("terminal"), result.stdout)
         XCTAssertTrue(result.stdout.contains("window=window:1"), result.stdout)
         XCTAssertTrue(result.stdout.contains("workspace=workspace:2"), result.stdout)
@@ -3954,6 +3999,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("tty=/dev/ttys123"), result.stdout)
         XCTAssertTrue(result.stdout.contains(#""other shell""#), result.stdout)
         XCTAssertTrue(result.stdout.contains("tty=/dev/ttys456"), result.stdout)
+        XCTAssertTrue(result.stdout.contains(#""background shell""#), result.stdout)
+        XCTAssertTrue(result.stdout.contains("tty=/dev/ttys789"), result.stdout)
         XCTAssertFalse(result.stdout.contains("surface:5"), result.stdout)
         XCTAssertFalse(result.stdout.contains("Docs"), result.stdout)
         XCTAssertEqual(
