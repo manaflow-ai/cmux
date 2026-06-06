@@ -7330,6 +7330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager preferredTabManager: TabManager? = nil,
         url requestedURL: URL? = nil,
         preferSplitRight: Bool = false,
+        splitDirection: SplitDirection? = nil,
         insertAtEnd: Bool = false
     ) -> UUID? {
         let targetTabManager = preferredTabManager
@@ -7344,22 +7345,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? targetTabManager.addWorkspace(select: true)
         let targetWorkspaceId = targetWorkspace.id
 
-        if let requestedURL {
+        func openCodeEditorPanel(url: URL?) -> UUID? {
+            if let splitDirection {
+                if targetTabManager.selectedTabId != targetWorkspaceId {
+                    targetTabManager.selectWorkspace(targetWorkspace)
+                }
+                return targetTabManager.createCodeEditorSplit(direction: splitDirection, url: url)
+            }
             return targetTabManager.openCodeEditor(
                 inWorkspace: targetWorkspaceId,
-                url: requestedURL,
+                url: url,
                 preferSplitRight: preferSplitRight,
                 insertAtEnd: insertAtEnd
             )
         }
 
+        if let requestedURL {
+            return openCodeEditorPanel(url: requestedURL)
+        }
+
         func openDefaultCodeEditor() -> UUID? {
-            targetTabManager.openCodeEditor(
-                inWorkspace: targetWorkspaceId,
-                url: BrowserPanel.SurfaceRole.codeEditor.defaultInitialURL,
-                preferSplitRight: preferSplitRight,
-                insertAtEnd: insertAtEnd
-            )
+            openCodeEditorPanel(url: BrowserPanel.SurfaceRole.codeEditor.defaultInitialURL)
         }
 
         guard let directoryPath = Self.initialCodeEditorDirectoryPath(for: targetWorkspace),

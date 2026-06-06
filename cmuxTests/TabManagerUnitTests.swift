@@ -2407,6 +2407,49 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertEqual(lastSurface.kind, Workspace.SurfaceKind.codeEditor)
     }
 
+    func testOpenCodeEditorWithSplitDirectionCreatesDirectedEditorSplit() throws {
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let sourcePaneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let sourcePanel = try XCTUnwrap(
+            workspace.newBrowserSurface(inPane: sourcePaneId, focus: true)
+        )
+        workspace.currentDirectory = ""
+        workspace.panelDirectories.removeAll()
+        let initialPaneCount = workspace.bonsplitController.allPaneIds.count
+
+        let editorPanelId = try XCTUnwrap(
+            appDelegate.openCodeEditor(tabManager: manager, splitDirection: .down)
+        )
+        let editorPanel = try XCTUnwrap(workspace.browserPanel(for: editorPanelId))
+
+        XCTAssertEqual(editorPanel.panelType, .codeEditor)
+        XCTAssertEqual(editorPanel.surfaceRole, .codeEditor)
+        XCTAssertEqual(
+            editorPanel.currentURL?.absoluteString,
+            BrowserPanel.SurfaceRole.codeEditor.defaultInitialURL?.absoluteString
+        )
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, initialPaneCount + 1)
+        XCTAssertEqual(workspace.focusedPanelId, editorPanelId)
+
+        guard case .split(let root) = workspace.bonsplitController.treeSnapshot() else {
+            XCTFail("Expected code editor open with split direction to split the workspace root")
+            return
+        }
+        XCTAssertEqual(root.orientation, "vertical")
+
+        let expectedSourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanel.id)).id.uuidString
+        let expectedEditorPaneId = try XCTUnwrap(workspace.paneId(forPanelId: editorPanelId)).id.uuidString
+        guard case .pane(let firstPane) = root.first,
+              case .pane(let secondPane) = root.second else {
+            XCTFail("Expected split children to be panes")
+            return
+        }
+        XCTAssertEqual(firstPane.id, expectedSourcePaneId)
+        XCTAssertEqual(secondPane.id, expectedEditorPaneId)
+    }
+
     func testToggleOmnibarFocusedBrowserIsSurfaceSpecific() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,

@@ -8371,10 +8371,16 @@ struct ContentView: View {
             _ = tabManager.createBrowserSplit(direction: .down)
         }
         registry.register(commandId: "palette.codeEditorSplitRight") {
-            _ = tabManager.createCodeEditorSplit(direction: .right)
+            guard AppDelegate.shared?.openCodeEditor(tabManager: tabManager, splitDirection: .right) != nil else {
+                NSSound.beep()
+                return
+            }
         }
         registry.register(commandId: "palette.codeEditorSplitDown") {
-            _ = tabManager.createCodeEditorSplit(direction: .down)
+            guard AppDelegate.shared?.openCodeEditor(tabManager: tabManager, splitDirection: .down) != nil else {
+                NSSound.beep()
+                return
+            }
         }
         registry.register(commandId: "palette.browserDuplicateRight") {
             let url = tabManager.focusedBrowserPanel?.preferredURLStringForOmnibar().flatMap(URL.init(string:))
