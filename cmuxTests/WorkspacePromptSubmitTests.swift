@@ -204,6 +204,74 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertEqual(notification.openAnchor, anchor)
     }
 
+    /// Verifies workspace notification clearing also removes prompt-submit anchors.
+    func testClearNotificationsForTabIdRemovesPromptSubmitOpenAnchorsWithoutNotifications() {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let otherWorkspaceId = UUID()
+        store.recordPromptSubmitOpenAnchor(
+            TerminalNotificationOpenAnchor(scrollbarOffset: 42),
+            forTabId: workspaceId,
+            surfaceId: surfaceId
+        )
+        store.recordPromptSubmitOpenAnchor(
+            TerminalNotificationOpenAnchor(scrollbarOffset: 64),
+            forTabId: workspaceId,
+            surfaceId: nil
+        )
+        store.recordPromptSubmitOpenAnchor(
+            TerminalNotificationOpenAnchor(scrollbarOffset: 99),
+            forTabId: otherWorkspaceId,
+            surfaceId: nil
+        )
+
+        store.clearNotifications(forTabId: workspaceId, discardQueuedNotifications: false)
+
+        XCTAssertNil(store.promptSubmitOpenAnchor(forTabId: workspaceId, surfaceId: surfaceId))
+        XCTAssertNil(store.promptSubmitOpenAnchor(forTabId: workspaceId, surfaceId: nil))
+        XCTAssertEqual(
+            store.promptSubmitOpenAnchor(forTabId: otherWorkspaceId, surfaceId: nil)?.scrollbarOffset,
+            99
+        )
+    }
+
+    /// Verifies surface notification clearing removes only the matching prompt-submit anchor.
+    func testClearNotificationsForSurfaceRemovesOnlyMatchingPromptSubmitOpenAnchor() {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let workspaceId = UUID()
+        let firstSurfaceId = UUID()
+        let secondSurfaceId = UUID()
+        store.recordPromptSubmitOpenAnchor(
+            TerminalNotificationOpenAnchor(scrollbarOffset: 42),
+            forTabId: workspaceId,
+            surfaceId: firstSurfaceId
+        )
+        store.recordPromptSubmitOpenAnchor(
+            TerminalNotificationOpenAnchor(scrollbarOffset: 64),
+            forTabId: workspaceId,
+            surfaceId: secondSurfaceId
+        )
+
+        store.clearNotifications(
+            forTabId: workspaceId,
+            surfaceId: firstSurfaceId,
+            discardQueuedNotifications: false
+        )
+
+        XCTAssertNil(store.promptSubmitOpenAnchor(forTabId: workspaceId, surfaceId: firstSurfaceId))
+        XCTAssertEqual(
+            store.promptSubmitOpenAnchor(forTabId: workspaceId, surfaceId: secondSurfaceId)?.scrollbarOffset,
+            64
+        )
+    }
+
     func testFeedPromptSubmitEventExtractsToolInputMessage() throws {
         let manager = TabManager()
         let first = manager.tabs[0]

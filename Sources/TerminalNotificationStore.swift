@@ -822,14 +822,8 @@ struct TerminalNotification: Identifiable, Hashable {
 }
 
 struct TerminalNotificationOpenAnchor: Codable, Hashable, Sendable {
+    /// Absolute top-row offset reported by Ghostty at prompt submit time.
     let scrollbarOffset: UInt64
-
-    /// Creates a notification reopen anchor from Ghostty's absolute scrollbar offset.
-    ///
-    /// - Parameter scrollbarOffset: Absolute top-row offset reported by Ghostty at prompt submit time.
-    init(scrollbarOffset: UInt64) {
-        self.scrollbarOffset = scrollbarOffset
-    }
 }
 
 @MainActor
@@ -1934,6 +1928,9 @@ final class TerminalNotificationStore: ObservableObject {
         discardQueuedNotifications: Bool = true
     ) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId) }
+        promptSubmitOpenAnchors = promptSubmitOpenAnchors.filter { entry in
+            !(entry.key.tabId == tabId && entry.key.surfaceId == surfaceId)
+        }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false
         let hadRestoredWorkspaceUnread = surfaceId == nil && restoredUnreadWorkspaceIds.contains(tabId)
         var updated: [TerminalNotification] = []
@@ -2000,6 +1997,9 @@ final class TerminalNotificationStore: ObservableObject {
 
     func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId) }
+        promptSubmitOpenAnchors = promptSubmitOpenAnchors.filter { entry in
+            entry.key.tabId != tabId
+        }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId] != nil
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)

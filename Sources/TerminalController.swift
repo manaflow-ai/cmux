@@ -4786,6 +4786,7 @@ class TerminalController {
             }
         }
         let message = messageKeys.lazy.compactMap { self.v2RawString(params, $0) }.first
+        // tab_id is a workspace id in this API, so it must not be used as a surface fallback.
         let surfaceId = v2UUID(params, "surface_id")
         guard let tabManager = v2ResolveWorkspaceOwner(workspaceId) ?? v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)

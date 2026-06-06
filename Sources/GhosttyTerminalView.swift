@@ -15293,10 +15293,11 @@ final class GhosttySurfaceScrollView: NSView {
         scrollbar: GhosttyScrollbar
     ) -> Bool {
         let row = Self.notificationOpenScrollRow(for: anchor, scrollbar: scrollbar)
+        guard surfaceView.performBindingAction("scroll_to_row:\(row)") else { return false }
         userScrolledAwayFromBottom = row > 0
         allowExplicitScrollbarSync = true
         lastSentRow = row
-        return surfaceView.performBindingAction("scroll_to_row:\(row)")
+        return true
     }
 
     /// Applies a queued notification open anchor once Ghostty reports scrollbar readiness.
