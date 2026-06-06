@@ -5474,9 +5474,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                 },
                 refreshHostBackground: {
+                    let workspaceThemeSelection = terminalPanel.surface.workspaceThemeSelection
+                    let workspaceThemeColorScheme = workspaceThemeSelection == nil
+                        ? preferredColorScheme
+                        : GhosttyConfig.currentColorSchemePreference()
                     terminalPanel.hostedView.applyWorkspaceThemeBackground(
-                        selection: terminalPanel.surface.workspaceThemeSelection,
-                        preferredColorScheme: preferredColorScheme,
+                        selection: workspaceThemeSelection,
+                        preferredColorScheme: workspaceThemeColorScheme,
                         reason: source
                     )
                     terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
