@@ -5679,14 +5679,17 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelPendingInteractiveBrowserPrompts(reason: "close")
         closeBackgroundPreloadHost(reason: "close")
 
-        // Snapshot first: popup close unregisters itself from popupControllers.
+        // Keep popupControllers registered while popups close so inspector ownership checks
+        // still classify their detached inspector windows as live during teardown.
         let popupsToClose = popupControllers
-        popupControllers.removeAll()
 
         // Close all owned popup windows before tearing down delegates
         for popup in popupsToClose {
             popup.closeAllChildPopups()
             popup.closePopup()
+        }
+        popupControllers.removeAll { controller in
+            popupsToClose.contains { $0 === controller }
         }
 
         webViewObservers.removeAll()
