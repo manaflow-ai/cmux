@@ -3580,7 +3580,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var activePortalHostLease: PortalHostLease?
     private var pendingDistinctPortalHostReplacementPaneId: UUID?
     private var lockedPortalHost: PortalHostLock?
-    private var webViewCancellables = Set<AnyCancellable>()
+    private var ghosttyBackgroundObserver: NSObjectProtocol?
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
     private var downloadDelegate: BrowserDownloadDelegate?
@@ -3888,7 +3888,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelPendingInteractiveBrowserPrompts(reason: "discardHiddenWebView")
 
         webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        resetWebViewBackgroundObservation()
         closeBackgroundPreloadHost(reason: "discardHiddenWebView")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
@@ -4939,7 +4939,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelDeveloperToolsRestoreRetry()
 
         webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        resetWebViewBackgroundObservation()
         clearWebContentTerminationRecovery()
         clearBrowserFocusMode(reason: "profileSwitch")
         faviconTask?.cancel()
@@ -5245,6 +5245,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func setupObservers(for webView: WKWebView) {
+        resetWebViewBackgroundObservation()
         let observedWebViewInstanceID = webViewInstanceID
 
         // URL changes
@@ -5360,17 +5361,33 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         webViewObservers.append(microphoneCaptureObserver)
 
-        NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] notification in
-                guard let self else { return }
-                self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
+        ghosttyBackgroundObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            guard let self else { return }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
+                }
+            } else {
+                Task { @MainActor [weak self] in
+                    self?.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
+                }
             }
-            .store(in: &webViewCancellables)
+        }
 
         // Apply the configured background for the freshly bound webview (covers
         // the initial bind and every post-crash replacement).
         applyConfiguredWebViewBackground()
+    }
+
+    private func resetWebViewBackgroundObservation() {
+        if let ghosttyBackgroundObserver {
+            NotificationCenter.default.removeObserver(ghosttyBackgroundObserver)
+            self.ghosttyBackgroundObserver = nil
+        }
     }
 
     /// Configures the live webview's background for the current Ghostty theme.
@@ -5532,7 +5549,7 @@ final class BrowserPanel: Panel, ObservableObject {
 #endif
 
         webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        resetWebViewBackgroundObservation()
         clearBrowserFocusMode(reason: reason)
         faviconTask?.cancel()
         faviconTask = nil
@@ -5780,7 +5797,7 @@ final class BrowserPanel: Panel, ObservableObject {
         uiDelegate = nil
         webViewDidRequestClose = nil
         webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        resetWebViewBackgroundObservation()
         faviconTask?.cancel()
         faviconTask = nil
     }
@@ -6436,7 +6453,7 @@ final class BrowserPanel: Panel, ObservableObject {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
         webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        resetWebViewBackgroundObservation()
         let webView = webView
         Task { @MainActor in
             BrowserWindowPortalRegistry.detach(webView: webView)
@@ -6584,7 +6601,7 @@ extension BrowserPanel {
 
         let oldWebView = webView
         webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        resetWebViewBackgroundObservation()
         cancelPendingInteractiveBrowserPrompts(reason: "contextReset")
         closeBackgroundPreloadHost(reason: "contextReset")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
