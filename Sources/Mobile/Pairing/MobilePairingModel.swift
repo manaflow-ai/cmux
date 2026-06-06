@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import CMUXMobileCore
+import CmuxAuthRuntime
 import Foundation
 import Observation
 
@@ -8,10 +9,9 @@ import Observation
 /// pairing host, mints a short-lived attach ticket, and exposes the QR payload
 /// plus Tailscale reachability for the view.
 ///
-/// Opening the window does not touch the listener until the user is signed in.
-/// Once signed in, enabling the listener writes the same `UserDefaults` flag the
-/// Settings toggle uses, which is what triggers the macOS Local Network
-/// permission prompt on first use.
+/// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
+/// (via `AppDelegate`); the browser sign-in is fire-and-forget and completion
+/// is observed by the view through the coordinator's `@Observable` state.
 @MainActor
 @Observable
 final class MobilePairingModel {
@@ -61,17 +61,29 @@ final class MobilePairingModel {
         self.ticketTTL = ticketTTL
     }
 
+    private var coordinator: AuthCoordinator? { AppDelegate.shared?.auth?.coordinator }
+
     /// Re-evaluates sign-in state and, when signed in, brings the listener up
-    /// and mints a fresh attach ticket. Safe to call repeatedly (Refresh button).
+    /// and mints a fresh attach ticket. Safe to call repeatedly (Refresh button,
+    /// or the view re-running it when auth state settles).
     func refresh() async {
         state = .loading
-        await AuthManager.shared.awaitBootstrapped()
-        guard AuthManager.shared.isAuthenticated else {
+        guard let coordinator else {
+            state = .failed(
+                String(
+                    localized: "mobile.pairing.error.listenerOffline",
+                    defaultValue: "Could not start the pairing listener on this Mac."
+                )
+            )
+            return
+        }
+        await coordinator.awaitBootstrapped()
+        guard coordinator.isAuthenticated else {
             signedInEmail = nil
             state = .signedOut
             return
         }
-        signedInEmail = AuthManager.shared.currentUser?.primaryEmail
+        signedInEmail = coordinator.currentUser?.primaryEmail
         state = .preparing
         enablePairingHost()
         let status = await host.ensureListeningAndReady()
@@ -112,16 +124,11 @@ final class MobilePairingModel {
         }
     }
 
-    /// Launches the account sign-in flow and, on success, prepares a code.
-    func signIn() async {
+    /// Launches the Mac browser sign-in flow. Fire-and-forget; the view re-runs
+    /// ``refresh()`` when the coordinator's auth state settles.
+    func signIn() {
         state = .loading
-        let signedIn = await AuthManager.shared.beginSignInAndAwait(timeout: 180)
-        if signedIn {
-            await refresh()
-        } else {
-            signedInEmail = nil
-            state = .signedOut
-        }
+        AppDelegate.shared?.auth?.browserSignIn.beginSignIn()
     }
 
     private func enablePairingHost() {

@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import SwiftUI
 
 /// The macOS onboarding window for pairing an iPhone with this Mac.
@@ -9,7 +10,13 @@ import SwiftUI
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
 
+    /// The shared auth coordinator, observed so the view re-runs `refresh()`
+    /// when sign-in completes or settles. Captured once; stable post-startup.
+    private let coordinator: AuthCoordinator? = AppDelegate.shared?.auth?.coordinator
+    private let browserSignIn: HostBrowserSignInFlow? = AppDelegate.shared?.auth?.browserSignIn
+
     private static let tailscaleDownloadURL = URL(string: "https://tailscale.com/download")!
+    private static let testFlightURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
 
     var body: some View {
         ScrollView {
@@ -23,6 +30,14 @@ struct MobilePairingView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task { await model.refresh() }
+        .onChange(of: coordinator?.isAuthenticated ?? false) { _, _ in
+            Task { await model.refresh() }
+        }
+        .onChange(of: browserSignIn?.isSigningIn ?? false) { _, signingIn in
+            // When the browser flow settles (success or cancel), re-evaluate so a
+            // cancelled sign-in returns to the signed-out state instead of spinning.
+            if !signingIn { Task { await model.refresh() } }
+        }
     }
 
     private var header: some View {
@@ -159,7 +174,7 @@ struct MobilePairingView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Button(String(localized: "mobile.pairing.signIn.button", defaultValue: "Sign In")) {
-                Task { await model.signIn() }
+                model.signIn()
             }
             .buttonStyle(.borderedProminent)
         }
@@ -221,6 +236,18 @@ struct MobilePairingView: View {
     private var steps: some View {
         VStack(alignment: .leading, spacing: 10) {
             step(1, String(localized: "mobile.pairing.step.install", defaultValue: "Install cmux on your iPhone and open it."))
+            HStack(spacing: 4) {
+                Spacer(minLength: 30)
+                Text(String(localized: "mobile.pairing.testflight.prompt", defaultValue: "Don't have it yet?"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Link(
+                    String(localized: "mobile.pairing.testflight.link", defaultValue: "Download via TestFlight"),
+                    destination: Self.testFlightURL
+                )
+                .font(.caption)
+                Spacer(minLength: 0)
+            }
             step(2, String(localized: "mobile.pairing.step.signIn", defaultValue: "Sign in with the same account you use on this Mac."))
             step(3, String(localized: "mobile.pairing.step.scan", defaultValue: "Tap Add device, then Scan QR Code, and point the camera at the code above."))
         }
