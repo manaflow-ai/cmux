@@ -23756,8 +23756,11 @@ struct CMUXCLI {
         private var didExit = false
         private var waiters: [DispatchSemaphore] = []
 
-        init?(ownerPID: Int?) {
-            guard let ownerPID, ownerPID > 0 else { return nil }
+        init(ownerPID: Int) {
+            guard ownerPID > 0 else {
+                didExit = true
+                return
+            }
             guard Self.processExists(ownerPID) else {
                 didExit = true
                 return
@@ -23937,7 +23940,7 @@ struct CMUXCLI {
         }
 
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
-        let ownerExitWatcher = CodexMonitorOwnerExitWatcher(ownerPID: ownerPID)
+        let ownerExitWatcher = ownerPID.map { CodexMonitorOwnerExitWatcher(ownerPID: $0) }
         var nextOwnerCheck = Date.distantPast
         var publishedUserInputCallIds = Set<String>()
         while Date() < deadline {
