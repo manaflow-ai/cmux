@@ -8563,11 +8563,7 @@ final class WorkspaceRemoteSessionController {
     }
 
     static func remoteDaemonPathShellExpression(_ remotePath: String) -> String {
-        let trimmedRemotePath = remotePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedRemotePath.hasPrefix("/") {
-            return shellSingleQuoted(trimmedRemotePath)
-        }
-        return "\"$HOME\"/\(shellSingleQuoted(trimmedRemotePath))"
+        WorkspaceRemoteSSHBatchCommandBuilder.remoteDaemonPathShellExpression(remotePath)
     }
 
     static func remoteDaemonUploadMkdirScript(remoteDirectory: String) -> String {

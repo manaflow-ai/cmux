@@ -3077,6 +3077,34 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(arguments.last?.contains("/remote/cmuxd-remote") ?? false)
     }
 
+    func testDaemonTransportArgumentsResolveRelativeRemotePathAgainstHome() {
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        let arguments = WorkspaceRemoteSSHBatchCommandBuilder.daemonTransportArguments(
+            configuration: configuration,
+            remotePath: ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote"
+        )
+        let command = arguments.last ?? ""
+        let expectedExecutable = "\"$HOME\"/'.cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote'"
+
+        XCTAssertTrue(
+            command.contains("exec \(expectedExecutable) 'serve' '--stdio'"),
+            command
+        )
+        XCTAssertFalse(command.contains("exec '.cmux/"), command)
+    }
+
     func testDaemonTransportArgumentsReuseWhitespaceConfiguredControlPath() {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
