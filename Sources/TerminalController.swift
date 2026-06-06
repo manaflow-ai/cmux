@@ -20759,17 +20759,11 @@ class TerminalController {
         includePrivateMetadata: Bool = true
     ) -> V2CallResult {
         let status = MobileHostService.shared.statusSnapshot()
-        let capabilities = [
-            "events.v1",
-            "terminal.bytes.v1",
-            "terminal.render_grid.v1",
-            "terminal.replay.v1",
-            "terminal.viewport.v1",
-            // Advertises the mobile-gated workspace.action handler (pin/unpin/
-            // rename). Lets the iOS client hide rename/pin when paired with an
-            // older Mac that lacks the handler.
-            "workspace.actions.v1",
-        ]
+        // Single source of truth shared with the mobile listener's public-status
+        // paths, so the advertised capabilities can never drift. Includes
+        // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler), which
+        // the iOS client uses to show or hide rename/pin.
+        let capabilities = MobileHostService.mobileHostCapabilities
         guard includePrivateMetadata else {
             return .ok([
                 "routes": status.routes.map(\.mobileHostJSONObject),

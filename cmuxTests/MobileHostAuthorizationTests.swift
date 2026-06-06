@@ -1109,6 +1109,17 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(recordedMethods, ["workspace.list"])
     }
 
+    // MARK: - Advertised mobile host capabilities
+
+    func testMobileHostAdvertisesWorkspaceActionsCapability() {
+        // The iOS client gates rename/pin on `workspace.actions.v1`; every
+        // mobile.host.status path reads this single list, so advertising it here
+        // is what makes the feature visible to a supporting Mac.
+        let capabilities = MobileHostService.mobileHostCapabilities
+        XCTAssertTrue(capabilities.contains("workspace.actions.v1"))
+        XCTAssertTrue(capabilities.contains("terminal.render_grid.v1"))
+    }
+
     // MARK: - Mobile workspace.action sub-action gate
 
     func testMobileWorkspaceActionGateAllowsOnlyPinUnpinRename() {
