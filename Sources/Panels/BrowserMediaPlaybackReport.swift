@@ -1,7 +1,7 @@
 import Foundation
 
 /// A per-frame media-playback report from the injected media-playback hook.
-struct BrowserMediaPlaybackReport {
+struct BrowserMediaPlaybackReport: Sendable {
     /// Stable id for the reporting frame's document, so the native side can
     /// aggregate playback across the main frame and any (cross-origin) iframes.
     let frameID: String

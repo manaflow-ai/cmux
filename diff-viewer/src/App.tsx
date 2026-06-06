@@ -3,7 +3,7 @@ import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFi
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useEffect, useReducer, useRef, useState } from "react";
-import { copyGitApplyCommand, diffSourceDetail, resolveDiffNavigationURL } from "./actions";
+import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { fileName, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
 import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh, selectPierreFileTreePath } from "./file-tree-refresh";
@@ -311,17 +311,6 @@ function Toolbar({
           </a>
         ) : null}
         <button
-          id="files-toggle"
-          className="toolbar-icon"
-          type="button"
-          title={state.filesVisible ? label("hideFiles") : label("showFiles")}
-          aria-label={state.filesVisible ? label("hideFiles") : label("showFiles")}
-          aria-pressed={state.filesVisible}
-          onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })}
-        >
-          <Icon name="files" />
-        </button>
-        <button
           id="layout-toggle"
           className="toolbar-icon"
           type="button"
@@ -342,6 +331,17 @@ function Toolbar({
           onClick={() => dispatch({ type: "set-options-open", open: !state.optionsOpen })}
         >
           <Icon name="dots" />
+        </button>
+        <button
+          id="files-toggle"
+          className="toolbar-icon"
+          type="button"
+          title={state.filesVisible ? label("hideFiles") : label("showFiles")}
+          aria-label={state.filesVisible ? label("hideFiles") : label("showFiles")}
+          aria-pressed={state.filesVisible}
+          onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })}
+        >
+          <Icon name="files" />
         </button>
         <span id="copy-feedback" className="visually-hidden" aria-live="polite">
           {state.copyFeedback}
@@ -392,7 +392,6 @@ function SourceControls({
         options={payload.baseOptions}
         onNavigate={onNavigate}
       />
-      <span id="source-detail">{selectedSourceDetail(payload)}</span>
     </div>
   );
 }
@@ -441,13 +440,6 @@ function NavigationSelect({
       ))}
     </select>
   );
-}
-
-function selectedSourceDetail(payload: any): string {
-  const selectedSource = Array.isArray(payload.sourceOptions)
-    ? payload.sourceOptions.find((option: any) => option.selected) ?? payload.sourceOptions.find((option: any) => !option.disabled)
-    : null;
-  return selectedSource?.sourceLabel ?? diffSourceDetail(payload);
 }
 
 function JumpSelect({
@@ -499,7 +491,7 @@ function OptionsMenu({
     <div id="options-menu" aria-label={label("options")}>
       <MenuButton icon="refresh" label={label("refresh")} onClick={onReload} />
       <MenuButton checked={state.options.wordWrap} icon="wrap" label={state.options.wordWrap ? label("disableWordWrap") : label("enableWordWrap")} onClick={() => toggle("wordWrap")} />
-      <MenuButton checked={state.options.collapsed} icon="collapse" label={state.options.collapsed ? label("expandAllDiffs") : label("collapseAllDiffs")} onClick={() => toggle("collapsed")} />
+      <MenuButton checked={state.options.collapsed} icon={state.options.collapsed ? "expand" : "collapse"} label={state.options.collapsed ? label("expandAllDiffs") : label("collapseAllDiffs")} onClick={() => toggle("collapsed")} />
       <div className="menu-separator" />
       <MenuButton checked={state.filesVisible} icon="files" label={state.filesVisible ? label("hideFiles") : label("showFiles")} onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })} />
       <MenuButton checked={state.options.expandUnchanged} icon="document" label={state.options.expandUnchanged ? label("collapseUnchangedContext") : label("expandUnchangedContext")} onClick={() => toggle("expandUnchanged")} />
@@ -630,15 +622,6 @@ function FilesSidebar({
           >
             <Icon name="search" />
           </button>
-          <button
-            id="file-collapse-toggle"
-            type="button"
-            title={label("hideFiles")}
-            aria-label={label("hideFiles")}
-            onClick={() => dispatch({ type: "set-files-visible", visible: false })}
-          >
-            <Icon name="sidebarCollapse" />
-          </button>
         </span>
       </div>
       <div id="file-list">
@@ -655,20 +638,6 @@ function FilesSidebar({
         ) : (
           <div className="visually-hidden">{state.status.message}</div>
         )}
-      </div>
-      <div id="files-footer" aria-label={label("diffStats")}>
-        <div className="stats-row">
-          <span>{label("files")}</span>
-          <strong id="stats-files">{state.treeSource?.diffStats.fileCount ?? 0}</strong>
-        </div>
-        <div className="stats-row">
-          <span>{label("additions")}</span>
-          <strong id="stats-added" className="stat-add">+{state.treeSource?.diffStats.addedLines ?? 0}</strong>
-        </div>
-        <div className="stats-row">
-          <span>{label("deletions")}</span>
-          <strong id="stats-deleted" className="stat-del">-{state.treeSource?.diffStats.deletedLines ?? 0}</strong>
-        </div>
       </div>
     </aside>
   );
@@ -702,19 +671,6 @@ function PierreFileTree({
     searchBlurBehavior: "retain",
     stickyFolders: true,
     gitStatus: source.gitStatus as any,
-    renderRowDecoration(context: any) {
-      if (context.item.kind !== "file") {
-        return null;
-      }
-      const stats = latest.current.source.statsByPath.get(context.item.path);
-      if (stats == null || (stats.added === 0 && stats.deleted === 0)) {
-        return null;
-      }
-      return {
-        text: `+${stats.added} -${stats.deleted}`,
-        title: `${stats.added} ${latest.current.label("additions")}, ${stats.deleted} ${latest.current.label("deletions")}`,
-      };
-    },
     sort: () => 0,
     unsafeCSS: fileTreeUnsafeCSS(),
     onSelectionChange(paths: readonly string[]) {

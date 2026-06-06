@@ -7,6 +7,7 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import Darwin
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -99,6 +100,7 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
 @MainActor
 private func makeHiddenWebViewDiscardBlockerSnapshot(
     hasActiveMainFrameProvisionalNavigation: Bool = false,
+    isVisualAutomationCaptureActive: Bool = false,
     isCapturingMedia: Bool = false,
     isPlayingMedia: Bool = false
 ) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
@@ -117,10 +119,70 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
         isDeveloperToolsVisible: false,
         isElementFullscreenActive: false,
         isReactGrabActive: false,
+        isVisualAutomationCaptureActive: isVisualAutomationCaptureActive,
         hasPopups: false,
         isCapturingMedia: isCapturingMedia,
         isPlayingMedia: isPlayingMedia
     )
+}
+
+@MainActor
+private func withHiddenWebViewDiscardPolicyEnabled(_ body: () -> Void) {
+    let defaults = UserDefaults.standard
+    let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+    defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+    defer {
+        if let previousEnabled {
+            defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        } else {
+            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        }
+    }
+    body()
+}
+
+@MainActor
+@Suite(.serialized)
+struct BrowserHiddenWebViewDiscardMediaPlaybackTests {
+    /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/5409:
+    /// a hidden pane that is actively playing media (e.g. a backgrounded YouTube
+    /// video) must be exempted from memory discard so switching workspaces does
+    /// not stop playback or reload the page. The media_capture blocker only
+    /// covers camera/mic capture, not <video>/<audio> playback.
+    @Test func activeMediaPlaybackBlocksHiddenWebViewDiscardScheduling() {
+        withHiddenWebViewDiscardPolicyEnabled {
+            let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isPlayingMedia: true)
+            let manager = BrowserHiddenWebViewDiscardManager()
+            let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+            manager.delegate = delegate
+
+            #expect(manager.blockers(for: snapshot) == ["media_playback"])
+
+            manager.scheduleIfNeeded(reason: "test.hidden")
+
+            #expect(!manager.hasScheduledDiscard)
+            #expect(delegate.discardRequestCount == 0)
+        }
+    }
+
+    /// An idle hidden pane (no playing media) must still be eligible for discard
+    /// so the memory bound from https://github.com/manaflow-ai/cmux/issues/4539
+    /// is preserved.
+    @Test func idlePaneWithoutMediaPlaybackStillSchedulesHiddenWebViewDiscard() {
+        withHiddenWebViewDiscardPolicyEnabled {
+            let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isPlayingMedia: false)
+            let manager = BrowserHiddenWebViewDiscardManager()
+            let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+            manager.delegate = delegate
+
+            #expect(manager.blockers(for: snapshot) == [])
+
+            manager.scheduleIfNeeded(reason: "test.hidden")
+
+            #expect(manager.hasScheduledDiscard)
+            #expect(delegate.discardRequestCount == 0)
+        }
+    }
 }
 
 @MainActor
@@ -158,39 +220,19 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         XCTAssertEqual(delegate.discardRequestCount, 0)
     }
 
-    // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5409:
-    // a hidden pane that is actively playing media (e.g. a backgrounded YouTube
-    // video) must be exempted from memory discard so switching workspaces does
-    // not stop playback or reload the page. The media_capture blocker only
-    // covers camera/mic capture, not <video>/<audio> playback.
-    func testActiveMediaPlaybackBlocksHiddenWebViewDiscardScheduling() {
-        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isPlayingMedia: true)
+    func testVisualAutomationCaptureBlocksHiddenWebViewDiscardScheduling() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isVisualAutomationCaptureActive: true)
+
         let manager = BrowserHiddenWebViewDiscardManager()
         let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
         manager.delegate = delegate
 
-        XCTAssertEqual(manager.blockers(for: snapshot), ["media_playback"])
+        XCTAssertEqual(manager.blockers(for: snapshot), ["visual_automation"])
 
-        manager.scheduleIfNeeded(reason: "test.hidden")
+        manager.scheduleIfNeeded(reason: "test.visualAutomation")
 
         XCTAssertFalse(manager.hasScheduledDiscard)
         XCTAssertEqual(delegate.discardRequestCount, 0)
-    }
-
-    // An idle hidden pane (no playing media) must still be eligible for discard
-    // so the memory bound from https://github.com/manaflow-ai/cmux/issues/4539
-    // is preserved.
-    func testIdlePaneWithoutMediaPlaybackStillSchedulesHiddenWebViewDiscard() {
-        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isPlayingMedia: false)
-        let manager = BrowserHiddenWebViewDiscardManager()
-        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
-        manager.delegate = delegate
-
-        XCTAssertEqual(manager.blockers(for: snapshot), [])
-
-        manager.scheduleIfNeeded(reason: "test.hidden")
-
-        XCTAssertTrue(manager.hasScheduledDiscard)
     }
 
     // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5261:
@@ -256,6 +298,43 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         XCTAssertTrue(manager.hasScheduledDiscard)
         XCTAssertEqual(manager.blockers(for: snapshot), [])
         XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+}
+
+@MainActor
+final class BrowserPanelVisualAutomationRestoreHostTests: XCTestCase {
+    func testRestoredDiscardedHiddenWebViewGetsRestoreHostBeforeOffscreenCapture() {
+        let discardedAt = Date(timeIntervalSince1970: 400)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        let originalWebView = panel.webView
+
+        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertNil(panel.webView.superview)
+        XCTAssertFalse(panel.hasBackgroundPreloadHost)
+
+        XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        XCTAssertNil(panel.webView.superview)
+
+        XCTAssertTrue(panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "test.visualAutomation"))
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+        XCTAssertNotNil(panel.webView.superview)
+        XCTAssertNotNil(panel.webView.window)
+        XCTAssertFalse(panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "test.visualAutomation.alreadyAttached"))
     }
 }
 
@@ -3952,6 +4031,7 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
         return OmnibarTextFieldRepresentable.Coordinator(
             parent: OmnibarTextFieldRepresentable(
                 panelId: panelId,
+                fontSize: 12,
                 text: Binding(
                     get: { text },
                     set: { text = $0 }

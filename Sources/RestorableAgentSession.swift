@@ -511,7 +511,10 @@ enum AgentResumeCommandBuilder {
         case .claude:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: original.tail) else { return nil }
-            return [original.executable, "--resume", sessionId, "--fork-session"] + preserved
+            // Mirror the resume path: route through the `claude` wrapper (not the
+            // captured real binary) so cmux hooks fire on the forked session.
+            // See https://github.com/manaflow-ai/cmux/issues/5427.
+            return ["claude", "--resume", sessionId, "--fork-session"] + preserved
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
             guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }

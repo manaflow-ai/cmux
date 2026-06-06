@@ -17,7 +17,6 @@ struct TextBoxMentionCandidateIndex: Sendable {
                 title: candidate.title,
                 searchableTexts: [
                     candidate.title,
-                    candidate.subtitle,
                     candidate.searchKey
                 ]
             )
@@ -49,12 +48,20 @@ struct TextBoxMentionCandidateIndex: Sendable {
             return Array(emptyQueryCandidates.prefix(limit))
         }
 
-        if let nucleoIndex,
-           let nucleoResults = nucleoIndex.search(
-               query: query,
-               resultLimit: Self.nucleoProbeLimit(corpusCount: corpus.count, requestedLimit: limit),
-               shouldCancel: shouldCancel
-           ) {
+        if let nucleoIndex {
+            let probeLimit = Self.nucleoProbeLimit(corpusCount: corpus.count, requestedLimit: limit)
+            guard let nucleoResults = nucleoIndex.search(
+                query: query,
+                resultLimit: probeLimit,
+                shouldCancel: shouldCancel
+            ) else {
+                return Self.swiftRankedCandidates(
+                    entries: corpus,
+                    query: query,
+                    limit: limit,
+                    shouldCancel: shouldCancel
+                )
+            }
             if shouldCancel() { return [] }
             let probedCorpus = nucleoResults.compactMap { result in
                 corpusByTargetPath[result.payload.targetPath]
@@ -65,10 +72,18 @@ struct TextBoxMentionCandidateIndex: Sendable {
                 limit: limit,
                 shouldCancel: shouldCancel
             )
-            return Self.mergedRankedCandidates(
-                swiftMatches,
-                nucleoMatches: nucleoResults.map(\.payload),
-                limit: limit
+            let mayHaveUnprobedNucleoResults = probeLimit < corpus.count &&
+                nucleoResults.count >= probeLimit
+            guard swiftMatches.count < limit,
+                  mayHaveUnprobedNucleoResults else {
+                return swiftMatches
+            }
+            if shouldCancel() { return [] }
+            return Self.swiftRankedCandidates(
+                entries: corpus,
+                query: query,
+                limit: limit,
+                shouldCancel: shouldCancel
             )
         }
 
@@ -91,8 +106,26 @@ struct TextBoxMentionCandidateIndex: Sendable {
         limit: Int,
         shouldCancel: @escaping () -> Bool
     ) -> [TextBoxMentionCandidate] {
-        CommandPaletteSearchEngine.search(
-            entries: entries,
+        let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
+        let filteredEntries: [CommandPaletteSearchCorpusEntry<TextBoxMentionCandidate>]
+        if preparedQuery.isEmpty {
+            filteredEntries = entries
+        } else {
+            var matches: [CommandPaletteSearchCorpusEntry<TextBoxMentionCandidate>] = []
+            matches.reserveCapacity(min(entries.count, limit))
+            for entry in entries {
+                if shouldCancel() { return [] }
+                if mentionCandidate(entry, matches: preparedQuery) {
+                    matches.append(entry)
+                }
+            }
+            if shouldCancel() { return [] }
+            filteredEntries = matches
+        }
+        guard !filteredEntries.isEmpty else { return [] }
+
+        return CommandPaletteSearchEngine.search(
+            entries: filteredEntries,
             query: query,
             resultLimit: limit,
             historyBoost: { _, _ in 0 },
@@ -101,29 +134,23 @@ struct TextBoxMentionCandidateIndex: Sendable {
         .map(\.payload)
     }
 
-    private static func mergedRankedCandidates(
-        _ swiftMatches: [TextBoxMentionCandidate],
-        nucleoMatches: [TextBoxMentionCandidate],
-        limit: Int
-    ) -> [TextBoxMentionCandidate] {
-        var merged: [TextBoxMentionCandidate] = []
-        var seenTargetPaths = Set<String>()
-        merged.reserveCapacity(min(limit, swiftMatches.count + nucleoMatches.count))
-
-        func append(_ candidate: TextBoxMentionCandidate) {
-            guard merged.count < limit,
-                  seenTargetPaths.insert(candidate.targetPath).inserted else {
-                return
+    private static func mentionCandidate(
+        _ entry: CommandPaletteSearchCorpusEntry<TextBoxMentionCandidate>,
+        matches preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery
+    ) -> Bool {
+        guard !preparedQuery.isEmpty else { return true }
+        for token in preparedQuery.tokens {
+            var tokenMatchesCandidate = false
+            for candidate in entry.preparedSearchableTexts where CommandPaletteFuzzyMatcher
+                .tokenCanMatchWithoutSingleEdit(token, preparedCandidate: candidate) {
+                tokenMatchesCandidate = true
+                break
             }
-            merged.append(candidate)
+            if !tokenMatchesCandidate {
+                return false
+            }
         }
-
-        for candidate in swiftMatches {
-            append(candidate)
-        }
-        for candidate in nucleoMatches {
-            append(candidate)
-        }
-        return merged
+        return true
     }
+
 }

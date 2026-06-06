@@ -10344,6 +10344,20 @@ final class Workspace: Identifiable, ObservableObject {
     /// Mapping from bonsplit TabID to our Panel instances
     @Published var panels: [UUID: any Panel] = [:]
 
+    /// Monotonic counter bumped only when the spatial (left-to-right, top-to-bottom)
+    /// order of panels changes without the panel *set* changing — i.e. a pure
+    /// drag-reorder of tabs within or across panes. Membership changes already
+    /// fire `$panels`; pure reorders mutate only `bonsplitController` state, which
+    /// is not `@Published`, so observers (e.g. the mobile workspace-list observer)
+    /// would otherwise never learn about a reorder. We gate the bump on an actual
+    /// change of `orderedPanelIds` so that divider drags and selection-only events
+    /// (which also flow through `didChangeGeometry`) do not fire `objectWillChange`.
+    @Published var paneLayoutVersion: Int = 0
+
+    /// Snapshot of `orderedPanelIds` from the last geometry notification, used to
+    /// gate `paneLayoutVersion` bumps to genuine reorder events.
+    private var lastOrderedPanelIds: [UUID] = []
+
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
 
@@ -10374,6 +10388,27 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         return panelIdFromSurfaceId(tab.id)
+    }
+
+    /// Panel ids in bonsplit's spatial order: depth-first over the split tree
+    /// (left/top child before right/bottom child), and within each pane in tab
+    /// order. This is the on-screen left-to-right, top-to-bottom ordering and is
+    /// the single source of truth for serializing panels (e.g. the mobile
+    /// terminal list) and for detecting reorders. Any panels not currently in
+    /// bonsplit are appended in a stable id order so the list never drops a panel.
+    var orderedPanelIds: [UUID] {
+        var result: [UUID] = []
+        var seen = Set<UUID>()
+        for tabId in bonsplitController.allTabIds {
+            guard let panelId = panelIdFromSurfaceId(tabId), panels[panelId] != nil else { continue }
+            guard seen.insert(panelId).inserted else { continue }
+            result.append(panelId)
+        }
+        let orphans = panels.keys
+            .filter { !seen.contains($0) }
+            .sorted { $0.uuidString < $1.uuidString }
+        result.append(contentsOf: orphans)
+        return result
     }
 
     /// The currently focused terminal panel (if any)
@@ -14595,6 +14630,133 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
         return newPanel
+    }
+
+    /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
+    @discardableResult
+    func respawnTerminalSurface(
+        panelId: UUID,
+        command: String,
+        workingDirectory: String? = nil,
+        tmuxStartCommand: String? = nil,
+        focus: Bool? = nil
+    ) -> TerminalPanel? {
+        guard let oldPanel = terminalPanel(for: panelId),
+              let tabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId) else {
+            return nil
+        }
+
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCommand.isEmpty else { return nil }
+
+        let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        let requestedWorkingDirectory: String? = {
+            if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !workingDirectory.isEmpty {
+                return workingDirectory
+            }
+            if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !panelDirectory.isEmpty {
+                return panelDirectory
+            }
+            if let requestedWorkingDirectory = oldPanel.requestedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !requestedWorkingDirectory.isEmpty {
+                return requestedWorkingDirectory
+            }
+            let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            return workspaceDirectory.isEmpty ? nil : workspaceDirectory
+        }()
+        let selectedInPane = bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+        let paneWasFocused = bonsplitController.focusedPaneId == paneId
+        let shouldFocus = focus ?? (selectedInPane && paneWasFocused)
+        let customTitle = panelCustomTitles[panelId]
+        let wasPinned = pinnedPanelIds.contains(panelId)
+        let startCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
+        let focusPlacement = oldPanel.surface.focusPlacement
+        let launchContext = oldPanel.surface.launchContext
+        let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
+        let additionalEnvironment = oldPanel.surface.respawnAdditionalEnvironment
+
+        oldPanel.unfocus()
+        oldPanel.hostedView.setVisibleInUI(false)
+        TerminalWindowPortalRegistry.detach(hostedView: oldPanel.hostedView)
+        oldPanel.surface.beginPortalCloseLifecycle(reason: "terminal.respawn")
+
+        discardClosedPanelLifecycleState(
+            panelId: panelId,
+            tabId: tabId,
+            paneId: paneId,
+            panel: oldPanel,
+            origin: "terminal_respawn",
+            closePanel: false,
+            publishSurfaceClosedEvent: false,
+            clearSurfaceNotifications: false,
+            requestTransferredRemoteCleanup: true,
+            cleanupControllerSurfaceState: false
+        )
+        TerminalSurfaceRegistry.shared.unregister(oldPanel.surface)
+        oldPanel.surface.teardownSurface()
+
+        let replacementPanel = TerminalPanel(
+            id: panelId,
+            workspaceId: id,
+            context: launchContext,
+            configTemplate: inheritedConfig,
+            workingDirectory: requestedWorkingDirectory,
+            portOrdinal: portOrdinal,
+            initialCommand: trimmedCommand,
+            tmuxStartCommand: replacementTmuxStartCommand,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
+            additionalEnvironment: additionalEnvironment,
+            focusPlacement: focusPlacement
+        )
+        configureNewTerminalPanel(replacementPanel)
+        panels[panelId] = replacementPanel
+        panelTitles[panelId] = replacementPanel.displayTitle
+        if let customTitle {
+            panelCustomTitles[panelId] = customTitle
+        }
+        if wasPinned {
+            pinnedPanelIds.insert(panelId)
+        }
+        surfaceIdToPanelId[tabId] = panelId
+        seedTerminalInheritanceFontPoints(panelId: panelId, configTemplate: inheritedConfig)
+
+        let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: replacementPanel.displayTitle)
+        bonsplitController.updateTab(
+            tabId,
+            title: resolvedTitle,
+            icon: .some(replacementPanel.displayIcon),
+            iconImageData: .some(nil),
+            kind: .some(SurfaceKind.terminal),
+            hasCustomTitle: customTitle != nil,
+            isDirty: replacementPanel.isDirty,
+            showsNotificationBadge: false,
+            isLoading: false,
+            isPinned: wasPinned
+        )
+
+        if shouldFocus {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(tabId)
+            focusPanel(panelId)
+        } else if selectedInPane {
+            bonsplitController.selectTab(tabId)
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        } else {
+            replacementPanel.unfocus()
+        }
+
+        owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: id,
+            panelId: panelId,
+            reason: "terminalRespawn"
+        )
+        scheduleTerminalGeometryReconcile()
+        scheduleFocusReconcile()
+        return replacementPanel
     }
 
     private func remoteTerminalStartupCommand() -> String? {
@@ -19381,6 +19543,17 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         tmuxLayoutSnapshot = snapshot
+        // Every order/membership mutation (same-pane reorder, cross-pane move,
+        // split, close) routes through here. A pure reorder mutates only
+        // bonsplit's internal state, which is not `@Published`, so observers
+        // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
+        // sequence actually changed, so divider drags and selection-only events
+        // (also routed here) do not fire `objectWillChange` app-wide.
+        let currentOrder = orderedPanelIds
+        if currentOrder != lastOrderedPanelIds {
+            lastOrderedPanelIds = currentOrder
+            paneLayoutVersion &+= 1
+        }
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()

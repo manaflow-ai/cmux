@@ -1562,8 +1562,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return candidates.max { $0.utf8.count < $1.utf8.count }
     }
 
+    #endif
+
     /// Read the surface text for `pointTag` from the raw handle. Pure libghostty
     /// C calls, safe to run off the main actor on the serial output queue.
+    ///
+    /// Intentionally not `#if DEBUG`-gated: the non-DEBUG, release-shipping
+    /// ``visibleTerminalSnapshot()`` (Copy Debug Logs) calls this, so gating it
+    /// out breaks the Release/TestFlight archive while compiling fine in Debug.
     nonisolated static func surfaceText(_ surface: ghostty_surface_t, pointTag: ghostty_point_tag_e) -> String? {
         let topLeft = ghostty_point_s(tag: pointTag, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0)
         let bottomRight = ghostty_point_s(tag: pointTag, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0)
@@ -1574,7 +1580,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let ptr = text.text, text.text_len > 0 else { return "" }
         return String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
     }
-    #endif
 
     func renderedHTMLForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {
         _ = pointTag
