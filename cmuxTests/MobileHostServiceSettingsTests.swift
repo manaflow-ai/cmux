@@ -52,6 +52,25 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.configuredPort(defaults: defaults) == expected)
     }
 
+    @Test func resolvedDesiredPortIsNilForInvalidSoRunningListenerIsNotDisturbed() throws {
+        let suiteName = "MobileHostServiceSettingsTests.Port.Resolved.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // Unset → catalog default (a valid desired port).
+        #expect(MobileHostService.resolvedDesiredPort(defaults: defaults)
+            == SettingCatalog().mobile.iOSPairingPort.defaultValue)
+
+        // Valid override → that port.
+        defaults.set(58_470, forKey: MobileHostService.portDefaultsKey)
+        #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == 58_470)
+
+        // Invalid override → nil, so syncToSettings keeps the running listener
+        // on its applied port instead of restarting onto the default.
+        defaults.set(70_000, forKey: MobileHostService.portDefaultsKey)
+        #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == nil)
+    }
+
     @Test func syncDecisionStartsStopsAndNoOpsForEnabledState() {
         // Disabled: stop only when something is running, otherwise no-op.
         #expect(MobileHostService.syncDecision(enabled: false, listenerRunning: false, desiredPort: 58465, appliedPort: nil) == .noop)

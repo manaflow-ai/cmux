@@ -382,6 +382,21 @@ final class MobileHostService {
         return (1...65535).contains(raw) ? raw : fallback
     }
 
+    /// The port a settings change should reconcile the *running* listener to, or
+    /// `nil` when the stored value is present but out of range.
+    ///
+    /// Distinguished from ``configuredPort(defaults:)`` so an invalid value the
+    /// user is still editing (the field shows a warning) does not tear down a
+    /// running listener and silently rebind it to the default port. Returns the
+    /// catalog default when unset, the override when valid, and `nil` when the
+    /// stored value is out of range.
+    nonisolated static func resolvedDesiredPort(defaults: UserDefaults = .standard) -> Int? {
+        guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {
+            return SettingCatalog().mobile.iOSPairingPort.defaultValue
+        }
+        return (1...65535).contains(raw) ? raw : nil
+    }
+
     /// Pure reconciliation between the desired settings and the live listener
     /// state. Factored out so the restart-on-port-change decision is unit
     /// testable without binding a real `NWListener`.
@@ -549,10 +564,17 @@ final class MobileHostService {
     /// unless the enabled state or the configured port actually changed, so an
     /// unrelated `UserDefaults` write does not drop active iOS connections.
     func syncToSettings(defaults: UserDefaults = .standard) {
+        // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
+        // must not restart a running listener. Treat it as "no change" by
+        // reusing the applied port; a fresh start still binds the default via
+        // `configuredPort()`.
+        let desiredPort = Self.resolvedDesiredPort(defaults: defaults)
+            ?? appliedPreferredPort
+            ?? Self.configuredPort(defaults: defaults)
         switch Self.syncDecision(
             enabled: Self.isListeningEnabled(defaults: defaults),
             listenerRunning: listener != nil,
-            desiredPort: Self.configuredPort(defaults: defaults),
+            desiredPort: desiredPort,
             appliedPort: appliedPreferredPort
         ) {
         case .noop:
