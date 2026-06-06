@@ -1166,6 +1166,7 @@ struct ContentView: View {
         case renameInput(CommandPaletteRenameTarget)
         case renameConfirm(CommandPaletteRenameTarget, proposedName: String)
         case workspaceDescriptionInput(CommandPaletteWorkspaceDescriptionTarget)
+        case iconPicker(groupId: UUID)
     }
 
     enum CommandPalettePendingActivation: Equatable {
@@ -1477,6 +1478,7 @@ struct ContentView: View {
         static let workspaceHasBelow = "workspace.hasBelow"
         static let workspaceCanMarkRead = "workspace.canMarkRead"
         static let workspaceCanMarkUnread = "workspace.canMarkUnread"
+        static let workspaceInGroup = "workspace.inGroup"
         static let sidebarMatchTerminalBackground = "sidebar.matchTerminalBackground"
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
@@ -3874,6 +3876,8 @@ struct ContentView: View {
                             target: target,
                             maxEditorHeight: workspaceDescriptionMaxEditorHeight
                         )
+                    case .iconPicker(let groupId):
+                        commandPaletteSetGroupIconView(groupId: groupId)
                     }
                 }
                 .frame(width: targetWidth)
@@ -6591,6 +6595,7 @@ struct ContentView: View {
                 CommandPaletteContextKeys.workspaceCanMarkUnread,
                 notificationStore.canMarkWorkspaceUnread(forTabIds: [workspace.id])
             )
+            snapshot.setBool(CommandPaletteContextKeys.workspaceInGroup, workspace.groupId != nil)
         }
 
         if let panelContext = focusedPanelContext {
@@ -7248,6 +7253,7 @@ struct ContentView: View {
             )
         )
         appendMoveTabToNewWorkspaceCommandContribution(to: &contributions, panelSubtitle: panelSubtitle)
+        appendSetGroupIconCommandContribution(to: &contributions)
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleTabPin",
@@ -8187,6 +8193,10 @@ struct ContentView: View {
         }
         registerIdentifierCopyCommandHandlers(&registry)
 
+        registry.register(commandId: "palette.setGroupIcon") {
+            beginSetGroupIconFlow()
+        }
+
         registry.register(commandId: "palette.renameTab") {
             beginRenameTabFlow()
         }
@@ -8877,6 +8887,9 @@ struct ContentView: View {
                 target: target,
                 proposedDescription: commandPaletteWorkspaceDescriptionDraft
             )
+        case .iconPicker:
+            // The icon picker commits on selection (tap), not on Enter.
+            break
         }
     }
 
@@ -9068,6 +9081,8 @@ struct ContentView: View {
             mode = "rename_confirm"
         case .workspaceDescriptionInput:
             mode = "workspace_description_input"
+        case .iconPicker:
+            mode = "icon_picker"
         }
 
         let rows = Array(commandPaletteVisibleResults.prefix(20)).map { result in
@@ -9415,6 +9430,8 @@ struct ContentView: View {
             return "renameConfirm"
         case .workspaceDescriptionInput:
             return "workspaceDescriptionInput"
+        case .iconPicker:
+            return "iconPicker"
         }
     }
 #endif
@@ -9513,6 +9530,8 @@ struct ContentView: View {
             case .renameConfirm:
                 return
             case .workspaceDescriptionInput:
+                return
+            case .iconPicker:
                 return
             }
         }
@@ -9693,6 +9712,31 @@ struct ContentView: View {
         commandPaletteMode = .renameInput(target)
         resetCommandPaletteRenameFocus()
         syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    /// Opens the group icon picker inside the command palette for the group the focused
+    /// workspace belongs to (its anchor or a child both resolve to the same group).
+    private func beginSetGroupIconFlow() {
+        guard let groupId = tabManager.selectedWorkspace?.groupId,
+              tabManager.workspaceGroups.contains(where: { $0.id == groupId }) else {
+            NSSound.beep()
+            return
+        }
+        commandPaletteMode = .iconPicker(groupId: groupId)
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    @ViewBuilder
+    private func commandPaletteSetGroupIconView(groupId: UUID) -> some View {
+        let storedIcon = tabManager.workspaceGroups.first(where: { $0.id == groupId })?.iconSymbol
+        WorkspaceGroupIconPickerView(currentSymbol: storedIcon) { symbol in
+            _ = tabManager.setWorkspaceGroupIcon(groupId: groupId, symbol: symbol)
+            dismissCommandPalette()
+        }
+        .frame(maxWidth: .infinity)
+        .onExitCommand {
+            dismissCommandPalette()
+        }
     }
 
     private func startWorkspaceDescriptionFlow(_ target: CommandPaletteWorkspaceDescriptionTarget) {
