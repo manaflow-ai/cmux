@@ -18423,7 +18423,9 @@ struct CMUXCLI {
             fputs("cmux codex-teams watcher forwarding approval \(method) request \(CMUXCLI.requestIdString(requestId)) to Feed\n", stderr)
             let response = try pushCodexApprovalToFeed(event: feedEvent)
             guard let decision = CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: response) else {
-                return true
+                // Close this auxiliary app-server connection instead of
+                // silently consuming an approval request Codex still needs.
+                throw CLIError(message: "Codex Feed did not resolve approval request \(CMUXCLI.requestIdString(requestId))")
             }
             guard let result = CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: method,
@@ -18777,7 +18779,7 @@ struct CMUXCLI {
             return decision
         }
         if codexTeamsModeRequestsPersistentApproval(mode),
-           codexTeamsAvailableDecisions(params).contains("acceptForSession") {
+           codexTeamsDecisionAvailableOrUnspecified("acceptForSession", params: params) {
             return "acceptForSession"
         }
         if codexTeamsModeRequestsPersistentApproval(mode),

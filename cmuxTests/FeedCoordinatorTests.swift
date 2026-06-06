@@ -211,6 +211,14 @@ final class FeedCoordinatorTests: XCTestCase {
             )?["decision"] as? String,
             "acceptForSession"
         )
+        XCTAssertEqual(
+            CMUXCLI.codexTeamsAppServerApprovalResponse(
+                method: "item/commandExecution/requestApproval",
+                params: [:],
+                mode: "always"
+            )?["decision"] as? String,
+            "acceptForSession"
+        )
         let amendmentDecision = CMUXCLI.codexTeamsAppServerApprovalResponse(
             method: "item/commandExecution/requestApproval",
             params: [
