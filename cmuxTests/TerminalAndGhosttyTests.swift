@@ -1192,6 +1192,32 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testColdSocketInputQueuesOSC11AsRawTerminalBytes() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        let osc11 = "\u{1B}]11;#341c1c\u{1B}\\"
+        XCTAssertTrue(panel.surface.sendInput(osc11))
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertEqual(
+            pending.keyEvents,
+            0,
+            "OSC 11 must not be split into Escape key events plus literal text."
+        )
+        XCTAssertEqual(
+            pending.inputTextItems,
+            0,
+            "OSC 11 must bypass committed text input so Ghostty consumes it as a terminal control sequence."
+        )
+        XCTAssertEqual(
+            pending.pasteTextItems,
+            1,
+            "OSC 11 must be queued as one raw terminal-byte payload."
+        )
+        XCTAssertEqual(pending.bytes, osc11.utf8.count)
+    }
+
     func testColdSocketInputChunksLongCommittedTextInput() {
         let panel = TerminalPanel(workspaceId: UUID())
 
