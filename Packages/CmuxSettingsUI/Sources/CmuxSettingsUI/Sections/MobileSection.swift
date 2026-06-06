@@ -23,14 +23,9 @@ public struct MobileSection: View {
     /// Guards against overlapping Apply taps while a probe is in flight.
     @State private var isApplying = false
 
-    /// The Mac's system name, used as the display-name placeholder when no
-    /// override is set. Captured once from the host; it does not change during a
-    /// settings session, so it never goes stale as the override is edited.
-    private let defaultDisplayName: String
-
-    /// Applies a requested port through the host (availability-checked). Captured
-    /// as a closure so the section holds no reference to the host bridge.
-    private let applyPort: (Int) async -> MobilePairingPortApplyResult
+    /// Host bridge: opens the pairing window, applies the port (availability
+    /// checked), and supplies the live pairing status and default display name.
+    private let hostActions: SettingsHostActions
 
     private static let columnWidth: CGFloat = 196
 
@@ -38,21 +33,19 @@ public struct MobileSection: View {
     ///
     /// - Parameters:
     ///   - defaultsStore: UserDefaults-backed store for the pairing settings.
-    ///   - catalog: The settings catalog providing the Mobile keys.
-    ///   - hostActions: Host bridge that supplies the live pairing status used
-    ///     by the bound-port indicator and diagnostics.
+    ///   - catalog: The settings catalog defining the mobile keys.
+    ///   - hostActions: Host bridge for the pairing window, port apply, and the
+    ///     live pairing status the package can't produce itself.
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
         hostActions: SettingsHostActions
     ) {
-        let portModel = DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort)
         _iOSPairingHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingHost))
-        _port = State(initialValue: portModel)
+        _port = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort))
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
-        defaultDisplayName = hostActions.mobilePairingDefaultDisplayName()
-        applyPort = { await hostActions.applyMobilePairingPort($0) }
+        self.hostActions = hostActions
     }
 
     /// The value shown in the field: the user's edit if any, otherwise the
@@ -76,6 +69,8 @@ public struct MobileSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.mobile", defaultValue: "Mobile"), section: .mobile)
             SettingsCard {
+                pairDeviceRow
+                SettingsCardDivider()
                 iOSPairingHostRow
                 SettingsCardDivider()
                 portRow
@@ -91,6 +86,23 @@ public struct MobileSection: View {
                     defaultValue: "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, it rebinds and connected devices reconnect on the new port."
                 ))
             }
+        }
+    }
+
+    @ViewBuilder
+    private var pairDeviceRow: some View {
+        SettingsCardRow(
+            configurationReview: .action,
+            searchAnchorID: "setting:mobile:pairDevice",
+            String(localized: "settings.mobile.pairDevice", defaultValue: "Pair a Device"),
+            subtitle: String(localized: "settings.mobile.pairDevice.subtitle", defaultValue: "Show a QR code to pair your iPhone or iPad with this Mac.")
+        ) {
+            Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Pair…")) {
+                hostActions.openMobilePairingWindow()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsMobilePairDeviceButton")
         }
     }
 
@@ -148,7 +160,7 @@ public struct MobileSection: View {
         guard !isApplying, isDraftValid, requested != effectivePort else { return }
         isApplying = true
         Task {
-            let result = await applyPort(requested)
+            let result = await hostActions.applyMobilePairingPort(requested)
             applyResult = result
             // Keep the field on the attempted value (with its warning) when the
             // port is in use; otherwise let it track the persisted value again.
@@ -234,9 +246,10 @@ public struct MobileSection: View {
     private var displayNameRow: some View {
         // Show this Mac's system name as the placeholder so the user sees the
         // actual default that applies when the override is empty.
-        let placeholder = defaultDisplayName.isEmpty
+        let resolvedName = hostActions.mobilePairingDefaultDisplayName()
+        let placeholder = resolvedName.isEmpty
             ? String(localized: "settings.mobile.displayName.placeholder", defaultValue: "This Mac's name")
-            : defaultDisplayName
+            : resolvedName
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingDisplayName",

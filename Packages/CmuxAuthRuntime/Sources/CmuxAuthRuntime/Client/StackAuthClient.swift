@@ -52,6 +52,19 @@ public struct StackAuthClient: AuthClient {
         return await Self.mapped(user)
     }
 
+    public func listTeams() async throws -> [CMUXAuthTeam] {
+        guard let user = try await stack.getUser(or: .returnNull) else {
+            return []
+        }
+        let teams = try await user.listTeams()
+        var summaries: [CMUXAuthTeam] = []
+        summaries.reserveCapacity(teams.count)
+        for team in teams {
+            summaries.append(CMUXAuthTeam(id: team.id, displayName: await team.displayName))
+        }
+        return summaries
+    }
+
     public func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String {
         try await stack.sendMagicLinkEmail(email: email, callbackUrl: callbackURL)
     }

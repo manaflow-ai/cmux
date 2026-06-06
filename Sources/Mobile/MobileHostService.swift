@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAuthRuntime
 import CmuxSettings
 import CryptoKit
 import Foundation
@@ -311,11 +312,31 @@ final class MobileHostService {
     private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
+    /// Injected once via `configure(auth:)` at app startup, before the
+    /// listener starts accepting connections.
+    private var auth: AuthCoordinator?
+    private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
+    private var readinessTimeoutTask: Task<Void, Never>?
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
     #endif
 
     private init() {}
+
+    /// Inject the auth dependency. Call once at the composition root.
+    func configure(auth: AuthCoordinator) {
+        self.auth = auth
+    }
+
+    /// The signed-in local user's id, awaiting launch session restore first so
+    /// pairing checks can't race it. `nil` when signed out (or before the auth
+    /// graph is configured), which the authorization policy rejects.
+    func currentAuthenticatedLocalUserID() async -> String? {
+        guard let auth else { return nil }
+        await auth.awaitBootstrapped()
+        guard auth.isAuthenticated else { return nil }
+        return auth.currentUser?.id
+    }
 
     /// Fan out a server-pushed event to every connection subscribed to `topic`.
     /// Safe to call from any actor/queue.
@@ -623,6 +644,9 @@ final class MobileHostService {
             }
             lastErrorDescription = String(describing: error)
             mobileHostLog.error("mobile host listener failed to start: \(String(describing: error), privacy: .public)")
+            // No listener was registered, so no state callback will fire to drain
+            // readiness waiters; resolve them now instead of waiting for the deadline.
+            drainReadinessWaiters()
         }
     }
 
@@ -659,11 +683,55 @@ final class MobileHostService {
         MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.update(routes: [])
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
+        drainReadinessWaiters()
     }
 
     func statusSnapshot() -> MobileHostServiceStatus {
         let routes = listenerPort.map { routeResolver.routes(port: $0).routes } ?? []
         return makeStatus(routes: routes)
+    }
+
+    /// Starts the pairing listener (if enabled and not already bound) and
+    /// resolves once it can mint attach tickets, so the in-app pairing window
+    /// can render a QR code without polling the listener state machine.
+    ///
+    /// Resolves immediately when the listener is already ready, or when pairing
+    /// is disabled (the caller then renders an "off" state). Otherwise it awaits
+    /// the next listener-state transition (`ready`, terminal `failed`, or
+    /// `cancelled`) via a continuation, with a bounded safety deadline so the UI
+    /// never hangs on a listener that never settles.
+    func ensureListeningAndReady() async -> MobileHostServiceStatus {
+        start()
+        if listener == nil || listenerPort != nil {
+            return statusSnapshot()
+        }
+        return await withCheckedContinuation { continuation in
+            readinessWaiters.append(continuation)
+            if readinessTimeoutTask == nil {
+                // Bounded, cancellable deadline: a local NWListener normally
+                // reaches `.ready` within milliseconds; this only guards a
+                // never-settling listener. Cancelled on the normal drain path.
+                readinessTimeoutTask = Task { @MainActor [weak self] in
+                    try? await ContinuousClock().sleep(for: .seconds(6))
+                    guard let self, !Task.isCancelled else { return }
+                    self.drainReadinessWaiters()
+                }
+            }
+        }
+    }
+
+    /// Resumes every pending ``ensureListeningAndReady()`` caller with the
+    /// current status and clears the bounded readiness deadline.
+    private func drainReadinessWaiters() {
+        readinessTimeoutTask?.cancel()
+        readinessTimeoutTask = nil
+        guard !readinessWaiters.isEmpty else { return }
+        let snapshot = statusSnapshot()
+        let waiters = readinessWaiters
+        readinessWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume(returning: snapshot)
+        }
     }
 
     private func publicStatusSnapshot() async -> MobileHostServiceStatus {
@@ -1243,6 +1311,7 @@ final class MobileHostService {
                 MobileHostPublicStatusCache.update(routes: [])
             }
             mobileHostLog.info("mobile host listener ready on port \(self.listenerPort ?? 0)")
+            drainReadinessWaiters()
         case let .failed(error):
             handleListenerBindFailure(error: error, context: "failed after start")
         case .cancelled:
@@ -1251,6 +1320,7 @@ final class MobileHostService {
             listenerUsesEphemeralFallback = false
             listenerPort = nil
             MobileHostPublicStatusCache.update(routes: [])
+            drainReadinessWaiters()
         case let .waiting(error):
             // A preferred-port bind blocked by another listener surfaces as
             // `.waiting(.posix(.EADDRINUSE))` rather than `.failed`, and NWListener
@@ -1289,6 +1359,9 @@ final class MobileHostService {
             startListener(usePreferredPort: false)
         } else {
             mobileHostLog.error("mobile host listener bind failed on ephemeral port: \(String(describing: error), privacy: .public)")
+            // No retry left: unblock any readiness waiters (the retry path drains
+            // them when the ephemeral listener reaches `.ready`).
+            drainReadinessWaiters()
         }
     }
 
@@ -1526,13 +1599,7 @@ private actor MobileHostStackAuthVerifier {
     }
 
     private func currentAuthenticatedLocalUserID() async -> String? {
-        await AuthManager.shared.awaitBootstrapped()
-        return await MainActor.run {
-            guard AuthManager.shared.isAuthenticated else {
-                return nil
-            }
-            return AuthManager.shared.currentUser?.id
-        }
+        await MobileHostService.shared.currentAuthenticatedLocalUserID()
     }
 }
 

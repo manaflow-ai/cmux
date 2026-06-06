@@ -313,7 +313,7 @@ struct SignInView: View {
     }
 
     private func detailedErrorMessage(_ error: Error) -> String {
-        let displayError = AuthErrorMapper().displaySafe(error)
+        let displayError = AuthError(displaySafe: error) ?? error
         if let stackError = displayError as? StackAuthErrorProtocol {
             switch stackError.code {
             case "SCHEMA_ERROR":
