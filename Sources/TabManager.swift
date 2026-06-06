@@ -2713,6 +2713,7 @@ class TabManager: ObservableObject {
                     userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
                 )
             }
+            AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.add", tabManager: self)
 #if DEBUG
             UITestRecorder.incrementInt("addTabInvocations")
             UITestRecorder.record([
@@ -3864,6 +3865,7 @@ class TabManager: ObservableObject {
             pinnedWorkspaceIds: tabs.filter(\.isPinned).map(\.id),
             source: "workspace.lifecycle"
         )
+        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.reorder", tabManager: self)
     }
 
     @discardableResult
@@ -5251,6 +5253,7 @@ class TabManager: ObservableObject {
             }
         }
         publishCmuxWorkspaceClosed(workspace)
+        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.close", tabManager: self)
     }
 
     /// If `closedWorkspaceId` was the anchor of any group, dissolve that group:
@@ -5309,6 +5312,7 @@ class TabManager: ObservableObject {
             selectedTabId = tabs[nextIndex].id
         }
 
+        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.detach", tabManager: self)
         return removed
     }
 
@@ -5331,6 +5335,7 @@ class TabManager: ObservableObject {
         if select {
             selectedTabId = workspace.id
         }
+        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.attach", tabManager: self)
     }
 
     // Keep closeTab as convenience alias
@@ -7800,62 +7805,69 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
-        let preRestoreFocus = currentFocusHistoryEntry
-        let workspace = addWorkspace(
-            title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
-            workingDirectory: entry.snapshot.currentDirectory,
-            select: false,
-            autoWelcomeIfNeeded: false
-        )
-        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot)
-        guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
-            closeWorkspace(workspace, recordHistory: false)
-            return false
-        }
-        guard !workspace.panels.isEmpty else {
-            closeWorkspace(workspace, recordHistory: false)
-            return false
-        }
-        // The snapshot may carry a groupId for a group that no longer exists
-        // in this TabManager (e.g. the group was dissolved between close and
-        // reopen). Drop those stale references so the restored workspace
-        // doesn't render as an orphaned indented row under no header.
-        if let groupId = workspace.groupId,
-           !workspaceGroups.contains(where: { $0.id == groupId }) {
-            workspace.groupId = nil
-        }
-        // When the group DOES still exist, the workspace is about to be
-        // reinserted at its old absolute index, which may now sit inside a
-        // different group section after intervening reorders. Renormalize
-        // so the restored member lands beside its group.
-        let needsNormalize = workspace.groupId != nil && !workspaceGroups.isEmpty
-        ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
-            from: entry.workspaceId,
-            to: workspace.id,
-            panelIdMap: restoredPanelIds
-        )
+        let restore = {
+            let preRestoreFocus = self.currentFocusHistoryEntry
+            let workspace = self.addWorkspace(
+                title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
+                workingDirectory: entry.snapshot.currentDirectory,
+                select: false,
+                autoWelcomeIfNeeded: false
+            )
+            let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot)
+            guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
+                self.closeWorkspace(workspace, recordHistory: false)
+                return false
+            }
+            guard !workspace.panels.isEmpty else {
+                self.closeWorkspace(workspace, recordHistory: false)
+                return false
+            }
+            // The snapshot may carry a groupId for a group that no longer exists
+            // in this TabManager. Drop stale references so the restored workspace
+            // does not render as an orphaned indented row under no header.
+            if let groupId = workspace.groupId,
+               !self.workspaceGroups.contains(where: { $0.id == groupId }) {
+                workspace.groupId = nil
+            }
+            // When the group still exists, the workspace is about to be reinserted
+            // at its old absolute index, which may now sit inside a different
+            // group section after intervening reorders.
+            let needsNormalize = workspace.groupId != nil && !self.workspaceGroups.isEmpty
+            ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
+                from: entry.workspaceId,
+                to: workspace.id,
+                panelIdMap: restoredPanelIds
+            )
 
-        if let currentIndex = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            let removed = tabs.remove(at: currentIndex)
-            let insertIndex = min(max(entry.workspaceIndex, 0), tabs.count)
-            tabs.insert(removed, at: insertIndex)
-        }
-        if needsNormalize {
-            normalizeWorkspaceGroupContiguity()
+            if let currentIndex = self.tabs.firstIndex(where: { $0.id == workspace.id }) {
+                let removed = self.tabs.remove(at: currentIndex)
+                let insertIndex = min(max(entry.workspaceIndex, 0), self.tabs.count)
+                self.tabs.insert(removed, at: insertIndex)
+            }
+            if needsNormalize {
+                self.normalizeWorkspaceGroupContiguity()
+            }
+
+            self.withFocusHistoryRecordingSuppressed {
+                self.selectedTabId = workspace.id
+            }
+            self.recordFocusInHistory(preRestoreFocus, preservingForwardBranch: true)
+            if let focusedPanelId = workspace.focusedPanelId {
+                self.rememberFocusedSurface(tabId: workspace.id, surfaceId: focusedPanelId)
+                workspace.triggerFocusFlash(panelId: focusedPanelId)
+                self.recordFocusInHistory(workspaceId: workspace.id, panelId: focusedPanelId, preservingForwardBranch: true)
+            } else {
+                self.recordFocusInHistory(workspaceId: workspace.id, panelId: nil, preservingForwardBranch: true)
+            }
+            return true
         }
 
-        withFocusHistoryRecordingSuppressed {
-            selectedTabId = workspace.id
+        if let appDelegate = AppDelegate.shared {
+            return appDelegate.performSessionRecoverySnapshotMutation {
+                restore()
+            }
         }
-        recordFocusInHistory(preRestoreFocus, preservingForwardBranch: true)
-        if let focusedPanelId = workspace.focusedPanelId {
-            rememberFocusedSurface(tabId: workspace.id, surfaceId: focusedPanelId)
-            workspace.triggerFocusFlash(panelId: focusedPanelId)
-            recordFocusInHistory(workspaceId: workspace.id, panelId: focusedPanelId, preservingForwardBranch: true)
-        } else {
-            recordFocusInHistory(workspaceId: workspace.id, panelId: nil, preservingForwardBranch: true)
-        }
-        return true
+        return restore()
     }
 
     private func enforceReopenedBrowserFocus(
