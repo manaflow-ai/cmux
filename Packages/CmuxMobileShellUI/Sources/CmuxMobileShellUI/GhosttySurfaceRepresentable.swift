@@ -21,6 +21,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// actions (create workspace/terminal, switch terminal) do not pop the
     /// software keyboard.
     var autoFocusOnWindowAttach: Bool = true
+    /// Whether the SwiftUI composer is open. When true the surface hides its
+    /// docked accessory bar and releases its reserved grid height so the composer
+    /// can own the bottom edge and the keyboard.
+    var isComposerActive: Bool = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
@@ -49,7 +53,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        (uiView as? GhosttySurfaceView)?.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        // Bytes flow via the byte sink; the prop-driven mutations are the
+        // autofocus suppression and the composer's claim on the bottom edge +
+        // keyboard.
+        guard let surfaceView = uiView as? GhosttySurfaceView else { return }
+        surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        surfaceView.setComposerActive(isComposerActive)
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
@@ -165,6 +174,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard let presenter = presentingController(for: surfaceView) else { return }
             let editor = UIHostingController(rootView: TerminalShortcutsSettingsView())
             presenter.present(editor, animated: true)
+        }
+
+        func ghosttySurfaceViewDidRequestComposerToggle(_ surfaceView: GhosttySurfaceView) {
+            // The composer button on the docked accessory bar was tapped. Flip the
+            // store flag; the terminal screen observes it and presents/dismisses
+            // the iMessage-style composer.
+            Task { @MainActor [weak store] in
+                store?.toggleComposer()
+            }
         }
 
         /// Walk up from `view` to the nearest owning `UIViewController`, then to

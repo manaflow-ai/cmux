@@ -45,7 +45,8 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
-                    autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
+                    autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID),
+                    isComposerActive: store.isComposerPresented
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -80,6 +81,11 @@ struct WorkspaceDetailView: View {
                 .padding(.leading, 10)
         }
         #if os(iOS)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if store.isComposerPresented {
+                TerminalComposerView(store: store)
+            }
+        }
         .mobileTerminalSafeAreaExpansion(
             context: safeAreaContext,
             includesBottom: true

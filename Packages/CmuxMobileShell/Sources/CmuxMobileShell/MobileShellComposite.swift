@@ -132,6 +132,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// than offer actions that would fail with `method_not_found`.
     public private(set) var supportsWorkspaceActions: Bool = false
     public var terminalInputText: String
+    /// Whether the iMessage-style composer is shown above the terminal. Toggled
+    /// from the input accessory bar's composer button and observed by the
+    /// terminal screen to present ``terminalInputText`` for multi-line editing.
+    public var isComposerPresented: Bool = false
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
@@ -1194,6 +1198,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await sendRemoteTerminalInput(text + "\r")
     }
 
+    /// Show or hide the iMessage-style composer from the input accessory bar.
+    public func toggleComposer() {
+        isComposerPresented.toggle()
+    }
+
+    /// Submit the composer's text to the selected terminal as a bracketed paste
+    /// plus a single Return, then clear the field while keeping the composer
+    /// open. Unlike ``submitTerminalInput()``, this delivers a multi-line block
+    /// as one paste + one submit (via `terminal.paste`) so interior newlines do
+    /// not fragment into multiple submissions in a TUI agent.
+    public func submitComposerInput() async {
+        let text = terminalInputText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        terminalInputText = ""
+        guard remoteClient != nil else { return }
+        await sendRemoteTerminalPaste(text, submitKey: "return")
+    }
+
     public func sendTerminalRawInput(_ text: String) {
         #if DEBUG
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
@@ -1822,6 +1844,67 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let responseData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "terminal.paste_image",
+                    params: params
+                )
+            )
+            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
+            handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+        } catch {
+            guard generation == connectionGeneration else { return }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            markMacConnectionUnavailableIfNeeded(after: error)
+            connectionError = Self.localizedConnectionError(for: error)
+        }
+    }
+
+    private func sendRemoteTerminalPaste(_ text: String, submitKey: String) async {
+        guard let workspaceID = selectedWorkspace?.id,
+              let terminalID = selectedTerminalID else {
+            #if DEBUG
+            mobileShellLog.info("skip remote terminal paste selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
+            #endif
+            return
+        }
+        await sendRemoteTerminalPaste(text, submitKey: submitKey, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    /// Deliver a composed block to the Mac surface via `terminal.paste`: a
+    /// bracketed paste (so multi-line text is inserted as one literal block)
+    /// followed by an optional submit key. Mirrors ``sendRemoteTerminalInput(_:workspaceID:terminalID:)``
+    /// but takes the dedicated paste path instead of the raw `terminal.input`
+    /// path, which rewrites newlines to carriage returns.
+    private func sendRemoteTerminalPaste(
+        _ text: String,
+        submitKey: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async {
+        guard let client = remoteClient else {
+            #if DEBUG
+            mobileShellLog.info("skip remote terminal paste remoteClient=0")
+            #endif
+            return
+        }
+        let generation = connectionGeneration
+        do {
+            #if DEBUG
+            mobileShellLog.debug("send remote terminal paste byteCount=\(text.utf8.count, privacy: .public) submit=\(submitKey, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
+            #endif
+            let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
+            var params: [String: Any] = [
+                "workspace_id": workspaceID.rawValue,
+                "surface_id": terminalID.rawValue,
+                "text": text,
+                "submit_key": submitKey,
+                "client_id": clientID,
+            ]
+            if let viewportSize = reportedViewportSizesByTerminalKey[key] {
+                params["viewport_columns"] = viewportSize.columns
+                params["viewport_rows"] = viewportSize.rows
+            }
+            let responseData = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "terminal.paste",
                     params: params
                 )
             )
