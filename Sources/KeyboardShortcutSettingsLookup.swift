@@ -18,7 +18,7 @@ extension KeyboardShortcutSettings {
 
         let legacy = configuredShortcutIfPresent(for: .selectSurfaceByNumber)
         guard legacy.exists else { return (false, nil) }
-        guard var shortcut = legacy.shortcut else { return (true, nil) }
+        guard var shortcut = legacy.shortcut else { return (false, nil) }
 
         if shortcut.hasChord {
             shortcut.chordKey = String(digit)
