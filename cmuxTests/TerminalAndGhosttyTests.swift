@@ -2972,6 +2972,49 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             .first
     }
 
+    @discardableResult
+    private func waitUntil(
+        timeout: TimeInterval = 1.0,
+        description: String,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: @escaping () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        guard condition() else {
+            XCTFail("Timed out waiting for \(description)", file: file, line: line)
+            return false
+        }
+        return true
+    }
+
+    private func realizeTerminalHost(_ hostedView: GhosttySurfaceScrollView, in window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+    }
+
+    private func focusTerminalSurface(
+        _ surfaceView: GhosttyNSView,
+        surface: TerminalSurface,
+        in window: NSWindow,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(window.makeFirstResponder(surfaceView), file: file, line: line)
+        waitUntil(description: "terminal surface to become focused", file: file, line: line) {
+            (window.firstResponder as? NSView) === surfaceView &&
+                surface.debugDesiredFocusState()
+        }
+    }
+
     func testTerminalMouseDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -3011,17 +3054,16 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
+        realizeTerminalHost(hostedView, in: window)
 
-        guard let surfaceView = surfaceView(in: hostedView) else {
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
             XCTFail("Expected terminal surface view")
             return
         }
 
         GhosttySurfaceScrollView.resetFlashCounts()
         AppFocusState.overrideIsFocused = true
-        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        focusTerminalSurface(surfaceView, surface: terminalPanel.surface, in: window)
 
         store.addNotification(
             tabId: workspace.id,
@@ -3041,7 +3083,9 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         wait(for: [drained], timeout: 1.0)
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
-        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
+        waitUntil(description: "notification dismiss flash") {
+            GhosttySurfaceScrollView.flashCount(for: terminalPanel.id) == 1
+        }
     }
 
     func testTerminalKeyDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() {
@@ -3083,8 +3127,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
+        realizeTerminalHost(hostedView, in: window)
 
         guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
             XCTFail("Expected terminal surface view")
@@ -3093,7 +3136,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         GhosttySurfaceScrollView.resetFlashCounts()
         AppFocusState.overrideIsFocused = true
-        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        focusTerminalSurface(surfaceView, surface: terminalPanel.surface, in: window)
 
         store.addNotification(
             tabId: workspace.id,
@@ -3111,7 +3154,9 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         wait(for: [drained], timeout: 1.0)
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
-        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
+        waitUntil(description: "notification dismiss flash") {
+            GhosttySurfaceScrollView.flashCount(for: terminalPanel.id) == 1
+        }
     }
 
     func testKeyDownRecoversReleasedSurfaceWhileHostedViewIsDetached() throws {
@@ -3211,9 +3256,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
-        XCTAssertTrue(window.makeFirstResponder(surfaceView))
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertTrue(surface.debugDesiredFocusState(), "Focused terminal should start with desired Ghostty focus")
+        focusTerminalSurface(surfaceView, surface: surface, in: window)
 
         surface.releaseSurfaceForTesting()
         XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")

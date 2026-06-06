@@ -1771,10 +1771,13 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         }
 
         guard let workspace = manager.selectedWorkspace,
-              let initialPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace and focused panel")
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let initialPanelId = workspace.focusedPanelId,
+              workspace.newTerminalSurface(inPane: paneId, focus: false) != nil else {
+            XCTFail("Expected selected workspace with two terminal panels")
             return
         }
+        workspace.focusPanel(initialPanelId)
 
         store.addNotification(
             tabId: workspace.id,
