@@ -820,6 +820,33 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testCustomPermissionModeLeavesCodexConfigInControl() throws {
+        var sentLines: [String] = []
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { _, _ in }
+        )
+
+        try session.start()
+        session.consumeStdout(
+            #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
+                + "\n")
+        session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
+        try session.submit("use config", permissionMode: .custom)
+
+        let turnStart = jsonLine(sentLines[3])
+        expectEqual(turnStart["method"] as? String, "turn/start")
+        let turnParams = try #require(turnStart["params"] as? [String: Any])
+        expectEqual(turnParams["threadId"] as? String, "thread-1")
+        expectNil(turnParams["approvalPolicy"])
+        expectNil(turnParams["approvalsReviewer"])
+        expectNil(turnParams["sandboxPolicy"])
+    }
+
+    @Test
     func testDefaultPermissionModeAvoidsInteractiveCodexApprovals() throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(

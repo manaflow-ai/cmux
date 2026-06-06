@@ -8,12 +8,14 @@ enum AgentSessionPermissionMode: String {
 
     var codexTurnOverrides: [String: Any] {
         switch self {
-        case .standard, .custom:
+        case .standard:
             return [
                 "approvalPolicy": "never",
                 "approvalsReviewer": NSNull(),
                 "sandboxPolicy": NSNull()
             ]
+        case .custom:
+            return [:]
         case .autoReview:
             return [
                 "approvalPolicy": "on-request",
