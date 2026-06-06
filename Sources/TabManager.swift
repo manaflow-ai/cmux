@@ -5995,6 +5995,9 @@ class TabManager: ObservableObject {
         }
         tab.markCloseHistoryEligible(panelId: panelId)
         let closed = tab.closePanel(panelId)
+        if closed {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: panelId)
+        }
 #if DEBUG
         cmuxDebugLog(
             "surface.close.shortcut tab=\(tab.id.uuidString.prefix(5)) " +
