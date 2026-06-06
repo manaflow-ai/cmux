@@ -179,6 +179,29 @@ if [[ "${CMUX_RELOAD_NO_SIGN_IN:-0}" != "1" ]]; then
   fi
 fi
 
+# Auto-pair: if signing in and no explicit attach URL was given, mint a fresh
+# attach ticket against a dev Mac build's pairing listener and inject it, so the
+# app pairs without a QR scan. The QR is just one transport for this same
+# cmux-ios://attach deeplink; here the Mac mints + the launch hands it over.
+# Pair target defaults to the same tag's Mac build (mac + ios share a tag);
+# override with CMUX_DOGFOOD_PAIR_TAG. Needs that Mac build running with iOS
+# pairing enabled; otherwise auto-pair is skipped and sign-in still applies.
+if [[ -n "$SIGN_IN_EMAIL" && -z "$ATTACH_URL" && "${CMUX_RELOAD_NO_AUTO_PAIR:-0}" != "1" ]]; then
+  PAIR_TAG="${CMUX_DOGFOOD_PAIR_TAG:-$TAG_SLUG}"
+  PAIR_SOCK="/tmp/cmux-debug-${PAIR_TAG}.sock"
+  if [[ -S "$PAIR_SOCK" ]]; then
+    REPO_ROOT_DIR="$(cd "$IOS_DIR/.." && pwd)"
+    minted_url="$("$REPO_ROOT_DIR/scripts/mobile-attach-qr.sh" --tag "$PAIR_TAG" 2>/dev/null \
+      | grep -oE 'cmux-ios://attach[^[:space:]]+' | tail -1 || true)"
+    if [[ -n "$minted_url" ]]; then
+      ATTACH_URL="$minted_url"
+      echo "==> auto-pair: minted attach ticket against Mac tag '$PAIR_TAG'"
+    else
+      echo "==> auto-pair skipped: could not mint against '$PAIR_TAG' (is that Mac build running with iOS pairing enabled?)" >&2
+    fi
+  fi
+fi
+
 LOCAL_ASC_CONFIG="$IOS_DIR/Config/AppStoreConnect.local.plist"
 if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
   ASC_API_KEY_ID="${ASC_API_KEY_ID:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_KEY_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
