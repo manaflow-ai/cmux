@@ -1,5 +1,5 @@
 /// Coarse category of a closed item, used to pick a row icon in the History pane.
-enum ClosedItemKind: String, Equatable, Sendable {
+enum ClosedItemKind: String, Equatable, Hashable, Sendable {
     case terminal
     case browser
     case markdown
