@@ -4244,6 +4244,7 @@ final class BrowserPanel: Panel, ObservableObject {
         targetWebView.uiDelegate = nil
         targetWebView.configuration.userContentController.removeAllUserScripts()
         teardownReactGrabMessageHandler(for: targetWebView)
+        teardownMediaPlaybackMessageHandler(for: targetWebView)
 
         if let cmuxWebView = targetWebView as? CmuxWebView {
             cmuxWebView.onContextMenuDownloadStateChanged = nil

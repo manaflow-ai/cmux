@@ -663,10 +663,18 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
             visibleInUI: true
         )
         XCTAssertNotNil(webView.superview, "Test precondition: portal bind should host the web view")
+        XCTAssertNotNil(
+            panel.mediaPlaybackMessageHandler,
+            "Test precondition: binding should install the media playback handler"
+        )
 
         panel.close()
 
         XCTAssertNil(webView.superview, "Closing a browser panel must release the old WKWebView immediately")
+        XCTAssertNil(
+            panel.mediaPlaybackMessageHandler,
+            "Closing a browser panel must release the media playback message handler"
+        )
     }
 
     func testDiffViewerURLIsNotPersistedForSessionRestore() throws {
