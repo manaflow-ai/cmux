@@ -105,18 +105,26 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
 
     func insert(_ connection: MobileHostConnection, id: UUID, limit: Int) -> Bool {
         lock.lock()
-        defer { lock.unlock() }
         guard connections.count < limit else {
+            lock.unlock()
             return false
         }
         connections[id] = connection
+        lock.unlock()
+        // Notify after the authoritative count actually changes (this registry
+        // backs `MobileHostServiceStatus.activeConnectionCount`), so the Mobile
+        // settings diagnostics reflect the real count rather than a stale one.
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
         return true
     }
 
     func remove(id: UUID) {
         lock.lock()
-        connections.removeValue(forKey: id)
+        let didRemove = connections.removeValue(forKey: id) != nil
         lock.unlock()
+        if didRemove {
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        }
     }
 
     func removeAll() -> [MobileHostConnection] {
@@ -124,6 +132,9 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
         let values = Array(connections.values)
         connections.removeAll()
         lock.unlock()
+        if !values.isEmpty {
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        }
         return values
     }
 
@@ -198,14 +209,12 @@ enum MobileHostRequestActivity {
         lock.lock()
         activeConnectionCount += 1
         lock.unlock()
-        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
     static func endConnection() {
         lock.lock()
         activeConnectionCount = max(0, activeConnectionCount - 1)
         lock.unlock()
-        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
     static func beginRequest() {
