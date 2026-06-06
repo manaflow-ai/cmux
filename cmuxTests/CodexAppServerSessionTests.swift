@@ -739,6 +739,46 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testCodexInputQueueBeforeThreadIsBounded() throws {
+        var sentLines: [String] = []
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { _, _ in }
+        )
+
+        try session.start()
+        try session.submit("first prompt")
+        expectThrowsError(try session.submit("second prompt"))
+
+        session.consumeStdout(
+            #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
+                + "\n")
+        session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
+
+        expectEqual(sentLines.count, 4)
+        let turnStart = jsonLine(sentLines[3])
+        expectEqual(turnStart["method"] as? String, "turn/start")
+        let turnParams = try #require(turnStart["params"] as? [String: Any])
+        let input = try #require(turnParams["input"] as? [[String: Any]])
+        expectEqual(input.first?["text"] as? String, "first prompt")
+    }
+
+    @Test
+    func testCodexInputQueueRejectsOversizedPromptBeforeThread() throws {
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { _ in },
+            outputSink: { _, _ in }
+        )
+
+        try session.start()
+        expectThrowsError(try session.submit(String(repeating: "x", count: 64 * 1024 + 1)))
+    }
+
+    @Test
     func testAutoReviewPermissionModeAddsCodexReviewerOverride() throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(

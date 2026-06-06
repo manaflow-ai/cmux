@@ -8,6 +8,9 @@ final class CodexAppServerSession {
     typealias TurnCompleteSink = () -> Void
     typealias FailureSink = (_ details: String?) -> Void
 
+    private static let maxQueuedInputCount = 1
+    private static let maxQueuedInputBytes = 64 * 1024
+
     private let workingDirectory: String?
     private let writeData: DataWriter
     private let outputSink: OutputSink
@@ -62,6 +65,9 @@ final class CodexAppServerSession {
             throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
         }
         guard let threadID else {
+            guard canQueueInput(text) else {
+                throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
+            }
             queuedInputs.append(CodexAppServerQueuedInput(text: text, permissionMode: permissionMode))
             if didInitialize {
                 try startThreadIfNeeded()
@@ -69,6 +75,14 @@ final class CodexAppServerSession {
             return
         }
         try sendTurnStart(threadID: threadID, text: text, permissionMode: permissionMode)
+    }
+
+    private func canQueueInput(_ text: String) -> Bool {
+        guard queuedInputs.count < Self.maxQueuedInputCount else { return false }
+        let queuedBytes = queuedInputs.reduce(0) { total, input in
+            total + input.text.utf8.count
+        }
+        return queuedBytes + text.utf8.count <= Self.maxQueuedInputBytes
     }
 
     func consumeStdout(_ text: String) {
