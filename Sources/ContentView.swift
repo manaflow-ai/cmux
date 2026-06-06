@@ -1749,7 +1749,10 @@ struct ContentView: View {
     }
 
     private var rightSidebarConfiguredMaximumWidth: CGFloat? {
-        RightSidebarWidthSettings.configuredMaximumWidth(from: rightSidebarMaxWidthSetting).map(CGFloat.init)
+        guard let width = RightSidebarWidthSettings.configuredMaximumWidth(from: rightSidebarMaxWidthSetting) else {
+            return nil
+        }
+        return CGFloat(width)
     }
 
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
