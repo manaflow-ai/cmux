@@ -782,6 +782,7 @@ struct TerminalNotification: Identifiable, Hashable {
     var isRead: Bool
     var paneFlash: Bool = true
     var clickAction: TerminalNotificationClickAction?
+    var openAnchor: TerminalNotificationOpenAnchor?
 
     init(
         id: UUID,
@@ -794,7 +795,8 @@ struct TerminalNotification: Identifiable, Hashable {
         createdAt: Date,
         isRead: Bool,
         paneFlash: Bool = true,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: TerminalNotificationClickAction? = nil,
+        openAnchor: TerminalNotificationOpenAnchor? = nil
     ) {
         self.id = id
         self.tabId = tabId
@@ -807,6 +809,7 @@ struct TerminalNotification: Identifiable, Hashable {
         self.isRead = isRead
         self.paneFlash = paneFlash
         self.clickAction = clickAction
+        self.openAnchor = openAnchor
     }
 
     func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
@@ -815,6 +818,17 @@ struct TerminalNotification: Identifiable, Hashable {
             return surfaceId == nil && panelId == nil
         }
         return surfaceId == targetSurfaceId || panelId == targetSurfaceId
+    }
+}
+
+struct TerminalNotificationOpenAnchor: Codable, Hashable, Sendable {
+    let scrollbarOffset: UInt64
+
+    /// Creates a notification reopen anchor from Ghostty's absolute scrollbar offset.
+    ///
+    /// - Parameter scrollbarOffset: Absolute top-row offset reported by Ghostty at prompt submit time.
+    init(scrollbarOffset: UInt64) {
+        self.scrollbarOffset = scrollbarOffset
     }
 }
 
@@ -909,6 +923,7 @@ final class TerminalNotificationStore: ObservableObject {
     private static let notificationHookFailureThrottle: TimeInterval = 300
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
     private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
+    private var promptSubmitOpenAnchors: [TabSurfaceKey: TerminalNotificationOpenAnchor] = [:]
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -1223,6 +1238,35 @@ final class TerminalNotificationStore: ObservableObject {
         notifications.filter { $0.matches(tabId: tabId, surfaceId: surfaceId) }
     }
 
+    /// Records the terminal scroll position that a future notification should reopen to.
+    ///
+    /// - Parameters:
+    ///   - anchor: Absolute terminal scrollback anchor captured at prompt submit time.
+    ///   - tabId: Workspace identifier that owns the terminal surface.
+    ///   - surfaceId: Terminal surface or panel identifier within the workspace.
+    func recordPromptSubmitOpenAnchor(
+        _ anchor: TerminalNotificationOpenAnchor,
+        forTabId tabId: UUID,
+        surfaceId: UUID?
+    ) {
+        promptSubmitOpenAnchors[TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)] = anchor
+    }
+
+    /// Returns the prompt-submit anchor for a workspace/surface notification target.
+    ///
+    /// - Parameters:
+    ///   - tabId: Workspace identifier that owns the notification.
+    ///   - surfaceId: Terminal surface or panel identifier for the notification.
+    /// - Returns: The most recent prompt-submit anchor for the target, if one was recorded.
+    func promptSubmitOpenAnchor(forTabId tabId: UUID, surfaceId: UUID?) -> TerminalNotificationOpenAnchor? {
+        let target = TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
+        if let anchor = promptSubmitOpenAnchors[target] {
+            return anchor
+        }
+        guard surfaceId != nil else { return nil }
+        return promptSubmitOpenAnchors[TabSurfaceKey(tabId: tabId, surfaceId: nil)]
+    }
+
     func clearLatestNotification(forTabId tabId: UUID) {
         guard let latestNotification = indexes.latestByTabId[tabId] else { return }
         remove(id: latestNotification.id)
@@ -1455,6 +1499,10 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: request.tabId,
             surfaceId: request.surfaceId
         )
+        let openAnchor = promptSubmitOpenAnchor(
+            forTabId: request.tabId,
+            surfaceId: request.panelId ?? request.surfaceId
+        )
         let notification = TerminalNotification(
             id: UUID(),
             tabId: request.tabId,
@@ -1466,7 +1514,8 @@ final class TerminalNotificationStore: ObservableObject {
             createdAt: now,
             isRead: !effects.markUnread,
             paneFlash: effects.paneFlash,
-            clickAction: clickAction
+            clickAction: clickAction,
+            openAnchor: openAnchor
         )
 
         if effects.record {
@@ -1852,7 +1901,8 @@ final class TerminalNotificationStore: ObservableObject {
             createdAt: notification.createdAt,
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
-            clickAction: notification.clickAction
+            clickAction: notification.clickAction,
+            openAnchor: notification.openAnchor
         )
     }
 
@@ -1932,7 +1982,8 @@ final class TerminalNotificationStore: ObservableObject {
                 createdAt: notification.createdAt,
                 isRead: notification.isRead,
                 paneFlash: notification.paneFlash,
-                clickAction: notification.clickAction
+                clickAction: notification.clickAction,
+                openAnchor: notification.openAnchor
             )
         }
         if didMoveNotification {
@@ -2360,6 +2411,7 @@ final class TerminalNotificationStore: ObservableObject {
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
         TerminalMutationBus.shared.discardPendingNotifications()
         self.notifications = notifications
+        promptSubmitOpenAnchors.removeAll()
         clearWorkspaceManualUnread()
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()

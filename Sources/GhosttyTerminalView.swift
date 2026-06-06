@@ -15241,6 +15241,45 @@ final class GhosttySurfaceScrollView: NSView {
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
+    /// Returns the current absolute scroll offset for later notification reopening.
+    ///
+    /// - Returns: A notification open anchor, or `nil` until Ghostty reports scrollbar state.
+    func notificationOpenAnchor() -> TerminalNotificationOpenAnchor? {
+        guard let scrollbar = surfaceView.scrollbar else { return nil }
+        return TerminalNotificationOpenAnchor(scrollbarOffset: scrollbar.offset)
+    }
+
+    /// Converts a saved absolute scroll offset into Ghostty's bottom-relative scroll row.
+    ///
+    /// - Parameters:
+    ///   - anchor: Prompt-submit anchor containing the absolute top-row offset.
+    ///   - scrollbar: Current Ghostty scrollbar state.
+    /// - Returns: Bottom-relative row count suitable for `scroll_to_row:<row>`.
+    static func notificationOpenScrollRow(
+        for anchor: TerminalNotificationOpenAnchor,
+        scrollbar: GhosttyScrollbar
+    ) -> Int {
+        guard scrollbar.total > scrollbar.len else { return 0 }
+        let bottomTopOffset = scrollbar.total - scrollbar.len
+        guard anchor.scrollbarOffset < bottomTopOffset else { return 0 }
+        let row = bottomTopOffset - anchor.scrollbarOffset
+        return row > UInt64(Int.max) ? Int.max : Int(row)
+    }
+
+    /// Scrolls Ghostty back to the prompt-submit anchor for a reopened notification.
+    ///
+    /// - Parameter anchor: The absolute scrollback anchor captured when the prompt was submitted.
+    /// - Returns: `true` if the scroll action was sent to Ghostty.
+    @discardableResult
+    func scrollToNotificationOpenAnchor(_ anchor: TerminalNotificationOpenAnchor) -> Bool {
+        guard let scrollbar = surfaceView.scrollbar else { return false }
+        let row = Self.notificationOpenScrollRow(for: anchor, scrollbar: scrollbar)
+        userScrolledAwayFromBottom = row > 0
+        allowExplicitScrollbarSync = true
+        lastSentRow = row
+        return surfaceView.performBindingAction("scroll_to_row:\(row)")
+    }
+
     private func synchronizeScrollView() {
         var didChangeGeometry = false
         let targetDocumentHeight = documentHeight()
