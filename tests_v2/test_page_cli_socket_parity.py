@@ -265,6 +265,54 @@ def main() -> int:
                 ["rename-page", "--workspace", workspace_id, "--page", first_page_ref, "agents"],
             )
 
+            numeric_title = _run_cli_json(
+                cli,
+                ["rename-page", "--workspace", workspace_id, "2024"],
+            )
+            _must(
+                str(numeric_title.get("page_id") or "") == second_page_id,
+                f"rename-page numeric title should target the current page: {numeric_title}",
+            )
+            _must(
+                str(numeric_title.get("page_title") or "") == "2024",
+                f"rename-page numeric title was misparsed as a page handle: {numeric_title}",
+            )
+            numeric_title_terminator = _run_cli_json(
+                cli,
+                ["rename-page", "--workspace", workspace_id, "--", "5"],
+            )
+            _must(
+                str(numeric_title_terminator.get("page_id") or "") == second_page_id,
+                f"rename-page -- numeric title should target the current page: {numeric_title_terminator}",
+            )
+            _must(
+                str(numeric_title_terminator.get("page_title") or "") == "5",
+                f"rename-page -- numeric title was misparsed as a page handle: {numeric_title_terminator}",
+            )
+            _run_cli_json(
+                cli,
+                ["rename-page", "--workspace", workspace_id, "editor"],
+            )
+
+            numeric_duplicate = _run_cli_json(
+                cli,
+                ["duplicate-page", "--workspace", workspace_id, "--", "5"],
+            )
+            numeric_duplicate_id = str(numeric_duplicate.get("page_id") or "")
+            numeric_duplicate_ref = str(numeric_duplicate.get("page_ref") or "")
+            _must(
+                bool(numeric_duplicate_id) and numeric_duplicate_id not in {first_page_id, second_page_id},
+                f"duplicate-page -- numeric title should create a distinct page: {numeric_duplicate}",
+            )
+            _must(
+                str(numeric_duplicate.get("page_title") or "") == "5",
+                f"duplicate-page -- numeric title was misparsed as a page handle: {numeric_duplicate}",
+            )
+            _run_cli_json(
+                cli,
+                ["close-page", "--workspace", workspace_id, "--page", numeric_duplicate_ref],
+            )
+
             with tempfile.TemporaryDirectory() as temp_dir:
                 Path(temp_dir, "list-pages").mkdir()
                 listed_from_path_collision = _run_cli_json(
