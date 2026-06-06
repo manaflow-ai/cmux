@@ -62,6 +62,11 @@ extension CMUXCLI {
         }
     }
 
+    private struct NodeOptionsFallbackCacheBaseState {
+        let owner: uid_t
+        let isSymbolicLink: Bool
+    }
+
     private static let nodeOptionsUnsafePathCharacters =
         CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'"))
 
@@ -79,6 +84,43 @@ extension CMUXCLI {
     private static func nodeOptionsMacOSSystemCachesRoot() -> URL? {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
             .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+    }
+
+    private static func nodeOptionsFallbackCacheBaseState(at url: URL) throws -> NodeOptionsFallbackCacheBaseState? {
+        var statValue = stat()
+        let result = lstat(url.path, &statValue)
+        if result == 0 {
+            return NodeOptionsFallbackCacheBaseState(
+                owner: statValue.st_uid,
+                isSymbolicLink: (statValue.st_mode & mode_t(S_IFMT)) == mode_t(S_IFLNK)
+            )
+        }
+        if errno == ENOENT {
+            return nil
+        }
+        throw NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(errno),
+            userInfo: [NSFilePathErrorKey: url.path]
+        )
+    }
+
+    private static func validateNodeOptionsFallbackCacheBase(_ url: URL, expectedOwner uid: uid_t) throws {
+        guard let state = try nodeOptionsFallbackCacheBaseState(at: url) else {
+            return
+        }
+        guard !state.isSymbolicLink else {
+            throw ClaudeNodeOptionsCachePathError(
+                reason: "fallback cache base is a symlink",
+                path: url.path
+            )
+        }
+        guard state.owner == uid else {
+            throw ClaudeNodeOptionsCachePathError(
+                reason: "fallback cache base is owned by a different uid",
+                path: url.path
+            )
+        }
     }
 
     func createClaudeNodeOptionsRestoreModule() throws -> URL {
@@ -150,33 +192,14 @@ extension CMUXCLI {
         let uid = getuid()
         let privateBase = URL(fileURLWithPath: "/var/tmp", isDirectory: true)
             .appendingPathComponent("cmux-\(uid)", isDirectory: true)
-        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: privateBase.path)) == nil else {
-            throw ClaudeNodeOptionsCachePathError(
-                reason: "fallback cache base is a symlink",
-                path: privateBase.path
-            )
-        }
+        try Self.validateNodeOptionsFallbackCacheBase(privateBase, expectedOwner: uid)
         try FileManager.default.createDirectory(
             at: privateBase,
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
+        try Self.validateNodeOptionsFallbackCacheBase(privateBase, expectedOwner: uid)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: privateBase.path)
-        let attributes = try FileManager.default.attributesOfItem(atPath: privateBase.path)
-        let owner = (attributes[.ownerAccountID] as? NSNumber)?.uint32Value
-        guard owner == uid else {
-            throw ClaudeNodeOptionsCachePathError(
-                reason: "fallback cache base is owned by a different uid",
-                path: privateBase.path
-            )
-        }
-        let values = try privateBase.resourceValues(forKeys: [.isSymbolicLinkKey])
-        guard values.isSymbolicLink != true else {
-            throw ClaudeNodeOptionsCachePathError(
-                reason: "fallback cache base is a symlink",
-                path: privateBase.path
-            )
-        }
 
         var root = privateBase
         if appScoped {

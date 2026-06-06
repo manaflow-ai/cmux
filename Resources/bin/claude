@@ -239,7 +239,6 @@ ensure_private_node_options_cache_base() {
         return 1
     fi
     mkdir -p "$base" || return 1
-    chmod 0700 "$base" || return 1
     if [[ -L "$base" ]]; then
         printf 'cmux: warning: fallback cache base is a symlink (%s); skipping NODE_OPTIONS restore module\n' "$base" >&2
         return 1
@@ -252,6 +251,7 @@ ensure_private_node_options_cache_base() {
         printf 'cmux: warning: fallback cache base owner is %s, expected %s (%s); skipping NODE_OPTIONS restore module\n' "$actual_uid" "$expected_uid" "$base" >&2
         return 1
     fi
+    chmod 0700 "$base" || return 1
 }
 
 ensure_node_options_restore_module() {
@@ -300,6 +300,10 @@ ensure_node_options_restore_module() {
     if [[ -n "${fallback_base:-}" ]]; then
         local mode_path="$guard_dir"
         while [[ "$mode_path" == "$fallback_base"/* ]]; do
+            if [[ -L "$mode_path" ]]; then
+                printf 'cmux: warning: fallback cache directory is a symlink (%s); skipping NODE_OPTIONS restore module\n' "$mode_path" >&2
+                return 1
+            fi
             chmod 0700 "$mode_path" || return 1
             mode_path="$(dirname "$mode_path")"
         done
