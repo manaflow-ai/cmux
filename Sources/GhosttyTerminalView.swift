@@ -6776,6 +6776,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
             lastYScale = scaleFactors.y
         }
 
+        if let surface, let workspaceThemeSelection {
+            GhosttyApp.shared.reloadSurfaceConfiguration(
+                surface,
+                soft: false,
+                source: "surface.create.workspaceTheme",
+                preferredColorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference,
+                workspaceTheme: workspaceThemeSelection
+            )
+            hostedView.applyWorkspaceThemeBackground(
+                selection: workspaceThemeSelection,
+                preferredColorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference,
+                reason: "surface.create.workspaceTheme"
+            )
+        }
+
         // Some GhosttyKit builds can drop inherited font_size during post-create
         // config/scale reconciliation. If runtime points don't match the inherited
         // template points, re-apply via binding action so all creation paths
@@ -6791,21 +6806,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 let action = String(format: "set_font_size:%.3f", inheritedFontPoints)
                 _ = performBindingAction(action)
             }
-        }
-
-        if let surface, let workspaceThemeSelection {
-            GhosttyApp.shared.reloadSurfaceConfiguration(
-                surface,
-                soft: false,
-                source: "surface.create.workspaceTheme",
-                preferredColorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference,
-                workspaceTheme: workspaceThemeSelection
-            )
-            hostedView.applyWorkspaceThemeBackground(
-                selection: workspaceThemeSelection,
-                preferredColorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference,
-                reason: "surface.create.workspaceTheme"
-            )
         }
 
         // Re-apply the desired focus state after creation so the live runtime
