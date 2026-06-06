@@ -12038,8 +12038,10 @@ final class Workspace: Identifiable, ObservableObject {
                     _ = reorderSurface(panelId: attachedPanelId, toIndex: targetIndex)
                 }
 
-                let selectedPanelId = entry.snapshot.selectedPanelId.flatMap { desiredPanelIds.contains($0) ? $0 : nil }
-                    ?? attachedPanelIds.first
+                let selectedPanelId = Self.runtimePageRestoreSelectedPanelId(
+                    snapshotSelectedPanelId: entry.snapshot.selectedPanelId,
+                    attachedPanelIds: attachedPanelIds
+                )
                 if let selectedPanelId,
                    let selectedTabId = surfaceIdFromPanelId(selectedPanelId) {
                     bonsplitController.focusPane(entry.paneId)
@@ -12084,6 +12086,13 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             scheduleFocusReconcile()
         }
+    }
+
+    static func runtimePageRestoreSelectedPanelId(
+        snapshotSelectedPanelId: UUID?,
+        attachedPanelIds: [UUID]
+    ) -> UUID? {
+        snapshotSelectedPanelId ?? attachedPanelIds.first
     }
 
     private func teardownStoredPageState(_ storedState: StoredPageState) {

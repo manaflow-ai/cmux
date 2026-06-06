@@ -239,4 +239,17 @@ struct WorkspacePageLifecycleTests {
             "Runtime page restore should not expose synthetic placeholder panels in recently closed items"
         )
     }
+
+    @Test func runtimePageRestoreFallsBackWhenSelectedPanelDidNotAttach() {
+        let missingSelectedPanelId = UUID()
+        let attachedPanelId = UUID()
+
+        #expect(
+            Workspace.runtimePageRestoreSelectedPanelId(
+                snapshotSelectedPanelId: missingSelectedPanelId,
+                attachedPanelIds: [attachedPanelId]
+            ) == attachedPanelId,
+            "Runtime page restore should select an attached fallback panel when the stored selected panel failed to attach"
+        )
+    }
 }
