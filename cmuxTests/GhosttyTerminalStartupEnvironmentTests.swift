@@ -118,10 +118,10 @@ struct GhosttyTerminalStartupEnvironmentTests {
             protectedKeys: &protectedKeys
         )
 
-        XCTAssertEqual(environment["CMUX_NO_GIT_WATCH"], "")
-        XCTAssertEqual(environment["CMUX_NO_PR_WATCH"], "1")
-        XCTAssertTrue(protectedKeys.contains("CMUX_NO_GIT_WATCH"))
-        XCTAssertTrue(protectedKeys.contains("CMUX_NO_PR_WATCH"))
+        expectEqual(environment["CMUX_NO_GIT_WATCH"], "")
+        expectEqual(environment["CMUX_NO_PR_WATCH"], "1")
+        expectTrue(protectedKeys.contains("CMUX_NO_GIT_WATCH"))
+        expectTrue(protectedKeys.contains("CMUX_NO_PR_WATCH"))
     }
 
     @Test
