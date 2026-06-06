@@ -220,6 +220,27 @@ final class FeedCoordinatorTests: XCTestCase {
             mode: "always"
         )?["decision"] as? [String: Any]
         XCTAssertNotNil(amendmentDecision?["acceptWithExecpolicyAmendment"])
+        let mixedParams: [String: Any] = [
+            "availableDecisions": [
+                "acceptForSession",
+                ["acceptWithExecpolicyAmendment": [:]]
+            ],
+            "proposedExecpolicyAmendment": [["kind": "prefix", "value": "npm test"]]
+        ]
+        XCTAssertEqual(
+            CMUXCLI.codexTeamsAppServerApprovalResponse(
+                method: "item/commandExecution/requestApproval",
+                params: mixedParams,
+                mode: "always"
+            )?["decision"] as? String,
+            "acceptForSession"
+        )
+        let allToolsDecision = CMUXCLI.codexTeamsAppServerApprovalResponse(
+            method: "item/commandExecution/requestApproval",
+            params: mixedParams,
+            mode: "all"
+        )?["decision"] as? [String: Any]
+        XCTAssertNotNil(allToolsDecision?["acceptWithExecpolicyAmendment"])
         XCTAssertEqual(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/fileChange/requestApproval",

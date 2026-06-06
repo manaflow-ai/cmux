@@ -18040,6 +18040,21 @@ struct CMUXCLI {
             ], timeout: timeout)
         }
 
+        func respondError(
+            requestId: Any,
+            code: Int,
+            message: String,
+            timeout: TimeInterval = 10
+        ) throws {
+            try sendObject([
+                "id": requestId,
+                "error": [
+                    "code": code,
+                    "message": message
+                ]
+            ], timeout: timeout)
+        }
+
         func request(
             method: String,
             params: [String: Any]? = nil,
@@ -18274,6 +18289,14 @@ struct CMUXCLI {
                try handleApprovalRequest(message, method: method, requestId: requestId, connection: connection) {
                 return
             }
+            if let requestId = message["id"] {
+                try connection.respondError(
+                    requestId: requestId,
+                    code: -32601,
+                    message: "cmux Codex Teams watcher does not handle \(method)"
+                )
+                return
+            }
             guard method.hasPrefix("thread/"),
                   let params = message["params"] as? [String: Any],
                   let threadObject = params["thread"] as? [String: Any],
@@ -18382,7 +18405,14 @@ struct CMUXCLI {
             connection: CodexTeamsAppServerConnection
         ) throws -> Bool {
             guard CMUXCLI.codexTeamsApprovalMethods.contains(method) else { return false }
-            guard let params = message["params"] as? [String: Any] else { return true }
+            guard let params = message["params"] as? [String: Any] else {
+                try connection.respondError(
+                    requestId: requestId,
+                    code: -32602,
+                    message: "\(method) is missing params"
+                )
+                return true
+            }
             let relatedItem = CMUXCLI.stringValue(in: params, keys: ["itemId", "item_id"])
                 .flatMap { cachedApprovalItem(itemId: $0) }
             let feedEvent = CMUXCLI.codexTeamsFeedEvent(
@@ -18744,12 +18774,23 @@ struct CMUXCLI {
 
     static func codexTeamsCommandApprovalDecision(params: [String: Any], mode: String) -> Any {
         if mode == "deny" { return "decline" }
+        if mode == "all" || mode == "bypass",
+           let decision = codexTeamsCommandApprovalAmendmentDecision(params: params) {
+            return decision
+        }
         if codexTeamsModeRequestsPersistentApproval(mode),
            codexTeamsAvailableDecisions(params).contains("acceptForSession") {
             return "acceptForSession"
         }
         if codexTeamsModeRequestsPersistentApproval(mode),
-           codexTeamsAvailableDecisions(params).contains("acceptWithExecpolicyAmendment"),
+           let decision = codexTeamsCommandApprovalAmendmentDecision(params: params) {
+            return decision
+        }
+        return "accept"
+    }
+
+    static func codexTeamsCommandApprovalAmendmentDecision(params: [String: Any]) -> Any? {
+        if codexTeamsAvailableDecisions(params).contains("acceptWithExecpolicyAmendment"),
            let amendment = params["proposedExecpolicyAmendment"] ?? params["proposed_execpolicy_amendment"] {
             return [
                 "acceptWithExecpolicyAmendment": [
@@ -18757,8 +18798,7 @@ struct CMUXCLI {
                 ]
             ]
         }
-        if codexTeamsModeRequestsPersistentApproval(mode),
-           codexTeamsAvailableDecisions(params).contains("applyNetworkPolicyAmendment"),
+        if codexTeamsAvailableDecisions(params).contains("applyNetworkPolicyAmendment"),
            let amendments = (params["proposedNetworkPolicyAmendments"] as? [Any])
                 ?? (params["proposed_network_policy_amendments"] as? [Any]),
            let amendment = amendments.first {
@@ -18768,7 +18808,7 @@ struct CMUXCLI {
                 ]
             ]
         }
-        return "accept"
+        return nil
     }
 
     static func codexTeamsFileChangeApprovalDecision(params: [String: Any], mode: String) -> String {
