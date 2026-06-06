@@ -247,6 +247,8 @@ def main() -> int:
             if listed != {"presets": []}:
                 raise AssertionError(f"layout list should work without a socket: {listed!r}")
 
+            assert_cli_fails(cli, socket_path, ["layout", "save", ".hidden"], "Preset names may not start with '.'")
+
             run_cli(cli, socket_path, ["new-workspace", "--name", "agent"])
             assert_last_call(state, "workspace.create", {"title": "agent", "focus": False})
 

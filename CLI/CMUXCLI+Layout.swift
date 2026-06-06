@@ -444,6 +444,9 @@ extension CMUXCLI {
         guard trimmed.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
             throw CLIError(message: String(localized: "cli.layout.error.invalidPresetNameCharacters", defaultValue: "Preset names may contain only letters, numbers, '.', '_', and '-'"))
         }
+        guard !trimmed.hasPrefix(".") else {
+            throw CLIError(message: String(localized: "cli.layout.error.invalidPresetNameHidden", defaultValue: "Preset names may not start with '.'"))
+        }
         guard !trimmed.contains("..") else {
             throw CLIError(message: String(localized: "cli.layout.error.invalidPresetNameParentDirectory", defaultValue: "Preset names may not contain '..'"))
         }

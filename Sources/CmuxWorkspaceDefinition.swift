@@ -92,6 +92,13 @@ struct CmuxWorkspacePresetDefinition: Codable, Sendable {
             ))
         }
 
+        guard !trimmed.hasPrefix(".") else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: codingPath,
+                debugDescription: "Preset names may not start with '.'"
+            ))
+        }
+
         guard !trimmed.contains("..") else {
             throw DecodingError.dataCorrupted(DecodingError.Context(
                 codingPath: codingPath,

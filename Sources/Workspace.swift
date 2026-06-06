@@ -2037,7 +2037,7 @@ extension Workspace {
             if let focusedPaneId,
                let selectedTabId = selectedTabIdByPaneId[focusedPaneId],
                selectedTabId != surfaceIdFromPanelId(focusPanelId) {
-                bonsplitController.selectTab(selectedTabId)
+                selectCustomLayoutTab(selectedTabId, inPane: focusedPaneId)
             }
         }
     }
@@ -2276,12 +2276,17 @@ extension Workspace {
         if surface.selected == true,
            let tabId = surfaceIdFromPanelId(panelId) {
             selectedTabIdByPaneId[paneId] = tabId
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(tabId)
+            selectCustomLayoutTab(tabId, inPane: paneId)
         }
         if surface.focus == true {
             focusPanelId = panelId
         }
+    }
+
+    private func selectCustomLayoutTab(_ tabId: TabID, inPane paneId: PaneID) {
+        // Bonsplit's tab selection is scoped to the focused pane.
+        bonsplitController.focusPane(paneId)
+        bonsplitController.selectTab(tabId)
     }
 
     private func applyCustomDividerPositions(

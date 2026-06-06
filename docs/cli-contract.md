@@ -218,6 +218,8 @@ Layout preset subcommands:
 | `layout list`, `layout ls` | List stored presets without requiring a socket. Supports `--json`. |
 | `layout path` | Print the active preset directory without requiring a socket. Supports `--json`. |
 
+Preset names are filename-safe identifiers: non-empty letters, numbers, `.`, `_`, and `-`; they must not start with `.` or contain `..`.
+
 Workspace and tab action names:
 
 | Command | Actions |
