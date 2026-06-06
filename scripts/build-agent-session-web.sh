@@ -11,6 +11,11 @@ if ! command -v bun >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v bunx >/dev/null 2>&1; then
+  echo "error: bunx is required to build AgentSessionWeb" >&2
+  exit 1
+fi
+
 if [ ! -f "$MARKED_JS" ]; then
   echo "error: missing markdown parser asset at $MARKED_JS" >&2
   exit 1
@@ -19,26 +24,23 @@ fi
 rm -rf "$OUT_REACT" "$OUT_SOLID"
 mkdir -p "$OUT_REACT/assets" "$OUT_SOLID/assets"
 
-bun build "$ROOT/webviews/src/agent-session/react/standalone.ts" \
-  --target browser \
-  --format esm \
-  --production \
-  --minify-syntax \
-  --minify-whitespace \
-  --outfile "$OUT_REACT/assets/app.js"
+bunx esbuild "$ROOT/webviews/src/agent-session/react/standalone.ts" \
+  --bundle \
+  --format=esm \
+  --platform=browser \
+  --target=es2022 \
+  '--define:process.env.NODE_ENV="production"' \
+  --minify \
+  --outfile="$OUT_REACT/assets/app.js"
 
-bun build "$ROOT/webviews/src/agent-session/solid/main.ts" \
-  --target browser \
-  --format esm \
-  --production \
-  --minify-syntax \
-  --minify-whitespace \
-  --outfile "$OUT_SOLID/assets/app.js"
-
-if ! command -v bunx >/dev/null 2>&1; then
-  echo "error: bunx is required to build AgentSessionWeb styles" >&2
-  exit 1
-fi
+bunx esbuild "$ROOT/webviews/src/agent-session/solid/main.ts" \
+  --bundle \
+  --format=esm \
+  --platform=browser \
+  --target=es2022 \
+  '--define:process.env.NODE_ENV="production"' \
+  --minify \
+  --outfile="$OUT_SOLID/assets/app.js"
 
 bunx tailwindcss \
   -i "$ROOT/webviews/src/agent-session/shared/styles.css" \
