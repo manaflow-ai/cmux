@@ -8447,11 +8447,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func syncMobileHostService() {
-        if MobileHostService.isListeningEnabled {
-            MobileHostService.shared.start()
-        } else {
-            MobileHostService.shared.stop()
-        }
+        MobileHostService.shared.syncToSettings()
     }
 
     private func syncActivationPolicy(defaults: UserDefaults = .standard) {
