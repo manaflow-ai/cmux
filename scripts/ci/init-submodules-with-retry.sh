@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-attempts="${CMUX_SUBMODULE_RETRY_ATTEMPTS:-3}"
+attempts="${CMUX_SUBMODULE_RETRY_ATTEMPTS:-5}"
 delay_seconds="${CMUX_SUBMODULE_RETRY_DELAY_SECONDS:-10}"
 depth="${CMUX_SUBMODULE_DEPTH:-1}"
 

@@ -318,6 +318,11 @@ check_vm_socket_tests_do_not_self_skip() {
 }
 
 check_retryable_submodule_checkout() {
+  if ! grep -Fq 'attempts="${CMUX_SUBMODULE_RETRY_ATTEMPTS:-5}"' "$ROOT_DIR/scripts/ci/init-submodules-with-retry.sh"; then
+    echo "FAIL: submodule retry wrapper must default to at least 5 attempts for transient GitHub connectivity outages"
+    exit 1
+  fi
+
   if grep -R -n "submodules: recursive" "$ROOT_DIR/.github/workflows"; then
     echo "FAIL: workflows must not let actions/checkout fetch submodules without the retry wrapper"
     exit 1
