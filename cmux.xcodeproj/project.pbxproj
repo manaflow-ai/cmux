@@ -417,6 +417,10 @@
 		A5C0DE0000000000000000B4 /* ProjectPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B3 /* ProjectPanelView.swift */; };
 		A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */; };
 		A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */; };
+		2F0C09000000000000000002 /* QuickTerminalConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C09000000000000000001 /* QuickTerminalConfiguration.swift */; };
+		2F0C0B000000000000000002 /* QuickTerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C0B000000000000000001 /* QuickTerminalController.swift */; };
+		2F0C0A000000000000000002 /* QuickTerminalPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C0A000000000000000001 /* QuickTerminalPlacement.swift */; };
+		2F0C08000000000000000002 /* QuickTerminalPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C08000000000000000001 /* QuickTerminalPosition.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
 		A5001643 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */; };
 		B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */; };
@@ -1092,6 +1096,10 @@
 		A5C0DE0000000000000000B3 /* ProjectPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectPanelView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectSchemesTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectTargetsTabView.swift; sourceTree = "<group>"; };
+		2F0C09000000000000000001 /* QuickTerminalConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/QuickTerminalConfiguration.swift; sourceTree = "<group>"; };
+		2F0C0B000000000000000001 /* QuickTerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/QuickTerminalController.swift; sourceTree = "<group>"; };
+		2F0C0A000000000000000001 /* QuickTerminalPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/QuickTerminalPlacement.swift; sourceTree = "<group>"; };
+		2F0C08000000000000000001 /* QuickTerminalPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/QuickTerminalPosition.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
 		A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInteractiveShellBootstrapBuilder.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C00002 /* RemoteLoopbackProxyAlias.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteLoopbackProxyAlias.swift; sourceTree = "<group>"; };
@@ -1611,6 +1619,10 @@
 				2F0C07000000000000000001 /* CmuxMainWindow.swift */,
 				AA5269A0C0DE0001FACE0001 /* ForeignFirstResponderPolicy.swift */,
 				2F0C06000000000000000001 /* MainWindowVisibilityController.swift */,
+				2F0C08000000000000000001 /* QuickTerminalPosition.swift */,
+				2F0C09000000000000000001 /* QuickTerminalConfiguration.swift */,
+				2F0C0A000000000000000001 /* QuickTerminalPlacement.swift */,
+				2F0C0B000000000000000001 /* QuickTerminalController.swift */,
 				A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */,
 				D35B71010000000000000002 /* StartupBreadcrumbLog.swift */,
 				A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */,
@@ -2668,6 +2680,10 @@
 					A5C0DE0000000000000000B4 /* ProjectPanelView.swift in Sources */,
 					A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */,
 					A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
+				2F0C09000000000000000002 /* QuickTerminalConfiguration.swift in Sources */,
+				2F0C0B000000000000000002 /* QuickTerminalController.swift in Sources */,
+				2F0C0A000000000000000002 /* QuickTerminalPlacement.swift in Sources */,
+				2F0C08000000000000000002 /* QuickTerminalPosition.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
 				A5001643 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C00001 /* RemoteLoopbackProxyAlias.swift in Sources */,
