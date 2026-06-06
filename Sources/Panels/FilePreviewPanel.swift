@@ -26,6 +26,410 @@ enum FilePreviewInteraction {
 
 }
 
+struct FileExternalOpenApplication: Identifiable, Equatable, Sendable {
+    let url: URL
+    let displayName: String
+    let isDefault: Bool
+
+    var id: String {
+        FileExternalOpenApplicationResolver.applicationIdentity(for: url)
+    }
+}
+
+struct FileExternalOpenApplicationResolver: Sendable {
+    var defaultApplicationURL: @Sendable (URL) -> URL?
+    var applicationURLs: @Sendable (URL) -> [URL]
+    var displayName: @Sendable (URL) -> String
+    var shouldIncludeApplication: @Sendable (URL) -> Bool
+
+    static let live = FileExternalOpenApplicationResolver(
+        defaultApplicationURL: { NSWorkspace.shared.urlForApplication(toOpen: $0) },
+        applicationURLs: { NSWorkspace.shared.urlsForApplications(toOpen: $0) },
+        displayName: { Self.liveDisplayName(for: $0) },
+        shouldIncludeApplication: { Self.shouldIncludeLiveApplication($0) }
+    )
+
+    func applications(for fileURL: URL) -> [FileExternalOpenApplication] {
+        let defaultURL = defaultApplicationURL(fileURL).flatMap { url in
+            shouldIncludeApplication(url) ? url : nil
+        }
+        let defaultIdentity = defaultURL.map(Self.applicationIdentity(for:))
+        var orderedURLs = defaultURL.map { [$0] } ?? []
+        orderedURLs.append(contentsOf: applicationURLs(fileURL).filter(shouldIncludeApplication))
+
+        var seenIdentities: Set<String> = []
+        return orderedURLs.compactMap { applicationURL in
+            let identity = Self.applicationIdentity(for: applicationURL)
+            guard seenIdentities.insert(identity).inserted else { return nil }
+            return FileExternalOpenApplication(
+                url: applicationURL,
+                displayName: displayName(applicationURL),
+                isDefault: identity == defaultIdentity
+            )
+        }
+    }
+
+    static func applicationIdentity(for url: URL) -> String {
+        url.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    private static func liveDisplayName(for applicationURL: URL) -> String {
+        let bundle = Bundle(url: applicationURL)
+        let bundleName = bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String
+        var name = bundleName ?? FileManager.default.displayName(atPath: applicationURL.path)
+        if name.lowercased().hasSuffix(".app") {
+            name = String(name.dropLast(4))
+        }
+        return name.isEmpty ? applicationURL.deletingPathExtension().lastPathComponent : name
+    }
+
+    private static func shouldIncludeLiveApplication(_ applicationURL: URL) -> Bool {
+        guard let bundleIdentifier = Bundle(url: applicationURL)?.bundleIdentifier?.lowercased() else {
+            return true
+        }
+        if Bundle.main.bundleIdentifier?.lowercased() == bundleIdentifier {
+            return false
+        }
+        return !bundleIdentifier.hasPrefix("dev.cmux.")
+            && !bundleIdentifier.hasPrefix("com.cmuxterm.")
+    }
+}
+
+enum FileExternalOpenAction {
+    @discardableResult
+    static func openDefault(fileURL: URL) -> Bool {
+        let resolver = FileExternalOpenApplicationResolver.live
+        let primaryApplication = resolver.applications(for: fileURL).first
+        return open(fileURL: fileURL, applicationURL: primaryApplication?.url)
+    }
+
+    @discardableResult
+    static func open(fileURL: URL, applicationURL: URL?) -> Bool {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = false
+        if let applicationURL {
+            NSWorkspace.shared.open([fileURL], withApplicationAt: applicationURL, configuration: configuration)
+            return true
+        }
+        return NSWorkspace.shared.open(fileURL)
+    }
+
+    static func revealInFinder(fileURL: URL) {
+        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+    }
+}
+
+enum FileExternalOpenText {
+    static var openWithMenu: String {
+        String(localized: "filePreview.openWith.menu", defaultValue: "Open With")
+    }
+
+    static var openExternally: String {
+        String(localized: "filePreview.openExternally", defaultValue: "Open Externally")
+    }
+
+    static func openInApplication(_ applicationName: String) -> String {
+        let format = String(localized: "filePreview.openInApplication", defaultValue: "Open in %@")
+        return String(format: format, applicationName)
+    }
+
+    static var revealInFinder: String {
+        String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder")
+    }
+}
+
+enum FileExternalOpenMenuFactory {
+    static func makeMenu(
+        fileURL: URL,
+        primaryApplication: FileExternalOpenApplication?,
+        otherApplications: [FileExternalOpenApplication]
+    ) -> NSMenu {
+        let menu = NSMenu(title: FileExternalOpenText.openWithMenu)
+        menu.autoenablesItems = false
+
+        if let primaryApplication {
+            menu.addItem(menuItem(
+                title: FileExternalOpenText.openInApplication(primaryApplication.displayName),
+                fileURL: fileURL,
+                action: .open(applicationURL: primaryApplication.url)
+            ))
+        } else {
+            menu.addItem(menuItem(
+                title: FileExternalOpenText.openExternally,
+                fileURL: fileURL,
+                action: .open(applicationURL: nil)
+            ))
+        }
+
+        menu.addItem(menuItem(
+            title: FileExternalOpenText.revealInFinder,
+            fileURL: fileURL,
+            action: .revealInFinder
+        ))
+
+        if !otherApplications.isEmpty {
+            menu.addItem(.separator())
+            let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
+            openWithMenu.autoenablesItems = false
+            for application in otherApplications {
+                openWithMenu.addItem(menuItem(
+                    title: application.displayName,
+                    fileURL: fileURL,
+                    action: .open(applicationURL: application.url)
+                ))
+            }
+            let openWithItem = NSMenuItem(
+                title: FileExternalOpenText.openWithMenu,
+                action: nil,
+                keyEquivalent: ""
+            )
+            openWithItem.submenu = openWithMenu
+            menu.addItem(openWithItem)
+        }
+
+        return menu
+    }
+
+    private static func menuItem(
+        title: String,
+        fileURL: URL,
+        action: FileExternalOpenMenuPayloadAction
+    ) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: title,
+            action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
+            keyEquivalent: ""
+        )
+        item.target = FileExternalOpenMenuActionTarget.shared
+        item.representedObject = FileExternalOpenMenuActionPayload(
+            fileURL: fileURL,
+            action: action
+        )
+        return item
+    }
+}
+
+enum FileExternalOpenMenuStyle {
+    case header
+    case chrome
+
+    var buttonSize: CGSize {
+        switch self {
+        case .header:
+            return CGSize(width: 18, height: 18)
+        case .chrome:
+            return CGSize(width: 40, height: 40)
+        }
+    }
+}
+
+struct FileExternalOpenMenu: View {
+    let fileURL: URL
+    var isDisabled = false
+    var style: FileExternalOpenMenuStyle = .header
+
+    @State private var resolvedApplications: [FileExternalOpenApplication] = []
+
+    var body: some View {
+        let applications = resolvedApplications
+        let primaryApplication = primaryApplication(in: applications)
+        let otherApplications = applications.filter { application in
+            application.id != primaryApplication?.id
+        }
+        let helpText = helpText(for: primaryApplication)
+
+        Group {
+            switch style {
+            case .header:
+                FileExternalOpenHeaderMenuButton(
+                    fileURL: fileURL,
+                    primaryApplication: primaryApplication,
+                    otherApplications: otherApplications,
+                    helpText: helpText,
+                    isDisabled: isDisabled
+                )
+            case .chrome:
+                Button {
+                    presentMenu(
+                        applications: applications,
+                        currentPrimaryApplication: primaryApplication,
+                        otherApplications: otherApplications
+                    )
+                } label: {
+                    label
+                }
+                .contentShape(Rectangle())
+                .disabled(isDisabled)
+                .help(helpText)
+                .accessibilityLabel(helpText)
+            }
+        }
+        .task(id: fileURL) {
+            await refreshApplications()
+        }
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        switch style {
+        case .header:
+            PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
+        case .chrome:
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: style.buttonSize.width, height: style.buttonSize.height)
+                .contentShape(Rectangle())
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func primaryApplication(in applications: [FileExternalOpenApplication]) -> FileExternalOpenApplication? {
+        applications.first { $0.isDefault } ?? applications.first
+    }
+
+    private func helpText(for primaryApplication: FileExternalOpenApplication?) -> String {
+        if let primaryApplication {
+            return openInTitle(primaryApplication.displayName)
+        }
+        return FileExternalOpenText.openExternally
+    }
+
+    private func openInTitle(_ applicationName: String) -> String {
+        FileExternalOpenText.openInApplication(applicationName)
+    }
+
+    @MainActor
+    private func refreshApplications() async {
+        resolvedApplications = []
+        let url = fileURL
+        let applications = await Task.detached(priority: .userInitiated) {
+            FileExternalOpenApplicationResolver.live.applications(for: url)
+        }.value
+        guard !Task.isCancelled else { return }
+        resolvedApplications = applications
+    }
+
+    private func presentMenu(
+        applications: [FileExternalOpenApplication],
+        currentPrimaryApplication: FileExternalOpenApplication?,
+        otherApplications: [FileExternalOpenApplication]
+    ) {
+        guard !isDisabled else { return }
+        let menuApplications: [FileExternalOpenApplication]
+        if applications.isEmpty {
+            menuApplications = FileExternalOpenApplicationResolver.live.applications(for: fileURL)
+        } else {
+            menuApplications = applications
+        }
+        let primary = primaryApplication(in: menuApplications) ?? currentPrimaryApplication
+        let others = menuApplications.filter { application in
+            application.id != primary?.id
+        } + otherApplications.filter { application in
+            application.id != primary?.id
+                && !menuApplications.contains(where: { $0.id == application.id })
+        }
+        let menu = makeMenu(primaryApplication: primary, otherApplications: others)
+        if let event = NSApp.currentEvent, let contentView = event.window?.contentView {
+            let point = contentView.convert(event.locationInWindow, from: nil)
+            menu.popUp(positioning: nil as NSMenuItem?, at: point, in: contentView)
+        } else {
+            menu.popUp(positioning: nil as NSMenuItem?, at: NSEvent.mouseLocation, in: nil as NSView?)
+        }
+    }
+
+    private func makeMenu(
+        primaryApplication: FileExternalOpenApplication?,
+        otherApplications: [FileExternalOpenApplication]
+    ) -> NSMenu {
+        FileExternalOpenMenuFactory.makeMenu(
+            fileURL: fileURL,
+            primaryApplication: primaryApplication,
+            otherApplications: otherApplications
+        )
+    }
+}
+
+private struct FileExternalOpenHeaderMenuButton: View {
+    let fileURL: URL
+    let primaryApplication: FileExternalOpenApplication?
+    let otherApplications: [FileExternalOpenApplication]
+    let helpText: String
+    let isDisabled: Bool
+
+    var body: some View {
+        Button(action: presentMenu) {
+            PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .disabled(isDisabled)
+        .help(helpText)
+        .accessibilityLabel(helpText)
+    }
+
+    private func presentMenu() {
+        let menu = makeMenu()
+        if let event = NSApp.currentEvent,
+           let contentView = event.window?.contentView {
+            let point = contentView.convert(event.locationInWindow, from: nil)
+            menu.popUp(positioning: nil as NSMenuItem?, at: point, in: contentView)
+            return
+        }
+
+        guard let contentView = NSApp.keyWindow?.contentView else { return }
+        menu.popUp(
+            positioning: nil as NSMenuItem?,
+            at: NSPoint(x: contentView.bounds.maxX - 24, y: contentView.bounds.maxY - 32),
+            in: contentView
+        )
+    }
+
+    private func makeMenu() -> NSMenu {
+        FileExternalOpenMenuFactory.makeMenu(
+            fileURL: fileURL,
+            primaryApplication: primaryApplication,
+            otherApplications: otherApplications
+        )
+    }
+}
+
+private enum FileExternalOpenMenuPayloadAction {
+    case open(applicationURL: URL?)
+    case revealInFinder
+}
+
+private final class FileExternalOpenMenuActionPayload: NSObject {
+    let fileURL: URL
+    let action: FileExternalOpenMenuPayloadAction
+
+    init(fileURL: URL, action: FileExternalOpenMenuPayloadAction) {
+        self.fileURL = fileURL
+        self.action = action
+    }
+}
+
+private final class FileExternalOpenMenuActionTarget: NSObject {
+    static let shared = FileExternalOpenMenuActionTarget()
+
+    @objc func open(_ item: NSMenuItem) {
+        guard let payload = item.representedObject as? FileExternalOpenMenuActionPayload else {
+            return
+        }
+        switch payload.action {
+        case .open(let applicationURL):
+            guard let applicationURL else {
+                FileExternalOpenAction.openDefault(fileURL: payload.fileURL)
+                return
+            }
+            FileExternalOpenAction.open(fileURL: payload.fileURL, applicationURL: applicationURL)
+        case .revealInFinder:
+            FileExternalOpenAction.revealInFinder(fileURL: payload.fileURL)
+        }
+    }
+}
+
 struct FilePreviewDragEntry {
     let filePath: String
     let displayTitle: String
@@ -257,10 +661,10 @@ enum FilePreviewKindResolver {
     ]
 
     private static let textExtensions: Set<String> = [
-        "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "env",
+        "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "cts", "env",
         "fish", "go", "h", "hpp", "htm", "html", "ini", "java", "js", "json",
-        "jsx", "kt", "log", "m", "markdown", "md", "mdx", "mm", "plist", "py",
-        "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
+        "jsx", "kt", "log", "m", "markdown", "md", "mdx", "mm", "mts", "plist",
+        "py", "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
         "xml", "yaml", "yml", "zsh"
     ]
 
@@ -313,6 +717,10 @@ enum FilePreviewKindResolver {
 
     private static func initialResolution(for url: URL) -> Resolution {
         let ext = url.pathExtension.lowercased()
+        if let textResolution = knownTextResolutionBeforeMedia(for: url, sniffMediaCollisions: false) {
+            return textResolution
+        }
+
         if let type = UTType(filenameExtension: ext),
            let mediaMode = mediaMode(for: type) {
             return .resolved(mediaMode)
@@ -333,6 +741,10 @@ enum FilePreviewKindResolver {
         let ext = url.pathExtension.lowercased()
         if ext == "plist", looksLikeBinaryPropertyList(url: url) {
             return .resolved(.quickLook)
+        }
+
+        if let textResolution = knownTextResolutionBeforeMedia(for: url, sniffMediaCollisions: true) {
+            return textResolution
         }
 
         for type in contentTypes(for: url) {
@@ -397,6 +809,35 @@ enum FilePreviewKindResolver {
         return false
     }
 
+    private static func knownTextResolutionBeforeMedia(for url: URL, sniffMediaCollisions: Bool) -> Resolution? {
+        let filename = url.lastPathComponent.lowercased()
+        let ext = url.pathExtension.lowercased()
+        guard ext != "plist",
+              textFilenames.contains(filename) || textExtensions.contains(ext) else {
+            return nil
+        }
+
+        guard let type = UTType(filenameExtension: ext),
+              let mediaMode = mediaMode(for: type),
+              !type.conforms(to: .text),
+              !type.conforms(to: .sourceCode) else {
+            return .resolved(.text)
+        }
+
+        // Source extensions can collide with system audio/video UTIs (.ts, .mts).
+        // Initial routing stays extension-only; resolved routing sniffs off-main.
+        guard sniffMediaCollisions else {
+            return .resolved(.text)
+        }
+        if sniffLooksLikeText(url: url) {
+            return .resolved(.text)
+        }
+        if looksLikeMPEGTransportStream(url: url) {
+            return .resolved(.media)
+        }
+        return .resolved(mediaMode)
+    }
+
     private static func looksLikeBinaryPropertyList(url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
@@ -404,21 +845,48 @@ enum FilePreviewKindResolver {
         return String(data: data, encoding: .ascii) == "bplist00"
     }
 
+    private static func looksLikeMPEGTransportStream(url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+
+        let data = (try? handle.read(upToCount: 4096)) ?? Data()
+        guard data.count >= 376 else { return false }
+
+        let syncCandidates = [
+            (packetSize: 188, syncOffset: 0),
+            (packetSize: 192, syncOffset: 0),
+            (packetSize: 192, syncOffset: 4),
+            (packetSize: 204, syncOffset: 0)
+        ]
+
+        for candidate in syncCandidates where data.count > candidate.syncOffset {
+            var offset = candidate.syncOffset
+            var syncCount = 0
+            while offset < data.count {
+                guard data[offset] == 0x47 else { break }
+                syncCount += 1
+                offset += candidate.packetSize
+            }
+            if syncCount >= 2 {
+                return true
+            }
+        }
+
+        return false
+    }
+
     private static func sniffLooksLikeText(url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
         let data = (try? handle.read(upToCount: 4096)) ?? Data()
         guard !data.isEmpty else { return true }
-        if String(data: data, encoding: .utf8) != nil {
-            return true
-        }
         if hasUTF16ByteOrderMark(data), String(data: data, encoding: .utf16) != nil {
             return true
         }
         if data.contains(0) {
             return false
         }
-        return false
+        return String(data: data, encoding: .utf8) != nil
     }
 
     private static func hasUTF16ByteOrderMark(_ data: Data) -> Bool {
@@ -501,7 +969,7 @@ enum FilePreviewTextSaver {
 }
 
 @MainActor
-final class FilePreviewPanel: Panel, ObservableObject {
+final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
     let id: UUID
     let panelType: PanelType = .filePreview
     let filePath: String
@@ -515,6 +983,8 @@ final class FilePreviewPanel: Panel, ObservableObject {
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
 
+    let nativeViewSessions = FilePreviewNativeViewSessions()
+
     private var originalTextContent = ""
     private var textEncoding: String.Encoding = .utf8
     private var previewModeGeneration = 0
@@ -523,16 +993,24 @@ final class FilePreviewPanel: Panel, ObservableObject {
     private var activeSaveGeneration: Int?
     private weak var textView: NSTextView?
     private let focusCoordinator: FilePreviewFocusCoordinator
+    private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
     }
 
-    init(workspaceId: UUID, filePath: String) {
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
+            await FilePreviewTextLoader.load(url: url)
+        }
+    ) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
+        self.textLoader = textLoader
         let fileURL = URL(fileURLWithPath: filePath)
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
         self.previewMode = initialPreviewMode
@@ -554,6 +1032,7 @@ final class FilePreviewPanel: Panel, ObservableObject {
     }
 
     func close() {
+        nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
     }
@@ -632,7 +1111,7 @@ final class FilePreviewPanel: Panel, ObservableObject {
             filePreviewIntent = target
         case .panel:
             filePreviewIntent = focusCoordinator.preferredIntent
-        case .terminal, .browser:
+        case .terminal, .browser, .project:
             return false
         }
         return focusCoordinator.focus(filePreviewIntent)
@@ -685,21 +1164,31 @@ final class FilePreviewPanel: Panel, ObservableObject {
 
     private func applyResolvedPreviewMode(_ mode: FilePreviewMode) {
         guard previewMode != mode else { return }
+        if mode != .text {
+            textLoadGeneration += 1
+        }
         previewMode = mode
         displayIcon = FilePreviewKindResolver.iconName(for: mode)
         focusCoordinator.notePreferredIntent(Self.defaultFocusIntent(for: mode))
+        nativeViewSessions.closeInactive(except: mode)
         prepareContentForPreviewMode()
     }
 
     @discardableResult
     func loadTextContent(replacingDirtyContent: Bool = true) -> Task<Void, Never> {
+        guard previewMode == .text else {
+            return Task {}
+        }
         textLoadGeneration += 1
         let generation = textLoadGeneration
         let fileURL = fileURL
+        let textLoader = textLoader
 
-        return Task { [weak self, fileURL, generation, replacingDirtyContent] in
-            let result = await FilePreviewTextLoader.load(url: fileURL)
-            guard let self, self.textLoadGeneration == generation else { return }
+        return Task { [weak self, fileURL, generation, replacingDirtyContent, textLoader] in
+            let result = await textLoader(fileURL)
+            guard let self,
+                  self.textLoadGeneration == generation,
+                  self.previewMode == .text else { return }
             self.applyTextLoadResult(result, replacingDirtyContent: replacingDirtyContent)
         }
     }
@@ -795,13 +1284,14 @@ struct FilePreviewPanelView: View {
 
     @State private var focusFlashOpacity = 0.0
     @State private var focusFlashAnimationGeneration = 0
-
-    private var themeBackgroundColor: NSColor {
-        appearance.backgroundColor
-    }
+    @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
 
     private var themeForegroundColor: NSColor {
         appearance.foregroundColor
+    }
+
+    private var contentBackgroundColor: NSColor {
+        appearance.contentBackgroundColor
     }
 
     var body: some View {
@@ -813,13 +1303,9 @@ struct FilePreviewPanelView: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: themeBackgroundColor))
+        .background(Color(nsColor: contentBackgroundColor))
         .overlay {
-            RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
-                .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
-                .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
-                .padding(FocusFlashPattern.ringInset)
-                .allowsHitTesting(false)
+            WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
         }
         .overlay {
             if isVisibleInUI {
@@ -832,42 +1318,29 @@ struct FilePreviewPanelView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: panel.displayIcon ?? "doc.viewfinder")
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            Text(panel.filePath)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(Color(nsColor: themeForegroundColor).opacity(0.68))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-            Spacer(minLength: 8)
+        PanelFilePathHeader(
+            iconSystemName: panel.displayIcon ?? "doc.viewfinder",
+            filePath: panel.filePath,
+            foregroundColor: themeForegroundColor
+        ) {
             if panel.previewMode == .text {
-                Button {
-                    panel.loadTextContent()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                }
-                .buttonStyle(.borderless)
-                .disabled(!panel.isDirty)
-                .help(String(localized: "filePreview.revert", defaultValue: "Revert"))
-                .accessibilityLabel(String(localized: "filePreview.revert", defaultValue: "Revert"))
+                PanelHeaderIconButton(
+                    systemName: "arrow.counterclockwise",
+                    label: String(localized: "filePreview.revert", defaultValue: "Revert"),
+                    isDisabled: !panel.isDirty,
+                    action: { panel.loadTextContent() }
+                )
 
-                Button {
-                    panel.saveTextContent()
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
-                }
-                .buttonStyle(.borderless)
-                .disabled(!panel.isDirty || panel.isSaving)
-                .help(String(localized: "filePreview.save", defaultValue: "Save"))
-                .accessibilityLabel(String(localized: "filePreview.save", defaultValue: "Save"))
+                PanelHeaderIconButton(
+                    systemName: "square.and.arrow.down",
+                    label: String(localized: "filePreview.save", defaultValue: "Save"),
+                    isDisabled: !panel.isDirty || panel.isSaving,
+                    action: { panel.saveTextContent() }
+                )
             }
+
+            FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
         }
-        .padding(.horizontal, 12)
-        .frame(height: 30)
-        .background(Color(nsColor: themeBackgroundColor))
     }
 
     @ViewBuilder
@@ -880,17 +1353,39 @@ struct FilePreviewPanelView: View {
                 FilePreviewTextEditor(
                     panel: panel,
                     isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: themeBackgroundColor,
-                    themeForegroundColor: themeForegroundColor
+                    themeBackgroundColor: contentBackgroundColor,
+                    themeForegroundColor: themeForegroundColor,
+                    drawsBackground: appearance.drawsContentBackground,
+                    wordWrap: fileEditorWordWrap
                 )
             case .pdf:
-                FilePreviewPDFView(panel: panel, isVisibleInUI: isVisibleInUI)
+                FilePreviewPDFView(
+                    panel: panel,
+                    isVisibleInUI: isVisibleInUI,
+                    backgroundColor: contentBackgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                )
             case .image:
-                FilePreviewImageView(panel: panel, isVisibleInUI: isVisibleInUI)
+                FilePreviewImageView(
+                    panel: panel,
+                    isVisibleInUI: isVisibleInUI,
+                    backgroundColor: contentBackgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                )
             case .media:
-                FilePreviewMediaView(panel: panel, isVisibleInUI: isVisibleInUI)
+                FilePreviewMediaView(
+                    panel: panel,
+                    isVisibleInUI: isVisibleInUI,
+                    backgroundColor: contentBackgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                )
             case .quickLook:
-                QuickLookPreviewView(panel: panel, isVisibleInUI: isVisibleInUI)
+                QuickLookPreviewView(
+                    panel: panel,
+                    isVisibleInUI: isVisibleInUI,
+                    backgroundColor: contentBackgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                )
             }
         }
     }
@@ -944,19 +1439,26 @@ struct FilePreviewPanelView: View {
 private struct FilePreviewPDFView: NSViewRepresentable {
     let panel: FilePreviewPanel
     let isVisibleInUI: Bool
+    let backgroundColor: NSColor
+    let drawsBackground: Bool
 
     func makeNSView(context: Context) -> FilePreviewPDFContainerView {
-        let view = FilePreviewPDFContainerView()
-        view.isHidden = !isVisibleInUI
-        view.setPanel(panel)
-        view.setURL(panel.fileURL)
-        return view
+        panel.nativeViewSessions.pdf.view(
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 
     func updateNSView(_ nsView: FilePreviewPDFContainerView, context: Context) {
-        nsView.isHidden = !isVisibleInUI
-        nsView.setPanel(panel)
-        nsView.setURL(panel.fileURL)
+        panel.nativeViewSessions.pdf.update(
+            nsView,
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 }
 
@@ -1049,7 +1551,7 @@ final class FilePreviewPDFChromeHostView: NSView {
 
 final class FilePreviewPDFChromeHostingView: NSHostingView<AnyView> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        PaneFirstClickFocusSettings.isEnabled()
+        true
     }
 }
 
@@ -1166,6 +1668,7 @@ private struct FilePreviewPDFSidebarChromeView: View {
 
 struct FilePreviewPDFZoomChromeView: View {
     let chromeStyleVariant: FilePreviewPDFChromeStyleVariant
+    let fileURL: URL?
     let zoomOut: () -> Void
     let actualSize: () -> Void
     let zoomIn: () -> Void
@@ -1178,6 +1681,9 @@ struct FilePreviewPDFZoomChromeView: View {
             ControlGroup {
                 zoomButtons(includeDividers: false)
                 secondaryButtons(includeDividers: false)
+                if let fileURL {
+                    FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
+                }
             } label: {
                 Label(
                     String(localized: "filePreview.pdf.zoomControls", defaultValue: "Zoom Controls"),
@@ -1198,6 +1704,14 @@ struct FilePreviewPDFZoomChromeView: View {
                 }
                 .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
                 .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
+
+                if let fileURL {
+                    HStack(spacing: 0) {
+                        FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
+                    }
+                    .frame(width: 40, height: 40)
+                    .modifier(FilePreviewPDFStandaloneChromeStyleModifier(variant: chromeStyleVariant))
+                }
             }
         }
     }
@@ -1368,6 +1882,7 @@ struct FilePreviewPDFChromeStyleModifier: ViewModifier {
             content
                 .buttonStyle(.borderless)
                 .controlSize(.regular)
+                .foregroundStyle(Color.secondary)
         }
     }
 
@@ -1427,6 +1942,76 @@ struct FilePreviewPDFChromeStyleModifier: ViewModifier {
             .background(material, in: Capsule())
             .overlay {
                 Capsule()
+                    .stroke(Color(nsColor: .separatorColor).opacity(strokeOpacity), lineWidth: 0.5)
+            }
+    }
+}
+
+struct FilePreviewPDFStandaloneChromeStyleModifier: ViewModifier {
+    let variant: FilePreviewPDFChromeStyleVariant
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch variant {
+        case .systemControlGroup:
+            content
+                .buttonStyle(.automatic)
+                .controlSize(.regular)
+        case .liquidGlass:
+            liquidGlassChrome(content: content)
+        case .materialCapsule:
+            materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.5)
+        case .borderedCapsule:
+            materialChrome(content: content, material: .ultraThinMaterial, strokeOpacity: 0.55)
+        case .thinOutline:
+            materialChrome(content: content, material: .thinMaterial, strokeOpacity: 0.75)
+        case .plainToolbar:
+            content
+                .buttonStyle(.borderless)
+                .controlSize(.regular)
+                .foregroundStyle(Color.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func liquidGlassChrome(content: Content) -> some View {
+        #if compiler(>=6.3)
+        if #available(macOS 26.0, *) {
+            content
+                .buttonStyle(.borderless)
+                .controlSize(.regular)
+                .foregroundStyle(Color.secondary)
+                .glassEffect(.regular, in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(Color.white.opacity(0.24), lineWidth: 0.85)
+                }
+                .shadow(color: Color.black.opacity(0.18), radius: 8, y: 1)
+        } else {
+            materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.28)
+        }
+        #else
+        materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.28)
+        #endif
+    }
+
+    private func materialChrome(
+        content: Content,
+        material: Material,
+        strokeOpacity: Double
+    ) -> some View {
+        content
+            .buttonStyle(.borderless)
+            .controlSize(.regular)
+            .foregroundStyle(Color.secondary)
+            .background {
+                Circle()
+                    .fill(material)
+                Circle()
+                    .fill(Color.white.opacity(0.04))
+            }
+            .overlay {
+                Circle()
                     .stroke(Color(nsColor: .separatorColor).opacity(strokeOpacity), lineWidth: 0.5)
             }
     }
@@ -1822,7 +2407,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         static let minimumSidebarWidth = FilePreviewPDFSizing.minimumSidebarWidth
         static let maximumSidebarWidth = FilePreviewPDFSizing.maximumSidebarWidth
         static let floatingChromeHeight: CGFloat = 40
-        static let floatingControlsWidth: CGFloat = 266
+        static let floatingControlsWidth: CGFloat = 344
         static let floatingChromeCornerRadius: CGFloat = 20
     }
 
@@ -1857,10 +2442,25 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var activePDFRegion: FilePreviewPanelFocusIntent?
     private weak var observedPDFClipView: NSClipView?
     private var rotationAccumulator: CGFloat = 0
+    private var previewBackgroundColor = NSColor.textBackgroundColor
+    private var drawsPreviewBackground = true
+    private var lastAppliedPDFScrollBackgroundAppearance: PDFScrollBackgroundAppearance?
     private static let documentLoadQueue = DispatchQueue(
         label: "com.cmux.file-preview.pdf-document-load",
         qos: .userInitiated
     )
+
+    private struct PDFScrollBackgroundAppearance {
+        let hostIdentifiers: Set<ObjectIdentifier>
+        let backgroundColor: NSColor
+        let drawsBackground: Bool
+
+        func matches(_ other: PDFScrollBackgroundAppearance) -> Bool {
+            hostIdentifiers == other.hostIdentifiers
+                && drawsBackground == other.drawsBackground
+                && backgroundColor.isEqual(other.backgroundColor)
+        }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1884,6 +2484,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 
     override func layout() {
         super.layout()
+        applyBackgroundAppearance()
         if !didSetInitialSidebarWidth, bounds.width > 0 {
             didSetInitialSidebarWidth = true
             let initialWidth = clampedSidebarWidth(lastSidebarWidth)
@@ -1908,6 +2509,25 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         registerFocusEndpoint()
     }
 
+    func close() {
+        removeFromSuperview()
+        removePDFScrollObserver()
+        NotificationCenter.default.removeObserver(self)
+        pdfView.document = nil
+        thumbnailView.setDocument(nil)
+        outlineRoot = nil
+        currentURL = nil
+        panel = nil
+    }
+
+    func setBackgroundAppearance(backgroundColor: NSColor, drawsBackground: Bool) {
+        guard previewBackgroundColor != backgroundColor || drawsPreviewBackground != drawsBackground else { return }
+        previewBackgroundColor = backgroundColor
+        drawsPreviewBackground = drawsBackground
+        invalidatePDFScrollBackgroundAppearance()
+        applyBackgroundAppearance()
+    }
+
     func setURL(_ url: URL) {
         guard currentURL != url else {
             applyPreferredSidebarWidthIfNeeded()
@@ -1916,6 +2536,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             return
         }
         currentURL = url
+        updateChromeRootViews()
         pdfView.document = nil
         thumbnailView.setDocument(nil)
         outlineRoot = nil
@@ -1953,6 +2574,8 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         updateSidebarContent()
         applyPreferredSidebarWidthIfNeeded()
         updatePageControls(scrollThumbnailToVisible: false)
+        invalidatePDFScrollBackgroundAppearance()
+        applyBackgroundAppearance()
         refreshPDFSmartFitWithoutViewportRestore()
     }
 
@@ -1962,11 +2585,11 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         setupSidebar()
         setupPDFView()
         setupFloatingChrome()
+        applyBackgroundAppearance()
 
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
         pdfView.displaysPageBreaks = true
-        pdfView.backgroundColor = .textBackgroundColor
         pdfView.minScaleFactor = 0.1
         pdfView.maxScaleFactor = 8.0
         pdfView.onMagnify = { [weak self] event in
@@ -2090,7 +2713,6 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 
     private func setupPDFView() {
         contentHost.wantsLayer = true
-        contentHost.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
         pdfView.translatesAutoresizingMaskIntoConstraints = false
         pdfView.onFocusChanged = { [weak self] isActive in
             self?.setActivePDFRegion(isActive ? .pdfCanvas : nil)
@@ -2102,6 +2724,57 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             pdfView.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor),
             pdfView.bottomAnchor.constraint(equalTo: contentHost.bottomAnchor),
         ])
+    }
+
+    private func applyBackgroundAppearance() {
+        FilePreviewNativeBackground.applyRootLayer(
+            to: self,
+            backgroundColor: previewBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+        FilePreviewNativeBackground.applyRootLayer(
+            to: contentHost,
+            backgroundColor: previewBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+        let resolvedBackgroundColor = FilePreviewNativeBackground.resolvedColor(
+            backgroundColor: previewBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+        pdfView.backgroundColor = resolvedBackgroundColor
+        let scrollBackgroundAppearance = currentPDFScrollBackgroundAppearance(
+            resolvedBackgroundColor: resolvedBackgroundColor
+        )
+        guard shouldApplyPDFScrollBackground(scrollBackgroundAppearance) else { return }
+        FilePreviewNativeBackground.applyScrollBackgrounds(
+            in: pdfView,
+            backgroundColor: previewBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+        lastAppliedPDFScrollBackgroundAppearance = scrollBackgroundAppearance
+    }
+
+    private func invalidatePDFScrollBackgroundAppearance() {
+        lastAppliedPDFScrollBackgroundAppearance = nil
+    }
+
+    private func currentPDFScrollBackgroundAppearance(
+        resolvedBackgroundColor: NSColor
+    ) -> PDFScrollBackgroundAppearance {
+        var hostIdentifiers = FilePreviewNativeBackground.scrollBackgroundHostIdentifiers(in: pdfView)
+        if hostIdentifiers.isEmpty {
+            hostIdentifiers.insert(ObjectIdentifier(pdfView))
+        }
+        return PDFScrollBackgroundAppearance(
+            hostIdentifiers: hostIdentifiers,
+            backgroundColor: resolvedBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+    }
+
+    private func shouldApplyPDFScrollBackground(_ appearance: PDFScrollBackgroundAppearance) -> Bool {
+        guard let lastAppliedPDFScrollBackgroundAppearance else { return true }
+        return !lastAppliedPDFScrollBackgroundAppearance.matches(appearance)
     }
 
     private func setupFloatingChrome() {
@@ -2135,6 +2808,9 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         titleStack.translatesAutoresizingMaskIntoConstraints = false
         chromeHost.addSubview(titleStack)
 
+        let zoomWidthConstraint = zoomChromeHost.widthAnchor.constraint(equalToConstant: Metrics.floatingControlsWidth)
+        zoomWidthConstraint.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
             sidebarChromeHost.topAnchor.constraint(equalTo: chromeHost.topAnchor, constant: 10),
             sidebarChromeHost.leadingAnchor.constraint(equalTo: chromeHost.leadingAnchor, constant: 10),
@@ -2143,7 +2819,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 
             zoomChromeHost.topAnchor.constraint(equalTo: chromeHost.topAnchor, constant: 10),
             zoomChromeHost.trailingAnchor.constraint(equalTo: chromeHost.trailingAnchor, constant: -10),
-            zoomChromeHost.widthAnchor.constraint(equalToConstant: Metrics.floatingControlsWidth),
+            zoomWidthConstraint,
             zoomChromeHost.heightAnchor.constraint(equalToConstant: Metrics.floatingChromeHeight),
 
             titleStack.leadingAnchor.constraint(equalTo: sidebarChromeHost.trailingAnchor, constant: 12),
@@ -2176,6 +2852,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         ))
         zoomChromeHost.rootView = AnyView(FilePreviewPDFZoomChromeView(
             chromeStyleVariant: chromeStyleVariant,
+            fileURL: currentURL,
             zoomOut: { [weak self] in self?.zoomOut() },
             actualSize: { [weak self] in self?.actualSize() },
             zoomIn: { [weak self] in self?.zoomIn() },
@@ -2911,19 +3588,26 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 private struct FilePreviewImageView: NSViewRepresentable {
     let panel: FilePreviewPanel
     let isVisibleInUI: Bool
+    let backgroundColor: NSColor
+    let drawsBackground: Bool
 
     func makeNSView(context: Context) -> FilePreviewImageContainerView {
-        let view = FilePreviewImageContainerView()
-        view.isHidden = !isVisibleInUI
-        view.setPanel(panel)
-        view.setURL(panel.fileURL)
-        return view
+        panel.nativeViewSessions.image.view(
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 
     func updateNSView(_ nsView: FilePreviewImageContainerView, context: Context) {
-        nsView.isHidden = !isVisibleInUI
-        nsView.setPanel(panel)
-        nsView.setURL(panel.fileURL)
+        panel.nativeViewSessions.image.update(
+            nsView,
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 }
 
@@ -2990,7 +3674,7 @@ private struct FilePreviewImageChromeView: View {
     }
 }
 
-private final class FilePreviewImageContainerView: NSView {
+final class FilePreviewImageContainerView: NSView {
     private let scrollView = FilePreviewImageScrollView()
     private let documentView = FilePreviewImageDocumentView()
     private let chromeHost = FilePreviewPDFChromeHostingView(rootView: AnyView(EmptyView()))
@@ -3001,6 +3685,8 @@ private final class FilePreviewImageContainerView: NSView {
     private var isFitMode = true
     private var rotationDegrees = 0
     private var rotationAccumulator: CGFloat = 0
+    private var previewBackgroundColor = NSColor.textBackgroundColor
+    private var drawsPreviewBackground = true
     private static let imageLoadQueue = DispatchQueue(
         label: "com.cmux.file-preview.image-load",
         qos: .userInitiated
@@ -3025,6 +3711,7 @@ private final class FilePreviewImageContainerView: NSView {
 
     override func layout() {
         super.layout()
+        applyBackgroundAppearance()
         if isFitMode {
             scale = fitScale()
         }
@@ -3047,6 +3734,20 @@ private final class FilePreviewImageContainerView: NSView {
     func setPanel(_ panel: FilePreviewPanel) {
         self.panel = panel
         registerFocusEndpoint()
+    }
+
+    func close() {
+        removeFromSuperview()
+        documentView.imageView.image = nil
+        currentURL = nil
+        panel = nil
+    }
+
+    func setBackgroundAppearance(backgroundColor: NSColor, drawsBackground: Bool) {
+        guard previewBackgroundColor != backgroundColor || drawsPreviewBackground != drawsBackground else { return }
+        previewBackgroundColor = backgroundColor
+        drawsPreviewBackground = drawsBackground
+        applyBackgroundAppearance()
     }
 
     func setURL(_ url: URL) {
@@ -3105,8 +3806,6 @@ private final class FilePreviewImageContainerView: NSView {
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = .textBackgroundColor
         scrollView.documentView = documentView
         scrollView.onMagnify = { [weak self] event in
             let factor = 1.0 + event.magnification
@@ -3146,6 +3845,23 @@ private final class FilePreviewImageContainerView: NSView {
             chromeHost.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 10),
             chromeHost.heightAnchor.constraint(equalToConstant: 40),
         ])
+        applyBackgroundAppearance()
+    }
+
+    private func applyBackgroundAppearance() {
+        let resolvedBackgroundColor = FilePreviewNativeBackground.resolvedColor(
+            backgroundColor: previewBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+        FilePreviewNativeBackground.applyRootLayer(
+            to: self,
+            backgroundColor: previewBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+        scrollView.drawsBackground = drawsPreviewBackground
+        scrollView.backgroundColor = resolvedBackgroundColor
+        scrollView.contentView.drawsBackground = drawsPreviewBackground
+        scrollView.contentView.backgroundColor = resolvedBackgroundColor
     }
 
     @objc private func zoomOut() {
@@ -3624,116 +4340,73 @@ private final class FilePreviewMagnifyingImageView: NSImageView {
 private struct FilePreviewMediaView: NSViewRepresentable {
     let panel: FilePreviewPanel
     let isVisibleInUI: Bool
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
+    let backgroundColor: NSColor
+    let drawsBackground: Bool
 
     func makeNSView(context: Context) -> AVPlayerView {
-        let playerView = AVPlayerView()
-        playerView.isHidden = !isVisibleInUI
-        playerView.controlsStyle = .floating
-        playerView.showsFullScreenToggleButton = true
-        playerView.videoGravity = .resizeAspect
-        panel.attachPreviewFocus(root: playerView, primaryResponder: playerView, intent: .mediaPlayer)
-        context.coordinator.update(playerView: playerView, url: panel.fileURL)
-        return playerView
+        panel.nativeViewSessions.media.view(
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
-        nsView.isHidden = !isVisibleInUI
-        panel.attachPreviewFocus(root: nsView, primaryResponder: nsView, intent: .mediaPlayer)
-        context.coordinator.update(playerView: nsView, url: panel.fileURL)
-    }
-
-    final class Coordinator {
-        private var currentURL: URL?
-        private var player: AVPlayer?
-
-        deinit {
-            player?.pause()
-        }
-
-        func update(playerView: AVPlayerView, url: URL) {
-            guard currentURL != url else { return }
-            player?.pause()
-            currentURL = url
-            let player = AVPlayer(url: url)
-            self.player = player
-            playerView.player = player
-        }
+        panel.nativeViewSessions.media.update(
+            nsView,
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 }
 
 private struct QuickLookPreviewView: NSViewRepresentable {
     let panel: FilePreviewPanel
     let isVisibleInUI: Bool
+    let backgroundColor: NSColor
+    let drawsBackground: Bool
 
-    func makeNSView(context: Context) -> NSView {
-        guard let previewView = QLPreviewView(frame: .zero, style: .normal) else {
-            let view = NSView()
-            view.isHidden = !isVisibleInUI
-            return view
+    final class Coordinator {
+        var quickLook: FilePreviewQuickLookSession?
+
+        init(panel: FilePreviewPanel) {
+            quickLook = panel.nativeViewSessions.quickLook
         }
-        previewView.isHidden = !isVisibleInUI
-        previewView.autostarts = true
-        panel.attachPreviewFocus(root: previewView, primaryResponder: previewView, intent: .quickLook)
-        previewView.previewItem = context.coordinator.item(for: panel.fileURL, title: panel.displayTitle)
-        return previewView
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        nsView.isHidden = !isVisibleInUI
-        guard let previewView = nsView as? QLPreviewView else { return }
-        panel.attachPreviewFocus(root: previewView, primaryResponder: previewView, intent: .quickLook)
-        previewView.previewItem = context.coordinator.item(for: panel.fileURL, title: panel.displayTitle)
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        if let previewView = nsView as? QLPreviewView {
-            previewView.close()
-            previewView.previewItem = nil
-        }
-        coordinator.clear()
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(panel: panel)
     }
 
-    final class Coordinator {
-        private var item: FilePreviewQLItem?
-
-        func item(for url: URL, title: String) -> FilePreviewQLItem {
-            if let item, item.url == url, item.title == title {
-                return item
-            }
-            let next = FilePreviewQLItem(url: url, title: title)
-            item = next
-            return next
-        }
-
-        func clear() {
-            item = nil
-        }
-    }
-}
-
-private final class FilePreviewQLItem: NSObject, QLPreviewItem {
-    let url: URL
-    let title: String
-
-    init(url: URL, title: String) {
-        self.url = url
-        self.title = title
+    func makeNSView(context: Context) -> NSView {
+        let quickLook = panel.nativeViewSessions.quickLook
+        context.coordinator.quickLook = quickLook
+        return quickLook.view(
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 
-    var previewItemURL: URL? {
-        url
+    func updateNSView(_ nsView: NSView, context: Context) {
+        let quickLook = panel.nativeViewSessions.quickLook
+        context.coordinator.quickLook = quickLook
+        quickLook.update(
+            nsView,
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 
-    var previewItemTitle: String? {
-        title
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.quickLook?.dismantle(nsView)
+        coordinator.quickLook = nil
     }
 }
 

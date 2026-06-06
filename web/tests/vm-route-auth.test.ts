@@ -48,6 +48,9 @@ const { DELETE } = await import("../app/api/vm/[id]/route");
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
+const { VmProviderOperationError } = await import("../services/vms/errors");
+const { verifyRequest } = await import("../services/vms/auth");
+const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
 
 beforeEach(() => {
   restoreVmEnv();
@@ -112,6 +115,10 @@ describe("VM REST auth", () => {
   });
 
   test("authenticated provisioning runs the Effect VM workflow", async () => {
+    const listTeams = mock(async () => [{
+      id: "team-1",
+      clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+    }]);
     getUser.mockResolvedValue({
       id: "user-1",
       displayName: null,
@@ -120,10 +127,7 @@ describe("VM REST auth", () => {
         id: "team-1",
         clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
       },
-      listTeams: async () => [{
-        id: "team-1",
-        clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
-      }],
+      listTeams,
     });
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-1",
@@ -147,7 +151,7 @@ describe("VM REST auth", () => {
       image: "snapshot-test",
       createdAt: 1_777_000_000_000,
     });
-    expect(createVm).toHaveBeenCalledWith({
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
       billingCustomerType: "team",
       billingTeamId: "team-1",
@@ -157,7 +161,8 @@ describe("VM REST auth", () => {
       image: "snapshot-test",
       imageVersion: null,
       idempotencyKey: "idem-1",
-    });
+    }));
+    expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
@@ -189,6 +194,16 @@ describe("VM REST auth", () => {
   });
 
   test("uses the native client's requested Stack team for billing", async () => {
+    const listTeams = mock(async () => [
+      {
+        id: "team-1",
+        clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+      },
+      {
+        id: "team-2",
+        clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+      },
+    ]);
     getUser.mockResolvedValue({
       id: "user-1",
       displayName: null,
@@ -197,16 +212,7 @@ describe("VM REST auth", () => {
         id: "team-1",
         clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
       },
-      listTeams: async () => [
-        {
-          id: "team-1",
-          clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
-        },
-        {
-          id: "team-2",
-          clientReadOnlyMetadata: { cmuxVmPlan: "free" },
-        },
-      ],
+      listTeams,
     });
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-team-2",
@@ -233,8 +239,98 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "free",
-      maxActiveVms: 1,
+      maxActiveVms: 5,
     }));
+    expect(listTeams).toHaveBeenCalledTimes(1);
+  });
+
+  test("validates a JSON body team id only when it differs from the selected team", async () => {
+    const listTeams = mock(async () => [
+      {
+        id: "team-1",
+        clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+      },
+      {
+        id: "team-2",
+        clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+      },
+    ]);
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      selectedTeam: {
+        id: "team-1",
+        clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+      },
+      listTeams,
+    });
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-body-team",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          provider: "freestyle",
+          image: "snapshot-test",
+          teamId: "team-2",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(getUser).toHaveBeenCalledTimes(2);
+    expect(listTeams).toHaveBeenCalledTimes(1);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      billingCustomerType: "team",
+      billingTeamId: "team-2",
+      billingPlanId: "free",
+      maxActiveVms: 5,
+    }));
+  });
+
+  test("rejects blank team ids before reaching workflows", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const requests = [
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", teamId: "   " }),
+      }),
+      new Request("https://cmux.test/api/vm?teamId=%20%20", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test", "x-cmux-team-id": "  " },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    ];
+
+    for (const request of requests) {
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      const payload = await response.json();
+      expect(payload).toMatchObject({
+        error: "vm_invalid_request",
+        details: { field: "teamId" },
+      });
+      expect(payload.message).toContain("non-empty");
+      expectNoCloudVmImplementationLeaks(payload);
+    }
+    expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
   test("rejects a requested Stack team the caller does not belong to", async () => {
@@ -253,20 +349,27 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ error: "vm_billing_team_not_found" });
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_billing_team_not_found",
+    });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.message).toContain("team");
+    expect(payload.action).toContain("cmux auth login");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
   test("uses the single Stack team when personal team auto-create populated listTeams", async () => {
+    const listTeams = mock(async () => [{
+      id: "team-personal",
+      clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+    }]);
     getUser.mockResolvedValue({
       id: "user-1",
       displayName: null,
       primaryEmail: "user@example.com",
       selectedTeam: null,
-      listTeams: async () => [{
-        id: "team-personal",
-        clientReadOnlyMetadata: { cmuxVmPlan: "free" },
-      }],
+      listTeams,
     });
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-personal-team",
@@ -290,6 +393,7 @@ describe("VM REST auth", () => {
       billingTeamId: "team-personal",
       billingPlanId: "free",
     }));
+    expect(listTeams).toHaveBeenCalledTimes(1);
   });
 
   test("rejects VM create when Stack Auth returns no teams", async () => {
@@ -310,7 +414,13 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: "vm_billing_team_required" });
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_billing_team_required",
+    });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.message).toContain("team");
+    expect(payload.action).toContain("Select a team");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -335,11 +445,21 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: "vm_billing_team_required" });
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_billing_team_required",
+    });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.message).toContain("team");
+    expect(payload.action).toContain("Select a team");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
   test("filters VM list to the requested Stack team", async () => {
+    const listTeams = mock(async () => [
+      { id: "team-1", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
+      { id: "team-2", clientReadOnlyMetadata: { cmuxVmPlan: "pro" } },
+    ]);
     getUser.mockResolvedValue({
       id: "user-1",
       displayName: null,
@@ -348,10 +468,7 @@ describe("VM REST auth", () => {
         id: "team-1",
         clientReadOnlyMetadata: { cmuxVmPlan: "free" },
       },
-      listTeams: async () => [
-        { id: "team-1", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
-        { id: "team-2", clientReadOnlyMetadata: { cmuxVmPlan: "pro" } },
-      ],
+      listTeams,
     });
     runVmWorkflow.mockResolvedValue([{
       providerVmId: "provider-vm-team-2",
@@ -373,6 +490,7 @@ describe("VM REST auth", () => {
 
     expect(response.status).toBe(200);
     expect(listUserVms).toHaveBeenCalledWith("user-1", "team-2");
+    expect(listTeams).toHaveBeenCalledTimes(1);
     expect(await response.json()).toMatchObject({
       vms: [{ id: "provider-vm-team-2", provider: "e2b" }],
     });
@@ -395,6 +513,40 @@ describe("VM REST auth", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "forbidden" });
     expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("finalizes route observers with wrapper-mapped workflow statuses", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    let finalizedStatus: number | null = null;
+    const originalError = console.error;
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    try {
+      const response = await withAuthedVmApiRoute(
+        new Request("https://cmux.test/api/vm", {
+          method: "POST",
+          headers: { origin: "https://cmux.test" },
+          body: "{}",
+        }),
+        "/api/vm",
+        { "cmux.vm.operation": "create" },
+        "/api/vm POST failed",
+        async ({ setResponseFinalizer }) => {
+          setResponseFinalizer((mappedResponse) => {
+            finalizedStatus = mappedResponse.status;
+          });
+          throw new VmProviderOperationError({
+            provider: "freestyle",
+            operation: "create",
+            cause: new Error("provider unavailable"),
+          });
+        },
+      );
+
+      expect(response.status).toBe(502);
+      expect(finalizedStatus).toBe(502);
+    } finally {
+      console.error = originalError;
+    }
   });
 
   test("requires an Origin header for cookie-authenticated mutations", async () => {
@@ -442,6 +594,53 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
+  test("returns actionable validation errors from VM exec route", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-1" }) };
+
+    const response = await execRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-1/exec", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ command: "   " }),
+      }),
+      context,
+    );
+
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_invalid_command",
+      details: { field: "command" },
+    });
+    expect(payload.message).toContain("command");
+    expect(payload.action).toContain("cmux vm exec");
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("does not echo unsupported VM service override values", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "aws" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_invalid_provider",
+      details: { field: "provider" },
+    });
+    expect(JSON.stringify(payload)).not.toContain("aws");
+    expect(payload.message).toContain("Cloud VM service");
+    expect(payload.action).toContain("default Cloud VM service");
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
   test("allows native bearer mutations without browser CSRF headers", async () => {
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({
@@ -469,6 +668,33 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
+  test("native-only auth does not fall back to browser cookies", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const nativeOnlyUser = await verifyRequest(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: { cookie: "stack-auth-cookie=present" },
+        body: "{}",
+      }),
+      { allowCookie: false },
+    );
+
+    expect(nativeOnlyUser).toBeNull();
+    expect(getUser).not.toHaveBeenCalled();
+
+    const cookieUser = await verifyRequest(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: { cookie: "stack-auth-cookie=present" },
+        body: "{}",
+      }),
+    );
+
+    expect(cookieUser?.id).toBe("user-1");
+    expect(getUser).toHaveBeenCalledTimes(1);
+  });
+
   test("blocks VM create kill switch before workflow", async () => {
     process.env.CMUX_VM_CREATE_ENABLED = "0";
     getUser.mockResolvedValue(authedStackUser());
@@ -482,10 +708,13 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({
+    const payload = await response.json();
+    expect(payload).toMatchObject({
       error: "vm_create_disabled",
-      provider: "freestyle",
     });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.message).toContain("disabled");
+    expect(payload.action).toContain("enable Cloud VM creation");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -502,10 +731,12 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({
+    const payload = await response.json();
+    expect(payload).toMatchObject({
       error: "vm_create_disabled",
-      provider: "e2b",
     });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.action).toContain("enable Cloud VM creation");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -523,11 +754,15 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({
+    const payload = await response.json();
+    expect(payload).toMatchObject({
       error: "vm_image_config_error",
-      provider: "freestyle",
-      image: "unknown-snapshot",
+      details: {
+        imageRequested: true,
+      },
     });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.action).toContain("supported image");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -548,9 +783,12 @@ describe("VM REST auth", () => {
     expect(response.status).toBe(503);
     expect(payload).toMatchObject({
       error: "vm_image_config_error",
-      provider: "freestyle",
-      envVar: "FREESTYLE_SANDBOX_SNAPSHOT",
+      details: {
+        imageRequested: false,
+      },
     });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.action).toContain("default Cloud VM image");
     expect(payload).not.toHaveProperty("image");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
@@ -609,4 +847,10 @@ function authedStackUser() {
       clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
     }],
   };
+}
+
+function expectNoCloudVmImplementationLeaks(payload: unknown): void {
+  expect(JSON.stringify(payload)).not.toMatch(
+    /Stack Auth|Freestyle|E2B|freestyle|e2b|CMUX_VM_|FREESTYLE_|E2B_|billingTeamId|itemId|billingCustomerId|manifest|snapshot|database|migration|\bsh-[a-z0-9]{8,24}\b|\bteam-[a-z0-9-]+\b/,
+  );
 }

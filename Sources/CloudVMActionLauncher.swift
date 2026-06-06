@@ -5,6 +5,16 @@ import Foundation
 final class CloudVMActionLauncher {
     static let shared = CloudVMActionLauncher()
 
+    struct Completion {
+        let terminationStatus: Int32
+        let output: String
+        let workspaceId: UUID?
+
+        var succeeded: Bool {
+            terminationStatus == 0
+        }
+    }
+
     private var processes: [Int32: Process] = [:]
     private var isShuttingDown = false
 
@@ -19,7 +29,11 @@ final class CloudVMActionLauncher {
     }
 
     @discardableResult
-    func start(socketPath: String, preferredWindow: NSWindow?) -> Bool {
+    func start(
+        socketPath: String,
+        preferredWindow: NSWindow?,
+        onCompletion: ((Completion) -> Void)? = nil
+    ) -> Bool {
         let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
         guard let cliURL,
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
@@ -29,6 +43,10 @@ final class CloudVMActionLauncher {
                     defaultValue: "The bundled cmux CLI is missing from this app build."
                 ),
                 output: "",
+                action: String(
+                    localized: "command.cloudVM.failed.action.missingCLI",
+                    defaultValue: "Install or reload a fresh cmux build, then try Start Cloud VM again. You can also run `cmux vm new` in a terminal to see the full error."
+                ),
                 preferredWindow: preferredWindow
             )
             return false
@@ -36,7 +54,7 @@ final class CloudVMActionLauncher {
 
         let process = Process()
         process.executableURL = cliURL
-        process.arguments = ["--socket", socketPath, "vm", "new"]
+        process.arguments = ["--socket", socketPath, "--id-format", "uuids", "vm", "new"]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
@@ -56,6 +74,13 @@ final class CloudVMActionLauncher {
             let terminationStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
                 Self.shared.processes.removeValue(forKey: processIdentifier)
+                onCompletion?(
+                    Completion(
+                        terminationStatus: terminationStatus,
+                        output: output,
+                        workspaceId: Self.createdWorkspaceId(from: output)
+                    )
+                )
                 guard terminationStatus != 0, !Self.shared.isShuttingDown else { return }
                 let format = String(
                     localized: "command.cloudVM.failed.exit",
@@ -64,6 +89,10 @@ final class CloudVMActionLauncher {
                 Self.shared.presentStartFailure(
                     summary: String(format: format, Int(terminationStatus)),
                     output: output,
+                    action: String(
+                        localized: "command.cloudVM.failed.action.exit",
+                        defaultValue: "Open a terminal and run `cmux auth status`, `cmux vm ls`, then `cmux vm new`. If you hit the active VM limit, delete one with `cmux vm rm <id>` and retry."
+                    ),
                     preferredWindow: launchWindow
                 )
             }
@@ -84,18 +113,42 @@ final class CloudVMActionLauncher {
                     defaultValue: "cmux vm new could not be launched."
                 ),
                 output: error.localizedDescription,
+                action: String(
+                    localized: "command.cloudVM.failed.action.launch",
+                    defaultValue: "Reload cmux so the bundled CLI is available, then try again. If it still fails, run `cmux vm new` in a terminal and send us the output."
+                ),
                 preferredWindow: preferredWindow
             )
             return false
         }
     }
 
-    private func presentStartFailure(summary: String, output: String, preferredWindow: NSWindow?) {
+    private static func createdWorkspaceId(from output: String) -> UUID? {
+        for token in output.split(whereSeparator: \.isWhitespace) {
+            let string = String(token)
+            guard string.hasPrefix("workspace=") else { continue }
+            let rawValue = String(string.dropFirst("workspace=".count))
+            if let id = UUID(uuidString: rawValue) {
+                return id
+            }
+        }
+        return nil
+    }
+
+    private func presentStartFailure(summary: String, output: String, action: String, preferredWindow: NSWindow?) {
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         let limitedOutput = String(trimmedOutput.prefix(2000))
-        let informativeText = limitedOutput.isEmpty
-            ? summary
-            : "\(summary)\n\n\(limitedOutput)"
+        let safeOutput = sanitizedCloudVMStartOutput(limitedOutput)
+        let whatToTry = String(localized: "command.cloudVM.failed.whatToTry", defaultValue: "What to try:")
+        let details = String(localized: "command.cloudVM.failed.details", defaultValue: "Details:")
+        var sections = [
+            summary,
+            "\(whatToTry)\n\(action)",
+        ]
+        if !safeOutput.isEmpty {
+            sections.append("\(details)\n\(safeOutput)")
+        }
+        let informativeText = sections.joined(separator: "\n\n")
 
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -110,6 +163,94 @@ final class CloudVMActionLauncher {
         } else {
             _ = alert.runModal()
         }
+    }
+
+    private func sanitizedCloudVMStartOutput(_ output: String) -> String {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let lowercased = trimmed.lowercased()
+        let normalized = lowercased
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: " ", with: "")
+        let blockedTerms = [
+            "authorization",
+            "aws_",
+            "bearer",
+            "billingcustomer",
+            "billingteam",
+            "cmux_vm_",
+            "cookie",
+            "credential",
+            "database",
+            "e2b",
+            "freestyle",
+            "http://",
+            "https://",
+            "itemid",
+            "manifest",
+            "migration",
+            "postgres",
+            "private key",
+            "private_key",
+            "provider",
+            "rds",
+            "refresh token",
+            "refresh_token",
+            "secret",
+            "session id",
+            "session_id",
+            "snapshot",
+            "stack auth",
+            "token",
+        ]
+        let normalizedBlockedTerms = [
+            "authorization",
+            "aws",
+            "bearer",
+            "billingcustomer",
+            "billingteam",
+            "cmuxvmapi",
+            "cookie",
+            "credential",
+            "database",
+            "e2b",
+            "freestyle",
+            "itemid",
+            "manifest",
+            "migration",
+            "postgres",
+            "privatekey",
+            "provider",
+            "rds",
+            "refreshtoken",
+            "secret",
+            "sessionid",
+            "snapshot",
+            "stackauth",
+            "token",
+        ]
+        let containsBlockedTerm = blockedTerms.contains { lowercased.contains($0) }
+            || normalizedBlockedTerms.contains { normalized.contains($0) }
+        let containsLikelyEmail = trimmed.contains("@")
+        let containsLikelyIPAddress = trimmed.range(
+            of: #"(?<!\d)(?:\d{1,3}\.){3}\d{1,3}(?!\d)"#,
+            options: .regularExpression
+        ) != nil
+        let containsLikelyFilesystemPath = trimmed.range(
+            of: #"(^|[\s"'(\[])(~[/\w.-]*|/(Users|home|private|var/folders)/|/[^ \n\t"'()]+/[^ \n\t"'()]+)"#,
+            options: .regularExpression
+        ) != nil
+        guard !containsBlockedTerm,
+              !containsLikelyEmail,
+              !containsLikelyIPAddress,
+              !containsLikelyFilesystemPath else {
+            return String(
+                localized: "command.cloudVM.failed.details.hidden",
+                defaultValue: "Additional technical details are available in logs."
+            )
+        }
+        return trimmed
     }
 }
 
@@ -134,10 +275,24 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     func start() {
         stdoutHandle.readabilityHandler = { [weak self] handle in
-            self?.append(handle.availableData, to: .stdout)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.append(data, to: .stdout)
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
+            }
         }
         stderrHandle.readabilityHandler = { [weak self] handle in
-            self?.append(handle.availableData, to: .stderr)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.append(data, to: .stderr)
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
+            }
         }
     }
 
@@ -154,8 +309,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
-        append(stdoutHandle.readDataToEndOfFile(), to: .stdout)
-        append(stderrHandle.readDataToEndOfFile(), to: .stderr)
+        append(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutHandle), to: .stdout)
+        append(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrHandle), to: .stderr)
         try? stdoutHandle.close()
         try? stderrHandle.close()
 

@@ -5,7 +5,7 @@ import Bonsplit
 // MARK: - Direction Types for Backwards Compatibility
 
 /// Split direction for backwards compatibility with old API
-enum SplitDirection {
+enum SplitDirection: Sendable {
     case left, right, up, down
 
     var isHorizontal: Bool {

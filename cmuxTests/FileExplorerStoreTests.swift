@@ -44,8 +44,10 @@ private final class MockFileExplorerProvider: FileExplorerProvider {
 private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
     var homePath: Result<String, Error>
     var listings: [String: Result<[FileExplorerEntry], Error>] = [:]
+    var downloads: [String: Result<Data, Error>] = [:]
     private(set) var resolvedHomeConnections: [SSHFileExplorerConnection] = []
     private(set) var listedPaths: [String] = []
+    private(set) var downloadedPaths: [String] = []
 
     init(homePath: Result<String, Error> = .success("/home/dev")) {
         self.homePath = homePath
@@ -66,6 +68,20 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
             return try result.get()
         }
         return []
+    }
+
+    func downloadFile(
+        path: String,
+        connection: SSHFileExplorerConnection,
+        to localURL: URL
+    ) async throws {
+        downloadedPaths.append(path)
+        let data = try downloads[path, default: .success(Data())].get()
+        try FileManager.default.createDirectory(
+            at: localURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: localURL)
     }
 }
 
@@ -187,6 +203,7 @@ final class FileExplorerStoreTests: XCTestCase {
                 workspaceId: UUID(),
                 connection: connection,
                 displayTarget: "dev@ubuntu-host:2222",
+                rootPath: nil,
                 isAvailable: true,
                 unavailableDetail: nil
             ),
@@ -233,6 +250,7 @@ final class FileExplorerStoreTests: XCTestCase {
                     sshOptions: []
                 ),
                 displayTarget: "dev@ubuntu-host",
+                rootPath: nil,
                 isAvailable: true,
                 unavailableDetail: nil
             ),
@@ -246,6 +264,74 @@ final class FileExplorerStoreTests: XCTestCase {
 
         XCTAssertTrue(store.provider is SSHFileExplorerProvider)
         XCTAssertEqual(transport.resolvedHomeConnections.map(\.destination), ["dev@ubuntu-host"])
+    }
+
+    func testRemoteWorkspaceRootTracksRequestedWorkingDirectory() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        transport.listings["/srv/app"] = .success([
+            FileExplorerEntry(name: "Package.swift", path: "/srv/app/Package.swift", isDirectory: false),
+        ])
+        let store = FileExplorerStore()
+
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: SSHFileExplorerConnection(
+                    destination: "dev@ubuntu-host",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: []
+                ),
+                displayTarget: "dev@ubuntu-host",
+                rootPath: "/srv/app",
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("remote requested cwd loaded") {
+            store.rootPath == "/srv/app" &&
+                store.rootNodes.map(\.name) == ["Package.swift"]
+        }
+
+        XCTAssertEqual(transport.resolvedHomeConnections, [])
+        XCTAssertEqual(transport.listedPaths, ["/srv/app"])
+        XCTAssertEqual(store.displayRootPath, "ssh://dev@ubuntu-host:/srv/app")
+    }
+
+    func testRemoteFilePreviewMaterializesThroughSSHProvider() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        transport.listings["/srv/app"] = .success([
+            FileExplorerEntry(name: "README.md", path: "/srv/app/README.md", isDirectory: false),
+        ])
+        transport.downloads["/srv/app/README.md"] = .success(Data("# Remote\n".utf8))
+        let store = FileExplorerStore()
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: SSHFileExplorerConnection(
+                    destination: "dev@ubuntu-host",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: []
+                ),
+                displayTarget: "dev@ubuntu-host",
+                rootPath: "/srv/app",
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("remote requested cwd loaded") {
+            store.rootNodes.map(\.name) == ["README.md"]
+        }
+        let localURL = try await store.materializeRemoteFileForPreview(path: "/srv/app/README.md")
+
+        XCTAssertEqual(transport.downloadedPaths, ["/srv/app/README.md"])
+        XCTAssertEqual(try String(contentsOf: localURL, encoding: .utf8), "# Remote\n")
+        XCTAssertTrue(localURL.path.contains("cmux-remote-file-previews"))
     }
 
     func testCancelledRootLoadDoesNotClearRemoteUnavailableStatus() async throws {
@@ -268,6 +354,7 @@ final class FileExplorerStoreTests: XCTestCase {
                     sshOptions: []
                 ),
                 displayTarget: "dev@ubuntu-host",
+                rootPath: nil,
                 isAvailable: false,
                 unavailableDetail: nil
             ),
@@ -779,6 +866,112 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertEqual(searchController.searchRequests.last?.contentRevision, store.contentRevision)
     }
 
+    func testRipgrepResolverPrefersConfiguredBinaryPath() {
+        let configuredPath = "/nix/store/custom-ripgrep/bin/rg"
+        let fallbackPath = "/usr/local/bin/rg"
+
+        let executable = RipgrepExecutableResolver.resolve(
+            configuredPath: configuredPath,
+            environment: ["PATH": ""],
+            userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
+            isExecutable: { $0 == configuredPath || $0 == fallbackPath }
+        )
+
+        XCTAssertEqual(executable?.url.path, configuredPath)
+    }
+
+    func testRipgrepResolverExpandsTildeConfiguredBinaryPath() {
+        let configuredPath = "~/.nix-profile/bin/rg"
+        let expandedPath = "/Users/nixuser/.nix-profile/bin/rg"
+
+        let executable = RipgrepExecutableResolver.resolve(
+            configuredPath: configuredPath,
+            environment: ["PATH": ""],
+            userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
+            isExecutable: { $0 == expandedPath }
+        )
+
+        XCTAssertEqual(executable?.url.path, expandedPath)
+    }
+
+    func testRipgrepResolverChecksNixProfilePathsBeforePATHFallback() {
+        let nixProfilePath = "/etc/profiles/per-user/nixuser/bin/rg"
+        let pathFallback = "/tmp/bin/rg"
+
+        let executable = RipgrepExecutableResolver.resolve(
+            configuredPath: nil,
+            environment: ["PATH": "/tmp/bin"],
+            userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
+            isExecutable: { $0 == nixProfilePath || $0 == pathFallback }
+        )
+
+        XCTAssertEqual(executable?.url.path, nixProfilePath)
+    }
+
+    func testRipgrepResolverChecksHomeManagerProfilePathsBeforePATHFallback() {
+        let homeManagerProfilePath = "/Users/nixuser/.nix-profile/bin/rg"
+        let pathFallback = "/tmp/bin/rg"
+
+        let executable = RipgrepExecutableResolver.resolve(
+            configuredPath: nil,
+            environment: ["PATH": "/tmp/bin"],
+            userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
+            isExecutable: { $0 == homeManagerProfilePath || $0 == pathFallback }
+        )
+
+        XCTAssertEqual(executable?.url.path, homeManagerProfilePath)
+    }
+
+    func testRipgrepResolverChecksNixPerUserProfilePathBeforePATHFallback() {
+        let perUserProfilePath = "/nix/var/nix/profiles/per-user/nixuser/profile/bin/rg"
+        let pathFallback = "/tmp/bin/rg"
+
+        let executable = RipgrepExecutableResolver.resolve(
+            configuredPath: nil,
+            environment: ["PATH": "/tmp/bin"],
+            userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
+            isExecutable: { $0 == perUserProfilePath || $0 == pathFallback }
+        )
+
+        XCTAssertEqual(executable?.url.path, perUserProfilePath)
+    }
+
+    func testRipgrepResolverRejectsNonExecutableConfiguredBinaryPath() {
+        let configuredPath = "/nix/store/missing-ripgrep/bin/rg"
+        let fallbackPath = "/usr/local/bin/rg"
+
+        let resolution = RipgrepExecutableResolver.resolution(
+            configuredPath: configuredPath,
+            environment: ["PATH": ""],
+            userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
+            isExecutable: { $0 == fallbackPath }
+        )
+
+        XCTAssertEqual(resolution, .configuredPathNotExecutable(configuredPath))
+        XCTAssertNil(RipgrepExecutableResolver.resolve(
+            configuredPath: configuredPath,
+            environment: ["PATH": ""],
+            userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
+            isExecutable: { $0 == fallbackPath }
+        ))
+    }
+
+    func testConfiguredRipgrepPathErrorMessageSubstitutesPath() {
+        let configuredPath = "/nix/store/missing-ripgrep/bin/rg"
+
+        let message = FileExplorerSearchMessages.configuredRipgrepPathNotExecutable(configuredPath)
+
+        XCTAssertTrue(message.contains(configuredPath))
+        XCTAssertFalse(message.contains("%@"))
+    }
+
     private static func searchResult(relativePath: String) -> FileSearchResult {
         FileSearchResult(
             path: "/tmp/cmux-find-content-revision-test/\(relativePath)",
@@ -827,18 +1020,7 @@ final class FileSearchControllerTests: XCTestCase {
     }
 
     private static func hasRipgrep() -> Bool {
-        let fileManager = FileManager.default
-        for path in ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "/usr/bin/rg"] where fileManager.isExecutableFile(atPath: path) {
-            return true
-        }
-        let pathValue = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        for directory in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
-            let path = URL(fileURLWithPath: String(directory)).appendingPathComponent("rg").path
-            if fileManager.isExecutableFile(atPath: path) {
-                return true
-            }
-        }
-        return false
+        RipgrepExecutableResolver.resolve(configuredPath: nil) != nil
     }
 
     private static func findSearchField(in root: NSView) -> NSSearchField? {

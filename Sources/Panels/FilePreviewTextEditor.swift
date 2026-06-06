@@ -1,11 +1,26 @@
 import AppKit
 import SwiftUI
 
-struct FilePreviewTextEditor: NSViewRepresentable {
-    @ObservedObject var panel: FilePreviewPanel
+@MainActor
+protocol FilePreviewTextEditingPanel: AnyObject {
+    var textContent: String { get }
+
+    func attachTextView(_ textView: NSTextView)
+    func retryPendingFocus()
+    func updateTextContent(_ nextContent: String)
+    @discardableResult
+    func saveTextContent() -> Task<Void, Never>?
+}
+
+struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
+    @ObservedObject var panel: PanelModel
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
+    let drawsBackground: Bool
+    /// Whether long lines soft-wrap at the editor's right edge. Sourced from
+    /// the persisted `fileEditor.wordWrap` setting; updates apply live.
+    let wordWrap: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(panel: panel)
@@ -18,46 +33,39 @@ struct FilePreviewTextEditor: NSViewRepresentable {
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.drawsBackground = true
+        scrollView.drawsBackground = drawsBackground
 
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         textView.panel = panel
         textView.delegate = context.coordinator
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.allowsUndo = true
-        textView.isRichText = false
-        textView.importsGraphics = false
-        textView.usesFindPanel = true
-        textView.usesFontPanel = false
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.drawsBackground = true
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.containerSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.textContainer?.widthTracksTextView = false
-        textView.applyFilePreviewTextEditorInsets()
+        textView.drawsBackground = drawsBackground
         textView.string = panel.textContent
         panel.attachTextView(textView)
 
         scrollView.documentView = textView
-        Self.applyTheme(to: scrollView, backgroundColor: themeBackgroundColor, foregroundColor: themeForegroundColor)
+        textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
+        Self.applyTheme(
+            to: scrollView,
+            backgroundColor: themeBackgroundColor,
+            foregroundColor: themeForegroundColor,
+            drawsBackground: drawsBackground
+        )
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.panel = panel
         scrollView.isHidden = !isVisibleInUI
-        Self.applyTheme(to: scrollView, backgroundColor: themeBackgroundColor, foregroundColor: themeForegroundColor)
+        Self.applyTheme(
+            to: scrollView,
+            backgroundColor: themeBackgroundColor,
+            foregroundColor: themeForegroundColor,
+            drawsBackground: drawsBackground
+        )
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         textView.panel = panel
         textView.applyFilePreviewTextEditorInsets()
+        textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
         guard textView.string != panel.textContent else { return }
         context.coordinator.isApplyingPanelUpdate = true
@@ -65,25 +73,30 @@ struct FilePreviewTextEditor: NSViewRepresentable {
         context.coordinator.isApplyingPanelUpdate = false
     }
 
-    private static func applyTheme(
+    static func applyTheme(
         to scrollView: NSScrollView,
         backgroundColor: NSColor,
-        foregroundColor: NSColor
+        foregroundColor: NSColor,
+        drawsBackground: Bool
     ) {
-        scrollView.backgroundColor = backgroundColor
-        scrollView.contentView.backgroundColor = backgroundColor
+        let resolvedBackgroundColor = drawsBackground ? backgroundColor : .clear
+        scrollView.drawsBackground = drawsBackground
+        scrollView.backgroundColor = resolvedBackgroundColor
+        scrollView.contentView.drawsBackground = drawsBackground
+        scrollView.contentView.backgroundColor = resolvedBackgroundColor
         if let textView = scrollView.documentView as? NSTextView {
-            textView.backgroundColor = backgroundColor
+            textView.drawsBackground = drawsBackground
+            textView.backgroundColor = resolvedBackgroundColor
             textView.textColor = foregroundColor
             textView.insertionPointColor = foregroundColor
         }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
-        var panel: FilePreviewPanel
+        var panel: PanelModel
         var isApplyingPanelUpdate = false
 
-        init(panel: FilePreviewPanel) {
+        init(panel: PanelModel) {
             self.panel = panel
         }
 
@@ -102,7 +115,89 @@ enum FilePreviewTextEditorLayout {
     static let lineFragmentPadding: CGFloat = 0
 }
 
+extension SavingTextView {
+    /// Builds the File Preview text view configured for large plain-text files.
+    ///
+    /// File Preview opens files up to `FilePreviewPanel.maximumLoadedTextBytes` (16 MB), which can
+    /// be hundreds of thousands of lines. Selection responsiveness on that content is the reason
+    /// this configuration is centralized; see `manaflow-ai/cmux#4576`.
+    static func makeFilePreviewTextView() -> SavingTextView {
+        // Build an EXPLICIT TextKit 1 stack so this view is never TextKit 2.
+        //
+        // A default `NSTextView()` is TextKit 2: selection/hit-testing then runs through
+        // `NSTextSelectionNavigation`, whose work is O(N) in line-fragment count, so clicking or
+        // drag-selecting in a large document pegs the main thread inside AppKit's modal
+        // mouse-tracking loop and freezes the whole app (`manaflow-ai/cmux#4576`, `#5255`).
+        //
+        // Merely *reading* `.layoutManager` afterward — the previous mitigation — only drops the
+        // view to TextKit 2 *compatibility* mode: `textLayoutManager` stays non-nil and the slow
+        // selection path remains active (confirmed by live `sample` captures of the hung process).
+        // Constructing the view from an `NSTextStorage` / `NSLayoutManager` / `NSTextContainer`
+        // stack is the only way to guarantee `textLayoutManager == nil`, i.e. a pure TextKit 1 view
+        // whose hit-testing uses `NSLayoutManager` (O(log N) with non-contiguous layout).
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        // Lazy glyph layout so multi-hundred-thousand-line documents still open instantly.
+        layoutManager.allowsNonContiguousLayout = true
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(
+            size: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        )
+        // No-wrap baseline; `applyFilePreviewWordWrap(_:scrollView:)` flips this live per the
+        // `fileEditor.wordWrap` setting.
+        textContainer.widthTracksTextView = false
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = SavingTextView(frame: .zero, textContainer: textContainer)
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.allowsUndo = true
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.usesFindPanel = true
+        textView.usesFontPanel = false
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.applyFilePreviewTextEditorInsets()
+        return textView
+    }
+}
+
 extension NSTextView {
+    /// Configures the text view and its scroll view for soft line wrapping
+    /// (`wrap == true`) or the no-wrap baseline with a horizontal scroller
+    /// (`wrap == false`). Idempotent, so it is safe to call on every SwiftUI
+    /// update; toggling the `fileEditor.wordWrap` setting reflows open editors.
+    func applyFilePreviewWordWrap(_ wrap: Bool, scrollView: NSScrollView) {
+        guard let textContainer else { return }
+        scrollView.hasHorizontalScroller = !wrap
+        isHorizontallyResizable = !wrap
+        if wrap {
+            textContainer.widthTracksTextView = true
+            // `widthTracksTextView` keeps the container pinned to the text view
+            // width, so wrapping is correct even before the scroll view is laid
+            // out. Only snap the frame/container to a real measured width to
+            // avoid collapsing to a zero-width container during `makeNSView`,
+            // before the clip view has a size; `updateNSView` re-runs once laid
+            // out and reflows.
+            let visibleWidth = scrollView.contentSize.width
+            if visibleWidth > 0 {
+                textContainer.size = NSSize(width: visibleWidth, height: .greatestFiniteMagnitude)
+                setFrameSize(NSSize(width: visibleWidth, height: frame.height))
+            }
+        } else {
+            textContainer.widthTracksTextView = false
+            textContainer.size = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+        }
+    }
+
     func applyFilePreviewTextEditorInsets() {
         let targetInset = FilePreviewTextEditorLayout.textContainerInset
         if textContainerInset.width != targetInset.width || textContainerInset.height != targetInset.height {
@@ -119,7 +214,7 @@ final class SavingTextView: NSTextView {
     private static let minimumPreviewFontSize: CGFloat = 8
     private static let maximumPreviewFontSize: CGFloat = 36
 
-    weak var panel: FilePreviewPanel?
+    weak var panel: (any FilePreviewTextEditingPanel)?
     private var previewFontSize: CGFloat = 13
     private var pendingSaveShortcutChordPrefix: ShortcutStroke?
 

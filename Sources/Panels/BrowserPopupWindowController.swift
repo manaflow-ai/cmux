@@ -105,8 +105,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         BrowserPanel.configureWebViewConfiguration(
             configuration,
-            websiteDataStore: browserContext.websiteDataStore,
-            processPool: browserContext.processPool
+            websiteDataStore: browserContext.websiteDataStore
         )
 
         // Create popup web view with WebKit's supplied configuration after
@@ -353,6 +352,28 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    fileprivate func handleWebContentProcessTermination(for terminatedWebView: WKWebView) {
+        guard terminatedWebView === webView else { return }
+#if DEBUG
+        cmuxDebugLog("popup.webcontent.terminated depth=\(nestingDepth)")
+#endif
+        closePopup()
+    }
+
+    fileprivate func requestNavigation(_ request: URLRequest, in webView: WKWebView) {
+        guard let url = request.url else { return }
+
+        if browserShouldBlockInsecureHTTPURL(url) {
+            presentInsecureHTTPAlert(for: url, in: webView) { [weak webView] policy in
+                guard policy == .allow, let webView else { return }
+                browserLoadRequest(request, in: webView)
+            }
+            return
+        }
+
+        browserLoadRequest(request, in: webView)
+    }
+
     // MARK: - Insecure HTTP prompt (parity with main browser)
 
     /// Shows the same 3-button insecure HTTP alert as the main browser.
@@ -424,8 +445,15 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
-           browserShouldOpenURLExternally(url) {
-            NSWorkspace.shared.open(url)
+           browserShouldRouteExternalNavigation(url) {
+            browserHandleExternalNavigation(
+                url,
+                source: "popupUIDelegate",
+                webView: webView,
+                loadFallbackRequest: { [weak controller] request in
+                    controller?.requestNavigation(request, in: webView)
+                }
+            )
             return nil
         }
 
@@ -566,24 +594,28 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        // Only guard main-frame navigations
-        guard navigationAction.targetFrame?.isMainFrame != false else {
-            decisionHandler(.allow)
-            return
-        }
-
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
             return
         }
 
         // External URL schemes → hand off to macOS
-        if browserShouldOpenURLExternally(url) {
-            NSWorkspace.shared.open(url)
-            #if DEBUG
-            cmuxDebugLog("popup.nav.external url=\(url.absoluteString)")
-            #endif
+        if browserShouldRouteExternalNavigation(url) {
+            browserHandleExternalNavigation(
+                url,
+                source: "popupNavDelegate",
+                webView: webView,
+                loadFallbackRequest: { [weak controller] request in
+                    controller?.requestNavigation(request, in: webView)
+                }
+            )
             decisionHandler(.cancel)
+            return
+        }
+
+        // Only guard main-frame navigations
+        guard navigationAction.targetFrame?.isMainFrame != false else {
+            decisionHandler(.allow)
             return
         }
 
@@ -639,6 +671,10 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         // Parity with main browser: performDefaultHandling enables system keychain
         // lookups, MDM client certs, and SSO extensions (e.g. Microsoft Entra ID).
         completionHandler(.performDefaultHandling, nil)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        controller?.handleWebContentProcessTermination(for: webView)
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

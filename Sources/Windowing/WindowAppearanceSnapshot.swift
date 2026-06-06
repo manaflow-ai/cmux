@@ -93,6 +93,99 @@ enum WindowBackdropPolicy {
     }
 }
 
+/// Identifies the layer responsible for painting a terminal surface background.
+enum TerminalSurfaceBackgroundFillOwner: Equatable {
+    /// The terminal hosting view should paint the resolved background color.
+    case surfaceHostLayer
+
+    /// The shared root backdrop should remain the only visible background fill.
+    case sharedWindowBackdrop
+
+    /// The Bonsplit pane backdrop should remain the only visible background fill.
+    case bonsplitPaneBackdrop
+
+    /// Ghostty's renderer owns the background instead of cmux's host layers.
+    case ghosttyNativeRenderer
+}
+
+/// Resolved background painting decision for one terminal surface.
+struct TerminalSurfaceBackgroundFillPlan {
+    /// The layer or renderer that owns the visible terminal background.
+    let owner: TerminalSurfaceBackgroundFillOwner
+
+    /// The color to apply to the terminal host layer, or clear when another layer owns the fill.
+    let hostLayerColor: NSColor
+
+    /// Whether a host-layer fill must subtract itself from the shared window backdrop.
+    let clearsSharedWindowBackdrop: Bool
+
+    /// Whether the terminal host layer should paint a non-clear fill.
+    var usesHostLayerFill: Bool {
+        owner == .surfaceHostLayer
+    }
+
+    /// Compact label used by debug logging for the selected backdrop owner.
+    var logBackdropLabel: String {
+        switch owner {
+        case .surfaceHostLayer:
+            return "terminal"
+        case .sharedWindowBackdrop:
+            return "shared"
+        case .bonsplitPaneBackdrop:
+            return "bonsplit-pane"
+        case .ghosttyNativeRenderer:
+            return "ghostty-native"
+        }
+    }
+
+    /// Returns the debug-log source label for the selected owner.
+    func logSource(hasSurfaceOverride: Bool) -> String {
+        switch owner {
+        case .surfaceHostLayer:
+            return hasSurfaceOverride ? "surfaceOverride" : "defaultBackground"
+        case .sharedWindowBackdrop:
+            return "sharedWindowBackdrop"
+        case .bonsplitPaneBackdrop:
+            return "bonsplitPaneBackdrop"
+        case .ghosttyNativeRenderer:
+            return "ghosttyNativeBackground"
+        }
+    }
+
+    /// Computes the terminal background owner and host-layer color for current appearance state.
+    static func resolve(
+        renderingMode: GhosttyTerminalBackdropRenderingMode,
+        surfaceBackgroundColor: NSColor?,
+        defaultBackgroundColor: NSColor,
+        backgroundOpacity: Double,
+        sharesWindowBackdrop: Bool,
+        usesBonsplitPaneBackdrop: Bool
+    ) -> Self {
+        let resolvedColor = (surfaceBackgroundColor ?? defaultBackgroundColor)
+            .withAlphaComponent(WindowAppearanceSnapshot.clampedOpacity(backgroundOpacity))
+        let owner: TerminalSurfaceBackgroundFillOwner
+        let usesPaneLocalSurfaceFill = surfaceBackgroundColor != nil &&
+            renderingMode.usesWindowHostBackdrop &&
+            !usesBonsplitPaneBackdrop
+        if !renderingMode.usesWindowHostBackdrop {
+            owner = .ghosttyNativeRenderer
+        } else if usesPaneLocalSurfaceFill {
+            owner = .surfaceHostLayer
+        } else if !sharesWindowBackdrop && !usesBonsplitPaneBackdrop {
+            owner = .surfaceHostLayer
+        } else if sharesWindowBackdrop {
+            owner = .sharedWindowBackdrop
+        } else {
+            owner = .bonsplitPaneBackdrop
+        }
+        return Self(
+            owner: owner,
+            hostLayerColor: owner == .surfaceHostLayer ? resolvedColor : .clear,
+            clearsSharedWindowBackdrop: usesPaneLocalSurfaceFill && sharesWindowBackdrop
+        )
+    }
+}
+
 struct SidebarBackdropSettingsSnapshot {
     let materialRawValue: String
     let blendModeRawValue: String
@@ -213,11 +306,6 @@ struct WindowGlassSettingsSnapshot {
 }
 
 struct WindowAppearanceSnapshot {
-    /// Treat opacity values within floating-point round-trip tolerance of 1.0
-    /// as opaque so user-configured `1.0` does not accidentally trigger host
-    /// ownership after Double/CGFloat conversions.
-    private static let opaqueBackgroundOwnershipThreshold: CGFloat = 0.999
-
     let terminalBackgroundColor: NSColor
     let terminalBackgroundOpacity: CGFloat
     let terminalBackgroundBlur: GhosttyBackgroundBlur
@@ -280,8 +368,15 @@ struct WindowAppearanceSnapshot {
         CGFloat(max(0.0, min(1.0, opacity)))
     }
 
-    static func compositedTerminalColor(backgroundColor: NSColor, opacity: Double) -> NSColor {
-        backgroundColor.withAlphaComponent(clampedOpacity(opacity))
+    static func compositedTerminalColor(
+        backgroundColor: NSColor,
+        opacity: Double,
+        over baseColor: NSColor = .windowBackgroundColor
+    ) -> NSColor {
+        cmuxCompositedNSColor(
+            backgroundColor.withAlphaComponent(clampedOpacity(opacity)),
+            over: baseColor
+        )
     }
 
     static func terminalRenderingMode(
@@ -290,30 +385,19 @@ struct WindowAppearanceSnapshot {
         usesHostLayerBackground ? .windowHostBackdrop : .ghosttyRendererOwnedBackgroundImage
     }
 
-    static func usesHostLayerBackground(
-        backgroundOpacity: Double,
-        backgroundBlur: GhosttyBackgroundBlur
-    ) -> Bool {
-        if backgroundBlur != .disabled {
-            return true
-        }
-        return clampedOpacity(backgroundOpacity) < opaqueBackgroundOwnershipThreshold
-    }
-
-    static func terminalRenderingMode(
-        backgroundOpacity: Double,
-        backgroundBlur: GhosttyBackgroundBlur
-    ) -> GhosttyTerminalBackdropRenderingMode {
-        terminalRenderingMode(
-            usesHostLayerBackground: usesHostLayerBackground(
-                backgroundOpacity: backgroundOpacity,
-                backgroundBlur: backgroundBlur
-            )
+    var compositedTerminalBackgroundColor: NSColor {
+        Self.compositedTerminalColor(
+            backgroundColor: terminalBackgroundColor,
+            opacity: terminalBackgroundOpacity
         )
     }
 
-    var compositedTerminalBackgroundColor: NSColor {
-        terminalBackgroundColor.withAlphaComponent(terminalBackgroundOpacity)
+    var chromeColorScheme: ColorScheme {
+        cmuxReadableColorScheme(for: compositedTerminalBackgroundColor)
+    }
+
+    var sidebarContentColorScheme: ColorScheme {
+        unifySurfaceBackdrops ? chromeColorScheme : sidebarSettings.colorScheme
     }
 
     func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {

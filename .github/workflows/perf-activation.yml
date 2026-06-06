@@ -9,13 +9,17 @@ on:
         required: false
         default: ""
       runner:
-        description: macOS runner
+        description: macOS runner (auto follows the MACOS_RUNNER_15 repo variable, then warp)
         required: false
-        default: warp-macos-15-arm64-6x
+        default: auto
         type: choice
         options:
+          - auto
+          - blacksmith-6vcpu-macos-15
+          - blacksmith-6vcpu-macos-26
+          - blacksmith-6vcpu-macos-latest
           - warp-macos-15-arm64-6x
-          - depot-macos-latest
+          - warp-macos-26-arm64-6x
       workspace_count:
         description: Fixture workspace count
         required: false
@@ -35,7 +39,7 @@ concurrency:
 
 jobs:
   activation-session:
-    runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}
     timeout-minutes: 45
     env:
       PERF_TAG: perfci
@@ -52,7 +56,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -70,11 +79,51 @@ jobs:
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_ENV_HINTS: "1"
         run: |
           ./scripts/install-zig-ci.sh
 
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-source-packages
+          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-
+
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          mkdir -p "$SOURCE_PACKAGES_DIR"
+
+          for attempt in 1 2 3; do
+            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -resolvePackageDependencies; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to resolve Swift packages after 3 attempts" >&2
+              exit 1
+            fi
+            echo "Package resolution failed on attempt $attempt, retrying..."
+            sleep $((attempt * 5))
+          done
+
       - name: Build tagged app
-        run: ./scripts/reload.sh --tag "$PERF_TAG"
+        run: |
+          set -euo pipefail
+          CMUX_SKIP_ZIG_BUILD=1 \
+            CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+            CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1 \
+            ./scripts/reload.sh --tag "$PERF_TAG"
 
       - name: Run activation session benchmark
         run: |
@@ -93,12 +142,17 @@ jobs:
         run: |
           set -euo pipefail
           APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
-          swift scripts/bench-window-visibility.swift \
-            "$APP_PATH" \
-            "com.cmuxterm.app.debug.$PERF_TAG" \
-            30 \
-            --cmd-tab-activation \
-            --cg-visibility \
+          # The GitHub Actions runner process runs in launchd's system
+          # bootstrap, not the console user's Aqua session, so windows
+          # created by apps launched via NSWorkspace.openApplication do
+          # not show up in CGWindowListCopyWindowInfo([.optionOnScreenOnly]).
+          # Re-enter the Aqua session via launchctl asuser before running
+          # the bench so visibility polling sees real on-screen windows.
+          CONSOLE_USER="$(stat -f %Su /dev/console)"
+          CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+          sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
+            env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" \
+            bash -c "cd '$PWD' && swift scripts/bench-window-visibility.swift '$APP_PATH' 'com.cmuxterm.app.debug.$PERF_TAG' 30 --cmd-tab-activation --cg-visibility" \
             > perf-results/cmd-tab-activation.txt
           cat perf-results/cmd-tab-activation.txt
 

@@ -7,14 +7,20 @@ struct NotificationsPage: View {
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @AppStorage(PhonePushSettings.forwardEnabledKey) private var forwardToPhone = false
+    @AppStorage(PhonePushSettings.hideContentKey) private var hidePhoneNotificationContent = false
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
+            phoneForwardingRow
+            Divider()
 
-            if notificationStore.notifications.isEmpty {
+            if !notificationStore.notificationMenuSnapshot.hasNotifications {
                 emptyState
+            } else if notificationStore.notifications.isEmpty {
+                workspaceUnreadIndicatorState
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -26,12 +32,10 @@ struct NotificationsPage: View {
                                     // SwiftUI action closures are not guaranteed to run on the main actor.
                                     // Ensure window focus + tab selection happens on the main thread.
                                     DispatchQueue.main.async {
-                                        _ = AppDelegate.shared?.openNotification(
-                                            tabId: notification.tabId,
-                                            surfaceId: notification.surfaceId,
-                                            notificationId: notification.id
-                                        )
-                                        selection = .tabs
+                                        _ = AppDelegate.shared?.openTerminalNotification(notification)
+                                        if notification.clickAction == nil {
+                                            selection = .tabs
+                                        }
                                     }
                                 },
                                 onClear: {
@@ -74,7 +78,7 @@ struct NotificationsPage: View {
 
             Spacer()
 
-            if !notificationStore.notifications.isEmpty {
+            if notificationStore.notificationMenuSnapshot.hasNotifications {
                 jumpToUnreadButton
 
                 Button(String(localized: "notifications.clearAll", defaultValue: "Clear All")) {
@@ -87,6 +91,28 @@ struct NotificationsPage: View {
         .padding(.vertical, 12)
     }
 
+    private var phoneForwardingRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $forwardToPhone) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(localized: "notifications.forwardToPhone.title", defaultValue: "Forward notifications to my iPhone"))
+                    Text(String(localized: "notifications.forwardToPhone.subtitle", defaultValue: "Send agent notifications to the cmux iPhone app. Off by default; nothing is uploaded unless this is on."))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            if forwardToPhone {
+                Toggle(isOn: $hidePhoneNotificationContent) {
+                    Text(String(localized: "notifications.forwardToPhone.hideContent", defaultValue: "Hide content (send a generic message instead of the terminal text)"))
+                        .font(.caption)
+                }
+                .padding(.leading, 20)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
     private var emptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "bell.slash")
@@ -97,6 +123,17 @@ struct NotificationsPage: View {
             Text(String(localized: "notifications.empty.description", defaultValue: "Desktop notifications will appear here for quick review."))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var workspaceUnreadIndicatorState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "bell.badge")
+                .font(.system(size: 32))
+                .foregroundColor(.secondary)
+            Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
+                .font(.headline)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -141,7 +178,7 @@ struct NotificationsPage: View {
     }
 
     private var hasUnreadNotifications: Bool {
-        notificationStore.notifications.contains(where: { !$0.isRead })
+        notificationStore.notificationMenuSnapshot.hasUnreadNotifications
     }
 }
 
