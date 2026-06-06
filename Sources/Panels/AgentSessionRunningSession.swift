@@ -15,7 +15,6 @@ final class AgentSessionRunningSession {
     var openCodeSessionID: String?
     var isOpenCodeSessionCreateInFlight = false
     var openCodeEventTask: Task<Void, Never>?
-    var terminationEscalationTask: Task<Void, Never>?
     var pendingExitStatus: Int32?
     var drainedStreams: Set<String> = []
     private var stdoutBuffer = AgentSessionOutputLineBuffer()

@@ -14,7 +14,6 @@ final class AgentSessionProcessStore {
     }
     private var sessions: [String: AgentSessionRunningSession] = [:]
     private var lastEmittedHasActiveProviderSession: Bool?
-    private static let closeTerminationGracePeriodNanoseconds: UInt64 = 3_000_000_000
 
     func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) throws -> AgentSessionStartedSession {
         guard sessions.isEmpty else {
@@ -143,12 +142,12 @@ final class AgentSessionProcessStore {
         guard let session = sessions[sessionId] else {
             throw AgentSessionBridgeError.sessionNotFound(sessionId)
         }
-        requestTermination(for: session, escalateIfNeeded: true)
+        requestTermination(for: session, forceIfNeeded: true)
     }
 
     func closeAll() {
         for session in sessions.values {
-            requestTermination(for: session, escalateIfNeeded: true)
+            requestTermination(for: session, forceIfNeeded: true)
         }
     }
 
@@ -198,7 +197,7 @@ final class AgentSessionProcessStore {
         }
         emitActiveProviderStateIfNeeded()
         cancelSessionTasks(session)
-        requestTermination(for: session, escalateIfNeeded: true)
+        requestTermination(for: session, forceIfNeeded: true)
         emitExit(
             sessionId: session.sessionId,
             providerID: session.providerID,
@@ -206,34 +205,20 @@ final class AgentSessionProcessStore {
         )
     }
 
-    private func requestTermination(for session: AgentSessionRunningSession, escalateIfNeeded: Bool) {
+    private func requestTermination(for session: AgentSessionRunningSession, forceIfNeeded: Bool) {
         session.openCodeEventTask?.cancel()
         if session.process.isRunning {
             session.process.terminate()
         }
-        guard escalateIfNeeded,
-              session.terminationEscalationTask == nil else {
+        guard forceIfNeeded,
+              session.process.isRunning else {
             return
         }
-        let process = session.process
-        // Panel close gets a bounded grace period, then escalates so ignored SIGTERM cannot orphan agents.
-        session.terminationEscalationTask = Task { @MainActor in
-            do {
-                try await Task.sleep(nanoseconds: Self.closeTerminationGracePeriodNanoseconds)
-            } catch {
-                return
-            }
-            guard process.isRunning else {
-                return
-            }
-            _ = kill(process.processIdentifier, SIGKILL)
-        }
+        _ = kill(session.process.processIdentifier, SIGKILL)
     }
 
     private func cancelSessionTasks(_ session: AgentSessionRunningSession) {
         session.openCodeEventTask?.cancel()
-        session.terminationEscalationTask?.cancel()
-        session.terminationEscalationTask = nil
     }
 
     private func handleOutputLine(_ text: String, session: AgentSessionRunningSession, stream: String) {
@@ -341,7 +326,7 @@ final class AgentSessionProcessStore {
                 }
                 self.emitActiveProviderStateIfNeeded()
                 self.cancelSessionTasks(session)
-                self.requestTermination(for: session, escalateIfNeeded: true)
+                self.requestTermination(for: session, forceIfNeeded: true)
                 let message = (error as? AgentSessionBridgeError)?.localizedDescription
                     ?? String(
                         localized: "agentSession.opencode.error.sessionCreateFailed",
