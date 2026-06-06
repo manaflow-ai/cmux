@@ -53,6 +53,7 @@ Environment:
 | `CMUX_WORKSPACE_ID` | Default workspace context inside cmux terminals. |
 | `CMUX_SURFACE_ID` | Default surface context inside cmux terminals. |
 | `CMUX_TAB_ID` | Default tab context for tab commands. |
+| `CMUX_LAYOUT_PRESET_DIR` | Override the directory used by `cmux layout` presets. Defaults to `~/.config/cmux/layouts`. |
 
 ## Top-Level Commands
 
@@ -98,6 +99,7 @@ Environment:
 | `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
 | `list-workspaces` | List workspaces. |
 | `new-workspace` | Create a workspace, optionally with cwd, command, description, and layout. |
+| `layout` | Save, open, import, export, list, and locate named workspace layout presets. |
 | `ssh` | Open an SSH-backed workspace. Preserves the caller's live `SSH_AUTH_SOCK` for app-launched OpenSSH processes so `ForwardAgent yes` from ssh_config works normally. Supports `-A` / `--forward-agent` to request forwarding and `-a` / `--no-forward-agent` to disable forwarding for a workspace. Agent forwarding remains opt-in because forwarded agents can be used by processes on the remote host while the SSH session is active. |
 | `remote-daemon-status` | Print bundled remote daemon version, asset, checksum, and cache status. |
 | `ssh-session-list` | List persisted SSH PTY sessions for one remote workspace or all remote workspaces. Supports `--json`. |
@@ -204,6 +206,19 @@ Theme subcommands:
 | `themes set --light <theme>` | Set the light appearance theme. |
 | `themes set --dark <theme>` | Set the dark appearance theme. |
 | `themes clear` | Remove the cmux theme override. |
+
+Layout preset subcommands:
+
+| Command | Contract |
+| --- | --- |
+| `layout save <name>` | Export a workspace layout through `workspace.layout_export` and store it as `<name>.json` under the preset directory. Supports `--workspace`. |
+| `layout open <name>` | Read a stored preset and create a workspace with the saved layout through `workspace.create`. Supports `--cwd`, `--title`, and `--focus`; default focus is false. |
+| `layout export` | Print the current workspace layout preset as JSON, or write it with `--out`/`--output`. Supports `--workspace` and `--name`. |
+| `layout import <path>` | Canonicalize a JSON/JSONC preset or layout object and store it under the preset directory. Supports `--name`. |
+| `layout list`, `layout ls` | List stored presets without requiring a socket. Supports `--json`. |
+| `layout path` | Print the active preset directory without requiring a socket. Supports `--json`. |
+
+Preset names are filename-safe identifiers: non-empty letters, numbers, `.`, `_`, and `-`; they must not start with `.` or contain `..`.
 
 Workspace and tab action names:
 
@@ -435,6 +450,7 @@ the expected text without connecting to a cmux socket.
 - `cmux rename-tab --help` -> `Usage: cmux rename-tab`
 - `cmux new-workspace --help` -> `Usage: cmux new-workspace`
 - `cmux list-workspaces --help` -> `Usage: cmux list-workspaces`
+- `cmux layout --help` -> `Usage: cmux layout <save|open|export|import|list|path> [options]`
 - `cmux ssh --help` -> `Usage: cmux ssh <destination>`
 - `cmux ssh --help` -> `--forward-agent`
 - `cmux ssh-session-list --help` -> `Usage: cmux ssh-session-list`

@@ -29,6 +29,29 @@ class FakeCmuxState:
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
         self.calls.append((method, params))
 
+        if method == "workspace.layout_export":
+            return {
+                "schema": "cmux.workspacePreset.v1",
+                "name": params.get("name") or "Agent Workspace",
+                "workspace_id": WORKSPACE_ID,
+                "workspace_ref": "workspace:1",
+                "workspace": {
+                    "name": "Agent Workspace",
+                    "cwd": "/tmp/agent-workspace",
+                    "layout": {
+                        "pane": {
+                            "surfaces": [
+                                {
+                                    "type": "terminal",
+                                    "name": "shell",
+                                    "selected": True,
+                                    "focus": True,
+                                }
+                            ]
+                        }
+                    },
+                },
+            }
         if method == "window.list":
             return {
                 "windows": [
@@ -135,6 +158,56 @@ def run_cli(
     return proc.stdout.strip()
 
 
+def run_cli_without_socket(
+    cli: str,
+    args: list[str],
+    env_overrides: dict[str, str] | None = None,
+) -> str:
+    env = dict(os.environ)
+    for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
+        env.pop(key, None)
+    if env_overrides:
+        env.update(env_overrides)
+    proc = subprocess.run(
+        [cli, *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=5,
+    )
+    if proc.returncode != 0:
+        merged = f"{proc.stdout}\n{proc.stderr}".strip()
+        raise AssertionError(f"CLI failed ({' '.join(args)}): {merged}")
+    return proc.stdout.strip()
+
+
+def assert_cli_without_socket_fails(
+    cli: str,
+    args: list[str],
+    expected: str,
+    env_overrides: dict[str, str] | None = None,
+) -> None:
+    env = dict(os.environ)
+    for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
+        env.pop(key, None)
+    if env_overrides:
+        env.update(env_overrides)
+    proc = subprocess.run(
+        [cli, *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=5,
+    )
+    if proc.returncode == 0:
+        raise AssertionError(f"CLI unexpectedly succeeded ({' '.join(args)}): {proc.stdout}")
+    merged = f"{proc.stdout}\n{proc.stderr}"
+    if expected not in merged:
+        raise AssertionError(f"expected failure containing {expected!r}, got {merged!r}")
+
+
 def assert_cli_fails(cli: str, socket_path: str, args: list[str], expected: str) -> None:
     env = dict(os.environ)
     for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
@@ -174,14 +247,115 @@ def main() -> int:
     cli = resolve_cmux_cli()
     with tempfile.TemporaryDirectory(prefix="cmux-layout-focus-") as tmp:
         socket_path = str(Path(tmp) / "cmux.sock")
+        layout_dir = str(Path(tmp) / "layouts")
+        layout_env = {"CMUX_LAYOUT_PRESET_DIR": layout_dir}
         state = FakeCmuxState()
         server = ThreadedUnixServer(socket_path, FakeCmuxHandler)
         server.state = state
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
+            help_text = run_cli_without_socket(cli, ["layout", "--help"])
+            if "Usage: cmux layout" not in help_text:
+                raise AssertionError(f"layout help missing usage: {help_text!r}")
+
+            for subcommand in ["save", "open", "export"]:
+                subcommand_help = run_cli_without_socket(cli, ["layout", subcommand, "--help"])
+                if "Usage: cmux layout" not in subcommand_help:
+                    raise AssertionError(f"layout {subcommand} help missing usage: {subcommand_help!r}")
+
+            path_text = run_cli_without_socket(cli, ["layout", "path"], layout_env)
+            if Path(path_text) != Path(layout_dir):
+                raise AssertionError(f"layout path ignored CMUX_LAYOUT_PRESET_DIR: {path_text!r}")
+
+            Path(layout_dir).mkdir(parents=True, exist_ok=True)
+            list_text = run_cli_without_socket(cli, ["layout", "list", "--json"], layout_env)
+            listed = json.loads(list_text)
+            if listed != {"presets": []}:
+                raise AssertionError(f"layout list should work without a socket: {listed!r}")
+
+            invalid_preset = Path(layout_dir) / "broken.json"
+            invalid_preset.write_text("{ invalid", encoding="utf-8")
+            invalid_list_text = run_cli_without_socket(cli, ["layout", "list"], layout_env)
+            if "[invalid: invalid preset]" not in invalid_list_text:
+                raise AssertionError(f"layout list should sanitize invalid preset errors: {invalid_list_text!r}")
+            if "Failed to parse" in invalid_list_text or "JSON" in invalid_list_text:
+                raise AssertionError(f"layout list exposed raw parser details: {invalid_list_text!r}")
+            invalid_list_json = json.loads(run_cli_without_socket(cli, ["layout", "list", "--json"], layout_env))
+            if invalid_list_json["presets"][0].get("error") != "invalid preset":
+                raise AssertionError(f"layout list JSON should use a stable invalid status: {invalid_list_json!r}")
+            invalid_preset.unlink()
+
+            invalid_layout_dir = Path(tmp) / "layout-file"
+            invalid_layout_dir.write_text("not a directory", encoding="utf-8")
+            assert_cli_without_socket_fails(
+                cli,
+                ["layout", "list"],
+                "Failed to read layout preset directory",
+                {"CMUX_LAYOUT_PRESET_DIR": str(invalid_layout_dir)},
+            )
+
+            assert_cli_fails(cli, socket_path, ["layout", "save", ".hidden"], "Preset names may not start with '.'")
+            assert_cli_fails(
+                cli,
+                socket_path,
+                ["layout", "save", "--name", "dev", "ignored"],
+                "unexpected argument",
+            )
+            assert_cli_fails(
+                cli,
+                socket_path,
+                ["layout", "open", "--name", "dev", "ignored"],
+                "unexpected argument",
+            )
+
             run_cli(cli, socket_path, ["new-workspace", "--name", "agent"])
             assert_last_call(state, "workspace.create", {"title": "agent", "focus": False})
+
+            run_cli(cli, socket_path, ["layout", "save", "--name", "--help"], layout_env)
+            assert_last_call(state, "workspace.layout_export", {"name": "--help"})
+            if not (Path(layout_dir) / "--help.json").exists():
+                raise AssertionError("layout save should accept --help as a --name value")
+
+            run_cli(cli, socket_path, ["layout", "save", "--", "-dev"], layout_env)
+            assert_last_call(state, "workspace.layout_export", {"name": "-dev"})
+            if not (Path(layout_dir) / "-dev.json").exists():
+                raise AssertionError("layout save should accept dash-prefixed positional names after --")
+
+            source_preset = Path(tmp) / "source-preset.json"
+            source_preset.write_text(
+                json.dumps(
+                    {
+                        "schema": "cmux.workspacePreset.v1",
+                        "name": "source",
+                        "workspace": {
+                            "name": "Imported Workspace",
+                            "layout": {"pane": {"surfaces": [{"type": "terminal"}]}},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            run_cli_without_socket(cli, ["layout", "import", str(source_preset), "--name", "-h"], layout_env)
+            if not (Path(layout_dir) / "-h.json").exists():
+                raise AssertionError("layout import should accept -h as a --name value")
+
+            exported = json.loads(run_cli(cli, socket_path, ["layout", "export"]))
+            if exported.get("name") != "Agent-Workspace":
+                raise AssertionError(f"layout export should sanitize workspace title names: {exported!r}")
+            assert_last_call(state, "workspace.layout_export", {})
+
+            run_cli(cli, socket_path, ["layout", "save", "dev"], layout_env)
+            assert_last_call(state, "workspace.layout_export", {"name": "dev"})
+            saved_path = Path(layout_dir) / "dev.json"
+            saved = json.loads(saved_path.read_text())
+            if saved.get("name") != "dev":
+                raise AssertionError(f"layout save wrote wrong preset name: {saved!r}")
+
+            run_cli(cli, socket_path, ["layout", "open", "dev"], layout_env)
+            assert_last_call(state, "workspace.create", {"title": "Agent Workspace", "focus": False})
+            if "layout" not in state.calls[-1][1]:
+                raise AssertionError(f"layout open did not send layout params: {state.calls[-1]!r}")
 
             run_cli(
                 cli,

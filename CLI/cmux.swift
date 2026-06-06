@@ -2975,6 +2975,7 @@ struct CMUXCLI {
         // so help text is available even when cmux is not running.
         let preSeparatorArgs = commandArgs.firstIndex(of: "--").map { commandArgs[..<$0] } ?? commandArgs[...]
         if command != "__tmux-compat",
+           command != "layout",
            preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
@@ -3013,6 +3014,17 @@ struct CMUXCLI {
                 socketPath: nil,
                 explicitPassword: socketPasswordArg,
                 jsonOutput: jsonOutput
+            )
+            return
+        }
+
+        if command == "layout",
+           layoutCommandDoesNotNeedSocket(commandArgs) {
+            try runLayoutCommand(
+                commandArgs: commandArgs,
+                client: nil,
+                jsonOutput: jsonOutput,
+                idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
             )
             return
         }
@@ -3846,6 +3858,14 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowId,
                 honorJSONOutput: false
+            )
+
+        case "layout":
+            try runLayoutCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat
             )
 
         case "new-split":
@@ -4759,16 +4779,6 @@ struct CMUXCLI {
         return (cwd as NSString).appendingPathComponent(expanded)
     }
 
-    private func sanitizedFilenameComponent(_ raw: String) -> String {
-        let sanitized = raw.replacingOccurrences(
-            of: #"[^\p{L}\p{N}._-]+"#,
-            with: "-",
-            options: .regularExpression
-        )
-        let trimmed = sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "-."))
-        return trimmed.isEmpty ? "item" : trimmed
-    }
-
     private func bestEffortPruneTemporaryFiles(
         in directoryURL: URL,
         keepingMostRecent maxCount: Int = 50,
@@ -5031,6 +5041,7 @@ struct CMUXCLI {
         "jump-to-unread",
         "last-pane",
         "last-window",
+        "layout",
         "list-buffers",
         "list-log",
         "list-notifications",
@@ -11872,7 +11883,7 @@ struct CMUXCLI {
                     if (try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)) != nil {
                         bestEffortPruneTemporaryFiles(in: outputDir)
                         let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
-                        let safeSid = sanitizedFilenameComponent(sid)
+                        let safeSid = CmuxWorkspacePresetName.sanitizedComponent(sid)
                         let filename = "surface-\(safeSid)-\(timestampMs)-\(String(UUID().uuidString.prefix(8))).png"
                         let outputURL = outputDir.appendingPathComponent(filename, isDirectory: false)
                         if (try? persistPayloadScreenshot(to: outputURL, allowFailure: true)) == true {
@@ -12891,6 +12902,8 @@ struct CMUXCLI {
             return settingsUsage()
         case "config":
             return configUsage()
+        case "layout":
+            return layoutUsage()
         case "welcome":
             return """
             Usage: cmux welcome
@@ -31936,6 +31949,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+          layout <save|open|export|import|list|path> [options]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]

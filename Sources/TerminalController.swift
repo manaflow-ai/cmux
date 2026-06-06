@@ -1889,6 +1889,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceList(params: params))
         case "workspace.create":
             return v2Result(id: id, self.v2WorkspaceCreate(params: params))
+        case "workspace.layout_export":
+            return v2Result(id: id, self.v2WorkspaceLayoutExport(params: params))
         case "workspace.select":
             return v2Result(id: id, self.v2WorkspaceSelect(params: params))
         case "workspace.current":
@@ -2404,6 +2406,7 @@ class TerminalController {
             "window.close",
             "workspace.list",
             "workspace.create",
+            "workspace.layout_export",
             "workspace.select",
             "workspace.current",
             "workspace.close",
@@ -3585,6 +3588,11 @@ class TerminalController {
         return NSNull()
     }
 
+    nonisolated func v2JSONObject<T: Encodable>(_ value: T) -> Any? {
+        guard let data = try? JSONEncoder().encode(value) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data, options: [])
+    }
+
     private static func notificationCreatedAtString(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
@@ -4315,6 +4323,7 @@ class TerminalController {
         let requestedTitle = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = (requestedTitle?.isEmpty == false) ? requestedTitle : nil
         let description = v2RawString(params, "description")
+        let color = v2RawString(params, "color")?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Decode optional layout param (same JSON schema as cmux.json layout field).
         // Validate before creating the workspace so malformed layouts fail fast.
@@ -4347,6 +4356,9 @@ class TerminalController {
                 autoRefreshMetadata: shouldAutoRefreshMetadata
             )
             ws.setCustomDescription(description)
+            if let color, !color.isEmpty {
+                ws.setCustomColor(color)
+            }
             if let layoutNode {
                 ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
             }
@@ -4367,6 +4379,77 @@ class TerminalController {
             "surface_ref": v2Ref(kind: .surface, uuid: initialSurfaceId)
         ])
     }
+
+    private func v2WorkspaceLayoutExport(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(
+                code: "unavailable",
+                message: String(localized: "workspace.layoutExport.error.unavailable", defaultValue: "Workspace is unavailable"),
+                data: nil
+            )
+        }
+
+        let requestedName = v2RawString(params, "name")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var payload: [String: Any]?
+        var failure: String?
+
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                failure = String(localized: "workspace.layoutExport.error.workspaceNotFound", defaultValue: "Workspace not found")
+                return
+            }
+
+            do {
+                let layout = try workspace.exportCustomLayoutDefinition()
+                guard let layoutObject = v2JSONObject(layout) as? [String: Any] else {
+                    failure = String(localized: "workspace.layoutExport.error.encodeFailed", defaultValue: "Failed to export workspace layout")
+                    return
+                }
+
+                let workspaceName = workspace.customTitle ?? workspace.title
+                let presetName = CmuxWorkspacePresetDefinition.normalizedPresetName(
+                    requestedName,
+                    fallbackName: workspaceName
+                )
+                var workspaceObject: [String: Any] = [
+                    "name": workspaceName,
+                    "cwd": workspace.currentDirectory,
+                    "layout": layoutObject
+                ]
+                if let color = workspace.customColor {
+                    workspaceObject["color"] = color
+                }
+
+                payload = [
+                    "schema": CmuxWorkspacePresetDefinition.currentSchema,
+                    "name": presetName,
+                    "workspace_id": workspace.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    "workspace": workspaceObject
+                ]
+            } catch let exportError as Workspace.CustomLayoutExportError {
+                failure = exportError.errorDescription
+                    ?? String(localized: "workspace.layoutExport.error.failed", defaultValue: "Failed to export workspace layout")
+            } catch {
+                failure = String(localized: "workspace.layoutExport.error.failed", defaultValue: "Failed to export workspace layout")
+            }
+        }
+
+        if let payload {
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            var out = payload
+            out["window_id"] = v2OrNull(windowId?.uuidString)
+            out["window_ref"] = v2Ref(kind: .window, uuid: windowId)
+            return .ok(out)
+        }
+
+        return .err(
+            code: "invalid_state",
+            message: failure ?? String(localized: "workspace.layoutExport.error.failed", defaultValue: "Failed to export workspace layout"),
+            data: nil
+        )
+    }
+
     private func v2WorkspaceSelect(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
