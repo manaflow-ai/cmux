@@ -46,6 +46,8 @@ enum NotificationSoundSettings {
         label: "com.cmuxterm.notification-sound-preparation",
         qos: .utility
     )
+    private static let systemSoundBaseName = "cmux-system-notification-sound"
+    private static let systemSoundDirectoryURL = URL(fileURLWithPath: "/System/Library/Sounds", isDirectory: true)
     private static let pendingCustomSoundPreparationLock = NSLock()
     private static var pendingCustomSoundPreparationPaths: Set<String> = []
     private static let activePlaybackSoundsLock = NSLock()
@@ -113,7 +115,10 @@ enum NotificationSoundSettings {
         ("None", "none"),
     ]
 
-    static func sound(defaults: UserDefaults = .standard) -> UNNotificationSound? {
+    static func sound(
+        defaults: UserDefaults = .standard,
+        systemSoundStagingDirectory: URL? = nil
+    ) -> UNNotificationSound? {
         let value = defaults.string(forKey: key) ?? defaultValue
         switch value {
         case "default":
@@ -126,7 +131,14 @@ enum NotificationSoundSettings {
             }
             return UNNotificationSound(named: UNNotificationSoundName(rawValue: customSoundName))
         default:
-            return UNNotificationSound(named: UNNotificationSoundName(rawValue: value))
+            guard let stagedSystemSoundName = stagedSystemSoundName(
+                for: value,
+                stagingDirectory: systemSoundStagingDirectory
+            ) else {
+                NSLog("Notification system sound unavailable, falling back to default: \(value)")
+                return .default
+            }
+            return UNNotificationSound(named: UNNotificationSoundName(rawValue: stagedSystemSoundName))
         }
     }
 
@@ -284,16 +296,70 @@ enum NotificationSoundSettings {
         playSound(value: value, defaults: defaults)
     }
 
-    private static func playSound(value: String, defaults: UserDefaults) {
+    static func previewSound(value: String, customFilePath: String, defaults: UserDefaults = .standard) {
+        playSound(value: value, defaults: defaults, customFilePath: customFilePath)
+    }
+
+    private static func playSound(value: String, defaults: UserDefaults, customFilePath: String? = nil) {
         switch value {
         case "default":
             NSSound.beep()
         case "none":
             break
         case customFileValue:
-            playCustomFileSound(defaults: defaults)
+            if let customFilePath,
+               normalizedCustomFilePath(customFilePath) != nil {
+                playCustomFileSound(path: customFilePath)
+            } else {
+                playCustomFileSound(defaults: defaults)
+            }
         default:
-            NSSound(named: NSSound.Name(value))?.play()
+            playSystemSound(named: value)
+        }
+    }
+
+    static func stagedSystemSoundFileName(for value: String) -> String {
+        "\(systemSoundBaseName)-\(value).aiff"
+    }
+
+    static func stagedSystemSoundName(
+        for value: String,
+        fileManager: FileManager = .default,
+        sourceDirectory: URL = systemSoundDirectoryURL,
+        stagingDirectory: URL? = nil
+    ) -> String? {
+        guard systemSounds.contains(where: { option in
+            option.value == value && value != defaultValue && value != customFileValue && value != "none"
+        }) else {
+            return nil
+        }
+
+        let sourceURL = sourceDirectory.appendingPathComponent("\(value).aiff", isDirectory: false)
+        guard fileManager.fileExists(atPath: sourceURL.path) else {
+            return nil
+        }
+
+        let destinationDirectory = stagedSoundDirectoryURL(stagingDirectory)
+        let destinationFileName = stagedSystemSoundFileName(for: value)
+        let destinationURL = destinationDirectory.appendingPathComponent(destinationFileName, isDirectory: false)
+        do {
+            try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+            try copyStagedSoundIfNeeded(from: sourceURL, to: destinationURL, fileManager: fileManager)
+            return destinationFileName
+        } catch {
+            NSLog("Failed to stage notification system sound \(value): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private static func playSystemSound(named value: String) {
+        guard let sound = NSSound(named: NSSound.Name(value)) else {
+            return
+        }
+        retainActivePlaybackSound(sound)
+        sound.delegate = activePlaybackSoundDelegate
+        if !sound.play() {
+            releaseActivePlaybackSound(sound)
         }
     }
 
@@ -323,8 +389,11 @@ enum NotificationSoundSettings {
         return trimmed
     }
 
-    private static func stagedSoundDirectoryURL() -> URL {
-        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+    private static func stagedSoundDirectoryURL(_ override: URL? = nil) -> URL {
+        if let override {
+            return override
+        }
+        return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Sounds", isDirectory: true)
     }
@@ -421,7 +490,17 @@ enum NotificationSoundSettings {
             try fileManager.removeItem(at: normalizedDestination)
         }
 
-        try fileManager.copyItem(at: normalizedSource, to: normalizedDestination)
+        do {
+            try fileManager.copyItem(at: normalizedSource, to: normalizedDestination)
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain,
+               nsError.code == NSFileWriteFileExistsError,
+               fileManager.fileExists(atPath: normalizedDestination.path) {
+                return
+            }
+            throw error
+        }
     }
 
     private static func transcodeStagedSoundIfNeeded(
@@ -459,7 +538,7 @@ enum NotificationSoundSettings {
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: errorPipe.fileHandleForReading)
             let errorOutput = String(data: errorData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if fileManager.fileExists(atPath: normalizedDestination.path) {
@@ -1133,7 +1212,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func hasVisibleNotificationIndicator(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
         hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) ||
-            focusedReadIndicatorByTabId[tabId] == surfaceId
+            (focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false)
     }
 
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
@@ -1503,6 +1582,12 @@ final class TerminalNotificationStore: ObservableObject {
             suppressedNotificationFeedbackHandler(self, notification, effects)
         } else {
             notificationDeliveryHandler(self, notification, effects)
+            // Mirror to the user's iPhone (opt-in, off by default). Only on the
+            // desktop-delivery path so it matches what the Mac actually shows;
+            // suppressed/focused notifications are not forwarded.
+            if effects.desktop {
+                PhonePushClient.shared.forward(notification)
+            }
         }
     }
 
@@ -1564,6 +1649,22 @@ final class TerminalNotificationStore: ObservableObject {
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
+    func markUnread(id: UUID) {
+        var updated = notifications
+        guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
+        guard updated[index].isRead else { return }
+        let tabId = updated[index].tabId
+        updated[index].isRead = false
+        notifications = updated
+        // The notification itself now provides the workspace unread indicator. Clear any
+        // existing manual or restored workspace unread state for the same tab so we don't
+        // double-count it. (Mirrors what markLatestNotificationAsOldestUnread does for the
+        // manual flag — restored hints are a one-time signal from a previous session and
+        // should also defer to the concrete unread notification.)
+        setWorkspaceManualUnread(false, forTabId: tabId)
+        setWorkspaceRestoredUnread(false, forTabId: tabId)
+    }
+
     func markRead(forTabId tabId: UUID) {
         var updated = notifications
         var idsToClear: [String] = []
@@ -1576,6 +1677,7 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             notifications = updated
         }
+        clearFocusedReadIndicator(forTabId: tabId)
         setWorkspaceManualUnread(false, forTabId: tabId)
         clearWorkspacePanelUnread(forTabId: tabId)
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
@@ -1598,6 +1700,7 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             notifications = updated
         }
+        clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         if surfaceId == nil {
             clearWorkspacePanelUnread(forTabId: tabId)
             setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
@@ -1618,7 +1721,7 @@ final class TerminalNotificationStore: ObservableObject {
     func markLatestNotificationAsOldestUnread(forTabId tabId: UUID, surfaceId: UUID?) -> UUID? {
         var updated = notifications
         guard let index = latestNotificationIndex(forTabId: tabId, surfaceId: surfaceId, in: updated) else {
-            if !workspaceIsUnread(forTabId: tabId) {
+            if surfaceId == nil, !workspaceIsUnread(forTabId: tabId) {
                 setWorkspaceManualUnread(true, forTabId: tabId)
             }
             return nil
@@ -1705,9 +1808,11 @@ final class TerminalNotificationStore: ObservableObject {
         let removedIds = notifications
             .filter { $0.tabId == tabId }
             .map { $0.id.uuidString }
+        var usedNotificationIds = Set(notifications.filter { $0.tabId != tabId }.map(\.id))
         let restoredForTab = restoredNotifications
             .filter { $0.tabId == tabId }
             .sorted(by: Self.notificationSortPrecedes)
+            .map { Self.notificationWithUniqueId($0, usedIds: &usedNotificationIds) }
         let keptNotifications = notifications.filter { $0.tabId != tabId }
         let nextNotifications = (restoredForTab + keptNotifications).sorted(by: Self.notificationSortPrecedes)
 
@@ -1721,6 +1826,34 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: removedIds)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: removedIds)
         }
+    }
+
+    private static func notificationWithUniqueId(
+        _ notification: TerminalNotification,
+        usedIds: inout Set<UUID>
+    ) -> TerminalNotification {
+        if usedIds.insert(notification.id).inserted {
+            return notification
+        }
+
+        var replacementId = UUID()
+        while !usedIds.insert(replacementId).inserted {
+            replacementId = UUID()
+        }
+
+        return TerminalNotification(
+            id: replacementId,
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId,
+            panelId: notification.panelId,
+            title: notification.title,
+            subtitle: notification.subtitle,
+            body: notification.body,
+            createdAt: notification.createdAt,
+            isRead: notification.isRead,
+            paneFlash: notification.paneFlash,
+            clickAction: notification.clickAction
+        )
     }
 
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
