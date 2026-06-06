@@ -577,12 +577,16 @@ enum BrowserEngineSettings {
     }
 
     static func currentEngine(defaults: UserDefaults = .standard) -> BrowserEngine {
-        if let engine = engine(for: defaults.string(forKey: engineKey)) {
-            defaults.set(!engine.usesEmbeddedBrowser, forKey: legacyDisabledKey)
-            return engine
+        if let rawEngine = defaults.string(forKey: engineKey) {
+            if let engine = engine(for: rawEngine) {
+                defaults.set(!engine.usesEmbeddedBrowser, forKey: legacyDisabledKey)
+                return engine
+            }
+            let repairedEngine = legacyEngine(defaults: defaults) ?? defaultEngine
+            setCurrentEngine(repairedEngine, defaults: defaults)
+            return repairedEngine
         }
-        if defaults.object(forKey: legacyDisabledKey) != nil {
-            let migratedEngine: BrowserEngine = defaults.bool(forKey: legacyDisabledKey) ? .systemDefault : .webKit
+        if let migratedEngine = legacyEngine(defaults: defaults) {
             defaults.set(migratedEngine.rawValue, forKey: engineKey)
             return migratedEngine
         }
@@ -598,6 +602,11 @@ enum BrowserEngineSettings {
         defaults.set(!engine.usesEmbeddedBrowser, forKey: legacyDisabledKey)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
         NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
+    }
+
+    private static func legacyEngine(defaults: UserDefaults) -> BrowserEngine? {
+        guard defaults.object(forKey: legacyDisabledKey) != nil else { return nil }
+        return defaults.bool(forKey: legacyDisabledKey) ? .systemDefault : .webKit
     }
 }
 
