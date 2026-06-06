@@ -1,4 +1,5 @@
 import XCTest
+import Testing
 import CoreGraphics
 import Bonsplit
 
@@ -158,89 +159,83 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
     }
 }
 
+@Suite(.serialized)
 @MainActor
-final class WorkspacePageLifecycleTests: XCTestCase {
-    func testSwitchingPagesPreservesLivePanelIdentityAcrossDetachAndReattach() throws {
+struct WorkspacePageLifecycleTests {
+    @Test func switchingPagesPreservesLivePanelIdentityAcrossDetachAndReattach() throws {
         let workspace = Workspace()
         let firstPageId = workspace.activePageId
-        let firstPaneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let firstPaneId = try #require(workspace.bonsplitController.allPaneIds.first)
 
-        XCTAssertNotNil(workspace.newTerminalSurface(inPane: firstPaneId, focus: false))
+        #expect(workspace.newTerminalSurface(inPane: firstPaneId, focus: false) != nil)
         let firstPagePanelIds = Set(workspace.panels.keys)
-        XCTAssertEqual(firstPagePanelIds.count, 2)
+        #expect(firstPagePanelIds.count == 2)
 
         let secondPage = workspace.newPage(select: true)
-        XCTAssertEqual(workspace.activePageId, secondPage.id)
+        #expect(workspace.activePageId == secondPage.id)
 
         let secondPagePanelIds = Set(workspace.panels.keys)
-        XCTAssertEqual(
-            secondPagePanelIds.count,
-            1,
-            "A fresh page should mount its own placeholder terminal"
-        )
-        XCTAssertNotEqual(firstPagePanelIds, secondPagePanelIds)
+        #expect(secondPagePanelIds.count == 1, "A fresh page should mount its own placeholder terminal")
+        #expect(firstPagePanelIds != secondPagePanelIds)
 
         workspace.selectPage(firstPageId)
-        XCTAssertEqual(workspace.activePageId, firstPageId)
-        XCTAssertEqual(
-            Set(workspace.panels.keys),
-            firstPagePanelIds,
+        #expect(workspace.activePageId == firstPageId)
+        #expect(
+            Set(workspace.panels.keys) == firstPagePanelIds,
             "Returning to the first page should reattach the parked live panels"
         )
 
         workspace.selectPage(secondPage.id)
-        XCTAssertEqual(workspace.activePageId, secondPage.id)
-        XCTAssertEqual(
-            Set(workspace.panels.keys),
-            secondPagePanelIds,
+        #expect(workspace.activePageId == secondPage.id)
+        #expect(
+            Set(workspace.panels.keys) == secondPagePanelIds,
             "Returning to the second page should reuse its parked live panel instead of rebuilding a new one"
         )
     }
 
-    func testRuntimePageRestoreReplacesPreviousPagePaneSkeleton() throws {
+    @Test func runtimePageRestoreReplacesPreviousPagePaneSkeleton() throws {
         let workspace = Workspace()
         let firstPageId = workspace.activePageId
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        XCTAssertNotNil(workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal))
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) != nil)
         let firstPagePanelIds = Set(workspace.panels.keys)
         let firstPagePaneCount = workspace.bonsplitController.allPaneIds.count
-        XCTAssertEqual(firstPagePaneCount, 2)
+        #expect(firstPagePaneCount == 2)
 
         let secondPage = workspace.newPage(select: true)
-        let secondPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        XCTAssertNotNil(workspace.newTerminalSplit(from: secondPanelId, orientation: .vertical))
-        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+        let secondPanelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.newTerminalSplit(from: secondPanelId, orientation: .vertical) != nil)
+        #expect(workspace.bonsplitController.allPaneIds.count == 2)
 
         workspace.selectPage(firstPageId)
 
-        XCTAssertEqual(workspace.activePageId, firstPageId)
-        XCTAssertEqual(Set(workspace.panels.keys), firstPagePanelIds)
-        XCTAssertEqual(
-            workspace.bonsplitController.allPaneIds.count,
-            firstPagePaneCount,
+        #expect(workspace.activePageId == firstPageId)
+        #expect(Set(workspace.panels.keys) == firstPagePanelIds)
+        #expect(
+            workspace.bonsplitController.allPaneIds.count == firstPagePaneCount,
             "Runtime page restore should replace the leaving page's empty pane skeleton"
         )
-        XCTAssertNotEqual(workspace.activePageId, secondPage.id)
+        #expect(workspace.activePageId != secondPage.id)
     }
 
-    func testRuntimePageRestoreDoesNotRecordPlaceholderPanelsAsClosedItems() throws {
+    @Test func runtimePageRestoreDoesNotRecordPlaceholderPanelsAsClosedItems() throws {
         ClosedItemHistoryStore.shared.removeAll()
         defer { ClosedItemHistoryStore.shared.removeAll() }
 
         let workspace = Workspace()
         let firstPageId = workspace.activePageId
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        XCTAssertNotNil(workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal))
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) != nil)
 
         let secondPage = workspace.newPage(select: true)
-        let secondPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        XCTAssertNotNil(workspace.newTerminalSplit(from: secondPanelId, orientation: .vertical))
+        let secondPanelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.newTerminalSplit(from: secondPanelId, orientation: .vertical) != nil)
 
         workspace.selectPage(firstPageId)
         workspace.selectPage(secondPage.id)
 
-        XCTAssertFalse(
-            ClosedItemHistoryStore.shared.canReopen,
+        #expect(
+            !ClosedItemHistoryStore.shared.canReopen,
             "Runtime page restore should not expose synthetic placeholder panels in recently closed items"
         )
     }
