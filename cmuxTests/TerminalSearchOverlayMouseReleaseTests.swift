@@ -19,6 +19,7 @@ struct TerminalSearchOverlayMouseReleaseTests {
         defer { window.orderOut(nil) }
 
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
+        hostedView.debugRunDeferredSearchOverlayMutationForTesting()
         #expect(waitUntil(description: "search overlay to mount") {
             hostedView.debugHasSearchOverlay()
         })
@@ -54,6 +55,7 @@ struct TerminalSearchOverlayMouseReleaseTests {
         defer { window.orderOut(nil) }
 
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
+        hostedView.debugRunDeferredSearchOverlayMutationForTesting()
         #expect(waitUntil(description: "search overlay to mount") {
             hostedView.debugHasSearchOverlay()
         })

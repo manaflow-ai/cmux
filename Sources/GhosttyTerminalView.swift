@@ -13222,6 +13222,14 @@ final class GhosttySurfaceScrollView: NSView {
         DispatchQueue.main.async(execute: work)
     }
 
+#if DEBUG
+    func debugRunDeferredSearchOverlayMutationForTesting() {
+        guard let work = deferredSearchOverlayMutationWorkItem else { return }
+        work.perform()
+        work.cancel()
+    }
+#endif
+
     private func cancelImageTransferIndicatorShow() {
         imageTransferIndicatorShowWorkItem?.cancel()
         imageTransferIndicatorShowWorkItem = nil
