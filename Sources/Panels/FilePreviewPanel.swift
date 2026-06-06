@@ -2,6 +2,7 @@ import AppKit
 import AVKit
 import Bonsplit
 import Combine
+import CodeEditLanguages
 import Foundation
 import PDFKit
 import Quartz
@@ -999,6 +1000,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var isFileUnavailable = false
     @Published private(set) var textContent = ""
     @Published private(set) var textContentUTF8ByteCount: Int?
+    @Published private(set) var highlightedTextLanguage: CodeLanguage?
     @Published private(set) var isDirty = false
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
@@ -1036,6 +1038,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
         self.previewMode = initialPreviewMode
         self.displayIcon = FilePreviewKindResolver.iconName(for: initialPreviewMode)
+        self.highlightedTextLanguage = initialPreviewMode == .text
+            ? SyntaxLanguageDetector.language(for: fileURL)
+            : nil
         self.focusCoordinator = FilePreviewFocusCoordinator(
             preferredIntent: Self.defaultFocusIntent(for: initialPreviewMode)
         )
@@ -1183,6 +1188,17 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textContentUTF8ByteCount = nextContent.utf8.count
     }
 
+    private func refreshHighlightedTextLanguage() {
+        guard previewMode == .text, !isFileUnavailable else {
+            highlightedTextLanguage = nil
+            return
+        }
+        highlightedTextLanguage = SyntaxLanguageDetector.language(
+            for: fileURL,
+            currentContentUTF8ByteCount: textContentUTF8ByteCount
+        )
+    }
+
     private func prepareContentForPreviewMode() {
         if previewMode == .text {
             loadTextContent(replacingDirtyContent: false)
@@ -1210,6 +1226,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard previewMode != mode else { return }
         if mode != .text {
             textLoadGeneration += 1
+            highlightedTextLanguage = nil
+        } else {
+            highlightedTextLanguage = SyntaxLanguageDetector.language(for: fileURL)
         }
         previewMode = mode
         displayIcon = FilePreviewKindResolver.iconName(for: mode)
@@ -1251,6 +1270,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             originalTextContent = ""
             isDirty = false
             isFileUnavailable = true
+            refreshHighlightedTextLanguage()
             return
         case .loaded(let content, let encoding):
             if !replacingDirtyContent && isDirty {
@@ -1264,6 +1284,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             textEncoding = encoding
             isDirty = false
             isFileUnavailable = false
+            refreshHighlightedTextLanguage()
         }
     }
 

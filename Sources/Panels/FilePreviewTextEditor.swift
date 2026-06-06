@@ -41,10 +41,7 @@ struct HighlightedFilePreviewRouter: View {
     }
 
     var body: some View {
-        if let language = SyntaxLanguageDetector.language(
-            for: panel.fileURL,
-            currentContentUTF8ByteCount: panel.textContentUTF8ByteCount
-        ) {
+        if let language = panel.highlightedTextLanguage {
             HighlightedFilePreviewEditor(
                 panel: panel,
                 isVisibleInUI: isVisibleInUI,

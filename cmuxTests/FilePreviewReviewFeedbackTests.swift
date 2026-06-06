@@ -301,6 +301,44 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         ))
     }
 
+    func testHighlightedPreviewRouteStaysStableAcrossUnsavedLargeEdit() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("swift")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try "let value = 1\n".write(to: url, atomically: true, encoding: .utf8)
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        XCTAssertNotNil(panel.highlightedTextLanguage)
+
+        panel.updateTextContent(String(repeating: "a", count: 501_000))
+
+        XCTAssertEqual(panel.textContentUTF8ByteCount, .some(501_000))
+        XCTAssertNotNil(panel.highlightedTextLanguage)
+    }
+
+    func testHighlightedPreviewRouteReevaluatesOnReloadedLargeContent() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("swift")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try "let value = 1\n".write(to: url, atomically: true, encoding: .utf8)
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+        await panel.loadTextContent().value
+        XCTAssertNotNil(panel.highlightedTextLanguage)
+
+        try Data(repeating: 65, count: 501_000).write(to: url, options: .atomic)
+        await panel.loadTextContent().value
+
+        XCTAssertEqual(panel.textContentUTF8ByteCount, .some(501_000))
+        XCTAssertNil(panel.highlightedTextLanguage)
+    }
+
     func testExtensionlessUTF16TextWithBOMResolvesAsTextAfterSniffing() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
