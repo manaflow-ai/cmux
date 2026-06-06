@@ -17,10 +17,19 @@ struct CEFBrowserPanelView: View {
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
 
+    @State private var cefRuntimeInstaller = CEFRuntimeInstaller.shared
     @State private var activationError: Error?
     @State private var addressText: String = ""
     @State private var addressFieldFocused: Bool = false
     @State private var addressSelectAllRequestId: UInt64 = 0
+
+    private var activationTaskID: CEFBrowserPanelActivationTaskID {
+        CEFBrowserPanelActivationTaskID(
+            isVisibleInUI: isVisibleInUI,
+            runtimeReady: cefRuntimeInstaller.phase == .installed
+                || cefRuntimeInstaller.isInstalledOrBundled
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,7 +48,7 @@ struct CEFBrowserPanelView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .task(id: isVisibleInUI) {
+        .task(id: activationTaskID) {
             if addressText.isEmpty {
                 addressText = panel.addressBarDisplayString
             }
@@ -279,4 +288,9 @@ private struct CEFBrowserToolbarButtonStyle: ButtonStyle {
             )
             .contentShape(Rectangle())
     }
+}
+
+private struct CEFBrowserPanelActivationTaskID: Equatable {
+    let isVisibleInUI: Bool
+    let runtimeReady: Bool
 }
