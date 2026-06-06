@@ -36,6 +36,7 @@ final class AgentSessionProcessStore {
         let stdin = Pipe()
         let stdout = Pipe()
         let stderr = Pipe()
+        let inputWriter = AgentSessionInputWriter(fileHandle: stdin.fileHandleForWriting)
         let openCodeAuth = OpenCodeServerAuth(environment: launchEnvironment)
         process.standardInput = stdin
         process.standardOutput = stdout
@@ -48,13 +49,14 @@ final class AgentSessionProcessStore {
             workingDirectory: workingDirectory,
             process: process,
             stdin: stdin,
+            inputWriter: inputWriter,
             openCodeAuthorizationHeader: openCodeAuth?.authorizationHeader
         )
         if plan.provider == .codex {
             running.codexAppServerSession = CodexAppServerSession(
                 workingDirectory: workingDirectory,
                 writeData: { data in
-                    try stdin.fileHandleForWriting.write(contentsOf: data)
+                    try inputWriter.write(data)
                 },
                 outputSink: { [weak self] stream, text in
                     self?.emitOutput(
@@ -133,7 +135,7 @@ final class AgentSessionProcessStore {
             }
             try codexAppServerSession.submit(text, permissionMode: permissionMode)
         case .claude:
-            try writeClaudeStreamJSON(text, to: session.stdin)
+            try writeClaudeStreamJSON(text, to: session.inputWriter)
         case .opencode:
             try await postOpenCodePrompt(text, session: session)
         }
@@ -264,6 +266,7 @@ final class AgentSessionProcessStore {
         session.stdoutReadTask = nil
         session.stderrReadTask?.cancel()
         session.stderrReadTask = nil
+        session.inputWriter.close()
         session.openCodeEventTask?.cancel()
         session.openCodeEventTask = nil
     }
@@ -589,7 +592,7 @@ final class AgentSessionProcessStore {
         return decoded as? [String: Any] ?? [:]
     }
 
-    private func writeClaudeStreamJSON(_ text: String, to stdin: Pipe) throws {
+    private func writeClaudeStreamJSON(_ text: String, to inputWriter: AgentSessionInputWriter) throws {
         let message: [String: Any] = [
             "type": "user",
             "message": [
@@ -604,7 +607,7 @@ final class AgentSessionProcessStore {
         ]
         var data = try JSONSerialization.data(withJSONObject: message, options: [])
         data.append(0x0A)
-        try stdin.fileHandleForWriting.write(contentsOf: data)
+        try inputWriter.write(data)
     }
 
     private func emitStarted(session: AgentSessionRunningSession) {

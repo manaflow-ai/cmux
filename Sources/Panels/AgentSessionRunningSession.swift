@@ -8,6 +8,7 @@ final class AgentSessionRunningSession {
     let workingDirectory: String?
     let process: Process
     let stdin: Pipe
+    let inputWriter: AgentSessionInputWriter
     let openCodeAuthorizationHeader: String?
     var codexAppServerSession: CodexAppServerSession?
     private var claudeStreamJSONAccumulator = ClaudeStreamJSONAccumulator()
@@ -32,6 +33,7 @@ final class AgentSessionRunningSession {
         workingDirectory: String?,
         process: Process,
         stdin: Pipe,
+        inputWriter: AgentSessionInputWriter,
         openCodeAuthorizationHeader: String?
     ) {
         self.sessionId = sessionId
@@ -41,6 +43,7 @@ final class AgentSessionRunningSession {
         self.workingDirectory = workingDirectory
         self.process = process
         self.stdin = stdin
+        self.inputWriter = inputWriter
         self.openCodeAuthorizationHeader = openCodeAuthorizationHeader
     }
 
