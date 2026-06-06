@@ -826,8 +826,8 @@ final class QuickTerminalController {
 #if DEBUG
         cmuxDebugLog("quickTerminal.hide frame={\(NSStringFromRect(placement.hiddenFrame))}")
 #endif
-        dependencies.animateFrame(window, placement.hiddenFrame, configuration.animationDuration * 0.8) { [weak self, weak window] in
-            guard let self, let window else { return }
+        dependencies.animateFrame(window, placement.hiddenFrame, configuration.animationDuration * 0.8) { [weak self, window] in
+            guard let self else { return }
             self.completeHide(window, placement: placement)
         }
     }
