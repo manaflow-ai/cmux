@@ -322,14 +322,18 @@ struct WorkspaceDetailView: View {
     private var diagnosticsLiveState: MobileDiagnosticsLiveState {
         let host = store.connectedHostName.isEmpty ? nil : store.connectedHostName
         let activeTicket = store.activeTicket
+        let activePairedMac = store.activePairedMac
         return MobileDiagnosticsLiveState(
             connectionState: diagnosticsConnectionState,
             isSignedIn: store.isSignedIn,
             isAuthenticated: authManager.isAuthenticated,
             lastAuthError: authManager.lastAuthErrorDescription,
             connectedHostName: host,
-            pairedMacName: activeTicket?.macDisplayName ?? activeTicket?.macDeviceID,
-            pairedMacDeviceID: activeTicket?.macDeviceID,
+            pairedMacName: activeTicket?.macDisplayName
+                ?? activePairedMac?.displayName
+                ?? activeTicket?.macDeviceID
+                ?? activePairedMac?.macDeviceID,
+            pairedMacDeviceID: activeTicket?.macDeviceID ?? activePairedMac?.macDeviceID,
             connectionError: store.connectionError
         )
     }

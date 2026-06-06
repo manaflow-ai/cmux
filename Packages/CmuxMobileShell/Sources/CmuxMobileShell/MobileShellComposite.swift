@@ -94,6 +94,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
     public private(set) var activeTicket: CmxAttachTicket?
+    public private(set) var activePairedMac: MobilePairedMac?
     public private(set) var activeRoute: CmxAttachRoute?
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
@@ -209,6 +210,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalInputText = ""
         self.connectionError = nil
         self.activeTicket = nil
+        self.activePairedMac = nil
         self.activeRoute = nil
         self.selectedWorkspaceID = workspaces.first?.id
         self.selectedTerminalID = workspaces.first?.terminals.first?.id
@@ -264,6 +266,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputText = ""
         connectionError = nil
         activeTicket = nil
+        activePairedMac = nil
         activeRoute = nil
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
@@ -522,6 +525,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         guard let mac = saved else { return false }
+        activePairedMac = mac
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
             mac.routes,
@@ -556,11 +560,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               !ticket.macDeviceID.hasPrefix("manual-") else { return }
         let stackUserID = identityProvider?.currentUserID
         do {
+            let now = runtime?.now() ?? Date()
             try await pairedMacStore.upsert(
                 macDeviceID: ticket.macDeviceID,
                 displayName: ticket.macDisplayName,
                 routes: ticket.routes,
                 markActive: true,
+                stackUserID: stackUserID,
+                now: now
+            )
+            activePairedMac = MobilePairedMac(
+                macDeviceID: ticket.macDeviceID,
+                displayName: ticket.macDisplayName,
+                routes: ticket.routes,
+                createdAt: now,
+                lastSeenAt: now,
+                isActive: true,
                 stackUserID: stackUserID
             )
         } catch {
@@ -642,6 +657,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRequiresReauth = false
         connectionState = .disconnected
         macConnectionStatus = .unavailable
+        activePairedMac = nil
         clearRemoteConnectionContext()
         if let pairedMacStore, let macID = staleMacID {
             // Fire-and-forget: forgetting the persisted mac is cleanup that must

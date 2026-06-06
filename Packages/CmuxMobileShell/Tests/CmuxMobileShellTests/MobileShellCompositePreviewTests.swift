@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -111,6 +112,35 @@ import Testing
         #expect(route?.0 == "100.71.210.41")
         #expect(route?.1 == CmxMobileDefaults.defaultHostPort)
     }
+
+    @Test func reconnectPublishesActivePairedMacBeforeRouteSelection() async throws {
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: CmxMobileDefaults.defaultHostPort
+        )
+        let pairedMac = MobilePairedMac(
+            macDeviceID: "mac-offline",
+            displayName: "Studio Offline",
+            routes: [route],
+            createdAt: Date(timeIntervalSince1970: 1),
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            isActive: true,
+            stackUserID: nil
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: PreviewPairedMacStore(activeMac: pairedMac)
+        )
+
+        let didConnect = await store.reconnectActiveMacIfAvailable(stackUserID: nil)
+
+        #expect(didConnect == false)
+        #expect(store.activePairedMac?.macDeviceID == "mac-offline")
+        #expect(store.activePairedMac?.displayName == "Studio Offline")
+        #expect(store.activeTicket == nil)
+        #expect(store.connectedHostName.isEmpty)
+    }
 }
 
 private func hostPortRoute(
@@ -125,4 +155,51 @@ private func hostPortRoute(
         endpoint: .hostPort(host: host, port: port),
         priority: priority
     )
+}
+
+private actor PreviewPairedMacStore: MobilePairedMacStoring {
+    private var mac: MobilePairedMac?
+
+    init(activeMac: MobilePairedMac?) {
+        self.mac = activeMac
+    }
+
+    func upsert(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        markActive: Bool,
+        stackUserID: String?,
+        now: Date
+    ) async throws {
+        mac = MobilePairedMac(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            createdAt: now,
+            lastSeenAt: now,
+            isActive: markActive,
+            stackUserID: stackUserID
+        )
+    }
+
+    func loadAll(stackUserID: String?) async throws -> [MobilePairedMac] {
+        mac.map { [$0] } ?? []
+    }
+
+    func activeMac(stackUserID: String?) async throws -> MobilePairedMac? {
+        mac
+    }
+
+    func setActive(macDeviceID: String) async throws {}
+
+    func remove(macDeviceID: String) async throws {
+        if mac?.macDeviceID == macDeviceID {
+            mac = nil
+        }
+    }
+
+    func removeAll() async throws {
+        mac = nil
+    }
 }
