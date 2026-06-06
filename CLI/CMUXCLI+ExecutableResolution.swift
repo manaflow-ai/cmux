@@ -13,7 +13,7 @@ extension CMUXCLI {
         let candidate = URL(fileURLWithPath: path, isDirectory: false)
             .standardizedFileURL
             .path
-        if isAppBundleResourceBinChild(candidate) {
+        if isCmuxAppBundleResourceBinChild(candidate) {
             return true
         }
         guard let bundledBinDirectory = bundledProviderBinDirectory() else { return false }
@@ -170,7 +170,7 @@ extension CMUXCLI {
             let standardized = URL(fileURLWithPath: trimmed, isDirectory: true)
                 .standardizedFileURL
                 .path
-            guard !isAppBundleResourceBinDirectory(standardized) else { return nil }
+            guard !isCmuxAppBundleResourceBinDirectory(standardized) else { return nil }
             guard seen.insert(standardized).inserted else { return nil }
             return standardized
         }
@@ -219,23 +219,24 @@ extension CMUXCLI {
         return directory
     }
 
-    private func isAppBundleResourceBinDirectory(_ path: String) -> Bool {
-        appBundleResourceBinComponentIndex(path).map { index in
+    private func isCmuxAppBundleResourceBinDirectory(_ path: String) -> Bool {
+        cmuxAppBundleResourceBinComponentIndex(path).map { index in
             URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.pathComponents.count == index + 4
         } ?? false
     }
 
-    private func isAppBundleResourceBinChild(_ path: String) -> Bool {
-        appBundleResourceBinComponentIndex(path).map { index in
+    private func isCmuxAppBundleResourceBinChild(_ path: String) -> Bool {
+        cmuxAppBundleResourceBinComponentIndex(path).map { index in
             URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL.pathComponents.count > index + 4
         } ?? false
     }
 
-    private func appBundleResourceBinComponentIndex(_ path: String) -> Int? {
+    private func cmuxAppBundleResourceBinComponentIndex(_ path: String) -> Int? {
         let components = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
         guard components.count >= 4 else { return nil }
         for index in components.indices {
             guard components[index].hasSuffix(".app"),
+                  components[index].lowercased().contains("cmux"),
                   components.indices.contains(index + 3),
                   components[index + 1] == "Contents",
                   components[index + 2] == "Resources",

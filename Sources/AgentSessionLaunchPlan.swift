@@ -8,6 +8,13 @@ struct AgentSessionLaunchPlan: Equatable, Sendable {
 
     func environment(overridingWorkingDirectory workingDirectory: String?) -> [String: String] {
         var launchEnvironment = environment
+        if provider == .opencode,
+           launchEnvironment["OPENCODE_SERVER_PASSWORD"]?.isEmpty != false {
+            launchEnvironment["OPENCODE_SERVER_USERNAME"] = launchEnvironment["OPENCODE_SERVER_USERNAME"].flatMap { value in
+                value.isEmpty ? nil : value
+            } ?? "opencode"
+            launchEnvironment["OPENCODE_SERVER_PASSWORD"] = "\(UUID().uuidString)-\(UUID().uuidString)"
+        }
         guard let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
               !workingDirectory.isEmpty else {
             return launchEnvironment
@@ -20,4 +27,3 @@ struct AgentSessionLaunchPlan: Equatable, Sendable {
     }
 
 }
-

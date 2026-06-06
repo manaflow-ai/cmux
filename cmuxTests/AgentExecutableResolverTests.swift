@@ -471,6 +471,43 @@ struct AgentExecutableResolverTests {
     }
 
     @Test
+    func testOpenCodeLaunchEnvironmentAddsLoopbackPassword() {
+        let plan = AgentSessionLaunchPlan(
+            provider: .opencode,
+            executableURL: URL(fileURLWithPath: "/tmp/opencode"),
+            arguments: AgentSessionProviderID.opencode.launchArguments,
+            environment: [
+                "PATH": "/bin"
+            ]
+        )
+
+        let environment = plan.environment(overridingWorkingDirectory: nil)
+
+        expectEqual(environment["OPENCODE_SERVER_USERNAME"], "opencode")
+        expectTrue((environment["OPENCODE_SERVER_PASSWORD"] ?? "").count >= 32)
+        expectNotEqual(environment["OPENCODE_SERVER_PASSWORD"], plan.environment["OPENCODE_SERVER_PASSWORD"])
+    }
+
+    @Test
+    func testOpenCodeLaunchEnvironmentPreservesExplicitLoopbackPassword() {
+        let plan = AgentSessionLaunchPlan(
+            provider: .opencode,
+            executableURL: URL(fileURLWithPath: "/tmp/opencode"),
+            arguments: AgentSessionProviderID.opencode.launchArguments,
+            environment: [
+                "OPENCODE_SERVER_USERNAME": "cmux",
+                "OPENCODE_SERVER_PASSWORD": "existing-secret",
+                "PATH": "/bin"
+            ]
+        )
+
+        let environment = plan.environment(overridingWorkingDirectory: nil)
+
+        expectEqual(environment["OPENCODE_SERVER_USERNAME"], "cmux")
+        expectEqual(environment["OPENCODE_SERVER_PASSWORD"], "existing-secret")
+    }
+
+    @Test
     func testAutoStartPolicyMatchesAppServerProviders() {
         expectTrue(AgentSessionProviderID.codex.shouldAutoStartSession)
         expectTrue(AgentSessionProviderID.opencode.shouldAutoStartSession)
