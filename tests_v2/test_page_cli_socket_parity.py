@@ -6,9 +6,10 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
@@ -40,7 +41,7 @@ def _find_cli_binary() -> str:
     return candidates[0]
 
 
-def _run_cli(cli: str, args: List[str], json_output: bool) -> str:
+def _run_cli(cli: str, args: List[str], json_output: bool, cwd: Optional[str] = None) -> str:
     env = dict(os.environ)
     env.pop("CMUX_WORKSPACE_ID", None)
     env.pop("CMUX_SURFACE_ID", None)
@@ -51,15 +52,15 @@ def _run_cli(cli: str, args: List[str], json_output: bool) -> str:
         cmd.append("--json")
     cmd.extend(args)
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env, cwd=cwd)
     if proc.returncode != 0:
         merged = f"{proc.stdout}\n{proc.stderr}".strip()
         raise cmuxError(f"CLI failed ({' '.join(cmd)}): {merged}")
     return proc.stdout
 
 
-def _run_cli_json(cli: str, args: List[str]) -> Dict:
-    output = _run_cli(cli, args, json_output=True)
+def _run_cli_json(cli: str, args: List[str], cwd: Optional[str] = None) -> Dict:
+    output = _run_cli(cli, args, json_output=True, cwd=cwd)
     try:
         return json.loads(output or "{}")
     except Exception as exc:  # noqa: BLE001
@@ -246,6 +247,23 @@ def main() -> int:
                 f"new-page did not create a distinct page: {created_page}",
             )
             _must(str(created_page.get("page_title") or "") == "editor", f"new-page did not set title: {created_page}")
+
+            with tempfile.TemporaryDirectory() as temp_dir:
+                Path(temp_dir, "list-pages").mkdir()
+                listed_from_path_collision = _run_cli_json(
+                    cli,
+                    ["list-pages", "--workspace", workspace_id],
+                    cwd=temp_dir,
+                )
+            _must(
+                str(listed_from_path_collision.get("workspace_id") or "") == workspace_id,
+                f"list-pages should dispatch even when cwd contains a same-named path: {listed_from_path_collision}",
+            )
+            collision_titles, _ = _page_titles_and_selected(listed_from_path_collision)
+            _must(
+                collision_titles == ["agents", "editor"],
+                f"list-pages path collision should return page data, not open a workspace path: {listed_from_path_collision}",
+            )
 
             socket_renamed_current = c._call(
                 "page.rename",
