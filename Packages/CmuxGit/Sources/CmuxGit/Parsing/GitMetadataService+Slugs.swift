@@ -22,7 +22,9 @@ extension GitMetadataService {
                 continue
             }
 
-            referenceByRemoteName[remoteName] = reference
+            if referenceByRemoteName[remoteName] == nil {
+                referenceByRemoteName[remoteName] = reference
+            }
         }
 
         let orderedRemoteNames = referenceByRemoteName.keys.sorted { lhs, rhs in
@@ -66,7 +68,9 @@ extension GitMetadataService {
                 continue
             }
 
-            slugByRemoteName[remoteName] = repoSlug
+            if slugByRemoteName[remoteName] == nil {
+                slugByRemoteName[remoteName] = repoSlug
+            }
         }
 
         let orderedRemoteNames = slugByRemoteName.keys.sorted { lhs, rhs in

@@ -40,6 +40,20 @@ import Testing
         #expect(GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output) == ["owner/repo"])
     }
 
+    @Test func duplicateRemoteURLValuesUseFirstFetchURL() {
+        let output = """
+        origin\thttps://github.com/first/repo.git (fetch)
+        origin\thttps://github.com/second/repo.git (fetch)
+        """
+
+        #expect(GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output) == ["first/repo"])
+        #expect(
+            GitMetadataService.githubRepositoryReferences(fromGitRemoteVOutput: output)
+                .map(\.hostQualifiedSlug)
+                == ["github.com/first/repo"]
+        )
+    }
+
     @Test func ignoresPushOnlyLines() {
         let output = "origin\thttps://github.com/owner/repo.git (push)\n"
         #expect(GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output).isEmpty)
