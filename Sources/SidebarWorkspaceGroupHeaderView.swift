@@ -125,7 +125,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 )
 
             HStack(spacing: 6) {
-                WorkspaceGroupIconPreview(icon: displayedIcon)
+                WorkspaceGroupIconPreview(icon: displayedIcon, fontSize: metrics.iconFontSize)
                     .foregroundStyle(iconColor)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
