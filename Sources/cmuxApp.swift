@@ -5104,6 +5104,18 @@ enum ClaudeCodeIntegrationSettings {
     }
 }
 
+enum WorkspaceAutoNamingSettings {
+    static let enabledKey = "workspaceAutoNamingEnabled"
+    static let defaultEnabled = false
+
+    static func enabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+}
+
 enum AgentSubagentNotificationSettings {
     static let suppressNotificationsKey = "suppressSubagentNotifications"
     static let defaultSuppressNotifications = true
