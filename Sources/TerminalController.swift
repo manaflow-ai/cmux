@@ -1163,18 +1163,12 @@ class TerminalController {
         pending: String,
         authenticated: Bool
     ) {
-        socketListenerQueue.async { [weak self] in
-            guard let self else {
-                close(socket)
-                return
-            }
-            self.handleSocketWorkerV2WorktreeClient(
-                initialCommand: command,
-                socket: socket,
-                pending: pending,
-                authenticated: authenticated
-            )
-        }
+        handleSocketWorkerV2WorktreeClient(
+            initialCommand: command,
+            socket: socket,
+            pending: pending,
+            authenticated: authenticated
+        )
     }
 
     private nonisolated func handleSocketWorkerV2WorktreeClient(
@@ -1192,7 +1186,7 @@ class TerminalController {
         }
 
         var buffer = [UInt8](repeating: 0, count: 4096)
-        while withListenerState({ isRunning }) {
+        while socketServer.isRunning {
             if pending.contains("\n") {
                 guard drainSocketClientPendingLines(
                     &pending,
@@ -1278,8 +1272,9 @@ class TerminalController {
     }
 
     private nonisolated func blockingSocketWorkerV2WorktreeResponse(command: String) -> String {
-        // Called from socketListenerQueue, so this blocks a dedicated socket worker
-        // while async worktree setup hops through MainActor and other services.
+        // Called from a dedicated socket client thread, so this blocks no actor
+        // executor or listener event queue while async worktree setup hops through
+        // MainActor and other services.
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var response = v2Error(
             id: nil,
@@ -1350,182 +1345,6 @@ class TerminalController {
             result = .err(code: "method_not_found", message: "Unknown method", data: nil)
         }
         return v2Result(id: request.id, result)
-    }
-
-    private nonisolated func startAcceptSource(listenerSocket: Int32, generation: UInt64) {
-        let source = DispatchSource.makeReadSource(fileDescriptor: listenerSocket, queue: socketListenerQueue)
-        source.setEventHandler { [weak self] in
-            self?.drainPendingSocketClients(listenerSocket: listenerSocket, generation: generation)
-        }
-        source.setCancelHandler { [weak self] in
-            close(listenerSocket)
-            self?.finishAcceptSourceCancel(listenerSocket: listenerSocket, generation: generation)
-        }
-
-        let shouldResume = withListenerState {
-            guard isRunning, serverSocket == listenerSocket, generation == activeAcceptLoopGeneration else {
-                return false
-            }
-            listenerReadSource = source
-            listenerReadSourceSuspended = false
-            acceptLoopAlive = true
-            return true
-        }
-
-        guard shouldResume else {
-            source.cancel()
-            source.resume()
-            return
-        }
-
-        sentryBreadcrumb(
-            "socket.listener.accept_source.started",
-            category: "socket",
-            data: socketListenerEventData(
-                stage: "accept_source_start",
-                extra: [
-                    "generation": generation,
-                    "listenerSocket": Int(listenerSocket)
-                ]
-            )
-        )
-        source.resume()
-    }
-
-    private nonisolated func finishAcceptSourceCancel(listenerSocket: Int32, generation: UInt64) {
-        withListenerState {
-            guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else { return }
-            acceptLoopAlive = false
-            listenerReadSource = nil
-            listenerReadSourceSuspended = false
-        }
-    }
-
-    private nonisolated func drainPendingSocketClients(listenerSocket: Int32, generation: UInt64) {
-        while shouldContinueAcceptLoop(generation: generation) {
-            let clientSocket = accept(listenerSocket, nil, nil)
-
-            guard clientSocket >= 0 else {
-                let errnoCode = errno
-                if errnoCode == EAGAIN || errnoCode == EWOULDBLOCK {
-                    return
-                }
-                if errnoCode == EINTR || errnoCode == ECONNABORTED {
-                    continue
-                }
-                handleAcceptSourceFailure(
-                    listenerSocket: listenerSocket,
-                    generation: generation,
-                    errnoCode: errnoCode
-                )
-                return
-            }
-
-            withListenerState {
-                acceptSourceConsecutiveFailures = 0
-            }
-
-            if let failure = Self.configureAcceptedClientSocket(clientSocket) {
-                if Self.shouldReportAcceptedClientConfigFailure(stage: failure.stage, errnoCode: failure.errnoCode) {
-                    sentryBreadcrumb(
-                        "socket.listener.client_config.failed",
-                        category: "socket",
-                        data: socketListenerEventData(
-                            stage: failure.stage,
-                            errnoCode: failure.errnoCode,
-                            extra: ["generation": generation]
-                        )
-                    )
-                }
-                close(clientSocket)
-                continue
-            }
-
-            // Capture peer PID immediately, before short-lived clients can disconnect.
-            let peerPid = getPeerPid(clientSocket)
-            spawnClientHandler(socket: clientSocket, peerPid: peerPid)
-        }
-    }
-
-    private nonisolated func handleAcceptSourceFailure(
-        listenerSocket: Int32,
-        generation: UInt64,
-        errnoCode: Int32
-    ) {
-        let errnoClass = Self.acceptErrorClassification(errnoCode: errnoCode)
-        let consecutiveFailures = withListenerState {
-            guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else { return 0 }
-            acceptSourceConsecutiveFailures += 1
-            return acceptSourceConsecutiveFailures
-        }
-        guard consecutiveFailures > 0 else { return }
-
-        let recoveryAction = Self.acceptFailureRecoveryAction(
-            errnoCode: errnoCode,
-            consecutiveFailures: consecutiveFailures
-        )
-
-        sentryBreadcrumb(
-            "socket.listener.accept.failed",
-            category: "socket",
-            data: socketListenerEventData(
-                stage: "accept_source",
-                errnoCode: errnoCode,
-                extra: [
-                    "generation": generation,
-                    "consecutiveFailures": consecutiveFailures,
-                    "errnoClass": errnoClass,
-                    "recoveryAction": recoveryAction.debugLabel
-                ]
-            )
-        )
-
-        switch recoveryAction {
-        case .retryImmediately:
-            return
-        case .resumeAfterDelay(let delayMs):
-            scheduleAcceptSourceResume(
-                listenerSocket: listenerSocket,
-                generation: generation,
-                errnoCode: errnoCode,
-                consecutiveFailures: consecutiveFailures,
-                delayMs: delayMs
-            )
-            return
-        case .rearmAfterDelay(let delayMs):
-            let cleanup = withListenerState {
-                guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else {
-                    return (didCleanup: false, sourceToCancel: nil as DispatchSourceRead?, sourceWasSuspended: false)
-                }
-                pendingAcceptLoopRearmGeneration = generation
-                isRunning = false
-                acceptLoopAlive = false
-                let source = listenerReadSource
-                let sourceWasSuspended = listenerReadSourceSuspended
-                listenerReadSource = nil
-                listenerReadSourceSuspended = false
-                serverSocket = -1
-                shutdown(listenerSocket, SHUT_RDWR)
-                if source == nil {
-                    close(listenerSocket)
-                }
-                return (didCleanup: true, sourceToCancel: source, sourceWasSuspended: sourceWasSuspended)
-            }
-            guard cleanup.didCleanup else {
-                return
-            }
-            if cleanup.sourceWasSuspended {
-                cleanup.sourceToCancel?.resume()
-            }
-            cleanup.sourceToCancel?.cancel()
-
-            scheduleListenerRearm(
-                generation: generation,
-                errnoCode: errnoCode,
-                consecutiveFailures: consecutiveFailures,
-                delayMs: delayMs
-            )
-        }
     }
 
     private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) {
