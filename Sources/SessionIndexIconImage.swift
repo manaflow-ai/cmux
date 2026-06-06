@@ -7,13 +7,20 @@ struct AgentIconImage: View, Equatable {
     let size: CGFloat
 
     var body: some View {
-        if let assetName = agent.assetName,
-           let image = SessionIndexIconResolver.assetImage(named: assetName) {
-            Image(nsImage: image)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: size, height: size)
+        if let assetName = agent.assetName {
+            if let image = SessionIndexIconResolver.assetImage(named: assetName) {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: size, height: size)
+            } else {
+                Image(assetName)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: size, height: size)
+            }
         } else {
             SessionIndexTemplateSymbolImage(
                 systemName: agent.systemImageName ?? "person.crop.circle",
