@@ -141,6 +141,60 @@ import Testing
         #expect(store.activeTicket == nil)
         #expect(store.connectedHostName.isEmpty)
     }
+
+    @Test func pairingURLPublishesActivePairedMacForDiagnostics() async throws {
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: CmxMobileDefaults.defaultHostPort
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "mac-ticket",
+            macDisplayName: "Ticket Mac",
+            routes: [route],
+            expiresAt: Date(timeIntervalSinceNow: 300)
+        )
+        let store = MobileShellComposite(isSignedIn: true, pairedMacStore: PreviewPairedMacStore(activeMac: nil))
+        store.pairingCode = try attachURL(for: ticket)
+
+        await store.connectPairingInput()
+
+        #expect(store.connectionState == .connected)
+        #expect(store.activePairedMac?.macDeviceID == "mac-ticket")
+        #expect(store.activePairedMac?.displayName == "Ticket Mac")
+    }
+
+    @Test func loadAndForgetReconcilesActivePairedMac() async throws {
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: CmxMobileDefaults.defaultHostPort
+        )
+        let pairedMac = MobilePairedMac(
+            macDeviceID: "mac-forget",
+            displayName: "Forget Me",
+            routes: [route],
+            createdAt: Date(timeIntervalSince1970: 1),
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            isActive: true,
+            stackUserID: "user-1"
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: PreviewPairedMacStore(activeMac: pairedMac),
+            identityProvider: PreviewIdentityProvider(userID: "user-1")
+        )
+
+        await store.loadPairedMacs()
+        #expect(store.activePairedMac?.macDeviceID == "mac-forget")
+
+        await store.forgetMac(macDeviceID: "mac-forget")
+
+        #expect(store.pairedMacs.isEmpty)
+        #expect(store.activePairedMac == nil)
+    }
 }
 
 private func hostPortRoute(
@@ -155,4 +209,26 @@ private func hostPortRoute(
         endpoint: .hostPort(host: host, port: port),
         priority: priority
     )
+}
+
+private func attachURL(for ticket: CmxAttachTicket) throws -> String {
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let payload = try base64URLEncode(encoder.encode(ticket))
+    return "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"
+}
+
+private func base64URLEncode(_ data: Data) -> String {
+    data.base64EncodedString()
+        .replacingOccurrences(of: "+", with: "-")
+        .replacingOccurrences(of: "/", with: "_")
+        .replacingOccurrences(of: "=", with: "")
+}
+
+private struct PreviewIdentityProvider: MobileIdentityProviding {
+    let userID: String?
+
+    @MainActor var currentUserID: String? {
+        userID
+    }
 }

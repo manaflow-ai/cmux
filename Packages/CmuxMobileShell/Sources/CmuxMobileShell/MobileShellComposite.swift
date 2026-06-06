@@ -628,6 +628,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore, isSignedIn,
               let stackUserID = identityProvider?.currentUserID else {
             pairedMacs = []
+            activePairedMac = nil
             return
         }
         let loaded: [MobilePairedMac]
@@ -642,9 +643,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // signed-in user, so a slow load can never repopulate another user's hosts.
         guard isSignedIn, identityProvider?.currentUserID == stackUserID else {
             pairedMacs = []
+            activePairedMac = nil
             return
         }
         pairedMacs = loaded
+        reconcileActivePairedMac(afterLoading: loaded)
     }
 
     /// Switch the live connection to `macDeviceID`, persisting it as the active
@@ -705,6 +708,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         do {
             try await pairedMacStore?.remove(macDeviceID: macDeviceID)
+            if activePairedMac?.macDeviceID == macDeviceID {
+                activePairedMac = nil
+            }
         } catch {
             mobileShellLog.error("paired mac store remove failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
@@ -727,7 +733,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return nil
     }
 
-    private func persistPairedMacFromTicket(_ ticket: CmxAttachTicket) async {
+    private func persistPairedMacFromTicket(_ ticket: CmxAttachTicket, now: Date) async {
         guard let pairedMacStore else { return }
         guard !ticket.macDeviceID.isEmpty else { return }
         // Strip routes that we can't reconnect to without server-side state
@@ -736,7 +742,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               !ticket.macDeviceID.hasPrefix("manual-") else { return }
         let stackUserID = identityProvider?.currentUserID
         do {
-            let now = runtime?.now() ?? Date()
             try await pairedMacStore.upsert(
                 macDeviceID: ticket.macDeviceID,
                 displayName: ticket.macDisplayName,
@@ -745,18 +750,36 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 stackUserID: stackUserID,
                 now: now
             )
-            activePairedMac = MobilePairedMac(
-                macDeviceID: ticket.macDeviceID,
-                displayName: ticket.macDisplayName,
-                routes: ticket.routes,
-                createdAt: now,
-                lastSeenAt: now,
-                isActive: true,
-                stackUserID: stackUserID
-            )
         } catch {
             mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    private func publishActivePairedMac(from ticket: CmxAttachTicket, now: Date) {
+        guard !ticket.macDeviceID.isEmpty else {
+            activePairedMac = nil
+            return
+        }
+        // Manual workspace tickets are transient and cannot be reconnected from
+        // persisted paired-Mac state, so do not present them as a paired Mac.
+        guard ticket.macDeviceID != "manual-ticket-request",
+              !ticket.macDeviceID.hasPrefix("manual-") else {
+            activePairedMac = nil
+            return
+        }
+        activePairedMac = MobilePairedMac(
+            macDeviceID: ticket.macDeviceID,
+            displayName: ticket.macDisplayName,
+            routes: ticket.routes,
+            createdAt: now,
+            lastSeenAt: now,
+            isActive: true,
+            stackUserID: identityProvider?.currentUserID
+        )
+    }
+
+    private func reconcileActivePairedMac(afterLoading loaded: [MobilePairedMac]) {
+        activePairedMac = loaded.first { $0.isActive }
     }
 
     private static func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
@@ -1161,6 +1184,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let runtime else {
             guard generation == connectionGeneration else { return }
             connectionError = nil
+            publishActivePairedMac(from: ticket, now: Date())
             applyPreviewTicket(ticket, route: firstRoute)
             connectionState = .connected
             markMacConnectionHealthy()
@@ -1195,7 +1219,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
                     connectionError = nil
-                    await persistPairedMacFromTicket(ticket)
+                    let now = runtime.now()
+                    publishActivePairedMac(from: ticket, now: now)
+                    await persistPairedMacFromTicket(ticket, now: now)
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
