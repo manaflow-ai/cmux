@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CmuxControlSocket
 import Darwin
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -141,7 +142,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
     }
 
     func testSocketFastPathKeepsSequencedShellActivityOrdered() {
-        let fastPath = TerminalController.SocketFastPathState()
+        let fastPath = SocketFastPathState()
         let workspaceId = UUID()
         let panelId = UUID()
 
@@ -149,30 +150,30 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             fastPath.shouldPublishShellActivity(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                state: .promptIdle,
-                shellActivitySequence: 2
+                state: Workspace.PanelShellActivityState.promptIdle.rawValue,
+                sequence: 2
             )
         )
         XCTAssertFalse(
             fastPath.shouldPublishShellActivity(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                state: .commandRunning,
-                shellActivitySequence: 1
+                state: Workspace.PanelShellActivityState.commandRunning.rawValue,
+                sequence: 1
             )
         )
         XCTAssertTrue(
             fastPath.shouldPublishShellActivity(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                state: .commandRunning,
-                shellActivitySequence: 3
+                state: Workspace.PanelShellActivityState.commandRunning.rawValue,
+                sequence: 3
             )
         )
     }
 
     func testSocketFastPathPublishesNewerSequencedDuplicateState() {
-        let fastPath = TerminalController.SocketFastPathState()
+        let fastPath = SocketFastPathState()
         let workspaceId = UUID()
         let panelId = UUID()
 
@@ -180,24 +181,24 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             fastPath.shouldPublishShellActivity(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                state: .commandRunning,
-                shellActivitySequence: 1
+                state: Workspace.PanelShellActivityState.commandRunning.rawValue,
+                sequence: 1
             )
         )
         XCTAssertTrue(
             fastPath.shouldPublishShellActivity(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                state: .commandRunning,
-                shellActivitySequence: 2
+                state: Workspace.PanelShellActivityState.commandRunning.rawValue,
+                sequence: 2
             )
         )
         XCTAssertFalse(
             fastPath.shouldPublishShellActivity(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                state: .commandRunning,
-                shellActivitySequence: 2
+                state: Workspace.PanelShellActivityState.commandRunning.rawValue,
+                sequence: 2
             )
         )
     }

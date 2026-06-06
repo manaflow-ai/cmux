@@ -28,10 +28,30 @@ struct SocketFastPathStateTests {
         let workspace = UUID()
         let panel = UUID()
 
-        #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "commandRunning", sequence: 10))
-        #expect(!state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle", sequence: 9))
-        #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle", sequence: 11))
-        #expect(!state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "commandRunning", sequence: 10))
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            state: "commandRunning",
+            sequence: 10
+        ))
+        #expect(!state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            state: "promptIdle",
+            sequence: 9
+        ))
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            state: "promptIdle",
+            sequence: 11
+        ))
+        #expect(!state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            state: "commandRunning",
+            sequence: 10
+        ))
     }
 
     @Test func cacheResetsAtCapacityAndKeepsPublishing() {

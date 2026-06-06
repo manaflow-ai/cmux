@@ -42,16 +42,16 @@ public final class SocketFastPathState: Sendable {
     }
 
     /// Whether a shell-activity report for the surface changed since the last
-    /// publish and should be forwarded; see ``SocketFastPathState`` for an
-    /// example.
+    /// publish, is not stale, and should be forwarded; see
+    /// ``SocketFastPathState`` for an example.
     /// - Parameters:
     ///   - workspaceId: The reporting workspace.
     ///   - panelId: The reporting surface/panel.
     ///   - state: The shell-activity state's raw token.
     ///   - sequence: Optional monotonic shell report sequence for suppressing
     ///     late reports from older prompt hooks.
-    /// - Returns: `true` when the state differs from the last published value
-    ///   for this surface (recording it), `false` for a duplicate.
+    /// - Returns: `true` when the report should publish and be recorded,
+    ///   `false` for a duplicate or stale sequenced report.
     public func shouldPublishShellActivity(
         workspaceId: UUID,
         panelId: UUID,
