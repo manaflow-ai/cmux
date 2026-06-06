@@ -353,6 +353,59 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func pinningGroupedWorkspaceKeepsItAtTopOfGroup() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+            originalIds[3],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let pinnedChild = try #require(manager.tabs.first { $0.id == originalIds[3] })
+
+        manager.setPinned(pinnedChild, pinned: true)
+
+        #expect(pinnedChild.groupId == groupId)
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            originalIds[3],
+            originalIds[1],
+            originalIds[2],
+        ])
+    }
+
+    @Test func pinnedGroupedWorkspaceDoesNotPromoteUnpinnedGroup() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let globallyPinned = try #require(manager.tabs.first { $0.id == originalIds[0] })
+        manager.setPinned(globallyPinned, pinned: true)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[2],
+            originalIds[3],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let pinnedChild = try #require(manager.tabs.first { $0.id == originalIds[3] })
+
+        manager.setPinned(pinnedChild, pinned: true)
+
+        #expect(manager.tabs.map(\.id) == [
+            originalIds[0],
+            originalIds[1],
+            group.anchorWorkspaceId,
+            originalIds[3],
+            originalIds[2],
+        ])
+        #expect(!group.isPinned)
+        #expect(pinnedChild.groupId == groupId)
+    }
+
     @Test func movingGroupMemberToTopKeepsScriptableGroupOrderInVisibleOrder() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
