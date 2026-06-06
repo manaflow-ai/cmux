@@ -23,31 +23,32 @@ import Testing
         try contents.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
-    @Test func ensureWorkspaceRootCreatesMarkerAndRebindsByAnchor() throws {
+    @Test func ensureWorkspaceRootCreatesMarkerAndRebindsByCwd() throws {
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
-            projectRoot: projectRoot, anchorId: "anchor-abc123def", title: "My Workspace", cwd: "/work"
+            projectRoot: projectRoot, cwd: "/work/project", title: "My Workspace"
         )
         #expect(fm.fileExists(atPath: root))
         let markerPath = (root as NSString).appendingPathComponent(NotesTreeStorage.workspaceMarkerName)
         #expect(fm.fileExists(atPath: markerPath))
 
-        // The folder rebinds by anchorId even when the title later changes, so a
-        // renamed workspace never orphans its notes into a second folder.
+        // The folder rebinds by cwd even when the title later changes, so a
+        // renamed/re-instanced workspace never orphans its notes into a second
+        // folder (the bug cwd-keying fixes).
         let resolved = NotesTreeStorage.resolveWorkspaceRoot(
-            projectRoot: projectRoot, anchorId: "anchor-abc123def", title: "Completely Different Title"
+            projectRoot: projectRoot, cwd: "/work/project"
         )
         #expect(resolved == root)
 
-        // A different anchor resolves to a different folder.
+        // A different cwd resolves to a different folder.
         let other = NotesTreeStorage.resolveWorkspaceRoot(
-            projectRoot: projectRoot, anchorId: "anchor-zzz999", title: "My Workspace"
+            projectRoot: projectRoot, cwd: "/work/other"
         )
         #expect(other != root)
     }
 
     @Test func listEntriesHidesMarkersAndClassifiesKinds() throws {
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
-            projectRoot: projectRoot, anchorId: "anchor-list", title: "WS", cwd: "/work"
+            projectRoot: projectRoot, cwd: "/work", title: "WS"
         )
         try write("# todo", to: (root as NSString).appendingPathComponent("todo.md"))
         try write("hidden", to: (root as NSString).appendingPathComponent(".secret"))
@@ -57,7 +58,7 @@ import Testing
         // A session folder is a directory carrying a _session.json marker.
         NotesTreeStorage.syncSessionFolders(
             inRoot: root,
-            descriptors: [NotesSessionDescriptor(agent: "claude", sessionId: "s-1", title: "Auth Work", cwd: "/work")]
+            descriptors: [NotesSessionDescriptor(agent: "claude", sessionId: "s-1", title: "Auth Work", cwd: "/work", modified: 1_700_000_000)]
         )
 
         let entries = NotesTreeStorage.listEntries(inDirectory: root)
@@ -83,7 +84,7 @@ import Testing
 
     @Test func moveRelocatesFileAndIsCollisionSafe() throws {
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
-            projectRoot: projectRoot, anchorId: "anchor-move", title: "WS", cwd: "/work"
+            projectRoot: projectRoot, cwd: "/work", title: "WS"
         )
         let note = try NotesTreeStorage.newNote(inFolder: root, preferredName: "alpha")
         let sub = try NotesTreeStorage.newFolder(inFolder: root, preferredName: "sub")
@@ -103,7 +104,7 @@ import Testing
 
     @Test func moveRejectsFolderIntoItsOwnDescendant() throws {
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
-            projectRoot: projectRoot, anchorId: "anchor-reject", title: "WS", cwd: "/work"
+            projectRoot: projectRoot, cwd: "/work", title: "WS"
         )
         let parent = try NotesTreeStorage.newFolder(inFolder: root, preferredName: "parent")
         let inner = try NotesTreeStorage.newFolder(inFolder: parent, preferredName: "inner")
@@ -115,10 +116,10 @@ import Testing
 
     @Test func syncSessionFoldersIsIdempotentAndNeverDeletes() throws {
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
-            projectRoot: projectRoot, anchorId: "anchor-sync", title: "WS", cwd: "/work"
+            projectRoot: projectRoot, cwd: "/work", title: "WS"
         )
         let descriptors = [
-            NotesSessionDescriptor(agent: "claude", sessionId: "s-keep", title: "Keep", cwd: "/work")
+            NotesSessionDescriptor(agent: "claude", sessionId: "s-keep", title: "Keep", cwd: "/work", modified: 1_700_000_000)
         ]
         NotesTreeStorage.syncSessionFolders(inRoot: root, descriptors: descriptors)
         NotesTreeStorage.syncSessionFolders(inRoot: root, descriptors: descriptors)

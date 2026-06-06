@@ -2585,8 +2585,7 @@ struct ContentView: View {
             guard !cwd.isEmpty else { return nil }
             return NotesTreeStorage.resolveWorkspaceRoot(
                 projectRoot: NoteSupport.projectRoot(forCwd: cwd),
-                anchorId: workspace.noteAnchorId,
-                title: workspace.title
+                cwd: cwd
             )
         }
         guard notesTreeStore.loadClaudeSessions == nil else { return }
@@ -2600,7 +2599,8 @@ struct ContentView: View {
                     agent: "claude",
                     sessionId: entry.sessionId,
                     title: entry.title,
-                    cwd: resolvedCwd
+                    cwd: resolvedCwd,
+                    modified: entry.modified.timeIntervalSince1970
                 )
             }
         }
@@ -2747,7 +2747,6 @@ struct ContentView: View {
         // below, so bind it before that early-returns for non-Files/Find modes.
         if let workspace = tabManager.selectedWorkspace {
             notesTreeStore.setWorkspace(
-                anchorId: workspace.noteAnchorId,
                 title: workspace.title,
                 projectRoot: NoteSupport.projectRoot(forCwd: dir),
                 currentDirectory: dir

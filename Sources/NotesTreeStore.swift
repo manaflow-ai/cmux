@@ -26,7 +26,6 @@ final class NotesTreeStore: ObservableObject {
     var loadClaudeSessions: (@MainActor (String) async -> [NotesSessionDescriptor])?
 
     private var projectRoot: String?
-    private var anchorId: String?
     private var workspaceTitle: String = ""
     private var cwd: String?
     /// Absolute path to `<projectRoot>/.cmux/notes/<workspace-folder>` (resolved,
@@ -45,22 +44,20 @@ final class NotesTreeStore: ObservableObject {
 
     // MARK: - Workspace binding
 
-    /// Bind the tree to a workspace. Passing a nil anchor/projectRoot/cwd (e.g. a
-    /// remote workspace or no selection) clears the tree. Re-binding to the same
-    /// workspace is a no-op.
-    func setWorkspace(anchorId: String?, title: String, projectRoot: String?, currentDirectory: String?) {
+    /// Bind the tree to a workspace, keyed by its `currentDirectory`. Passing a
+    /// nil projectRoot/cwd (e.g. a remote workspace or no selection) clears the
+    /// tree. Re-binding to the same workspace is a no-op.
+    func setWorkspace(title: String, projectRoot: String?, currentDirectory: String?) {
         let cwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let anchorId, let projectRoot, let cwd, !cwd.isEmpty else {
+        guard let projectRoot, let cwd, !cwd.isEmpty else {
             clear()
             return
         }
-        let newRoot = NotesTreeStorage.resolveWorkspaceRoot(projectRoot: projectRoot, anchorId: anchorId, title: title)
+        let newRoot = NotesTreeStorage.resolveWorkspaceRoot(projectRoot: projectRoot, cwd: cwd)
         let unchanged = hasWorkspace
-            && self.anchorId == anchorId
             && self.projectRoot == projectRoot
             && self.cwd == cwd
             && resolvedRootPath == newRoot
-        self.anchorId = anchorId
         self.projectRoot = projectRoot
         self.workspaceTitle = title
         self.cwd = cwd
@@ -76,7 +73,6 @@ final class NotesTreeStore: ObservableObject {
         guard hasWorkspace || !rootNodes.isEmpty else { return }
         stopWatchers()
         hasWorkspace = false
-        anchorId = nil
         projectRoot = nil
         cwd = nil
         resolvedRootPath = nil
@@ -129,8 +125,7 @@ final class NotesTreeStore: ObservableObject {
         guard let root = resolvedRootPath,
               let cwd,
               let loadClaudeSessions,
-              let projectRoot,
-              let anchorId
+              let projectRoot
         else { return }
         let title = workspaceTitle
         Task { @MainActor [weak self] in
@@ -140,7 +135,7 @@ final class NotesTreeStore: ObservableObject {
             // Materialize the workspace root (+ _workspace.json) lazily, only once
             // there is something to put in it.
             let ensured = (try? NotesTreeStorage.ensureWorkspaceRoot(
-                projectRoot: projectRoot, anchorId: anchorId, title: title, cwd: cwd
+                projectRoot: projectRoot, cwd: cwd, title: title
             )) ?? root
             NotesTreeStorage.syncSessionFolders(inRoot: ensured, descriptors: descriptors)
             self.resolvedRootPath = ensured
@@ -191,11 +186,11 @@ final class NotesTreeStore: ObservableObject {
     /// Ensure the workspace root exists and return the mutation target directory.
     /// `folder` (when given) must lie within the workspace root.
     private func ensureRoot(folder: String?) throws -> String {
-        guard let projectRoot, let anchorId, let cwd else {
+        guard let projectRoot, let cwd else {
             throw NotesTreeStorageError.invalidMove
         }
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
-            projectRoot: projectRoot, anchorId: anchorId, title: workspaceTitle, cwd: cwd
+            projectRoot: projectRoot, cwd: cwd, title: workspaceTitle
         )
         resolvedRootPath = root
         guard let folder, NotesTreeStorage.isWithin(child: folder, orEqualTo: root) else { return root }

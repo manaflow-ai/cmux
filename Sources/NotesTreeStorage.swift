@@ -2,15 +2,14 @@ import Foundation
 
 // MARK: - Marker files
 
-/// Contents of a per-workspace `_workspace.json` marker. The marker binds a
-/// notes folder to a workspace by its stable `anchorId`, so the folder can be
-/// renamed on disk without orphaning the binding.
+/// Contents of a per-workspace `_workspace.json` marker. The notes folder is
+/// keyed by the workspace's `cwd` (its working directory) — a stable identity
+/// that survives app restarts, unlike the ephemeral per-instance note anchor —
+/// so a workspace always rebinds to the same folder instead of orphaning notes.
 struct NotesWorkspaceMarker: Codable, Equatable, Sendable {
-    /// Stable workspace anchor id (`anchor-<uuid>`), matched on rebind.
-    var anchorId: String
     /// Human-friendly workspace title, kept fresh for display/browsing.
     var title: String
-    /// The workspace's current directory at the time of writing.
+    /// The workspace's working directory (standardized); the binding key.
     var cwd: String
 }
 
@@ -25,6 +24,10 @@ struct NotesSessionMarker: Codable, Equatable, Sendable {
     var cwd: String
     /// Display title for the session.
     var title: String
+    /// Last-modified time of the session (Unix seconds); drives the relative
+    /// timestamp and recency sort. Optional for backward-compatible decoding of
+    /// markers written before this field existed.
+    var modified: TimeInterval?
 }
 
 /// A Claude session discovered for a workspace, used to materialize/refresh
@@ -35,6 +38,8 @@ struct NotesSessionDescriptor: Equatable, Sendable {
     var sessionId: String
     var title: String
     var cwd: String
+    /// Session last-modified time (Unix seconds), for the relative timestamp.
+    var modified: TimeInterval
 }
 
 /// One immediate child of a directory in the Notes tree (pre-node value type).
@@ -62,36 +67,32 @@ enum NotesTreeStorage {
 
     // MARK: Workspace root resolution
 
-    /// Resolve (without creating) the notes root directory for a workspace.
-    ///
-    /// Prefers an existing folder under `.cmux/notes/` whose `_workspace.json`
-    /// matches `anchorId`; otherwise returns the path it *would* create from a
-    /// slug of `title` plus a short anchor suffix.
-    static func resolveWorkspaceRoot(projectRoot: String, anchorId: String, title: String) -> String {
+    /// Resolve (without creating) the notes root directory for a workspace,
+    /// keyed by its `cwd`. Prefers an existing folder whose `_workspace.json.cwd`
+    /// matches; otherwise returns the path it *would* create from the cwd's
+    /// basename plus a short stable hash of the full cwd.
+    static func resolveWorkspaceRoot(projectRoot: String, cwd: String) -> String {
         let notesDir = NoteSupport.notesDirectory(forProjectRoot: projectRoot)
-        if let existing = existingWorkspaceFolder(inNotesDir: notesDir, anchorId: anchorId) {
+        let normalizedCwd = (cwd as NSString).standardizingPath
+        if let existing = existingWorkspaceFolder(inNotesDir: notesDir, cwd: normalizedCwd) {
             return existing
         }
-        return (notesDir as NSString).appendingPathComponent(workspaceFolderName(anchorId: anchorId, title: title))
+        return (notesDir as NSString).appendingPathComponent(workspaceFolderName(cwd: normalizedCwd))
     }
 
     /// Ensure the workspace notes root exists and its `_workspace.json` reflects
-    /// the latest `title`/`cwd`. Returns the absolute path to the root.
+    /// the latest `title`. Returns the absolute path to the root.
     @discardableResult
-    static func ensureWorkspaceRoot(
-        projectRoot: String,
-        anchorId: String,
-        title: String,
-        cwd: String
-    ) throws -> String {
-        let root = resolveWorkspaceRoot(projectRoot: projectRoot, anchorId: anchorId, title: title)
+    static func ensureWorkspaceRoot(projectRoot: String, cwd: String, title: String) throws -> String {
+        let normalizedCwd = (cwd as NSString).standardizingPath
+        let root = resolveWorkspaceRoot(projectRoot: projectRoot, cwd: normalizedCwd)
         try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
-        let marker = NotesWorkspaceMarker(anchorId: anchorId, title: title, cwd: cwd)
+        let marker = NotesWorkspaceMarker(title: title, cwd: normalizedCwd)
         try writeJSON(marker, toPath: (root as NSString).appendingPathComponent(workspaceMarkerName))
         return root
     }
 
-    private static func existingWorkspaceFolder(inNotesDir notesDir: String, anchorId: String) -> String? {
+    private static func existingWorkspaceFolder(inNotesDir notesDir: String, cwd: String) -> String? {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: notesDir) else { return nil }
         for name in names where !name.hasPrefix(".") {
@@ -100,15 +101,15 @@ enum NotesTreeStorage {
             guard fm.fileExists(atPath: dir, isDirectory: &isDir), isDir.boolValue else { continue }
             let markerPath = (dir as NSString).appendingPathComponent(workspaceMarkerName)
             guard let marker: NotesWorkspaceMarker = try? readJSON(fromPath: markerPath) else { continue }
-            if marker.anchorId == anchorId { return dir }
+            if (marker.cwd as NSString).standardizingPath == cwd { return dir }
         }
         return nil
     }
 
-    static func workspaceFolderName(anchorId: String, title: String) -> String {
-        let base = slugify(title, fallback: "workspace")
-        let suffix = shortSuffix(of: anchorId)
-        return suffix.isEmpty ? base : "\(base)-\(suffix)"
+    static func workspaceFolderName(cwd: String) -> String {
+        let base = slugify((cwd as NSString).lastPathComponent, fallback: "workspace")
+        let suffix = shortHash(of: (cwd as NSString).standardizingPath)
+        return "\(base)-\(suffix)"
     }
 
     // MARK: Listing
@@ -137,7 +138,17 @@ enum NotesTreeStorage {
             }
         }
         return entries.sorted { lhs, rhs in
+            // Directories first; plain folders (alpha) above session folders;
+            // session folders by recency (most recent first); notes alpha.
             if lhs.kind.isDirectory != rhs.kind.isDirectory { return lhs.kind.isDirectory }
+            let lSession = lhs.kind.sessionMarker
+            let rSession = rhs.kind.sessionMarker
+            if (lSession == nil) != (rSession == nil) { return lSession == nil }
+            if let lSession, let rSession {
+                let lModified = lSession.modified ?? 0
+                let rModified = rSession.modified ?? 0
+                if lModified != rModified { return lModified > rModified }
+            }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
     }
@@ -198,40 +209,62 @@ enum NotesTreeStorage {
 
     // MARK: Session-folder sync
 
-    /// Ensure a session folder exists for each descriptor and its `_session.json`
-    /// is up to date. Never deletes folders for sessions that have disappeared —
-    /// notes filed under an ended session must survive. Idempotent.
+    /// Materialize session folders for the most-recent sessions and refresh
+    /// their `_session.json`. Folders that contain notes are always kept and
+    /// refreshed; **empty** (note-less) session folders outside the recent
+    /// window are pruned so the tree isn't flooded by every historical session.
+    /// Idempotent.
     static func syncSessionFolders(inRoot root: String, descriptors: [NotesSessionDescriptor]) {
         let fm = FileManager.default
         guard (try? fm.createDirectory(atPath: root, withIntermediateDirectories: true)) != nil else { return }
-        // Index existing session folders by sessionId.
+        let recentLimit = 30
+        let sorted = descriptors.sorted { $0.modified > $1.modified }
+        let recentIds = Set(sorted.prefix(recentLimit).map(\.sessionId))
+
+        // Index existing session folders, pruning empty ones outside the recent
+        // window (they hold no notes, so removal is lossless).
         var folderForSession: [String: String] = [:]
         if let names = try? fm.contentsOfDirectory(atPath: root) {
             for name in names where !name.hasPrefix(".") {
                 let dir = (root as NSString).appendingPathComponent(name)
-                if let marker = sessionMarker(inDirectory: dir) {
-                    folderForSession[marker.sessionId] = dir
+                guard let marker = sessionMarker(inDirectory: dir) else { continue }
+                if !recentIds.contains(marker.sessionId), isEmptySessionFolder(dir) {
+                    try? fm.removeItem(atPath: dir)
+                    continue
                 }
+                folderForSession[marker.sessionId] = dir
             }
         }
-        for descriptor in descriptors {
+
+        for descriptor in sorted {
             let marker = NotesSessionMarker(
                 agent: descriptor.agent,
                 sessionId: descriptor.sessionId,
                 cwd: descriptor.cwd,
-                title: descriptor.title
+                title: descriptor.title,
+                modified: descriptor.modified
             )
             let dir: String
             if let existing = folderForSession[descriptor.sessionId] {
                 dir = existing
-            } else {
+            } else if recentIds.contains(descriptor.sessionId) {
                 let name = sessionFolderName(descriptor: descriptor)
                 dir = uniquePath(inFolder: root, base: name, ext: nil)
                 guard (try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)) != nil else { continue }
                 folderForSession[descriptor.sessionId] = dir
+            } else {
+                continue  // Older session with no notes — don't materialize.
             }
             try? writeJSON(marker, toPath: (dir as NSString).appendingPathComponent(sessionMarkerName))
         }
+    }
+
+    /// True when `dir` is a session folder holding no notes — only its
+    /// `_session.json` marker (and possibly dotfiles). Such folders are safe to
+    /// prune since they contain no user content.
+    private static func isEmptySessionFolder(_ dir: String) -> Bool {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return false }
+        return names.allSatisfy { $0 == sessionMarkerName || $0.hasPrefix(".") }
     }
 
     static func sessionFolderName(descriptor: NotesSessionDescriptor) -> String {
@@ -287,11 +320,23 @@ enum NotesTreeStorage {
         return capped.isEmpty ? fallback : capped
     }
 
-    /// First 6 alphanumerics from the tail of an id (anchor/session), for a
-    /// short, stable, collision-resistant folder suffix.
+    /// First 6 alphanumerics from the tail of an id (session), for a short,
+    /// stable, collision-resistant folder suffix.
     private static func shortSuffix(of id: String) -> String {
         let alnum = id.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
         return String(String.UnicodeScalarView(alnum.suffix(6))).lowercased()
+    }
+
+    /// Deterministic 6-hex FNV-1a hash of `value`, so the same cwd always maps to
+    /// the same workspace folder suffix across app restarts.
+    private static func shortHash(of value: String) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        let hex = String(hash, radix: 16)
+        return String(hex.suffix(6))
     }
 
     private static func writeJSON<T: Encodable>(_ value: T, toPath path: String) throws {

@@ -90,11 +90,7 @@ struct NotesTreePanelView: NSViewRepresentable {
                 view.identifier = NotesTreeCellView.reuseIdentifier
                 return view
             }()
-            cell.configure(with: node, style: FileExplorerStyle.current) { [weak self] in
-                if case .sessionFolder(let marker) = node.kind {
-                    self?.onResumeMarker(marker)
-                }
-            }
+            cell.configure(with: node, style: FileExplorerStyle.current)
             return cell
         }
 
@@ -134,7 +130,11 @@ struct NotesTreePanelView: NSViewRepresentable {
             switch node.kind {
             case .note:
                 onOpenNote(node)
-            case .folder, .sessionFolder:
+            case .sessionFolder(let marker):
+                // Primary action for a session is Resume; expand via the
+                // disclosure triangle (or the context menu).
+                onResumeMarker(marker)
+            case .folder:
                 if sender.isItemExpanded(node) {
                     sender.collapseItem(node)
                 } else {
@@ -179,6 +179,10 @@ struct NotesTreePanelView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
             guard let node = item as? NotesTreeNode, !node.path.isEmpty else { return nil }
+            // Session folders are auto-managed (one per Claude session); they must
+            // not be dragged — e.g. nested under another session. Only notes and
+            // plain user folders are movable.
+            if case .sessionFolder = node.kind { return nil }
             let pbItem = NSPasteboardItem()
             pbItem.setString(node.path, forType: NotesTreePanelView.movePasteboardType)
             return pbItem

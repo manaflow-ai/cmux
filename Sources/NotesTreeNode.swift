@@ -24,6 +24,12 @@ enum NotesTreeKind: Equatable, Sendable {
             return false
         }
     }
+
+    /// The session marker when this is a session folder, else `nil`.
+    var sessionMarker: NotesSessionMarker? {
+        if case .sessionFolder(let marker) = self { return marker }
+        return nil
+    }
 }
 
 /// A single item in the Notes outline view.

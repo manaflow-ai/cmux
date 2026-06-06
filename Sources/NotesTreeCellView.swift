@@ -2,18 +2,17 @@ import AppKit
 
 /// A single row in the Notes outline view.
 ///
-/// Renders a note, a plain folder, or a session folder. Session folders show a
-/// conversation icon and a trailing Resume button wired to an injected closure
-/// (the cell holds no store or model reference — only value snapshots and a
-/// callback).
+/// Session folders adopt the Vault look — the agent's brand icon plus a
+/// relative timestamp — while notes and folders use Files-explorer icons, so the
+/// tab reads as a combination of the Files tree and the Vault. Resume is offered
+/// via double-click and the context menu rather than a per-row button, matching
+/// the Vault's clean rows.
 final class NotesTreeCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("NotesTreeCellView")
 
     private let iconView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
-    private let resumeButton = NSButton()
-
-    private var onResume: (() -> Void)?
+    private let timeField = NSTextField(labelWithString: "")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -36,72 +35,95 @@ final class NotesTreeCellView: NSTableCellView {
         titleField.isEditable = false
         titleField.isBordered = false
         titleField.drawsBackground = false
+        titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        resumeButton.translatesAutoresizingMaskIntoConstraints = false
-        resumeButton.bezelStyle = .inline
-        resumeButton.isBordered = false
-        resumeButton.imagePosition = .imageOnly
-        resumeButton.image = NSImage(
-            systemSymbolName: "play.circle",
-            accessibilityDescription: String(localized: "notes.session.resume", defaultValue: "Resume session")
-        )
-        resumeButton.contentTintColor = .controlAccentColor
-        resumeButton.target = self
-        resumeButton.action = #selector(resumeTapped)
-        resumeButton.toolTip = String(localized: "notes.session.resume", defaultValue: "Resume session")
-        resumeButton.setContentHuggingPriority(.required, for: .horizontal)
+        timeField.translatesAutoresizingMaskIntoConstraints = false
+        timeField.alignment = .right
+        timeField.lineBreakMode = .byClipping
+        timeField.isEditable = false
+        timeField.isBordered = false
+        timeField.drawsBackground = false
+        timeField.textColor = .tertiaryLabelColor
+        timeField.font = .systemFont(ofSize: 10)
+        timeField.setContentHuggingPriority(.required, for: .horizontal)
+        timeField.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         addSubview(iconView)
         addSubview(titleField)
-        addSubview(resumeButton)
+        addSubview(timeField)
 
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 16),
-            iconView.heightAnchor.constraint(equalToConstant: 16),
+            iconView.widthAnchor.constraint(equalToConstant: 15),
+            iconView.heightAnchor.constraint(equalToConstant: 15),
 
             titleField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6),
             titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            resumeButton.leadingAnchor.constraint(greaterThanOrEqualTo: titleField.trailingAnchor, constant: 6),
-            resumeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            resumeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            resumeButton.widthAnchor.constraint(equalToConstant: 16),
-            resumeButton.heightAnchor.constraint(equalToConstant: 16),
+            timeField.leadingAnchor.constraint(greaterThanOrEqualTo: titleField.trailingAnchor, constant: 6),
+            timeField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            timeField.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
-    /// Configure for a node. `onResume` is invoked when the session Resume button
-    /// is tapped (only shown for session folders).
-    func configure(with node: NotesTreeNode, style: FileExplorerStyle, onResume: (() -> Void)?) {
-        let symbol: String
-        let tint: NSColor
-        switch node.kind {
-        case .note:
-            symbol = "doc.text"
-            tint = style.fileIconTint
-        case .folder:
-            symbol = "folder"
-            tint = style.folderIconTint
-        case .sessionFolder:
-            symbol = "bubble.left.and.bubble.right"
-            tint = .controlAccentColor
-        }
-        iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        iconView.contentTintColor = tint
+    /// Configure for a node, matching Files-explorer density/typography.
+    func configure(with node: NotesTreeNode, style: FileExplorerStyle) {
         titleField.stringValue = node.displayName
         titleField.font = style.nameFont
         titleField.textColor = .labelColor
 
-        let isSession = node.kind.isDirectory && {
-            if case .sessionFolder = node.kind { return true } else { return false }
-        }()
-        resumeButton.isHidden = !isSession
-        self.onResume = onResume
+        switch node.kind {
+        case .note:
+            applySymbolIcon("doc.text", tint: style.fileIconTint)
+            setTime(nil)
+        case .folder:
+            applySymbolIcon("folder", tint: style.folderIconTint)
+            setTime(nil)
+        case .sessionFolder(let marker):
+            applyAgentIcon(forAgent: marker.agent)
+            setTime(marker.modified)
+        }
     }
 
-    @objc private func resumeTapped() {
-        onResume?()
+    private func setTime(_ modified: TimeInterval?) {
+        if let modified {
+            timeField.stringValue = NotesTreeCellView.relativeTimeString(modified)
+            timeField.isHidden = false
+        } else {
+            timeField.stringValue = ""
+            timeField.isHidden = true
+        }
+    }
+
+    private func applySymbolIcon(_ name: String, tint: NSColor) {
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+        image?.isTemplate = true
+        iconView.image = image
+        iconView.contentTintColor = tint
+    }
+
+    /// Use the agent's full-color brand asset (Claude sunburst, etc.), matching
+    /// the Vault; fall back to a conversation glyph for unknown agents.
+    private func applyAgentIcon(forAgent agent: String) {
+        if let sessionAgent = SessionAgent(rawValue: agent),
+           let assetName = sessionAgent.assetName,
+           let image = NSImage(named: assetName) {
+            image.isTemplate = false
+            iconView.image = image
+            iconView.contentTintColor = nil
+            return
+        }
+        let fallback = NSImage(systemSymbolName: "bubble.left.and.bubble.right", accessibilityDescription: nil)
+        fallback?.isTemplate = true
+        iconView.image = fallback
+        iconView.contentTintColor = .controlAccentColor
+    }
+
+    private static func relativeTimeString(_ modified: TimeInterval) -> String {
+        SessionIndexView.relativeFormatter.localizedString(
+            for: Date(timeIntervalSince1970: modified),
+            relativeTo: Date()
+        )
     }
 }
