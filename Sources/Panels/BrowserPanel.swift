@@ -5730,8 +5730,15 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func clearFaviconState() {
-        faviconState = .empty
-        faviconPNGData = nil
+        setFaviconState(.empty)
+    }
+
+    private func setFaviconState(_ state: BrowserFaviconPanelState) {
+        faviconState = state
+        let pngData = state.pngData
+        if faviconPNGData != pngData {
+            faviconPNGData = pngData
+        }
     }
 
     private func invalidateFaviconIfCachePartitionChanged(
@@ -5764,10 +5771,7 @@ final class BrowserPanel: Panel, ObservableObject {
             }
             guard self.webViewInstanceID == expectedWebViewInstanceID else { return }
             guard self.faviconRefreshGeneration == expectedGeneration else { return }
-            self.faviconState = .resolved(cached.request, pngData: cached.pngData)
-            if self.faviconPNGData != cached.pngData {
-                self.faviconPNGData = cached.pngData
-            }
+            self.setFaviconState(.resolved(cached.request, pngData: cached.pngData))
         }
     }
 
@@ -5797,10 +5801,7 @@ final class BrowserPanel: Panel, ObservableObject {
             if let cached = await faviconStore.cachedIcon(forPageURL: pageURL, cachePartition: cachePartition) {
                 guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
                 guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
-                faviconState = .resolved(cached.request, pngData: cached.pngData)
-                if faviconPNGData != cached.pngData {
-                    faviconPNGData = cached.pngData
-                }
+                setFaviconState(.resolved(cached.request, pngData: cached.pngData))
             }
 
             // Try to discover the best icon URL from the document.
@@ -5831,7 +5832,8 @@ final class BrowserPanel: Panel, ObservableObject {
             var discoveredURL: URL?
             if let href = await self.evaluateJavaScriptString(
                 js,
-                in: webView
+                in: webView,
+                timeout: .milliseconds(400)
             ) {
                 let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty, let u = URL(string: trimmed) {
@@ -5895,7 +5897,8 @@ final class BrowserPanel: Panel, ObservableObject {
                 """
                 if let href = await self.evaluateJavaScriptString(
                     waitForIconJS,
-                    in: webView
+                    in: webView,
+                    timeout: .milliseconds(800)
                 ) {
                     let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty, let u = URL(string: trimmed) {
@@ -5942,10 +5945,7 @@ final class BrowserPanel: Panel, ObservableObject {
             if let cachedPNG = await faviconStore.cachedIcon(for: request) {
                 guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
                 guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
-                faviconState = .resolved(request, pngData: cachedPNG)
-                if faviconPNGData != cachedPNG {
-                    faviconPNGData = cachedPNG
-                }
+                setFaviconState(.resolved(request, pngData: cachedPNG))
 #if DEBUG
                 cmuxDebugLog(
                     "browser.favicon.readyCached " +
@@ -5957,7 +5957,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 return
             }
 
-            faviconState = .resolving(request)
+            setFaviconState(.resolving(request))
             let png = await faviconStore.resolve(request) {
                 await Self.fetchFaviconPNGData(from: iconURL, context: fetchContext)
             }
@@ -5966,7 +5966,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
             guard let png else {
                 if case .resolving(let currentRequest) = faviconState, currentRequest == request {
-                    faviconState = .failed(request)
+                    setFaviconState(.failed(request))
                 }
 #if DEBUG
                 cmuxDebugLog(
@@ -5978,8 +5978,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 return
             }
 
-            faviconState = .resolved(request, pngData: png)
-            faviconPNGData = png
+            setFaviconState(.resolved(request, pngData: png))
 #if DEBUG
             cmuxDebugLog(
                 "browser.favicon.ready " +
@@ -6117,11 +6116,34 @@ final class BrowserPanel: Panel, ObservableObject {
     @MainActor
     private func evaluateJavaScriptString(
         _ script: String,
-        in webView: WKWebView
+        in webView: WKWebView,
+        timeout: Duration
     ) async -> String? {
         await withCheckedContinuation { continuation in
+            var hasResumed = false
+            var timeoutTask: Task<Void, Never>?
+
+            func resume(_ value: String?) {
+                guard !hasResumed else { return }
+                hasResumed = true
+                timeoutTask?.cancel()
+                continuation.resume(returning: value)
+            }
+
+            timeoutTask = Task { @MainActor in
+                do {
+                    // Real WebKit completion deadline; cancels when evaluateJavaScript returns.
+                    try await ContinuousClock().sleep(for: timeout)
+                } catch {
+                    return
+                }
+                resume(nil)
+            }
+
             webView.evaluateJavaScript(script) { result, _ in
-                continuation.resume(returning: result as? String)
+                Task { @MainActor in
+                    resume(result as? String)
+                }
             }
         }
     }
