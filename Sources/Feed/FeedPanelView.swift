@@ -1008,7 +1008,7 @@ struct FeedRowActions {
     static func bound() -> FeedRowActions {
         FeedRowActions(
             approvePermission: { itemId, mode in
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     FeedCoordinator.shared.deliverReply(
                         requestId: Self.requestId(for: itemId) ?? itemId.uuidString,
                         decision: .permission(mode)
@@ -1016,7 +1016,7 @@ struct FeedRowActions {
                 }
             },
             replyQuestion: { itemId, selections in
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     FeedCoordinator.shared.deliverReply(
                         requestId: Self.requestId(for: itemId) ?? itemId.uuidString,
                         decision: .question(selections: selections)
@@ -1024,7 +1024,7 @@ struct FeedRowActions {
                 }
             },
             approveExitPlan: { itemId, mode, feedback in
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     FeedCoordinator.shared.deliverReply(
                         requestId: Self.requestId(for: itemId) ?? itemId.uuidString,
                         decision: .exitPlan(mode, feedback: feedback)
@@ -1032,12 +1032,12 @@ struct FeedRowActions {
                 }
             },
             jump: { workstreamId in
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     _ = FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
                 }
             },
             sendText: { workstreamId, text in
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     FeedCoordinator.shared.sendTextToWorkstream(
                         workstreamId: workstreamId,
                         text: text
