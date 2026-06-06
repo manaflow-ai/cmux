@@ -30,6 +30,7 @@ struct MobilePairingView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task { await model.refresh() }
+        .onDisappear { model.stopAutoRefresh() }
         .onChange(of: coordinator?.isAuthenticated ?? false) { _, _ in
             Task { await model.refresh() }
         }

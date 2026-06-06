@@ -53,6 +53,9 @@ final class MobilePairingModel {
 
     private let host: MobileHostService
     private let ticketTTL: TimeInterval
+    /// Re-mints the ticket shortly before it expires so the displayed QR is
+    /// never stale. Cancelled on every refresh and when the window closes.
+    private var autoRefreshTask: Task<Void, Never>?
 
     /// Creates a pairing model.
     ///
@@ -70,6 +73,7 @@ final class MobilePairingModel {
     /// and mints a fresh attach ticket. Safe to call repeatedly (Refresh button,
     /// or the view re-running it when auth state settles).
     func refresh() async {
+        autoRefreshTask?.cancel()
         state = .loading
         guard let coordinator else {
             state = .failed(
@@ -129,6 +133,7 @@ final class MobilePairingModel {
                     tailscaleLines: Self.tailscaleLines(status.routes)
                 )
             )
+            scheduleExpiryRefresh()
         } catch MobileAttachTicketStoreError.noRoutes, MobileAttachTicketStoreError.routeUnavailable {
             state = .needsTailscale
         } catch {
@@ -146,6 +151,26 @@ final class MobilePairingModel {
     func signIn() {
         state = .loading
         AppDelegate.shared?.auth?.browserSignIn.beginSignIn()
+    }
+
+    /// Cancels the pending expiry re-mint. Call when the window closes.
+    func stopAutoRefresh() {
+        autoRefreshTask?.cancel()
+        autoRefreshTask = nil
+    }
+
+    /// Schedules a re-mint shortly before the current ticket's TTL elapses, so a
+    /// delayed scan never hits an expired code.
+    private func scheduleExpiryRefresh() {
+        autoRefreshTask?.cancel()
+        // Bounded, cancellable, duration-driven deadline (re-mint ~30s before
+        // expiry). Not a poll; cancelled on the next refresh or on window close.
+        let delay = max(1, ticketTTL - 30)
+        autoRefreshTask = Task { [weak self] in
+            try? await ContinuousClock().sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled else { return }
+            await self.refresh()
+        }
     }
 
     private func enablePairingHost() {
