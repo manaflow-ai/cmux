@@ -8,9 +8,7 @@ on:
   # app, so they don't trigger an upload. Push runs always build (the SHA gate is
   # schedule-only); each merge is a new commit, so there's no duplicate upload.
   push:
-    # TEMP(revert-before-merge): branch added to validate the unsigned-archive
-    # signing fix on this branch before merging to main.
-    branches: [main, feat-ios-archive-no-sign]
+    branches: [main]
     paths:
       - "ios/**"
       - "Packages/**"
@@ -110,9 +108,7 @@ jobs:
     # Only ever publish from main. push/schedule always run on main; this also
     # blocks publishing arbitrary code by dispatching the workflow against a
     # feature branch (the ASC secrets are only meant to ship reviewed main).
-    # TEMP(revert-before-merge): feat-ios-archive-no-sign allowed to validate the
-    # unsigned-archive fix actually uploads before merging.
-    if: needs.decide.outputs.should_build == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-ios-archive-no-sign')
+    if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
     runs-on: macos-26
     timeout-minutes: 60
     env:
