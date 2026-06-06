@@ -28,6 +28,14 @@ struct RightSidebarWidthSettingsTests {
         #expect(editorValue == 1_500)
     }
 
+    @Test func configuredMaximumWidthIsClampedToEditorRange() throws {
+        let configured = try #require(
+            RightSidebarWidthSettings.configuredMaximumWidth(from: 10_000)
+        )
+
+        #expect(configured == RightSidebarWidthSettings.settingsEditorMaximumWidth)
+    }
+
     @Test func rememberedCustomMaximumIsClampedToEditorRange() {
         let restored = RightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
             rememberedStoredValue: 10_000

@@ -182,6 +182,68 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertEqual(configuredMaximumWidth, 900, accuracy: 0.001)
     }
 
+    func testSettingsFileStoreClampsRightSidebarMaxWidthSetting() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = RightSidebarWidthSettings.maxWidthKey
+        let previousValues = [
+            managedKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ].reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey] {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "right-sidebar-width-settings-clamped-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "sidebar": {
+            "rightMaxWidth": 10000
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            defaults.double(forKey: managedKey),
+            RightSidebarWidthSettings.settingsEditorMaximumWidth,
+            accuracy: 0.001
+        )
+        let configuredMaximumWidth = try XCTUnwrap(
+            RightSidebarWidthSettings.configuredMaximumWidth(from: defaults.double(forKey: managedKey))
+        )
+        XCTAssertEqual(
+            configuredMaximumWidth,
+            RightSidebarWidthSettings.settingsEditorMaximumWidth,
+            accuracy: 0.001
+        )
+    }
+
     func testLeadingSidebarResizeRangeFavorsSidebarSide() {
         let range = SidebarResizeInteraction.Edge.leading.hitRange(dividerX: 200)
 

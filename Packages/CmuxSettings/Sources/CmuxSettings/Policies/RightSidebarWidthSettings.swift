@@ -14,7 +14,7 @@ public enum RightSidebarWidthSettings {
         guard storedValue.isFinite, storedValue > 0 else {
             return nil
         }
-        return storedValue
+        return clampedSettingsEditorMaximumWidth(storedValue)
     }
 
     public static func clampedSettingsEditorMaximumWidth(_ value: Double) -> Double {
