@@ -694,6 +694,10 @@ enum CmuxXCTestLaunchEnvironment {
         isRunningUnderXCTest(env) && !isUITest(env) && !isUITestSocketHarness(env)
     }
 
+    static func shouldStartRuntimeServices(_ env: [String: String]) -> Bool {
+        !isPureUnitTestAppHost(env)
+    }
+
     static func shouldUseUITestWindowFallback(_ env: [String: String]) -> Bool {
         isUITest(env) || (isRunningUnderXCTest(env) && isUITestSocketHarness(env))
     }
@@ -2209,13 +2213,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
-        VMClient.bootstrap(auth: auth.coordinator)
-        PhonePushClient.shared.configure(auth: auth.coordinator)
-        MobileHostService.shared.configure(auth: auth.coordinator)
+        let env = ProcessInfo.processInfo.environment
         TerminalController.shared.attachAuth(
             coordinator: auth.coordinator,
             browserSignIn: auth.browserSignIn
         )
+        guard CmuxXCTestLaunchEnvironment.shouldStartRuntimeServices(env) else {
+            StartupBreadcrumbLog.append("appDelegate.configure.runtime.skip", fields: ["reason": "unitTest"])
+            return
+        }
+        VMClient.bootstrap(auth: auth.coordinator)
+        PhonePushClient.shared.configure(auth: auth.coordinator)
+        MobileHostService.shared.configure(auth: auth.coordinator)
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
@@ -2223,7 +2232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
-        if CmuxXCTestLaunchEnvironment.isUITestSocketHarness(ProcessInfo.processInfo.environment) {
+        if CmuxXCTestLaunchEnvironment.isUITestSocketHarness(env) {
             startSocketListenerIfEnabled(tabManager: tabManager, source: "appDelegate.configure.uiTestSocketHarness")
         }
         prepareStartupSessionSnapshotIfNeeded()
@@ -2240,7 +2249,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
         setupPortalStatsUITestDiagnosticsIfNeeded()
 
-        let env = ProcessInfo.processInfo.environment
         if isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1" {
             scheduleUITestSocketSanityCheckIfNeeded()
         }
