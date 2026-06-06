@@ -806,7 +806,7 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
-    func testDefaultPermissionModeClearsStickyCodexOverrides() throws {
+    func testDefaultPermissionModeAvoidsInteractiveCodexApprovals() throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(
             workingDirectory: nil,
@@ -830,9 +830,56 @@ struct CodexAppServerSessionTests {
         expectEqual(elevatedSandboxPolicy["type"] as? String, "dangerFullAccess")
 
         let defaultParams = try #require(jsonLine(sentLines[4])["params"] as? [String: Any])
-        expectTrue(defaultParams["approvalPolicy"] is NSNull)
+        expectEqual(defaultParams["approvalPolicy"] as? String, "never")
         expectTrue(defaultParams["approvalsReviewer"] is NSNull)
         expectTrue(defaultParams["sandboxPolicy"] is NSNull)
+    }
+
+    @Test
+    func testCodexApprovalRequestsOnlyAutoApproveForFullAccessMode() throws {
+        var sentLines: [String] = []
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { _, _ in }
+        )
+
+        try session.start()
+        session.consumeStdout(
+            #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
+                + "\n")
+        session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
+        try session.submit("default prompt", permissionMode: .standard)
+        session.consumeStdout(
+            #"{"id":"cmd-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread-1"}}"# + "\n")
+        session.consumeStdout(
+            #"{"id":"perm-1","method":"item/permissions/requestApproval","params":{"permissions":{"network":{"enabled":true}}}}"# + "\n")
+        try session.submit("full access prompt", permissionMode: .fullAccess)
+        session.consumeStdout(
+            #"{"id":"cmd-2","method":"item/commandExecution/requestApproval","params":{"threadId":"thread-1"}}"# + "\n")
+        session.consumeStdout(
+            #"{"id":"perm-2","method":"item/permissions/requestApproval","params":{"permissions":{"network":{"enabled":true}}}}"# + "\n")
+
+        let defaultCommandResponse = jsonLine(sentLines[4])
+        let defaultCommandResult = try #require(defaultCommandResponse["result"] as? [String: Any])
+        expectEqual(defaultCommandResult["decision"] as? String, "decline")
+
+        let defaultPermissionResponse = jsonLine(sentLines[5])
+        let defaultPermissionResult = try #require(defaultPermissionResponse["result"] as? [String: Any])
+        let defaultPermissions = try #require(defaultPermissionResult["permissions"] as? [String: Any])
+        expectTrue(defaultPermissions.isEmpty)
+
+        let fullAccessCommandResponse = jsonLine(sentLines[7])
+        let fullAccessCommandResult = try #require(fullAccessCommandResponse["result"] as? [String: Any])
+        expectEqual(fullAccessCommandResult["decision"] as? String, "acceptForSession")
+
+        let fullAccessPermissionResponse = jsonLine(sentLines[8])
+        let fullAccessPermissionResult = try #require(fullAccessPermissionResponse["result"] as? [String: Any])
+        let fullAccessPermissions = try #require(fullAccessPermissionResult["permissions"] as? [String: Any])
+        let networkPermissions = try #require(fullAccessPermissions["network"] as? [String: Any])
+        expectEqual(networkPermissions["enabled"] as? Bool, true)
     }
 
     @Test

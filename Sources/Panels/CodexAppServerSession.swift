@@ -25,6 +25,7 @@ final class CodexAppServerSession {
     private var queuedInputs: [CodexAppServerQueuedInput] = []
     private var stdoutBuffer = ""
     private var didFailStartup = false
+    private var activePermissionMode: AgentSessionPermissionMode = .standard
 
     init(
         workingDirectory: String?,
@@ -400,11 +401,16 @@ final class CodexAppServerSession {
         let result: [String: Any]
         switch method {
         case "item/commandExecution/requestApproval":
-            result = ["decision": "decline"]
+            result = ["decision": commandApprovalDecision()]
         case "item/fileChange/requestApproval":
-            result = ["decision": "decline"]
+            result = ["decision": fileChangeApprovalDecision()]
+        case "item/permissions/requestApproval":
+            result = [
+                "permissions": grantedPermissions(from: object["params"] as? [String: Any]),
+                "scope": "turn"
+            ]
         case "execCommandApproval", "applyPatchApproval":
-            result = ["decision": "denied"]
+            result = ["decision": legacyReviewDecision()]
         default:
             do {
                 try sendErrorResponse(
@@ -429,6 +435,40 @@ final class CodexAppServerSession {
         } catch {
             emitCodexRPCFailure(error)
         }
+    }
+
+    private func commandApprovalDecision() -> String {
+        switch activePermissionMode {
+        case .fullAccess:
+            return "acceptForSession"
+        case .standard, .autoReview, .custom:
+            return "decline"
+        }
+    }
+
+    private func fileChangeApprovalDecision() -> String {
+        switch activePermissionMode {
+        case .fullAccess:
+            return "acceptForSession"
+        case .standard, .autoReview, .custom:
+            return "decline"
+        }
+    }
+
+    private func legacyReviewDecision() -> String {
+        switch activePermissionMode {
+        case .fullAccess:
+            return "approved_for_session"
+        case .standard, .autoReview, .custom:
+            return "denied"
+        }
+    }
+
+    private func grantedPermissions(from params: [String: Any]?) -> [String: Any] {
+        guard activePermissionMode == .fullAccess else {
+            return [:]
+        }
+        return params?["permissions"] as? [String: Any] ?? [:]
     }
 
     private func drainCodexAppServerQueuedInputs() {
@@ -480,6 +520,7 @@ final class CodexAppServerSession {
         text: String,
         permissionMode: AgentSessionPermissionMode
     ) throws {
+        activePermissionMode = permissionMode
         var params: [String: Any] = [
             "threadId": threadID,
             "input": [

@@ -10,7 +10,7 @@ enum AgentSessionPermissionMode: String {
         switch self {
         case .standard, .custom:
             return [
-                "approvalPolicy": NSNull(),
+                "approvalPolicy": "never",
                 "approvalsReviewer": NSNull(),
                 "sandboxPolicy": NSNull()
             ]
