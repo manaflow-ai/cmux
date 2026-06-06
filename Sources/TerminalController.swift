@@ -5538,6 +5538,14 @@ class TerminalController {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let activeTerminalSurfaceId = v2UUID(params, "active_terminal_surface_id")
+        if v2HasNonNullParam(params, "active_terminal_surface_id"), activeTerminalSurfaceId == nil {
+            return .err(
+                code: "invalid_params",
+                message: "active_terminal_surface_id must be a valid surface id",
+                data: nil
+            )
+        }
         var persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if v2HasNonNullParam(params, "persistent_daemon_slot") {
@@ -5639,6 +5647,18 @@ class TerminalController {
                   let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
                 return
             }
+            if let activeTerminalSurfaceId,
+               workspace.terminalPanel(for: activeTerminalSurfaceId) == nil {
+                result = .err(
+                    code: "invalid_params",
+                    message: "active_terminal_surface_id must identify a terminal surface in the configured workspace",
+                    data: [
+                        "workspace_id": workspaceId.uuidString,
+                        "surface_id": activeTerminalSurfaceId.uuidString,
+                    ]
+                )
+                return
+            }
 
             let config = WorkspaceRemoteConfiguration(
                 transport: transport,
@@ -5664,6 +5684,9 @@ class TerminalController {
                 skipDaemonBootstrap: skipDaemonBootstrap
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
+            if let activeTerminalSurfaceId {
+                _ = workspace.markActiveRemoteTerminalSurface(activeTerminalSurfaceId)
+            }
             notifyRemotePTYControllerAvailabilityChanged()
 
             let windowId = v2ResolveWindowId(tabManager: owner)
