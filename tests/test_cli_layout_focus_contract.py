@@ -268,12 +268,12 @@ def main() -> int:
             if Path(path_text) != Path(layout_dir):
                 raise AssertionError(f"layout path ignored CMUX_LAYOUT_PRESET_DIR: {path_text!r}")
 
+            Path(layout_dir).mkdir(parents=True, exist_ok=True)
             list_text = run_cli_without_socket(cli, ["layout", "list", "--json"], layout_env)
             listed = json.loads(list_text)
             if listed != {"presets": []}:
                 raise AssertionError(f"layout list should work without a socket: {listed!r}")
 
-            Path(layout_dir).mkdir(parents=True, exist_ok=True)
             invalid_preset = Path(layout_dir) / "broken.json"
             invalid_preset.write_text("{ invalid", encoding="utf-8")
             invalid_list_text = run_cli_without_socket(cli, ["layout", "list"], layout_env)
