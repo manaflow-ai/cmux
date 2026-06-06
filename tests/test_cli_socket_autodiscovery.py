@@ -1334,7 +1334,7 @@ def test_cli_skips_non_cmux_default_socket(cli_path: str) -> bool:
         app_support = app_support_dir(home)
         app_support.mkdir(parents=True, exist_ok=True)
         default_socket = socket_path_for_home(home, "com.cmuxterm.app.sock")
-        fallback_socket = socket_path_for_home(home, f"com.cmuxterm.app.{os.getuid()}.sock")
+        fallback_socket = socket_path_for_home(home, f"cmux-{os.getuid()}.sock")
         write_marker(home, "last-socket-path", fallback_socket)
 
         squatter_server = PingServer(default_socket, response=b"\xff\xfe\n")
@@ -1386,7 +1386,7 @@ def test_cli_accepts_v2_json_probe_for_marked_socket(cli_path: str) -> bool:
             tempfile.TemporaryDirectory(prefix="cmux-cli-v2-probe-app-") as apps:
         app_support = app_support_dir(home)
         app_support.mkdir(parents=True, exist_ok=True)
-        socket_path = socket_path_for_home(home, f"com.cmuxterm.app.{os.getuid()}.sock")
+        socket_path = socket_path_for_home(home, f"cmux-{os.getuid()}.sock")
         write_marker(home, "last-socket-path", socket_path)
 
         server = PingServer(
