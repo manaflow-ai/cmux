@@ -93,14 +93,18 @@ public struct CMUXMobileRootScene: View {
 
     @ViewBuilder
     private var content: some View {
-        #if canImport(UIKit) && DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
-            MobileZoomStressView()
-        } else {
+        #if os(iOS)
+            #if canImport(UIKit) && DEBUG
+            if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
+                MobileZoomStressView()
+            } else {
+                CMUXMobileAppView(store: makeStore(), feedbackClient: feedbackClient)
+            }
+            #else
             CMUXMobileAppView(store: makeStore(), feedbackClient: feedbackClient)
-        }
+            #endif
         #else
-        CMUXMobileAppView(store: makeStore(), feedbackClient: feedbackClient)
+        CMUXMobileAppView(store: makeStore())
         #endif
     }
 
