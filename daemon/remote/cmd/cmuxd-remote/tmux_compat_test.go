@@ -851,6 +851,42 @@ func TestClaudeNodeOptionsCacheDir(t *testing.T) {
 	}
 }
 
+func TestClaudeNodeOptionsHomeDirHonorsExplicitEmptyHome(t *testing.T) {
+	t.Setenv("HOME", "")
+
+	homeDir, err := claudeNodeOptionsHomeDir()
+	if err != nil {
+		t.Fatalf("home dir lookup returned error for explicit empty HOME: %v", err)
+	}
+	if homeDir != "" {
+		t.Fatalf("home dir = %q, want explicit empty HOME", homeDir)
+	}
+}
+
+func TestChmodNodeOptionsFallbackDirsRejectsSymlinkComponent(t *testing.T) {
+	root := t.TempDir()
+	fallbackBase := filepath.Join(root, "cmux-501")
+	if err := os.MkdirAll(fallbackBase, 0700); err != nil {
+		t.Fatalf("mkdir fallback base: %v", err)
+	}
+	target := filepath.Join(root, "target")
+	if err := os.MkdirAll(filepath.Join(target, "cmux-claude-node-options"), 0700); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+	symlinkPath := filepath.Join(fallbackBase, "app")
+	if err := os.Symlink(target, symlinkPath); err != nil {
+		t.Fatalf("symlink setup: %v", err)
+	}
+
+	err := chmodNodeOptionsFallbackDirs(filepath.Join(symlinkPath, "cmux-claude-node-options"), fallbackBase)
+	if err == nil {
+		t.Fatal("expected symlink fallback directory to be rejected")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("error = %q, want symlink rejection", err)
+	}
+}
+
 func TestWriteShimIfChangedHonorsMode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "restore-node-options.cjs")

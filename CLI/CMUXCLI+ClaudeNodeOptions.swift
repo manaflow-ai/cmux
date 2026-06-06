@@ -62,7 +62,7 @@ extension CMUXCLI {
         }
     }
 
-    private struct NodeOptionsFallbackCacheBaseState {
+    private struct NodeOptionsFallbackCachePathState {
         let owner: uid_t
         let isSymbolicLink: Bool
     }
@@ -74,11 +74,11 @@ extension CMUXCLI {
         path.rangeOfCharacter(from: nodeOptionsUnsafePathCharacters) != nil
     }
 
-    private static func nodeOptionsHomePath(in environment: [String: String]) -> String {
-        if let homePath = environment["HOME"], !homePath.isEmpty {
-            return homePath
+    private static func nodeOptionsHomePath(in environment: [String: String]) -> String? {
+        guard let homePath = environment["HOME"], !homePath.isEmpty else {
+            return nil
         }
-        return NSHomeDirectory()
+        return homePath
     }
 
     private static func nodeOptionsMacOSSystemCachesRoot() -> URL? {
@@ -86,11 +86,16 @@ extension CMUXCLI {
             .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
     }
 
-    private static func nodeOptionsFallbackCacheBaseState(at url: URL) throws -> NodeOptionsFallbackCacheBaseState? {
+    private static func nodeOptionsFallbackCacheBaseURL(for uid: uid_t) -> URL {
+        URL(fileURLWithPath: "/var/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-\(uid)", isDirectory: true)
+    }
+
+    private static func nodeOptionsFallbackCachePathState(at url: URL) throws -> NodeOptionsFallbackCachePathState? {
         var statValue = stat()
         let result = lstat(url.path, &statValue)
         if result == 0 {
-            return NodeOptionsFallbackCacheBaseState(
+            return NodeOptionsFallbackCachePathState(
                 owner: statValue.st_uid,
                 isSymbolicLink: (statValue.st_mode & mode_t(S_IFMT)) == mode_t(S_IFLNK)
             )
@@ -106,7 +111,7 @@ extension CMUXCLI {
     }
 
     private static func validateNodeOptionsFallbackCacheBase(_ url: URL, expectedOwner uid: uid_t) throws {
-        guard let state = try nodeOptionsFallbackCacheBaseState(at: url) else {
+        guard let state = try nodeOptionsFallbackCachePathState(at: url) else {
             return
         }
         guard !state.isSymbolicLink else {
@@ -123,6 +128,37 @@ extension CMUXCLI {
         }
     }
 
+    private static func validateNodeOptionsFallbackCacheDirectory(_ url: URL, expectedOwner uid: uid_t) throws {
+        guard let state = try nodeOptionsFallbackCachePathState(at: url) else {
+            return
+        }
+        guard !state.isSymbolicLink else {
+            throw ClaudeNodeOptionsCachePathError(
+                reason: "fallback cache directory is a symlink",
+                path: url.path
+            )
+        }
+        guard state.owner == uid else {
+            throw ClaudeNodeOptionsCachePathError(
+                reason: "fallback cache directory is owned by a different uid",
+                path: url.path
+            )
+        }
+    }
+
+    private static func validateNodeOptionsFallbackCacheDirectoryChain(
+        from leaf: URL,
+        under base: URL,
+        expectedOwner uid: uid_t
+    ) throws {
+        let basePath = base.standardizedFileURL.path
+        var current = leaf.standardizedFileURL
+        while current.path.hasPrefix(basePath + "/") {
+            try validateNodeOptionsFallbackCacheDirectory(current, expectedOwner: uid)
+            current.deleteLastPathComponent()
+        }
+    }
+
     func createClaudeNodeOptionsRestoreModule() throws -> URL {
         // Use the user's cache directory rather than NSTemporaryDirectory()
         // so the guard module survives macOS `periodic` cleanup of
@@ -136,6 +172,13 @@ extension CMUXCLI {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
+        let uid = getuid()
+        let fallbackBase = Self.nodeOptionsFallbackCacheBaseURL(for: uid)
+        try Self.validateNodeOptionsFallbackCacheDirectoryChain(
+            from: root,
+            under: fallbackBase,
+            expectedOwner: uid
+        )
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
         let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
         try CMUXCLIShimWriter.writeIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL, mode: 0o600)
@@ -146,16 +189,19 @@ extension CMUXCLI {
         let environment = ProcessInfo.processInfo.environment
         let cacheRoot: URL
 #if os(macOS)
-        let homePath = Self.nodeOptionsHomePath(in: environment)
-        let preferredRoot = URL(fileURLWithPath: homePath, isDirectory: true)
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Caches", isDirectory: true)
-            .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
-        if !Self.pathIsUnsafeForNodeOptions(preferredRoot.path) {
-            cacheRoot = preferredRoot
-        } else if let systemCachesRoot = Self.nodeOptionsMacOSSystemCachesRoot(),
-                  !Self.pathIsUnsafeForNodeOptions(systemCachesRoot.path) {
-            cacheRoot = systemCachesRoot
+        if let homePath = Self.nodeOptionsHomePath(in: environment) {
+            let preferredRoot = URL(fileURLWithPath: homePath, isDirectory: true)
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Caches", isDirectory: true)
+                .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            if !Self.pathIsUnsafeForNodeOptions(preferredRoot.path) {
+                cacheRoot = preferredRoot
+            } else if let systemCachesRoot = Self.nodeOptionsMacOSSystemCachesRoot(),
+                      !Self.pathIsUnsafeForNodeOptions(systemCachesRoot.path) {
+                cacheRoot = systemCachesRoot
+            } else {
+                cacheRoot = try claudeNodeOptionsFallbackCacheRoot(appScoped: true)
+            }
         } else {
             cacheRoot = try claudeNodeOptionsFallbackCacheRoot(appScoped: true)
         }
@@ -167,12 +213,15 @@ extension CMUXCLI {
             cacheRoot = URL(fileURLWithPath: xdgCacheHome, isDirectory: true)
                 .appendingPathComponent("cmux", isDirectory: true)
         } else {
-            let homePath = Self.nodeOptionsHomePath(in: environment)
-            let preferredRoot = URL(fileURLWithPath: homePath, isDirectory: true)
-                .appendingPathComponent(".cache", isDirectory: true)
-                .appendingPathComponent("cmux", isDirectory: true)
-            if !Self.pathIsUnsafeForNodeOptions(preferredRoot.path) {
-                cacheRoot = preferredRoot
+            if let homePath = Self.nodeOptionsHomePath(in: environment) {
+                let preferredRoot = URL(fileURLWithPath: homePath, isDirectory: true)
+                    .appendingPathComponent(".cache", isDirectory: true)
+                    .appendingPathComponent("cmux", isDirectory: true)
+                if !Self.pathIsUnsafeForNodeOptions(preferredRoot.path) {
+                    cacheRoot = preferredRoot
+                } else {
+                    cacheRoot = try claudeNodeOptionsFallbackCacheRoot(appScoped: false)
+                }
             } else {
                 cacheRoot = try claudeNodeOptionsFallbackCacheRoot(appScoped: false)
             }
@@ -190,8 +239,7 @@ extension CMUXCLI {
 
     private func claudeNodeOptionsFallbackCacheRoot(appScoped: Bool) throws -> URL {
         let uid = getuid()
-        let privateBase = URL(fileURLWithPath: "/var/tmp", isDirectory: true)
-            .appendingPathComponent("cmux-\(uid)", isDirectory: true)
+        let privateBase = Self.nodeOptionsFallbackCacheBaseURL(for: uid)
         try Self.validateNodeOptionsFallbackCacheBase(privateBase, expectedOwner: uid)
         try FileManager.default.createDirectory(
             at: privateBase,
@@ -204,11 +252,13 @@ extension CMUXCLI {
         var root = privateBase
         if appScoped {
             root = root.appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            try Self.validateNodeOptionsFallbackCacheDirectory(root, expectedOwner: uid)
             try FileManager.default.createDirectory(
                 at: root,
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o700]
             )
+            try Self.validateNodeOptionsFallbackCacheDirectory(root, expectedOwner: uid)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
         }
         guard !Self.pathIsUnsafeForNodeOptions(root.path) else {

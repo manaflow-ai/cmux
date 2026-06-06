@@ -322,7 +322,7 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 	// long-running Claude sessions). The path must not contain whitespace
 	// or quotes, since Node.js parses NODE_OPTIONS syntax and the
 	// --require=<path> flag is not quoted downstream.
-	homeDir, homeDirErr := os.UserHomeDir()
+	homeDir, homeDirErr := claudeNodeOptionsHomeDir()
 	if homeDirErr != nil {
 		homeDir = ""
 		fmt.Fprintf(os.Stderr, "cmux: warning: could not determine home directory for NODE_OPTIONS cache: %v; using fallback cache path\n", homeDirErr)
@@ -356,6 +356,13 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 		return "", err
 	}
 	return restoreModulePath, nil
+}
+
+func claudeNodeOptionsHomeDir() (string, error) {
+	if homeDir, ok := os.LookupEnv("HOME"); ok {
+		return homeDir, nil
+	}
+	return os.UserHomeDir()
 }
 
 func claudeNodeOptionsCacheDir(goos, xdgCacheHome, homeDir string, uid int) (dir string, fallbackBase string) {
@@ -415,6 +422,13 @@ func ensurePrivateNodeOptionsCacheBase(path string, uid int) error {
 
 func chmodNodeOptionsFallbackDirs(dir, fallbackBase string) error {
 	for path := dir; strings.HasPrefix(path, fallbackBase+string(os.PathSeparator)); path = filepath.Dir(path) {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("NODE_OPTIONS fallback cache directory is a symlink: %s", path)
+		}
 		if err := os.Chmod(path, 0700); err != nil {
 			return err
 		}
