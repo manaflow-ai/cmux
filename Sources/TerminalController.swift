@@ -18181,7 +18181,7 @@ class TerminalController {
             omittingEmptySubsequences: false
         ).map(String.init)
         guard optionParts.count == 2 else {
-            return (nil, "")
+            return (nil, remainder.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         let statusKey = AgentHibernationLifecycleStatusKeys
             .normalizedAllowedStatusKey(optionParts[0])

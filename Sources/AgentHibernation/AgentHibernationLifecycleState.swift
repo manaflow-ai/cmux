@@ -102,3 +102,8 @@ nonisolated enum AgentHibernationLifecycleStatusKeys {
         title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
+
+struct StructuredAgentInputNotificationKey: Hashable, Sendable {
+    let tabId: UUID
+    let statusKey: String
+}

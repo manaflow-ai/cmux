@@ -1685,11 +1685,6 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private struct StructuredAgentInputNotificationKey: Hashable {
-        let tabId: UUID
-        let statusKey: String
-    }
-
     private func remainingUnreadStructuredAgentInputKeys() -> Set<StructuredAgentInputNotificationKey> {
         var keys = Set<StructuredAgentInputNotificationKey>()
         keys.reserveCapacity(notifications.count)
@@ -1700,6 +1695,7 @@ final class TerminalNotificationStore: ObservableObject {
             }
             keys.insert(StructuredAgentInputNotificationKey(tabId: notification.tabId, statusKey: statusKey))
         }
+        keys.formUnion(TerminalMutationBus.shared.pendingStructuredAgentInputNotificationKeys())
         return keys
     }
 
