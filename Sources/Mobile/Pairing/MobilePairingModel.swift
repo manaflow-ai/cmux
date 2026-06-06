@@ -25,6 +25,9 @@ final class MobilePairingModel {
         case preparing
         /// A ticket is ready to display.
         case ready(Ready)
+        /// A phone has attached to the listener; show a paired/success state
+        /// instead of the QR + spinner.
+        case connected(Ready)
         /// The listener is up but there is no route a phone can reach (no
         /// Tailscale address on this Mac), so no ticket can be minted yet.
         case needsTailscale
@@ -56,6 +59,9 @@ final class MobilePairingModel {
     /// Re-mints the ticket shortly before it expires so the displayed QR is
     /// never stale. Cancelled on every refresh and when the window closes.
     private var autoRefreshTask: Task<Void, Never>?
+    /// Observes the host's connection status while a code is shown, flipping the
+    /// render state between `.ready` and `.connected`. Cancelled on each refresh.
+    private var connectionObservationTask: Task<Void, Never>?
     /// Bumped on each ``refresh()`` so a slower in-flight run (the UI fires
     /// refresh from several places) can't overwrite a newer result with a stale
     /// ticket. Each run captures its value and bails after an `await` if superseded.
@@ -146,6 +152,7 @@ final class MobilePairingModel {
                 )
             )
             scheduleExpiryRefresh()
+            observeConnections()
         } catch MobileAttachTicketStoreError.noRoutes, MobileAttachTicketStoreError.routeUnavailable {
             state = .needsTailscale
         } catch {
@@ -169,6 +176,8 @@ final class MobilePairingModel {
     func stopAutoRefresh() {
         autoRefreshTask?.cancel()
         autoRefreshTask = nil
+        connectionObservationTask?.cancel()
+        connectionObservationTask = nil
     }
 
     /// Schedules a re-mint shortly before the current ticket's TTL elapses, so a
@@ -182,6 +191,43 @@ final class MobilePairingModel {
             try? await ContinuousClock().sleep(for: .seconds(delay))
             guard let self, !Task.isCancelled else { return }
             await self.refresh()
+        }
+    }
+
+    /// Watches the mobile host's connection status while a code is displayed and
+    /// flips between `.ready` (QR shown, waiting) and `.connected` (a phone has
+    /// attached). Cancelled and superseded on each ``refresh()`` via the generation
+    /// guard, and on ``stopAutoRefresh()``.
+    private func observeConnections() {
+        connectionObservationTask?.cancel()
+        let generation = refreshGeneration
+        connectionObservationTask = Task { [weak self] in
+            guard let self else { return }
+            for await status in self.host.statusUpdates() {
+                if Task.isCancelled { return }
+                guard generation == self.refreshGeneration else { return }
+                self.state = Self.connectionTransition(
+                    from: self.state,
+                    activeConnectionCount: status.activeConnectionCount
+                )
+            }
+        }
+    }
+
+    /// Computes the next render state from a connection-count change. A connected
+    /// phone (`activeConnectionCount > 0`) flips a displayed ticket from `.ready`
+    /// to `.connected`; losing the last connection flips back so the QR returns.
+    /// All other states pass through unchanged. Pure, so the transition is unit
+    /// tested without a live host.
+    static func connectionTransition(from current: State, activeConnectionCount: Int) -> State {
+        let connected = activeConnectionCount > 0
+        switch current {
+        case let .ready(ready) where connected:
+            return .connected(ready)
+        case let .connected(ready) where !connected:
+            return .ready(ready)
+        default:
+            return current
         }
     }
 
