@@ -964,7 +964,13 @@ function AboveComposerPlanSuggestion({
   );
 }
 
-function TranscriptThread({ entries, copy }: { entries: TranscriptEntry[]; copy?: AgentSessionCopy }) {
+const TranscriptThread = React.memo(function TranscriptThread({
+  entries,
+  copy,
+}: {
+  entries: TranscriptEntry[];
+  copy?: AgentSessionCopy;
+}) {
   return h(
     "div",
     {
@@ -973,9 +979,15 @@ function TranscriptThread({ entries, copy }: { entries: TranscriptEntry[]; copy?
     },
     entries.map((entry) => h(TranscriptTurn, { copy, entry, key: entry.id })),
   );
-}
+});
 
-function TranscriptTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: TranscriptEntry }) {
+const TranscriptTurn = React.memo(function TranscriptTurn({
+  copy,
+  entry,
+}: {
+  copy?: AgentSessionCopy;
+  entry: TranscriptEntry;
+}) {
   switch (entry.role) {
     case "user": {
       const attachments = entry.attachments ?? [];
@@ -1029,7 +1041,7 @@ function TranscriptTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Trans
     case "activity":
       return h(ToolActivityTurn, { copy, entry });
   }
-}
+});
 
 function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: TranscriptEntry }) {
   "use no memo";
