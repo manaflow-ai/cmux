@@ -1,6 +1,6 @@
 import Darwin
 import Foundation
-import CMUXSocketPathDomain
+import CmuxSocketControl
 
 enum CLIExecutableLocator {
     static func currentExecutableURL() -> URL? {
@@ -80,7 +80,13 @@ enum CLISocketPathSource {
 }
 
 enum CLISocketPathResolver {
-    private static let appSupportDirectoryName = "cmux"
+    enum SocketPathEntry {
+        case missing
+        case socket(ownerUserID: uid_t)
+        case other(ownerUserID: uid_t)
+        case inaccessible(errnoCode: Int32)
+    }
+
     private static let stableSocketFileName = "cmux.sock"
     static let legacyDefaultSocketPath = "/tmp/cmux.sock"
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
@@ -134,9 +140,17 @@ enum CLISocketPathResolver {
         requestedPath: String,
         source: CLISocketPathSource,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        bundleIdentifier: String? = currentAppBundleIdentifier()
+        bundleIdentifier: String? = currentAppBundleIdentifier(),
+        currentUserID: uid_t = getuid(),
+        inspectSocketPathEntry: (String) -> SocketPathEntry = inspectSocketPathEntry
     ) -> String {
         guard source == .implicitDefault else {
+            return requestedPath
+        }
+
+        let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
+        if case .stable = variant,
+           canConnect(to: requestedPath, currentUserID: currentUserID, inspectSocketPathEntry: inspectSocketPathEntry) {
             return requestedPath
         }
 
@@ -147,12 +161,20 @@ enum CLISocketPathResolver {
         ))
 
         // Prefer sockets that are currently accepting connections.
-        for path in candidates where canConnect(to: path) {
+        for path in candidates where canConnect(
+            to: path,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        ) {
             return path
         }
 
         // If the listener is still starting, prefer existing socket files.
-        for path in candidates where isSocketFile(path) {
+        for path in candidates where isOwnedSocketFile(
+            path,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        ) {
             return path
         }
 
@@ -273,12 +295,49 @@ enum CLISocketPathResolver {
     }
 
     private static func isSocketFile(_ path: String) -> Bool {
-        var st = stat()
-        return lstat(path, &st) == 0 && (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK)
+        if case .socket = inspectSocketPathEntry(path) {
+            return true
+        }
+        return false
     }
 
-    private static func canConnect(to path: String) -> Bool {
-        guard isSocketFile(path) else { return false }
+    private static func isOwnedSocketFile(
+        _ path: String,
+        currentUserID: uid_t,
+        inspectSocketPathEntry: (String) -> SocketPathEntry
+    ) -> Bool {
+        if case .socket(let ownerUserID) = inspectSocketPathEntry(path) {
+            return ownerUserID == currentUserID
+        }
+        return false
+    }
+
+    private static func inspectSocketPathEntry(_ path: String) -> SocketPathEntry {
+        var st = stat()
+        guard lstat(path, &st) == 0 else {
+            if errno == ENOENT {
+                return .missing
+            }
+            return .inaccessible(errnoCode: errno)
+        }
+        if (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) {
+            return .socket(ownerUserID: st.st_uid)
+        }
+        return .other(ownerUserID: st.st_uid)
+    }
+
+    private static func canConnect(
+        to path: String,
+        currentUserID: uid_t,
+        inspectSocketPathEntry: (String) -> SocketPathEntry
+    ) -> Bool {
+        guard isOwnedSocketFile(
+            path,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        ) else {
+            return false
+        }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
         defer { Darwin.close(fd) }
@@ -335,7 +394,7 @@ enum CLISocketPathResolver {
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
         if case .stable = variant {
-            return dedupe([defaultPath, legacyDefaultSocketPath])
+            return stableImplicitDefaultPaths()
         }
         return dedupe(
             [defaultPath] + stableImplicitDefaultPaths()
@@ -405,7 +464,7 @@ enum CLISocketPathResolver {
         SocketPathMarkerFiles.paths(
             bundleIdentifier: bundleIdentifier,
             environment: environment,
-            appSupportDirectory: stableSocketDirectoryURL()
+            directory: stableSocketDirectoryURL()
         )
     }
 
@@ -435,18 +494,22 @@ enum CLISocketPathResolver {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// The directory holding the control socket and its marker files.
+    ///
+    /// Resolves to ``CmuxStateDirectory`` (`~/.local/state/cmux`), matching the
+    /// app's `SocketControlSettings.stableSocketDirectoryURL()`. This keeps the
+    /// CLI off the app's TCC-protected Application Support data on the agent hook
+    /// path (https://github.com/manaflow-ai/cmux/issues/5146). The CLI is a
+    /// composition root, so it names the concrete `FileManager.default` here.
     private static func stableSocketDirectoryURL() -> URL? {
-        guard let appSupportDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        return appSupportDirectory.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
+        CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
     }
 
     private static func socketDiscoveryDirectories() -> [String] {
-        let appSupportSocketDirectory: String = stableSocketDirectoryURL()?.path ?? ""
+        let stateSocketDirectory: String = stableSocketDirectoryURL()?.path ?? ""
         return dedupe([
             "/tmp",
-            appSupportSocketDirectory,
+            stateSocketDirectory,
         ])
     }
 
