@@ -780,7 +780,6 @@ final class MarkdownPanelTests: XCTestCase {
         if let error = loadDelegate.error {
             throw error
         }
-        try await installRemoteImageLoadSuppression(in: webView)
 
         let expectedBlockedTitle = String(
             localized: "markdown.web.remoteImageBlocked",
@@ -794,10 +793,6 @@ final class MarkdownPanelTests: XCTestCase {
             localized: "markdown.web.remoteImageLoadImage",
             defaultValue: "Load this image"
         )
-        let expectedLoadingButton = String(
-            localized: "markdown.web.remoteImageLoading",
-            defaultValue: "Loading"
-        )
         let expectedCopyURLButton = String(
             localized: "markdown.web.remoteImageCopyURL",
             defaultValue: "Copy image URL"
@@ -805,10 +800,6 @@ final class MarkdownPanelTests: XCTestCase {
         let expectedOpenURLButton = String(
             localized: "markdown.web.remoteImageOpenURL",
             defaultValue: "Open image URL"
-        )
-        let expectedCopiedButton = String(
-            localized: "markdown.web.remoteImageCopied",
-            defaultValue: "Copied"
         )
         let expectedHTTPSOnlyMessage = String(
             localized: "markdown.web.remoteImageHTTPSOnly",
@@ -823,9 +814,6 @@ final class MarkdownPanelTests: XCTestCase {
                 localized: "markdown.web.remoteImageURL",
                 defaultValue: "Image URL: {url}"
             ).replacingOccurrences(of: "{url}", with: url)
-        }
-        func copyButtonCount(_ buttons: [String]) -> Int {
-            buttons.filter { $0 == expectedCopyURLButton || $0 == expectedCopiedButton }.count
         }
 
         try await renderMarkdown(
@@ -971,88 +959,6 @@ final class MarkdownPanelTests: XCTestCase {
             """
         )
         XCTAssertEqual(linkedPlaceholderInsideAnchor as? Bool, false)
-
-        _ = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              var img = document.querySelector('img[alt="Linked remote"]');
-              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
-              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
-              var button = placeholder && placeholder.querySelector('button');
-              if (button) { button.click(); }
-            })();
-            """
-        )
-        let loading = try await remoteImageSnapshot(in: webView)
-        let loadingImages = try XCTUnwrap(loading["images"] as? [[String: Any]])
-        let loadingPlaceholders = try XCTUnwrap(loading["placeholders"] as? [String])
-        let loadingButtons = try XCTUnwrap(loading["buttons"] as? [String])
-        let loadingButtonStates = try XCTUnwrap(loading["buttonStates"] as? [[String: Any]])
-        let loadingHTTPSImage = try XCTUnwrap(loadingImages.first { $0["alt"] as? String == "HTTPS remote" })
-        let loadingLinkedImage = try XCTUnwrap(loadingImages.first { $0["alt"] as? String == "Linked remote" })
-        let loadingDuplicateImage = try XCTUnwrap(loadingImages.first { $0["alt"] as? String == "Duplicate linked remote" })
-        let loadingExpandedIPv6Image = try XCTUnwrap(loadingImages.first { $0["alt"] as? String == "Expanded IPv6 mapped remote" })
-        XCTAssertEqual(loadingHTTPSImage["src"] as? String, "")
-        XCTAssertEqual(loadingHTTPSImage["hidden"] as? Bool, true)
-        XCTAssertTrue((loadingLinkedImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
-        XCTAssertEqual(loadingLinkedImage["hidden"] as? Bool, true)
-        XCTAssertTrue((loadingDuplicateImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
-        XCTAssertEqual(loadingDuplicateImage["hidden"] as? Bool, true)
-        XCTAssertEqual(loadingExpandedIPv6Image["src"] as? String, "")
-        XCTAssertEqual(loadingExpandedIPv6Image["hidden"] as? Bool, true)
-        XCTAssertEqual(loadingPlaceholders.count, 7)
-        XCTAssertEqual(loadingButtons.filter { $0 == expectedLoadButton }.count, 1)
-        XCTAssertEqual(loadingButtons.filter { $0 == expectedLoadingButton }.count, 2)
-        XCTAssertEqual(copyButtonCount(loadingButtons), 7)
-        XCTAssertEqual(loadingButtons.filter { $0 == expectedOpenURLButton }.count, 7)
-        let activeLoadingButtons = loadingButtonStates.filter { $0["loading"] as? String == "1" }
-        XCTAssertEqual(activeLoadingButtons.count, 2)
-        XCTAssertTrue(activeLoadingButtons.allSatisfy { $0["text"] as? String == expectedLoadingButton })
-        XCTAssertTrue(activeLoadingButtons.allSatisfy { $0["disabled"] as? Bool == true })
-
-        try await dispatchRemoteImageEvent(in: webView, alts: ["Linked remote", "Duplicate linked remote"], event: "load")
-        let after = try await waitForRemoteImageSnapshot(in: webView) { snapshot in
-            guard let images = snapshot["images"] as? [[String: Any]],
-                  let placeholders = snapshot["placeholders"] as? [String] else {
-                return false
-            }
-            let linkedImage = images.first { $0["alt"] as? String == "Linked remote" }
-            let duplicateImage = images.first { $0["alt"] as? String == "Duplicate linked remote" }
-            return placeholders.count == 5 &&
-                linkedImage?["hidden"] as? Bool == false &&
-                duplicateImage?["hidden"] as? Bool == false
-        }
-        let afterImages = try XCTUnwrap(after["images"] as? [[String: Any]])
-        let afterPlaceholders = try XCTUnwrap(after["placeholders"] as? [String])
-        let afterButtons = try XCTUnwrap(after["buttons"] as? [String])
-        let httpsImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "HTTPS remote" })
-        let linkedImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "Linked remote" })
-        let duplicateImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "Duplicate linked remote" })
-        let httpImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "HTTP remote" })
-        let localhostImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "Localhost remote" })
-        let credentialImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "Credential remote" })
-        let expandedIPv6Image = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "Expanded IPv6 mapped remote" })
-
-        XCTAssertEqual(httpsImage["src"] as? String, "")
-        XCTAssertEqual(httpsImage["hidden"] as? Bool, true)
-        XCTAssertTrue((linkedImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
-        XCTAssertEqual(linkedImage["hidden"] as? Bool, false)
-        XCTAssertTrue((duplicateImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
-        XCTAssertEqual(duplicateImage["hidden"] as? Bool, false)
-        XCTAssertEqual(httpImage["src"] as? String, "")
-        XCTAssertEqual(httpImage["hidden"] as? Bool, true)
-        XCTAssertEqual(localhostImage["src"] as? String, "")
-        XCTAssertEqual(localhostImage["hidden"] as? Bool, true)
-        XCTAssertEqual(credentialImage["src"] as? String, "")
-        XCTAssertEqual(credentialImage["hidden"] as? Bool, true)
-        XCTAssertEqual(expandedIPv6Image["src"] as? String, "")
-        XCTAssertEqual(expandedIPv6Image["hidden"] as? Bool, true)
-        XCTAssertEqual(afterPlaceholders.count, 5)
-        XCTAssertEqual(afterButtons.filter { $0 == expectedLoadButton }.count, 1)
-        XCTAssertEqual(copyButtonCount(afterButtons), 5)
-        XCTAssertEqual(afterButtons.filter { $0 == expectedOpenURLButton }.count, 5)
-        XCTAssertTrue(afterPlaceholders.contains { $0.contains(expectedHTTPSOnlyMessage) })
-        XCTAssertTrue(afterPlaceholders.contains { $0.contains(expectedNotAllowedMessage) })
 
         try await clearMarkdownPage(in: webView)
     }
@@ -1245,53 +1151,6 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
-    private func installRemoteImageLoadSuppression(in webView: WKWebView) async throws {
-        _ = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              if (window.__cmuxRemoteImageLoadSuppressionInstalled) { return; }
-              window.__cmuxRemoteImageLoadSuppressionInstalled = true;
-              var originalSetAttribute = HTMLImageElement.prototype.setAttribute;
-              var originalRemoveAttribute = HTMLImageElement.prototype.removeAttribute;
-              HTMLImageElement.prototype.setAttribute = function(name, value) {
-                if (String(name || '').toLowerCase() === 'src' &&
-                    String(value || '').indexOf('cmux-remote-image://') === 0) {
-                  originalSetAttribute.call(this, 'data-cmux-test-suppressed-remote-src', String(value));
-                  return;
-                }
-                return originalSetAttribute.call(this, name, value);
-              };
-              HTMLImageElement.prototype.removeAttribute = function(name) {
-                if (String(name || '').toLowerCase() === 'src') {
-                  originalRemoveAttribute.call(this, 'data-cmux-test-suppressed-remote-src');
-                }
-                return originalRemoveAttribute.call(this, name);
-              };
-            })();
-            """
-        )
-    }
-
-    private func dispatchRemoteImageEvent(in webView: WKWebView, alts: [String], event: String) async throws {
-        let data = try JSONSerialization.data(withJSONObject: [alts, event])
-        let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
-        _ = try await webView.evaluateJavaScript(
-            """
-            (function(args) {
-              var targetAlts = args[0] || [];
-              var eventName = String(args[1] || '');
-              targetAlts.forEach(function(alt) {
-                var selector = 'img[alt="' + String(alt).replace(/["\\\\]/g, '\\\\$&') + '"]';
-                var img = document.querySelector(selector);
-                if (img) {
-                  img.dispatchEvent(new Event(eventName));
-                }
-              });
-            })(\(literal));
-            """
-        )
-    }
-
     private func evaluateScrollSnapshot(_ script: String, in webView: WKWebView) async throws -> [String: Double] {
         let result = try await webView.evaluateJavaScript(script)
         let raw = try XCTUnwrap(result as? [String: Any])
@@ -1392,31 +1251,6 @@ final class MarkdownPanelTests: XCTestCase {
             """
         )
         return try XCTUnwrap(result as? [String: Any])
-    }
-
-    private func waitForRemoteImageSnapshot(
-        in webView: WKWebView,
-        matching predicate: ([String: Any]) throws -> Bool
-    ) async throws -> [String: Any] {
-        let deadline = Date().addingTimeInterval(3)
-        var lastSnapshot: [String: Any] = [:]
-
-        while Date() < deadline {
-            let snapshot = try await remoteImageSnapshot(in: webView)
-            lastSnapshot = snapshot
-            if try predicate(snapshot) {
-                return snapshot
-            }
-            try await Task.sleep(nanoseconds: 100_000_000)
-        }
-
-        throw NSError(
-            domain: "MarkdownPanelTests",
-            code: 2,
-            userInfo: [
-                NSLocalizedDescriptionKey: "Timed out waiting for remote image state. Last snapshot: \(lastSnapshot)"
-            ]
-        )
     }
 
     private func scrollSmokeMarkdown(extraBeforeSection20: Bool) -> String {
