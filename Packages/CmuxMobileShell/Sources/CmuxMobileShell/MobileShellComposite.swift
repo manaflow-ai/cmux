@@ -48,6 +48,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
+    private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
     /// How long the render-grid stream may stay silent (no event of any topic)
@@ -79,6 +80,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public var pairingCode: String
     public var workspaces: [MobileWorkspacePreview]
+    /// Whether the connected Mac advertises the `workspace.actions.v1` capability
+    /// (rename/pin over the mobile RPC). `false` until host status is read, and
+    /// for older Macs that lack the handler, so the UI can hide rename/pin rather
+    /// than offer actions that would fail with `method_not_found`.
+    public private(set) var supportsWorkspaceActions: Bool = false
     public var terminalInputText: String
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
@@ -240,6 +246,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionError = nil
         activeTicket = nil
         activeRoute = nil
+        // Drop the cached paired Macs so the next signed-in user never sees the
+        // previous user's hosts in the switcher.
+        pairedMacs = []
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
@@ -307,6 +316,62 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             _ = try await client.sendRequest(request)
         } catch {
             mobileShellLog.error("click forward failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
+    // MARK: - Workspace actions
+
+    /// Rename a workspace on the Mac.
+    ///
+    /// Fire-and-forget against the authoritative state: the Mac applies the title
+    /// and its workspace-list observer pushes `workspace.updated`, which refreshes
+    /// this list. No local optimistic mutation, so overlapping actions can never
+    /// leave stale state.
+    /// - Parameters:
+    ///   - id: The workspace to rename.
+    ///   - title: The new title. Whitespace-only titles are ignored.
+    public func renameWorkspace(id: MobileWorkspacePreview.ID, title: String) async {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let client = remoteClient else { return }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "workspace.action",
+                params: [
+                    "workspace_id": id.rawValue,
+                    "action": "rename",
+                    "title": trimmed,
+                    "client_id": clientID,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+        } catch {
+            mobileShellLog.error("workspace rename failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Pin or unpin a workspace on the Mac.
+    ///
+    /// Fire-and-forget against the authoritative state: the Mac toggles the pin
+    /// and its workspace-list observer (which watches `$isPinned`) pushes
+    /// `workspace.updated`, which refreshes this list. No local optimistic
+    /// mutation, so overlapping pin/unpin taps can never leave stale state.
+    /// - Parameters:
+    ///   - id: The workspace to pin or unpin.
+    ///   - pinned: `true` to pin, `false` to unpin.
+    public func setWorkspacePinned(id: MobileWorkspacePreview.ID, _ pinned: Bool) async {
+        guard let client = remoteClient else { return }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "workspace.action",
+                params: [
+                    "workspace_id": id.rawValue,
+                    "action": pinned ? "pin" : "unpin",
+                    "client_id": clientID,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+        } catch {
+            mobileShellLog.error("workspace pin failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
     }
 
@@ -506,6 +571,108 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return connectionState == .connected
     }
 
+    // MARK: - Paired Mac switching
+
+    /// Every Mac paired with this device, for the host switcher. Refreshed via
+    /// ``loadPairedMacs()`` and after switch/forget. Cleared on sign-out so a
+    /// shared device never shows the previous user's Macs. The active row is
+    /// marked by each ``MobilePairedMac/isActive`` flag (the live connection's
+    /// attach ticket carries a transient manual id, so it is not a reliable
+    /// active marker on its own).
+    public private(set) var pairedMacs: [MobilePairedMac] = []
+
+    /// Reload ``pairedMacs`` from the store, scoped to the signed-in Stack user.
+    ///
+    /// A missing current Stack user id yields no pairings rather than falling
+    /// back to the unscoped all-users query, so a shared device never exposes
+    /// another user's Macs in the switcher.
+    public func loadPairedMacs() async {
+        guard let pairedMacStore, isSignedIn,
+              let stackUserID = identityProvider?.currentUserID else {
+            pairedMacs = []
+            return
+        }
+        let loaded: [MobilePairedMac]
+        do {
+            loaded = try await pairedMacStore.loadAll(stackUserID: stackUserID)
+        } catch {
+            mobileShellLog.error("paired mac store loadAll failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        // The await above suspended the main actor; a sign-out or user switch may
+        // have run meanwhile. Discard the result unless we are still the same
+        // signed-in user, so a slow load can never repopulate another user's hosts.
+        guard isSignedIn, identityProvider?.currentUserID == stackUserID else {
+            pairedMacs = []
+            return
+        }
+        pairedMacs = loaded
+    }
+
+    /// Switch the live connection to `macDeviceID`, persisting it as the active
+    /// pairing only on a successful connect.
+    ///
+    /// The underlying connect path is destructive (it replaces the live client),
+    /// so a failed switch to an offline/stale Mac would drop the working session.
+    /// To avoid stranding the user, the store's active row is only updated on a
+    /// successful connect, and on failure the previously-active Mac (still the
+    /// active row) is reconnected. A no-op when already connected to that Mac.
+    /// - Parameter macDeviceID: The stored Mac to switch to.
+    public func switchToMac(macDeviceID: String) async {
+        guard let pairedMacStore,
+              let target = pairedMacs.first(where: { $0.macDeviceID == macDeviceID }) else { return }
+        if target.isActive, connectionState == .connected { return }
+        // The currently-active Mac to fall back to if the switch fails.
+        let previousActive = pairedMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        guard let (host, port) = Self.firstReconnectHostPortRoute(
+            target.routes,
+            supportedKinds: supportedKinds
+        ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
+            mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .public)")
+            return
+        }
+        await connectManualHost(name: target.displayName ?? host, host: host, port: port)
+        // Persist the active row only if the live connection is to THIS Mac's
+        // route. A different switch tapped while this connect was in flight
+        // supersedes it via `beginPairingAttempt`, leaving `connectionState`
+        // `.connected` for the other Mac; matching the live route prevents this
+        // superseded task from persisting a stale active target.
+        if connectionState == .connected,
+           case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
+           liveHost == normalizedHost, livePort == port {
+            do {
+                try await pairedMacStore.setActive(macDeviceID: macDeviceID)
+            } catch {
+                mobileShellLog.error("paired mac store setActive failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            }
+        } else if previousActive != nil, connectionState != .connected {
+            // The switch did not connect and the destructive connect path dropped
+            // the previous session; reconnect to the still-active previous Mac so
+            // the user is not left stranded on a failed switch.
+            _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+        }
+        await loadPairedMacs()
+    }
+
+    /// Forget `macDeviceID`. Always removes the selected stored row by its real
+    /// id, and additionally tears down the live connection when that row is the
+    /// active one (the live attach ticket can carry a transient manual id, so we
+    /// must not rely on it to identify the row being forgotten).
+    /// - Parameter macDeviceID: The stored Mac to forget.
+    public func forgetMac(macDeviceID: String) async {
+        let isActiveMac = pairedMacs.first(where: { $0.macDeviceID == macDeviceID })?.isActive ?? false
+        if isActiveMac, connectionState == .connected {
+            disconnectLiveConnection()
+        }
+        do {
+            try await pairedMacStore?.remove(macDeviceID: macDeviceID)
+        } catch {
+            mobileShellLog.error("paired mac store remove failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+        await loadPairedMacs()
+    }
+
     static func firstReconnectHostPortRoute(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind]
@@ -610,14 +777,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// session starts from a fresh QR scan. Clears in-memory state and the
     /// persisted active flag (other macs in SQLite stay, but none are marked
     /// active so reconnect-on-launch is a no-op until the user pairs again).
-    public func disconnectAndForgetActiveMac() {
-        let staleMacID = activeTicket?.macDeviceID
+    /// Tear down the live connection and reset connection UI state, without
+    /// touching the paired-Mac store.
+    private func disconnectLiveConnection() {
         pairingAttemptID = UUID()
         connectionError = nil
         connectionRequiresReauth = false
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
+    }
+
+    /// Disconnect the live connection and forget the currently-active paired Mac
+    /// (drops it from the store), returning the UI to the pairing flow. Backs the
+    /// "Rescan QR" action.
+    public func disconnectAndForgetActiveMac() {
+        let staleMacID = activeTicket?.macDeviceID
+        disconnectLiveConnection()
         if let pairedMacStore, let macID = staleMacID {
             // Fire-and-forget: forgetting the persisted mac is cleanup that must
             // not block the synchronous disconnect UI state update above.
@@ -1168,6 +1344,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
         terminalOutputTransport = .rawBytes
+        supportsWorkspaceActions = false
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -1446,8 +1623,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
                 terminalOutputTransport = fallback
+                supportsWorkspaceActions = false
                 return fallback
             }
+            supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
             let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
             terminalOutputTransport = transport
@@ -1455,6 +1634,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return transport
         } catch {
             terminalOutputTransport = fallback
+            supportsWorkspaceActions = false
             MobileDebugLog.anchormux("sync.transport=raw_bytes reason=status_failed")
             return fallback
         }

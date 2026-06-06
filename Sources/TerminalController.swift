@@ -20702,12 +20702,56 @@ class TerminalController {
             result = v2MobileTerminalScroll(params: request.params)
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
+        case "workspace.action":
+            result = v2MobileWorkspaceAction(params: request.params)
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
             ])
         }
         return mobileHostResult(result)
+    }
+
+    /// The `workspace.action` sub-actions the mobile data plane may invoke.
+    ///
+    /// Mobile gets pin/unpin/rename only. The other sub-actions of
+    /// ``v2WorkspaceAction(params:)`` (`move_*`, `close_*`, `set_color`,
+    /// `set_description`, `mark_*`, …) reorder the global sidebar or destroy
+    /// sibling workspaces, so they stay on the Mac/automation socket. The action
+    /// is normalized exactly as ``v2ActionKey(_:_:)`` so this gate and the
+    /// handler can never disagree on which action runs.
+    /// - Parameter rawAction: The raw `action` param value.
+    /// - Returns: `true` when the normalized action is mobile-allowed.
+    nonisolated static func mobileAllowsWorkspaceAction(_ rawAction: String?) -> Bool {
+        guard let trimmed = rawAction?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return false }
+        let normalized = trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
+        return ["pin", "unpin", "rename"].contains(normalized)
+    }
+
+    /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``: rejects every
+    /// sub-action except pin/unpin/rename before dispatching.
+    private func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
+        let rawAction = v2RawString(params, "action")
+        guard Self.mobileAllowsWorkspaceAction(rawAction) else {
+            return .err(
+                code: "method_not_found",
+                message: "Unsupported workspace action for mobile",
+                data: ["action": v2OrNull(rawAction)]
+            )
+        }
+        // Reject a present-but-malformed workspace_id like the other mobile
+        // handlers, then require it to actually be present and resolvable: this
+        // is a mutating action, so it must target an explicit workspace and never
+        // fall back to the Mac's currently selected workspace (which
+        // v2WorkspaceAction would otherwise do for a missing workspace_id).
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        guard v2UUID(params, "workspace_id") != nil else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        return v2WorkspaceAction(params: params)
     }
 
     private func mobileHostResult(_ result: V2CallResult) -> MobileHostRPCResult {
@@ -20726,13 +20770,11 @@ class TerminalController {
         includePrivateMetadata: Bool = true
     ) -> V2CallResult {
         let status = MobileHostService.shared.statusSnapshot()
-        let capabilities = [
-            "events.v1",
-            "terminal.bytes.v1",
-            "terminal.render_grid.v1",
-            "terminal.replay.v1",
-            "terminal.viewport.v1",
-        ]
+        // Single source of truth shared with the mobile listener's public-status
+        // paths, so the advertised capabilities can never drift. Includes
+        // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler), which
+        // the iOS client uses to show or hide rename/pin.
+        let capabilities = MobileHostService.mobileHostCapabilities
         guard includePrivateMetadata else {
             return .ok([
                 "routes": status.routes.map(\.mobileHostJSONObject),
@@ -20923,6 +20965,7 @@ class TerminalController {
                 "title": workspace.title,
                 "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
                 "is_selected": workspace.id == tabManager.selectedTabId,
+                "is_pinned": workspace.isPinned,
                 "terminals": terminals
             ]
         }

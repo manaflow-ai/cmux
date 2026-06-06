@@ -7,6 +7,7 @@ extension MobileWorkspacePreview {
         self.init(
             id: ID(rawValue: remote.id),
             name: remote.title,
+            isPinned: remote.isPinned ?? false,
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
             }

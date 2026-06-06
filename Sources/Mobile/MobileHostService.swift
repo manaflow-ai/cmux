@@ -167,13 +167,7 @@ private enum MobileHostPublicStatusCache {
         return .ok([
             "routes": cachedRoutes.map(\.mobileHostJSONObject),
             "terminal_fidelity": "render_grid",
-            "capabilities": [
-                "events.v1",
-                "terminal.bytes.v1",
-                "terminal.render_grid.v1",
-                "terminal.replay.v1",
-                "terminal.viewport.v1",
-            ],
+            "capabilities": MobileHostService.mobileHostCapabilities,
         ])
     }
 }
@@ -297,6 +291,20 @@ enum MobileHostPortApplyOutcome: Equatable {
 final class MobileHostService {
     static let shared = MobileHostService()
     nonisolated private static let maximumActiveConnectionCount = 10
+
+    /// The single source of truth for the capabilities advertised to mobile
+    /// clients via `mobile.host.status`. Every status path (the public-status
+    /// cache, the live `publicHostStatusResult`, and `TerminalController`'s
+    /// full status) reads this so the lists cannot drift; iOS gates features
+    /// like rename/pin on the entries present here.
+    nonisolated static let mobileHostCapabilities: [String] = [
+        "events.v1",
+        "terminal.bytes.v1",
+        "terminal.render_grid.v1",
+        "terminal.replay.v1",
+        "terminal.viewport.v1",
+        "workspace.actions.v1",
+    ]
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     private let routeResolver = MobileRouteResolver()
@@ -857,13 +865,7 @@ final class MobileHostService {
         return .ok([
             "routes": status.routes.map(\.mobileHostJSONObject),
             "terminal_fidelity": "render_grid",
-            "capabilities": [
-                "events.v1",
-                "terminal.bytes.v1",
-                "terminal.render_grid.v1",
-                "terminal.replay.v1",
-                "terminal.viewport.v1",
-            ],
+            "capabilities": MobileHostService.mobileHostCapabilities,
         ])
     }
 

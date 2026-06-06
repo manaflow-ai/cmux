@@ -45,7 +45,8 @@ public final class TerminalAccessoryConfiguration {
     /// `CmuxMobileTerminalKit` so it is testable from `swift test`; this type is
     /// the thin `@Observable` + persistence shell around it.
     private let reducer = TerminalAccessoryLayoutReducer(
-        configurable: TerminalInputAccessoryAction.configurableActions.map(\.rawValue)
+        configurable: TerminalInputAccessoryAction.configurableActions.map(\.rawValue),
+        defaultOrder: TerminalInputAccessoryAction.defaultConfigurableOrder.map(\.rawValue)
     )
 
     init(defaults: UserDefaults = .standard) {
