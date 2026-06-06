@@ -58,6 +58,7 @@ enum AgentHibernationLifecycleStatusKeys {
         "gemini": "Gemini",
         "grok": "Grok",
         "hermes-agent": "Hermes Agent",
+        "kiro": "Kiro",
         "opencode": "OpenCode",
         "pi": "Pi",
         "qoder": "Qoder",
@@ -74,11 +75,21 @@ enum AgentHibernationLifecycleStatusKeys {
         statusKeyByNormalizedNotificationTitle[normalizedNotificationTitle(title)]
     }
 
-    private static let statusKeyByNormalizedNotificationTitle: [String: String] = Dictionary(
-        uniqueKeysWithValues: notificationTitleByStatusKey.map { statusKey, title in
-            (title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), statusKey)
+    private static let statusKeyByNormalizedNotificationTitle: [String: String] = {
+        var result: [String: String] = [:]
+        var ambiguousTitles = Set<String>()
+        for (statusKey, title) in notificationTitleByStatusKey {
+            let normalized = normalizedNotificationTitle(title)
+            guard !ambiguousTitles.contains(normalized) else { continue }
+            if result[normalized] != nil {
+                ambiguousTitles.insert(normalized)
+                result.removeValue(forKey: normalized)
+            } else {
+                result[normalized] = statusKey
+            }
         }
-    )
+        return result
+    }()
 
     private static func normalizedNotificationTitle(_ title: String) -> String {
         title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
