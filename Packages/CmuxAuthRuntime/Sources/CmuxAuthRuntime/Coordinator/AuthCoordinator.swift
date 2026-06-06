@@ -446,10 +446,11 @@ public final class AuthCoordinator {
     /// Sign out and clear local + persisted session state.
     ///
     /// - Parameter onSignedOut: An async hook the composition root uses to run
-    ///   post-sign-out side effects (e.g. push unregistration) that live above
-    ///   this package. Defaults to a no-op.
+    ///   sign-out teardown that still needs the current tokens (e.g. push
+    ///   unregistration) and lives above this package. Defaults to a no-op.
     public func signOut(onSignedOut: @Sendable () async -> Void = {}) async {
         var signOutError: (any Error)?
+        await onSignedOut()
         do {
             try await client.signOut()
         } catch {
@@ -461,7 +462,6 @@ public final class AuthCoordinator {
         if let signOutError {
             recordAuthError(signOutError)
         }
-        await onSignedOut()
     }
 
     // MARK: - Tokens
