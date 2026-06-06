@@ -34,6 +34,16 @@ final class CEFEngineTests: XCTestCase {
         // but we can assert the inputs round-trip through the config.
         XCTAssertEqual(config.extensionDirectories.map(\.path),
                        ["/tmp/ext-a", "/tmp/ext-b"])
+        XCTAssertFalse(config.disableGPUAcceleration)
+    }
+
+    @MainActor
+    func testConfigCanOptOutOfGPUAcceleration() {
+        let config = CEFEngineConfig(
+            rootCachePath: URL(fileURLWithPath: "/tmp/cmux-cef-test"),
+            disableGPUAcceleration: true)
+
+        XCTAssertTrue(config.disableGPUAcceleration)
     }
 }
 

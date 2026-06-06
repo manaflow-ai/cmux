@@ -102,6 +102,7 @@ final class DemoController: NSObject, NSSplitViewDelegate {
                 extensionDirectories: pendingExtensionFolders,
                 logSeverity: 0,
                 disableSandbox: true,
+                disableGPUAcceleration: true,
                 userAgentProduct: "cmux-cef-demo/0",
                 frameworkDirectoryPath: frameworkDir,
                 browserSubprocessPath: helperPath))
@@ -494,7 +495,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
-    func applicationWillTerminate(_ notification: Notification) {}
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            CEFEngine.shared.shutdown()
+        }
+    }
 }
 let delegate = AppDelegate()
 app.delegate = delegate
@@ -508,6 +513,6 @@ menubar.addItem(appMenuItem)
 app.mainMenu = menubar
 
 MainActor.assumeIsolated {
-    CEFEngine.shared.runMessageLoop()
+    app.run()
     CEFEngine.shared.shutdown()
 }

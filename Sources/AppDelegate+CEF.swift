@@ -109,6 +109,7 @@ func startCEFEngineIfNeeded() {
                 extensionDirectories: [],
                 logSeverity: 0,
                 disableSandbox: disableCEFSandbox,
+                disableGPUAcceleration: disableCEFSandbox,
                 userAgentProduct: "cmux",
                 frameworkDirectoryPath: frameworksDir,
                 browserSubprocessPath: helperExec))

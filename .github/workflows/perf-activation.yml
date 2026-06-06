@@ -97,6 +97,19 @@ jobs:
           key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-
 
+      - name: Cache CEF SDK
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            CEF/CEF
+            CEF/Frameworks
+            ~/Library/Caches/cmux-cef-vendor
+          key: cef-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('CEF/vendor/cef.lock.json', 'CEF/vendor/fetch_cef.sh') }}
+          restore-keys: cef-sdk-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Provision CEF SDK
+        run: ./scripts/ensure-cef-sdk.sh
+
       - name: Resolve Swift packages
         run: |
           set -euo pipefail

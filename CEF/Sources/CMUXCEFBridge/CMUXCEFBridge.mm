@@ -188,10 +188,12 @@ class CMUXCEFApp final : public CefApp, public CefBrowserProcessHandler {
 public:
     explicit CMUXCEFApp(NSString * _Nullable loadExtensionsArg,
                         NSString * _Nullable userAgentProduct,
-                        bool disableSandbox)
+                        bool disableSandbox,
+                        bool disableGPUAcceleration)
         : load_extensions_(loadExtensionsArg ? [loadExtensionsArg UTF8String] : ""),
           user_agent_product_(userAgentProduct ? [userAgentProduct UTF8String] : ""),
-          disable_sandbox_(disableSandbox) {}
+          disable_sandbox_(disableSandbox),
+          disable_gpu_acceleration_(disableGPUAcceleration) {}
 
     // CefApp:
     CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
@@ -215,12 +217,12 @@ public:
         if (disable_sandbox_ && !command_line->HasSwitch("disable-gpu-sandbox")) {
             command_line->AppendSwitch("disable-gpu-sandbox");
         }
-        // Without a fully-integrated app bundle the GPU helper can't find
-        // ANGLE's libGLESv2.dylib. CPU compositing is fine for dev.
-        if (!command_line->HasSwitch("disable-gpu")) {
+        // Dev/ad-hoc callers can explicitly choose CPU compositing when the
+        // GPU helper cannot resolve ANGLE dylibs from their bundle layout.
+        if (disable_gpu_acceleration_ && !command_line->HasSwitch("disable-gpu")) {
             command_line->AppendSwitch("disable-gpu");
         }
-        if (!command_line->HasSwitch("disable-gpu-compositing")) {
+        if (disable_gpu_acceleration_ && !command_line->HasSwitch("disable-gpu-compositing")) {
             command_line->AppendSwitch("disable-gpu-compositing");
         }
     }
@@ -248,6 +250,7 @@ private:
     std::string load_extensions_;
     std::string user_agent_product_;
     bool disable_sandbox_;
+    bool disable_gpu_acceleration_;
 
     IMPLEMENT_REFCOUNTING(CMUXCEFApp);
     DISALLOW_COPY_AND_ASSIGN(CMUXCEFApp);
@@ -297,7 +300,7 @@ private:
             return 1;
         }
         CefMainArgs main_args(argc, argv);
-        CefRefPtr<CMUXCEFApp> app(new CMUXCEFApp(nil, nil, false));
+        CefRefPtr<CMUXCEFApp> app(new CMUXCEFApp(nil, nil, false, false));
         int code = CefExecuteProcess(main_args, app, nullptr);
         if (code >= 0) {
             return code;
@@ -386,7 +389,11 @@ private:
             .FromString([config.browserSubprocessPath UTF8String]);
     }
 
-    _app = new CMUXCEFApp(config.loadExtensionsArg, config.userAgentProduct, config.disableSandbox);
+    _app = new CMUXCEFApp(
+        config.loadExtensionsArg,
+        config.userAgentProduct,
+        config.disableSandbox,
+        config.disableGPUAcceleration);
     if (!CefInitialize(main_args, settings, _app, nullptr)) {
         _app = nullptr;
         if (error) {

@@ -611,6 +611,7 @@ trap reload_finalize EXIT
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
 
 "$PWD/scripts/ensure-ghosttykit.sh"
+"$PWD/scripts/ensure-cef-sdk.sh"
 
 if should_skip_ghostty_cli_helper_zig_build; then
   export CMUX_SKIP_ZIG_BUILD=1

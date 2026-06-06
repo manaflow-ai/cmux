@@ -48,6 +48,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// this; production callers should normally leave it NO.
 @property (nonatomic, assign) BOOL disableSandbox;
 
+/// When YES, forwards Chromium switches that disable GPU acceleration and
+/// compositing. Development/ad-hoc signed helpers may use this when their
+/// bundle layout cannot satisfy GPU helper dylib lookup; production callers
+/// should normally leave it NO.
+@property (nonatomic, assign) BOOL disableGPUAcceleration;
+
 /// Optional. Forwarded to CefSettings.user_agent_product. cmux brand
 /// suffix appears in chrome://version.
 @property (nonatomic, copy, nullable) NSString *userAgentProduct;

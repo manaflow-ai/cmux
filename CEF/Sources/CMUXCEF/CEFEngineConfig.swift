@@ -31,6 +31,13 @@ public struct CEFEngineConfig: Sendable, Equatable {
     /// deliberately opts out.
     public let disableSandbox: Bool
 
+    /// Whether to disable Chromium GPU acceleration for this engine run.
+    ///
+    /// Development and ad-hoc signed helpers can opt into CPU compositing when
+    /// their bundle layout cannot satisfy the GPU helper's dylib lookup. Release
+    /// callers should leave this false so Chromium can use GPU compositing.
+    public let disableGPUAcceleration: Bool
+
     /// Optional product suffix shown in user-agent and chrome://version.
     public let userAgentProduct: String?
 
@@ -45,11 +52,23 @@ public struct CEFEngineConfig: Sendable, Equatable {
     /// .app bundle.
     public let browserSubprocessPath: URL?
 
+    /// Creates an immutable CEF engine configuration.
+    ///
+    /// - Parameters:
+    ///   - rootCachePath: Absolute path to the engine root cache directory.
+    ///   - extensionDirectories: Unpacked Chrome extensions to expose to all profiles.
+    ///   - logSeverity: CEF log severity override, or `0` for CEF's default.
+    ///   - disableSandbox: Whether to disable Chromium's process sandbox.
+    ///   - disableGPUAcceleration: Whether to disable Chromium GPU compositing.
+    ///   - userAgentProduct: Optional product suffix shown in CEF user-agent metadata.
+    ///   - frameworkDirectoryPath: Optional directory containing the CEF framework.
+    ///   - browserSubprocessPath: Optional helper executable for CEF subprocesses.
     public init(
         rootCachePath: URL,
         extensionDirectories: [URL] = [],
         logSeverity: Int = 0,
         disableSandbox: Bool = false,
+        disableGPUAcceleration: Bool = false,
         userAgentProduct: String? = nil,
         frameworkDirectoryPath: URL? = nil,
         browserSubprocessPath: URL? = nil
@@ -58,6 +77,7 @@ public struct CEFEngineConfig: Sendable, Equatable {
         self.extensionDirectories = extensionDirectories
         self.logSeverity = logSeverity
         self.disableSandbox = disableSandbox
+        self.disableGPUAcceleration = disableGPUAcceleration
         self.userAgentProduct = userAgentProduct
         self.frameworkDirectoryPath = frameworkDirectoryPath
         self.browserSubprocessPath = browserSubprocessPath

@@ -74,6 +74,7 @@ public final class CEFEngine {
             config.extensionDirectories)
         bridgeConfig.logSeverity = config.logSeverity
         bridgeConfig.disableSandbox = config.disableSandbox
+        bridgeConfig.disableGPUAcceleration = config.disableGPUAcceleration
         bridgeConfig.userAgentProduct = config.userAgentProduct
         bridgeConfig.frameworkDirectoryPath = config.frameworkDirectoryPath?.path
         bridgeConfig.browserSubprocessPath = config.browserSubprocessPath?.path
