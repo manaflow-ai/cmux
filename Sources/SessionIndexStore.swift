@@ -228,18 +228,18 @@ final class SessionIndexStore: ObservableObject {
             return false
         }
         let entryId = entry.id
-        Task.detached(priority: .userInitiated) { [weak self, url, entryId] in
-            do {
+        Task { [weak self, url, entryId] in
+            let result = await Task.detached(priority: .userInitiated) {
                 try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-            } catch {
-                await MainActor.run {
+            }.result
+            switch result {
+            case .success:
+                self?.completeDelete(entryId: entryId)
+            case .failure(let error):
+                if !Task.isCancelled {
                     sessionIndexLogger.error("Failed to move session transcript to Trash: \(error.localizedDescription, privacy: .public)")
                     NSSound.beep()
                 }
-                return
-            }
-            await MainActor.run {
-                self?.completeDelete(entryId: entryId)
             }
         }
         return true
