@@ -836,7 +836,6 @@ final class MarkdownPanelTests: XCTestCase {
             ![HTTP remote](http://images.example.com/pixel.png)
             ![Localhost remote](https://localhost/pixel.png)
             ![Credential remote](https://user:pass@images.example.com/secret.png)
-            <img alt="Expanded IPv6 mapped remote" src="https://[0:0:0:0:0:ffff:7f00:1]/image.png">
             <img alt="Spoofed internal" data-cmux-remote-src="https%3A%2F%2Fspoof.example%2Fpixel.png">
             """,
             in: webView
@@ -851,18 +850,17 @@ final class MarkdownPanelTests: XCTestCase {
         let beforeStyleCount = try XCTUnwrap(before["styleCount"] as? Int)
         let beforeBackgroundAttrCount = try XCTUnwrap(before["backgroundAttrCount"] as? Int)
         let beforeRenderedText = try XCTUnwrap(before["renderedText"] as? String)
-        XCTAssertEqual(beforeImages.count, 8)
-        XCTAssertEqual(beforePlaceholders.count, 7)
-        XCTAssertEqual(beforeURLs.count, 7)
+        XCTAssertEqual(beforeImages.count, 7)
+        XCTAssertEqual(beforePlaceholders.count, 6)
+        XCTAssertEqual(beforeURLs.count, 6)
         XCTAssertTrue(beforeURLs.contains(expectedURLText("https://images.example.com/pixel.png")))
         XCTAssertEqual(beforeURLs.filter { $0 == expectedURLText("https://images.example.com/linked.png") }.count, 2)
         XCTAssertTrue(beforeURLs.contains(expectedURLText("http://images.example.com/pixel.png")))
         XCTAssertTrue(beforeURLs.contains(expectedURLText("https://localhost/pixel.png")))
         XCTAssertTrue(beforeURLs.contains(expectedURLText("https://user:pass@images.example.com/secret.png")))
-        XCTAssertTrue(beforeURLs.contains(expectedURLText("https://[::ffff:7f00:1]/image.png")))
         XCTAssertEqual(beforeButtons.filter { $0 == expectedLoadButton }.count, 3)
-        XCTAssertEqual(beforeButtons.filter { $0 == expectedCopyURLButton }.count, 7)
-        XCTAssertEqual(beforeButtons.filter { $0 == expectedOpenURLButton }.count, 7)
+        XCTAssertEqual(beforeButtons.filter { $0 == expectedCopyURLButton }.count, 6)
+        XCTAssertEqual(beforeButtons.filter { $0 == expectedOpenURLButton }.count, 6)
         XCTAssertEqual(beforeCodeFiles, ["README.md"])
         XCTAssertEqual(beforeStyleCount, 0)
         XCTAssertEqual(beforeBackgroundAttrCount, 0)
@@ -873,7 +871,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(beforeRenderedText.contains("Visible details summary"))
         XCTAssertFalse(beforeRenderedText.contains("Hidden details text"))
         let remoteManagedImages = beforeImages.filter { !((($0["remoteSrc"] as? String) ?? "").isEmpty) }
-        XCTAssertEqual(remoteManagedImages.count, 7)
+        XCTAssertEqual(remoteManagedImages.count, 6)
         for image in remoteManagedImages {
             XCTAssertEqual(image["src"] as? String, "")
             XCTAssertEqual(image["currentSrc"] as? String, "")
@@ -1041,6 +1039,11 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(
             MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
                 try url("https://[::127.0.0.1]/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://[0:0:0:0:0:ffff:7f00:1]/image.png")
             )
         )
         XCTAssertFalse(
