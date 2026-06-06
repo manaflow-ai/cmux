@@ -12092,7 +12092,11 @@ final class Workspace: Identifiable, ObservableObject {
         snapshotSelectedPanelId: UUID?,
         attachedPanelIds: [UUID]
     ) -> UUID? {
-        snapshotSelectedPanelId ?? attachedPanelIds.first
+        if let snapshotSelectedPanelId,
+           attachedPanelIds.contains(snapshotSelectedPanelId) {
+            return snapshotSelectedPanelId
+        }
+        return attachedPanelIds.first
     }
 
     private func teardownStoredPageState(_ storedState: StoredPageState) {
