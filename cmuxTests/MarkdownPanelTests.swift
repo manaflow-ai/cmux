@@ -1109,7 +1109,20 @@ final class MarkdownPanelTests: XCTestCase {
             "![Auto approved remote](https://images.example.com/linked.png)\n",
             in: webView
         )
-        let autoLoading = try await remoteImageSnapshot(in: webView)
+        let autoLoading = try await waitForRemoteImageSnapshot(in: webView) { snapshot in
+            guard let images = snapshot["images"] as? [[String: Any]],
+                  let placeholders = snapshot["placeholders"] as? [String],
+                  let buttons = snapshot["buttons"] as? [String],
+                  let buttonStates = snapshot["buttonStates"] as? [[String: Any]],
+                  let image = images.first else {
+                return false
+            }
+            return ((image["src"] as? String) ?? "").hasPrefix("cmux-remote-image://") &&
+                image["hidden"] as? Bool == true &&
+                placeholders.count == 1 &&
+                buttons.filter { $0 == expectedLoadingButton }.count == 1 &&
+                buttonStates.filter { $0["loading"] as? String == "1" }.count == 1
+        }
         let autoLoadingImages = try XCTUnwrap(autoLoading["images"] as? [[String: Any]])
         let autoLoadingPlaceholders = try XCTUnwrap(autoLoading["placeholders"] as? [String])
         let autoLoadingButtons = try XCTUnwrap(autoLoading["buttons"] as? [String])
