@@ -231,6 +231,119 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testOpenCodeEventTextAccumulatorPreservesAssistantTextWhitespace() {
+        var accumulator = OpenCodeEventTextAccumulator()
+
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.updated",
+                    "properties": [
+                        "sessionID": "session-1",
+                        "info": [
+                            "id": "message-1",
+                            "role": "assistant",
+                        ],
+                    ],
+                ], sessionID: "session-1"),
+            []
+        )
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.part.updated",
+                    "properties": [
+                        "sessionID": "session-1",
+                        "part": [
+                            "id": "part-1",
+                            "sessionID": "session-1",
+                            "messageID": "message-1",
+                            "type": "text",
+                            "text": "  indented code\n",
+                        ],
+                    ],
+                ], sessionID: "session-1"),
+            ["  indented code\n"]
+        )
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.part.updated",
+                    "properties": [
+                        "sessionID": "session-1",
+                        "part": [
+                            "id": "part-1",
+                            "sessionID": "session-1",
+                            "messageID": "message-1",
+                            "type": "text",
+                            "text": "  indented code\n   ",
+                        ],
+                    ],
+                ], sessionID: "session-1"),
+            ["   "]
+        )
+    }
+
+    @Test
+    func testOpenCodeEventTextAccumulatorContinuesAfterRetainedFullTextIsBounded() {
+        var accumulator = OpenCodeEventTextAccumulator()
+        let prefix = String(repeating: "a", count: 256 * 1024)
+
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.updated",
+                    "properties": [
+                        "sessionID": "session-1",
+                        "info": [
+                            "id": "message-1",
+                            "role": "assistant",
+                        ],
+                    ],
+                ], sessionID: "session-1"),
+            []
+        )
+        let firstOversizedOutput = accumulator.consumeEvent(
+            [
+                "type": "message.part.updated",
+                "properties": [
+                    "sessionID": "session-1",
+                    "part": [
+                        "id": "part-1",
+                        "sessionID": "session-1",
+                        "messageID": "message-1",
+                        "type": "text",
+                        "text": prefix + "A",
+                    ],
+                ],
+            ], sessionID: "session-1"
+        )
+        expectEqual(
+            firstOversizedOutput.first.map { String($0.suffix(1)) },
+            Optional("A")
+        )
+        expectEqual(accumulator.retainedTextCharacterCountForTesting, 256 * 1024)
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.part.updated",
+                    "properties": [
+                        "sessionID": "session-1",
+                        "part": [
+                            "id": "part-1",
+                            "sessionID": "session-1",
+                            "messageID": "message-1",
+                            "type": "text",
+                            "text": prefix + "AB",
+                        ],
+                    ],
+                ], sessionID: "session-1"),
+            ["B"]
+        )
+        expectEqual(accumulator.retainedTextCharacterCountForTesting, 256 * 1024)
+    }
+
+    @Test
     func testOpenCodeEventTextAccumulatorPrunesCompletedAssistantMessages() {
         var accumulator = OpenCodeEventTextAccumulator()
 

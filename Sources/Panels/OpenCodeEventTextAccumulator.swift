@@ -9,6 +9,7 @@ struct OpenCodeEventTextAccumulator {
     private var messageIDByPartID: [String: String] = [:]
     private var isTextPartByID: [String: Bool] = [:]
     private var textByPartID: [String: String] = [:]
+    private var storedTextStartOffsetByPartID: [String: Int] = [:]
     private var emittedCharacterCountByPartID: [String: Int] = [:]
 
     var retainedTextCharacterCountForTesting: Int {
@@ -96,6 +97,20 @@ struct OpenCodeEventTextAccumulator {
         return nil
     }
 
+    private static func firstContentString(_ values: Any?...) -> String? {
+        var emptyString: String?
+        for value in values {
+            guard let string = value as? String else { continue }
+            if !string.isEmpty {
+                return string
+            }
+            if emptyString == nil {
+                emptyString = string
+            }
+        }
+        return emptyString
+    }
+
     private static func sessionStatusIsIdle(_ value: Any?) -> Bool {
         if let string = firstString(value) {
             return string == "idle"
@@ -152,15 +167,14 @@ struct OpenCodeEventTextAccumulator {
         }
 
         isTextPartByID[partID] = true
-        guard let text = Self.firstString(part["text"], part["textDelta"], part["content"]) else {
+        guard let text = Self.firstContentString(part["text"], part["textDelta"], part["content"]) else {
             return []
         }
 
-        let existingText = textByPartID[partID] ?? ""
-        if text.count >= existingText.count {
-            textByPartID[partID] = Self.boundedStoredText(text)
+        if text.count >= sourceCharacterCount(forPartID: partID) {
+            storeBoundedText(text, sourceStartOffset: 0, forPartID: partID)
         }
-        return flushPart(partID)
+        return flushFullText(text, partID: partID)
     }
 
     private mutating func consumePartDelta(_ properties: [String: Any]) -> [String] {
@@ -179,8 +193,26 @@ struct OpenCodeEventTextAccumulator {
             emittedCharacterCountByPartID[partID, default: 0] += delta.count
             return [delta]
         }
-        textByPartID[partID] = Self.boundedStoredText((textByPartID[partID] ?? "") + delta)
+        storeBoundedText(
+            (textByPartID[partID] ?? "") + delta,
+            sourceStartOffset: storedTextStartOffsetByPartID[partID] ?? 0,
+            forPartID: partID
+        )
         return flushPart(partID)
+    }
+
+    private mutating func flushFullText(_ text: String, partID: String) -> [String] {
+        guard isTextPartByID[partID] == true,
+              let messageID = messageIDByPartID[partID],
+              messageRoleByID[messageID] == "assistant",
+              !text.isEmpty else {
+            return []
+        }
+
+        let emittedCharacterCount = emittedCharacterCountByPartID[partID] ?? 0
+        guard text.count > emittedCharacterCount else { return [] }
+        emittedCharacterCountByPartID[partID] = text.count
+        return [String(text.dropFirst(emittedCharacterCount))]
     }
 
     private mutating func flushPart(_ partID: String) -> [String] {
@@ -193,9 +225,30 @@ struct OpenCodeEventTextAccumulator {
         }
 
         let emittedCharacterCount = emittedCharacterCountByPartID[partID] ?? 0
-        guard text.count > emittedCharacterCount else { return [] }
-        emittedCharacterCountByPartID[partID] = text.count
-        return [String(text.dropFirst(emittedCharacterCount))]
+        let storedStartOffset = storedTextStartOffsetByPartID[partID] ?? 0
+        let storedEndOffset = storedStartOffset + text.count
+        guard storedEndOffset > emittedCharacterCount else { return [] }
+        let relativeStartOffset = max(0, emittedCharacterCount - storedStartOffset)
+        guard relativeStartOffset < text.count else { return [] }
+        emittedCharacterCountByPartID[partID] = storedEndOffset
+        return [String(text.dropFirst(relativeStartOffset))]
+    }
+
+    private func sourceCharacterCount(forPartID partID: String) -> Int {
+        max(
+            emittedCharacterCountByPartID[partID] ?? 0,
+            (storedTextStartOffsetByPartID[partID] ?? 0) + (textByPartID[partID]?.count ?? 0)
+        )
+    }
+
+    private mutating func storeBoundedText(
+        _ text: String,
+        sourceStartOffset: Int,
+        forPartID partID: String
+    ) {
+        let bounded = Self.boundedStoredText(text, sourceStartOffset: sourceStartOffset)
+        textByPartID[partID] = bounded.text
+        storedTextStartOffsetByPartID[partID] = bounded.sourceStartOffset
     }
 
     private mutating func rememberMessageID(_ messageID: String) {
@@ -222,11 +275,21 @@ struct OpenCodeEventTextAccumulator {
         messageIDByPartID.removeValue(forKey: partID)
         isTextPartByID.removeValue(forKey: partID)
         textByPartID.removeValue(forKey: partID)
+        storedTextStartOffsetByPartID.removeValue(forKey: partID)
         emittedCharacterCountByPartID.removeValue(forKey: partID)
     }
 
-    private static func boundedStoredText(_ text: String) -> String {
-        guard text.count > maxTrackedPartTextCharacters else { return text }
-        return String(text.suffix(maxTrackedPartTextCharacters))
+    private static func boundedStoredText(
+        _ text: String,
+        sourceStartOffset: Int
+    ) -> (text: String, sourceStartOffset: Int) {
+        guard text.count > maxTrackedPartTextCharacters else {
+            return (text, sourceStartOffset)
+        }
+        let droppedCharacterCount = text.count - maxTrackedPartTextCharacters
+        return (
+            String(text.suffix(maxTrackedPartTextCharacters)),
+            sourceStartOffset + droppedCharacterCount
+        )
     }
 }
