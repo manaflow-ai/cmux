@@ -9,7 +9,12 @@ export function pngDimensions(filePath: string): { width: number; height: number
   const buf = Buffer.alloc(24);
   const fd = fs.openSync(abs, "r");
   try {
-    fs.readSync(fd, buf, 0, 24, 0);
+    const bytesRead = fs.readSync(fd, buf, 0, 24, 0);
+    if (bytesRead !== 24) {
+      throw new Error(
+        `Invalid PNG header for ${filePath}: expected 24 bytes, got ${bytesRead}`,
+      );
+    }
   } finally {
     fs.closeSync(fd);
   }
