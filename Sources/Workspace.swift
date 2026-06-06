@@ -4,6 +4,7 @@ import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxSocketControl
+import CmuxUpdater
 import Combine
 import CryptoKit
 import Darwin

@@ -4,6 +4,7 @@ import Foundation
 import Bonsplit
 import CmuxFileWatch
 import CmuxProcess
+import CmuxUpdater
 import CoreVideo
 import Combine
 import CoreServices
