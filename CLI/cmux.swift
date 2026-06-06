@@ -5040,6 +5040,7 @@ struct CMUXCLI {
         "jump-to-unread",
         "last-pane",
         "last-window",
+        "layout",
         "list-buffers",
         "list-log",
         "list-notifications",
