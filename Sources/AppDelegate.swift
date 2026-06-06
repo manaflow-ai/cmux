@@ -1407,6 +1407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
+        let isPureUnitTestAppHost = CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(env)
         let shouldUseUITestWindowFallback = CmuxXCTestLaunchEnvironment.shouldUseUITestWindowFallback(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         StartupBreadcrumbLog.append(
@@ -1439,6 +1440,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         )
         StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
+
+#if DEBUG
+        // Unit-test app hosts do not need app UI controllers, terminal runtime,
+        // hotkeys, or debug harnesses. Keeping startup inert prevents a failing
+        // retry from crashing before the selected test method begins.
+        if isPureUnitTestAppHost {
+            SystemWideHotkeySettings.reset()
+            KeyboardShortcutSettings.resetAll()
+            StartupBreadcrumbLog.append("appDelegate.didFinish.runtime.skip", fields: ["reason": "unitTest"])
+            return
+        }
+#else
+        if isPureUnitTestAppHost {
+            StartupBreadcrumbLog.append("appDelegate.didFinish.runtime.skip", fields: ["reason": "unitTest"])
+            return
+        }
+#endif
+
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
 #if DEBUG
@@ -1569,7 +1588,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.start()
         windowDecorationsController.start()
         installMainWindowKeyObserver()
-        if !CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(env) {
+        if !isPureUnitTestAppHost {
             refreshGhosttyGotoSplitShortcuts()
             installGhosttyConfigObserver()
         }
