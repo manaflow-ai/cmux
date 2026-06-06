@@ -64,8 +64,8 @@ struct WorkspaceShellView: View {
                 createWorkspace: createWorkspaceInCompactStack,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
-                renameWorkspace: store.supportsWorkspaceActions ? renameWorkspace : nil,
-                setPinned: store.supportsWorkspaceActions ? setWorkspacePinned : nil
+                renameWorkspace: renameWorkspaceClosure,
+                setPinned: setWorkspacePinnedClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -116,8 +116,8 @@ struct WorkspaceShellView: View {
                 createWorkspace: store.createWorkspace,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
-                renameWorkspace: store.supportsWorkspaceActions ? renameWorkspace : nil,
-                setPinned: store.supportsWorkspaceActions ? setWorkspacePinned : nil
+                renameWorkspace: renameWorkspaceClosure,
+                setPinned: setWorkspacePinnedClosure
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
@@ -141,12 +141,21 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private func renameWorkspace(_ id: MobileWorkspacePreview.ID, _ title: String) {
-        Task { await store.renameWorkspace(id: id, title: title) }
+    /// Rename/pin closures, present only when the connected Mac advertises the
+    /// `workspace.actions.v1` capability so the row affordances stay hidden on
+    /// older Macs that lack the handler. Built as explicit closure literals (not
+    /// a method-reference ternary, which the compiler fails to type-check inside
+    /// the large `WorkspaceListView` initializer).
+    private var renameWorkspaceClosure: ((MobileWorkspacePreview.ID, String) -> Void)? {
+        guard store.supportsWorkspaceActions else { return nil }
+        let store = store
+        return { id, title in Task { await store.renameWorkspace(id: id, title: title) } }
     }
 
-    private func setWorkspacePinned(_ id: MobileWorkspacePreview.ID, _ pinned: Bool) {
-        Task { await store.setWorkspacePinned(id: id, pinned) }
+    private var setWorkspacePinnedClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
+        guard store.supportsWorkspaceActions else { return nil }
+        let store = store
+        return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
     }
 
     private func createWorkspaceInCompactStack() {
