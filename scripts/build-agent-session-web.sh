@@ -23,14 +23,16 @@ bun build "$ROOT/webviews/src/agent-session/react/standalone.ts" \
   --target browser \
   --format esm \
   --production \
-  --minify \
+  --minify-syntax \
+  --minify-whitespace \
   --outfile "$OUT_REACT/assets/app.js"
 
 bun build "$ROOT/webviews/src/agent-session/solid/main.ts" \
   --target browser \
   --format esm \
   --production \
-  --minify \
+  --minify-syntax \
+  --minify-whitespace \
   --outfile "$OUT_SOLID/assets/app.js"
 
 if ! command -v bunx >/dev/null 2>&1; then
