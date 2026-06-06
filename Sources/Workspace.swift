@@ -2192,7 +2192,13 @@ extension Workspace {
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
+                applyCustomSurfaceSelection(
+                    panelId: panel.id,
+                    inPane: paneId,
+                    surface: surface,
+                    focusPanelId: &focusPanelId,
+                    selectedTabIdByPaneId: &selectedTabIdByPaneId
+                )
             }
         }
     }
@@ -2249,7 +2255,13 @@ extension Workspace {
                 focus: false
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
+                applyCustomSurfaceSelection(
+                    panelId: panel.id,
+                    inPane: paneId,
+                    surface: surface,
+                    focusPanelId: &focusPanelId,
+                    selectedTabIdByPaneId: &selectedTabIdByPaneId
+                )
             }
         }
     }
@@ -2410,7 +2422,7 @@ extension Workspace {
                 selected: isSelected ? true : nil,
                 focus: isFocused ? true : nil
             )
-        case .markdown, .filePreview, .rightSidebarTool:
+        case .markdown, .filePreview, .rightSidebarTool, .project, .extensionBrowser:
             return nil
         }
     }
@@ -2427,6 +2439,10 @@ extension Workspace {
             return String(localized: "workspace.layoutExport.surfaceType.filePreview", defaultValue: "File Preview")
         case .rightSidebarTool:
             return String(localized: "workspace.layoutExport.surfaceType.rightSidebar", defaultValue: "Right Sidebar")
+        case .project:
+            return String(localized: "commandPalette.kind.project", defaultValue: "Project")
+        case .extensionBrowser:
+            return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         }
     }
 
