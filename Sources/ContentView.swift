@@ -1138,6 +1138,7 @@ struct ContentView: View {
     @State private var commandPaletteResolvedSearchFingerprint: Int?
     @State private var commandPaletteResolvedMatchingQuery = ""
     @State private var commandPaletteTerminalOpenTargetAvailability: Set<TerminalDirectoryOpenTarget> = []
+    @State private var commandPaletteWorkspaceGhosttyThemeNames: [String] = []
     @State private var commandPaletteForkableAgentActivePanelKey: String?
     @State private var commandPaletteForkableAgentProbeIDsByPanelKey: [String: UUID] = [:]
     @State var commandPaletteForkableAgentSupportedPanelKeys: Set<String> = []
@@ -2799,6 +2800,9 @@ struct ContentView: View {
             applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
             updateTitlebarText()
             syncTrafficLightInset()
+            Task {
+                await refreshCommandPaletteWorkspaceGhosttyThemeNames()
+            }
 
             // Startup recovery (#399): if session restore or a race condition leaves the
             // view in a broken state (empty tabs, no selection, unmounted workspaces),
@@ -2928,6 +2932,12 @@ struct ContentView: View {
                 backgroundSource: source,
                 notificationPayloadHex: payloadHex
             )
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            Task {
+                await refreshCommandPaletteWorkspaceGhosttyThemeNames()
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
@@ -6406,6 +6416,24 @@ struct ContentView: View {
         }
     }
 
+    private func refreshCommandPaletteWorkspaceGhosttyThemeNames() async {
+        let names = await Task.detached(priority: .utility) {
+            WorkspaceGhosttyThemeCatalog.availableThemeNames()
+        }.value
+        guard names != commandPaletteWorkspaceGhosttyThemeNames else { return }
+
+        commandPaletteWorkspaceGhosttyThemeNames = names
+        cachedCommandPaletteFingerprint = nil
+        if isCommandPalettePresented {
+            scheduleCommandPaletteResultsRefresh(
+                forceSearchCorpusRefresh: true,
+                preservePendingActivation: true
+            )
+            syncCommandPaletteOverlayCommandListState()
+            syncCommandPaletteDebugStateForObservedWindow()
+        }
+    }
+
     private func commandPaletteCommandsContext(
         terminalOpenTargets: Set<TerminalDirectoryOpenTarget>
     ) -> CommandPaletteCommandsContext {
@@ -7166,7 +7194,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
         )
-        for themeName in WorkspaceGhosttyThemeCatalogCache.availableThemeNames() {
+        for themeName in commandPaletteWorkspaceGhosttyThemeNames {
             contributions.append(
                 CommandPaletteCommandContribution(
                     commandId: commandPaletteWorkspaceGhosttyThemeCommandID(themeName),
@@ -8221,7 +8249,7 @@ struct ContentView: View {
             }
             tabManager.setWorkspaceGhosttyTheme(nil, toWorkspaceIds: [workspace.id])
         }
-        for themeName in WorkspaceGhosttyThemeCatalogCache.availableThemeNames() {
+        for themeName in commandPaletteWorkspaceGhosttyThemeNames {
             registry.register(commandId: commandPaletteWorkspaceGhosttyThemeCommandID(themeName)) {
                 guard let workspace = tabManager.selectedWorkspace else {
                     NSSound.beep()
