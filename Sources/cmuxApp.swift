@@ -46,9 +46,9 @@ struct cmuxApp: App {
     private let authComposition: MacAuthComposition
 
     @StateObject private var tabManager: TabManager
-    @StateObject private var notificationStore = TerminalNotificationStore.shared
+    @StateObject private var notificationStore: TerminalNotificationStore
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
-    @StateObject private var sidebarState = SidebarState()
+    @StateObject private var sidebarState: SidebarState
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
@@ -60,6 +60,7 @@ struct cmuxApp: App {
     @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
+    private let isPureUnitTestAppHost: Bool
 
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
@@ -70,6 +71,8 @@ struct cmuxApp: App {
         // (the catalog, the two stores, the error log) live on this
         // single struct; nothing in the package or app references a
         // shared static.
+        let launchEnvironment = ProcessInfo.processInfo.environment
+        self.isPureUnitTestAppHost = CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(launchEnvironment)
         let settingsCatalog = SettingCatalog()
         let configFileURL = CmuxConfigLocation().userConfigFile
         // Relocate a pre-existing socket password out of the legacy
@@ -131,6 +134,10 @@ struct cmuxApp: App {
             ),
             hostActions: HostSettingsActions(configFileURL: configFileURL)
         )
+        let launchNotificationStore = TerminalNotificationStore.shared
+        let launchSidebarState = SidebarState()
+        _notificationStore = StateObject(wrappedValue: launchNotificationStore)
+        _sidebarState = StateObject(wrappedValue: launchSidebarState)
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
@@ -183,15 +190,14 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         let shouldCreateInitialWorkspace = CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow(
-            ProcessInfo.processInfo.environment
+            launchEnvironment
         )
         StartupBreadcrumbLog.append(
             "app.init.tabManager.begin",
             fields: ["initialWorkspace": shouldCreateInitialWorkspace ? "1" : "0"]
         )
-        _tabManager = StateObject(
-            wrappedValue: TabManager(createInitialWorkspace: shouldCreateInitialWorkspace)
-        )
+        let launchTabManager = TabManager(createInitialWorkspace: shouldCreateInitialWorkspace)
+        _tabManager = StateObject(wrappedValue: launchTabManager)
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -221,9 +227,9 @@ struct cmuxApp: App {
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
         appDelegate.configure(
-            tabManager: tabManager,
-            notificationStore: notificationStore,
-            sidebarState: sidebarState,
+            tabManager: launchTabManager,
+            notificationStore: launchNotificationStore,
+            sidebarState: launchSidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition
         )
@@ -377,97 +383,103 @@ struct cmuxApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
-            MainWindowBootstrapView()
-                .settingsRuntime(settingsRuntime)
-                .cmuxAppearanceColorScheme(appearanceMode)
-                .onAppear {
-                    SettingsWindowPresenter.configure(
-                        openWindow: {
-                            openWindow(id: SettingsWindowPresenter.windowID)
-                        },
-                        parentWindowProvider: {
-                            AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
+        if isPureUnitTestAppHost {
+            WindowGroup {
+                MainWindowBootstrapView()
+            }
+            .windowStyle(.hiddenTitleBar)
+        } else {
+            WindowGroup {
+                MainWindowBootstrapView()
+                    .settingsRuntime(settingsRuntime)
+                    .cmuxAppearanceColorScheme(appearanceMode)
+                    .onAppear {
+                        SettingsWindowPresenter.configure(
+                            openWindow: {
+                                openWindow(id: SettingsWindowPresenter.windowID)
+                            },
+                            parentWindowProvider: {
+                                AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
+                            }
+                        )
+#if DEBUG
+                        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
+                            AppDelegate.shared?.updateLog.append("ui test: cmuxApp onAppear")
                         }
-                    )
-#if DEBUG
-                    if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
-                        AppDelegate.shared?.updateLog.append("ui test: cmuxApp onAppear")
+#endif
+                        bootstrapMainWindowScene()
                     }
-#endif
-                    bootstrapMainWindowScene()
-                }
-                .onChange(of: appearanceMode) { _ in
-                    applyAppearance()
-                }
-                .onChange(of: socketControlMode) { _ in
-                    updateSocketController()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .browserFocusModeStateDidChange)) { _ in
-                    browserFocusModeMenuRevision &+= 1
-                }
-        }
-        .windowStyle(.hiddenTitleBar)
-        .commands {
-            CommandGroup(replacing: .appSettings) {
-                splitCommandButton(title: String(localized: "menu.app.settings", defaultValue: "Settings…"), shortcut: menuShortcut(for: .openSettings)) {
-                    appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
-                }
-                Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open cmux.json")) {
-                    openCmuxSettingsFileInEditor()
-                }
-                Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
-                    GhosttyApp.shared.openConfigurationInTextEdit()
-                }
-                splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
-                    dispatchReloadConfigurationMenuCommand()
-                }
-                Button(String(localized: "menu.app.makeDefaultTerminal", defaultValue: "Make cmux the Default Terminal")) {
-                    DefaultTerminalUserAction.setAsDefault(debugSource: "menu.makeDefaultTerminal")
-                }
+                    .onChange(of: appearanceMode) { _ in
+                        applyAppearance()
+                    }
+                    .onChange(of: socketControlMode) { _ in
+                        updateSocketController()
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .browserFocusModeStateDidChange)) { _ in
+                        browserFocusModeMenuRevision &+= 1
+                    }
             }
+            .windowStyle(.hiddenTitleBar)
+            .commands {
+                CommandGroup(replacing: .appSettings) {
+                    splitCommandButton(title: String(localized: "menu.app.settings", defaultValue: "Settings…"), shortcut: menuShortcut(for: .openSettings)) {
+                        appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
+                    }
+                    Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open cmux.json")) {
+                        openCmuxSettingsFileInEditor()
+                    }
+                    Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
+                        GhosttyApp.shared.openConfigurationInTextEdit()
+                    }
+                    splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
+                        dispatchReloadConfigurationMenuCommand()
+                    }
+                    Button(String(localized: "menu.app.makeDefaultTerminal", defaultValue: "Make cmux the Default Terminal")) {
+                        DefaultTerminalUserAction.setAsDefault(debugSource: "menu.makeDefaultTerminal")
+                    }
+                }
 
-            CommandGroup(replacing: .appInfo) {
-                Button(String(localized: "menu.app.about", defaultValue: "About cmux")) {
-                    showAboutPanel()
+                CommandGroup(replacing: .appInfo) {
+                    Button(String(localized: "menu.app.about", defaultValue: "About cmux")) {
+                        showAboutPanel()
+                    }
+                    Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
+                        appDelegate.checkForUpdates(nil)
+                    }
+                    InstallUpdateMenuItem(model: appDelegate.updateViewModel)
                 }
-                Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
-                    appDelegate.checkForUpdates(nil)
-                }
-                InstallUpdateMenuItem(model: appDelegate.updateViewModel)
-            }
 
-            CommandGroup(replacing: .appTermination) {
-                splitCommandButton(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), shortcut: menuShortcut(for: .quit)) {
-                    NSApp.terminate(nil)
+                CommandGroup(replacing: .appTermination) {
+                    splitCommandButton(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), shortcut: menuShortcut(for: .quit)) {
+                        NSApp.terminate(nil)
+                    }
                 }
-            }
 
-#if DEBUG
-            CommandMenu("Update Pill") {
-                Button("Show Update Pill") {
-                    appDelegate.showUpdatePill(nil)
+    #if DEBUG
+                CommandMenu("Update Pill") {
+                    Button("Show Update Pill") {
+                        appDelegate.showUpdatePill(nil)
+                    }
+                    Button("Show Long Nightly Pill") {
+                        appDelegate.showUpdatePillLongNightly(nil)
+                    }
+                    Button("Show Loading State") {
+                        appDelegate.showUpdatePillLoading(nil)
+                    }
+                    Button("Hide Update Pill") {
+                        appDelegate.hideUpdatePill(nil)
+                    }
+                    Button("Automatic Update Pill") {
+                        appDelegate.clearUpdatePillOverride(nil)
+                    }
                 }
-                Button("Show Long Nightly Pill") {
-                    appDelegate.showUpdatePillLongNightly(nil)
-                }
-                Button("Show Loading State") {
-                    appDelegate.showUpdatePillLoading(nil)
-                }
-                Button("Hide Update Pill") {
-                    appDelegate.hideUpdatePill(nil)
-                }
-                Button("Automatic Update Pill") {
-                    appDelegate.clearUpdatePillOverride(nil)
-                }
-            }
-#endif
+    #endif
 
-            CommandMenu(String(localized: "menu.notifications.title", defaultValue: "Notifications")) {
-                let snapshot = notificationMenuSnapshot
+                CommandMenu(String(localized: "menu.notifications.title", defaultValue: "Notifications")) {
+                    let snapshot = notificationMenuSnapshot
 
-                Button(snapshot.stateHintTitle) {}
-                    .disabled(true)
+                    Button(snapshot.stateHintTitle) {}
+                        .disabled(true)
 
                 if !snapshot.recentNotifications.isEmpty {
                     Divider()
@@ -842,6 +854,7 @@ struct cmuxApp: App {
             ConfigSettingsView()
                 .settingsRuntime(settingsRuntime)
                 .cmuxAppearanceColorScheme(appearanceMode)
+        }
         }
     }
 
