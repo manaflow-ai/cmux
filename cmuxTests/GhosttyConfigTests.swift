@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import CmuxSettings
 import CmuxSocketControl
 import AppKit
@@ -1943,9 +1943,6 @@ final class BrowserPanelPopupContextTests: XCTestCase {
         defer { popupWebView.window?.close() }
 
         XCTAssertTrue(
-            popupWebView.configuration.processPool === panel.webView.configuration.processPool
-        )
-        XCTAssertTrue(
             popupWebView.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore
         )
     }
@@ -2205,6 +2202,58 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
     }
 
+    /// Regression guard for the issue #5303 render loop: `BrowserPanelView.onAppear`
+    /// re-fired on every CoreAnimation commit and re-asserted webview visibility,
+    /// which restored + re-navigated the webview repeatedly. Once the webview is live
+    /// and visible, redundant visibility notifications (the shape a spurious appear
+    /// produces) must be no-ops: no lifecycle churn and no webview replacement, so no
+    /// re-navigation is issued.
+    func testRedundantVisibleNotificationsDoNotChurnLiveWebView() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+
+        panel.noteWebViewVisibility(true, reason: "test.visible.first")
+        XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+
+        let webViewAfterFirst = panel.webView
+        let instanceIDAfterFirst = panel.webViewInstanceID
+        let reasonAfterFirst = panel.webViewLastVisibilityChangeReason
+        let changeAtAfterFirst = panel.webViewLastVisibilityChangeAt
+
+        var observedStates: [BrowserWebViewLifecycleState] = []
+        var cancellable: AnyCancellable?
+        cancellable = panel.$webViewLifecycleState.dropFirst().sink { state in
+            observedStates.append(state)
+        }
+        defer { cancellable?.cancel() }
+
+        // Simulate `.onAppear` re-firing many times in one commit storm.
+        for index in 0..<32 {
+            panel.noteWebViewVisibility(true, reason: "test.visible.spurious-\(index)")
+        }
+
+        XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+        XCTAssertTrue(observedStates.isEmpty, "Redundant visible notes churned lifecycle: \(observedStates)")
+        XCTAssertTrue(panel.webView === webViewAfterFirst, "A live webview must not be replaced by redundant visibility notes")
+        XCTAssertEqual(panel.webViewInstanceID, instanceIDAfterFirst)
+        XCTAssertEqual(
+            panel.webViewLastVisibilityChangeReason,
+            reasonAfterFirst,
+            "Redundant visible notes must early-return without recording a new transition"
+        )
+        XCTAssertEqual(panel.webViewLastVisibilityChangeAt, changeAtAfterFirst)
+    }
+
     func testRestoredHistoryBackDoesNotEmitNewTabLifecycleState() {
         let discardedAt = Date(timeIntervalSince1970: 300)
         let panel = BrowserPanel(
@@ -2242,6 +2291,59 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         XCTAssertFalse(observedStates.contains(.newTab), "Back restore emitted unexpected states: \(observedStates)")
         XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+    }
+}
+
+@MainActor
+final class BrowserDefaultsNormalizationTests: XCTestCase {
+    /// Moving default registration + settings normalization out of
+    /// `BrowserPanelView.onAppear` into the model bootstrap (issue #5303) keeps the
+    /// canonicalization behavior: an out-of-range or legacy raw value stored in
+    /// defaults is rewritten to its canonical form, and registered fallbacks are
+    /// available for unset keys.
+    func testNormalizeRewritesOutOfRangeAndLegacyValues() throws {
+        let suiteName = "cmux.browserDefaultsNormalizationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // Out-of-range / invalid raw values that must be canonicalized.
+        defaults.set("not-a-real-mode", forKey: BrowserThemeSettings.modeKey)
+        defaults.set("not-a-real-variant", forKey: BrowserImportHintSettings.variantKey)
+        defaults.set(999, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+        defaults.set(999.0, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
+        defaults.set(-5.0, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+
+        BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
+
+        XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeSettings.defaultMode.rawValue)
+        XCTAssertEqual(defaults.string(forKey: BrowserImportHintSettings.variantKey), BrowserImportHintSettings.defaultVariant.rawValue)
+        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing)
+        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey), BrowserProfilePopoverDebugSettings.defaultHorizontalPadding, accuracy: 0.0001)
+        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey), BrowserProfilePopoverDebugSettings.defaultVerticalPadding, accuracy: 0.0001)
+
+        // Registered fallbacks are available for keys that were never set.
+        XCTAssertEqual(defaults.string(forKey: BrowserSearchSettings.searchEngineKey), BrowserSearchSettings.defaultSearchEngine.rawValue)
+    }
+
+    /// Already-canonical, in-range values must be left untouched (no clobbering of
+    /// valid user settings during normalization).
+    func testNormalizePreservesValidValues() throws {
+        let suiteName = "cmux.browserDefaultsNormalizationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let validSpacing = BrowserToolbarAccessorySpacingDebugSettings.supportedValues.last ?? BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+        // Resolve the app-target theme mode via the app-only settings type; the bare
+        // `BrowserThemeMode` is ambiguous here because this file also imports
+        // `CmuxSettings`, which declares a same-named enum.
+        let validThemeRaw = BrowserThemeSettings.mode(for: "dark").rawValue
+        defaults.set(validThemeRaw, forKey: BrowserThemeSettings.modeKey)
+        defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+
+        BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
+
+        XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), validThemeRaw)
+        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), validSpacing)
     }
 }
 
@@ -2565,6 +2667,43 @@ final class WorkspaceRemoteConfigurationTransportKeyTests: XCTestCase {
         XCTAssertEqual(first.proxyBrokerTransportKey, second.proxyBrokerTransportKey)
     }
 
+    func testProxyBrokerTransportKeyIgnoresEphemeralAgentSocketPath() {
+        let first = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 22,
+            identityFile: "~/.ssh/id_ed25519",
+            sshOptions: [
+                "ForwardAgent=yes",
+                "ControlMaster=auto",
+            ],
+            localProxyPort: 9000,
+            relayPort: 64000,
+            relayID: "relay-a",
+            relayToken: "token-a",
+            localSocketPath: "/tmp/cmux-a.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            agentSocketPath: "/tmp/cmux-agent-a.sock"
+        )
+        let second = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 22,
+            identityFile: "~/.ssh/id_ed25519",
+            sshOptions: [
+                "ForwardAgent=yes",
+                "ControlMaster=auto",
+            ],
+            localProxyPort: 9000,
+            relayPort: 64000,
+            relayID: "relay-b",
+            relayToken: "token-b",
+            localSocketPath: "/tmp/cmux-b.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            agentSocketPath: "/tmp/cmux-agent-b.sock"
+        )
+
+        XCTAssertEqual(first.proxyBrokerTransportKey, second.proxyBrokerTransportKey)
+    }
+
     func testPersistentPTYIdentityRequiresSameRelayPort() {
         let first = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -2605,6 +2744,48 @@ final class WorkspaceRemoteConfigurationTransportKeyTests: XCTestCase {
 
         XCTAssertFalse(first.hasSamePersistentPTYIdentity(as: second))
         XCTAssertFalse(second.hasSamePersistentPTYIdentity(as: first))
+    }
+
+    func testPersistentPTYIdentityIgnoresEphemeralAgentSocketPath() {
+        let first = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 22,
+            identityFile: "~/.ssh/id_ed25519",
+            sshOptions: [
+                "ForwardAgent=yes",
+                "ControlMaster=auto",
+            ],
+            localProxyPort: nil,
+            relayPort: 64000,
+            relayID: "relay-a",
+            relayToken: "token-a",
+            localSocketPath: "/tmp/cmux-a.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            agentSocketPath: "/tmp/cmux-agent-a.sock",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-test-slot"
+        )
+        let second = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 22,
+            identityFile: "~/.ssh/id_ed25519",
+            sshOptions: [
+                "ForwardAgent=yes",
+                "ControlMaster=auto",
+            ],
+            localProxyPort: nil,
+            relayPort: 64000,
+            relayID: "relay-b",
+            relayToken: "token-b",
+            localSocketPath: "/tmp/cmux-b.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            agentSocketPath: "/tmp/cmux-agent-b.sock",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-test-slot"
+        )
+
+        XCTAssertTrue(first.hasSamePersistentPTYIdentity(as: second))
+        XCTAssertTrue(second.hasSamePersistentPTYIdentity(as: first))
     }
 }
 

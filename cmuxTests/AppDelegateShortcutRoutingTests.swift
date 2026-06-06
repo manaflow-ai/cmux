@@ -1,8 +1,9 @@
 import XCTest
 import AppKit
 import Carbon.HIToolbox
-@testable import CmuxSettingsUI
+import Combine
 import SwiftUI
+@testable import CmuxSettingsUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -5966,6 +5967,65 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testPrintableOptionTextBypassesConfiguredShortcutRouting() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window context")
+            return
+        }
+
+        let workspaceCountBefore = manager.tabs.count
+        let optionQShortcut = StoredShortcut(
+            key: "q",
+            command: false,
+            shift: false,
+            option: true,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .newTab, shortcut: optionQShortcut) {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "@",
+                charactersIgnoringModifiers: "q",
+                isARepeat: false,
+                keyCode: 12 // kVK_ANSI_Q
+            ) else {
+                XCTFail("Failed to construct Turkish-Q Option+Q event")
+                return
+            }
+
+            XCTAssertFalse(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "Option+Q that produces @ on Turkish Q should pass through as text input"
+            )
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+            XCTAssertEqual(
+                manager.tabs.count,
+                workspaceCountBefore,
+                "Printable Option text should not trigger the remapped New Workspace shortcut"
+            )
+        }
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+    }
+
     func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -7280,16 +7340,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(dollarSkillQuery?.range, NSRange(location: 4, length: 12))
 
         let bareSlashPrompt = "cd /"
-        XCTAssertNil(TextBoxMentionCompletionDetector.query(
+        let bareSlashQuery = TextBoxMentionCompletionDetector.query(
             in: bareSlashPrompt,
             selectedRange: NSRange(location: (bareSlashPrompt as NSString).length, length: 0)
-        ))
+        )
+        XCTAssertEqual(bareSlashQuery?.kind, .skill)
+        XCTAssertEqual(bareSlashQuery?.trigger, "/")
+        XCTAssertEqual(bareSlashQuery?.query, "")
 
         let bareDollarPrompt = "echo $"
-        XCTAssertNil(TextBoxMentionCompletionDetector.query(
+        let bareDollarQuery = TextBoxMentionCompletionDetector.query(
             in: bareDollarPrompt,
             selectedRange: NSRange(location: (bareDollarPrompt as NSString).length, length: 0)
-        ))
+        )
+        XCTAssertEqual(bareDollarQuery?.kind, .skill)
+        XCTAssertEqual(bareDollarQuery?.trigger, "$")
+        XCTAssertEqual(bareDollarQuery?.query, "")
 
         let emailPrompt = "mail lawrence@example.com"
         XCTAssertNil(TextBoxMentionCompletionDetector.query(
@@ -7408,32 +7474,44 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(suggestions.first?.title, "$sample-dollar-skill")
         XCTAssertEqual(suggestions.first?.systemImageName, "sparkle.magnifyingglass")
-        XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[$sample-dollar-skill](") == true)
+        XCTAssertEqual(suggestions.first?.insertionText, "$sample-dollar-skill")
     }
 
-    func testTextBoxMentionRefreshClearsStaleSuggestionsBeforeLookup() {
+    func testTextBoxMentionRefreshKeepsRowsOnSameTriggerEditButClearsOnTriggerChange() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "@a"
         textView.setSelectedRange(NSRange(location: 2, length: 0))
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "alpha",
+            title: "@alpha.txt",
+            subtitle: "alpha.txt",
+            insertionText: "[@alpha.txt](/tmp/alpha.txt)",
+            systemImageName: "doc"
+        )
 
         textView.debugSetMentionCompletionState(
             query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 2), query: "a"),
-            suggestions: [
-                TextBoxMentionSuggestion(
-                    id: "alpha",
-                    title: "@alpha.txt",
-                    subtitle: "alpha.txt",
-                    insertionText: "[@alpha.txt](/tmp/alpha.txt)",
-                    systemImageName: "doc"
-                )
-            ]
+            suggestions: [staleSuggestion]
         )
         XCTAssertEqual(textView.debugMentionSuggestionCount(), 1)
 
         textView.string = "@z"
         textView.setSelectedRange(NSRange(location: 2, length: 0))
         textView.refreshMentionCompletions()
+        XCTAssertEqual(textView.debugMentionSuggestionCount(), 1)
+        XCTAssertFalse(textView.debugMentionSuggestionsAreCurrent())
+        XCTAssertFalse(textView.debugAcceptMentionCompletion())
+        XCTAssertFalse(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
+        XCTAssertEqual(textView.string, "@z")
+        var submitCount = 0
+        textView.onSubmit = { submitCount += 1 }
+        textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertEqual(submitCount, 1)
+        XCTAssertEqual(textView.string, "@z")
 
+        textView.string = "/z"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.refreshMentionCompletions()
         XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
     }
 
@@ -9828,6 +9906,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             remountedTextView.submissionText(),
             expectedImageSubmission(before: "hello ", url: originalURL, after: " world")
         )
+    }
+
+    func testTerminalPanelPreservesTextBoxDraftForUnmountWithoutPublishing() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+        let originalTextView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        originalTextView.string = "preserve this"
+
+        var objectWillChangeCount = 0
+        let cancellable = terminalPanel.objectWillChange.sink {
+            objectWillChangeCount += 1
+        }
+
+        terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
+
+        let draft = try XCTUnwrap(terminalPanel.sessionTextBoxDraftSnapshot())
+        XCTAssertEqual(textBoxSessionDraftPartSummaries(draft.parts), [.text("preserve this")])
+        XCTAssertEqual(
+            objectWillChangeCount,
+            0,
+            "TextBox unmount preservation runs from NSViewRepresentable.dismantleNSView and must not publish during SwiftUI teardown"
+        )
+        withExtendedLifetime(cancellable) {}
     }
 
     func testTerminalPanelCloseDisposesTextBoxAttachmentDrafts() throws {

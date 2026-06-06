@@ -1,6 +1,6 @@
 # Remote SSH Living Spec
 
-Last updated: May 26, 2026
+Last updated: June 3, 2026
 Tracking issue: https://github.com/manaflow-ai/cmux/issues/151
 Primary PR: https://github.com/manaflow-ai/cmux/pull/1296
 CLI relay PR: https://github.com/manaflow-ai/cmux/pull/374
@@ -54,6 +54,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` session snapshots persist the relay port for persistent SSH PTYs and mint fresh relay credentials on restore, so a reattached remote shell can keep using its existing `CMUX_SOCKET_PATH=127.0.0.1:<relay_port>` after app relaunch.
 - `DONE` relay startup writes `~/.cmux/relay/<relay_port>.daemon_path`; remote `cmux` wrapper uses this to select the right daemon binary per session, including mixed local cmux versions.
 - `DONE` relay startup writes `~/.cmux/relay/<relay_port>.auth` with a relay ID and token; the local relay requires HMAC-SHA256 challenge-response before forwarding any command to the real local socket.
+- `DONE` SSH agent forwarding is opt-in. `cmux ssh` preserves its live `SSH_AUTH_SOCK` for app-launched OpenSSH transports so `ForwardAgent yes` from ssh_config works normally, and accepts `-A` / `--forward-agent` or `-a` / `--no-forward-agent` for explicit forwarding control.
 - `DONE` ephemeral port range (49152-65535) filtered from probe results to exclude relay ports from other workspaces.
 - `DONE` multi-workspace port conflict detection uses TCP connect check (`isLoopbackPortReachable`) so ports already forwarded by another workspace are silently skipped instead of flagged as conflicts.
 - `DONE` orphaned relay SSH processes from previous app sessions are cleaned up before starting a new relay.

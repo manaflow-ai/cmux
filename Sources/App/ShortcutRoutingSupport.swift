@@ -45,6 +45,35 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
         .subtracting([.numericPad, .function, .capsLock])
 }
 
+func shortcutRoutingShouldBypassForPrintableOptionText(
+    event: NSEvent,
+    textInputCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.textInputCharacter(forKeyCode:modifierFlags:)
+) -> Bool {
+    guard event.type == .keyDown else { return false }
+    let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+    guard normalizedFlags.contains(.option),
+          !normalizedFlags.contains(.command),
+          !normalizedFlags.contains(.control) else {
+        return false
+    }
+
+    if shortcutRoutingTextIsPrintable(event.characters) {
+        return true
+    }
+
+    return shortcutRoutingTextIsPrintable(
+        textInputCharacterProvider(event.keyCode, event.modifierFlags)
+    )
+}
+
+private func shortcutRoutingTextIsPrintable(_ text: String?) -> Bool {
+    guard let text, !text.isEmpty else { return false }
+    return text.unicodeScalars.allSatisfy { scalar in
+        guard !isControlCharacterScalar(scalar) else { return false }
+        return scalar.value < 0xF700 || scalar.value > 0xF8FF
+    }
+}
+
 func browserOmnibarShouldContinueControlNavigationRepeat(flags: NSEvent.ModifierFlags) -> Bool {
     browserOmnibarNormalizedModifierFlags(flags) == [.control]
 }
@@ -220,7 +249,7 @@ func shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
 ///
 /// This generalizes the per-surface arrow-forwarding seam (browser, omnibar,
 /// command palette, text-box input) to cover the whole class of standalone
-/// editable `NSTextView`s cmux hosts — the file-preview editor today, any
+/// editable `NSTextView`s cmux hosts, the file-preview editor today, any
 /// future one tomorrow. Field editors (the omnibar / command-palette / find
 /// field editors) are excluded by the caller because they have their own
 /// dedicated routing or work through the normal field-editor path. Shares the
@@ -238,6 +267,28 @@ func shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
         firstResponderHasMarkedText: firstResponderHasMarkedText,
         flags: flags
     )
+}
+
+/// Ctrl-N / Ctrl-P navigate the mention-completion popover (and emacs-style line
+/// movement) inside the terminal textbox. Like plain arrows, the window's
+/// `performKeyEquivalent` claims these before they reach the textbox `keyDown`, so
+/// they must be routed to the first responder explicitly. Scoped to the textbox so
+/// terminal/browser Ctrl-N/Ctrl-P are unaffected.
+func shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+    charactersIgnoringModifiers: String?,
+    firstResponderIsTextBoxInput: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsTextBoxInput else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard normalizedFlags == [.control] else { return false }
+    let key = charactersIgnoringModifiers?.lowercased()
+    return key == "n" || key == "p"
 }
 
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
