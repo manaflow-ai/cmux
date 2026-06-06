@@ -221,6 +221,41 @@ struct AutoNamingEngine: Sendable {
         return context.isEmpty ? nil : context
     }
 
+    // MARK: - Transcript extraction (Codex rollout JSONL)
+
+    /// Extracts user/assistant text messages from Codex rollout JSONL lines
+    /// (`response_item` payloads of type `message`). Injected context blocks
+    /// (environment context, user instructions, subagent notifications) are
+    /// skipped along with tool calls and event noise.
+    func extractCodexMessages(fromRolloutLines lines: [String]) -> [AutoNamingTranscriptMessage] {
+        var messages: [AutoNamingTranscriptMessage] = []
+        for line in lines {
+            guard let data = line.data(using: .utf8),
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  object["type"] as? String == "response_item",
+                  let payload = object["payload"] as? [String: Any],
+                  payload["type"] as? String == "message",
+                  let role = payload["role"] as? String, role == "user" || role == "assistant" else {
+                continue
+            }
+            var text = ""
+            if let content = payload["content"] as? String {
+                text = content
+            } else if let content = payload["content"] as? [[String: Any]] {
+                text = content.compactMap { block -> String? in
+                    (block["text"] as? String) ?? (block["input_text"] as? String)
+                }.joined(separator: "\n")
+            }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            // Codex injects framework context as user messages wrapped in
+            // angle-bracket tags; they describe the harness, not the topic.
+            if trimmed.hasPrefix("<"), trimmed.contains(">") { continue }
+            messages.append(AutoNamingTranscriptMessage(role: role, text: trimmed))
+        }
+        return messages
+    }
+
     // MARK: - Prompt and response
 
     func buildPrompt(currentTitle: String?, context: String) -> String {

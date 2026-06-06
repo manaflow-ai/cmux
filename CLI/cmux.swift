@@ -21432,6 +21432,175 @@ struct CMUXCLI {
         }
     }
 
+    /// Spawns the detached codex auto-name pass via `sh`, backgrounded and
+    /// fully detached from this hook process's stdio, so the parent can exit
+    /// within its sync hook budget while the naming pass runs to completion.
+    private func spawnDetachedCodexAutoName(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        transcriptPath: String?,
+        env: [String: String]
+    ) {
+        let selfPath: String = {
+            if let first = ProcessInfo.processInfo.arguments.first,
+               first.hasPrefix("/"),
+               FileManager.default.isExecutableFile(atPath: first) {
+                return first
+            }
+            if let bundled = normalizedHookValue(env["CMUX_BUNDLED_CLI_PATH"]),
+               FileManager.default.isExecutableFile(atPath: bundled) {
+                return bundled
+            }
+            return "cmux"
+        }()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "\"$0\" hooks codex auto-name --session \"$1\" --workspace \"$2\" --surface \"$3\" --transcript \"$4\" </dev/null >/dev/null 2>&1 &",
+            selfPath,
+            sessionId,
+            workspaceId,
+            surfaceId,
+            transcriptPath ?? ""
+        ]
+        var spawnEnv = env
+        // Point the detached process's session store at the codex file the
+        // generic hook path uses, so throttle state lands in the same store.
+        spawnEnv["CMUX_CLAUDE_HOOK_STATE_PATH"] = agentHookStatePath(sessionStoreSuffix: "codex", env: env)
+        process.environment = spawnEnv
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        process.waitUntilExit()
+    }
+
+    /// The detached codex naming pass: live setting + ownership probe,
+    /// active-session gate, locked throttle, rollout extraction, `codex exec`
+    /// summarization, and the provenance-checked socket apply. Mirrors
+    /// `runClaudeAutoNameHook` with the Codex source adapter and runner.
+    private func runCodexAutoNameHook(
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry,
+        env: [String: String]
+    ) {
+        guard let sessionId = optionValue(commandArgs, name: "--session"),
+              let workspaceId = optionValue(commandArgs, name: "--workspace"),
+              let surfaceId = optionValue(commandArgs, name: "--surface") else {
+            return
+        }
+
+        guard let probe = try? client.sendV2(
+            method: "workspace.set_auto_title",
+            params: ["probe": true, "workspace_id": workspaceId]
+        ), probe["enabled"] as? Bool == true else {
+            telemetry.breadcrumb("codex-hook.auto-name.disabled")
+            return
+        }
+        guard probe["workspace_user_owned"] as? Bool != true else {
+            telemetry.breadcrumb("codex-hook.auto-name.user-owned")
+            return
+        }
+
+        let sessionStore = ClaudeHookSessionStore(processEnv: env)
+        guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId)) ?? false else {
+            telemetry.breadcrumb("codex-hook.auto-name.stale")
+            return
+        }
+
+        let transcriptPath = normalizedHookValue(optionValue(commandArgs, name: "--transcript"))
+            ?? findCodexTranscriptPath(sessionId: sessionId, env: env)
+        guard let transcriptPath,
+              let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024),
+              !lines.isEmpty else {
+            return
+        }
+        let lineCount = countTextFileLines(path: transcriptPath) ?? lines.count
+
+        let engine = AutoNamingEngine()
+        guard let outcome = try? sessionStore.beginAutoNaming(
+            sessionId: sessionId,
+            transcriptLineCount: lineCount,
+            now: Date(),
+            engine: engine
+        ) else { return }
+        guard case .proceed(let baseline) = outcome.decision else {
+            telemetry.breadcrumb("codex-hook.auto-name.throttled")
+            return
+        }
+
+        var confirmedTitle: String?
+        defer {
+            try? sessionStore.finishAutoNaming(
+                sessionId: sessionId,
+                appliedTitle: confirmedTitle,
+                baselineLineCount: confirmedTitle != nil ? baseline : nil,
+                now: Date()
+            )
+        }
+
+        let messages = engine.extractCodexMessages(fromRolloutLines: lines)
+        guard let context = engine.buildContext(from: messages) else { return }
+        let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
+
+        guard let executable = resolveCodexExecutable(searchPath: env["PATH"]) else {
+            telemetry.breadcrumb("codex-hook.auto-name.no-binary")
+            return
+        }
+        let policy = AutoNamingEnvironmentPolicy()
+        var summarizerEnv = policy.summarizerEnvironment(from: env)
+        // The codex hook-disable flag is re-added after the CMUX_* scrub so
+        // the summarization call never re-enters the hook machinery.
+        summarizerEnv["CMUX_CODEX_HOOKS_DISABLED"] = "1"
+
+        // `codex exec` streams progress to stdout; the final agent message is
+        // captured via --output-last-message so sanitization sees only the
+        // title candidate.
+        let outputFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-autoname-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: outputFile) }
+        guard runAutoNamingSummarizer(
+            executable: executable,
+            arguments: [
+                "exec",
+                "--skip-git-repo-check",
+                "--output-last-message", outputFile.path,
+                prompt
+            ],
+            prompt: "",
+            environment: summarizerEnv,
+            timeout: engine.config.llmTimeout
+        ) != nil else {
+            telemetry.breadcrumb("codex-hook.auto-name.llm-failed")
+            return
+        }
+        let rawResponse = (try? String(contentsOf: outputFile, encoding: .utf8)) ?? ""
+
+        let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil)
+        guard let sanitized else { return }
+        if sanitized == outcome.lastTitle {
+            confirmedTitle = sanitized
+            return
+        }
+
+        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
+            "workspace_id": workspaceId,
+            "panel_id": surfaceId,
+            "panel_only_if_multiple": true,
+            "title": sanitized
+        ]) else { return }
+        if payload["workspace_applied"] as? Bool == true {
+            confirmedTitle = sanitized
+            telemetry.breadcrumb("codex-hook.auto-name.applied")
+        } else {
+            confirmedTitle = outcome.lastTitle
+            telemetry.breadcrumb("codex-hook.auto-name.rejected")
+        }
+    }
+
     /// Streams a text file counting newline bytes, so transcript growth is
     /// measured against the whole file rather than the tail window used for
     /// content extraction.
@@ -27798,6 +27967,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
 
+        if def.name == "codex", subcommand == "auto-name" {
+            // Detached re-invocation spawned from the codex Stop hook (see
+            // spawnDetachedCodexAutoName): runs the full naming pass without
+            // blocking the short sync hook budget.
+            runCodexAutoNameHook(
+                commandArgs: hookArgs,
+                client: client,
+                telemetry: telemetry,
+                env: env
+            )
+            print("OK")
+            return
+        }
+
         // Workspace/surface resolution: prefer --workspace/--surface flags,
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
@@ -28670,6 +28853,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     )
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
+            }
+
+            // Opt-in auto-naming for Codex sessions: a detached pass so the
+            // summarization subprocess never blocks this short sync hook.
+            // The detached process gates itself on the live setting (socket
+            // probe) and the session-store throttle, so this spawn is cheap
+            // and a no-op when the feature is disabled.
+            if def.name == "codex", !suppressVisibleMutations, !sessionId.isEmpty {
+                spawnDetachedCodexAutoName(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    transcriptPath: normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath),
+                    env: env
+                )
             }
 
         case .approvalResponse:
