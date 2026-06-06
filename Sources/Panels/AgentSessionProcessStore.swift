@@ -372,21 +372,40 @@ final class AgentSessionProcessStore {
         let authorizationHeader = session.openCodeAuthorizationHeader
         let sessionId = session.sessionId
 
-        session.openCodeEventTask = Task { @MainActor [weak self] in
-            await self?.consumeOpenCodeEventStream(
+        session.openCodeEventTask = Task.detached(priority: .utility) { [weak self] in
+            await Self.consumeOpenCodeEventStream(
                 sessionId: sessionId,
                 openCodeSessionID: openCodeSessionID,
                 url: url,
-                authorizationHeader: authorizationHeader
+                authorizationHeader: authorizationHeader,
+                handleEvent: { event in
+                    await self?.handleOpenCodeEvent(
+                        event,
+                        sessionId: sessionId,
+                        openCodeSessionID: openCodeSessionID
+                    )
+                },
+                shouldFailOnEOF: {
+                    await self?.openCodeEventStreamEOFRequiresFailure(sessionId: sessionId) ?? false
+                },
+                failStream: {
+                    await self?.failOpenCodeEventStream(
+                        sessionId: sessionId,
+                        openCodeSessionID: openCodeSessionID
+                    )
+                }
             )
         }
     }
 
-    private func consumeOpenCodeEventStream(
+    nonisolated private static func consumeOpenCodeEventStream(
         sessionId: String,
         openCodeSessionID: String,
         url: URL,
-        authorizationHeader: String?
+        authorizationHeader: String?,
+        handleEvent: ([String: Any]) async -> Void,
+        shouldFailOnEOF: () async -> Bool,
+        failStream: () async -> Void
     ) async {
         var request = URLRequest(url: url)
         request.timeoutInterval = 3600
@@ -405,32 +424,31 @@ final class AgentSessionProcessStore {
             for try await line in bytes.lines {
                 guard !Task.isCancelled else { return }
                 for event in parser.consumeLine(line) {
-                    handleOpenCodeEvent(event, sessionId: sessionId, openCodeSessionID: openCodeSessionID)
+                    await handleEvent(event)
                 }
             }
             for event in parser.flush() {
-                handleOpenCodeEvent(event, sessionId: sessionId, openCodeSessionID: openCodeSessionID)
+                await handleEvent(event)
             }
-            guard Self.openCodeEventStreamEOFRequiresFailure(
-                isCancelled: Task.isCancelled,
-                processIsRunning: sessions[sessionId]?.process.isRunning == true
-            ) else {
+            guard !Task.isCancelled,
+                  await shouldFailOnEOF() else {
                 return
             }
-            failOpenCodeEventStream(
-                sessionId: sessionId,
-                openCodeSessionID: openCodeSessionID
-            )
+            await failStream()
         } catch {
             guard !Task.isCancelled else { return }
 #if DEBUG
             cmuxDebugLog("agentSession.opencode.eventStream.failed error=\(error.localizedDescription)")
 #endif
-            failOpenCodeEventStream(
-                sessionId: sessionId,
-                openCodeSessionID: openCodeSessionID
-            )
+            await failStream()
         }
+    }
+
+    private func openCodeEventStreamEOFRequiresFailure(sessionId: String) -> Bool {
+        Self.openCodeEventStreamEOFRequiresFailure(
+            isCancelled: false,
+            processIsRunning: sessions[sessionId]?.process.isRunning == true
+        )
     }
 
     static func openCodeEventStreamEOFRequiresFailure(isCancelled: Bool, processIsRunning: Bool) -> Bool {
