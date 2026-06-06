@@ -214,30 +214,50 @@ if [[ "$RUN_GUARD" -eq 1 && "$EXPORT_ONLY" -ne 1 && -n "${ASC_API_KEY_ID:-}" && 
   if ASC_MAX="$(ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
       ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
       python3 "$SCRIPT_DIR/asc_max_build.py" --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER")"; then
-    # Reached only with a real ASC max in hand: the shipping build number is now
-    # verified (it either passes the comparison below or the script exits).
-    GUARD_VERIFIED=1
-    if [[ "$ASC_MAX" =~ ^[0-9]+$ && "$GUARD_BUILD_NUMBER" =~ ^[0-9]+$ ]] && (( 10#$GUARD_BUILD_NUMBER <= 10#$ASC_MAX )); then
-      if [[ "$GUARD_REUSED_ARCHIVE" -eq 1 ]]; then
-        echo "error: reused archive CFBundleVersion $GUARD_BUILD_NUMBER <= App Store Connect max $ASC_MAX; TestFlight will not offer it as an update. Re-archive with a higher --build-number." >&2
-        exit 1
+    if [[ "$ASC_MAX" =~ ^[0-9]+$ && "$GUARD_BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+      # A real numeric comparison happened: the shipping build number is verified.
+      GUARD_VERIFIED=1
+      if (( 10#$GUARD_BUILD_NUMBER <= 10#$ASC_MAX )); then
+        if [[ "$GUARD_REUSED_ARCHIVE" -eq 1 ]]; then
+          echo "error: reused archive CFBundleVersion $GUARD_BUILD_NUMBER <= App Store Connect max $ASC_MAX; TestFlight will not offer it as an update. Re-archive with a higher --build-number." >&2
+          exit 1
+        fi
+        if [[ "$BUILD_NUMBER_EXPLICIT" -eq 1 ]]; then
+          echo "error: explicit --build-number $GUARD_BUILD_NUMBER <= App Store Connect max $ASC_MAX; TestFlight will not offer it as an update. Use a higher number, or omit --build-number to use a monotonic UTC timestamp." >&2
+          exit 1
+        fi
+        # Generated timestamp below the max (only via clock skew): self-heal it.
+        NEXT_BUILD=$((10#$ASC_MAX + 1))
+        echo "warning: generated build number $GUARD_BUILD_NUMBER <= App Store Connect max $ASC_MAX; bumping to $NEXT_BUILD to keep CFBundleVersion monotonic" >&2
+        BUILD_NUMBER="$NEXT_BUILD"
+      else
+        echo "build-number guard: $GUARD_BUILD_NUMBER > App Store Connect max $ASC_MAX, keeping it" >&2
       fi
-      NEXT_BUILD=$((10#$ASC_MAX + 1))
-      echo "warning: build number $GUARD_BUILD_NUMBER <= App Store Connect max $ASC_MAX; bumping to $NEXT_BUILD to keep CFBundleVersion monotonic" >&2
-      BUILD_NUMBER="$NEXT_BUILD"
     else
-      echo "build-number guard: $GUARD_BUILD_NUMBER > App Store Connect max ${ASC_MAX:-0}, keeping it" >&2
+      # Non-numeric ASC max or build number: no comparison possible. Leave
+      # GUARD_VERIFIED unset; the fail-closed gate below handles reused/explicit.
+      echo "warning: build-number guard could not compare $GUARD_BUILD_NUMBER against App Store Connect max ${ASC_MAX:-?}; leaving it unverified" >&2
     fi
   else
-    if [[ "$GUARD_REUSED_ARCHIVE" -eq 1 ]]; then
-      echo "error: reused --archive-path but could not verify its build number against App Store Connect; refusing to upload a possibly non-updatable archive (a reused archive cannot be renumbered). Re-run with App Store Connect access or re-archive." >&2
-      exit 1
-    fi
-    if [[ "$BUILD_NUMBER_EXPLICIT" -eq 1 ]]; then
-      echo "error: explicit --build-number $GUARD_BUILD_NUMBER could not be verified monotonic against App Store Connect; refusing to upload (an explicit value may be stale). Re-run when ASC is reachable, or omit --build-number to use a monotonic UTC timestamp." >&2
-      exit 1
-    fi
-    echo "warning: build-number guard skipped (generated timestamp $GUARD_BUILD_NUMBER is monotonic by construction; could not read App Store Connect max)" >&2
+    echo "warning: build-number guard could not read the App Store Connect max; leaving $GUARD_BUILD_NUMBER unverified" >&2
+  fi
+fi
+
+# Fail-closed gate, before the (expensive) archive. A build that needs
+# verification but was not actually compared against the App Store Connect max
+# (ASC unreachable, no ASC API creds such as the Apple ID upload path, or a
+# non-numeric value) is refused here. A reused --archive-path can't be
+# renumbered; an explicit --build-number may be stale. The generated UTC
+# timestamp is monotonic by construction, so it is exempt (fail-open).
+# --export-only never uploads, so it is exempt too.
+if [[ "$EXPORT_ONLY" -ne 1 && "$GUARD_VERIFIED" -ne 1 ]]; then
+  if [[ "$GUARD_REUSED_ARCHIVE" -eq 1 ]]; then
+    echo "error: refusing to upload a reused --archive-path that was not verified monotonic against App Store Connect. Re-archive with --build-number, or provide ASC_API_KEY_ID/ASC_API_ISSUER_ID/ASC_API_KEY_PATH so it can be checked." >&2
+    exit 1
+  fi
+  if [[ "$BUILD_NUMBER_EXPLICIT" -eq 1 ]]; then
+    echo "error: refusing to upload an explicit --build-number $BUILD_NUMBER that was not verified monotonic against App Store Connect (it may be stale). Omit --build-number to use a monotonic UTC timestamp, or provide ASC_API_KEY_ID/ASC_API_ISSUER_ID/ASC_API_KEY_PATH so it can be checked." >&2
+    exit 1
   fi
 fi
 
@@ -345,23 +365,6 @@ echo "IPA_PATH=$IPA_PATH"
 
 if [[ "$EXPORT_ONLY" -eq 1 ]]; then
   exit 0
-fi
-
-# Final fail-closed gate. Any build that needs verification but was not actually
-# checked against the App Store Connect max (e.g. the Apple ID upload path, which
-# has no ASC API creds to query) is refused here rather than shipped as a build
-# that may not be offered as an update. A reused --archive-path can't be
-# renumbered; an explicit --build-number may be stale. The generated UTC
-# timestamp is monotonic by construction, so it is exempt (fail-open).
-if [[ "$GUARD_VERIFIED" -ne 1 ]]; then
-  if [[ "$GUARD_REUSED_ARCHIVE" -eq 1 ]]; then
-    echo "error: refusing to upload a reused --archive-path that was not verified monotonic against App Store Connect (no ASC API credentials available to check). Re-archive with --build-number, or provide ASC_API_KEY_ID/ASC_API_ISSUER_ID/ASC_API_KEY_PATH." >&2
-    exit 1
-  fi
-  if [[ "$BUILD_NUMBER_EXPLICIT" -eq 1 ]]; then
-    echo "error: refusing to upload an explicit --build-number $BUILD_NUMBER that was not verified monotonic against App Store Connect (no ASC API credentials available to check). Omit --build-number to use a monotonic UTC timestamp, or provide ASC_API_KEY_ID/ASC_API_ISSUER_ID/ASC_API_KEY_PATH." >&2
-    exit 1
-  fi
 fi
 
 if [[ -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" ]]; then
