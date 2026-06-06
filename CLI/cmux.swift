@@ -11882,7 +11882,7 @@ struct CMUXCLI {
                     if (try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)) != nil {
                         bestEffortPruneTemporaryFiles(in: outputDir)
                         let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
-                        let safeSid = sanitizedFilenameComponent(sid)
+                        let safeSid = CmuxWorkspacePresetName.sanitizedComponent(sid)
                         let filename = "surface-\(safeSid)-\(timestampMs)-\(String(UUID().uuidString.prefix(8))).png"
                         let outputURL = outputDir.appendingPathComponent(filename, isDirectory: false)
                         if (try? persistPayloadScreenshot(to: outputURL, allowFailure: true)) == true {
