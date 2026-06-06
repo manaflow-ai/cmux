@@ -776,6 +776,22 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertNotNil(config.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme))
     }
 
+    func testConfiguredBrowserWebViewsShareProcessPool() {
+        let firstConfig = WKWebViewConfiguration()
+        let secondConfig = WKWebViewConfiguration()
+
+        BrowserPanel.configureWebViewConfiguration(
+            firstConfig,
+            websiteDataStore: .nonPersistent()
+        )
+        BrowserPanel.configureWebViewConfiguration(
+            secondConfig,
+            websiteDataStore: .nonPersistent()
+        )
+
+        XCTAssertTrue(firstConfig.processPool === secondConfig.processPool)
+    }
+
     func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {
         let token = UUID().uuidString.lowercased()
         let rootURL = trustedDiffViewerTestRoot()

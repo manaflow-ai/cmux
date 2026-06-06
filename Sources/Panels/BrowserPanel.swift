@@ -4124,6 +4124,7 @@ final class BrowserPanel: Panel, ObservableObject {
         websiteDataStore: WKWebsiteDataStore
     ) {
         configuration.mediaTypesRequiringUserActionForPlayback = []
+        configuration.processPool = sharedProcessPool
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
         configuration.websiteDataStore = websiteDataStore
