@@ -556,6 +556,10 @@ extension SessionIndexStore {
                        merged.hasStableListMetadata {
                         stableTargetMetadataCount += 1
                     }
+                    if sessionIDsInReverseHistoryOrder.count >= target,
+                       stableTargetMetadataCount >= target {
+                        return true
+                    }
                     return false
                 }
                 latestBySessionID[sessionId] = metadata
