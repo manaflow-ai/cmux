@@ -3822,7 +3822,7 @@ struct CMUXCLI {
             } else {
                 let pages = payload["pages"] as? [[String: Any]] ?? []
                 if pages.isEmpty {
-                    print("No pages")
+                    print(String(localized: "cli.page.listPages.noPages", defaultValue: "No pages"))
                 } else {
                     for page in pages {
                         let selected = (page["selected"] as? Bool) == true

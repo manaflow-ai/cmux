@@ -7213,16 +7213,16 @@ class TerminalController {
 
     private func v2PagePayload(
         workspace: Workspace,
-        pageId: UUID,
+        page: WorkspacePage,
         index: Int,
         selected: Bool
     ) -> [String: Any] {
-        let summary = workspace.pageStructureSummary(pageId: pageId)
+        let summary = workspace.pageStructureSummary(page: page)
         return [
-            "id": pageId.uuidString,
-            "ref": v2Ref(kind: .page, uuid: pageId),
+            "id": page.id.uuidString,
+            "ref": v2Ref(kind: .page, uuid: page.id),
             "index": index,
-            "title": workspace.pageTitle(pageId: pageId) ?? "",
+            "title": page.title,
             "selected": selected,
             "pane_count": summary?.paneCount ?? 0,
             "surface_count": summary?.surfaceCount ?? 0
@@ -7259,7 +7259,7 @@ class TerminalController {
             let pages = workspace.pages.enumerated().map { index, page in
                 v2PagePayload(
                     workspace: workspace,
-                    pageId: page.id,
+                    page: page,
                     index: index,
                     selected: page.id == workspace.activePageId
                 )

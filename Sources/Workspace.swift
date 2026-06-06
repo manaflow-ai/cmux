@@ -11568,16 +11568,28 @@ final class Workspace: Identifiable, ObservableObject {
         pageId: UUID,
         includeScrollback: Bool = false
     ) -> SessionWorkspacePageStateSnapshot? {
-        guard pages.contains(where: { $0.id == pageId }) else { return nil }
-        if pageId == activePageId {
+        guard let page = pages.first(where: { $0.id == pageId }) else { return nil }
+        return pageStateSnapshot(page: page, includeScrollback: includeScrollback)
+    }
+
+    private func pageStateSnapshot(
+        page: WorkspacePage,
+        includeScrollback: Bool = false
+    ) -> SessionWorkspacePageStateSnapshot? {
+        if page.id == activePageId {
             return currentPageSessionStateSnapshot(includeScrollback: includeScrollback)
         }
-        guard let storedState = storedPageStates[pageId] else { return nil }
+        guard let storedState = storedPageStates[page.id] else { return nil }
         return exportedPageStateSnapshot(storedState.sessionState, includeScrollback: includeScrollback)
     }
 
     func pageStructureSummary(pageId: UUID) -> (paneCount: Int, surfaceCount: Int)? {
-        guard let snapshot = pageStateSnapshot(pageId: pageId, includeScrollback: false) else {
+        guard let page = pages.first(where: { $0.id == pageId }) else { return nil }
+        return pageStructureSummary(page: page)
+    }
+
+    func pageStructureSummary(page: WorkspacePage) -> (paneCount: Int, surfaceCount: Int)? {
+        guard let snapshot = pageStateSnapshot(page: page, includeScrollback: false) else {
             return nil
         }
         return (
