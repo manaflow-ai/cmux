@@ -7395,28 +7395,41 @@ class TerminalController {
     }
 
     private func v2PageClose(params: [String: Any]) -> V2CallResult {
-        guard let pageId = v2UUID(params, "page_id") else {
+        let requestedPageId = v2UUID(params, "page_id")
+        if v2HasNonNullParam(params, "page_id"), requestedPageId == nil {
             return .err(code: "invalid_params", message: "Missing or invalid page_id", data: nil)
         }
 
         let force = v2Bool(params, "force") ?? true
-        var result: V2CallResult = .err(code: "not_found", message: "Page not found", data: [
-            "page_id": pageId.uuidString,
-            "page_ref": v2Ref(kind: .page, uuid: pageId)
-        ])
+        let notFoundData: [String: Any]? = requestedPageId.map { pageId in
+            [
+                "page_id": pageId.uuidString,
+                "page_ref": v2Ref(kind: .page, uuid: pageId)
+            ]
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "Page not found", data: notFoundData)
 
         v2MainSync {
-            let located: (windowId: UUID?, tabManager: TabManager, workspace: Workspace, pageIndex: Int)?
-            if let explicitTabManager = v2ResolveTabManager(params: params),
-               let workspace = v2ResolveWorkspace(params: params, tabManager: explicitTabManager),
-               let pageIndex = workspace.pageIndex(pageId: pageId) {
-                located = (v2ResolveWindowId(tabManager: explicitTabManager), explicitTabManager, workspace, pageIndex)
+            let located: (windowId: UUID?, tabManager: TabManager, workspace: Workspace, pageId: UUID)?
+            if let requestedPageId {
+                if let explicitTabManager = v2ResolveTabManager(params: params),
+                   let workspace = v2ResolveWorkspace(params: params, tabManager: explicitTabManager),
+                   workspace.pageIndex(pageId: requestedPageId) != nil {
+                    located = (v2ResolveWindowId(tabManager: explicitTabManager), explicitTabManager, workspace, requestedPageId)
+                } else {
+                    let resolved = v2LocatePage(requestedPageId)
+                    located = resolved.map { ($0.windowId, $0.tabManager, $0.workspace, requestedPageId) }
+                }
             } else {
-                let resolved = v2LocatePage(pageId)
-                located = resolved.map { ($0.windowId, $0.tabManager, $0.workspace, $0.pageIndex) }
+                guard let tabManager = v2ResolveTabManager(params: params),
+                      let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                    return
+                }
+                located = (v2ResolveWindowId(tabManager: tabManager), tabManager, workspace, workspace.activePageId)
             }
 
             guard let located else { return }
+            let pageId = located.pageId
             guard located.workspace.canClosePage(pageId) else {
                 result = .err(code: "invalid_state", message: "Cannot close the last page in a workspace", data: [
                     "page_id": pageId.uuidString,
