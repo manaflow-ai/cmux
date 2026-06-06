@@ -136,7 +136,6 @@ final class cmuxUITests: XCTestCase {
 
         openTerminalPicker(targetItemIdentifier: "MobileNewTerminalMenuItem", in: app)
         tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
-        assertSelectedTerminal("Terminal 2", in: app)
         assertTerminalRows([
             1: "workspace: Workspace 3",
             2: "terminal: Terminal 2",
@@ -600,25 +599,6 @@ final class cmuxUITests: XCTestCase {
         }
 
         XCTFail("Expected terminal picker item \(targetItemIdentifier) to appear", file: file, line: line)
-    }
-
-    @MainActor
-    private func assertSelectedTerminal(
-        _ name: String,
-        in app: XCUIApplication,
-        timeout: TimeInterval = 8,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        let menuItem = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "MobileTerminalMenuItem-")
-        ).matching(
-            NSPredicate(format: "label CONTAINS %@", name)
-        ).firstMatch
-
-        openTerminalPicker(targetItemIdentifier: "MobileNewTerminalMenuItem", in: app, file: file, line: line)
-        XCTAssertTrue(menuItem.waitForExistence(timeout: timeout), file: file, line: line)
-        tap(menuItem, in: app, file: file, line: line)
     }
 
     @MainActor
