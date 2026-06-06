@@ -14,6 +14,7 @@ final class AgentSessionProcessStore {
     }
     private var sessions: [String: AgentSessionRunningSession] = [:]
     private var lastEmittedHasActiveProviderSession: Bool?
+    private static let terminationEscalationInterval: DispatchTimeInterval = .seconds(3)
 
     func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) throws -> AgentSessionStartedSession {
         guard sessions.isEmpty else {
@@ -221,9 +222,44 @@ final class AgentSessionProcessStore {
         if session.process.isRunning {
             session.process.terminate()
         }
+        installTerminationEscalationTimer(for: session)
+    }
+
+    private func installTerminationEscalationTimer(for session: AgentSessionRunningSession) {
+        guard session.terminationEscalationTimer == nil else {
+            return
+        }
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(
+            deadline: .now() + Self.terminationEscalationInterval,
+            repeating: Self.terminationEscalationInterval
+        )
+        let sessionId = session.sessionId
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor in
+                guard let self,
+                      let session = self.sessions[sessionId] else {
+                    timer.cancel()
+                    return
+                }
+                if session.process.isRunning {
+                    _ = kill(session.process.processIdentifier, SIGKILL)
+                    return
+                }
+                guard session.pendingExitStatus != nil else {
+                    return
+                }
+                session.drainedStreams.formUnion(["stdout", "stderr"])
+                self.finishSessionIfExitedAndDrained(session)
+            }
+        }
+        session.terminationEscalationTimer = timer
+        timer.resume()
     }
 
     private func cancelSessionTasks(_ session: AgentSessionRunningSession) {
+        session.terminationEscalationTimer?.cancel()
+        session.terminationEscalationTimer = nil
         session.stdoutReadTask?.cancel()
         session.stdoutReadTask = nil
         session.stderrReadTask?.cancel()

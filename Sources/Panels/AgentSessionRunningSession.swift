@@ -17,6 +17,7 @@ final class AgentSessionRunningSession {
     var stdoutReadTask: Task<Void, Never>?
     var stderrReadTask: Task<Void, Never>?
     var openCodeEventTask: Task<Void, Never>?
+    var terminationEscalationTimer: DispatchSourceTimer?
     var pendingExitStatus: Int32?
     var drainedStreams: Set<String> = []
     private var stdoutBuffer = AgentSessionOutputLineBuffer()
