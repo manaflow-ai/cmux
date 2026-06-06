@@ -18289,13 +18289,11 @@ struct CMUXCLI {
                try handleApprovalRequest(message, method: method, requestId: requestId, connection: connection) {
                 return
             }
-            if let requestId = message["id"] {
-                try connection.respondError(
-                    requestId: requestId,
-                    code: -32601,
-                    message: "cmux Codex Teams watcher does not handle \(method)"
-                )
-                return
+            if message["id"] != nil {
+                // This watcher is not the owning interactive client. Close this
+                // auxiliary connection instead of rejecting requests the Codex
+                // UI may still be able to satisfy.
+                throw CLIError(message: "Codex app-server sent unsupported watcher request \(method)")
             }
             guard method.hasPrefix("thread/"),
                   let params = message["params"] as? [String: Any],
