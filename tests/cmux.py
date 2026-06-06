@@ -53,9 +53,13 @@ class cmuxError(Exception):
     pass
 
 
-_APP_SUPPORT_DIR = os.path.expanduser("~/Library/Application Support/cmux")
-_STABLE_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "com.cmuxterm.app.sock")
-_LEGACY_APP_SUPPORT_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "cmux.sock")
+# The control socket, markers, and password live in the non-TCC cmux state
+# directory (~/.local/state/cmux), not Application Support, so the separately
+# signed cmux CLI can touch them without the macOS "access data from other apps"
+# prompt (https://github.com/manaflow-ai/cmux/issues/5146).
+_STATE_DIR = os.path.expanduser("~/.local/state/cmux")
+_STABLE_SOCKET_PATH = os.path.join(_STATE_DIR, "com.cmuxterm.app.sock")
+_LEGACY_STATE_SOCKET_PATH = os.path.join(_STATE_DIR, "cmux.sock")
 _LEGACY_STABLE_SOCKET_PATH = "/tmp/cmux.sock"
 _STABLE_BUNDLE_ID = "com.cmuxterm.app"
 _NIGHTLY_BUNDLE_ID = "com.cmuxterm.app.nightly"
@@ -82,27 +86,41 @@ def _socket_path_for_file_name(file_name: str) -> str:
 
 
 def _user_scoped_stable_socket_path() -> str:
-    return _socket_path_for_file_name(f"{_STABLE_BUNDLE_ID}.{os.getuid()}.sock")
+    return os.path.join(_STATE_DIR, f"cmux-{os.getuid()}.sock")
+
+
+def _legacy_user_scoped_stable_socket_path() -> str:
+    return f"/tmp/cmux-{os.getuid()}.sock"
 
 
 def _stable_implicit_default_paths() -> set[str]:
     return {
         _STABLE_SOCKET_PATH,
-        _LEGACY_APP_SUPPORT_SOCKET_PATH,
+        _LEGACY_STATE_SOCKET_PATH,
         _LEGACY_STABLE_SOCKET_PATH,
         _user_scoped_stable_socket_path(),
+        _legacy_user_scoped_stable_socket_path(),
     }
+
+
+def _path_forms(path: str) -> set[str]:
+    forms = {os.path.abspath(os.path.expanduser(path)), os.path.realpath(os.path.expanduser(path))}
+    for form in list(forms):
+        if form.startswith("/private/tmp/"):
+            forms.add("/tmp/" + form.removeprefix("/private/tmp/"))
+        elif form.startswith("/tmp/"):
+            forms.add("/private/tmp/" + form.removeprefix("/tmp/"))
+    return forms
 
 
 def _is_stable_implicit_socket_path(path: str) -> bool:
-    if path in _stable_implicit_default_paths():
-        return True
-    return os.path.basename(path) in {
-        os.path.basename(_STABLE_SOCKET_PATH),
-        os.path.basename(_LEGACY_APP_SUPPORT_SOCKET_PATH),
-        os.path.basename(_LEGACY_STABLE_SOCKET_PATH),
-        os.path.basename(_user_scoped_stable_socket_path()),
-    }
+    path_forms = _path_forms(path)
+    return any(path_forms.intersection(_path_forms(candidate)) for candidate in _stable_implicit_default_paths())
+
+
+def _contains_path(paths: set[str], path: str) -> bool:
+    path_forms = _path_forms(path)
+    return any(path_forms.intersection(_path_forms(candidate)) for candidate in paths)
 
 
 def _quote_option_value(value: str) -> str:
@@ -173,7 +191,7 @@ def _last_socket_path_files() -> List[str]:
         tmp_marker = f"/tmp/cmux-dev-{slug}-last-socket-path" if slug else "/tmp/cmux-dev-last-socket-path"
 
     return [
-        os.path.join(_APP_SUPPORT_DIR, marker),
+        os.path.join(_STATE_DIR, marker),
         tmp_marker,
     ]
 
@@ -194,7 +212,7 @@ def _variant_socket_candidates() -> List[str]:
                 f"/tmp/cmux-{slug}.sock",
             ]
         return [_socket_path_for_file_name("com.cmuxterm.app.dev.sock"), "/tmp/cmux-debug.sock"]
-    return [_STABLE_SOCKET_PATH, _LEGACY_APP_SUPPORT_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH]
+    return [_STABLE_SOCKET_PATH, _LEGACY_STATE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH]
 
 
 def _read_last_socket_path() -> Optional[str]:
@@ -260,12 +278,12 @@ def _default_socket_path() -> str:
         variant, _ = _socket_variant()
         stable_defaults = _stable_implicit_default_paths()
         implicit_defaults = stable_defaults.union(_variant_socket_candidates())
-        is_stale_stable_default = variant != "stable" and override in stable_defaults
+        is_stale_stable_default = variant != "stable" and _is_stable_implicit_socket_path(override)
         # Treat stable defaults as implicit so old env values still migrate cleanly.
         if not is_stale_stable_default:
             if os.path.exists(override) and _can_connect(override):
                 return override
-            if not os.path.exists(override) and override not in implicit_defaults:
+            if not os.path.exists(override) and not _contains_path(implicit_defaults, override):
                 return override
 
     last_socket = _read_last_socket_path()
@@ -281,7 +299,7 @@ def _default_socket_path() -> str:
     if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID:
         tagged = glob.glob("/tmp/cmux-debug-*.sock")
         tagged.extend(glob.glob("/tmp/cmux-*.sock"))
-        tagged.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "com.cmuxterm.app.dev.*.sock")))
+        tagged.extend(glob.glob(os.path.join(_STATE_DIR, "com.cmuxterm.app.dev.*.sock")))
         tagged = list(dict.fromkeys(tagged))
         tagged = [
             p for p in tagged

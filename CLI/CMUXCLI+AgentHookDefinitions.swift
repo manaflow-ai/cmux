@@ -21,6 +21,23 @@ extension CMUXCLI {
         let events: [HookEvent]
         let aliases: Set<String>
         let publishesStopNotification: Bool
+        /// Whether this agent's `SessionEnd`/`session-end` hook fires once per
+        /// conversation turn rather than at a true session teardown.
+        ///
+        /// Restorable agents (grok, antigravity, hermes-agent) re-emit their
+        /// session-end event after every turn, so the `.sessionEnd` handler must
+        /// treat it as a non-destructive turn boundary (`recordPromptStop`) and
+        /// must not consume the session or clear the surface resume binding —
+        /// otherwise the restore record is destroyed after the first turn and
+        /// nothing survives a quit/relaunch. See
+        /// https://github.com/manaflow-ai/cmux/issues/5000.
+        ///
+        /// Agents whose runtime distinguishes a per-turn boundary from a genuine
+        /// session teardown (hermes-agent emits both `on_session_end` per turn and
+        /// `on_session_finalize` once at the end) route the teardown event to the
+        /// separate `session-finalize` subcommand / ``AgentHookAction/sessionFinalize``
+        /// action, which performs the destructive cleanup this flag suppresses.
+        let sessionEndIsTurnBoundary: Bool
         /// Feed-hook events. Each entry installs a second hook for
         /// `agentEvent` that invokes `cmux hooks feed --source <name>`
         /// with a 120s timeout so the socket reply wait doesn't trip the
@@ -28,10 +45,16 @@ extension CMUXCLI {
         /// approve/deny a permission / plan / question.
         let feedHookEvents: [String]
         let postInstallAction: PostInstallAction?
+        /// Optional CLI note printed after a successful install (or
+        /// "already up to date") to guide a required activation step — e.g.
+        /// Kiro applies its hooks only when run as the `cmux` agent.
+        let postInstallNote: String?
 
         enum HookFormat {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
             case nested(timeoutMs: Int)  // Codex/Gemini: nested with type/command/timeout
+            case kiroAgentJSON(timeoutMs: Int) // ~/.kiro/agents/*.json flat command entries with timeout_ms
+            case antigravityJSON(timeoutSeconds: Int) // ~/.gemini/config/hooks.json named hook groups
             case rovoDevYAML
             case hermesAgentYAML
         }
@@ -80,8 +103,10 @@ extension CMUXCLI {
              format: HookFormat, events: [HookEvent],
              aliases: Set<String> = [],
              publishesStopNotification: Bool = true,
+             sessionEndIsTurnBoundary: Bool = false,
              feedHookEvents: [String] = [],
-             postInstallAction: PostInstallAction? = nil) {
+             postInstallAction: PostInstallAction? = nil,
+             postInstallNote: String? = nil) {
             self.name = name; self.displayName = displayName; self.statusKey = statusKey
             self.configDir = configDir; self.configFile = configFile
             self.configDirEnvOverride = configDirEnvOverride
@@ -91,17 +116,19 @@ extension CMUXCLI {
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
             self.publishesStopNotification = publishesStopNotification
+            self.sessionEndIsTurnBoundary = sessionEndIsTurnBoundary
             self.aliases = Set(aliases.compactMap { alias in
                 let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return normalized.isEmpty ? nil : normalized
             })
             self.feedHookEvents = feedHookEvents
             self.postInstallAction = postInstallAction
+            self.postInstallNote = postInstallNote
         }
     }
 
     enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, notification, sessionEnd, noop
+        case sessionStart, promptSubmit, stop, notification, approvalResponse, sessionEnd, sessionFinalize, noop
     }
 
     static let subcommandActions: [String: AgentHookAction] = [
@@ -111,9 +138,11 @@ extension CMUXCLI {
         "notification": .notification,
         "notify": .notification,
         "agent-response": .stop,
+        "approval-response": .approvalResponse,
         "shell-exec": .promptSubmit,
         "shell-done": .noop,
         "session-end": .sessionEnd,
+        "session-finalize": .sessionFinalize,
     ]
 
     // MARK: Agent definitions
@@ -147,6 +176,7 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             publishesStopNotification: false,
+            sessionEndIsTurnBoundary: true,
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
@@ -198,6 +228,42 @@ extension CMUXCLI {
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
+            name: "kiro", displayName: "Kiro", statusKey: "kiro",
+            configDir: ".kiro/agents", configFile: "cmux.json",
+            configDirEnvOverride: "KIRO_HOME", configDirEnvOverrideSubpath: "agents",
+            createConfigDirIfMissing: true, binaryName: "kiro-cli",
+            sessionStoreSuffix: "kiro", disableEnvVar: "CMUX_KIRO_HOOKS_DISABLED",
+            hookMarker: "cmux hooks kiro", format: .kiroAgentJSON(timeoutMs: 5000),
+            events: [
+                .init(agentEvent: "agentSpawn", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "userPromptSubmit", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "stop", cmuxSubcommand: "stop"),
+            ],
+            feedHookEvents: ["preToolUse", "postToolUse"],
+            postInstallNote: String(
+                localized: "cli.hooks.kiro.postInstallNote",
+                defaultValue: "Kiro applies these hooks only when run as the cmux agent. Start Kiro with `kiro-cli chat --agent cmux`, or make it the default with `kiro-cli settings chat.defaultAgent cmux`."
+            )
+        ),
+        AgentHookDef(
+            name: "antigravity", displayName: "Antigravity", statusKey: "antigravity",
+            configDir: ".gemini/config", configFile: "hooks.json",
+            createConfigDirIfMissing: true, binaryName: "agy",
+            sessionStoreSuffix: "antigravity", disableEnvVar: "CMUX_ANTIGRAVITY_HOOKS_DISABLED",
+            hookMarker: "cmux hooks antigravity", format: .antigravityJSON(timeoutSeconds: 10),
+            events: [
+                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "PreInvocation", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "turn-completion", cmuxSubcommand: "stop"),
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
+                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+            ],
+            aliases: ["agy"],
+            sessionEndIsTurnBoundary: true,
+            feedHookEvents: ["PreToolUse", "PostToolUse"]
+        ),
+        AgentHookDef(
             name: "rovodev", displayName: "Rovo Dev", statusKey: "rovodev",
             configDir: ".rovodev", configFile: "config.yml", binaryName: "acli",
             sessionStoreSuffix: "rovodev", disableEnvVar: "CMUX_ROVODEV_HOOKS_DISABLED",
@@ -219,10 +285,13 @@ extension CMUXCLI {
                 .init(agentEvent: "on_session_start", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "pre_llm_call", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "post_llm_call", cmuxSubcommand: "agent-response"),
+                .init(agentEvent: "pre_approval_request", cmuxSubcommand: "notification"),
+                .init(agentEvent: "post_approval_response", cmuxSubcommand: "approval-response"),
                 .init(agentEvent: "on_session_end", cmuxSubcommand: "session-end"),
-                .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-finalize"),
                 .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),
             ],
+            sessionEndIsTurnBoundary: true,
             feedHookEvents: ["pre_tool_call", "post_tool_call", "pre_approval_request", "post_approval_response"]
         ),
         AgentHookDef(
@@ -288,47 +357,72 @@ extension CMUXCLI {
     }
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
-        agentHookShellCommand("cmux hooks feed --source \(def.name) --event \(agentEvent)", for: def)
+        switch def.format {
+        case .kiroAgentJSON:
+            return exitTwoPropagatingAgentHookShellCommand(
+                "cmux hooks feed --source \(def.name) --event \(agentEvent)",
+                for: def
+            )
+        default:
+            return agentHookShellCommand("cmux hooks feed --source \(def.name) --event \(agentEvent)", for: def)
+        }
     }
 
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
+    private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
 
     private static func agentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
-        if def.name == "grok" {
-            return grokAgentHookShellCommand(command, for: def)
+        if usesPinnedHookDispatch(def) {
+            return pinnedAgentHookShellCommand(command, for: def)
         }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || echo '{}'; else echo '{}'; fi"
     }
 
-    private static func grokAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
+    private static func exitTwoPropagatingAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
-        let socketPath = pinnedGrokHookSocketPath()
-        let shellTraceStart = grokHookShellTraceCommand(
+        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; status=$?; if [ \"$status\" -eq 2 ]; then exit 2; fi; if [ \"$status\" -ne 0 ]; then echo '{}'; fi; else echo '{}'; fi"
+    }
+
+    private static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
+        def.name == "grok" || def.name == "antigravity"
+    }
+
+    private static func pinnedHookMarker(for def: AgentHookDef) -> String {
+        def.name == "antigravity" ? antigravityPinnedHookMarker : grokPinnedHookMarker
+    }
+
+    private static func pinnedAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
+        let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
+        let socketPath = pinnedAgentHookSocketPath()
+        let shellTraceStart = pinnedHookShellTraceCommand(
+            agentName: def.name,
             phase: "start",
             routedArguments: routedArguments,
             socketPath: socketPath
         )
-        let shellTraceDisabled = grokHookShellTraceCommand(
+        let shellTraceDisabled = pinnedHookShellTraceCommand(
+            agentName: def.name,
             phase: "disabled",
             routedArguments: routedArguments,
             socketPath: socketPath
         )
-        let shellTraceExit = grokHookShellTraceCommand(
+        let shellTraceExit = pinnedHookShellTraceCommand(
+            agentName: def.name,
             phase: "exit",
             routedArguments: routedArguments,
             socketPath: socketPath,
             statusExpression: "$cmux_hook_status"
         )
-        let fallbackInvocation = grokHookInvocation(
+        let fallbackInvocation = pinnedHookInvocation(
             executable: "cmux",
             routedArguments: routedArguments,
             socketPath: socketPath
         )
         let dispatch: String
-        if let cliPath = pinnedGrokHookCLIPath() {
+        if let cliPath = pinnedAgentHookCLIPath() {
             let quotedCLIPath = shellSingleQuote(cliPath)
-            let primaryInvocation = grokHookInvocation(
+            let primaryInvocation = pinnedHookInvocation(
                 executable: quotedCLIPath,
                 routedArguments: routedArguments,
                 socketPath: socketPath
@@ -337,10 +431,10 @@ extension CMUXCLI {
         } else {
             dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || echo '{}'"
         }
-        return ": \(grokPinnedHookMarker); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
     }
 
-    private static func grokHookInvocation(
+    private static func pinnedHookInvocation(
         executable: String,
         routedArguments: String,
         socketPath: String?
@@ -351,27 +445,41 @@ extension CMUXCLI {
         return "\(executable) \(routedArguments)"
     }
 
-    private static func pinnedGrokHookCLIPath(
+    private static func pinnedAgentHookCLIPath(
         env: [String: String] = ProcessInfo.processInfo.environment,
         arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> String? {
         if let bundledPath = normalizedHookInstallValue(env["CMUX_BUNDLED_CLI_PATH"]) {
-            return NSString(string: bundledPath).expandingTildeInPath
+            let expanded = NSString(string: bundledPath).expandingTildeInPath
+            if isExecutableFilePath(expanded) {
+                return expanded
+            }
         }
         if let arg0 = normalizedHookInstallValue(arguments.first) {
             let expanded = NSString(string: arg0).expandingTildeInPath
-            if expanded.hasPrefix("/") {
+            if expanded.hasPrefix("/"), isExecutableFilePath(expanded) {
                 return expanded
             }
         }
         if let executablePath = Bundle.main.executableURL?.path,
-           !executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+           !executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           isExecutableFilePath(executablePath) {
             return executablePath
         }
         return nil
     }
 
-    private static func pinnedGrokHookSocketPath(
+    private static func isExecutableFilePath(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue
+        else {
+            return false
+        }
+        return FileManager.default.isExecutableFile(atPath: path)
+    }
+
+    private static func pinnedAgentHookSocketPath(
         env: [String: String] = ProcessInfo.processInfo.environment
     ) -> String? {
         if let socketPath = normalizedHookInstallValue(env["CMUX_SOCKET_PATH"]) {
@@ -388,25 +496,26 @@ extension CMUXCLI {
         return "/tmp/cmux-debug-\(slug).sock"
     }
 
-    private static func grokHookShellTraceCommand(
+    private static func pinnedHookShellTraceCommand(
+        agentName: String,
         phase: String,
         routedArguments: String,
         socketPath: String?,
         statusExpression: String? = nil
     ) -> String {
 #if DEBUG
-        let logPath = shellSingleQuote(grokHookShellTraceLogPath(socketPath: socketPath))
+        let logPath = shellSingleQuote(pinnedHookShellTraceLogPath(socketPath: socketPath))
         let event = shellSingleQuote(routedArguments)
         let socket = shellSingleQuote(socketPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "nil")
         let statusField = statusExpression == nil ? "" : " status=%s"
         let statusArgument = statusExpression.map { " \($0)" } ?? ""
-        return "printf '%s grokHook.shell phase=%s event=%s pid=%s ppid=%s socket=%s\(statusField)\\n' \"$(date +%s)\" \(shellSingleQuote(phase)) \(event) \"$$\" \"${PPID:-}\" \(socket)\(statusArgument) >> \(logPath) 2>/dev/null || true"
+        return "printf '%s \(agentName)Hook.shell phase=%s event=%s pid=%s ppid=%s socket=%s\(statusField)\\n' \"$(date +%s)\" \(shellSingleQuote(phase)) \(event) \"$$\" \"${PPID:-}\" \(socket)\(statusArgument) >> \(logPath) 2>/dev/null || true"
 #else
         return ":"
 #endif
     }
 
-    private static func grokHookShellTraceLogPath(socketPath: String?) -> String {
+    private static func pinnedHookShellTraceLogPath(socketPath: String?) -> String {
         guard let socketPath else {
             return "/tmp/cmux-debug.log"
         }
@@ -432,7 +541,7 @@ extension CMUXCLI {
     }
 
     static func isCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef, includeLegacy: Bool = true) -> Bool {
-        if def.name == "grok", command.contains(grokPinnedHookMarker) {
+        if usesPinnedHookDispatch(def), command.contains(pinnedHookMarker(for: def)) {
             return true
         }
         if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })

@@ -94,7 +94,9 @@ class PingServer:
                 server.settimeout(min(0.2, remaining))
                 try:
                     conn, _ = server.accept()
-                except TimeoutError:
+                # GitHub's macOS Python can report socket polling timeouts as
+                # socket.timeout rather than built-in TimeoutError.
+                except (socket.timeout, TimeoutError):
                     continue
                 connection_thread = threading.Thread(
                     target=self._handle_connection,
@@ -122,7 +124,7 @@ class PingServer:
                     if not chunk:
                         break
                     data += chunk
-            except (ConnectionResetError, TimeoutError, socket.timeout):
+            except (ConnectionResetError, socket.timeout, TimeoutError):
                 return
 
             if b"ping" in data:
@@ -139,14 +141,14 @@ class PingServer:
 
 
 def write_marker(home: str, marker_name: str, socket_path: str) -> None:
-    app_support = os.path.join(home, "Library", "Application Support", "cmux")
+    app_support = os.path.join(home, ".local", "state", "cmux")
     os.makedirs(app_support, exist_ok=True)
     with open(os.path.join(app_support, marker_name), "w", encoding="utf-8") as f:
         f.write(f"{socket_path}\n")
 
 
 def app_support_dir(home: str) -> Path:
-    return Path(home) / "Library" / "Application Support" / "cmux"
+    return Path(home) / ".local" / "state" / "cmux"
 
 
 def socket_path_for_home(home: str, file_name: str) -> str:
@@ -155,7 +157,7 @@ def socket_path_for_home(home: str, file_name: str) -> str:
 
 def temporary_socket_home(prefix: str) -> tempfile.TemporaryDirectory:
     # Darwin caps Unix socket paths at a little over 100 bytes. Keep fake HOME
-    # roots short because stable sockets live under ~/Library/Application Support.
+    # roots short because stable sockets live under ~/.local/state/cmux.
     return tempfile.TemporaryDirectory(prefix=prefix, dir="/tmp")
 
 
@@ -902,7 +904,7 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
 
     with temporary_socket_home("cmux-home-") as home, \
             tempfile.TemporaryDirectory(prefix="cmux-cli-variant-apps-") as apps:
-        stable_socket = socket_path_for_home(home, f"com.cmuxterm.app.{os.getuid()}.sock")
+        stable_socket = socket_path_for_home(home, f"cmux-{os.getuid()}.sock")
         stable_cli = bundled_cli_for_variant(
             cli_path,
             apps,

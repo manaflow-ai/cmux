@@ -7,7 +7,7 @@ import platform
 import sys
 
 
-SOCKET_DIRECTORY = pathlib.Path("~/Library/Application Support/cmux").expanduser()
+SOCKET_DIRECTORY = pathlib.Path("~/.local/state/cmux").expanduser()
 
 
 def unix_socket_path_max_length() -> int:

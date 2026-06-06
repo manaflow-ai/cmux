@@ -3,6 +3,7 @@ import Foundation
 enum SidebarWorkspaceDetailDefaults {
     static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
     static let showPullRequestsKey = "sidebarShowPullRequest"
+    static let watchGitStatusKey = "sidebarWatchGitStatus"
     static let showSSHKey = "sidebarShowSSH"
     static let showPortsKey = "sidebarShowPorts"
     static let showLogKey = "sidebarShowLog"
@@ -11,11 +12,25 @@ enum SidebarWorkspaceDetailDefaults {
 
     static let showBranchDirectory = true
     static let showPullRequests = true
+    static let watchGitStatus = true
     static let showSSH = true
     static let showPorts = true
     static let showLog = true
     static let showProgress = true
     static let showCustomMetadata = true
+}
+
+enum SidebarWorkspaceTitleWrapSettings {
+    static let key = "sidebarWrapWorkspaceTitles"
+    static let defaultWrap = false
+
+    static func wraps(defaults: UserDefaults = .standard) -> Bool {
+        SidebarWorkspaceDetailDefaults.boolValue(
+            defaults: defaults,
+            key: key,
+            defaultValue: defaultWrap
+        )
+    }
 }
 
 extension SidebarWorkspaceDetailDefaults {
@@ -28,6 +43,14 @@ extension SidebarWorkspaceDetailDefaults {
 
     static func showPullRequestsValue(defaults: UserDefaults) -> Bool {
         boolValue(defaults: defaults, key: showPullRequestsKey, defaultValue: showPullRequests)
+    }
+
+    static func watchGitStatusValue(defaults: UserDefaults) -> Bool {
+        boolValue(defaults: defaults, key: watchGitStatusKey, defaultValue: watchGitStatus)
+    }
+
+    static func pullRequestPollingEnabled(defaults: UserDefaults) -> Bool {
+        watchGitStatusValue(defaults: defaults) && showPullRequestsValue(defaults: defaults)
     }
 }
 
@@ -57,12 +80,24 @@ extension CmuxSettingsFileStore {
         "app.iMessageMode",
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",
+        "app.confirmQuit",
         "app.warnBeforeQuit",
         "app.warnBeforeClosingTab",
+        "app.warnBeforeClosingTabXButton",
+        "app.hideTabCloseButton",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
+        "workspaceGroups.newWorkspacePlacement",
         "terminal.showScrollBar",
+        "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
+        "terminal.showTextBoxOnNewTerminals",
+        "terminal.focusTextBoxOnNewTerminals",
+        "terminal.agentHibernation.enabled",
+        "terminal.agentHibernation.idleSeconds",
+        "terminal.agentHibernation.maxLiveTerminals",
+        "terminal.textBoxMaxLines",
+        "terminal.resumeCommands",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
@@ -73,11 +108,15 @@ extension CmuxSettingsFileStore {
         "notifications.hooks",
         "notifications.hooksMode",
         "sidebar.hideAllDetails",
+        "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
         "sidebar.branchLayout",
+        "sidebar.stackBranchDirectory",
+        "sidebar.pathLastSegmentOnly",
         "sidebar.showNotificationMessage",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",
+        "sidebar.watchGitStatus",
         "sidebar.makePullRequestsClickable",
         "sidebar.openPullRequestLinksInCmuxBrowser",
         "sidebar.openPortLinksInCmuxBrowser",
@@ -102,11 +141,17 @@ extension CmuxSettingsFileStore {
         "automation.claudeCodeIntegration",
         "automation.claudeBinaryPath",
         "automation.ripgrepBinaryPath",
+        "automation.suppressSubagentNotifications",
+        "automation.ampIntegration",
         "automation.cursorIntegration",
         "automation.geminiIntegration",
+        "automation.kiroIntegration",
+        "automation.kiroNotificationLevel",
         "automation.portBase",
         "automation.portRange",
         "browser.defaultSearchEngine",
+        "browser.customSearchEngineName",
+        "browser.customSearchEngineURLTemplate",
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.discardHiddenWebViews",
@@ -118,6 +163,10 @@ extension CmuxSettingsFileStore {
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
+        "markdown.fontSize",
+        "markdown.fontFamily",
+        "markdown.maxWidth",
+        "fileEditor.wordWrap",
         "shortcuts.bindings",
     ]
 }
