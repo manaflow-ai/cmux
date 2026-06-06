@@ -3734,23 +3734,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? mainWindowContexts.values.first?.tabManager,
               let config = socketListenerConfigurationIfEnabled() else { return }
         let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
-        let readiness = await TerminalController.shared.socketListenerReadiness(
-            expectedSocketPath: restartPath,
-            timeout: 1.0
-        )
-        guard !readiness.isReady else {
-            TerminalController.shared.refreshSocketListenerPermissions(
-                socketPath: restartPath,
-                accessMode: config.mode
-            )
-            sentryBreadcrumb("socket.listener.wakeRestartSkipped", category: "socket", data: [
-                "mode": config.mode.rawValue,
-                "path": restartPath,
-                "source": "workspace.didWake",
-                "reason": "healthy"
-            ])
-            return
-        }
         await restartSocketListenerIfEnabled(
             tabManager: tabManager,
             config: config,
@@ -3779,11 +3762,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restartPath: String,
         source: String
     ) async {
-        sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
-            "mode": config.mode.rawValue,
-            "path": restartPath,
-            "source": source
-        ])
         await TerminalController.shared.restartIfUnhealthy(
             tabManager: tabManager,
             socketPath: restartPath,

@@ -158,18 +158,19 @@ enum CLISocketPathResolver {
             return requestedPath
         }
 
-        let resolvedFallback = resolveFromCandidateChain(
+        let candidateResolution = resolveFromCandidateChain(
             requestedPath: requestedPath,
             environment: environment,
             bundleIdentifier: bundleIdentifier,
             currentUserID: currentUserID,
             inspectSocketPathEntry: inspectSocketPathEntry
         )
-        let resolved = resolvedFallback ?? requestedPath
+        let resolved = candidateResolution.selectedPath
+            ?? (source == .environment ? requestedPath : candidateResolution.defaultPath ?? requestedPath)
         if source == .environment, !environmentRequestedPathReachable {
             emitEnvironmentSocketFallbackWarning(
                 requestedPath: requestedPath,
-                resolved: resolvedFallback,
+                resolved: candidateResolution.selectedPath,
                 warningSink: warningSink ?? writeStandardErrorLine
             )
         }
@@ -182,11 +183,11 @@ enum CLISocketPathResolver {
         bundleIdentifier: String?,
         currentUserID: uid_t,
         inspectSocketPathEntry: (String) -> SocketPathEntry
-    ) -> String? {
+    ) -> (selectedPath: String?, defaultPath: String?) {
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         if case .stable = variant,
            canConnect(to: requestedPath, currentUserID: currentUserID, inspectSocketPathEntry: inspectSocketPathEntry) {
-            return requestedPath
+            return (requestedPath, requestedPath)
         }
 
         let candidates = dedupe(candidatePaths(
@@ -201,7 +202,7 @@ enum CLISocketPathResolver {
             currentUserID: currentUserID,
             inspectSocketPathEntry: inspectSocketPathEntry
         ) {
-            return path
+            return (path, candidates.first)
         }
 
         // If the listener is still starting, prefer existing socket files.
@@ -210,10 +211,10 @@ enum CLISocketPathResolver {
             currentUserID: currentUserID,
             inspectSocketPathEntry: inspectSocketPathEntry
         ) {
-            return path
+            return (path, candidates.first)
         }
 
-        return nil
+        return (nil, candidates.first)
     }
 
     private static func candidatePaths(
