@@ -18290,10 +18290,10 @@ struct CMUXCLI {
                 return
             }
             if message["id"] != nil {
-                // This watcher is not the owning interactive client. Close this
-                // auxiliary connection instead of rejecting requests the Codex
-                // UI may still be able to satisfy.
-                throw CLIError(message: "Codex app-server sent unsupported watcher request \(method)")
+                // This watcher is not the owning interactive client. Leave
+                // unsupported requests for the Codex UI instead of rejecting
+                // them or reconnecting into the same replayed request.
+                return
             }
             guard method.hasPrefix("thread/"),
                   let params = message["params"] as? [String: Any],
