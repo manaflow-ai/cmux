@@ -295,6 +295,7 @@ extension Workspace {
         if !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
         }
+        setGhosttyThemeSelection(snapshot.ghosttyThemeSelection, reload: false)
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let leafEntries: [SessionPaneRestoreEntry] = {
@@ -322,7 +323,6 @@ extension Workspace {
         setCustomTitle(snapshot.customTitle)
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
-        setGhosttyThemeSelection(snapshot.ghosttyThemeSelection, reload: false)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
 
