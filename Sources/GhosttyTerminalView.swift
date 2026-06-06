@@ -243,6 +243,7 @@ func cmuxGhosttyModifierActionForFlagsChanged(
     return sidePressed ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE
 }
 
+/// AppKit text-input commands that need terminal bytes even when raw key fields are unreliable.
 private enum GhosttyTextInputCommand {
     case deleteBackward
 
@@ -8170,7 +8171,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
-    private var textInputCommandReleaseKeyCodes: [UInt16: UInt32] = [:]
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModePendingViewportJumpSync = false
@@ -10231,7 +10231,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                 keyEvent.composing = false
                 keyEvent.unshifted_codepoint = command.unshiftedCodepoint
-                textInputCommandReleaseKeyCodes[event.keyCode] = command.keycode
 
 #if DEBUG
                 let ghosttySendStart = ProcessInfo.processInfo.systemUptime
@@ -10417,15 +10416,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         if imeConsumedKeyUps.remove(event.keyCode) != nil {
-            return
-        }
-        if let releaseKeyCode = textInputCommandReleaseKeyCodes.removeValue(forKey: event.keyCode) {
-            var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
-            keyEvent.action = GHOSTTY_ACTION_RELEASE
-            keyEvent.keycode = releaseKeyCode
-            keyEvent.text = nil
-            keyEvent.composing = false
-            _ = sendGhosttyKey(surface, keyEvent)
             return
         }
 
