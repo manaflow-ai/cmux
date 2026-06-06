@@ -175,7 +175,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             } catch let error as AgentExecutableResolverError {
                 replyHandler(["ok": false, "error": ["userMessage": error.message]], nil)
             } catch let error as AgentSessionBridgeError {
-                replyHandler(["ok": false, "error": ["userMessage": error.localizedDescription]], nil)
+                replyHandler(["ok": false, "error": ["code": error.code, "userMessage": error.localizedDescription]], nil)
             } catch {
                 replyHandler(["ok": false, "error": [:]], nil)
             }

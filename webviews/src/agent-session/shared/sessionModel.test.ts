@@ -950,6 +950,51 @@ test("send failures for the active running session keep stop available", () => {
   expect(canStopProvider(state)).toBe(true);
 });
 
+test("transient provider busy send failures keep the session running", async () => {
+  const running = {
+    ...reduceSession(initialState("react"), { type: "context", context }),
+    input: "second turn",
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const actions: Action[] = [];
+  const messages: unknown[] = [];
+  const globalWithWindow = globalThis as unknown as { window?: unknown };
+  const originalWindow = globalWithWindow.window;
+  globalWithWindow.window = {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          async postMessage(message: unknown) {
+            messages.push(message);
+            return {
+              ok: false,
+              error: {
+                code: "providerNotReady",
+                userMessage: "The provider is not ready yet.",
+              },
+            };
+          },
+        },
+      },
+    },
+  };
+
+  try {
+    const sent = await sendInput(running, (action) => actions.push(action));
+    expect(sent).toBe(false);
+  } finally {
+    if (originalWindow === undefined) {
+      delete globalWithWindow.window;
+    } else {
+      globalWithWindow.window = originalWindow;
+    }
+  }
+
+  expect(messages).toHaveLength(1);
+  expect(actions).toHaveLength(0);
+});
+
 test("stop failures for an active session keep stop available", () => {
   const stopping = {
     ...reduceSession(initialState("react"), { type: "context", context }),

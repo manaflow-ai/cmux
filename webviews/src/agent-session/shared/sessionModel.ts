@@ -1,4 +1,4 @@
-import { callNative } from "./bridge";
+import { callNative, NativeBridgeError } from "./bridge";
 import { makeClientId } from "./ids";
 import { applyAgentTheme } from "./theme";
 import type {
@@ -298,6 +298,9 @@ export async function sendInput(
     });
     return true;
   } catch (error) {
+    if (isProviderNotReadyError(error)) {
+      return false;
+    }
     dispatch({ type: "sendFailed", sessionId, message: messageForError(error, state) });
     return false;
   }
@@ -641,6 +644,10 @@ function boundedText(text: string, maxChars: number, marker: string): string {
 
 function copyText<K extends keyof AppContext["copy"]>(state: SessionState, key: K, fallback: string): string {
   return state.context?.copy[key] ?? fallback;
+}
+
+function isProviderNotReadyError(error: unknown): boolean {
+  return error instanceof NativeBridgeError && error.code === "providerNotReady";
 }
 
 function formatCopy<K extends keyof AppContext["copy"]>(

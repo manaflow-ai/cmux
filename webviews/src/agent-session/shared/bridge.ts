@@ -4,7 +4,7 @@ import { applyAgentTheme } from "./theme";
 
 type NativeReply<T> =
   | { ok: true; value: T }
-  | { ok: false; error?: { userMessage?: string } };
+  | { ok: false; error?: { code?: string; userMessage?: string } };
 
 type EventListener = (event: AgentEvent) => void;
 
@@ -25,6 +25,16 @@ declare global {
 }
 
 const listeners = new Set<EventListener>();
+
+export class NativeBridgeError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "NativeBridgeError";
+    this.code = code;
+  }
+}
 
 if (typeof window !== "undefined") {
   window.cmuxAgentBridge = {
@@ -65,7 +75,7 @@ export async function callNative<T>(method: string, params: Record<string, unkno
   })) as NativeReply<T>;
 
   if (!reply.ok) {
-    throw new Error(reply.error?.userMessage || "Native bridge request failed.");
+    throw new NativeBridgeError(reply.error?.userMessage || "Native bridge request failed.", reply.error?.code);
   }
 
   return reply.value;

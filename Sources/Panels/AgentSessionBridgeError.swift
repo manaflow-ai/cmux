@@ -10,6 +10,27 @@ enum AgentSessionBridgeError: LocalizedError {
     case providerNotReady(String)
     case unsupportedTransport(String)
 
+    var code: String {
+        switch self {
+        case .invalidRequest:
+            return "invalidRequest"
+        case .invalidProvider:
+            return "invalidProvider"
+        case .missingParameter:
+            return "missingParameter"
+        case .unsupportedMethod:
+            return "unsupportedMethod"
+        case .sessionNotFound:
+            return "sessionNotFound"
+        case .sessionAlreadyRunning:
+            return "sessionAlreadyRunning"
+        case .providerNotReady:
+            return "providerNotReady"
+        case .unsupportedTransport:
+            return "unsupportedTransport"
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .invalidRequest:
@@ -58,4 +79,3 @@ enum AgentSessionBridgeError: LocalizedError {
         }
     }
 }
-
