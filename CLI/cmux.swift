@@ -24682,15 +24682,18 @@ struct CMUXCLI {
             let body = message.isEmpty ? "Task completed" : message
             return ("Completed", body)
         }
+        if isGenericNeedsInputBody(message) {
+            return (claudeWaitingSubtitle(), message)
+        }
         if containsWaitingCue(lower) {
             let body = message.isEmpty ? "Waiting for input" : message
-            return ("Waiting", body)
+            return (claudeWaitingSubtitle(), body)
         }
         // Use the message directly if it's meaningful (not a generic placeholder).
         if !message.isEmpty, message != "Claude needs your input" {
-            return ("Attention", message)
+            return (claudeAttentionSubtitle(), message)
         }
-        return ("Attention", "Claude needs your attention")
+        return (claudeAttentionSubtitle(), "Claude needs your attention")
     }
 
     private func containsCompletionCue(_ lowercasedText: String) -> Bool {
