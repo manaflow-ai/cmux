@@ -5587,7 +5587,7 @@ extension CMUXCLI {
         try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
 
         let appSourceDirectory = try diffViewerBundledAppAssetDirectory(nextTo: sourceDirectory)
-        let appAssetDirectoryName = "cmux-diff-viewer-app"
+        let appAssetDirectoryName = "cmux-webviews-app"
         let targetAppDirectory = viewerURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent(appAssetDirectoryName, isDirectory: true)
@@ -5626,7 +5626,7 @@ extension CMUXCLI {
     private func diffViewerBundledAppAssetDirectory(nextTo sourceDirectory: URL) throws -> URL {
         let appDirectory = sourceDirectory
             .deletingLastPathComponent()
-            .appendingPathComponent("diff-viewer-app", isDirectory: true)
+            .appendingPathComponent("webviews-app", isDirectory: true)
             .standardizedFileURL
         let entry = appDirectory.appendingPathComponent("main.mjs", isDirectory: false)
         var isDirectory: ObjCBool = false

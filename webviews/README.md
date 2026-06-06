@@ -1,19 +1,19 @@
-# cmux Diff Viewer
+# cmux Webviews
 
-This is the source-owned React app for `cmux open diff`.
+This is the source-owned React bundle for embedded cmux webviews. It currently ships the `cmux diff` viewer and is structured to host more React-backed webviews.
 
 Build it with:
 
 ```sh
-./scripts/build-diff-viewer-app.sh
+./scripts/build-webviews-app.sh
 ```
 
-The build output is committed under `Resources/markdown-viewer/diff-viewer-app` because the macOS app serves local static files from its bundled resources. Keep source changes in this directory, then regenerate the bundled asset with the script above.
+The build output is committed under `Resources/markdown-viewer/webviews-app` because the macOS app serves local static files from its bundled resources. Keep source changes in this directory, then regenerate the bundled asset with the script above.
 
 React Compiler is enabled in `vite.config.mjs` with the React 19 runtime target. Verify the compiled bundle guard with:
 
 ```sh
-./scripts/check-diff-viewer-react-compiler.mjs
+./scripts/check-webviews-react-compiler.mjs
 ```
 
 Large public stress samples are available through:
