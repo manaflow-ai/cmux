@@ -5427,6 +5427,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var runtimeSurfaceSuspendedForAgentHibernation = false
     private var headlessStartupWindow: NSWindow?
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    private var claudeCommandShim: ClaudeCommandShim?
+    private var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
+    private var claudeCommandShimInstallCompleted = false
     /// Heap-allocated userdata for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
     /// `ghostty_surface_new` succeeds; released alongside
@@ -6361,6 +6364,43 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
+    private func claudeCommandShimStateForSurface(view: GhosttyNSView) -> (isReady: Bool, shim: ClaudeCommandShim?) {
+        guard let wrapperURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-claude-wrapper") else {
+            claudeCommandShimInstallCompleted = true
+            return (true, nil)
+        }
+
+        if claudeCommandShimInstallCompleted {
+            return (true, claudeCommandShim)
+        }
+
+        if claudeCommandShimInstallTask == nil {
+            let surfaceId = id
+            let installTask = Task.detached(priority: .utility) {
+                Self.installClaudeCommandShimIfPossible(wrapperURL: wrapperURL, surfaceId: surfaceId)
+            }
+            claudeCommandShimInstallTask = installTask
+            Task { @MainActor [weak self, weak view] in
+                let shim = await installTask.value
+                guard let self else { return }
+                self.claudeCommandShim = shim
+                self.claudeCommandShimInstallCompleted = true
+                self.claudeCommandShimInstallTask = nil
+                guard self.allowsRuntimeSurfaceCreation(), self.surface == nil else { return }
+                if let view, view.window != nil {
+                    self.createSurface(for: view)
+                } else if let attachedView = self.attachedView, attachedView.window != nil {
+                    self.createSurface(for: attachedView)
+                } else {
+                    self.scheduleHeadlessRuntimeStartIfNeeded(reason: "claude-shim-ready")
+                }
+            }
+        }
+
+        return (false, nil)
+    }
+
+    @MainActor
     private func createSurface(for view: GhosttyNSView) {
         guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
@@ -6374,6 +6414,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
             return
         }
+        let claudeShimState = claudeCommandShimStateForSurface(view: view)
+        guard claudeShimState.isReady else { return }
+        let claudeShim = claudeShimState.shim
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
 #endif
@@ -6506,9 +6549,24 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 ?? ProcessInfo.processInfo.environment["PATH"]
                 ?? ""
             if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
-                let separator = currentPath.isEmpty ? "" : ":"
-                setManagedEnvironmentValue("PATH", "\(cliBinPath)\(separator)\(currentPath)")
+                setManagedEnvironmentValue(
+                    "PATH",
+                    Self.pathByPrependingUniqueDirectory(cliBinPath, to: currentPath)
+                )
             }
+        }
+
+        if let claudeShim {
+            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM", claudeShim.executablePath)
+            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", claudeShim.directoryPath)
+            let currentPath = env["PATH"]
+                ?? getenv("PATH").map { String(cString: $0) }
+                ?? ProcessInfo.processInfo.environment["PATH"]
+                ?? ""
+            setManagedEnvironmentValue(
+                "PATH",
+                Self.pathByPrependingUniqueDirectory(claudeShim.directoryPath, to: currentPath)
+            )
         }
 
         // Shell integration: inject ZDOTDIR wrapper for zsh shells.
@@ -8025,6 +8083,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
 
     deinit {
+        claudeCommandShimInstallTask?.cancel()
         TerminalSurfaceRegistry.shared.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         closeHeadlessStartupWindowIfNeeded()

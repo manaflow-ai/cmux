@@ -43,3 +43,21 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 - `maxLiveTerminals`: how many live restorable agent terminals to keep before cmux hibernates the oldest idle background ones. Nothing hibernates while you are at or under this count. Default: `12`. Range: `1`-`256`.
 
 Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
+
+## `diffViewer.defaultLayout`
+
+Controls the initial layout for newly opened diff viewers.
+
+Values: `unified`, `split`.
+
+Default: `unified`.
+
+```json
+{
+  "diffViewer": {
+    "defaultLayout": "unified"
+  }
+}
+```
+
+The toolbar layout toggle persists the last user choice for future generated diff viewers. Passing `cmux diff --layout split` or `cmux diff --layout unified` overrides both the saved toolbar choice and this default for that invocation.

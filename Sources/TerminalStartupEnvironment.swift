@@ -2,11 +2,8 @@ import Foundation
 import CMUXAgentLaunch
 
 extension TerminalSurface {
-    struct CmuxContextEnvironment: Equatable, Sendable {
-        let workspaceId: UUID
-        let surfaceId: UUID
-        let socketPath: String
-    }
+    typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
+    typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
 
     static let managedTerminalType = "xterm-256color"
     static let managedTerminalProgram = "ghostty"
@@ -63,6 +60,64 @@ extension TerminalSurface {
         protectedKeys.insert("CMUX_NO_PR_WATCH")
     }
 
+    static func pathByPrependingUniqueDirectory(_ directory: String, to path: String) -> String {
+        let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDirectory.isEmpty else { return path }
+        let standardizedDirectory = URL(fileURLWithPath: trimmedDirectory, isDirectory: true)
+            .standardizedFileURL
+            .path
+        guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return standardizedDirectory
+        }
+        var entries = path
+            .split(separator: ":", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { entry in
+                let trimmedEntry = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedEntry.isEmpty else { return true }
+                return URL(fileURLWithPath: trimmedEntry, isDirectory: true)
+                    .standardizedFileURL
+                    .path != standardizedDirectory
+            }
+        entries.insert(standardizedDirectory, at: 0)
+        return entries.joined(separator: ":")
+    }
+
+    static func installClaudeCommandShimIfPossible(
+        wrapperURL: URL?,
+        surfaceId: UUID,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        fileManager: FileManager = .default
+    ) -> ClaudeCommandShim? {
+        guard let wrapperURL = wrapperURL?.standardizedFileURL,
+              fileManager.isExecutableFile(atPath: wrapperURL.path) else {
+            return nil
+        }
+
+        let shimDirectory = temporaryDirectory
+            .appendingPathComponent("cmux-cli-shims", isDirectory: true)
+            .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
+            .standardizedFileURL
+        let shimURL = shimDirectory.appendingPathComponent("claude", isDirectory: false)
+        do {
+            try fileManager.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+            let script = """
+            #!/usr/bin/env bash
+            export CMUX_CLAUDE_WRAPPER_SHIM=\(shellSingleQuoted(shimURL.path))
+            export CMUX_CLAUDE_WRAPPER_SHIM_ROOT=\(shellSingleQuoted(shimDirectory.path))
+            exec \(shellSingleQuoted(wrapperURL.path)) "$@"
+            """
+            try script.write(to: shimURL, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimURL.path)
+            return ClaudeCommandShim(
+                directoryPath: shimDirectory.path,
+                executablePath: shimURL.path
+            )
+        } catch {
+            return nil
+        }
+    }
+
     static func mergedStartupEnvironment(
         base: [String: String],
         protectedKeys: Set<String>,
@@ -91,5 +146,9 @@ extension TerminalSurface {
             )
         }
         return merged
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }
