@@ -26577,7 +26577,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             json.removeValue(forKey: "hooks")
             if json.isEmpty {
                 try FileManager.default.removeItem(at: legacyURL)
-                print(String(format: String(localized: "cli.hooks.legacy.removedFile", defaultValue: "Removed legacy %@ hooks at %@"), def.displayName, legacyURL.path))
+                print(Self.localizedLegacyHookRemovalMessage(displayName: def.displayName, path: legacyURL.path))
                 return
             }
         } else {
@@ -26585,7 +26585,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         try newData.write(to: legacyURL, options: .atomic)
-        print(Self.localizedLegacyHookRemovalMessage(count: removed, displayName: def.displayName, path: legacyURL.path))
+        print(Self.localizedLegacyHookRemovalMessage(displayName: def.displayName, path: legacyURL.path))
     }
 
     private func pruneLegacyCopilotConfigHooksIfNeeded(
@@ -26620,7 +26620,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
         }
         try newData.write(to: legacyURL, options: .atomic)
-        print(Self.localizedLegacyHookRemovalMessage(count: removed, displayName: def.displayName, path: legacyURL.path))
+        print(Self.localizedLegacyHookRemovalMessage(displayName: def.displayName, path: legacyURL.path))
     }
 
     private func printCopilotHookStorageNoteIfNeeded(def: AgentHookDef, filePath: String) {
@@ -26782,11 +26782,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         indexes[event, default: []].append(index)
     }
 
-    private static func localizedLegacyHookRemovalMessage(
-        count _: Int,
-        displayName: String,
-        path: String
-    ) -> String {
+    private static func localizedLegacyHookRemovalMessage(displayName: String, path: String) -> String {
         String(format: String(localized: "cli.hooks.legacy.removedFile", defaultValue: "Removed legacy %@ hooks at %@"), displayName, path)
     }
 
