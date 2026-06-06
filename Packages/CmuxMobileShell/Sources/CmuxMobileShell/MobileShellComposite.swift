@@ -48,6 +48,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
+    private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
     /// How long the render-grid stream may stay silent (no event of any topic)
@@ -79,6 +80,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public var pairingCode: String
     public var workspaces: [MobileWorkspacePreview]
+    /// Whether the connected Mac advertises the `workspace.actions.v1` capability
+    /// (rename/pin over the mobile RPC). `false` until host status is read, and
+    /// for older Macs that lack the handler, so the UI can hide rename/pin rather
+    /// than offer actions that would fail with `method_not_found`.
+    public private(set) var supportsWorkspaceActions: Bool = false
     public var terminalInputText: String
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
@@ -307,6 +313,62 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             _ = try await client.sendRequest(request)
         } catch {
             mobileShellLog.error("click forward failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
+    // MARK: - Workspace actions
+
+    /// Rename a workspace on the Mac.
+    ///
+    /// Fire-and-forget against the authoritative state: the Mac applies the title
+    /// and its workspace-list observer pushes `workspace.updated`, which refreshes
+    /// this list. No local optimistic mutation, so overlapping actions can never
+    /// leave stale state.
+    /// - Parameters:
+    ///   - id: The workspace to rename.
+    ///   - title: The new title. Whitespace-only titles are ignored.
+    public func renameWorkspace(id: MobileWorkspacePreview.ID, title: String) async {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let client = remoteClient else { return }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "workspace.action",
+                params: [
+                    "workspace_id": id.rawValue,
+                    "action": "rename",
+                    "title": trimmed,
+                    "client_id": clientID,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+        } catch {
+            mobileShellLog.error("workspace rename failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Pin or unpin a workspace on the Mac.
+    ///
+    /// Fire-and-forget against the authoritative state: the Mac toggles the pin
+    /// and its workspace-list observer (which watches `$isPinned`) pushes
+    /// `workspace.updated`, which refreshes this list. No local optimistic
+    /// mutation, so overlapping pin/unpin taps can never leave stale state.
+    /// - Parameters:
+    ///   - id: The workspace to pin or unpin.
+    ///   - pinned: `true` to pin, `false` to unpin.
+    public func setWorkspacePinned(id: MobileWorkspacePreview.ID, _ pinned: Bool) async {
+        guard let client = remoteClient else { return }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "workspace.action",
+                params: [
+                    "workspace_id": id.rawValue,
+                    "action": pinned ? "pin" : "unpin",
+                    "client_id": clientID,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+        } catch {
+            mobileShellLog.error("workspace pin failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
     }
 
@@ -1168,6 +1230,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
         terminalOutputTransport = .rawBytes
+        supportsWorkspaceActions = false
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -1446,8 +1509,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
                 terminalOutputTransport = fallback
+                supportsWorkspaceActions = false
                 return fallback
             }
+            supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
             let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
             terminalOutputTransport = transport
@@ -1455,6 +1520,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return transport
         } catch {
             terminalOutputTransport = fallback
+            supportsWorkspaceActions = false
             MobileDebugLog.anchormux("sync.transport=raw_bytes reason=status_failed")
             return fallback
         }
