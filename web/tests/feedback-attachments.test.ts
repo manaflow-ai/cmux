@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { prepareFeedbackAttachments } from "../app/api/feedback/attachments";
+import { prepareFeedbackAttachments } from "../services/feedbackAttachments";
 
 describe("feedback attachments", () => {
   test("accepts one diagnostics text attachment alongside image attachments", async () => {
@@ -48,11 +48,12 @@ describe("feedback attachments", () => {
       ],
     );
 
-    expect("errorResponse" in result).toBe(true);
-    if (!("errorResponse" in result)) {
-      throw new Error("expected an error response");
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) {
+      throw new Error("expected an error");
     }
-    expect(result.errorResponse.status).toBe(400);
+    expect(result.error.status).toBe(400);
+    expect(result.error.code).toBe("ERROR_TOO_MANY_DIAGNOSTICS");
   });
 
   test("rejects non-text diagnostics attachments", async () => {
@@ -63,10 +64,27 @@ describe("feedback attachments", () => {
       ],
     );
 
-    expect("errorResponse" in result).toBe(true);
-    if (!("errorResponse" in result)) {
-      throw new Error("expected an error response");
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) {
+      throw new Error("expected an error");
     }
-    expect(result.errorResponse.status).toBe(415);
+    expect(result.error.status).toBe(415);
+    expect(result.error.code).toBe("ERROR_UNSUPPORTED_DIAGNOSTICS_TYPE");
+  });
+
+  test("rejects malformed attachment parts", async () => {
+    const result = await prepareFeedbackAttachments(
+      ["not-a-file"],
+      [
+        new File(["cmux diagnostics"], "cmux-diagnostics.txt", { type: "text/plain" }),
+      ],
+    );
+
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) {
+      throw new Error("expected an error");
+    }
+    expect(result.error.status).toBe(400);
+    expect(result.error.code).toBe("ERROR_INVALID_IMAGE_ATTACHMENT");
   });
 });

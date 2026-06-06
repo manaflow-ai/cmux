@@ -58,7 +58,7 @@ public actor MobileDiagnosticsOSLogReader {
     /// Each entry is rendered as `time category [level] subsystem: message`.
     /// Entries are filtered to ``subsystems`` and the ``lookback`` window. This
     /// never throws: failures (no store access, no entries API on the platform)
-    /// produce `(os log unavailable: <reason>)`.
+    /// produce a stable sanitized unavailability note.
     ///
     /// - Returns: The formatted entries text, or an unavailability note.
     public func recentEntriesText() -> String {
@@ -86,7 +86,7 @@ public actor MobileDiagnosticsOSLogReader {
             }
             return lines.joined(separator: "\n")
         } catch {
-            return "(os log unavailable: \(error.localizedDescription))"
+            return "(os log unavailable: read failed)"
         }
         #else
         return "(os log unavailable: OSLog not importable on this platform)"

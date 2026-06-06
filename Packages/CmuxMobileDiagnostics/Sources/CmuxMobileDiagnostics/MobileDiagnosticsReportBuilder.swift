@@ -193,16 +193,14 @@ public actor MobileDiagnosticsReportBuilder {
         "\(title)\n\(Self.sectionRule)\n\(body)"
     }
 
-    /// Write `text` to a stable-named `.txt` file in the temp directory.
+    /// Write `text` to a uniquely named `.txt` file in the temp directory.
     ///
-    /// The filename is fixed (`cmux-diagnostics.txt`) rather than timestamped so
-    /// repeated builds (the report is rebuilt each time the terminal picker opens)
-    /// overwrite one file instead of accumulating temp files; the generation time
-    /// already lives in the report header. The share sheet still presents a clean
-    /// filename. Write failures are swallowed (a partial share is still possible);
-    /// the caller never sees a thrown error.
+    /// Each build receives its own URL so an older `ShareLink` export cannot race
+    /// with a later picker-open rebuild that overwrites the same file. Write
+    /// failures are swallowed (a partial share is still possible); the caller
+    /// never sees a thrown error.
     private func writeToTemporaryFile(_ text: String) -> URL {
-        let url = temporaryDirectory.appendingPathComponent("cmux-diagnostics.txt")
+        let url = temporaryDirectory.appendingPathComponent("cmux-diagnostics-\(UUID().uuidString).txt")
         try? text.data(using: .utf8)?.write(to: url, options: .atomic)
         return url
     }

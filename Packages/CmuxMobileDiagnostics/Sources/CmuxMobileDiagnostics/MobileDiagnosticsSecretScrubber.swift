@@ -79,7 +79,9 @@ public struct MobileDiagnosticsSecretScrubber: Sendable {
             in: text,
             range: NSRange(location: 0, length: nsText.length)
         )
-        let mutable = nsText.mutableCopy() as! NSMutableString
+        guard let mutable = nsText.mutableCopy() as? NSMutableString else {
+            return text
+        }
         for match in matches.reversed() {
             guard match.numberOfRanges > group else { continue }
             let valueRange = match.range(at: group)

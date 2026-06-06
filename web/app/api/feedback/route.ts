@@ -4,8 +4,9 @@ import { Resend } from "resend";
 import { z } from "zod";
 
 import { env } from "@/app/env";
+import { prepareFeedbackAttachments } from "@/services/feedbackAttachments";
+import type { PreparedFeedbackAttachment } from "@/services/feedbackAttachments";
 import { recordSpanError, setSpanAttributes, withApiRouteSpan } from "../../../services/telemetry";
-import { PreparedFeedbackAttachment, prepareFeedbackAttachments } from "./attachments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
     async (span): Promise<Response> => {
       const feedbackConfig = resolveFeedbackConfig();
       if (!feedbackConfig) {
-        return jsonError("Feedback endpoint is not configured", 503);
+        return jsonError("ERROR_FEEDBACK_NOT_CONFIGURED", 503);
       }
 
       if (process.env.VERCEL === "1") {
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
 
         setSpanAttributes(span, { "cmux.rate_limited": rateLimited || error === "blocked" });
         if (rateLimited || error === "blocked") {
-          return jsonError("Rate limit exceeded", 429);
+          return jsonError("ERROR_RATE_LIMIT_EXCEEDED", 429);
         }
 
         if (error === "not-found") {
@@ -64,7 +65,7 @@ export async function POST(request: Request) {
       try {
         formData = await request.formData();
       } catch {
-        return jsonError("Invalid multipart payload", 400);
+        return jsonError("ERROR_INVALID_MULTIPART_PAYLOAD", 400);
       }
 
       const parsed = feedbackSchema.safeParse({
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
       });
 
       if (!parsed.success) {
-        return jsonError("Invalid feedback payload", 400);
+        return jsonError("ERROR_INVALID_FEEDBACK_PAYLOAD", 400);
       }
       setSpanAttributes(span, {
         "cmux.feedback.message_length": parsed.data.message.length,
@@ -95,8 +96,8 @@ export async function POST(request: Request) {
         formData.getAll("attachments"),
         formData.getAll("diagnostics"),
       );
-      if ("errorResponse" in attachmentsResult) {
-        return attachmentsResult.errorResponse;
+      if ("error" in attachmentsResult) {
+        return jsonError(attachmentsResult.error.code, attachmentsResult.error.status);
       }
 
       const {
@@ -158,7 +159,7 @@ export async function POST(request: Request) {
       if (error) {
         recordSpanError(span, error);
         console.error("feedback.route.resend_failed", error);
-        return jsonError("Failed to send feedback", 502);
+        return jsonError("ERROR_SEND_FEEDBACK_FAILED", 502);
       }
 
       return NextResponse.json(
@@ -319,9 +320,9 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#39;");
 }
 
-function jsonError(message: string, status: number) {
+function jsonError(code: string, status: number) {
   return NextResponse.json(
-    { error: message },
+    { error: code, code },
     {
       status,
       headers: {

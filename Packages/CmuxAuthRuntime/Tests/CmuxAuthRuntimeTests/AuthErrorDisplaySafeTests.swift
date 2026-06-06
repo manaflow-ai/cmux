@@ -38,8 +38,9 @@ import Testing
                 for: StackAuthError(code: "RATE_LIMIT", message: "secret-ish message")
             )
         )
-        #expect(description == "StackAuthError code=RATE_LIMIT")
+        #expect(description == "code=RATE_LIMIT")
         #expect(!description.contains("secret-ish message"))
+        #expect(!description.contains("Stack"))
 
         let generic = try #require(
             AuthError.diagnosticsDescription(

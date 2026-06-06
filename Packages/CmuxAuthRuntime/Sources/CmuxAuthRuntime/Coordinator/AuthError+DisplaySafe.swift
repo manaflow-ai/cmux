@@ -78,7 +78,7 @@ extension AuthError {
             return displayError.localizedDescription
         }
         if let stackError = error as? any StackAuthErrorProtocol {
-            return "StackAuthError code=\(stackError.code)"
+            return "code=\(stackError.code)"
         }
         return error.localizedDescription
     }

@@ -27,7 +27,7 @@ struct WorkspaceDetailView: View {
     @State private var isTerminalPickerPresented = false
     #if canImport(UIKit)
     @State private var diagnosticsReport: MobileDiagnosticsReport?
-    @State private var isBuildingDiagnostics = false
+    @State private var diagnosticsOpenNonce = UUID()
     @State private var isFeedbackComposerPresented = false
     @State private var shouldPresentFeedbackAfterPickerDismisses = false
     #endif
@@ -140,6 +140,7 @@ struct WorkspaceDetailView: View {
         Button {
             dismissTerminalKeyboardForChrome()
             #if canImport(UIKit)
+            diagnosticsOpenNonce = UUID()
             diagnosticsReport = nil
             #endif
             isTerminalPickerPresented = true
@@ -231,8 +232,9 @@ struct WorkspaceDetailView: View {
         // Build the report once when the picker opens so both the Copy action and
         // the synchronous-item `ShareLink` can use it. Rebuilt each open so the
         // snapshot is fresh.
-        .task {
-            await prepareDiagnosticsReport()
+        .task(id: diagnosticsOpenNonce) {
+            let nonce = diagnosticsOpenNonce
+            await prepareDiagnosticsReport(for: nonce)
         }
         #endif
     }
@@ -319,26 +321,36 @@ struct WorkspaceDetailView: View {
     /// snapshot the report builder consumes.
     private var diagnosticsLiveState: MobileDiagnosticsLiveState {
         let host = store.connectedHostName.isEmpty ? nil : store.connectedHostName
+        let activeTicket = store.activeTicket
         return MobileDiagnosticsLiveState(
-            connectionState: store.connectionState == .connected ? "connected" : "disconnected",
+            connectionState: diagnosticsConnectionState,
             isSignedIn: store.isSignedIn,
             isAuthenticated: authManager.isAuthenticated,
             lastAuthError: authManager.lastAuthErrorDescription,
             connectedHostName: host,
-            pairedMacName: host,
-            pairedMacDeviceID: nil,
+            pairedMacName: activeTicket?.macDisplayName ?? activeTicket?.macDeviceID,
+            pairedMacDeviceID: activeTicket?.macDeviceID,
             connectionError: store.connectionError
         )
     }
 
+    private var diagnosticsConnectionState: String {
+        switch connectionStatus {
+        case .connected:
+            return "connected"
+        case .reconnecting:
+            return "reconnecting"
+        case .unavailable:
+            return "unavailable"
+        }
+    }
+
     /// Runs when the picker opens so both Copy and `ShareLink` have a ready item.
     @MainActor
-    private func prepareDiagnosticsReport() async {
-        guard !isBuildingDiagnostics else { return }
-        isBuildingDiagnostics = true
-        defer { isBuildingDiagnostics = false }
-
-        diagnosticsReport = await buildDiagnosticsReport()
+    private func prepareDiagnosticsReport(for nonce: UUID) async {
+        let report = await buildDiagnosticsReport()
+        guard diagnosticsOpenNonce == nonce, !Task.isCancelled else { return }
+        diagnosticsReport = report
     }
 
     /// Builds the diagnostics report (in-process log + OS log + live state +
