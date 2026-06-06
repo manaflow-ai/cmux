@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 import CMUXWorkstream
 
 #if canImport(cmux_DEV)
@@ -7,76 +8,80 @@ import CMUXWorkstream
 @testable import cmux
 #endif
 
-final class FeedCoordinatorTests: XCTestCase {
-    func testCodexTeamsResolvesExplicitWorkingDirectoryFlags() throws {
+@Suite("Feed coordinator")
+struct FeedCoordinatorTests {
+    @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 
-        XCTAssertEqual(
+        #expect(
             CMUXCLI.codexTeamsResolvedWorkingDirectory(
                 commandArgs: ["-C", "child", "prompt"],
                 baseDirectory: base
-            ),
-            "/tmp/cmux-base/child"
+            ) == "/tmp/cmux-base/child"
         )
-        XCTAssertEqual(
+        #expect(
             CMUXCLI.codexTeamsResolvedWorkingDirectory(
                 commandArgs: ["--cwd=/tmp/cmux-review", "--cd", "/tmp/cmux-final"],
                 baseDirectory: base
-            ),
-            "/tmp/cmux-final"
+            ) == "/tmp/cmux-final"
         )
-        XCTAssertNil(
+        #expect(
             CMUXCLI.codexTeamsResolvedWorkingDirectory(
                 commandArgs: ["--", "-C", "/tmp/inside-prompt"],
                 baseDirectory: base
-            )
+            ) == nil
         )
     }
 
-    func testCodexTeamsValidatesExplicitWorkingDirectoryExists() throws {
+    @Test func codexTeamsValidatesExplicitWorkingDirectoryExists() throws {
         let existing = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-teams-cwd-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: existing) }
 
-        XCTAssertNoThrow(
+        do {
             try CMUXCLI.validateCodexTeamsWorkingDirectory(
                 commandArgs: ["-C", existing.path],
                 baseDirectory: "/tmp"
             )
-        )
+        } catch {
+            Issue.record("existing Codex Teams cwd should validate: \(error)")
+        }
 
-        XCTAssertThrowsError(
+        do {
             try CMUXCLI.validateCodexTeamsWorkingDirectory(
                 commandArgs: ["-C", existing.appendingPathComponent("missing").path],
                 baseDirectory: "/tmp"
             )
-        )
+            Issue.record("missing Codex Teams cwd should throw")
+        } catch {
+            // expected
+        }
     }
 
-    func testClaudePermissionActionPolicyKeepsBypassUserOwned() {
-        XCTAssertTrue(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .claude))
-        XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .claude))
-        XCTAssertTrue(CMUXCLI.feedSourceSupportsPersistentPermissionModes("claude"))
-        XCTAssertFalse(CMUXCLI.feedSourceSupportsBypassPermissions("claude"))
+    @Test func claudePermissionActionPolicyKeepsBypassUserOwned() {
+        #expect(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .claude))
+        #expect(!FeedPermissionActionPolicy.supportsBypassPermissions(source: .claude))
+        #expect(CMUXCLI.feedSourceSupportsPersistentPermissionModes("claude"))
+        #expect(!CMUXCLI.feedSourceSupportsBypassPermissions("claude"))
 
-        XCTAssertTrue(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .codex))
-        XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .codex))
-        XCTAssertTrue(CMUXCLI.feedSourceSupportsPersistentPermissionModes("codex"))
-        XCTAssertFalse(CMUXCLI.feedSourceSupportsBypassPermissions("codex"))
+        #expect(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .codex))
+        #expect(!FeedPermissionActionPolicy.supportsBypassPermissions(source: .codex))
+        #expect(CMUXCLI.feedSourceSupportsPersistentPermissionModes("codex"))
+        #expect(!CMUXCLI.feedSourceSupportsBypassPermissions("codex"))
 
-        XCTAssertTrue(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .opencode))
-        XCTAssertTrue(FeedPermissionActionPolicy.supportsBypassPermissions(source: .opencode))
-        XCTAssertTrue(CMUXCLI.feedSourceSupportsPersistentPermissionModes("opencode"))
-        XCTAssertTrue(CMUXCLI.feedSourceSupportsBypassPermissions("opencode"))
+        #expect(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .opencode))
+        #expect(FeedPermissionActionPolicy.supportsBypassPermissions(source: .opencode))
+        #expect(CMUXCLI.feedSourceSupportsPersistentPermissionModes("opencode"))
+        #expect(CMUXCLI.feedSourceSupportsBypassPermissions("opencode"))
 
-        XCTAssertFalse(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .hermesAgent))
-        XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .hermesAgent))
-        XCTAssertFalse(CMUXCLI.feedSourceSupportsPersistentPermissionModes("hermes-agent"))
-        XCTAssertFalse(CMUXCLI.feedSourceSupportsBypassPermissions("hermes-agent"))
+        #expect(!FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .hermesAgent))
+        #expect(!FeedPermissionActionPolicy.supportsBypassPermissions(source: .hermesAgent))
+        #expect(!CMUXCLI.feedSourceSupportsPersistentPermissionModes("hermes-agent"))
+        #expect(!CMUXCLI.feedSourceSupportsBypassPermissions("hermes-agent"))
     }
 
-    func testCodexAppServerApprovalBuildsActionableFeedEvent() throws {
+    @Test func codexAppServerApprovalBuildsActionableFeedEvent() throws {
         let event = CMUXCLI.codexTeamsFeedEvent(
             method: "item/commandExecution/requestApproval",
             requestId: 41,
@@ -105,33 +110,33 @@ final class FeedCoordinatorTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(event["session_id"] as? String, "codex-thread-1")
-        XCTAssertEqual(event["hook_event_name"] as? String, "PermissionRequest")
-        XCTAssertEqual(event["_source"] as? String, "codex")
-        XCTAssertEqual(event["workspace_id"] as? String, "workspace-1")
-        XCTAssertEqual(event["_opencode_request_id"] as? String, "codex-app-server-approval-1")
-        XCTAssertEqual(event["tool_name"] as? String, "Bash")
-        XCTAssertEqual(event["cwd"] as? String, "/tmp/project")
+        #expect(event["session_id"] as? String == "codex-thread-1")
+        #expect(event["hook_event_name"] as? String == "PermissionRequest")
+        #expect(event["_source"] as? String == "codex")
+        #expect(event["workspace_id"] as? String == "workspace-1")
+        #expect(event["_opencode_request_id"] as? String == "codex-app-server-approval-1")
+        #expect(event["tool_name"] as? String == "Bash")
+        #expect(event["cwd"] as? String == "/tmp/project")
 
-        let toolInput = try XCTUnwrap(event["tool_input"] as? [String: Any])
-        XCTAssertEqual(toolInput["app_server_method"] as? String, "item/commandExecution/requestApproval")
-        XCTAssertEqual(toolInput["request_id"] as? String, "41")
-        XCTAssertEqual(toolInput["item_id"] as? String, "approval-1")
-        XCTAssertEqual(toolInput["turn_id"] as? String, "turn-1")
-        XCTAssertEqual(toolInput["command"] as? String, "touch /tmp/cmux-security-review")
-        XCTAssertNotNil(toolInput["approval_params"])
-        XCTAssertNotNil(toolInput["additional_permissions"])
-        XCTAssertNotNil(toolInput["network_approval_context"])
-        XCTAssertNotNil(toolInput["command_actions"])
-        XCTAssertNotNil(toolInput["proposed_execpolicy_amendment"])
-        XCTAssertEqual((toolInput["related_item"] as? [String: Any])?["type"] as? String, "commandExecution")
+        let toolInput = try #require(event["tool_input"] as? [String: Any])
+        #expect(toolInput["app_server_method"] as? String == "item/commandExecution/requestApproval")
+        #expect(toolInput["request_id"] as? String == "41")
+        #expect(toolInput["item_id"] as? String == "approval-1")
+        #expect(toolInput["turn_id"] as? String == "turn-1")
+        #expect(toolInput["command"] as? String == "touch /tmp/cmux-security-review")
+        #expect(toolInput["approval_params"] != nil)
+        #expect(toolInput["additional_permissions"] != nil)
+        #expect(toolInput["network_approval_context"] != nil)
+        #expect(toolInput["command_actions"] != nil)
+        #expect(toolInput["proposed_execpolicy_amendment"] != nil)
+        #expect((toolInput["related_item"] as? [String: Any])?["type"] as? String == "commandExecution")
 
-        let context = try XCTUnwrap(event["context"] as? [String: Any])
-        XCTAssertEqual(context["permissionMode"] as? String, "codex app-server")
-        XCTAssertEqual(context["assistantPreamble"] as? String, "requires approval")
+        let context = try #require(event["context"] as? [String: Any])
+        #expect(context["permissionMode"] as? String == "codex app-server")
+        #expect(context["assistantPreamble"] as? String == "requires approval")
     }
 
-    func testCodexAppServerPermissionsApprovalBuildsFeedEventAndResponse() throws {
+    @Test func codexAppServerPermissionsApprovalBuildsFeedEventAndResponse() throws {
         let permissions: [String: Any] = [
             "network": ["enabled": true],
             "fileSystem": [
@@ -154,70 +159,67 @@ final class FeedCoordinatorTests: XCTestCase {
             workspaceId: "workspace-1"
         )
 
-        XCTAssertEqual(event["tool_name"] as? String, "request_permissions")
-        XCTAssertEqual(event["_opencode_request_id"] as? String, "codex-app-server-permissions-call")
-        let toolInput = try XCTUnwrap(event["tool_input"] as? [String: Any])
-        XCTAssertEqual(toolInput["app_server_method"] as? String, "item/permissions/requestApproval")
-        XCTAssertNotNil(toolInput["approval_params"])
-        XCTAssertNotNil(toolInput["permissions"])
+        #expect(event["tool_name"] as? String == "request_permissions")
+        #expect(event["_opencode_request_id"] as? String == "codex-app-server-permissions-call")
+        let toolInput = try #require(event["tool_input"] as? [String: Any])
+        #expect(toolInput["app_server_method"] as? String == "item/permissions/requestApproval")
+        #expect(toolInput["approval_params"] != nil)
+        #expect(toolInput["permissions"] != nil)
 
-        let once = try XCTUnwrap(
+        let once = try #require(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/permissions/requestApproval",
                 params: ["permissions": permissions],
                 mode: "once"
             )
         )
-        XCTAssertEqual(once["scope"] as? String, "turn")
-        XCTAssertNotNil(once["permissions"])
+        #expect(once["scope"] as? String == "turn")
+        #expect(once["permissions"] != nil)
 
-        let always = try XCTUnwrap(
+        let always = try #require(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/permissions/requestApproval",
                 params: ["permissions": permissions],
                 mode: "always"
             )
         )
-        XCTAssertEqual(always["scope"] as? String, "session")
+        #expect(always["scope"] as? String == "session")
 
-        let deny = try XCTUnwrap(
+        let deny = try #require(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/permissions/requestApproval",
                 params: ["permissions": permissions],
                 mode: "deny"
             )
         )
-        XCTAssertEqual(deny["scope"] as? String, "turn")
-        XCTAssertEqual((deny["permissions"] as? [String: Any])?.isEmpty, true)
+        #expect(deny["scope"] as? String == "turn")
+        #expect((deny["permissions"] as? [String: Any])?.isEmpty == true)
     }
 
-    func testCodexAppServerApprovalResponseFollowsFeedDecision() {
+    @Test func codexAppServerApprovalResponseFollowsFeedDecision() {
         let params: [String: Any] = [
             "availableDecisions": ["accept", "acceptForSession", "decline"]
         ]
 
-        XCTAssertEqual(
+        #expect(
             CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: [
                 "status": "resolved",
                 "decision": ["kind": "permission", "mode": "always"]
-            ]),
-            "always"
+            ]) == "always"
         )
-        XCTAssertEqual(
+        #expect(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/commandExecution/requestApproval",
                 params: params,
                 mode: "always"
-            )?["decision"] as? String,
-            "acceptForSession"
+            )?["decision"] as? String == "acceptForSession"
         )
-        XCTAssertEqual(
+        #expect(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/commandExecution/requestApproval",
                 params: [:],
                 mode: "always"
-            )?["decision"] as? String,
-            "acceptForSession"
+            )?["decision"] as? String == "acceptForSession"
         )
         let amendmentDecision = CMUXCLI.codexTeamsAppServerApprovalResponse(
             method: "item/commandExecution/requestApproval",
@@ -227,7 +229,7 @@ final class FeedCoordinatorTests: XCTestCase {
             ],
             mode: "always"
         )?["decision"] as? [String: Any]
-        XCTAssertNotNil(amendmentDecision?["acceptWithExecpolicyAmendment"])
+        #expect(amendmentDecision?["acceptWithExecpolicyAmendment"] != nil)
         let onceAmendmentDecision = CMUXCLI.codexTeamsAppServerApprovalResponse(
             method: "item/commandExecution/requestApproval",
             params: [
@@ -236,7 +238,7 @@ final class FeedCoordinatorTests: XCTestCase {
             ],
             mode: "once"
         )?["decision"] as? [String: Any]
-        XCTAssertNotNil(onceAmendmentDecision?["applyNetworkPolicyAmendment"])
+        #expect(onceAmendmentDecision?["applyNetworkPolicyAmendment"] != nil)
         let unspecifiedAmendmentDecision = CMUXCLI.codexTeamsAppServerApprovalResponse(
             method: "item/commandExecution/requestApproval",
             params: [
@@ -244,7 +246,7 @@ final class FeedCoordinatorTests: XCTestCase {
             ],
             mode: "all"
         )?["decision"] as? [String: Any]
-        XCTAssertNotNil(unspecifiedAmendmentDecision?["acceptWithExecpolicyAmendment"])
+        #expect(unspecifiedAmendmentDecision?["acceptWithExecpolicyAmendment"] != nil)
         let mixedParams: [String: Any] = [
             "availableDecisions": [
                 "acceptForSession",
@@ -252,64 +254,58 @@ final class FeedCoordinatorTests: XCTestCase {
             ],
             "proposedExecpolicyAmendment": [["kind": "prefix", "value": "npm test"]]
         ]
-        XCTAssertEqual(
+        #expect(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/commandExecution/requestApproval",
                 params: mixedParams,
                 mode: "always"
-            )?["decision"] as? String,
-            "acceptForSession"
+            )?["decision"] as? String == "acceptForSession"
         )
         let allToolsDecision = CMUXCLI.codexTeamsAppServerApprovalResponse(
             method: "item/commandExecution/requestApproval",
             params: mixedParams,
             mode: "all"
         )?["decision"] as? [String: Any]
-        XCTAssertNotNil(allToolsDecision?["acceptWithExecpolicyAmendment"])
-        XCTAssertEqual(
+        #expect(allToolsDecision?["acceptWithExecpolicyAmendment"] != nil)
+        #expect(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/commandExecution/requestApproval",
                 params: ["availableDecisions": ["decline"]],
                 mode: "once"
-            )?["decision"] as? String,
-            "decline"
+            )?["decision"] as? String == "decline"
         )
-        XCTAssertEqual(
+        #expect(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/fileChange/requestApproval",
                 params: [:],
                 mode: "once"
-            )?["decision"] as? String,
-            "accept"
+            )?["decision"] as? String == "accept"
         )
-        XCTAssertEqual(
+        #expect(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/fileChange/requestApproval",
                 params: [:],
                 mode: "always"
-            )?["decision"] as? String,
-            "acceptForSession"
+            )?["decision"] as? String == "acceptForSession"
         )
-        XCTAssertEqual(
+        #expect(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/fileChange/requestApproval",
                 params: ["availableDecisions": ["accept", "decline"]],
                 mode: "always"
-            )?["decision"] as? String,
-            "accept"
+            )?["decision"] as? String == "accept"
         )
-        XCTAssertEqual(
+        #expect(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/commandExecution/requestApproval",
                 params: params,
                 mode: "deny"
-            )?["decision"] as? String,
-            "decline"
+            )?["decision"] as? String == "decline"
         )
-        XCTAssertNil(CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: ["status": "timed_out"]))
+        #expect(CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: ["status": "timed_out"]) == nil)
     }
 
-    func testCodexApprovalItemSnapshotStripsLargePayloads() {
+    @Test func codexApprovalItemSnapshotStripsLargePayloads() throws {
         let snapshot = CMUXCLI.codexTeamsApprovalItemSnapshot([
             "id": "call-1",
             "type": "commandExecution",
@@ -324,16 +320,16 @@ final class FeedCoordinatorTests: XCTestCase {
             ]
         ])
 
-        XCTAssertEqual(snapshot["id"] as? String, "call-1")
-        XCTAssertEqual(snapshot["cwd"] as? String, "/tmp/project")
-        XCTAssertEqual((snapshot["command"] as? String)?.count, 4_096)
-        XCTAssertNil(snapshot["output"])
-        let changes = snapshot["changes"] as? [[String: Any]]
-        XCTAssertEqual(changes?.first?["path"] as? String, "/tmp/file.txt")
-        XCTAssertNil(changes?.first?["diff"])
+        #expect(snapshot["id"] as? String == "call-1")
+        #expect(snapshot["cwd"] as? String == "/tmp/project")
+        #expect((snapshot["command"] as? String)?.count == 4_096)
+        #expect(snapshot["output"] == nil)
+        let changes = try #require(snapshot["changes"] as? [[String: Any]])
+        #expect(changes.first?["path"] as? String == "/tmp/file.txt")
+        #expect(changes.first?["diff"] == nil)
     }
 
-    func testBlockingIngestExpiresItemWhenHookTimesOut() async {
+    @Test func blockingIngestExpiresItemWhenHookTimesOut() async {
         await MainActor.run {
             let store = WorkstreamStore(ringCapacity: 10)
             FeedCoordinator.shared.install(store: store)
@@ -349,7 +345,7 @@ final class FeedCoordinatorTests: XCTestCase {
             requestId: "timeout-request"
         )
 
-        let done = expectation(description: "blocking ingest timed out")
+        let done = DispatchSemaphore(value: 0)
         let resultBox = IngestResultBox()
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -357,13 +353,13 @@ final class FeedCoordinatorTests: XCTestCase {
                 event: event,
                 waitTimeout: 0.05
             )
-            done.fulfill()
+            done.signal()
         }
 
-        await fulfillment(of: [done], timeout: 2)
+        #expect(done.wait(timeout: .now() + 2) == .success)
 
         guard case .timedOut = resultBox.value else {
-            XCTFail("expected feed.push to time out")
+            Issue.record("expected feed.push to time out")
             return
         }
 
@@ -371,16 +367,16 @@ final class FeedCoordinatorTests: XCTestCase {
             FeedCoordinator.shared.store.items.first?.status
         }
         guard case .expired = status else {
-            XCTFail("timed-out hook item should be expired")
+            Issue.record("timed-out hook item should be expired")
             return
         }
     }
 
-    func testBlockingIngestSkipsNotificationWhenPermissionResolvesBeforeDisplay() async {
+    @Test func blockingIngestSkipsNotificationWhenPermissionResolvesBeforeDisplay() async {
         let requestId = "auto-allow-request"
         let notifications = NotificationRequestRecorder()
 
-        addTeardownBlock {
+        defer {
             Self.resetFeedCoordinatorTestHooks()
         }
 
@@ -410,7 +406,7 @@ final class FeedCoordinatorTests: XCTestCase {
             requestId: requestId
         )
 
-        let done = expectation(description: "blocking ingest resolved")
+        let done = DispatchSemaphore(value: 0)
         let resultBox = IngestResultBox()
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -418,29 +414,27 @@ final class FeedCoordinatorTests: XCTestCase {
                 event: event,
                 waitTimeout: 1
             )
-            done.fulfill()
+            done.signal()
         }
 
-        await fulfillment(of: [done], timeout: 2)
+        #expect(done.wait(timeout: .now() + 2) == .success)
 
         await MainActor.run {}
 
-        if case .resolved(_, .permission(.once)) = resultBox.value {
-            // ok
-        } else {
-            XCTFail("expected auto-allowed permission request to resolve")
+        guard case .resolved(_, .permission(.once)) = resultBox.value else {
+            Issue.record("expected auto-allowed permission request to resolve")
+            return
         }
 
         let status = await MainActor.run {
             FeedCoordinator.shared.store.items.first?.status
         }
-        if case .resolved(.permission(.once), _) = status {
-            // ok
-        } else {
-            XCTFail("auto-allowed hook item should be resolved")
+        guard case .resolved(.permission(.once), _) = status else {
+            Issue.record("auto-allowed hook item should be resolved")
+            return
         }
 
-        XCTAssertTrue(
+        #expect(
             notifications.requestIds.isEmpty,
             "auto-allowed permission requests should not post native notifications"
         )

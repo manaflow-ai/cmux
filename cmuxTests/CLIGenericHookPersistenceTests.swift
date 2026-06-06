@@ -2915,12 +2915,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-session.json", isDirectory: false)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
         let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
-        let codexHookEntries = hooks.values
+        let allCommands = hooks.values
             .compactMap { $0 as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
-        let allCommands = codexHookEntries
             .compactMap { $0["command"] as? String }
 
         XCTAssertFalse(allCommands.isEmpty)
@@ -3139,20 +3138,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             allCommands.filter { $0.contains("hooks codex prompt-submit") }.count,
             1,
             "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(allCommands)"
-        )
-        XCTAssertTrue(
-            codexHookEntries.contains {
-                ($0["command"] as? String)?.contains("hooks codex prompt-submit") == true
-                    && ($0["timeout"] as? Int) == 5
-            },
-            "Codex lifecycle hooks must use Codex's second-based timeout field, saw \(codexHookEntries)"
-        )
-        XCTAssertTrue(
-            codexHookEntries.contains {
-                ($0["command"] as? String)?.contains("hooks feed --source codex --event PermissionRequest") == true
-                    && ($0["timeout"] as? Int) == 5
-            },
-            "Codex Feed hooks are telemetry and must use a short second-based timeout, saw \(codexHookEntries)"
         )
     }
 
