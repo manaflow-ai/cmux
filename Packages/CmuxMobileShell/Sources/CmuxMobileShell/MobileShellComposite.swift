@@ -63,6 +63,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// failing the silence check because `lastTerminalEventAt` stays fresh).
     private static let renderGridLivenessCheckInterval: TimeInterval = 2.5
 
+    /// Whether the mobile shell currently has a signed-in auth session.
     public private(set) var isSignedIn: Bool {
         didSet {
             guard oldValue != isSignedIn else { return }
@@ -73,6 +74,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             MobileDebugLog.shared.append("auth.signedIn=\(isSignedIn)")
         }
     }
+    /// Coarse pairing/workspace phase used by the shell state machine.
     public private(set) var connectionState: MobileConnectionState {
         didSet {
             guard oldValue != connectionState else { return }
@@ -82,8 +84,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             MobileDebugLog.shared.append("conn.state=\(connectionState) host=\(host)")
         }
     }
+    /// User-facing health of the current Mac connection.
     public private(set) var macConnectionStatus: MobileMacConnectionStatus
+    /// Display name or host of the connected Mac, when a connection is active.
     public private(set) var connectedHostName: String
+    /// Last connection error surfaced to the user, if any.
     public private(set) var connectionError: String? {
         didSet {
             // Release-path high-signal event: every connection/RPC/pairing
@@ -93,9 +98,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             MobileDebugLog.shared.append("conn.error=\(error)")
         }
     }
+    /// In-memory attach ticket for the current connection attempt.
     public private(set) var activeTicket: CmxAttachTicket?
+    /// Persisted active Mac pairing, retained for diagnostics while offline.
     public private(set) var activePairedMac: MobilePairedMac?
+    /// Route currently selected from the active attach ticket.
     public private(set) var activeRoute: CmxAttachRoute?
+    /// Whether the active ticket still has a non-expired auth token.
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
               activeTicket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {

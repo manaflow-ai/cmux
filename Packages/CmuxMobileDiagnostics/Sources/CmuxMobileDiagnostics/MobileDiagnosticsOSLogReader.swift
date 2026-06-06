@@ -87,10 +87,10 @@ public actor MobileDiagnosticsOSLogReader {
                 guard let logEntry = entry as? OSLogEntryLog else { continue }
                 guard subsystems.contains(logEntry.subsystem) else { continue }
                 let time = formatter.string(from: logEntry.date)
-                let level = Self.levelLabel(logEntry.level)
+                let level = mobileDiagnosticsOSLogLevelLabel(logEntry.level)
                 let category = logEntry.category.isEmpty ? "-" : logEntry.category
                 let line = "\(time) \(category) [\(level)] \(logEntry.subsystem): \(logEntry.composedMessage)"
-                guard Self.appendCappedLine(
+                guard appendMobileDiagnosticsCappedLine(
                     line,
                     to: &lines,
                     renderedBytes: &renderedBytes,
@@ -108,7 +108,7 @@ public actor MobileDiagnosticsOSLogReader {
                     : "(no matching os log entries in the last \(Int(lookback))s)"
             }
             if truncated {
-                _ = Self.appendCappedLine(
+                _ = appendMobileDiagnosticsCappedLine(
                     "(os log truncated)",
                     to: &lines,
                     renderedBytes: &renderedBytes,
@@ -126,37 +126,40 @@ public actor MobileDiagnosticsOSLogReader {
     }
 
     #if canImport(OSLog)
-    /// Short human label for an OSLog entry level.
-    private static func levelLabel(_ level: OSLogEntryLog.Level) -> String {
-        switch level {
-        case .undefined: return "undefined"
-        case .debug: return "debug"
-        case .info: return "info"
-        case .notice: return "notice"
-        case .error: return "error"
-        case .fault: return "fault"
-        @unknown default: return "unknown"
-        }
-    }
     #endif
+}
 
-    @discardableResult
-    static func appendCappedLine(
-        _ line: String,
-        to lines: inout [String],
-        renderedBytes: inout Int,
-        maxEntries: Int,
-        maxBytes: Int
-    ) -> Bool {
-        guard maxEntries > 0, maxBytes > 0 else { return false }
-        guard lines.count < maxEntries else { return false }
-        let separatorBytes = lines.isEmpty ? 0 : 1
-        let candidateBytes = line.utf8.count
-        guard renderedBytes + separatorBytes + candidateBytes <= maxBytes else {
-            return false
-        }
-        lines.append(line)
-        renderedBytes += separatorBytes + candidateBytes
-        return true
+#if canImport(OSLog)
+/// Short human label for an OSLog entry level.
+private func mobileDiagnosticsOSLogLevelLabel(_ level: OSLogEntryLog.Level) -> String {
+    switch level {
+    case .undefined: return "undefined"
+    case .debug: return "debug"
+    case .info: return "info"
+    case .notice: return "notice"
+    case .error: return "error"
+    case .fault: return "fault"
+    @unknown default: return "unknown"
     }
+}
+#endif
+
+@discardableResult
+func appendMobileDiagnosticsCappedLine(
+    _ line: String,
+    to lines: inout [String],
+    renderedBytes: inout Int,
+    maxEntries: Int,
+    maxBytes: Int
+) -> Bool {
+    guard maxEntries > 0, maxBytes > 0 else { return false }
+    guard lines.count < maxEntries else { return false }
+    let separatorBytes = lines.isEmpty ? 0 : 1
+    let candidateBytes = line.utf8.count
+    guard renderedBytes + separatorBytes + candidateBytes <= maxBytes else {
+        return false
+    }
+    lines.append(line)
+    renderedBytes += separatorBytes + candidateBytes
+    return true
 }

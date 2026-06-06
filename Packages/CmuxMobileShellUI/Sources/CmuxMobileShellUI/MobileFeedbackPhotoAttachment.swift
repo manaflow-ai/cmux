@@ -26,7 +26,7 @@ struct MobileFeedbackPhotoAttachment: Identifiable, Sendable {
         }
 
         let boundedMaximumByteCount = max(maximumByteCount, 128 * 1_024)
-        guard let jpegData = optimizedJPEGData(
+        guard let jpegData = optimizedMobileFeedbackJPEGData(
             from: image,
             maximumByteCount: boundedMaximumByteCount
         ) else {
@@ -40,27 +40,27 @@ struct MobileFeedbackPhotoAttachment: Identifiable, Sendable {
             data: jpegData
         )
     }
+}
 
-    @MainActor
-    private static func optimizedJPEGData(
-        from image: UIImage,
-        maximumByteCount: Int
-    ) -> Data? {
-        let maxPixelDimensions: [CGFloat] = [2_800, 2_400, 2_000, 1_600, 1_280, 1_024, 768, 640, 512]
-        let compressionQualities: [CGFloat] = [0.82, 0.72, 0.62, 0.52, 0.42, 0.32]
+@MainActor
+private func optimizedMobileFeedbackJPEGData(
+    from image: UIImage,
+    maximumByteCount: Int
+) -> Data? {
+    let maxPixelDimensions: [CGFloat] = [2_800, 2_400, 2_000, 1_600, 1_280, 1_024, 768, 640, 512]
+    let compressionQualities: [CGFloat] = [0.82, 0.72, 0.62, 0.52, 0.42, 0.32]
 
-        for maxPixelDimension in maxPixelDimensions {
-            let resizedImage = image.resizedForFeedback(maxPixelDimension: maxPixelDimension)
-            for compressionQuality in compressionQualities {
-                guard let data = resizedImage.jpegData(compressionQuality: compressionQuality) else { continue }
-                if data.count <= maximumByteCount {
-                    return data
-                }
+    for maxPixelDimension in maxPixelDimensions {
+        let resizedImage = image.resizedForFeedback(maxPixelDimension: maxPixelDimension)
+        for compressionQuality in compressionQualities {
+            guard let data = resizedImage.jpegData(compressionQuality: compressionQuality) else { continue }
+            if data.count <= maximumByteCount {
+                return data
             }
         }
-
-        return nil
     }
+
+    return nil
 }
 
 private extension UIImage {

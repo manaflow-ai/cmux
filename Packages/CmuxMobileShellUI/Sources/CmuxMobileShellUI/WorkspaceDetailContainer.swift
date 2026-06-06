@@ -2,6 +2,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileWorkspace
+import Foundation
 import SwiftUI
 #if os(iOS)
 @preconcurrency import UIKit
@@ -37,7 +38,8 @@ struct WorkspaceDetailContainer: View {
                 createTerminal: store.createTerminal,
                 reportTerminalViewport: store.reportTerminalViewport,
                 sendTerminalInput: store.sendTerminalRawInput,
-                safeAreaContext: safeAreaContext
+                safeAreaContext: safeAreaContext,
+                diagnosticsTemporaryDirectory: URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             )
             .onAppear {
                 if store.selectedWorkspaceID != workspace.id {

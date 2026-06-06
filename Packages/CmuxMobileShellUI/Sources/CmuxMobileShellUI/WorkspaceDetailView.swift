@@ -24,6 +24,7 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    let diagnosticsTemporaryDirectory: URL
     @State private var isTerminalPickerPresented = false
     #if canImport(UIKit)
     @State private var diagnosticsReport: MobileDiagnosticsReport?
@@ -366,7 +367,8 @@ struct WorkspaceDetailView: View {
         let environment = MobileDiagnosticsEnvironment.current()
         let builder = MobileDiagnosticsReportBuilder(
             environment: environment,
-            sink: MobileDebugLog.shared.sink
+            sink: MobileDebugLog.shared.sink,
+            temporaryDirectory: diagnosticsTemporaryDirectory
         )
         return await builder.buildReport(
             liveState: liveState,

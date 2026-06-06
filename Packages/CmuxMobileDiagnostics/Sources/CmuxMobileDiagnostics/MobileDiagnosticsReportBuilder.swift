@@ -20,7 +20,11 @@ public import Foundation
 ///
 /// ```swift
 /// let environment = await MobileDiagnosticsEnvironment.current()
-/// let builder = MobileDiagnosticsReportBuilder(environment: environment, sink: MobileDebugLog.shared.sink)
+/// let builder = MobileDiagnosticsReportBuilder(
+///     environment: environment,
+///     sink: MobileDebugLog.shared.sink,
+///     temporaryDirectory: FileManager.default.temporaryDirectory
+/// )
 /// let report = await builder.buildReport(
 ///     liveState: state,
 ///     terminalSnapshot: visibleText
@@ -51,15 +55,14 @@ public actor MobileDiagnosticsReportBuilder {
     ///     standard ``MobileDiagnosticsSecretScrubber``.
     ///   - now: Clock used for the report timestamp and filename. Injected for
     ///     deterministic tests; defaults to `Date.init`.
-    ///   - temporaryDirectory: Directory the `.txt` file is written to. Defaults
-    ///     to `FileManager.default.temporaryDirectory`; tests pass a temp dir.
+    ///   - temporaryDirectory: Directory the `.txt` file is written to.
     public init(
         environment: MobileDiagnosticsEnvironment,
         sink: MobileDebugLogSink,
         osLogReader: MobileDiagnosticsOSLogReader = MobileDiagnosticsOSLogReader(),
         scrubber: MobileDiagnosticsSecretScrubber = MobileDiagnosticsSecretScrubber(),
         now: @escaping @Sendable () -> Date = { Date() },
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL
     ) {
         self.environment = environment
         self.sink = sink

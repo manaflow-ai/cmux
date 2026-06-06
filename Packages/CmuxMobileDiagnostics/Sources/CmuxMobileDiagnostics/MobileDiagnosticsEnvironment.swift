@@ -60,38 +60,38 @@ public struct MobileDiagnosticsEnvironment: Sendable {
         let deviceModel: String
         let osVersion: String
         #if canImport(UIKit)
-        deviceModel = Self.hardwareModelIdentifier() ?? UIDevice.current.model
+        deviceModel = mobileDiagnosticsHardwareModelIdentifier() ?? UIDevice.current.model
         osVersion = "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"
         #else
-        deviceModel = Self.hardwareModelIdentifier() ?? "Mac"
+        deviceModel = mobileDiagnosticsHardwareModelIdentifier() ?? "Mac"
         let os = ProcessInfo.processInfo.operatingSystemVersion
         osVersion = "macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"
         #endif
 
         return MobileDiagnosticsEnvironment(
-            appName: Self.infoString("CFBundleName", in: bundle),
-            appVersion: Self.infoString("CFBundleShortVersionString", in: bundle),
-            buildNumber: Self.infoString("CFBundleVersion", in: bundle),
+            appName: mobileDiagnosticsInfoString("CFBundleName", in: bundle),
+            appVersion: mobileDiagnosticsInfoString("CFBundleShortVersionString", in: bundle),
+            buildNumber: mobileDiagnosticsInfoString("CFBundleVersion", in: bundle),
             bundleID: bundle.bundleIdentifier ?? "?",
             deviceModel: deviceModel,
             osVersion: osVersion
         )
     }
+}
 
-    /// Read a string `Info.plist` value, falling back to `"?"` when missing.
-    private static func infoString(_ key: String, in bundle: Bundle) -> String {
-        (bundle.object(forInfoDictionaryKey: key) as? String) ?? "?"
-    }
+/// Read a string `Info.plist` value, falling back to `"?"` when missing.
+private func mobileDiagnosticsInfoString(_ key: String, in bundle: Bundle) -> String {
+    (bundle.object(forInfoDictionaryKey: key) as? String) ?? "?"
+}
 
-    /// The hardware model identifier (e.g. `"iPhone16,2"`), if available.
-    private static func hardwareModelIdentifier() -> String? {
-        var systemInfo = utsname()
-        uname(&systemInfo)
-        let mirror = Mirror(reflecting: systemInfo.machine)
-        let identifier = mirror.children.reduce(into: "") { partial, element in
-            guard let value = element.value as? Int8, value != 0 else { return }
-            partial.append(Character(UnicodeScalar(UInt8(value))))
-        }
-        return identifier.isEmpty ? nil : identifier
+/// The hardware model identifier (e.g. `"iPhone16,2"`), if available.
+private func mobileDiagnosticsHardwareModelIdentifier() -> String? {
+    var systemInfo = utsname()
+    uname(&systemInfo)
+    let mirror = Mirror(reflecting: systemInfo.machine)
+    let identifier = mirror.children.reduce(into: "") { partial, element in
+        guard let value = element.value as? Int8, value != 0 else { return }
+        partial.append(Character(UnicodeScalar(UInt8(value))))
     }
+    return identifier.isEmpty ? nil : identifier
 }
