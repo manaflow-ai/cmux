@@ -63,7 +63,12 @@ require_option_value() {
 }
 
 LANE="beta"
-BUILD_NUMBER="$(date -u +%Y%m%d%H%M)"
+# CFBundleVersion must increase monotonically or TestFlight won't offer the build
+# as an update. Use a 14-digit UTC stamp (with seconds): earlier builds used
+# yyyyMMddHHmmss (e.g. 20260520031606), and a 12-digit yyyyMMddHHmm (~2.0e11)
+# is NUMERICALLY LOWER than those (~2.0e13), so it would regress below the
+# existing max and never surface as an update. Keep seconds.
+BUILD_NUMBER="$(date -u +%Y%m%d%H%M%S)"
 ARCHIVE_PATH=""
 EXPORT_ONLY=0
 # Export signing mode. "manual" keeps the original local-keychain behavior;
