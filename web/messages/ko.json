@@ -739,6 +739,9 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "diffViewer": {
+          "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

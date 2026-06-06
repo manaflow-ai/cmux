@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAuthRuntime
 import CmuxControlSocket
 import CmuxSettings
 import CmuxSettingsUI
@@ -799,6 +800,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return shouldClose
         }
+
+        func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {
+            guard window is CmuxMainWindow else { return newFrame }
+            return CmuxMainWindow.standardFrame(forDefaultFrame: newFrame)
+        }
     }
 
     struct ScriptableMainWindowState {
@@ -831,6 +837,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    /// The auth graph, injected once via `configure(...)` at app startup.
+    private(set) var auth: MacAuthComposition?
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
@@ -851,6 +859,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
+    private var mobileHostSettingsObserver: NSObjectProtocol?
     private var reloadConfigurationMenuItemRefreshScheduled = false
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
@@ -1158,15 +1167,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        let authCallbacks = urls.filter(AuthCallbackRouter.isAuthCallbackURL)
-        for url in authCallbacks {
-            Task { @MainActor in
-                do {
-                    try await AuthManager.shared.handleCallbackURL(url)
-                } catch {
-                    NSLog("auth.callback failed: %@", "\(error)")
+        // Before the auth graph is configured, fall back to a default router
+        // (built-in cmux schemes) so dropped callbacks are still detected.
+        let callbackRouter = auth?.callbackRouter ?? AuthCallbackRouter()
+        let authCallbacks = urls.filter(callbackRouter.isAuthCallbackURL)
+        if let browserSignIn = auth?.browserSignIn {
+            for url in authCallbacks {
+                Task { @MainActor in
+                    let signedIn = await browserSignIn.handleCallbackURL(url)
+                    if !signedIn {
+                        AuthDebugLog().log("auth.callback did not complete sign-in")
+                    }
                 }
             }
+        } else if !authCallbacks.isEmpty {
+            AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
         }
 
         let externalFileURLs = externalOpenFileURLs(from: urls)
@@ -1891,13 +1906,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 
-    func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState, settingsRuntime: SettingsRuntime) {
+    func configure(
+        tabManager: TabManager,
+        notificationStore: TerminalNotificationStore,
+        sidebarState: SidebarState,
+        settingsRuntime: SettingsRuntime,
+        auth: MacAuthComposition
+    ) {
         self.tabManager = tabManager
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
+        self.auth = auth
+        VMClient.bootstrap(auth: auth.coordinator)
+        PhonePushClient.shared.configure(auth: auth.coordinator)
+        MobileHostService.shared.configure(auth: auth.coordinator)
+        TerminalController.shared.attachAuth(
+            coordinator: auth.coordinator,
+            browserSignIn: auth.browserSignIn
+        )
+        auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
+        installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
@@ -8090,6 +8121,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             backing: .buffered,
             defer: false
         )
+        let minimumWindowSize = CmuxMainWindow.minimumContentSize
+        window.minSize = minimumWindowSize
+        window.contentMinSize = minimumWindowSize
         window.animationBehavior = .none
         // When creating a new window from an existing native fullscreen window,
         // temporarily opt out of fullscreen tiling so AppKit doesn't place the
@@ -8448,6 +8482,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func syncApplicationPresentationPreferences(defaults: UserDefaults = .standard) {
         syncActivationPolicy(defaults: defaults)
         syncMenuBarExtraVisibility(defaults: defaults)
+    }
+
+    private func installMobileHostSettingsObserver() {
+        guard mobileHostSettingsObserver == nil else { return }
+        mobileHostSettingsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.syncMobileHostService()
+            }
+        }
+    }
+
+    private func syncMobileHostService() {
+        MobileHostService.shared.syncToSettings()
     }
 
     private func syncActivationPolicy(defaults: UserDefaults = .standard) {
@@ -9092,6 +9143,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let payload = lines.joined(separator: "\n") + "\n"
         sendTextWhenReady(payload, to: tab)
+    }
+
+    @objc func openDebugAgentSessionReact(_ sender: Any?) {
+        openDebugAgentSession(rendererKind: .react)
+    }
+
+    @objc func openDebugAgentSessionSolid(_ sender: Any?) {
+        openDebugAgentSession(rendererKind: .solid)
+    }
+
+    private func openDebugAgentSession(rendererKind: AgentSessionRendererKind) {
+        guard let manager = activeTabManagerForCommands(),
+              let workspace = manager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return
+        }
+        _ = workspace.newAgentSessionSurface(
+            inPane: paneId,
+            providerID: .codex,
+            rendererKind: rendererKind,
+            workingDirectory: workspace.currentDirectory,
+            focus: true
+        )
     }
 
     @objc func openDebugColorComparisonWorkspaces(_ sender: Any?) {

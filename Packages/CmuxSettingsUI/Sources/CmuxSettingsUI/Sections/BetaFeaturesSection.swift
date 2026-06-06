@@ -2,9 +2,8 @@ import CmuxSettings
 import SwiftUI
 
 /// **Beta Features** section — a warning note followed by the
-/// experimental toggles: `Feed`, `Dock`, `Extensions`,
-/// `Custom Sidebars`, and `Remote tmux`. Each toggle gates an unstable
-/// feature that is off by default.
+/// experimental toggles. Each toggle gates an unstable feature that is
+/// off by default.
 @MainActor
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>

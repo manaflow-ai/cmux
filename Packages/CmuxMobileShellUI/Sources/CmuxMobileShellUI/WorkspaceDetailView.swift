@@ -16,7 +16,6 @@ struct WorkspaceDetailView: View {
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
-    @Binding var selectedTerminalID: MobileTerminalPreview.ID?
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
@@ -25,7 +24,7 @@ struct WorkspaceDetailView: View {
     @State private var isTerminalPickerPresented = false
 
     private var selectedTerminal: MobileTerminalPreview? {
-        workspace.terminals.first { $0.id == selectedTerminalID } ?? workspace.terminals.first
+        workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
 
     var body: some View {
@@ -45,7 +44,8 @@ struct WorkspaceDetailView: View {
                 GhosttySurfaceRepresentable(
                     surfaceID: terminalID,
                     store: store,
-                    fontSize: MobileTerminalFontPreference.defaultSize
+                    fontSize: MobileTerminalFontPreference.defaultSize,
+                    autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -54,6 +54,9 @@ struct WorkspaceDetailView: View {
                 // Keying on terminalID tears down the old surface (unregistering its
                 // sink via dismantleUIView) and builds the newly-selected one.
                 .id(terminalID)
+                .onAppear {
+                    store.consumeTerminalAutoFocusSuppression(for: terminalID)
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(TerminalPalette.background)
                 // The surface positions its grid + docked toolbar from
@@ -237,10 +240,19 @@ struct WorkspaceDetailView: View {
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         isTerminalPickerPresented = false
-        selectedTerminalID = terminalID
+        // Switching from the picker is chrome, not a typing intent, so the
+        // newly-selected surface must not grab the keyboard on attach. The
+        // store suppresses the target's autofocus (and is a no-op when it is
+        // already selected). A push-notification deep link uses the plain
+        // `selectTerminal` path instead and is allowed to autofocus.
+        store.selectTerminalFromChrome(terminalID)
     }
 
     private func dismissTerminalKeyboardForChrome() {
+        // Resign the terminal's hidden text input first so the surface clears
+        // its keyboard geometry and recomputes full-height before chrome covers
+        // it; then sweep any other responder across the scene.
+        GhosttySurfaceView.resignActiveInput()
         UIApplication.shared.dismissMobileKeyboard()
     }
 }

@@ -21,3 +21,43 @@ Controls what the tab right-click `Fork Conversation` item does. The submenu sti
 Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
+
+## `terminal.agentHibernation`
+
+Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM and CPU, then resumes each one with its saved session when you visit its tab. See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full behavior, including the confirmation settle window and how resume works.
+
+```json
+{
+  "terminal": {
+    "agentHibernation": {
+      "enabled": true,
+      "idleSeconds": 5,
+      "maxLiveTerminals": 12
+    }
+  }
+}
+```
+
+- `enabled`: turn Agent Hibernation on. Default: `false`.
+- `idleSeconds`: seconds a background idle agent terminal must be quiet before it can hibernate. A ~60s confirmation settle window still applies on top of this. Default: `5`. Range: `5`-`604800`.
+- `maxLiveTerminals`: how many live restorable agent terminals to keep before cmux hibernates the oldest idle background ones. Nothing hibernates while you are at or under this count. Default: `12`. Range: `1`-`256`.
+
+Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
+
+## `diffViewer.defaultLayout`
+
+Controls the initial layout for newly opened diff viewers.
+
+Values: `unified`, `split`.
+
+Default: `unified`.
+
+```json
+{
+  "diffViewer": {
+    "defaultLayout": "unified"
+  }
+}
+```
+
+The toolbar layout toggle persists the last user choice for future generated diff viewers. Passing `cmux diff --layout split` or `cmux diff --layout unified` overrides both the saved toolbar choice and this default for that invocation.

@@ -14,6 +14,13 @@ struct WorkspaceRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if workspace.isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                    }
+
                     Text(workspace.name)
                         .font(.headline)
                         .foregroundStyle(isSelected ? Color.accentColor : Color.primary)

@@ -2199,6 +2199,23 @@ class GhosttyApp {
 
             DispatchQueue.main.async {
                 guard let app = AppDelegate.shared else { return }
+                guard let callbackSurface = callbackContext.terminalSurface else {
+#if DEBUG
+                    cmuxDebugLog(
+                        "surface.closeCallback.ignore surface=\(callbackSurfaceId.uuidString.prefix(5)) reason=missingCallbackSurface"
+                    )
+#endif
+                    return
+                }
+                if let registeredSurface = TerminalSurfaceRegistry.shared.surface(id: callbackSurfaceId),
+                   registeredSurface !== callbackSurface {
+#if DEBUG
+                    cmuxDebugLog(
+                        "surface.closeCallback.ignore surface=\(callbackSurfaceId.uuidString.prefix(5)) reason=staleCallbackSurface"
+                    )
+#endif
+                    return
+                }
                 // Close requests must be resolved by the callback's workspace/surface IDs only.
                 // If the mapping is already gone (duplicate/stale callback), ignore it.
                 if let callbackTabId,
@@ -5140,8 +5157,14 @@ final class TerminalSurfaceRegistry {
 
     func unregister(_ surface: TerminalSurface) {
         lock.lock()
+        let surfaceId = surface.id
         surfaces.remove(surface)
-        surfaceFocusPlacements.removeValue(forKey: surface.id)
+        let stillRegistered = surfaces.allObjects
+            .compactMap { $0 as? TerminalSurface }
+            .contains { $0 !== surface && $0.id == surfaceId }
+        if !stillRegistered {
+            surfaceFocusPlacements.removeValue(forKey: surfaceId)
+        }
         lock.unlock()
 
         Task { @MainActor in
@@ -5194,6 +5217,37 @@ final class TerminalSurfaceRegistry {
     }
 }
 
+/// Core Image filter that cuts a pane-local terminal fill out of the shared window backdrop.
+private final class TerminalSharedBackdropCutoutFilter: CIFilter {
+    private static let filterInputKeys = [kCIInputImageKey, kCIInputBackgroundImageKey]
+    private static let filterOutputKeys = [kCIOutputImageKey]
+
+    /// The mask image supplied by AppKit for the cutout view.
+    @objc dynamic var inputImage: CIImage?
+
+    /// The already-rendered shared backdrop behind the terminal surface.
+    @objc dynamic var inputBackgroundImage: CIImage?
+
+    /// Input keys advertised to AppKit's Core Image compositing pipeline.
+    override var inputKeys: [String] {
+        Self.filterInputKeys
+    }
+
+    /// Output keys advertised to AppKit's Core Image compositing pipeline.
+    override var outputKeys: [String] {
+        Self.filterOutputKeys
+    }
+
+    /// The backdrop image with the cutout mask removed.
+    override var outputImage: CIImage? {
+        guard let inputImage, let inputBackgroundImage else { return nil }
+        return CIBlendKernel.destinationOut.apply(
+            foreground: inputImage,
+            background: inputBackgroundImage
+        )
+    }
+}
+
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
 
 enum TerminalSurfaceFocusPlacement: Equatable {
@@ -5239,11 +5293,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private enum PendingSocketInput {
         case pasteText(Data)
         case inputText(Data)
+        /// Bytes that must be processed as terminal output, not user input.
+        case processOutput(Data)
         case key(PendingKeyEvent)
 
         var estimatedBytes: Int {
             switch self {
-            case .pasteText(let data), .inputText(let data):
+            case .pasteText(let data), .inputText(let data), .processOutput(let data):
                 return data.count
             case .key(let event):
                 return event.queuedByteCost
@@ -5253,6 +5309,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private enum ParsedSocketInput {
         case rawBytes(Data)
+        /// A complete terminal string control sequence such as OSC, DCS, PM, or APC.
+        case terminalBytes(Data)
         case key(PendingKeyEvent)
     }
 
@@ -5381,6 +5439,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// Flushed into the surface once it is created so content isn't lost.
     private var pendingRemoteOutput = Data()
     private let maxPendingRemoteOutputBytes = 4 * 1_048_576
+    var respawnInitialEnvironmentOverrides: [String: String] {
+        initialEnvironmentOverrides
+    }
+    var respawnAdditionalEnvironment: [String: String] {
+        var environment = additionalEnvironment
+        environment.removeValue(forKey: SessionScrollbackReplayStore.environmentKey)
+        return environment
+    }
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
     private var lastPixelWidth: UInt32 = 0
@@ -5404,6 +5470,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var runtimeSurfaceSuspendedForAgentHibernation = false
     private var headlessStartupWindow: NSWindow?
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    private var claudeCommandShim: ClaudeCommandShim?
+    private var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
+    private var claudeCommandShimInstallCompleted = false
     /// Heap-allocated userdata for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
     /// `ghostty_surface_new` succeeds; released alongside
@@ -5526,6 +5595,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     init(
+        id: UUID = UUID(),
         tabId: UUID,
         context: ghostty_surface_context_e,
         configTemplate: CmuxSurfaceConfigTemplate?,
@@ -5546,7 +5616,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         self.manualIO = manualIO
         self.manualInputHandler = manualInputHandler
-        self.id = UUID()
+        self.id = id
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
@@ -5590,6 +5660,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 scheduleHeadlessRuntimeStartIfNeeded(reason: "startup")
             }
         }
+    }
+
+    func debugWaitAfterCommand() -> Bool {
+        configTemplate?.waitAfterCommand ?? false
+    }
+
+    var launchContext: ghostty_surface_context_e {
+        surfaceContext
     }
 
     func updateWorkspaceId(_ newTabId: UUID) {
@@ -6360,6 +6438,43 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
+    private func claudeCommandShimStateForSurface(view: GhosttyNSView) -> (isReady: Bool, shim: ClaudeCommandShim?) {
+        guard let wrapperURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-claude-wrapper") else {
+            claudeCommandShimInstallCompleted = true
+            return (true, nil)
+        }
+
+        if claudeCommandShimInstallCompleted {
+            return (true, claudeCommandShim)
+        }
+
+        if claudeCommandShimInstallTask == nil {
+            let surfaceId = id
+            let installTask = Task.detached(priority: .utility) {
+                Self.installClaudeCommandShimIfPossible(wrapperURL: wrapperURL, surfaceId: surfaceId)
+            }
+            claudeCommandShimInstallTask = installTask
+            Task { @MainActor [weak self, weak view] in
+                let shim = await installTask.value
+                guard let self else { return }
+                self.claudeCommandShim = shim
+                self.claudeCommandShimInstallCompleted = true
+                self.claudeCommandShimInstallTask = nil
+                guard self.allowsRuntimeSurfaceCreation(), self.surface == nil else { return }
+                if let view, view.window != nil {
+                    self.createSurface(for: view)
+                } else if let attachedView = self.attachedView, attachedView.window != nil {
+                    self.createSurface(for: attachedView)
+                } else {
+                    self.scheduleHeadlessRuntimeStartIfNeeded(reason: "claude-shim-ready")
+                }
+            }
+        }
+
+        return (false, nil)
+    }
+
+    @MainActor
     private func createSurface(for view: GhosttyNSView) {
         guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
@@ -6373,6 +6488,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
             return
         }
+        let claudeShimState = claudeCommandShimStateForSurface(view: view)
+        guard claudeShimState.isReady else { return }
+        let claudeShim = claudeShimState.shim
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
 #endif
@@ -6518,9 +6636,24 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 ?? ProcessInfo.processInfo.environment["PATH"]
                 ?? ""
             if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
-                let separator = currentPath.isEmpty ? "" : ":"
-                setManagedEnvironmentValue("PATH", "\(cliBinPath)\(separator)\(currentPath)")
+                setManagedEnvironmentValue(
+                    "PATH",
+                    Self.pathByPrependingUniqueDirectory(cliBinPath, to: currentPath)
+                )
             }
+        }
+
+        if let claudeShim {
+            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM", claudeShim.executablePath)
+            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", claudeShim.directoryPath)
+            let currentPath = env["PATH"]
+                ?? getenv("PATH").map { String(cString: $0) }
+                ?? ProcessInfo.processInfo.environment["PATH"]
+                ?? ""
+            setManagedEnvironmentValue(
+                "PATH",
+                Self.pathByPrependingUniqueDirectory(claudeShim.directoryPath, to: currentPath)
+            )
         }
 
         // Shell integration: inject ZDOTDIR wrapper for zsh shells.
@@ -6877,7 +7010,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             // its next %output re-asserts the mode (self-healing). A faithful
             // save/restore would need a ghostty read-mode API that doesn't exist.
             if manualIO {
-                writeProcessOutput(Self.decawmDisableSequence, to: surface)
+                writeProcessOutputData(Self.decawmDisableSequence, to: surface)
             }
             ghostty_surface_set_size(surface, wpx, hpx)
             lastPixelWidth = wpx
@@ -6890,7 +7023,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             // fires only on an actual size change (never while typing).
             if manualIO {
                 ghostty_surface_render_now(surface)
-                writeProcessOutput(Self.decawmEnableSequence, to: surface)
+                writeProcessOutputData(Self.decawmEnableSequence, to: surface)
             }
         }
 
@@ -7306,9 +7439,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     /// Send text with control characters (Return, Tab, etc.) delivered as key
-    /// events so the shell processes them, while regular text is sent via the
-    /// normal key-text path. Cold surfaces queue the same ordered events and
-    /// flush them after runtime creation.
+    /// events so the shell processes them, while complete terminal control
+    /// sequences are routed through Ghostty's PTY-output parser. Cold surfaces
+    /// queue the same ordered events and flush them after runtime creation.
     @MainActor
     @discardableResult
     func sendInput(_ text: String) -> Bool {
@@ -7343,6 +7476,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             switch event {
             case .rawBytes(let data):
                 writeInputTextData(data, to: surface)
+            case .terminalBytes(let data):
+                writeProcessOutputData(data, to: surface)
             case .key(let event):
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
             }
@@ -7355,6 +7490,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             switch event {
             case .rawBytes(let data):
                 return data.isEmpty ? nil : .inputText(data)
+            case .terminalBytes(let data):
+                return data.isEmpty ? nil : .processOutput(data)
             case .key(let event):
                 return .key(event)
             }
@@ -7370,6 +7507,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         var bufferedText = ""
         bufferedText.reserveCapacity(text.count)
         var previousWasCR = false
+        let scalars = Array(text.unicodeScalars)
 
         func flushBufferedText() {
             guard !bufferedText.isEmpty else { return }
@@ -7391,7 +7529,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
             events.append(.rawBytes(Data([0x0D])))
         }
 
-        let scalars = Array(text.unicodeScalars)
+        func appendTerminalBytes(length: Int, from start: Int) {
+            guard length > 0 else { return }
+            var sequence = ""
+            for offset in start..<(start + length) {
+                sequence.unicodeScalars.append(scalars[offset])
+            }
+            guard let data = sequence.data(using: .utf8), !data.isEmpty else { return }
+            events.append(.terminalBytes(data))
+        }
+
         var index = 0
         while index < scalars.count {
             let scalar = scalars[index]
@@ -7424,6 +7571,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     flushBufferedText()
                     appendKey(nav.keycode, mods: nav.mods, label: nav.label)
                     index += nav.length
+                } else if let length = terminalControlSequenceLength(scalars, from: index) {
+                    flushBufferedText()
+                    appendTerminalBytes(length: length, from: index)
+                    index += length
                 } else {
                     flushBufferedText()
                     appendKey(UInt32(kVK_Escape), label: "escape")
@@ -7443,6 +7594,45 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
         flushBufferedText()
         return events
+    }
+
+    /// Returns the byte-like scalar length for a complete terminal string control sequence.
+    private static func terminalControlSequenceLength(
+        _ scalars: [Unicode.Scalar],
+        from start: Int
+    ) -> Int? {
+        guard start + 1 < scalars.count, scalars[start].value == 0x1B else { return nil }
+
+        switch scalars[start + 1].value {
+        case 0x5D: // OSC: ESC ] ... (BEL | ST)
+            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
+        case 0x50, 0x5E, 0x5F: // DCS / PM / APC: ESC P/^/_ ... ST
+            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
+        default:
+            return nil
+        }
+    }
+
+    /// Finds the terminator for ESC-prefixed string controls without accepting partial sequences.
+    private static func stringControlSequenceLength(
+        _ scalars: [Unicode.Scalar],
+        from start: Int,
+        terminatesWithBEL: Bool
+    ) -> Int? {
+        var index = start + 2
+        while index < scalars.count {
+            let value = scalars[index].value
+            if terminatesWithBEL, value == 0x07 {
+                return index - start + 1
+            }
+            if value == 0x1B,
+               index + 1 < scalars.count,
+               scalars[index + 1].value == 0x5C {
+                return index - start + 2
+            }
+            index += 1
+        }
+        return nil
     }
 
     /// Match a CSI (`ESC [ …`) or SS3 (`ESC O …`) cursor/navigation escape
@@ -7657,17 +7847,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
         flushPendingRemoteOutput(to: surface)
-        writeProcessOutput(data, to: surface)
+        writeProcessOutputData(data, to: surface)
     }
 
     private func flushPendingRemoteOutput(to surface: ghostty_surface_t) {
         guard !pendingRemoteOutput.isEmpty else { return }
         let buffered = pendingRemoteOutput
         pendingRemoteOutput = Data()
-        writeProcessOutput(buffered, to: surface)
+        writeProcessOutputData(buffered, to: surface)
     }
 
-    private func writeProcessOutput(_ data: Data, to surface: ghostty_surface_t) {
+    /// Sends bytes through Ghostty's PTY-output parser so OSC commands affect terminal state.
+    private func writeProcessOutputData(_ data: Data, to surface: ghostty_surface_t) {
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
@@ -7903,6 +8094,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 writeTextData(chunk, to: surface)
             case .inputText(let chunk):
                 writeInputTextData(chunk, to: surface)
+            case .processOutput(let chunk):
+                writeProcessOutputData(chunk, to: surface)
             case .key(let event):
                 queuedKeys += 1
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
@@ -7978,10 +8171,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         bytes: Int,
         keyEvents: Int,
         pasteTextItems: Int,
-        inputTextItems: Int
+        inputTextItems: Int,
+        processOutputItems: Int
     ) {
         let counts = pendingSocketInputQueue.reduce(
-            into: (keyEvents: 0, pasteTextItems: 0, inputTextItems: 0)
+            into: (keyEvents: 0, pasteTextItems: 0, inputTextItems: 0, processOutputItems: 0)
         ) { counts, item in
             switch item {
             case .key:
@@ -7990,6 +8184,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 counts.pasteTextItems += 1
             case .inputText:
                 counts.inputTextItems += 1
+            case .processOutput:
+                counts.processOutputItems += 1
             }
         }
         return (
@@ -7997,7 +8193,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             pendingSocketInputBytes,
             counts.keyEvents,
             counts.pasteTextItems,
-            counts.inputTextItems
+            counts.inputTextItems,
+            counts.processOutputItems
         )
     }
 
@@ -8047,6 +8244,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
 
     deinit {
+        claudeCommandShimInstallTask?.cancel()
         TerminalSurfaceRegistry.shared.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         closeHeadlessStartupWindowIfNeeded()
@@ -8443,15 +8641,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             renderingMode: renderingMode,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
-        // The window root backdrop is the single surface fill for solid-color
-        // terminal backgrounds. Painting the terminal host layer too would
-        // double-composite it against the surrounding chrome.
-        let usesHostLayerFill = renderingMode.usesWindowHostBackdrop &&
-            !sharesWindowBackdrop &&
-            !usesBonsplitPaneBackdrop
-        let color = usesHostLayerFill
-            ? effectiveBackgroundColor()
-            : .clear
+        let fillPlan = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: renderingMode,
+            surfaceBackgroundColor: backgroundColor,
+            defaultBackgroundColor: GhosttyApp.shared.defaultBackgroundColor,
+            backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
+            sharesWindowBackdrop: sharesWindowBackdrop,
+            usesBonsplitPaneBackdrop: usesBonsplitPaneBackdrop
+        )
+        let color = fillPlan.hostLayerColor
         if let layer {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -8461,23 +8659,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             layer.isOpaque = false
             CATransaction.commit()
         }
-        terminalSurface?.hostedView.setBackgroundColor(color)
+        terminalSurface?.hostedView.setBackgroundColor(
+            color,
+            clearsSharedWindowBackdrop: fillPlan.clearsSharedWindowBackdrop
+        )
         if GhosttyApp.shared.backgroundLogEnabled {
-            let signature = "\(usesHostLayerFill ? color.hexString() : "transparent-host"):\(String(format: "%.3f", color.alphaComponent)):\(sharesWindowBackdrop ? "shared" : (usesBonsplitPaneBackdrop ? "bonsplit-pane" : "terminal"))"
+            let signature = "\(fillPlan.usesHostLayerFill ? color.hexString() : "transparent-host"):\(String(format: "%.3f", color.alphaComponent)):\(fillPlan.logBackdropLabel)"
             if signature != lastLoggedSurfaceBackgroundSignature {
                 lastLoggedSurfaceBackgroundSignature = signature
                 let hasOverride = backgroundColor != nil
                 let overrideHex = backgroundColor?.hexString() ?? "nil"
                 let defaultHex = GhosttyApp.shared.defaultBackgroundColor.hexString()
-                let source = usesHostLayerFill
-                    ? (hasOverride ? "surfaceOverride" : "defaultBackground")
-                    : (
-                        sharesWindowBackdrop
-                            ? "sharedWindowBackdrop"
-                            : (usesBonsplitPaneBackdrop ? "bonsplitPaneBackdrop" : "ghosttyNativeBackground")
-                    )
                 GhosttyApp.shared.logBackground(
-                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) sharedWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) bonsplitPaneBackdrop=\(usesBonsplitPaneBackdrop ? 1 : 0) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
+                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(fillPlan.logSource(hasSurfaceOverride: hasOverride)) override=\(overrideHex) default=\(defaultHex) sharedWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) bonsplitPaneBackdrop=\(usesBonsplitPaneBackdrop ? 1 : 0) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
                 )
             }
         }
@@ -12267,7 +12461,11 @@ private final class TerminalViewportBorderOverlayView: NSView {
             path.move(to: NSPoint(x: 0, y: y))
             path.line(to: NSPoint(x: x, y: y))
         }
-        NSColor.separatorColor.withAlphaComponent(0.95).setStroke()
+        // Stroke the exact window-chrome separator color used by the pane outline,
+        // sidebar trailing edge, and tab-bar separators (one source of truth), so the
+        // iOS-connected viewport border is pixel-identical to every other border in the
+        // app instead of the previous hardcoded near-white separator stroke.
+        WindowChromeSeparatorColor.current().setStroke()
         path.stroke()
     }
 }
@@ -12302,6 +12500,7 @@ final class GhosttySurfaceScrollView: NSView {
         static let lineWidth = PanelOverlayRingMetrics.lineWidth
     }
 
+    private var sharedBackdropCutoutView: NSView?
     private let backgroundView: NSView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
@@ -12990,6 +13189,9 @@ final class GhosttySurfaceScrollView: NSView {
 
         let didScrollbarAppearanceChange = synchronizeScrollbarAppearance()
         let previousSurfaceSize = surfaceView.frame.size
+        if let sharedBackdropCutoutView {
+            _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
+        }
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         _ = setFrameIfNeeded(scrollView, to: bounds)
         let targetSize = scrollView.bounds.size
@@ -13256,13 +13458,51 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.onTriggerFlash = handler
     }
 
-    func setBackgroundColor(_ color: NSColor) {
+    /// Applies the host-layer terminal fill and optionally clears the shared backdrop behind it.
+    func setBackgroundColor(_ color: NSColor, clearsSharedWindowBackdrop: Bool = false) {
         guard let layer = backgroundView.layer else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        synchronizeSharedBackdropCutout(visible: clearsSharedWindowBackdrop)
         layer.backgroundColor = color.cgColor
         layer.isOpaque = color.alphaComponent >= 1.0
         CATransaction.commit()
+        // The viewport border strokes the window-chrome separator color, which tracks the
+        // terminal background/theme. Repaint it when the background changes (e.g. theme
+        // switch) so a connected iOS device's visible-area border stays in sync.
+        if !mobileViewportBorderOverlayView.isHidden {
+            mobileViewportBorderOverlayView.needsDisplay = true
+        }
+    }
+
+    /// Keeps the shared-backdrop cutout view present only while a pane-local fill needs it.
+    private func synchronizeSharedBackdropCutout(visible: Bool) {
+        if visible {
+            let cutoutView = sharedBackdropCutoutView ?? makeSharedBackdropCutoutView()
+            _ = setFrameIfNeeded(cutoutView, to: bounds)
+            return
+        }
+
+        sharedBackdropCutoutView?.removeFromSuperview()
+        sharedBackdropCutoutView = nil
+    }
+
+    /// Creates the Core Image filtered view that subtracts pane-local fills from shared backdrop.
+    ///
+    /// AppKit requires `layerUsesCoreImageFilters` to be configured before display, so the
+    /// cutout view is created lazily only when a pane-local OSC background override needs it.
+    private func makeSharedBackdropCutoutView() -> NSView {
+        let sharedBackdropCutoutFilter = TerminalSharedBackdropCutoutFilter()
+        sharedBackdropCutoutFilter.name = "terminalSharedBackdropCutout"
+        let cutoutView = NSView(frame: bounds)
+        cutoutView.wantsLayer = true
+        cutoutView.layerUsesCoreImageFilters = true
+        cutoutView.compositingFilter = sharedBackdropCutoutFilter
+        cutoutView.layer?.backgroundColor = NSColor.white.cgColor
+        cutoutView.layer?.isOpaque = true
+        addSubview(cutoutView, positioned: .below, relativeTo: backgroundView)
+        sharedBackdropCutoutView = cutoutView
+        return cutoutView
     }
 
     func setInactiveOverlay(color: NSColor, opacity: CGFloat, visible: Bool) {

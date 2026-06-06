@@ -24,6 +24,7 @@ import Testing
             client: client,
             sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
             userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
             launch: launch,
