@@ -166,6 +166,126 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
     }
 
+    func testLiveRestorableAgentSnapshotMarksWorkspaceUnreadForSidebarOnRestore() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let restorableAgent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "live-agent-survived-quit",
+            workingDirectory: source.currentDirectory,
+            launchCommand: nil
+        )
+        let agentIndex = Self.restorableAgentIndex(
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            snapshot: restorableAgent,
+            processIDs: [42]
+        )
+
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: agentIndex
+        )
+        let sourcePanelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == sourcePanelId })
+        XCTAssertEqual(sourcePanelSnapshot.terminal?.agent?.sessionId, "live-agent-survived-quit")
+        XCTAssertEqual(sourcePanelSnapshot.hasUnreadIndicator, true)
+        XCTAssertEqual(sourcePanelSnapshot.restoredUnreadContributesToWorkspace, true)
+        XCTAssertNil(sourcePanelSnapshot.notifications)
+
+        store.replaceNotificationsForTesting([])
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        XCTAssertTrue(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertTrue(store.hasPanelDerivedUnread(forTabId: restored.id))
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
+    }
+
+    func testRestorableAgentWithoutLiveProcessDoesNotMarkWorkspaceUnreadForSidebarOnRestore() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let restorableAgent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "restorable-agent-without-live-process",
+            workingDirectory: source.currentDirectory,
+            launchCommand: nil
+        )
+        let agentIndex = Self.restorableAgentIndex(
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            snapshot: restorableAgent,
+            processIDs: []
+        )
+
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: agentIndex
+        )
+        let sourcePanelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == sourcePanelId })
+        XCTAssertEqual(sourcePanelSnapshot.terminal?.agent?.sessionId, "restorable-agent-without-live-process")
+        XCTAssertEqual(sourcePanelSnapshot.hasUnreadIndicator, false)
+        XCTAssertNil(sourcePanelSnapshot.restoredUnreadContributesToWorkspace)
+
+        store.replaceNotificationsForTesting([])
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        XCTAssertFalse(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertFalse(store.hasPanelDerivedUnread(forTabId: restored.id))
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 0)
+    }
+
+    private static func restorableAgentIndex(
+        workspaceId: UUID,
+        panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot,
+        processIDs: Set<Int>
+    ) -> RestorableAgentSessionIndex {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-live-agent-unread-\(UUID().uuidString)", isDirectory: true)
+        return RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
+                    snapshot: snapshot,
+                    updatedAt: 1,
+                    processIDs: processIDs
+                ),
+            ],
+            processArgumentsProvider: { _ in nil }
+        )
+    }
+
     func testLegacyRestoredPanelUnreadIndicatorMarksWorkspaceUnreadForSidebar() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let store = TerminalNotificationStore.shared
