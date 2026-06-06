@@ -11679,6 +11679,13 @@ final class Workspace: Identifiable, ObservableObject {
         agentSessionPanelCallbackIds.insert(agentPanel.id)
     }
 
+    func discardAgentSessionPanelSubscription(panelId: UUID, panel: (any Panel)?) {
+        if let agentPanel = panel as? AgentSessionPanel {
+            agentPanel.onDisplayStateChanged = nil
+        }
+        agentSessionPanelCallbackIds.remove(panelId)
+    }
+
     private func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
         guard let target = remoteDisplayTarget else { return nil }
         return BrowserRemoteWorkspaceStatus(

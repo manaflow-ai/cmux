@@ -26,6 +26,8 @@ final class CodexAppServerSession {
     private var stdoutBuffer = ""
     private var didFailStartup = false
     private var activePermissionMode: AgentSessionPermissionMode = .standard
+    private var isTurnInFlight = false
+    private var turnStartRequestIDs: Set<Int> = []
 
     init(
         workingDirectory: String?,
@@ -63,6 +65,9 @@ final class CodexAppServerSession {
     func submit(_ text: String, permissionMode: AgentSessionPermissionMode = .standard) throws {
         guard !text.isEmpty else { return }
         guard !didFailStartup else {
+            throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
+        }
+        guard !isTurnInFlight else {
             throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
         }
         guard let threadID else {
@@ -149,12 +154,22 @@ final class CodexAppServerSession {
             drainCodexAppServerQueuedInputs()
             return
         }
+
+        if turnStartRequestIDs.remove(id) != nil {
+            return
+        }
     }
 
     private func handleRPCError(id: Int, error: [String: Any]) {
         let details = error["message"] as? String
         if id == initializeRequestID || id == threadStartRequestID {
             failStartup(details: details)
+            return
+        }
+        if turnStartRequestIDs.remove(id) != nil {
+            isTurnInFlight = false
+            activePermissionMode = .standard
+            emitCodexRPCFailure(details: details)
             return
         }
         emitCodexRPCFailure(details: details)
@@ -175,7 +190,7 @@ final class CodexAppServerSession {
                 outputSink("stdout", delta)
             }
         case "item/agentMessage/completed", "item/agentMessage/complete", "item/agentMessage/finished":
-            turnCompleteSink()
+            completeTurn()
         case "item/started":
             if let item = params?["item"] as? [String: Any] {
                 emitActivity(for: item, defaultStatus: "inProgress")
@@ -183,14 +198,14 @@ final class CodexAppServerSession {
         case "item/completed":
             if let item = params?["item"] as? [String: Any] {
                 if Self.itemIsAgentMessage(item) {
-                    turnCompleteSink()
+                    completeTurn()
                     return
                 }
                 emitActivity(for: item, defaultStatus: "completed")
             }
         case "turn/completed", "turn/complete", "turn/finished", "turn/end", "turn/ended",
              "turn/stopped", "turn/failed", "turn/canceled", "turn/cancelled":
-            turnCompleteSink()
+            completeTurn()
         case "item/commandExecution/outputDelta":
             guard let itemID = params?["itemId"] as? String else { break }
             emitActivity(
@@ -224,6 +239,12 @@ final class CodexAppServerSession {
         default:
             break
         }
+    }
+
+    private func completeTurn() {
+        isTurnInFlight = false
+        activePermissionMode = .standard
+        turnCompleteSink()
     }
 
     private static func itemIsAgentMessage(_ item: [String: Any]) -> Bool {
@@ -510,6 +531,9 @@ final class CodexAppServerSession {
         didInitialize = false
         threadStartRequestID = nil
         threadID = nil
+        isTurnInFlight = false
+        activePermissionMode = .standard
+        turnStartRequestIDs.removeAll()
         queuedInputs.removeAll()
         emitCodexRPCFailure(details: details)
         failureSink(details)
@@ -520,7 +544,6 @@ final class CodexAppServerSession {
         text: String,
         permissionMode: AgentSessionPermissionMode
     ) throws {
-        activePermissionMode = permissionMode
         var params: [String: Any] = [
             "threadId": threadID,
             "input": [
@@ -534,10 +557,13 @@ final class CodexAppServerSession {
         for (key, value) in permissionMode.codexTurnOverrides {
             params[key] = value
         }
-        _ = try sendRequest(
+        let requestID = try sendRequest(
             method: "turn/start",
             params: params
         )
+        activePermissionMode = permissionMode
+        isTurnInFlight = true
+        turnStartRequestIDs.insert(requestID)
     }
 
     @discardableResult

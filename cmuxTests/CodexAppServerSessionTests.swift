@@ -822,6 +822,7 @@ struct CodexAppServerSessionTests {
                 + "\n")
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
         try session.submit("use full access", permissionMode: .fullAccess)
+        session.consumeStdout(#"{"method":"turn/completed","params":{"threadId":"thread-1"}}"# + "\n")
         try session.submit("back to defaults", permissionMode: .standard)
 
         let elevatedParams = try #require(jsonLine(sentLines[3])["params"] as? [String: Any])
@@ -856,6 +857,8 @@ struct CodexAppServerSessionTests {
             #"{"id":"cmd-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread-1"}}"# + "\n")
         session.consumeStdout(
             #"{"id":"perm-1","method":"item/permissions/requestApproval","params":{"permissions":{"network":{"enabled":true}}}}"# + "\n")
+        expectThrowsError(try session.submit("blocked full access prompt", permissionMode: .fullAccess))
+        session.consumeStdout(#"{"method":"turn/completed","params":{"threadId":"thread-1"}}"# + "\n")
         try session.submit("full access prompt", permissionMode: .fullAccess)
         session.consumeStdout(
             #"{"id":"cmd-2","method":"item/commandExecution/requestApproval","params":{"threadId":"thread-1"}}"# + "\n")
