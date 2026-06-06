@@ -95,7 +95,6 @@ final class ClosedItemHistoryStore {
         if lastRestoredOperationId != nil {
             lastRestoredOperationId = nil
         }
-        removeRestoredRefsMatchingClosedEntry(record.entry)
         records.append(record)
         trimToCapacityIfNeeded()
         revision &+= 1
@@ -315,7 +314,13 @@ final class ClosedItemHistoryStore {
     func isRecordRestored(_ recordId: UUID) -> Bool {
         guard let ref = restoredRefByRecordId[recordId] else { return false }
         guard let isTargetLive else { return true }
-        return isTargetLive(ref)
+        if isTargetLive(ref) { return true }
+        guard let index = records.firstIndex(where: { $0.id == recordId }) else {
+            return false
+        }
+        return records.suffix(from: records.index(after: index)).contains {
+            Self.entry($0.entry, matches: ref)
+        }
     }
 
     /// Records that `recordId` was restored into the live item `ref`.
@@ -329,18 +334,18 @@ final class ClosedItemHistoryStore {
         restoredRefByRecordId[recordId]
     }
 
-    private func removeRestoredRefsMatchingClosedEntry(_ entry: ClosedItemHistoryEntry) {
-        let closedRef: ReopenedItemRef
+    private static func entry(_ entry: ClosedItemHistoryEntry, matches ref: ReopenedItemRef) -> Bool {
         switch entry {
         case .panel(let panelEntry):
-            closedRef = .panel(workspaceId: panelEntry.workspaceId, panelId: panelEntry.snapshot.id)
+            guard case .panel(let workspaceId, let panelId) = ref else { return false }
+            return panelEntry.workspaceId == workspaceId && panelEntry.snapshot.id == panelId
         case .workspace(let workspaceEntry):
-            closedRef = .workspace(workspaceId: workspaceEntry.workspaceId)
+            guard case .workspace(let workspaceId) = ref else { return false }
+            return workspaceEntry.workspaceId == workspaceId
         case .window(let windowEntry):
-            guard let windowId = windowEntry.windowId else { return }
-            closedRef = .window(windowId: windowId)
+            guard case .window(let windowId) = ref else { return false }
+            return windowEntry.windowId == windowId
         }
-        restoredRefByRecordId = restoredRefByRecordId.filter { $0.value != closedRef }
     }
 
     /// All records belonging to one operation, in close order (oldest first).
