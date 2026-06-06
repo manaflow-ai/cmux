@@ -70,10 +70,10 @@ ISOLATED_RUNNER_PATTERNS=(
   'assert_executed_tests "$rerun_label" "$rerun_log" "$rerun_result"'
   'reported zero executed tests'
 	  'Retrying ${#CRASH_RETRY_TESTS[@]} crash-reported XCTest methods from $BATCH_LABEL in fresh app-host processes'
-	  'in_flight_test = test_identifier'
-	  'Restarting after unexpected exit, crash, or test timeout'
+  'in_flight_test = test_identifier'
+  'Restarting after unexpected exit, crash, or test timeout'
   'retry_identifier="${test_identifier#cmuxTests/}"'
-  'retry_identifier="${retry_identifier//\\/}"'
+  'retry_identifier="$(/usr/bin/python3 -c '\''import sys; sys.stdout.write(sys.argv[1].replace("\\", ""))'\'' "$retry_identifier")"'
   'retry_identifier="${retry_identifier/./\/}"'
   'retry_only_testing="cmuxTests/$retry_identifier"'
   '"-only-testing:$retry_only_testing"'
@@ -117,7 +117,7 @@ normalize_retry_identifier() {
   local test_identifier="$1"
   local retry_identifier
   retry_identifier="${test_identifier#cmuxTests/}"
-  retry_identifier="${retry_identifier//\\/}"
+  retry_identifier="$(/usr/bin/python3 -c 'import sys; sys.stdout.write(sys.argv[1].replace("\\", ""))' "$retry_identifier")"
   retry_identifier="${retry_identifier/./\/}"
   printf 'cmuxTests/%s\n' "$retry_identifier"
 }
