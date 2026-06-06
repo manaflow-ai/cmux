@@ -393,19 +393,19 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("<script type=\"module\" src=\"./assets/cmux-diff-viewer-app/main.mjs\"></script>"), html)
         let assetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent("pierre-diffs-1.2.1-trees-1.0.0-beta.4", isDirectory: true)
+            .appendingPathComponent("pierre-diffs-1.2.7-trees-1.0.0-beta.4", isDirectory: true)
         let appAssetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent("cmux-diff-viewer-app", isDirectory: true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("diffs.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("trees.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-pool.mjs").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-portable.mjs").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-portable.js").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs").path))
-        XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.2.1-trees-1.0.0-beta.4/diffs.mjs")
-        XCTAssertEqual(viewerAssets["treesModuleURL"], "./assets/pierre-diffs-1.2.1-trees-1.0.0-beta.4/trees.mjs")
-        XCTAssertEqual(viewerAssets["workerPoolModuleURL"], "./assets/pierre-diffs-1.2.1-trees-1.0.0-beta.4/worker-pool/worker-pool.mjs")
-        XCTAssertEqual(viewerAssets["workerModuleURL"], "./assets/pierre-diffs-1.2.1-trees-1.0.0-beta.4/worker-pool/worker-portable.mjs")
+        XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/diffs.mjs")
+        XCTAssertEqual(viewerAssets["treesModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/trees.mjs")
+        XCTAssertEqual(viewerAssets["workerPoolModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-pool.mjs")
+        XCTAssertEqual(viewerAssets["workerModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js")
         let appearance = try XCTUnwrap(viewerPayload["appearance"] as? [String: Any])
         XCTAssertEqual(appearance["backgroundOpacity"] as? Double, 0.42)
         XCTAssertTrue(html.contains("\"fontFamily\":\"Unit Mono\""), html)
@@ -425,6 +425,10 @@ final class CMUXOpenCommandTests: XCTestCase {
         })
         XCTAssertTrue(files.contains { file in
             file["request_path"] as? String == "/assets/cmux-diff-viewer-app/main.mjs" &&
+                file["mime_type"] as? String == "text/javascript"
+        })
+        XCTAssertTrue(files.contains { file in
+            file["request_path"] as? String == "/assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js" &&
                 file["mime_type"] as? String == "text/javascript"
         })
         XCTAssertFalse(html.contains("hello.txt"), html)
@@ -453,6 +457,98 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(darkOnlyTheme.html.contains("\"fontSize\":14"), darkOnlyTheme.html)
         XCTAssertTrue(darkOnlyTheme.html.contains("\"ghosttyName\":\"Apple System Colors Light\""), darkOnlyTheme.html)
         XCTAssertTrue(darkOnlyTheme.html.contains("\"ghosttyName\":\"Unit Dark\""), darkOnlyTheme.html)
+    }
+
+    func testDiffCommandUsesTaggedSocketAppAssetsAndServer() throws {
+        let cliPath = try bundledCLIPath()
+        let tag = "asset\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(6).lowercased())"
+        let socketPath = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-debug-\(tag).sock", isDirectory: false)
+            .path
+        unlink(socketPath)
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let homeURL = rootURL.appendingPathComponent("home", isDirectory: true)
+        let targetCLIURL = homeURL
+            .appendingPathComponent("Library/Developer/Xcode/DerivedData/cmux-\(tag)", isDirectory: true)
+            .appendingPathComponent("Build/Products/Debug/cmux DEV \(tag).app", isDirectory: true)
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        let targetResourcesURL = targetCLIURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let patchURL = rootURL.appendingPathComponent("change.patch", isDirectory: false)
+        let state = MockSocketServerState()
+
+        try FileManager.default.createDirectory(at: targetCLIURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: cliPath), to: targetCLIURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: targetCLIURL.path)
+        try writeTestDiffViewerAssets(
+            resourcesURL: targetResourcesURL,
+            appMain: "export const cmuxTaggedSocketAssetMarker = 'target-\(tag)';\n"
+        )
+        try """
+        diff --git a/file.txt b/file.txt
+        index 1111111..2222222 100644
+        --- a/file.txt
+        +++ b/file.txt
+        @@ -1 +1 @@
+        -old
+        +new
+        """.write(to: patchURL, atomically: true, encoding: .utf8)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String,
+                  method == "browser.open_split",
+                  let params = payload["params"] as? [String: Any],
+                  let rawURL = params["url"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "surface-id", "pane_id": "pane-id", "url": rawURL]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["diff", patchURL.path, "--title", "Tagged assets", "--focus", "false"],
+            environmentOverrides: [
+                "HOME": homeURL.path,
+                "CFFIXED_USER_HOME": homeURL.path
+            ]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let payload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
+        let params = try XCTUnwrap(payload["params"] as? [String: Any])
+        let rawURL = try XCTUnwrap(params["url"] as? String)
+        let files = try diffViewerAllowedFiles(for: rawURL, from: params)
+        let appEntry = try XCTUnwrap(files.first { file in
+            (file["request_path"] as? String)?.hasSuffix("/assets/cmux-diff-viewer-app/main.mjs") == true
+        })
+        let appFilePath = try XCTUnwrap(appEntry["file_path"] as? String)
+        let appMain = try String(contentsOfFile: appFilePath, encoding: .utf8)
+        XCTAssertTrue(appMain.contains("cmuxTaggedSocketAssetMarker = 'target-\(tag)'"), appMain)
+
+        let stateURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+            .appendingPathComponent(".server-state", isDirectory: false)
+        let serverState = try JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        XCTAssertEqual(serverState?["executablePath"] as? String, targetCLIURL.path)
     }
 
     func testDiffCommandLinksOriginalDiffshubPRURL() throws {
@@ -2455,6 +2551,43 @@ final class CMUXOpenCommandTests: XCTestCase {
         }
 
         throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+    }
+
+    private func writeTestDiffViewerAssets(resourcesURL: URL, appMain: String) throws {
+        let diffViewerURL = resourcesURL
+            .appendingPathComponent("markdown-viewer", isDirectory: true)
+            .appendingPathComponent("diff-viewer", isDirectory: true)
+        let appURL = resourcesURL
+            .appendingPathComponent("markdown-viewer", isDirectory: true)
+            .appendingPathComponent("diff-viewer-app", isDirectory: true)
+        let workerPoolURL = diffViewerURL.appendingPathComponent("worker-pool", isDirectory: true)
+        try FileManager.default.createDirectory(at: workerPoolURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: appURL, withIntermediateDirectories: true)
+        try "export const diffsFixture = true;\n".write(
+            to: diffViewerURL.appendingPathComponent("diffs.mjs", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "export const treesFixture = true;\n".write(
+            to: diffViewerURL.appendingPathComponent("trees.mjs", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "export const workerPoolFixture = true;\n".write(
+            to: workerPoolURL.appendingPathComponent("worker-pool.mjs", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "self.cmuxWorkerFixture = true;\n".write(
+            to: workerPoolURL.appendingPathComponent("worker-portable.js", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try appMain.write(
+            to: appURL.appendingPathComponent("main.mjs", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
     }
 
     private func runProcess(

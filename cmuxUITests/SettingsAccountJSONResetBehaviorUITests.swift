@@ -197,7 +197,7 @@ final class SettingsAccountJSONResetBehaviorUITests: SettingsUITestCase {
     //   do not add app seams. Asserted for presence only above.
 
     // TIER 3 (not e2e): Account "Sign In…" / "Sign Out" button (AccountIdentityCard)
-    //   — `startSignIn()` routes to AuthManager.beginSignIn(), which opens the
+    //   — `startSignIn()` routes to HostBrowserSignInFlow.beginSignIn(), which opens the
     //   cmux sign-in page in the system browser for an OAuth-style round trip;
     //   `signOut()` performs a backend network call. Neither produces an in-app
     //   window or element XCUITest can drive without real credentials and an

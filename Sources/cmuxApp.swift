@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSidebarInterpreterClient
+import CmuxSidebarRemoteRender
 import CmuxSocketControl
 import CmuxSettings
 import CmuxSettingsUI
@@ -8,13 +10,40 @@ import Observation
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+
+/// The process entry point. When the binary is launched with a sidebar worker
+/// flag (the app re-executes its own binary that way so a crash in the
+/// interpreter or renderer kills only the worker process), run that worker
+/// loop instead of the app:
+/// - the render worker hosts its own faceless AppKit session and shares the
+///   rendered layer tree with the host;
+/// - the interpreter worker (stage-1 fallback path) runs before any
+///   AppKit/SwiftUI setup.
 @main
+enum CmuxMain {
+    static func main() {
+        if CommandLine.arguments.contains(RenderWorkerClient.workerModeArgument) {
+            runSidebarRenderWorker()
+        }
+        if CommandLine.arguments.contains(InterpreterClient.workerModeArgument) {
+            runSidebarInterpreterWorker()
+            exit(0)
+        }
+        cmuxApp.main()
+    }
+}
+
 struct cmuxApp: App {
     /// Dependency container for the new settings packages. Constructed
     /// once at app launch and injected into the SwiftUI environment via
     /// `.settingsRuntime(_:)`; descendant views resolve their settings
     /// through it via the `@LiveSetting` property wrapper.
     private let settingsRuntime: SettingsRuntime
+
+    /// The de-singletonized auth graph (shared AuthCoordinator + the macOS
+    /// hosted-browser sign-in flow). Constructed once at app launch and
+    /// injected into AppDelegate and the auth-consuming services.
+    private let authComposition: MacAuthComposition
 
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
@@ -86,6 +115,8 @@ struct cmuxApp: App {
             saveSecret: { try socketPasswordStore.savePassword($0) },
             backupTimestamp: secretMigrationTimestamp
         )
+        let authComposition = MacAuthComposition()
+        self.authComposition = authComposition
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: UserDefaultsSettingsStore(
@@ -95,7 +126,10 @@ struct cmuxApp: App {
             jsonStore: JSONConfigStore(fileURL: configFileURL),
             secretStore: secretStore,
             errorLog: SettingsErrorLog(),
-            accountFlow: HostAccountFlow(authManager: .shared),
+            accountFlow: HostAccountFlow(
+                coordinator: authComposition.coordinator,
+                browserSignIn: authComposition.browserSignIn
+            ),
             hostActions: HostSettingsActions(configFileURL: configFileURL)
         )
 
@@ -179,7 +213,13 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
-        appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState, settingsRuntime: settingsRuntime)
+        appDelegate.configure(
+            tabManager: tabManager,
+            notificationStore: notificationStore,
+            sidebarState: sidebarState,
+            settingsRuntime: settingsRuntime,
+            auth: authComposition
+        )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
 
