@@ -83,4 +83,35 @@ public struct MobileRootAuthGate {
     ) -> Bool {
         stackAuthenticated && !attachTicketAuthenticated && connectionState != .connected
     }
+
+    /// Whether the restoring-session UI should be shown while reconnecting a known
+    /// paired Mac.
+    ///
+    /// A returning user (already authenticated, previously paired) should see the
+    /// existing "Restoring session…" state during the reconnect window instead of
+    /// the empty add-device sheet. A genuinely never-paired user still falls
+    /// through to add-device immediately. The persisted ``hasKnownPairedMac`` hint
+    /// covers the very first rendered frame before the async paired-Mac read runs;
+    /// ``didFinishStoredMacReconnectAttempt`` lets a failed or offline attempt fall
+    /// through to the disconnected view instead of spinning forever.
+    /// - Parameters:
+    ///   - authenticated: Whether the user is authenticated (Stack or attach ticket).
+    ///   - connectionState: The current connection state.
+    ///   - isReconnectingStoredMac: Whether a found stored Mac is actively mid-reconnect.
+    ///   - hasKnownPairedMac: The persisted hint that this device has paired a Mac before.
+    ///   - didFinishStoredMacReconnectAttempt: Whether the first launch reconnect attempt has resolved.
+    /// - Returns: `true` while authenticated, not yet connected, and either actively
+    ///   reconnecting a stored Mac or holding the paired-Mac hint with an unresolved
+    ///   attempt.
+    public static func shouldShowRestoringStoredMac(
+        authenticated: Bool,
+        connectionState: MobileConnectionState,
+        isReconnectingStoredMac: Bool,
+        hasKnownPairedMac: Bool,
+        didFinishStoredMacReconnectAttempt: Bool
+    ) -> Bool {
+        guard authenticated, connectionState != .connected else { return false }
+        if isReconnectingStoredMac { return true }
+        return hasKnownPairedMac && !didFinishStoredMacReconnectAttempt
+    }
 }

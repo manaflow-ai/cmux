@@ -126,6 +126,8 @@ struct CMUXMobileRootView: View {
             RestoringSessionView()
         } else if !isAuthenticated {
             SignInView()
+        } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
+            RestoringSessionView()
         } else if store.connectionState != .connected {
             DisconnectedWorkspaceShellView(
                 showAddDevice: showAddDevice,
@@ -169,6 +171,16 @@ struct CMUXMobileRootView: View {
             stackAuthenticated: authManager.isAuthenticated,
             attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
             isRestoringSession: authManager.isRestoringSession
+        )
+    }
+
+    private var shouldShowRestoringStoredMac: Bool {
+        MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: isAuthenticated,
+            connectionState: store.connectionState,
+            isReconnectingStoredMac: store.isReconnectingStoredMac,
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            didFinishStoredMacReconnectAttempt: store.didFinishStoredMacReconnectAttempt
         )
     }
 

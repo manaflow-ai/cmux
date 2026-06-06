@@ -88,4 +88,55 @@ import Testing
             connectionState: .disconnected
         ))
     }
+
+    @Test func showsRestoringStoredMacWhileReconnectingAKnownPairedMac() {
+        // Actively reconnecting a found stored Mac.
+        #expect(MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: true,
+            connectionState: .disconnected,
+            isReconnectingStoredMac: true,
+            hasKnownPairedMac: false,
+            didFinishStoredMacReconnectAttempt: false
+        ))
+        // First frame for a returning user: persisted hint, attempt not yet resolved.
+        #expect(MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: true,
+            connectionState: .disconnected,
+            isReconnectingStoredMac: false,
+            hasKnownPairedMac: true,
+            didFinishStoredMacReconnectAttempt: false
+        ))
+        // Failed/offline attempt resolved: fall through to the add-device view.
+        #expect(!MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: true,
+            connectionState: .disconnected,
+            isReconnectingStoredMac: false,
+            hasKnownPairedMac: true,
+            didFinishStoredMacReconnectAttempt: true
+        ))
+        // Never paired: add-device immediately, no restoring flash.
+        #expect(!MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: true,
+            connectionState: .disconnected,
+            isReconnectingStoredMac: false,
+            hasKnownPairedMac: false,
+            didFinishStoredMacReconnectAttempt: false
+        ))
+        // Already connected: never show the restoring UI, regardless of flags.
+        #expect(!MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: true,
+            connectionState: .connected,
+            isReconnectingStoredMac: true,
+            hasKnownPairedMac: true,
+            didFinishStoredMacReconnectAttempt: false
+        ))
+        // Not authenticated: the sign-in/restoring-session gates run instead.
+        #expect(!MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: false,
+            connectionState: .disconnected,
+            isReconnectingStoredMac: true,
+            hasKnownPairedMac: true,
+            didFinishStoredMacReconnectAttempt: false
+        ))
+    }
 }

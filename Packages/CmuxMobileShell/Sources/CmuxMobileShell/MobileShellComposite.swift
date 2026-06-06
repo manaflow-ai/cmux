@@ -47,6 +47,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    private static let hasKnownPairedMacDefaultsKey = "cmux.mobile.hasKnownPairedMac"
+
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
@@ -71,6 +73,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var connectionError: String?
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
+
+    /// True only while an actually-found stored Mac is mid-reconnect.
+    ///
+    /// Set just before awaiting the connect for a Mac resolved from the paired-Mac
+    /// store on launch (or network recovery), and cleared once that attempt
+    /// resolves. Drives the root scene's choice to show ``RestoringSessionView``
+    /// during the reconnect window instead of the empty add-device sheet.
+    public private(set) var isReconnectingStoredMac: Bool = false
+
+    /// True once the first launch reconnect attempt has resolved.
+    ///
+    /// A failed or offline reconnect sets this so the root scene falls through to
+    /// the disconnected/add-device view instead of spinning on
+    /// ``RestoringSessionView`` forever.
+    public private(set) var didFinishStoredMacReconnectAttempt: Bool = false
+
+    /// Persisted hint that this device has previously paired a Mac.
+    ///
+    /// Read synchronously at init from the injected `UserDefaults` so the very
+    /// first rendered frame can show ``RestoringSessionView`` for a returning user
+    /// before the async paired-Mac read runs. Writes persist through to the same
+    /// defaults via the property's `didSet`.
+    public private(set) var hasKnownPairedMac: Bool {
+        didSet {
+            pairingHintDefaults.set(hasKnownPairedMac, forKey: Self.hasKnownPairedMacDefaultsKey)
+        }
+    }
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
               activeTicket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
@@ -109,6 +138,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let pairedMacStore: (any MobilePairedMacStoring)?
     private let identityProvider: (any MobileIdentityProviding)?
     private let reachability: any ReachabilityProviding
+    private let pairingHintDefaults: UserDefaults
     private let clientID: String
     private var remoteClient: MobileCoreRPCClient? {
         didSet {
@@ -186,12 +216,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
-        reachability: any ReachabilityProviding = ReachabilityService()
+        reachability: any ReachabilityProviding = ReachabilityService(),
+        pairingHintDefaults: UserDefaults = .standard
     ) {
         self.runtime = runtime
         self.pairedMacStore = pairedMacStore
         self.identityProvider = identityProvider
         self.reachability = reachability
+        self.pairingHintDefaults = pairingHintDefaults
+        self.hasKnownPairedMac = pairingHintDefaults.bool(forKey: Self.hasKnownPairedMacDefaultsKey)
         self.clientID = clientIDRepository.clientID
         self.isSignedIn = isSignedIn
         self.connectionState = connectionState
@@ -261,6 +294,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Drop the cached paired Macs so the next signed-in user never sees the
         // previous user's hosts in the switcher.
         pairedMacs = []
+        // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
+        // the forget path. On a real account switch the next reconnect's no-mac
+        // branch clears the hint.
+        isReconnectingStoredMac = false
+        didFinishStoredMacReconnectAttempt = false
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
@@ -564,23 +602,62 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
         lastReconnectStackUserID = stackUserID
         startObservingNetworkPathChanges()
-        guard let pairedMacStore else { return false }
-        guard isSignedIn else { return false }
+        // No store / not signed in: can't determine a stored Mac here. Resolve the
+        // restoring gate (so a returning user doesn't spin on RestoringSessionView)
+        // but leave the persisted hint intact for a future attempt.
+        guard let pairedMacStore else {
+            finishStoredMacReconnectAttempt()
+            return false
+        }
+        guard isSignedIn else {
+            finishStoredMacReconnectAttempt()
+            return false
+        }
         let saved: MobilePairedMac?
         do {
             saved = try await pairedMacStore.activeMac(stackUserID: stackUserID)
         } catch {
             mobileShellLog.error("paired mac store activeMac failed: \(String(describing: error), privacy: .public)")
+            // A read failure means "couldn't determine," not "no mac": keep the
+            // hint so a transient SQLite error doesn't erase a returning user's
+            // paired state.
+            finishStoredMacReconnectAttempt()
             return false
         }
-        guard let mac = saved else { return false }
+        guard let mac = saved else {
+            // Definitively no active Mac: clear the hint so future launches show
+            // the add-device sheet immediately with no restoring flash.
+            hasKnownPairedMac = false
+            finishStoredMacReconnectAttempt()
+            return false
+        }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
             mac.routes,
             supportedKinds: supportedKinds
-        ) else { return false }
+        ) else {
+            // Found a Mac but no usable route to reach it: treat as no reconnect
+            // target and fall through to add-device.
+            hasKnownPairedMac = false
+            finishStoredMacReconnectAttempt()
+            return false
+        }
+        hasKnownPairedMac = true
+        isReconnectingStoredMac = true
         await connectManualHost(name: mac.displayName ?? host, host: host, port: port)
+        isReconnectingStoredMac = false
+        didFinishStoredMacReconnectAttempt = true
         return connectionState == .connected
+    }
+
+    /// Mark the first launch reconnect attempt resolved without a live connection.
+    ///
+    /// Clears ``isReconnectingStoredMac`` and sets
+    /// ``didFinishStoredMacReconnectAttempt`` so the root scene falls through to
+    /// the disconnected/add-device view instead of spinning on the restoring UI.
+    private func finishStoredMacReconnectAttempt() {
+        isReconnectingStoredMac = false
+        didFinishStoredMacReconnectAttempt = true
     }
 
     // MARK: - Paired Mac switching
@@ -717,6 +794,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 markActive: true,
                 stackUserID: stackUserID
             )
+            // A real, reconnectable Mac is now the active paired Mac: record the
+            // persisted hint so the next launch shows RestoringSessionView during
+            // the reconnect window instead of the empty add-device sheet.
+            hasKnownPairedMac = true
         } catch {
             mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
         }
@@ -785,12 +866,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearRemoteConnectionContext()
     }
 
-    /// Disconnect from the currently paired Mac and forget it so the next
-    /// session starts from a fresh QR scan. Clears in-memory state and the
-    /// persisted active flag (other macs in SQLite stay, but none are marked
-    /// active so reconnect-on-launch is a no-op until the user pairs again).
     /// Tear down the live connection and reset connection UI state, without
-    /// touching the paired-Mac store.
+    /// touching the paired-Mac store or the restoring-gate hint. The switcher's
+    /// ``forgetMac(macDeviceID:)`` and ``switchToMac(macDeviceID:)`` reuse this,
+    /// so it must not clear ``hasKnownPairedMac`` (that belongs to the explicit
+    /// forget-active path below).
     private func disconnectLiveConnection() {
         pairingAttemptID = UUID()
         connectionError = nil
@@ -800,12 +880,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearRemoteConnectionContext()
     }
 
-    /// Disconnect the live connection and forget the currently-active paired Mac
-    /// (drops it from the store), returning the UI to the pairing flow. Backs the
-    /// "Rescan QR" action.
+    /// Disconnect from the currently paired Mac and forget it so the next
+    /// session starts from a fresh QR scan. Clears in-memory state and the
+    /// persisted active flag (other macs in SQLite stay, but none are marked
+    /// active so reconnect-on-launch is a no-op until the user pairs again).
+    /// Backs the "Rescan QR" action.
     public func disconnectAndForgetActiveMac() {
         let staleMacID = activeTicket?.macDeviceID
         disconnectLiveConnection()
+        // Forgetting the active Mac clears the restoring hint so the next launch
+        // (and the current disconnected view) shows add-device immediately.
+        hasKnownPairedMac = false
+        isReconnectingStoredMac = false
+        didFinishStoredMacReconnectAttempt = false
         if let pairedMacStore, let macID = staleMacID {
             // Fire-and-forget: forgetting the persisted mac is cleanup that must
             // not block the synchronous disconnect UI state update above.
