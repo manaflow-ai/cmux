@@ -25612,6 +25612,11 @@ function lifecycleRecordFor(event) {
   return record;
 }
 
+function forgetSessionLifecycle(event) {
+  const sessionId = sessionIdFor(event);
+  if (sessionId) SESSION_LIFECYCLE.delete(sessionId);
+}
+
 function markSessionNotIdle(event) {
   const record = lifecycleRecordFor(event);
   if (!record) return;
@@ -25742,6 +25747,7 @@ const CMUXSessionRestore = async (ctx) => {
         case "session.updated":
           if (props.info && props.info.time && props.info.time.archived) {
             sendHook("session-end", ctx, event);
+            forgetSessionLifecycle(event);
           } else {
             markSessionNotIdle(event);
             sendHook("session-start", ctx, event);
@@ -25784,11 +25790,8 @@ const CMUXSessionRestore = async (ctx) => {
           notifyOpenCodeErrorOnce(ctx, event);
           break;
         case "session.deleted":
-          {
-            const sessionId = sessionIdFor(event);
-            if (sessionId) SESSION_LIFECYCLE.delete(sessionId);
-          }
           sendHook("session-end", ctx, event);
+          forgetSessionLifecycle(event);
           break;
         default:
           break;
