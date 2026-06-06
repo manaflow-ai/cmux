@@ -91,6 +91,8 @@ final class CEFRuntimeInstaller {
     static let shared = CEFRuntimeInstaller()
 
     private(set) var phase: CEFRuntimeInstallPhase = .idle
+    @ObservationIgnored private var installWaiters: [CheckedContinuation<Bool, Never>] = []
+    @ObservationIgnored private var hasActiveInstallRequest = false
 
     var isInstalledOrBundled: Bool {
         CEFRuntimeLocator.resolvedLocation() != nil
@@ -152,9 +154,19 @@ final class CEFRuntimeInstaller {
             phase = .installed
             return true
         }
-        guard !phase.isBusy else { return false }
+        if hasActiveInstallRequest {
+            return await withCheckedContinuation { continuation in
+                installWaiters.append(continuation)
+            }
+        }
+
+        hasActiveInstallRequest = true
+        if isInstalledOrBundled {
+            phase = .installed
+            return completeInstallRequest(true)
+        }
         guard await confirmInstall(presentingWindow: presentingWindow) else {
-            return false
+            return completeInstallRequest(false)
         }
 
         let progressPresenter = CEFRuntimeInstallProgressPresenter(presentingWindow: presentingWindow)
@@ -168,7 +180,7 @@ final class CEFRuntimeInstaller {
             try await Self.installRuntime(progressReporter: progressReporter)
             progressPresenter.close()
             phase = .installed
-            return true
+            return completeInstallRequest(true)
         } catch {
             let message: String
             if let installerError = error as? CEFRuntimeInstallerError {
@@ -188,8 +200,18 @@ final class CEFRuntimeInstaller {
             progressPresenter.close()
             phase = .failed(message)
             presentFailure(message, presentingWindow: presentingWindow)
-            return false
+            return completeInstallRequest(false)
         }
+    }
+
+    private func completeInstallRequest(_ result: Bool) -> Bool {
+        hasActiveInstallRequest = false
+        let waiters = installWaiters
+        installWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume(returning: result)
+        }
+        return result
     }
 
     private func updateInstallPhase(

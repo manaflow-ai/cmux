@@ -77,6 +77,7 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
     /// The live CEF browser. Nil before ``activate()`` has been called.
     /// Held strongly; `close()` releases it.
     @ObservationIgnored private var browser: CMUXCEF.CEFBrowser?
+    @ObservationIgnored private var activeProfileName: String?
     #endif
     @ObservationIgnored private var needsFocusOnActivation = false
     private let renderInitialNavigation: Bool
@@ -157,11 +158,19 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
                 throw CEFBrowserPanelError.engineNotStarted
             }
         }
-        let profile = CMUXCEF.CEFProfileRegistry.shared.profile(named: profileID.uuidString)
+        let profileName = profileID.uuidString
+        let profile = CMUXCEF.CEFProfileRegistry.shared.profile(named: profileName)
+        activeProfileName = profileName
         let url = renderInitialNavigation
             ? (initialURL ?? URL(string: "chrome://extensions/")!)
             : URL(string: "about:blank")!
-        let createdBrowser = try engine.makeEmbeddableBrowser(profile: profile, initialURL: url)
+        let createdBrowser: CMUXCEF.CEFBrowser
+        do {
+            createdBrowser = try engine.makeEmbeddableBrowser(profile: profile, initialURL: url)
+        } catch {
+            releaseActiveProfile()
+            throw error
+        }
         createdBrowser.delegate = self
         browser = createdBrowser
         if renderInitialNavigation {
@@ -280,6 +289,7 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
         detachEmbeddableViewFromAppKit()
         browser?.close()
         browser = nil
+        releaseActiveProfile()
         activationRevision &+= 1
         #endif
     }
@@ -328,6 +338,15 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
         view.removeFromSuperview()
         #if DEBUG
         cmuxDebugLog("cef.panel.detachView panel=\(id.uuidString.prefix(5))")
+        #endif
+    }
+
+    private func releaseActiveProfile() {
+        guard let profileName = activeProfileName else { return }
+        activeProfileName = nil
+        CMUXCEF.CEFProfileRegistry.shared.release(name: profileName)
+        #if DEBUG
+        cmuxDebugLog("cef.panel.releaseProfile panel=\(id.uuidString.prefix(5)) profileLength=\(profileName.utf8.count)")
         #endif
     }
 

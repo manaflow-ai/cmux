@@ -165,9 +165,8 @@ static BOOL CMUXCEFEnsureFrameworkLoaded(NSString *frameworkBinaryPath, NSError 
         if (error) {
             *error = [NSError errorWithDomain:kCMUXCEFErrorDomain
                                          code:CMUXCEFInitErrorCefInitializeFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString
-                                        stringWithFormat:@"CEF framework binary not found at %@",
-                                         frameworkBinaryPath ?: @"<nil>"]}];
+                                     userInfo:@{NSLocalizedDescriptionKey:
+                                         @"CEF framework binary was not found."}];
         }
         return NO;
     }
@@ -176,9 +175,8 @@ static BOOL CMUXCEFEnsureFrameworkLoaded(NSString *frameworkBinaryPath, NSError 
         if (error) {
             *error = [NSError errorWithDomain:kCMUXCEFErrorDomain
                                          code:CMUXCEFInitErrorCefInitializeFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: [NSString
-                                        stringWithFormat:@"cef_load_library failed at %@",
-                                         frameworkBinaryPath]}];
+                                     userInfo:@{NSLocalizedDescriptionKey:
+                                         @"CEF framework library failed to load."}];
         }
         return NO;
     }

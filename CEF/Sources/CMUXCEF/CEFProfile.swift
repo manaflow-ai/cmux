@@ -28,7 +28,7 @@ public final class CEFProfile {
 }
 
 /// Process-wide profile registry. Same name returns the same `CEFProfile`
-/// instance for the lifetime of the cmux process.
+/// instance while at least one caller retains a balanced acquisition.
 @MainActor
 public final class CEFProfileRegistry {
 
@@ -36,6 +36,7 @@ public final class CEFProfileRegistry {
 
     private let bridge = CMUXCEFProfileRegistryBridge.shared()
     private var byName: [String: CEFProfile] = [:]
+    private var referenceCounts: [String: Int] = [:]
 
     private init() {}
 
@@ -44,19 +45,26 @@ public final class CEFProfileRegistry {
     public func profile(named name: String) -> CEFProfile {
         precondition(!name.isEmpty, "profile name must be non-empty")
         if let cached = byName[name] {
+            referenceCounts[name, default: 0] += 1
             return cached
         }
         let bridge = self.bridge.profile(forName: name)
         let profile = CEFProfile(bridge: bridge)
         byName[name] = profile
+        referenceCounts[name] = 1
         return profile
     }
 
-    /// Release the profile. For ephemeral profiles the cache directory is
-    /// scheduled for removal a short time after the underlying
-    /// `CefRequestContext` is destroyed. Named profiles keep their cache
-    /// directory on disk.
+    /// Release one prior acquisition for the profile. For ephemeral profiles
+    /// the cache directory is scheduled for removal after the final release.
+    /// Named profiles keep their cache directory on disk.
     public func release(name: String) {
+        let currentCount = referenceCounts[name] ?? 0
+        guard currentCount <= 1 else {
+            referenceCounts[name] = currentCount - 1
+            return
+        }
+        referenceCounts.removeValue(forKey: name)
         byName.removeValue(forKey: name)
         bridge.destroyProfile(forName: name)
     }
