@@ -666,11 +666,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let dir = "/tmp/repo-resume"
         let lines = TerminalStartupReturnShellScript.commandThenReturnLines(
             command: "{ cd -- '\(dir)' 2>/dev/null || [ ! -d '\(dir)' ]; } && 'claude' '--resume' 'abc'",
-            workingDirectory: dir
+            returnWorkingDirectories: [dir]
         )
         let script = lines.joined(separator: "\n")
 
-        let outerCd = "{ cd -- '\(dir)' 2>/dev/null || true; }"
+        let outerCd = #"{ cd -- '\#(dir)' 2>/dev/null || cd -- "${HOME}" 2>/dev/null || true; }"#
         let exec = "exec -l \"$_cmux_resume_shell\""
         let outerCdRange = script.range(of: outerCd)
         let execRange = script.range(of: exec)
@@ -683,11 +683,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             )
         }
 
-        // Back-compat: with no working directory, no extra outer cd is emitted.
+        // With no persisted working directory, fall back to HOME instead of inheriting the launcher cwd.
         let bare = TerminalStartupReturnShellScript
             .commandThenReturnLines(command: "echo hi")
             .joined(separator: "\n")
-        XCTAssertFalse(bare.contains("|| true; }"), bare)
+        XCTAssertTrue(bare.contains(#"{ cd -- "${HOME}" 2>/dev/null || true; }"#), bare)
         XCTAssertTrue(bare.contains(exec), bare)
     }
 

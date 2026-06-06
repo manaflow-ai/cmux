@@ -32,6 +32,23 @@ fileprivate func shellSingleQuoted(_ value: String) -> String {
     TerminalStartupShellQuoting.singleQuoted(value)
 }
 
+func normalizedTerminalWorkingDirectory(_ value: String?) -> String? {
+    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty else {
+        return nil
+    }
+    return trimmed
+}
+
+func firstNormalizedTerminalWorkingDirectory(_ values: [String?]) -> String? {
+    for value in values {
+        if let normalized = normalizedTerminalWorkingDirectory(value) {
+            return normalized
+        }
+    }
+    return nil
+}
+
 nonisolated enum TerminalStartupWorkingDirectoryPrefix {
     static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
@@ -100,11 +117,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
     }
 
     private static func normalized(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
+        normalizedTerminalWorkingDirectory(value)
     }
 
     private static func legacySingleQuoted(_ value: String) -> String {
@@ -715,8 +728,13 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
     func resumeStartupCommand(
         fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        returnWorkingDirectories: [String?] = []
     ) -> String? {
+        let resumeCommandWorkingDirectory = firstNormalizedTerminalWorkingDirectory([
+            workingDirectory,
+            launchCommand?.workingDirectory,
+        ])
         guard let command = resumeCommand,
               let scriptURL = AgentResumeScriptStore.writeLauncherScript(
                   command: command,
@@ -725,11 +743,16 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   returnToLoginShell: true,
-                  // Match the resume command's own cd: agents with an `.ignore` cwd policy resume from
-                  // the current directory (no cd), so the post-exit shell must not force the launch dir.
+                  // Match only the resume command's own cd: `.ignore` agents resume from the
+                  // current directory, but the outer post-exit shell still returns to the saved
+                  // session directory below.
                   workingDirectory: registration?.cwd == .ignore
                       ? nil
-                      : (workingDirectory ?? launchCommand?.workingDirectory)
+                      : resumeCommandWorkingDirectory,
+                  returnWorkingDirectories: returnWorkingDirectories + [
+                      workingDirectory,
+                      launchCommand?.workingDirectory,
+                  ]
               ) else {
             return nil
         }
@@ -801,7 +824,8 @@ private enum AgentResumeScriptStore {
         fileManager: FileManager,
         temporaryDirectory: URL,
         returnToLoginShell: Bool = false,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        returnWorkingDirectories: [String?] = []
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -825,7 +849,9 @@ private enum AgentResumeScriptStore {
             if returnToLoginShell {
                 lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
                     command: command,
-                    workingDirectory: workingDirectory
+                    returnWorkingDirectories: returnWorkingDirectories.isEmpty
+                        ? [workingDirectory]
+                        : returnWorkingDirectories
                 ))
             } else {
                 lines.append(command)
