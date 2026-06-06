@@ -15664,6 +15664,11 @@ final class Workspace: Identifiable, ObservableObject {
             return closePanel(panelId, force: force, operationId: operationId)
         }
         guard panels[panelId] != nil else { return false }
+        guard !isPanelPinned(panelId) else {
+            clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
+            NSSound.beep()
+            return false
+        }
 
         if force {
             return closePanel(panelId, force: true, operationId: operationId)
@@ -15692,6 +15697,10 @@ final class Workspace: Identifiable, ObservableObject {
             return panels[panelId] != nil
         }
         guard panels[panelId] != nil else { return false }
+        guard !isPanelPinned(panelId) else {
+            NSSound.beep()
+            return false
+        }
         guard !force else { return true }
 
         guard CloseTabConfirmationPolicy.shouldConfirm(
