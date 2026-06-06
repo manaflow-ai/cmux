@@ -278,6 +278,29 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         ))
     }
 
+    func testSyntaxLanguageDetectorRedetectsAfterCurrentTextFallsBackUnderHighlightLimit() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("swift")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let smallProgram = "let value = 1\n"
+        try smallProgram.write(to: url, atomically: true, encoding: .utf8)
+
+        XCTAssertNotNil(SyntaxLanguageDetector.language(
+            for: url,
+            currentContentUTF8ByteCount: smallProgram.utf8.count
+        ))
+        XCTAssertNil(SyntaxLanguageDetector.language(
+            for: url,
+            currentContentUTF8ByteCount: 501_000
+        ))
+        XCTAssertNotNil(SyntaxLanguageDetector.language(
+            for: url,
+            currentContentUTF8ByteCount: smallProgram.utf8.count
+        ))
+    }
+
     func testExtensionlessUTF16TextWithBOMResolvesAsTextAfterSniffing() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

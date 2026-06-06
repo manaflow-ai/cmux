@@ -81,8 +81,9 @@ enum SyntaxLanguageDetector {
         cacheLock.lock()
         let cached = cache[key]
         cacheLock.unlock()
-        guard cached?.metadata == metadata else { return nil }
-        return cached?.language
+        guard let cached else { return nil }
+        guard cached.metadata == metadata else { return nil }
+        return cached.language
     }
 
     private static func detectAndCacheLanguage(for url: URL, key: String, metadata: FileMetadata?) -> CodeLanguage? {

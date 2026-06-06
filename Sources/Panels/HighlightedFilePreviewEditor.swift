@@ -2,6 +2,7 @@ import AppKit
 import CodeEditLanguages
 import CodeEditSourceEditor
 import CodeEditTextView
+import Observation
 import SwiftUI
 
 // MARK: - Text storage + focus + zoom bridge
@@ -18,29 +19,35 @@ import SwiftUI
 // FilePreviewFocusCoordinator (keyboard focus) and manage the zoom event monitor.
 
 @MainActor
-final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDelegate, ObservableObject {
+@Observable
+final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDelegate {
     static let defaultFontSize: CGFloat = 13
     static let minFontSize: CGFloat = 8
     static let maxFontSize: CGFloat = 36
 
+    @ObservationIgnored
     let storage = NSTextStorage()
-    @Published private(set) var fontSize: CGFloat = defaultFontSize
-    @Published private(set) var themeBackground: NSColor = .textBackgroundColor
-    @Published private(set) var themeForeground: NSColor = .textColor
-    @Published private(set) var drawsBackground: Bool = true
-    @Published private(set) var wrapLines: Bool = false
+    private(set) var fontSize: CGFloat = defaultFontSize
+    private(set) var themeBackground: NSColor = .textBackgroundColor
+    private(set) var themeForeground: NSColor = .textColor
+    private(set) var drawsBackground: Bool = true
+    private(set) var wrapLines: Bool = false
+    @ObservationIgnored
     private(set) var isApplyingExternalUpdate = false
 
+    @ObservationIgnored
     weak var panel: FilePreviewPanel? {
         didSet {
             guard oldValue !== panel else { return }
             registerFocusIfReady()
         }
     }
+    @ObservationIgnored
     private weak var textController: TextViewController? {
         didSet {
             guard oldValue !== textController else { return }
             registerFocusIfReady()
+            installEventMonitorIfReady()
         }
     }
 
@@ -89,11 +96,17 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
     // from @MainActor install/remove methods. NSLock serializes the read-check-remove-nil
     // sequence so the token is never passed to NSEvent.removeMonitor twice.
     // nonisolated(unsafe) is justified because every access goes through eventMonitorLock.
+    @ObservationIgnored
     private let eventMonitorLock = NSLock()
+    @ObservationIgnored
     private nonisolated(unsafe) var localEventMonitor: Any?
+    @ObservationIgnored
     private nonisolated(unsafe) var coordinatorDestroyed = false
+    @ObservationIgnored
     private weak var innerScrollView: NSScrollView?
+    @ObservationIgnored
     private var pendingSaveChordPrefix: ShortcutStroke?
+    @ObservationIgnored
     private var isVisibleInUI = true
 
     func installLocalEventMonitor(scrollView: NSScrollView) {
@@ -140,29 +153,19 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
         let alreadyInstalled = localEventMonitor != nil
         let destroyed = coordinatorDestroyed
         eventMonitorLock.unlock()
+        let scrollView = innerScrollView ?? textController?.scrollView
         guard isVisibleInUI,
-              let sv = innerScrollView,
+              let scrollView,
               !alreadyInstalled,
               !destroyed else { return }
-        installLocalEventMonitor(scrollView: sv)
+        installLocalEventMonitor(scrollView: scrollView)
     }
 
-    /// Install the zoom/save event monitor once the controller's scroll view exists.
-    ///
-    /// prepareCoordinator runs inside TextViewController.init, before loadView()
-    /// assigns the `scrollView` IUO, so we cannot read it synchronously there. Hop to
-    /// the next main-runloop tick (loadView() has run by then) and install with the
-    /// real scroll view; if it still isn't ready or the coordinator was torn down, do
-    /// nothing rather than crash.
-    func scheduleEventMonitorInstall() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            MainActor.assumeIsolated {
-                guard !self.isCoordinatorDestroyed(),
-                      let scrollView = self.textController?.scrollView else { return }
-                self.installLocalEventMonitor(scrollView: scrollView)
-            }
-        }
+    /// Install the zoom/save event monitor if CodeEdit has finished loading its scroll view.
+    func installEventMonitorIfReady() {
+        guard !isCoordinatorDestroyed(),
+              let scrollView = textController?.scrollView else { return }
+        installLocalEventMonitor(scrollView: scrollView)
     }
 
     func setVisibleInUI(_ visible: Bool) {
@@ -339,11 +342,10 @@ extension HighlightedEditorBridge: TextViewCoordinator {
             // `controller.scrollView` is an implicitly-unwrapped optional that
             // TextViewController only assigns in loadView(). prepareCoordinator is
             // invoked from inside TextViewController.init — before loadView() runs —
-            // so the scroll view is still nil here, and force-unwrapping it crashes
-            // the moment a highlighted preview opens. Defer the event-monitor install
-            // to the next main-runloop tick, by which point loadView() has created the
-            // scroll view and the view hierarchy exists.
-            scheduleEventMonitorInstall()
+            // so the scroll view can still be nil here. Install immediately only if
+            // it already exists; the container/update lifecycle retries once the
+            // view hierarchy exists.
+            installEventMonitorIfReady()
         }
     }
 
@@ -396,6 +398,7 @@ final class HighlightedEditorContainerView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         bridge.retryPendingFocus()
+        bridge.reinstallLocalEventMonitorIfNeeded()
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -406,10 +409,10 @@ final class HighlightedEditorContainerView: NSView {
     }
 }
 
-// MARK: - SwiftUI core (stable - created once, updated via @Published on bridge)
+// MARK: - SwiftUI core (stable - created once, updated via @Observable bridge)
 
 struct HighlightedSourceEditorCore: View {
-    @ObservedObject var bridge: HighlightedEditorBridge
+    let bridge: HighlightedEditorBridge
     let language: CodeLanguage
     @State private var editorState = SourceEditorState()
 
@@ -551,6 +554,7 @@ struct HighlightedFilePreviewEditor: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ container: HighlightedEditorContainerView, coordinator: HighlightedEditorBridge) {
+        coordinator.setVisibleInUI(false)
         coordinator.destroy()
     }
 }
