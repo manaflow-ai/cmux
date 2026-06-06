@@ -22098,21 +22098,30 @@ struct CMUXCLI {
     }
 
     private func isGenericNeedsInputSummary(_ summary: (subtitle: String, body: String)) -> Bool {
-        summary.subtitle == "Waiting" ||
-            summary.subtitle == claudeWaitingSubtitle() ||
-            isGenericNeedsInputAttention(summary)
+        if summary.subtitle == "Waiting" || summary.subtitle == claudeWaitingSubtitle() {
+            return isGenericNeedsInputBody(summary.body)
+        }
+        return isGenericNeedsInputAttention(summary)
     }
 
     private func isGenericNeedsInputAttention(_ summary: (subtitle: String, body: String)) -> Bool {
         guard summary.subtitle == "Attention" || summary.subtitle == claudeAttentionSubtitle() else { return false }
-        switch normalizedSingleLine(summary.body).lowercased() {
+        return isGenericNeedsInputBody(summary.body)
+    }
+
+    private func isGenericNeedsInputBody(_ body: String) -> Bool {
+        switch normalizedSingleLine(body).lowercased() {
         case "claude needs your attention",
              "claude needs your input",
+             "input required",
              "needs input",
              "needs your attention",
              "needs your input",
+             "requires input",
              "the assistant needs your attention",
              "the assistant needs your input",
+             "user input required",
+             "waiting for input",
              "入力が必要です",
              "入力待ち":
             return true

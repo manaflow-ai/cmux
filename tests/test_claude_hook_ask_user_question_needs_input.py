@@ -297,6 +297,45 @@ def main() -> int:
             env,
         )
 
+        waiting_detail_payload = {
+            "session_id": session_id,
+            "hook_event_name": "Notification",
+            "message": "Waiting on remote daemon output.",
+        }
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            waiting_detail_payload,
+            env,
+        )
+
+        notify_commands = [
+            command for command in server.commands
+            if command.startswith(f"notify_target_async {workspace_id} {surface_id} ")
+        ]
+        if len(notify_commands) != 3:
+            print("FAIL: distinct Waiting notification should not be suppressed")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        if not has_command_with(
+            server.commands,
+            f"notify_target_async {workspace_id} {surface_id} Claude Code|Waiting|",
+            "Waiting on remote daemon output.",
+        ):
+            print("FAIL: distinct Waiting notification should keep its own body")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "pre-tool-use",
+            payload,
+            env,
+        )
+
         unrelated_attention_payload = {
             "session_id": session_id,
             "hook_event_name": "Notification",
@@ -314,7 +353,7 @@ def main() -> int:
             command for command in server.commands
             if command.startswith(f"notify_target_async {workspace_id} {surface_id} ")
         ]
-        if len(notify_commands) != 3:
+        if len(notify_commands) != 5:
             print("FAIL: unrelated Attention notification should not be suppressed")
             print(f"commands={server.commands!r}")
             return 1
@@ -345,7 +384,7 @@ def main() -> int:
             command for command in server.commands
             if command.startswith(f"notify_target_async {workspace_id} {surface_id} ")
         ]
-        if len(notify_commands) != 4:
+        if len(notify_commands) != 6:
             print("FAIL: generic needs-input Notification without a pre-tool signature should publish")
             print(f"commands={server.commands!r}")
             return 1
@@ -385,7 +424,7 @@ def main() -> int:
             command for command in server.commands
             if command.startswith(f"notify_target_async {workspace_id} {surface_id} ")
         ]
-        if len(notify_commands) != 6:
+        if len(notify_commands) != 8:
             print("FAIL: non-duplicate Notification hook should not be suppressed")
             print(f"commands={server.commands!r}")
             return 1
