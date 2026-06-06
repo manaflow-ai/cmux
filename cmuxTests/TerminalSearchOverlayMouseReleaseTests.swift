@@ -8,7 +8,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Terminal search overlay mouse release")
+@Suite("Terminal search overlay mouse release", .serialized)
 struct TerminalSearchOverlayMouseReleaseTests {
     @Test("Search overlay forwards terminal mouse release during selection drag")
     func searchOverlayForwardsTerminalMouseReleaseDuringSelectionDrag() throws {
