@@ -73,12 +73,13 @@ public actor MobileDiagnosticsOSLogReader {
     /// produce a stable sanitized unavailability note.
     ///
     /// - Returns: The formatted entries text, or an unavailability note.
-    public func recentEntriesText() async -> String {
+    public func recentEntriesText(notBefore: Date? = nil) async -> String {
         #if canImport(OSLog)
         let includedSubsystems = self.subsystems
         let lookback = self.lookback
         let maxEntries = self.maxEntries
         let maxBytes = self.maxBytes
+        let notBefore = notBefore
         return await Task.detached(priority: .utility) {
             func levelLabel(_ level: OSLogEntryLog.Level) -> String {
                 switch level {
@@ -94,7 +95,13 @@ public actor MobileDiagnosticsOSLogReader {
 
             do {
                 let store = try OSLogStore(scope: .currentProcessIdentifier)
-                let since = store.position(date: Date().addingTimeInterval(-lookback))
+                let since = store.position(
+                    date: Self.effectiveStartDate(
+                        now: Date(),
+                        lookback: lookback,
+                        notBefore: notBefore
+                    )
+                )
                 let entries = try store.getEntries(at: since)
 
                 let formatter = DateFormatter()
@@ -124,7 +131,7 @@ public actor MobileDiagnosticsOSLogReader {
                 if lines.isEmpty {
                     return truncated
                         ? "(os log lines exceeded diagnostics limit)"
-                        : "(no matching os log entries in the last \(Int(lookback))s)"
+                        : Self.noMatchingEntriesMessage(lookback: lookback, notBefore: notBefore)
                 }
                 if truncated {
                     _ = Self.appendRecentLine(
@@ -143,6 +150,21 @@ public actor MobileDiagnosticsOSLogReader {
         #else
         return "(os log unavailable: OSLog not importable on this platform)"
         #endif
+    }
+
+    static func effectiveStartDate(now: Date, lookback: TimeInterval, notBefore: Date?) -> Date {
+        let lookbackStart = now.addingTimeInterval(-lookback)
+        guard let notBefore else {
+            return lookbackStart
+        }
+        return max(lookbackStart, notBefore)
+    }
+
+    private static func noMatchingEntriesMessage(lookback: TimeInterval, notBefore: Date?) -> String {
+        if notBefore != nil {
+            return "(no matching os log entries since diagnostics session start)"
+        }
+        return "(no matching os log entries in the last \(Int(lookback))s)"
     }
 
     @discardableResult

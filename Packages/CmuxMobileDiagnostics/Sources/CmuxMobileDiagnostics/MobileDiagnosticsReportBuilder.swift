@@ -74,10 +74,11 @@ public actor MobileDiagnosticsReportBuilder {
     public func buildReport(
         liveState: MobileDiagnosticsLiveState,
         terminalSnapshot: String?,
-        immediateEventLines: [String] = []
+        immediateEventLines: [String] = [],
+        osLogNotBefore: Date? = nil
     ) async -> MobileDiagnosticsReport {
         let (logCount, logBody) = await sink.snapshotWithCount()
-        let osLog = await osLogReader.recentEntriesText()
+        let osLog = await osLogReader.recentEntriesText(notBefore: osLogNotBefore)
         let pendingImmediateEvents = immediateEventLines
             .filter { event in logBody.contains(event) == false }
             .map { "[pending] \($0)" }

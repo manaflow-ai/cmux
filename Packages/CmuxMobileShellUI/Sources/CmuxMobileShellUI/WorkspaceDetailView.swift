@@ -486,7 +486,8 @@ struct WorkspaceDetailView: View {
         return await builder.buildReport(
             liveState: liveState,
             terminalSnapshot: terminalText,
-            immediateEventLines: immediateEventLines
+            immediateEventLines: immediateEventLines,
+            osLogNotBefore: store.diagnosticsOSLogBoundaryDate
         )
     }
 

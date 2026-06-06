@@ -173,6 +173,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var pairingAttemptID: UUID
     private var diagnosticsImmediateEvents: [String] = []
     private var diagnosticsLogClearTask: Task<Void, Never>?
+    public private(set) var diagnosticsOSLogBoundaryDate: Date
 
     /// Synchronous mirror of recent high-signal state events.
     ///
@@ -213,7 +214,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileDebugLog.shared.append(message)
     }
 
-    private func clearDiagnosticsEvents() {
+    private func resetDiagnosticsOSLogBoundaryDate() {
+        diagnosticsOSLogBoundaryDate = runtime?.now() ?? Date()
+    }
+
+    private func clearDiagnosticsEvents(resetOSLogBoundary: Bool = true) {
+        if resetOSLogBoundary {
+            resetDiagnosticsOSLogBoundaryDate()
+        }
         diagnosticsImmediateEvents.removeAll(keepingCapacity: true)
         diagnosticsLogClearTask = MobileDebugLog.shared.clear()
     }
@@ -283,6 +291,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalOutputTransport = .rawBytes
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
+        self.diagnosticsOSLogBoundaryDate = runtime?.now() ?? Date()
     }
 
     isolated deinit {
@@ -304,12 +313,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func signIn() {
+        if !isSignedIn {
+            clearDiagnosticsEvents()
+        }
         isSignedIn = true
         connectionError = nil
     }
 
     public func signOut() {
-        clearDiagnosticsEvents()
+        clearDiagnosticsEvents(resetOSLogBoundary: false)
         pairingAttemptID = UUID()
         connectionGeneration = UUID()
         connectedHostName = ""
@@ -332,6 +344,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaces = PreviewMobileHost.workspaces
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
+        resetDiagnosticsOSLogBoundaryDate()
     }
 
     public func resumeForegroundRefresh() {

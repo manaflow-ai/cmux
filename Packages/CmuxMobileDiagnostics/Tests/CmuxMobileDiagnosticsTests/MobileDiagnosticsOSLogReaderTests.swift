@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxMobileDiagnostics
 
@@ -28,5 +29,29 @@ import Testing
         #expect(MobileDiagnosticsOSLogReader.appendRecentLine("too-long", to: &lines, renderedBytes: &bytes, maxEntries: 10, maxBytes: 3))
         #expect(lines.isEmpty)
         #expect(bytes == 0)
+    }
+
+    @Test func effectiveStartDateRespectsSessionBoundary() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let lookbackStart = MobileDiagnosticsOSLogReader.effectiveStartDate(
+            now: now,
+            lookback: 300,
+            notBefore: nil
+        )
+        #expect(lookbackStart == Date(timeIntervalSince1970: 700))
+
+        let laterSessionStart = MobileDiagnosticsOSLogReader.effectiveStartDate(
+            now: now,
+            lookback: 300,
+            notBefore: Date(timeIntervalSince1970: 900)
+        )
+        #expect(laterSessionStart == Date(timeIntervalSince1970: 900))
+
+        let olderSessionStart = MobileDiagnosticsOSLogReader.effectiveStartDate(
+            now: now,
+            lookback: 300,
+            notBefore: Date(timeIntervalSince1970: 600)
+        )
+        #expect(olderSessionStart == Date(timeIntervalSince1970: 700))
     }
 }
