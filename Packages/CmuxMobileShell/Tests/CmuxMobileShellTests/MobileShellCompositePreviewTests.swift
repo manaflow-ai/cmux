@@ -53,6 +53,21 @@ import Testing
         #expect(store.selectedWorkspace?.name == "cmux")
     }
 
+    @Test func signOutClearsDiagnosticsEventsFromPreviousSession() async {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+        #expect(store.diagnosticsImmediateEventLines.contains { $0.contains("cmux-macbook") })
+
+        store.signOut()
+        let immediateLines = await store.diagnosticsImmediateEventLinesForReport()
+
+        #expect(!immediateLines.contains { $0.contains("cmux-macbook") })
+        #expect(immediateLines.contains("auth.signedIn=false"))
+        #expect(immediateLines.contains("conn.state=disconnected host=-"))
+    }
+
     @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {
         let store = MobileShellComposite.preview()
         store.signIn()

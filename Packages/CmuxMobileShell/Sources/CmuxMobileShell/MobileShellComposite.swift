@@ -172,6 +172,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
     private var diagnosticsImmediateEvents: [String] = []
+    private var diagnosticsLogClearTask: Task<Void, Never>?
 
     /// Synchronous mirror of recent high-signal state events.
     ///
@@ -181,6 +182,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the actor write has not run yet.
     public var diagnosticsImmediateEventLines: [String] {
         diagnosticsImmediateEvents
+    }
+
+    /// Recent immediate events after any queued sign-out log clear has run.
+    ///
+    /// Diagnostics report generation awaits this before snapshotting the
+    /// actor-backed log sink so previous-session lines cannot survive a fresh
+    /// sign-out into the next user's report.
+    public func diagnosticsImmediateEventLinesForReport() async -> [String] {
+        let clearTask = diagnosticsLogClearTask
+        await clearTask?.value
+        return diagnosticsImmediateEvents
     }
 
     public var phase: MobileShellPhase {
@@ -199,6 +211,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             diagnosticsImmediateEvents.removeFirst(diagnosticsImmediateEvents.count - Self.diagnosticsImmediateEventLimit)
         }
         MobileDebugLog.shared.append(message)
+    }
+
+    private func clearDiagnosticsEvents() {
+        diagnosticsImmediateEvents.removeAll(keepingCapacity: true)
+        diagnosticsLogClearTask = MobileDebugLog.shared.clear()
     }
 
     public var selectedWorkspace: MobileWorkspacePreview? {
@@ -292,12 +309,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func signOut() {
+        clearDiagnosticsEvents()
         pairingAttemptID = UUID()
         connectionGeneration = UUID()
+        connectedHostName = ""
         isSignedIn = false
         connectionState = .disconnected
         macConnectionStatus = .unavailable
-        connectedHostName = ""
         pairingCode = ""
         terminalInputText = ""
         connectionError = nil

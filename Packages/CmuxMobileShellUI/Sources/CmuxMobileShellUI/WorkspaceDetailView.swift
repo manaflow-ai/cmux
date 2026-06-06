@@ -477,6 +477,7 @@ struct WorkspaceDetailView: View {
     private func buildDiagnosticsReport() async -> MobileDiagnosticsReport {
         let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
         let liveState = diagnosticsLiveState
+        let immediateEventLines = await store.diagnosticsImmediateEventLinesForReport()
         let environment = MobileDiagnosticsEnvironment.current()
         let builder = MobileDiagnosticsReportBuilder(
             environment: environment,
@@ -485,7 +486,7 @@ struct WorkspaceDetailView: View {
         return await builder.buildReport(
             liveState: liveState,
             terminalSnapshot: terminalText,
-            immediateEventLines: store.diagnosticsImmediateEventLines
+            immediateEventLines: immediateEventLines
         )
     }
 

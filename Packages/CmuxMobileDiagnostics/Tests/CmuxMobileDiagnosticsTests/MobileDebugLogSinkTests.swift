@@ -46,6 +46,19 @@ import Testing
         #expect(result.body.isEmpty)
     }
 
+    @Test func facadeClearWaitsForEarlierAppends() async {
+        let sink = MobileDebugLogSink()
+        let log = MobileDebugLog(sink: sink)
+
+        log.append("old session")
+        let clearTask = log.clear()
+        await clearTask.value
+
+        let result = await sink.snapshotWithCount()
+        #expect(result.count == 0)
+        #expect(!result.body.contains("old session"))
+    }
+
     @Test func timestampUsesInjectedClock() async {
         // A monotonic stepping clock: each read advances 1.5s from a fixed base.
         // The first read seeds `startedAt`; the second is the append time, so the

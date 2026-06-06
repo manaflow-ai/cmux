@@ -43,7 +43,11 @@ public struct MobileFeedbackPhotoProcessor: Sendable {
         fromFileAt sourceURL: URL,
         maximumByteCount: Int
     ) throws -> Data {
-        guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil) else {
+        let sourceOptions: [CFString: Any] = [
+            kCGImageSourceShouldCache: false,
+            kCGImageSourceShouldCacheImmediately: false,
+        ]
+        guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, sourceOptions as CFDictionary) else {
             throw MobileFeedbackSubmissionError.photoReadFailed
         }
         return try optimizedJPEGData(from: source, maximumByteCount: maximumByteCount)
@@ -60,6 +64,8 @@ public struct MobileFeedbackPhotoProcessor: Sendable {
             let thumbnailOptions: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCache: false,
+                kCGImageSourceShouldCacheImmediately: false,
                 kCGImageSourceThumbnailMaxPixelSize: maxPixelDimension,
             ]
             guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {

@@ -3,6 +3,67 @@ import Foundation
 import UIKit
 #endif
 
+private actor MobileDebugLogOperationReceipt {
+    private var isComplete = false
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if isComplete {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    func complete() {
+        guard !isComplete else { return }
+        isComplete = true
+        let waiting = continuations
+        continuations.removeAll(keepingCapacity: false)
+        for continuation in waiting {
+            continuation.resume()
+        }
+    }
+}
+
+private enum MobileDebugLogOperation: Sendable {
+    case append(String)
+    case clear(MobileDebugLogOperationReceipt)
+}
+
+private final class MobileDebugLogOperationQueue: Sendable {
+    private let continuation: AsyncStream<MobileDebugLogOperation>.Continuation
+
+    init(sink: MobileDebugLogSink) {
+        let stream = AsyncStream.makeStream(of: MobileDebugLogOperation.self)
+        self.continuation = stream.continuation
+        Task {
+            for await operation in stream.stream {
+                switch operation {
+                case .append(let message):
+                    await sink.append(message)
+                case .clear(let receipt):
+                    await sink.clear()
+                    await receipt.complete()
+                }
+            }
+        }
+    }
+
+    func append(_ message: String) {
+        continuation.yield(.append(message))
+    }
+
+    func clear() -> Task<Void, Never> {
+        let receipt = MobileDebugLogOperationReceipt()
+        continuation.yield(.clear(receipt))
+        return Task {
+            await receipt.wait()
+        }
+    }
+}
+
 /// In-app diagnostics log facade for iOS, backed by an actor sink.
 ///
 /// This is the thin compatibility surface the mobile packages call into
@@ -25,12 +86,14 @@ public struct MobileDebugLog: Sendable {
 
     /// The actor that owns the ring buffer and broadcast stream.
     public let sink: MobileDebugLogSink
+    private let operationQueue: MobileDebugLogOperationQueue
 
     /// Wrap an existing sink.
     ///
     /// - Parameter sink: The actor-backed buffer to bridge synchronous calls to.
     public init(sink: MobileDebugLogSink) {
         self.sink = sink
+        self.operationQueue = MobileDebugLogOperationQueue(sink: sink)
     }
 
     /// Append one line, dispatching the write into the actor.
@@ -38,8 +101,16 @@ public struct MobileDebugLog: Sendable {
     /// Safe to call from any thread (Ghostty IO/render). The write is enqueued
     /// on the actor and does not block the caller.
     public func append(_ message: String) {
-        let sink = sink
-        Task { await sink.append(message) }
+        operationQueue.append(message)
+    }
+
+    /// Remove all buffered lines.
+    ///
+    /// Safe to call from synchronous lifecycle hooks; clearing is serialized on
+    /// the actor-backed sink.
+    @discardableResult
+    public func clear() -> Task<Void, Never> {
+        operationQueue.clear()
     }
 
     /// Identifies the running build so a pasted log proves which reload it came
