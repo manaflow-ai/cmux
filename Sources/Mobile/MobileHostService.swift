@@ -605,7 +605,7 @@ final class MobileHostService {
             Task { await connection.close(reason: "pairing port changed") }
         }
         activeConnections.removeAll()
-        clientIDsByConnectionID.removeAll()
+        stickyViewportClientIDsByConnectionID.removeAll()
 
         listener = candidate
         listenerGeneration = generation
