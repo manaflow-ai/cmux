@@ -440,23 +440,33 @@ public final class AuthCoordinator {
     ///   `client.signOut()` the token is gone and a server-side DELETE would be
     ///   silently skipped, leaving the device receiving pushes for a signed-out
     ///   account. Defaults to a no-op.
-    public func signOut(onSignedOut: @escaping @Sendable () async -> Void = {}) async {
-        // Give token-authenticated teardown (the push-token DELETE) a bounded
-        // chance to run while tokens are still valid, but never block local
-        // sign-out on a stuck call. The teardown runs unstructured and cancels
-        // the deadline when it finishes; we only await the deadline, so a hook
-        // that ignores cancellation keeps running detached without holding up
-        // sign-out past the deadline.
-        let deadline = Task<Void, Never> {
-            // Bounded, cancellable sign-out teardown deadline (carve-out):
-            // cancelled early when the hook completes.
-            try? await Task.sleep(for: .seconds(5))
+    /// - Parameter teardownTimeout: How long the structured teardown may run
+    ///   before it is cancelled so a slow call can't hold sign-out open. Injected
+    ///   as a duration (rather than a wall clock) so tests exercise the deadline
+    ///   path without real waiting. Defaults to 5 seconds.
+    public func signOut(
+        onSignedOut: @escaping @Sendable () async -> Void = {},
+        teardownTimeout: Duration = .seconds(5)
+    ) async {
+        // Run the token-authenticated teardown (the push-token DELETE) while the
+        // signing-out account's tokens are still valid, bounded so a slow call
+        // can't hold sign-out open indefinitely. The teardown is STRUCTURED: on
+        // deadline we cancel it and the task group still joins it before
+        // returning, so it can never outlive sign-out and rebuild its request
+        // from a later sign-in's credentials. The push DELETE runs on URLSession
+        // (cancellation-aware), so `cancelAll()` unblocks the join promptly;
+        // awaiting it inline also guarantees it reads this account's tokens,
+        // since no new sign-in can interleave before `signOut` returns.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await onSignedOut() }
+            group.addTask {
+                // Bounded, cancellable teardown deadline (carve-out); the loser
+                // is cancelled by `cancelAll()` once the first task finishes.
+                try? await Task.sleep(for: teardownTimeout)
+            }
+            await group.next()
+            group.cancelAll()
         }
-        _ = Task {
-            await onSignedOut()
-            deadline.cancel()
-        }
-        await deadline.value
         do {
             try await client.signOut()
         } catch {
