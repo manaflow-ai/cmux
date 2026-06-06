@@ -33,18 +33,20 @@ public enum BrowserEngineKind: String, CaseIterable, Sendable {
     public static let `default`: BrowserEngineKind = .wkwebview
 
     /// The currently-active selection, resolved from `UserDefaults`.
-    /// SwiftUI surfaces should prefer `@AppStorage(userDefaultsKey)`
-    /// to participate in live updates; non-SwiftUI call sites can use
-    /// this convenience accessor.
+    ///
+    /// This repairs impossible persisted selections, such as CEF on an
+    /// unsupported OS or a build that does not link the CEF package. It does
+    /// not require the optional CEF runtime to be installed; runtime
+    /// installation is handled when the user selects CEF or when a CEF panel
+    /// activates.
     public static var current: BrowserEngineKind {
         let raw = UserDefaults.standard.string(forKey: userDefaultsKey)
         guard let raw, let kind = BrowserEngineKind(rawValue: raw) else {
             return .default
         }
         if kind == .cef {
-            guard isCEFAvailable,
-                  isCEFSupportedOnCurrentOS,
-                  CEFRuntimeLocator.resolvedLocation() != nil else {
+            guard canSelectCEF else {
+                UserDefaults.standard.set(Self.default.rawValue, forKey: userDefaultsKey)
                 return .default
             }
         }
