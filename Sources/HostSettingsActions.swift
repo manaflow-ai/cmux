@@ -256,9 +256,14 @@ final class HostSettingsActions: SettingsHostActions {
             boundPort: status.port,
             usesEphemeralFallback: status.usesEphemeralFallback,
             activeConnectionCount: status.activeConnectionCount,
-            displayName: MobileHostIdentity.displayName() ?? "",
             routes: routes
         )
+    }
+
+    func mobilePairingDefaultDisplayName() -> String {
+        // The Mac's system name, the pairing name used when no override is set.
+        // Stable across override edits, so the placeholder never goes stale.
+        Host.current().localizedName ?? ""
     }
 
     /// Localized transport label for a pairing route shown in diagnostics.

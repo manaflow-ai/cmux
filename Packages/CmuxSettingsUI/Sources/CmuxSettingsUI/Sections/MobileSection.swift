@@ -12,6 +12,11 @@ public struct MobileSection: View {
     @State private var displayName: DefaultsValueModel<String>
     @State private var status: MobilePairingStatusModel
 
+    /// The Mac's system name, used as the display-name placeholder when no
+    /// override is set. Captured once from the host; it does not change during a
+    /// settings session, so it never goes stale as the override is edited.
+    private let defaultDisplayName: String
+
     private static let columnWidth: CGFloat = 196
 
     /// Creates a Mobile settings section bound to the supplied settings stores.
@@ -30,6 +35,7 @@ public struct MobileSection: View {
         _port = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort))
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
+        defaultDisplayName = hostActions.mobilePairingDefaultDisplayName()
     }
 
     /// The Mobile settings section content.
@@ -145,10 +151,11 @@ public struct MobileSection: View {
 
     @ViewBuilder
     private var displayNameRow: some View {
-        // When the override is empty the resolved name is this Mac's system
-        // name; use it as the placeholder so the user sees the actual default.
-        let resolvedName = (status.current?.displayName).flatMap { $0.isEmpty ? nil : $0 }
-        let placeholder = resolvedName ?? String(localized: "settings.mobile.displayName.placeholder", defaultValue: "This Mac's name")
+        // Show this Mac's system name as the placeholder so the user sees the
+        // actual default that applies when the override is empty.
+        let placeholder = defaultDisplayName.isEmpty
+            ? String(localized: "settings.mobile.displayName.placeholder", defaultValue: "This Mac's name")
+            : defaultDisplayName
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingDisplayName",

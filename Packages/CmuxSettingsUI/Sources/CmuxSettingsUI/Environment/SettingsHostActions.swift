@@ -115,6 +115,14 @@ public protocol SettingsHostActions: AnyObject {
     /// changed, connection count changed). The Mobile section subscribes so the
     /// bound-port indicator and connection count stay live without polling.
     func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot>
+
+    /// The Mac's system name (e.g. `Host.current().localizedName`) used as the
+    /// iOS pairing display name when the user sets no override. The Mobile
+    /// section shows it as the display-name field placeholder. Empty when
+    /// unavailable (previews/tests). This is a stable host value, not derived
+    /// from the override, so the placeholder never goes stale as the override
+    /// is edited.
+    func mobilePairingDefaultDisplayName() -> String
 }
 
 public extension SettingsHostActions {
@@ -125,6 +133,8 @@ public extension SettingsHostActions {
     func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot> {
         AsyncStream { $0.finish() }
     }
+
+    func mobilePairingDefaultDisplayName() -> String { "" }
 
     func sidebarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 12.5, minimum: 10, maximum: 20, defaultValue: 12.5)

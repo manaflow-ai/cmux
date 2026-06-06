@@ -31,10 +31,6 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
     /// Number of iOS devices currently connected.
     public let activeConnectionCount: Int
 
-    /// The effective name shown to the iOS app during pairing (the user's
-    /// override, or the Mac's system name when no override is set).
-    public let displayName: String
-
     /// The addresses the iOS app can use to reach this Mac.
     public let routes: [MobilePairingRoute]
 
@@ -47,7 +43,6 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
     ///   - usesEphemeralFallback: True when the bound port differs from the
     ///     configured port because the configured port was unavailable.
     ///   - activeConnectionCount: Number of connected iOS devices.
-    ///   - displayName: Effective name shown to the iOS app.
     ///   - routes: Addresses the iOS app can use to reach this Mac.
     public init(
         isRunning: Bool,
@@ -55,7 +50,6 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
         boundPort: Int?,
         usesEphemeralFallback: Bool,
         activeConnectionCount: Int,
-        displayName: String,
         routes: [MobilePairingRoute]
     ) {
         self.isRunning = isRunning
@@ -63,7 +57,6 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
         self.boundPort = boundPort
         self.usesEphemeralFallback = usesEphemeralFallback
         self.activeConnectionCount = activeConnectionCount
-        self.displayName = displayName
         self.routes = routes
     }
 }
