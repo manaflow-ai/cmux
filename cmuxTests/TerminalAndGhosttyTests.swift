@@ -2896,7 +2896,7 @@ struct GhosttyTextInputCommandForwardingTests {
     }
 
     @Test
-    func deleteBackwardTextInputCommandForwardsCanonicalBackspace() throws {
+    func deleteBackwardTextInputCommandForwardsCanonicalBackspaceWithoutStaleReleaseMapping() throws {
         let window = makeWindow()
         defer { window.orderOut(nil) }
 
@@ -2967,21 +2967,21 @@ struct GhosttyTextInputCommandForwardingTests {
             surfaceView.keyDown(with: event)
         }
 
-        let keyUpEvent = try #require(NSEvent.keyEvent(
+        let laterPhysicalKeyUp = try #require(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
             modifierFlags: [],
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: window.windowNumber,
             context: nil,
-            characters: "",
-            charactersIgnoringModifiers: "",
+            characters: "a",
+            charactersIgnoringModifiers: "a",
             isARepeat: false,
             keyCode: 0
         ))
 
         withExtendedLifetime(surface) {
-            surfaceView.keyUp(with: keyUpEvent)
+            surfaceView.keyUp(with: laterPhysicalKeyUp)
         }
 
         let forwarded = try #require(forwardedKeyEvents.first)
@@ -2989,7 +2989,7 @@ struct GhosttyTextInputCommandForwardingTests {
         #expect(forwarded.keycode == 51)
         #expect(forwarded.unshifted_codepoint == 0x7F)
         #expect(forwardedTexts == ["\u{7F}"])
-        #expect(forwardedReleaseKeyCodes == [51])
+        #expect(forwardedReleaseKeyCodes == [0])
     }
 }
 #endif
