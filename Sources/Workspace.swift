@@ -13431,6 +13431,54 @@ final class Workspace: Identifiable, ObservableObject {
         return environment
     }
 
+    private func normalizedTerminalWorkingDirectory(_ workingDirectory: String?) -> String? {
+        let trimmed = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func terminalWorkingDirectoryCandidate(for panelId: UUID?) -> String? {
+        guard let panelId else { return nil }
+        if let panelDirectory = normalizedTerminalWorkingDirectory(panelDirectories[panelId]) {
+            return panelDirectory
+        }
+        return normalizedTerminalWorkingDirectory(terminalPanel(for: panelId)?.requestedWorkingDirectory)
+    }
+
+    private func resolvedTerminalStartupWorkingDirectory(
+        explicitWorkingDirectory: String?,
+        sourcePanelId: UUID? = nil,
+        targetPaneId: PaneID? = nil
+    ) -> String? {
+        if let explicitWorkingDirectory = normalizedTerminalWorkingDirectory(explicitWorkingDirectory) {
+            return explicitWorkingDirectory
+        }
+
+        var candidatePanelIds: [UUID] = []
+        var seenPanelIds: Set<UUID> = []
+        func appendCandidate(_ panelId: UUID?) {
+            guard let panelId, seenPanelIds.insert(panelId).inserted else { return }
+            candidatePanelIds.append(panelId)
+        }
+
+        appendCandidate(sourcePanelId)
+        if let targetPaneId {
+            if let selectedSurfaceId = bonsplitController.selectedTab(inPane: targetPaneId)?.id {
+                appendCandidate(panelIdFromSurfaceId(selectedSurfaceId))
+            }
+            for tab in bonsplitController.tabs(inPane: targetPaneId) {
+                appendCandidate(panelIdFromSurfaceId(tab.id))
+            }
+        }
+
+        for panelId in candidatePanelIds {
+            if let candidate = terminalWorkingDirectoryCandidate(for: panelId) {
+                return candidate
+            }
+        }
+
+        return normalizedTerminalWorkingDirectory(currentDirectory)
+    }
+
     private func normalizedRemotePTYSessionID(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -14398,24 +14446,10 @@ final class Workspace: Identifiable, ObservableObject {
         // Inherit working directory: prefer the source panel's reported cwd,
         // then its requested startup cwd if shell integration has not reported
         // back yet, and finally fall back to the workspace's current directory.
-        let splitWorkingDirectory: String? = {
-            if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !workingDirectory.isEmpty {
-                return workingDirectory
-            }
-            if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !panelDirectory.isEmpty {
-                return panelDirectory
-            }
-            if let requestedWorkingDirectory = terminalPanel(for: panelId)?
-                .requestedWorkingDirectory?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !requestedWorkingDirectory.isEmpty {
-                return requestedWorkingDirectory
-            }
-            let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            return workspaceDirectory.isEmpty ? nil : workspaceDirectory
-        }()
+        let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
+            explicitWorkingDirectory: workingDirectory,
+            sourcePanelId: panelId
+        )
 #if DEBUG
         cmuxDebugLog(
             "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
@@ -14576,13 +14610,15 @@ final class Workspace: Identifiable, ObservableObject {
             template.waitAfterCommand = true
             inheritedConfig = template
         }
-        let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let requestedWorkingDirectory = (trimmedWorkingDirectory?.isEmpty == false) ? trimmedWorkingDirectory : nil
+        let requestedWorkingDirectory = normalizedTerminalWorkingDirectory(workingDirectory)
         let localWorkingDirectory: String?
         if remoteStartupCommandForEnvironment != nil {
             localWorkingDirectory = nil
-            if let requestedWorkingDirectory {
-                effectiveStartupEnvironment["CMUX_REMOTE_INITIAL_CWD"] = requestedWorkingDirectory
+            if let remoteInitialWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
+                explicitWorkingDirectory: workingDirectory,
+                targetPaneId: paneId
+            ) {
+                effectiveStartupEnvironment["CMUX_REMOTE_INITIAL_CWD"] = remoteInitialWorkingDirectory
             }
         } else {
             localWorkingDirectory = requestedWorkingDirectory

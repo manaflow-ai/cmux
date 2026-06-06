@@ -8328,7 +8328,7 @@ struct CMUXCLI {
             "hash -r >/dev/null 2>&1 || true",
             "rehash >/dev/null 2>&1 || true",
             "cmux_remote_initial_cwd_b64='__CMUX_REMOTE_INITIAL_CWD_B64__'",
-            "if [ \"$cmux_remote_initial_cwd_b64\" = '__CMUX_REMOTE_INITIAL_CWD_B64__' ]; then cmux_remote_initial_cwd_b64=''; fi",
+            "if [ \"$cmux_remote_initial_cwd_b64\" = '__CMUX_''REMOTE_INITIAL_CWD_B64__' ]; then cmux_remote_initial_cwd_b64=''; fi",
             "if [ -n \"$cmux_remote_initial_cwd_b64\" ]; then",
             "  cmux_remote_initial_cwd=\"$(printf %s \"$cmux_remote_initial_cwd_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_initial_cwd_b64\" | base64 -D 2>/dev/null || true)\"",
             "  if [ -n \"$cmux_remote_initial_cwd\" ]; then cd \"$cmux_remote_initial_cwd\" 2>/dev/null || true; fi",
@@ -10125,6 +10125,8 @@ struct CMUXCLI {
         let explicitAttachmentID = Self.normalizedEnvValue(attachmentIDOpt)
         let surfaceID = environmentSurfaceID ?? (explicitAttachmentID.flatMap { UUID(uuidString: $0) == nil ? nil : $0 })
         let attachmentID = explicitAttachmentID ?? environmentSurfaceID ?? UUID().uuidString.lowercased()
+        let remoteInitialCWDB64 = Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_REMOTE_INITIAL_CWD"])
+            .map { Data($0.utf8).base64EncodedString() } ?? ""
         let command: String? = try commandB64Opt.flatMap { encoded in
             guard let data = Data(base64Encoded: encoded),
                   var decoded = String(data: data, encoding: .utf8) else {
@@ -10136,6 +10138,7 @@ struct CMUXCLI {
                     of: "__CMUX_SURFACE_ID__",
                     with: ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] ?? ""
                 )
+                .replacingOccurrences(of: "__CMUX_REMOTE_INITIAL_CWD_B64__", with: remoteInitialCWDB64)
             return decoded
         }
         var bridgeReachedReady = false
