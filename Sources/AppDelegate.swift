@@ -1441,20 +1441,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
 
-#if DEBUG
-        // Unit-test app hosts do not need app UI controllers, terminal runtime,
-        // hotkeys, or debug harnesses. Keeping startup inert prevents a failing
-        // retry from crashing before the selected test method begins.
+        installWindowResponderSwizzles()
+        installBrowserAddressBarFocusObservers()
+        installShortcutDefaultsObserver()
         if isPureUnitTestAppHost {
+            // Unit-test app hosts still need responder routing swizzles for
+            // direct NSWindow shortcut tests, but not app UI controllers,
+            // terminal runtime, hotkeys, debug harnesses, or bootstrapped
+            // workspaces.
             StartupBreadcrumbLog.append("appDelegate.didFinish.runtime.skip", fields: ["reason": "unitTest"])
             return
         }
-#else
-        if isPureUnitTestAppHost {
-            StartupBreadcrumbLog.append("appDelegate.didFinish.runtime.skip", fields: ["reason": "unitTest"])
-            return
-        }
-#endif
 
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
