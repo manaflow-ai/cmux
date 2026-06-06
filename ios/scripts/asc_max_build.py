@@ -104,7 +104,18 @@ def _max_build(token, app_id):
     saw_any = False
     path = f"/v1/builds?filter[app]={app_id}&fields[builds]=version&limit=200"
     pages = 0
-    while path and pages < 20:
+    # Page until App Store Connect stops returning a `next` link. NEVER return a
+    # partial max: a truncated read could be below the true max, which would let
+    # the caller self-heal to a number still <= the real max (the exact
+    # non-updatable build this guard prevents). MAX_PAGES (200 * 50 = 10,000
+    # builds) is only a runaway backstop; hitting it with more pages pending is
+    # an error so the caller fails open instead of trusting an incomplete result.
+    MAX_PAGES = 50
+    while path:
+        if pages >= MAX_PAGES:
+            raise RuntimeError(
+                f"more than {MAX_PAGES} build pages; refusing to return a partial max"
+            )
         status, body = _api(token, path)
         if status != 200:
             raise RuntimeError(f"builds lookup HTTP {status}: {json.dumps(body)[:300]}")
