@@ -3815,7 +3815,11 @@ struct CMUXCLI {
             try applyWindowOrCallerContext(
                 to: &undoParams,
                 client: client,
-                windowRaw: windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
+                windowRaw: historyWindowOnlyRaw(
+                    args: commandArgs,
+                    windowOverride: windowId,
+                    commandLabel: "cmux undo"
+                )
             )
             let undoPayload = try client.sendV2(method: "history.undo", params: undoParams)
             printV2Payload(
@@ -3830,7 +3834,11 @@ struct CMUXCLI {
             try applyWindowOrCallerContext(
                 to: &redoParams,
                 client: client,
-                windowRaw: windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
+                windowRaw: historyWindowOnlyRaw(
+                    args: commandArgs,
+                    windowOverride: windowId,
+                    commandLabel: "cmux redo"
+                )
             )
             let redoPayload = try client.sendV2(method: "history.redo", params: redoParams)
             printV2Payload(
@@ -7114,10 +7122,25 @@ struct CMUXCLI {
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
     }
 
-    /// Top-level `cmux workspace <subcommand>` namespace. Dispatches to the
-    /// same v2 socket methods that legacy verbs use (`new-workspace`,
-    /// `list-workspaces`, etc.) so behavior matches. Legacy verbs keep working
-    /// unchanged for backwards compatibility.
+    private func historyWindowOnlyRaw(
+        args: [String],
+        windowOverride: String?,
+        commandLabel: String
+    ) throws -> String? {
+        let (windowOpt, remaining) = parseOption(args, name: "--window")
+        if let unexpected = remaining.first {
+            throw CLIError(message: localizedFormat(
+                "cli.history.error.unexpectedArgument",
+                defaultValue: "%@ does not accept argument '%@'",
+                commandLabel,
+                unexpected
+            ))
+        }
+        return windowOpt ?? windowOverride
+    }
+
+    /// Top-level `cmux history <subcommand>` namespace. Dispatches to the same
+    /// v2 socket methods that the menu and shortcut paths use.
     private func runHistoryNamespace(
         commandArgs: [String],
         client: SocketClient,
@@ -7191,12 +7214,28 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.reopened", defaultValue: "Reopened"))
         case "undo":
             var params: [String: Any] = [:]
-            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+            try applyWindowOrCallerContext(
+                to: &params,
+                client: client,
+                windowRaw: historyWindowOnlyRaw(
+                    args: rest,
+                    windowOverride: windowOverride,
+                    commandLabel: "cmux history undo"
+                )
+            )
             let payload = try client.sendV2(method: "history.undo", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.reopened", defaultValue: "Reopened"))
         case "redo":
             var params: [String: Any] = [:]
-            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+            try applyWindowOrCallerContext(
+                to: &params,
+                client: client,
+                windowRaw: historyWindowOnlyRaw(
+                    args: rest,
+                    windowOverride: windowOverride,
+                    commandLabel: "cmux history redo"
+                )
+            )
             let payload = try client.sendV2(method: "history.redo", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.reclosed", defaultValue: "Re-closed"))
         case "clear":
