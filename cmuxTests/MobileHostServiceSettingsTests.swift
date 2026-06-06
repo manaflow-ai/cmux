@@ -71,25 +71,22 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == nil)
     }
 
-    @Test func portApplyDecisionChecksValidityEnabledAndAvailability() {
+    @Test func portApplyPreBindClassifiesNonBindCases() {
         // Out of range → invalid, regardless of anything else.
-        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: nil, requestedPort: 0, isAvailable: true) == .invalid)
-        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: nil, requestedPort: 70000, isAvailable: true) == .invalid)
-        // Pairing off → saved for when it's enabled (no availability check).
-        #expect(MobileHostService.portApplyDecision(enabled: false, currentBoundPort: nil, requestedPort: 58465, isAvailable: false) == .savedWhileDisabled)
-        // Already bound to the requested port → applied without probing.
-        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: 58465, requestedPort: 58465, isAvailable: false) == .applied(58465))
-        // Enabled, different port, free → applied.
-        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: 58465, requestedPort: 58470, isAvailable: true) == .applied(58470))
-        // Enabled, different port, in use → portInUse (running listener left alone).
-        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: 58465, requestedPort: 58470, isAvailable: false) == .portInUse)
+        #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: nil, requestedPort: 0) == .invalid)
+        #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: nil, requestedPort: 70000) == .invalid)
+        // Pairing off → saved for when it's enabled.
+        #expect(MobileHostService.portApplyPreBindOutcome(enabled: false, currentBoundPort: nil, requestedPort: 58465) == .savedWhileDisabled)
+        // Already bound to the requested port → applied, no bind attempt.
+        #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: 58465, requestedPort: 58465) == .applied(58465))
     }
 
-    @Test func portApplyDecisionIgnoresAvailabilityForNoOpApply() {
-        // Re-applying the already-bound port is accepted regardless of the
-        // availability value (the caller skips the probe in that case).
-        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: 58465, requestedPort: 58465, isAvailable: false) == .applied(58465))
-        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: 58465, requestedPort: 58465, isAvailable: true) == .applied(58465))
+    @Test func portApplyPreBindReturnsNilWhenABindIsNeeded() {
+        // Enabled, valid, different from the bound port → needs a real bind
+        // attempt (make-before-break), signalled by nil.
+        #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: 58465, requestedPort: 58470) == nil)
+        // Not running yet, enabled, valid → also needs a bind.
+        #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: nil, requestedPort: 58470) == nil)
     }
 
     @Test func syncDecisionStartsStopsAndNoOpsForEnabledState() {

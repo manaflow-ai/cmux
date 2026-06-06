@@ -456,108 +456,24 @@ final class MobileHostService {
         return .noop
     }
 
-    /// Pure decision for an explicit "Apply port" request, factored out so it is
-    /// unit-testable with a plain `isAvailable` value (the real check does I/O).
+    /// Pure pre-bind classification for an explicit "Apply port" request. Returns
+    /// the outcome for the cases that need no bind attempt, or `nil` when a real
+    /// bind must be tried (pairing on, valid port, different from the bound one).
+    /// Factored out so the decision is unit-testable without a real `NWListener`.
     ///
     /// - Parameters:
     ///   - enabled: Whether iOS pairing is enabled in settings.
     ///   - currentBoundPort: The port the listener is currently bound to, or `nil`.
     ///   - requestedPort: The port the user asked to apply.
-    ///   - isAvailable: Whether `requestedPort` can be bound. Ignored for an
-    ///     invalid/disabled request or when already bound to `requestedPort`.
-    nonisolated static func portApplyDecision(
+    nonisolated static func portApplyPreBindOutcome(
         enabled: Bool,
         currentBoundPort: Int?,
-        requestedPort: Int,
-        isAvailable: Bool
-    ) -> MobileHostPortApplyOutcome {
+        requestedPort: Int
+    ) -> MobileHostPortApplyOutcome? {
         guard (1...65535).contains(requestedPort) else { return .invalid }
         guard enabled else { return .savedWhileDisabled }
         if currentBoundPort == requestedPort { return .applied(requestedPort) }
-        return isAvailable ? .applied(requestedPort) : .portInUse
-    }
-
-    /// Whether `port` can currently be bound for the pairing listener.
-    ///
-    /// Probes with a throwaway `NWListener` using the *same* parameters the real
-    /// listener binds, so it agrees with the actual bind across all interfaces
-    /// (IPv4 and IPv6) rather than missing an IPv6-only conflict. A bounded
-    /// deadline backs the probe so an unclassified/stuck listener state can never
-    /// hang the Apply flow; on timeout the port is reported unavailable (the safe
-    /// default, leaving any running listener untouched).
-    nonisolated static func isPortAvailable(_ port: Int) async -> Bool {
-        guard (1...65535).contains(port), let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
-            return false
-        }
-        return await withTaskGroup(of: Bool.self) { group in
-            group.addTask { await probePortBind(endpointPort) }
-            group.addTask {
-                // Bounded safety deadline (the carve-out for a check timeout): a
-                // probe that never resolves resolves as unavailable instead of
-                // hanging. Cancellation tears down the probe listener via the
-                // cancellation handler in `probePortBind`.
-                try? await Task.sleep(for: .seconds(2))
-                return false
-            }
-            let first = await group.next() ?? false
-            group.cancelAll()
-            return first
-        }
-    }
-
-    /// Binds a throwaway `NWListener` on `endpointPort` and reports whether it
-    /// reached `.ready`. Cancellation (e.g. the deadline winning the race in
-    /// ``isPortAvailable(_:)``) cancels the probe listener, which surfaces as
-    /// `.cancelled` and resolves the continuation as unavailable.
-    private nonisolated static func probePortBind(_ endpointPort: NWEndpoint.Port) async -> Bool {
-        let tcpOptions = NWProtocolTCP.Options()
-        tcpOptions.noDelay = true
-        let probe: NWListener
-        do {
-            probe = try NWListener(using: NWParameters(tls: nil, tcp: tcpOptions), on: endpointPort)
-        } catch {
-            return false
-        }
-        let probeQueue = DispatchQueue(label: "dev.cmux.mobile.port-probe")
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                // One-shot resume guard: NWListener emits multiple states and must
-                // resume the continuation exactly once. Lock carve-out for a
-                // synchronous compare-and-set from the non-async state handler.
-                let resumed = OSAllocatedUnfairLock(initialState: false)
-                probe.stateUpdateHandler = { [probe] state in
-                    let available: Bool?
-                    switch state {
-                    case .ready:
-                        available = true
-                    case .failed, .cancelled:
-                        available = false
-                    case let .waiting(error):
-                        available = isAddressUnavailable(error) ? false : nil
-                    default:
-                        available = nil
-                    }
-                    guard let available else { return }
-                    let alreadyResumed = resumed.withLock { state -> Bool in
-                        if state { return true }
-                        state = true
-                        return false
-                    }
-                    guard !alreadyResumed else { return }
-                    probe.stateUpdateHandler = nil
-                    probe.newConnectionHandler = nil
-                    probe.cancel()
-                    continuation.resume(returning: available)
-                }
-                // NWListener does not reach `.ready` unless a newConnectionHandler
-                // is set before `start()`; without it the probe would hang on a
-                // free port. We never accept on the probe — reject any arrival.
-                probe.newConnectionHandler = { connection in connection.cancel() }
-                probe.start(queue: probeQueue)
-            }
-        } onCancel: {
-            probe.cancel()
-        }
+        return nil
     }
 
     /// Whether `error` means the address/port cannot be bound (in use, not
@@ -569,43 +485,145 @@ final class MobileHostService {
         return false
     }
 
-    /// Applies an explicitly-requested pairing port. Persists it only when it can
-    /// be bound (or pairing is off); when the port is in use the running listener
-    /// is left untouched so devices stay connected. On a successful apply the
-    /// persisted-value change drives ``syncToSettings()`` to rebind.
+    /// Applies an explicitly-requested pairing port.
     ///
-    /// Operates on `UserDefaults.standard` because it persists to and rebinds the
-    /// live singleton listener (`restart`/`start` read the standard store too).
+    /// Make-before-break: when a running listener must move to a different port, a
+    /// candidate listener is bound on that port *first*; only if it actually binds
+    /// is the old listener torn down and the candidate adopted. So an in-use port
+    /// leaves the running listener and its connections untouched (no probe →
+    /// rebind gap that could drop connections). Operates on `UserDefaults.standard`
+    /// since it persists to and rebinds the live singleton listener.
     func applyConfiguredPort(_ port: Int) async -> MobileHostPortApplyOutcome {
         let defaults = UserDefaults.standard
-        let enabled = Self.isListeningEnabled(defaults: defaults)
-        let boundPort = listenerPort
-        // Probe only when a running listener would actually move to a different,
-        // in-range port; skip the bind probe for invalid/disabled/no-op applies.
-        let needsProbe = enabled && (1...65535).contains(port) && boundPort != port
-        let isAvailable = needsProbe ? await Self.isPortAvailable(port) : false
-        let outcome = Self.portApplyDecision(
-            enabled: enabled,
-            currentBoundPort: boundPort,
-            requestedPort: port,
-            isAvailable: isAvailable
-        )
-        switch outcome {
-        case .invalid, .portInUse:
-            break
-        case .savedWhileDisabled:
-            defaults.set(port, forKey: Self.portDefaultsKey)
-        case .applied:
-            defaults.set(port, forKey: Self.portDefaultsKey)
-            // Persisting can be a no-op — e.g. re-applying the configured port
-            // after an ephemeral fallback freed it up — so the settings observer
-            // would see no change and not rebind. Force a restart whenever the
-            // listener is not already bound to the requested port.
-            if enabled, listenerPort != port {
-                restart()
+        if let preBind = Self.portApplyPreBindOutcome(
+            enabled: Self.isListeningEnabled(defaults: defaults),
+            currentBoundPort: listenerPort,
+            requestedPort: port
+        ) {
+            switch preBind {
+            case .invalid, .portInUse:
+                break
+            case .savedWhileDisabled, .applied:
+                defaults.set(port, forKey: Self.portDefaultsKey)
+            }
+            return preBind
+        }
+        // A real bind is required (pairing on, valid port, different from bound).
+        guard let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else { return .invalid }
+        guard let candidate = await bindReadyCandidate(on: endpointPort, generation: UUID()) else {
+            return .portInUse
+        }
+        adoptCandidateListener(candidate.listener, generation: candidate.generation, port: port)
+        defaults.set(port, forKey: Self.portDefaultsKey)
+        return .applied(port)
+    }
+
+    /// Binds a candidate `NWListener` on `endpointPort` while the current listener
+    /// keeps running, returning it (with `generation`) once it reaches `.ready`,
+    /// or `nil` when the port is unavailable. A bounded, cancellable deadline
+    /// guarantees the call can't hang; on timeout/failure the candidate is torn
+    /// down and `nil` returned, leaving the live listener untouched.
+    private func bindReadyCandidate(on endpointPort: NWEndpoint.Port, generation: UUID) async -> (listener: NWListener, generation: UUID)? {
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+        let candidate: NWListener
+        do {
+            candidate = try NWListener(using: NWParameters(tls: nil, tcp: tcpOptions), on: endpointPort)
+        } catch {
+            return nil
+        }
+        let queue = callbackQueue
+        let didBind: Bool = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            // One-shot resume guard + deadline holder (lock carve-out): the state
+            // handler and the timeout race to resume the continuation exactly once.
+            let resumed = OSAllocatedUnfairLock(initialState: false)
+            let timeoutHolder = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
+            let finish: @Sendable (Bool) -> Void = { ready in
+                let alreadyResumed = resumed.withLock { state -> Bool in
+                    if state { return true }
+                    state = true
+                    return false
+                }
+                guard !alreadyResumed else { return }
+                timeoutHolder.withLock { task in
+                    task?.cancel()
+                    task = nil
+                }
+                continuation.resume(returning: ready)
+            }
+            candidate.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    finish(true)
+                case .failed, .cancelled:
+                    finish(false)
+                case let .waiting(error):
+                    if Self.isAddressUnavailable(error) { finish(false) }
+                default:
+                    break
+                }
+            }
+            // NWListener needs a newConnectionHandler set before `start()` or it
+            // never reaches `.ready`; wiring the real accept path (with this
+            // generation) also means no connection is dropped once it's adopted.
+            candidate.newConnectionHandler = { connection in
+                MobileHostRequestActivity.beginConnection()
+                Self.acceptConnectionOffMain(connection, generation: generation)
+            }
+            candidate.start(queue: queue)
+            // Bounded, cancellable safety deadline (check-timeout carve-out) so an
+            // unclassified/stuck listener state can never hang the Apply flow.
+            let timeout = Task {
+                try? await Task.sleep(for: .seconds(2))
+                finish(false)
+            }
+            timeoutHolder.withLock { $0 = timeout }
+        }
+        guard didBind else {
+            candidate.stateUpdateHandler = nil
+            candidate.newConnectionHandler = nil
+            candidate.cancel()
+            return nil
+        }
+        return (candidate, generation)
+    }
+
+    /// Cuts over to a freshly-bound `candidate`: tears down the old listener and
+    /// its connections (they reconnect on the new port), then adopts the candidate
+    /// as the live listener, routes future state changes through the normal
+    /// handler, and republishes routes.
+    private func adoptCandidateListener(_ candidate: NWListener, generation: UUID, port: Int) {
+        listener?.stateUpdateHandler = nil
+        listener?.newConnectionHandler = nil
+        listener?.cancel()
+        for connection in activeConnections.values {
+            Task { await connection.close(reason: "pairing port changed") }
+        }
+        for connection in MobileHostConnectionRegistry.shared.removeAll() {
+            Task { await connection.close(reason: "pairing port changed") }
+        }
+        activeConnections.removeAll()
+        clientIDsByConnectionID.removeAll()
+
+        listener = candidate
+        listenerGeneration = generation
+        listenerUsesEphemeralFallback = false
+        listenerPort = port
+        appliedPreferredPort = port
+        lastErrorDescription = nil
+        // The candidate is already `.ready`; route only *future* states normally.
+        candidate.stateUpdateHandler = { state in
+            Task { @MainActor in
+                MobileHostService.shared.handleListenerState(state, generation: generation)
             }
         }
-        return outcome
+        routeResolver.refreshTailscaleRoutes(onResolvedHosts: { [weak self] hosts in
+            Task { @MainActor [weak self] in
+                self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
+            }
+        })
+        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        drainReadinessWaiters()
     }
 
     func start() {
