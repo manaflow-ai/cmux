@@ -22922,6 +22922,9 @@ struct CMUXCLI {
         var candidateCanPublishBeforeTerminal = false
         let hasLeaseBoundary = unscopedEventNotBefore != nil
         let acceptsUnboundedTranscript = turnId == nil && !hasLeaseBoundary
+        // Reads without a lease boundary, notably Stop hooks, can only attach an unscoped
+        // failure after later scoped evidence proves the transcript reached this turn.
+        let canRetainUnscopedFailureUntilTurnEvidence = turnId != nil && !hasLeaseBoundary
         var sawAssistantMessage = false
         var sawTerminalTurn = false
         var sawRelevantTurn = acceptsUnboundedTranscript
@@ -22935,8 +22938,13 @@ struct CMUXCLI {
             let eventIsAtOrAfterBoundary = codexTranscriptLineIsAtOrAfter(object, unscopedEventNotBefore)
             let eventIsRelevantWithoutTurnMatch = acceptsUnboundedTranscript || sawRelevantTurn || eventIsAtOrAfterBoundary
 
-            if eventIsRelevantWithoutTurnMatch && codexTranscriptLineHasAssistantMessage(object) {
-                sawAssistantMessage = true
+            if codexTranscriptLineHasAssistantMessage(object) {
+                if eventIsRelevantWithoutTurnMatch {
+                    sawAssistantMessage = true
+                }
+                guard eventIsRelevantWithoutTurnMatch || canRetainUnscopedFailureUntilTurnEvidence else {
+                    continue
+                }
                 candidate = nil
                 candidateCanPublishBeforeTerminal = false
             }
@@ -22977,10 +22985,11 @@ struct CMUXCLI {
                         }
                         sawRelevantTurn = true
                     } else {
-                        guard eventIsRelevantWithoutTurnMatch else {
+                        if eventIsRelevantWithoutTurnMatch {
+                            sawRelevantTurn = true
+                        } else if !canRetainUnscopedFailureUntilTurnEvidence {
                             continue
                         }
-                        sawRelevantTurn = true
                     }
                 } else if hasLeaseBoundary {
                     guard eventIsRelevantWithoutTurnMatch else {
@@ -23005,10 +23014,11 @@ struct CMUXCLI {
                         }
                         sawRelevantTurn = true
                     } else {
-                        guard eventIsRelevantWithoutTurnMatch else {
+                        if eventIsRelevantWithoutTurnMatch {
+                            sawRelevantTurn = true
+                        } else if !canRetainUnscopedFailureUntilTurnEvidence {
                             continue
                         }
-                        sawRelevantTurn = true
                     }
                 } else if hasLeaseBoundary {
                     guard eventIsRelevantWithoutTurnMatch else {
