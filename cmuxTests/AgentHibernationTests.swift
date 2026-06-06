@@ -271,7 +271,7 @@ final class AgentHibernationTests: XCTestCase {
                 // wrote .running), but it is genuinely mid-turn: the input flag
                 // is asserted because a turn-start input event arrived after the
                 // last lifecycle change and nothing advanced lifecycleChangeAt.
-                .init(key: busyNoEmit, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: true, lastActivityAt: 1_000 - 300),
+                .init(key: busyNoEmit, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: true, lastActivityAt: 1_000.0 - 300),
                 .init(key: keepLive, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .running, hasUnconfirmedTerminalInput: false, lastActivityAt: 1_000),
             ],
             settings: settings,
