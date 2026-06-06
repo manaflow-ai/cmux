@@ -4221,8 +4221,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> AppSessionSnapshot? {
         let contexts = sortedMainWindowContextsForSessionSnapshot()
-        guard !contexts.isEmpty else { return nil }
-
         let quickTerminalContext = contexts.first(where: { $0.isQuickTerminal })
         let regularContexts = contexts.filter { !$0.isQuickTerminal }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
@@ -4514,6 +4512,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func sessionSnapshotForTesting(includeScrollback: Bool = false) -> AppSessionSnapshot? {
         buildSessionSnapshot(includeScrollback: includeScrollback)
+    }
+
+    func restoreQuickTerminalSessionForTesting(_ snapshot: SessionWindowSnapshot) {
+        quickTerminalController.restoreSession(snapshot)
     }
 
 #endif

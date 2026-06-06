@@ -29,6 +29,20 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(merged.contains { $0.frame?.x == Double(SessionPersistencePolicy.maxWindowsPerSnapshot - 1) })
     }
 
+    @MainActor
+    func testSessionSnapshotIncludesPendingQuickTerminalWhenNoWindowsAreRegistered() {
+        let appDelegate = AppDelegate()
+        let pendingQuickTerminal = makeWindowSnapshot(frameX: 99, isQuickTerminal: true)
+
+        appDelegate.restoreQuickTerminalSessionForTesting(pendingQuickTerminal)
+
+        let snapshot = appDelegate.sessionSnapshotForTesting()
+
+        XCTAssertEqual(snapshot?.windows.count, 1)
+        XCTAssertEqual(snapshot?.windows.first?.isQuickTerminal, true)
+        XCTAssertEqual(snapshot?.windows.first?.frame?.x, 99.0)
+    }
+
     private func makeWindowSnapshot(
         frameX: Double,
         isQuickTerminal: Bool
