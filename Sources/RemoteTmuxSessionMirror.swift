@@ -298,11 +298,20 @@ final class RemoteTmuxSessionMirror {
     /// single-pane display tab or any multi-pane window-mirror pane. Used to route
     /// a pasted image to this mirror's tmux host for SSH upload.
     func ownsSurface(_ surfaceId: UUID) -> Bool {
-        if windowMirror(forSurfaceId: surfaceId) != nil { return true }
-        guard let workspace else { return false }
-        return panelIdByPane.values.contains {
-            (workspace.panels[$0] as? TerminalPanel)?.surface.id == surfaceId
+        paneId(forSurfaceId: surfaceId) != nil
+    }
+
+    /// The tmux pane id whose surface is `surfaceId` (single-pane display tab or
+    /// multi-pane window-mirror pane), or nil if this mirror doesn't render it.
+    /// Used to target a tmux paste at the pane behind a cmux surface.
+    func paneId(forSurfaceId surfaceId: UUID) -> Int? {
+        if let match = windowMirror(forSurfaceId: surfaceId) { return match.tmuxPaneId }
+        guard let workspace else { return nil }
+        for (paneId, panelId) in panelIdByPane
+        where (workspace.panels[panelId] as? TerminalPanel)?.surface.id == surfaceId {
+            return paneId
         }
+        return nil
     }
 
     /// The multi-pane renderer + tmux pane id for a focused mirror surface, used

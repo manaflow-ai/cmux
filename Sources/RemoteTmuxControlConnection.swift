@@ -269,6 +269,22 @@ final class RemoteTmuxControlConnection {
         sendInternal("send-keys -t %\(paneId) -H \(hex)", kind: .other)
     }
 
+    /// Pastes `text` into `paneId` as a tmux paste (`paste-buffer -p`), which wraps
+    /// the content in bracketed-paste markers IFF the real pane's app has
+    /// bracketed-paste mode enabled — tmux tracks that on the real pty, which the
+    /// mirror surface can't see. This makes a pasted/dropped image path arrive as a
+    /// genuine paste, so the remote app recognizes it (e.g. claude → `[Image #N]`)
+    /// instead of seeing the plain keystrokes that ``sendKeys(paneId:data:)`` would
+    /// deliver. Uses a dedicated, immediately-deleted (`-d`) per-pane buffer so
+    /// there's no buffer-name collision. `text` must be a single line (callers route
+    /// only single-line content — e.g. file/image paths — here).
+    func pastePane(paneId: Int, text: String) {
+        guard !text.isEmpty else { return }
+        let buffer = "cmux-paste-\(paneId)"
+        send("set-buffer -b \(buffer) \(RemoteTmuxHost.shellSingleQuoted(text))")
+        send("paste-buffer -p -d -b \(buffer) -t %\(paneId)")
+    }
+
     /// Detaches: terminating ssh kills the control client but leaves the remote
     /// tmux session alive for resume.
     func stop() {

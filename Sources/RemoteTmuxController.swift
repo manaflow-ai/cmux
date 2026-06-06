@@ -433,6 +433,52 @@ final class RemoteTmuxController {
         return false
     }
 
+    /// If `surfaceId` is a remote-tmux mirror pane, delivers `text` to that pane as
+    /// a tmux paste (`paste-buffer -p`, bracketed iff the real pane has
+    /// bracketed-paste mode on) and returns `true`. Lets a pasted/dropped image
+    /// path be recognized by the remote app (e.g. claude → `[Image #N]`) instead of
+    /// arriving as plain `send-keys`. Only single-line `text` is routed (covers
+    /// file/image paths); callers fall back to their normal insertion for empty or
+    /// multi-line text, which can't be carried safely on a one-line control command.
+    func pasteIntoMirror(surfaceId: UUID, text: String) -> Bool {
+        guard !text.isEmpty, !text.contains(where: { $0 == "\n" || $0 == "\r" }) else { return false }
+        guard let target = pasteTarget(forSurfaceId: surfaceId) else { return false }
+        target.connection.pastePane(paneId: target.paneId, text: text)
+        return true
+    }
+
+    /// The live control connection + tmux pane id behind a remote-tmux mirror
+    /// surface (session-mirror pane or ``openActivePane`` display pane), or `nil`.
+    private func pasteTarget(forSurfaceId surfaceId: UUID)
+        -> (connection: RemoteTmuxControlConnection, paneId: Int)?
+    {
+        for sessionMirror in sessionMirrors.values where !sessionMirror.connection.exited {
+            if let paneId = sessionMirror.paneId(forSurfaceId: surfaceId) {
+                return (sessionMirror.connection, paneId)
+            }
+        }
+        return displayPaneTarget(forSurfaceId: surfaceId)
+    }
+
+    /// The live control connection + tmux pane id behind an ``openActivePane``
+    /// display-pane surface, or `nil`. The `displayPanels` key is
+    /// `dest\u{1}session\u{1}pane`, so the first two components form the connection
+    /// key and the third is the pane id. Shared by ``pasteTarget(forSurfaceId:)``
+    /// and ``remoteUploadTarget(forSurfaceId:)`` so the key format lives in one place.
+    private func displayPaneTarget(forSurfaceId surfaceId: UUID)
+        -> (connection: RemoteTmuxControlConnection, paneId: Int)?
+    {
+        for (panelKey, panel) in displayPanels where panel.surface.id == surfaceId {
+            let parts = panelKey.split(separator: "\u{1}", omittingEmptySubsequences: false)
+            guard parts.count >= 3, let paneId = Int(parts[2]) else { continue }
+            let connectionKey = parts[0..<2].joined(separator: "\u{1}")
+            if let connection = connectionsByHostSession[connectionKey], !connection.exited {
+                return (connection, paneId)
+            }
+        }
+        return nil
+    }
+
     /// The SSH upload target for a remote-tmux surface (a session-mirror pane or
     /// an ``openActivePane`` display pane), or `nil` if `surfaceId` isn't one.
     /// Lets the image-paste path upload a pasted screenshot to the remote tmux
@@ -442,15 +488,8 @@ final class RemoteTmuxController {
         where !sessionMirror.connection.exited && sessionMirror.ownsSurface(surfaceId) {
             return .detectedSSH(sessionMirror.host.detectedSSHSession())
         }
-        // openActivePane display panes: the panel key is `dest\u{1}session\u{1}pane`,
-        // so the connection key is its first two components.
-        for (panelKey, panel) in displayPanels where panel.surface.id == surfaceId {
-            let parts = panelKey.split(separator: "\u{1}", omittingEmptySubsequences: false)
-            guard parts.count >= 2 else { continue }
-            let connectionKey = parts[0..<2].joined(separator: "\u{1}")
-            if let connection = connectionsByHostSession[connectionKey], !connection.exited {
-                return .detectedSSH(connection.host.detectedSSHSession())
-            }
+        if let target = displayPaneTarget(forSurfaceId: surfaceId) {
+            return .detectedSSH(target.connection.host.detectedSSHSession())
         }
         return nil
     }

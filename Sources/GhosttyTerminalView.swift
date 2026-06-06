@@ -1796,7 +1796,20 @@ class GhosttyApp {
             func completeClipboardRequest(with text: String) {
                 let finish = {
                     guard callbackContext.runtimeSurface == requestSurface else { return }
-                    text.withCString { ptr in
+                    // Remote tmux mirror panes: deliver the paste via tmux
+                    // paste-buffer -p so the remote app sees a real bracketed paste
+                    // (e.g. a pasted image path → claude `[Image #N]`) instead of the
+                    // unbracketed keystrokes the manual-IO surface would emit (its
+                    // ghostty terminal can't know the remote pane's bracketed-paste
+                    // mode). Release ghostty's request with empty text so it doesn't
+                    // also insert the content.
+                    let handledByMirror = !text.isEmpty && MainActor.assumeIsolated {
+                        AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
+                            surfaceId: callbackContext.surfaceId, text: text
+                        ) ?? false
+                    }
+                    let completionText = handledByMirror ? "" : text
+                    completionText.withCString { ptr in
                         ghostty_surface_complete_clipboard_request(requestSurface, ptr, state, false)
                     }
                     callbackContext.terminalSurface?.noteClipboardReadCompleted()
@@ -11929,10 +11942,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     if let operation {
                         self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
                     }
+                    guard let surface = self?.terminalSurface else { return }
+                    // Remote tmux mirror panes: deliver via tmux paste-buffer -p so a
+                    // dropped image path arrives as a real bracketed paste (claude →
+                    // `[Image #N]`); the manual-IO surface can't bracket it itself.
+                    let handledByMirror = MainActor.assumeIsolated {
+                        AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
+                            surfaceId: surface.id, text: text
+                        ) ?? false
+                    }
+                    if handledByMirror { return }
                     // Use the text/paste path (ghostty_surface_text) instead of the key event
                     // path (ghostty_surface_key) so bracketed paste mode is triggered and the
                     // insertion is instant, matching upstream Ghostty behaviour.
-                    self?.terminalSurface?.sendText(text)
+                    surface.sendText(text)
                 }
                 if Thread.isMainThread {
                     send()
