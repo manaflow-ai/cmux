@@ -174,7 +174,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(request.auth)
     }
 
-    func testMobileRouteResolverPrefersTailscaleMagicDNSBeforeIPv4Fallback() throws {
+    func testMobileRouteResolverPrefersRawTailscaleIPBeforeMagicDNS() throws {
         let resolver = MobileRouteResolver()
 
         let snapshot = resolver.routes(
@@ -185,21 +185,29 @@ final class MobileHostAuthorizationTests: XCTestCase {
             ]
         )
 
-        let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
+        // Connecting by literal CGNAT IP skips a DNS lookup, so the raw IP route
+        // gets the lower priority value (tried first) and the .ts.net MagicDNS
+        // name the higher value, regardless of input order. The client tries
+        // routes in priority order, so assert the priority-sorted sequence.
+        let tailscaleRoutes = snapshot.routes
+            .filter { $0.kind == .tailscale }
+            .sorted { $0.priority < $1.priority }
         XCTAssertEqual(tailscaleRoutes.count, 2)
-        XCTAssertEqual(tailscaleRoutes.first?.priority, 10)
-        XCTAssertEqual(tailscaleRoutes.last?.priority, 20)
+        XCTAssertLessThan(
+            tailscaleRoutes.first?.priority ?? .max,
+            tailscaleRoutes.last?.priority ?? .min
+        )
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            XCTAssertEqual(host, "work-mac.tailnet.ts.net")
-            XCTAssertEqual(port, 61234)
-        } else {
-            XCTFail("Expected first Tailscale route to use a host/port endpoint")
-        }
-        if case let .hostPort(host, port) = tailscaleRoutes.last?.endpoint {
             XCTAssertEqual(host, "100.71.210.41")
             XCTAssertEqual(port, 61234)
         } else {
-            XCTFail("Expected fallback Tailscale route to use a host/port endpoint")
+            XCTFail("Expected the raw Tailscale IP route to be tried first")
+        }
+        if case let .hostPort(host, port) = tailscaleRoutes.last?.endpoint {
+            XCTAssertEqual(host, "work-mac.tailnet.ts.net")
+            XCTAssertEqual(port, 61234)
+        } else {
+            XCTFail("Expected the MagicDNS route to be tried after the IP route")
         }
     }
 
