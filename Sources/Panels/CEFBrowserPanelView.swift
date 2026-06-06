@@ -45,7 +45,7 @@ struct CEFBrowserPanelView: View {
             }
             guard isVisibleInUI else { return }
             do {
-                try panel.activate()
+                try await panel.activate(presentingWindow: NSApp.keyWindow ?? NSApp.mainWindow)
                 activationError = nil
             } catch {
                 activationError = error

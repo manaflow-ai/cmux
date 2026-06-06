@@ -59,7 +59,9 @@ public final class CEFProfileRegistry {
     /// the cache directory is scheduled for removal after the final release.
     /// Named profiles keep their cache directory on disk.
     public func release(name: String) {
-        let currentCount = referenceCounts[name] ?? 0
+        guard let currentCount = referenceCounts[name], currentCount > 0 else {
+            return
+        }
         guard currentCount <= 1 else {
             referenceCounts[name] = currentCount - 1
             return

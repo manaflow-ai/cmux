@@ -130,6 +130,27 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
     /// cmux can mount it into a `CEFOverlayHost` overlay — outside the
     /// SwiftUI hosting chain — where Chromium's CARemoteLayer compositor
     /// can actually paint pixels.
+    func activate(presentingWindow: NSWindow?) async throws {
+        #if canImport(CMUXCEF)
+        guard browser == nil else {
+            #if DEBUG
+            cmuxDebugLog("cef.panel.activate.skip alreadyActive panel=\(id.uuidString.prefix(5))")
+            #endif
+            return
+        }
+        if !CEFRuntimeInstaller.shared.isInstalledOrBundled {
+            guard await CEFRuntimeInstaller.shared.ensureInstalledAfterUserConfirmation(
+                presentingWindow: presentingWindow
+            ) else {
+                throw CEFBrowserPanelError.runtimeUnavailable
+            }
+        }
+        try activate()
+        #else
+        throw CEFBrowserPanelError.notLinked
+        #endif
+    }
+
     func activate() throws {
         #if canImport(CMUXCEF)
         guard browser == nil else {
@@ -146,14 +167,16 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
             // The user toggled to CEF mid-session, after the app launched
             // with WKWebView and skipped CEF startup. Lazily boot the
             // engine now so the pane can render without a full app
-            // restart. Idempotent: `startCEFEngineIfNeeded()` re-checks
-            // `isRunning` internally.
+            // restart. Idempotent: `startCEFEngineIfAvailable()` re-checks
+            // `isRunning` internally, and deliberately ignores the current
+            // new-pane engine preference because existing panes keep their
+            // original engine.
             //
             // Use the file-scope free function rather than
             // `NSApp.delegate as? AppDelegate`: under SwiftUI's
             // `NSApplicationDelegateAdaptor` the runtime delegate cast
             // fails and silently swallows the lazy-start.
-            startCEFEngineIfNeeded()
+            startCEFEngineIfAvailable()
             if !engine.isRunning {
                 throw CEFBrowserPanelError.engineNotStarted
             }
@@ -298,7 +321,9 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
         #if canImport(CMUXCEF)
         if browser == nil {
             needsFocusOnActivation = true
-            try? activate()
+            if CEFRuntimeInstaller.shared.isInstalledOrBundled {
+                try? activate()
+            }
         }
         guard let view = embeddableView, let window = view.window else {
             needsFocusOnActivation = true
@@ -420,15 +445,17 @@ extension CEFBrowserPanel: CMUXCEF.CEFBrowserDelegate {
 // MARK: - Errors
 
 enum CEFBrowserPanelError: LocalizedError {
-    /// The cmux app delegate has not invoked
-    /// `CEFEngine.shared.start(config:)`. The flag was switched on
-    /// without the CEF infrastructure being initialized.
+    /// `CEFEngine.shared.start(config:)` could not boot even though the pane
+    /// has already ensured the optional runtime exists.
     case engineNotStarted
 
     /// The `CEF/` Swift package isn't linked into this build of cmux.
     /// Toggling the engine flag had no effect — see
     /// `CEF/INTEGRATION.md` for the manual Xcode wire-up.
     case notLinked
+
+    /// The pane could not install or find the optional Chromium runtime.
+    case runtimeUnavailable
 
     public var errorDescription: String? {
         switch self {
@@ -440,6 +467,10 @@ enum CEFBrowserPanelError: LocalizedError {
             return String(
                 localized: "cefBrowserPanel.notLinked",
                 defaultValue: "The CEF browser engine is not available in this build of cmux.")
+        case .runtimeUnavailable:
+            return String(
+                localized: "cefBrowserPanel.runtimeUnavailable",
+                defaultValue: "The Chromium runtime is not installed.")
         }
     }
 }
