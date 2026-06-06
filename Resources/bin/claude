@@ -192,7 +192,17 @@ exec_real_claude_passthrough() {
     exec "$REAL_CLAUDE" "$@"
 }
 
-if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_socket_available; then
+if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
+    # User-managed hooks need the original cmux terminal environment.
+    if [[ "$IN_CMUX" == "1" ]]; then
+        unset CLAUDECODE
+    fi
+    clear_inherited_claude_auth_selection_env
+    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+    exec "$REAL_CLAUDE" "$@"
+fi
+
+if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
     # In cmux-launched shells, preserve old behavior and always clear nested
     # Claude session markers, even when we must pass through due to stale socket.
     if [[ "$IN_CMUX" == "1" ]]; then
