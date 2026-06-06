@@ -39,17 +39,18 @@ func shouldRespectForeignFirstResponder(
     in window: NSWindow,
     isRightSidebarOwner: (NSResponder) -> Bool
 ) -> Bool {
-    // A focused text editor is always being edited by the user, so the terminal must yield the
-    // keystroke. `NSText` covers AppKit field editors AND SwiftUI's private `_SystemTextFieldFieldEditor`
-    // (an `NSText` subclass — verified at runtime: the icon-picker field editor logs `isnst=1`).
+    // A focused text editor that is still hosted in a window is always being edited by the user, so the
+    // terminal must yield the keystroke. `NSText` covers AppKit field editors AND SwiftUI's private
+    // `_SystemTextFieldFieldEditor` (an `NSText` subclass — verified at runtime: the icon-picker field
+    // editor logs `isnst=1`).
     //
-    // Text editors are deliberately checked *before* the window-membership guard below: SwiftUI hosts a
-    // popover/palette overlay's field editor in a backing window that differs from `window` even though
-    // the editor is `window`'s active first responder, so the old `.window === window` guard rejected it
-    // and keyRepair stole the keystroke. The portal-reparenting the guard defends against (issue #5269)
-    // only strands terminal surfaces (`NSView`s, not `NSText`), so respecting text editors here cannot
-    // resurrect that bug.
-    if firstResponder is NSText {
+    // Text editors are accepted *before* the `.window === window` guard below but still require a
+    // non-nil backing window: SwiftUI hosts a popover/palette overlay's field editor in a window that
+    // differs from `window` even though the editor is `window`'s active first responder, so the strict
+    // membership guard rejected it and keyRepair stole the keystroke. A fully detached editor
+    // (`window == nil`, e.g. a removed field left as first responder) is NOT accepted, so it cannot
+    // permanently block the terminal from reclaiming focus (issue #5269).
+    if firstResponder is NSText, (firstResponder as? NSView)?.window != nil {
         return true
     }
     // Non-text focus owners (right-sidebar / dock / feed hosts) must still belong to this window: a

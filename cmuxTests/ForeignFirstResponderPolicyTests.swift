@@ -70,6 +70,15 @@ import Testing
         #expect(!shouldRespectForeignFirstResponder(view, in: window, isRightSidebarOwner: alwaysSidebarOwner))
     }
 
+    /// A *detached* text editor (no backing window, e.g. a removed field left as first responder) is
+    /// reclaimed: the overlay exception requires a non-nil window, so a stale editor cannot permanently
+    /// block terminal focus recovery (issue #5269).
+    @Test func reclaimsFromDetachedTextEditor() {
+        let window = makeWindow()
+        let textView = NSTextView(frame: .zero) // never added to a window -> .window is nil
+        #expect(!shouldRespectForeignFirstResponder(textView, in: window, isRightSidebarOwner: neverSidebarOwner))
+    }
+
     @Test func doesNotRespectPlainInWindowView() {
         let window = makeWindow()
         let view = NSView(frame: .zero)
