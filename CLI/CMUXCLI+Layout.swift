@@ -503,7 +503,7 @@ extension CMUXCLI {
         fallbackName: String,
         commandName: String
     ) throws -> String {
-        let normalized = CmuxWorkspacePresetDefinition.normalizedPresetName(
+        let normalized = CmuxWorkspacePresetName.normalized(
             raw,
             fallbackName: fallbackName
         )
