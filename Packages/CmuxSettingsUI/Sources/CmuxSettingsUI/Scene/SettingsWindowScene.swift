@@ -81,6 +81,7 @@ public struct SettingsWindowRoot: View {
 
     private var defaultsStore: UserDefaultsSettingsStore { runtime.userDefaultsStore }
     private var jsonStore: JSONConfigStore { runtime.jsonStore }
+    private var secretStore: SecretFileStore { runtime.secretStore }
     private var catalog: SettingCatalog { runtime.catalog }
     private var hostActions: SettingsHostActions { runtime.hostActions }
     private var accountFlow: AccountFlow? { runtime.accountFlow }
@@ -455,7 +456,7 @@ public struct SettingsWindowRoot: View {
         TextBoxSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .textBox))
 
-        SidebarSection(defaultsStore: defaultsStore, catalog: catalog)
+        SidebarSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .sidebarAppearance))
 
         BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)
@@ -464,6 +465,7 @@ public struct SettingsWindowRoot: View {
         AutomationSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
+            secretStore: secretStore,
             catalog: catalog,
             errorLog: runtime.errorLog
         )
@@ -507,7 +509,8 @@ public struct SettingsWindowRoot: View {
         ResetSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
-            catalog: catalog
+            catalog: catalog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .reset))
     }

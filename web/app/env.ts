@@ -28,6 +28,14 @@ export const env = createEnv({
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
+    // APNs push (iOS notifications). Optional: the app boots without them; the
+    // push route returns a clear "not configured" error until they are set.
+    // CMUX_APNS_KEY_P8 holds the .p8 PEM (literal "\n" escapes are normalized
+    // by the sender).
+    CMUX_APNS_KEY_P8: z.string().min(1).optional(),
+    CMUX_APNS_KEY_ID: z.string().min(1).optional(),
+    CMUX_APNS_TEAM_ID: z.string().min(1).optional(),
+    CMUX_PUSH_RATE_LIMIT_ID: z.string().min(1).optional(),
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
@@ -37,6 +45,10 @@ export const env = createEnv({
     RESEND_API_KEY: trimEnv(process.env.RESEND_API_KEY),
     CMUX_FEEDBACK_FROM_EMAIL: trimEnv(process.env.CMUX_FEEDBACK_FROM_EMAIL),
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
+    CMUX_APNS_KEY_P8: trimEnv(process.env.CMUX_APNS_KEY_P8),
+    CMUX_APNS_KEY_ID: trimEnv(process.env.CMUX_APNS_KEY_ID),
+    CMUX_APNS_TEAM_ID: trimEnv(process.env.CMUX_APNS_TEAM_ID),
+    CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,
       "00000000-0000-4000-8000-000000000000"

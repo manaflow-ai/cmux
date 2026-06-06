@@ -1930,13 +1930,21 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
         view = containerView
         containerView.translatesAutoresizingMaskIntoConstraints = true
-        // Prevent the titlebar accessory from clipping button backgrounds
-        // at the bottom edge (the system constrains accessory height to the
-        // titlebar, which can be slightly shorter than the button frames).
+        // The shortcut-hint pills (and button backgrounds) sit below the button
+        // row and overflow the accessory's titlebar-height content frame on
+        // purpose. macOS 26.5 began re-deriving `layer.masksToBounds` from the
+        // AppKit `clipsToBounds` property on every layout pass, which clobbered
+        // a bare `layer?.masksToBounds = false` write and re-clipped that
+        // overflow (the hint captions got cut off at the bottom). Set
+        // `clipsToBounds = false` on both the container and the hosting view so
+        // the non-clipping intent persists across layout on every macOS version.
         containerView.wantsLayer = true
+        containerView.clipsToBounds = false
         containerView.layer?.masksToBounds = false
         hostingView.translatesAutoresizingMaskIntoConstraints = true
         hostingView.autoresizingMask = []
+        hostingView.clipsToBounds = false
+        hostingView.layer?.masksToBounds = false
         containerView.addSubview(hostingView)
 
         userDefaultsObserver = NotificationCenter.default.addObserver(
@@ -2807,7 +2815,7 @@ private final class HoverTrackingNSView: NSView {
 
 @MainActor
 final class UpdateTitlebarAccessoryController {
-    private weak var updateViewModel: UpdateViewModel?
+    private let updateLog: UpdateLogStore
     private var didStart = false
     private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
     private var observers: [NSObjectProtocol] = []
@@ -2819,8 +2827,8 @@ final class UpdateTitlebarAccessoryController {
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
 
-    init(viewModel: UpdateViewModel) {
-        self.updateViewModel = viewModel
+    init(updateLog: UpdateLogStore) {
+        self.updateLog = updateLog
     }
 
     deinit {
@@ -2918,7 +2926,7 @@ final class UpdateTitlebarAccessoryController {
                 if env["CMUX_UI_TEST_MODE"] == "1" {
                     let ids = NSApp.windows.map { $0.identifier?.rawValue ?? "<nil>" }
                     let delayText = String(format: "%.2f", delay)
-                    UpdateLogStore.shared.append("startup window scan (delay=\(delayText)) count=\(NSApp.windows.count) ids=\(ids.joined(separator: ","))")
+                    self?.updateLog.append("startup window scan (delay=\(delayText)) count=\(NSApp.windows.count) ids=\(ids.joined(separator: ","))")
                 }
 #endif
             }
@@ -2980,7 +2988,7 @@ final class UpdateTitlebarAccessoryController {
         let env = ProcessInfo.processInfo.environment
         if env["CMUX_UI_TEST_MODE"] == "1" {
             let ident = window.identifier?.rawValue ?? "<nil>"
-            UpdateLogStore.shared.append("attached titlebar accessories to window id=\(ident)")
+            updateLog.append("attached titlebar accessories to window id=\(ident)")
         }
 #endif
     }
@@ -3036,7 +3044,7 @@ final class UpdateTitlebarAccessoryController {
         let env = ProcessInfo.processInfo.environment
         if env["CMUX_UI_TEST_MODE"] == "1" {
             let ident = window.identifier?.rawValue ?? "<nil>"
-            UpdateLogStore.shared.append("removed titlebar accessories from window id=\(ident)")
+            updateLog.append("removed titlebar accessories from window id=\(ident)")
         }
 #endif
     }

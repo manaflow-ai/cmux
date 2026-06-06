@@ -10,11 +10,26 @@ public struct ResetSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
+    private let hostActions: SettingsHostActions
 
-    public init(defaultsStore: UserDefaultsSettingsStore, jsonStore: JSONConfigStore, catalog: SettingCatalog) {
+    /// Creates the reset section.
+    ///
+    /// - Parameters:
+    ///   - defaultsStore: Store that owns UserDefaults-backed settings.
+    ///   - jsonStore: Store that owns JSON-config-backed settings.
+    ///   - catalog: Catalog whose keys should be reset to their defaults.
+    ///   - hostActions: Host callbacks for settings that live outside the
+    ///     catalog but should still be reset by this section.
+    public init(
+        defaultsStore: UserDefaultsSettingsStore,
+        jsonStore: JSONConfigStore,
+        catalog: SettingCatalog,
+        hostActions: SettingsHostActions
+    ) {
         self.defaultsStore = defaultsStore
         self.jsonStore = jsonStore
         self.catalog = catalog
+        self.hostActions = hostActions
     }
 
     public var body: some View {
@@ -42,5 +57,6 @@ public struct ResetSection: View {
         for key in catalog.all {
             await key.resetInJSON(jsonStore)
         }
+        hostActions.resetHostOnlySettings()
     }
 }
