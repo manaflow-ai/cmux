@@ -15131,6 +15131,21 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    @discardableResult
+    func openCodeEditorFromPane(_ pane: PaneID) -> UUID? {
+        if let owningTabManager, owningTabManager.selectedTabId != id {
+            owningTabManager.selectWorkspace(self)
+        }
+        bonsplitController.focusPane(pane)
+        if let selectedTab = bonsplitController.selectedTab(inPane: pane) {
+            applyTabSelection(tabId: selectedTab.id, inPane: pane)
+        }
+        if let panelId = AppDelegate.shared?.openCodeEditor(tabManager: owningTabManager) {
+            return panelId
+        }
+        return newCodeEditorSurface(inPane: pane, focus: true)?.id
+    }
+
     /// Creates a sidebar extension browser tab in the requested pane and returns its panel.
     ///
     /// - Parameters:
@@ -19425,8 +19440,7 @@ extension Workspace: BonsplitDelegate {
                     debugSource: "surfaceTabBar.cloudVM"
                 )
             case .newCodeEditor:
-                bonsplitController.focusPane(pane)
-                _ = newCodeEditorSurface(inPane: pane, focus: true)
+                _ = openCodeEditorFromPane(pane)
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }
@@ -19506,7 +19520,7 @@ extension Workspace: BonsplitDelegate {
         case "browser":
             _ = newBrowserSurface(inPane: pane)
         case SurfaceKind.codeEditor, "codeEditor", "code_editor":
-            _ = newCodeEditorSurface(inPane: pane)
+            _ = openCodeEditorFromPane(pane)
         default:
             _ = newTerminalSurface(inPane: pane)
         }

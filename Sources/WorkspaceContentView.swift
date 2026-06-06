@@ -797,8 +797,7 @@ struct EmptyPanelView: View {
         #if DEBUG
         cmuxDebugLog("emptyPane.newCodeEditor pane=\(paneId.id.uuidString.prefix(5))")
         #endif
-        focusPane()
-        _ = workspace.newCodeEditorSurface(inPane: paneId)
+        _ = workspace.openCodeEditorFromPane(paneId)
     }
 
     private var newSurfaceShortcut: StoredShortcut {

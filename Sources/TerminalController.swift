@@ -3300,7 +3300,7 @@ class TerminalController {
                 "webviews": []
             ]
 
-            if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
+            if let browserPanel = panel as? BrowserPanel {
                 let webContentPID = CmuxWebContentProcessIdentifier.pid(for: browserPanel.webView)
                 let url = browserPanel.currentURL?.absoluteString ?? ""
                 let webViewLifecycle = browserPanel.webViewLifecycleTopPayload()
@@ -3480,7 +3480,7 @@ class TerminalController {
                 "tty": v2OrNull(workspace.surfaceTTYNames[panel.id])
             ]
 
-            if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
+            if let browserPanel = panel as? BrowserPanel {
                 item["url"] = browserPanel.currentURL?.absoluteString ?? ""
             } else {
                 item["url"] = NSNull()
