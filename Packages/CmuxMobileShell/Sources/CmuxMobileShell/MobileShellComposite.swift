@@ -772,6 +772,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaces.append(workspace)
         selectedWorkspaceID = workspace.id
         selectedTerminalID = workspace.terminals.first?.id
+        suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
     }
 
     /// Creates a terminal in `workspaceID`, or the selected workspace when nil.
@@ -809,6 +810,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         workspaces[workspaceIndex].terminals.append(terminal)
         selectedTerminalID = terminal.id
+        suppressTerminalAutoFocusOnNextAttach(for: terminal.id)
     }
 
     public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
@@ -841,6 +843,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// disabled). Called from the surface's `onAppear`.
     public func consumeTerminalAutoFocusSuppression(for terminalID: String) {
         terminalAutoFocusSuppressedSurfaceIDs.remove(terminalID)
+    }
+
+    /// Marks `terminalID` so its surface does not autofocus on its next window
+    /// attach. Called by every create path the instant the new terminal becomes
+    /// the selection, so a freshly created terminal never steals the keyboard.
+    private func suppressTerminalAutoFocusOnNextAttach(for terminalID: MobileTerminalPreview.ID?) {
+        guard let terminalID else { return }
+        terminalAutoFocusSuppressedSurfaceIDs.insert(terminalID.rawValue)
     }
 
     public func reportTerminalViewport(
@@ -1348,11 +1358,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
-            if let createdID = response.createdWorkspaceID {
-                let createdWorkspaceID = MobileWorkspacePreview.ID(rawValue: createdID)
-                setSelectedWorkspaceID(createdWorkspaceID)
+            let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
+            if let createdWorkspace {
+                setSelectedWorkspaceID(createdWorkspace)
             }
             syncSelectedTerminalForWorkspace()
+            if createdWorkspace != nil {
+                // A "+" actually created and selected a new workspace, so its
+                // terminal is freshly created: don't pop the keyboard on mount.
+                // When no workspace was created the selection never moved, so we
+                // must not suppress the user's current terminal.
+                suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
+            }
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
@@ -1379,7 +1396,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             if selectedWorkspaceID == requestedWorkspaceID,
                let createdID = response.createdTerminalID {
-                selectedTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
+                let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
+                selectedTerminalID = createdTerminalID
+                suppressTerminalAutoFocusOnNextAttach(for: createdTerminalID)
             }
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
