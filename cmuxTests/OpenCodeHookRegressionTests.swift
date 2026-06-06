@@ -252,11 +252,17 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         await send("permission.asked", { info: archivedInfo, message: "approve" });
         await send("session.updated", { info: { ...archivedInfo, time: { archived: true } } });
         await send("session.idle", { info: archivedInfo });
+        const protectedInfo = { id: "opencode-session-protected", directory: cwd };
+        await send("session.created", { info: protectedInfo });
+        await send("permission.asked", { info: protectedInfo, message: "approve" });
         for (let index = 0; index < \(lifecycleEvictionSessionCount); index += 1) {
           const otherInfo = { id: `opencode-session-${index + 2}`, directory: cwd };
           await send("session.created", { info: otherInfo });
           await send("session.status", { info: { ...otherInfo, status: { type: "idle" } } });
         }
+        await send("session.idle", { info: protectedInfo });
+        await send("permission.replied", { sessionID: protectedInfo.id });
+        await send("session.idle", { info: protectedInfo });
         await send("session.idle", { info });
         """.write(to: scriptURL, atomically: true, encoding: .utf8)
 
@@ -285,15 +291,15 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let errorNotifications = commands.filter { $0.contains("hooks opencode runtime-notification error") }
         XCTAssertEqual(errorNotifications.count, 3, log)
         let needsInputStatuses = commands.filter { $0.contains("hooks opencode runtime-status needs-input") }
-        XCTAssertEqual(needsInputStatuses.count, 2, log)
+        XCTAssertEqual(needsInputStatuses.count, 3, log)
         let runningStatuses = commands.filter { $0.contains("hooks opencode runtime-status running") }
-        XCTAssertEqual(runningStatuses.count, 5, log)
+        XCTAssertEqual(runningStatuses.count, 6, log)
         let retryingStatuses = commands.filter { $0.contains("hooks opencode runtime-status retrying") }
         XCTAssertEqual(retryingStatuses.count, 0, log)
         let idleStatuses = commands.filter { $0.contains("hooks opencode runtime-status idle") }
-        XCTAssertEqual(idleStatuses.count, lifecycleEvictionSessionCount + 6, log)
+        XCTAssertEqual(idleStatuses.count, lifecycleEvictionSessionCount + 7, log)
         let stopHooks = commands.filter { $0 == "hooks opencode stop" }
-        XCTAssertEqual(stopHooks.count, lifecycleEvictionSessionCount + 5, log)
+        XCTAssertEqual(stopHooks.count, lifecycleEvictionSessionCount + 6, log)
     }
 
     private func bundledCLIPath() throws -> String {

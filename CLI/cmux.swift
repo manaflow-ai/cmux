@@ -25595,14 +25595,27 @@ function sessionLifecycleLimit() {
 const SESSION_LIFECYCLE_LIMIT = sessionLifecycleLimit();
 const SESSION_LIFECYCLE = new Map();
 
+function canEvictLifecycleRecord(record) {
+  return record && record.phase !== "needs-input" && record.phase !== "error";
+}
+
+function pruneLifecycleRecords() {
+  while (SESSION_LIFECYCLE.size > SESSION_LIFECYCLE_LIMIT) {
+    let evicted = false;
+    for (const [oldestSessionId, record] of SESSION_LIFECYCLE) {
+      if (!canEvictLifecycleRecord(record)) continue;
+      SESSION_LIFECYCLE.delete(oldestSessionId);
+      evicted = true;
+      break;
+    }
+    if (!evicted) return;
+  }
+}
+
 function rememberLifecycleRecord(sessionId, record) {
   SESSION_LIFECYCLE.delete(sessionId);
   SESSION_LIFECYCLE.set(sessionId, record);
-  while (SESSION_LIFECYCLE.size > SESSION_LIFECYCLE_LIMIT) {
-    const oldestSessionId = SESSION_LIFECYCLE.keys().next().value;
-    if (oldestSessionId == null) return;
-    SESSION_LIFECYCLE.delete(oldestSessionId);
-  }
+  pruneLifecycleRecords();
 }
 
 function lifecycleRecordFor(event) {
