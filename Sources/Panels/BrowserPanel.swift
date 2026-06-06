@@ -6949,16 +6949,10 @@ extension BrowserPanel {
         return popupControllers.contains { $0.ownsLiveDetachedWebInspectorWindow(window) }
     }
 
-    func hasLiveDetachedWebInspectorWindow(_ window: NSWindow) -> Bool {
-        guard Self.isWebInspectorWindowTitle(window) else { return false }
-        if ownsLiveDetachedWebInspectorWindow(window) { return true }
-        return preferredDeveloperToolsPresentation == .detached && Self.isDetachedInspectorWindow(window)
-    }
-
     @discardableResult
     func orderOutStaleWebInspectorWindowIfNeeded(_ window: NSWindow, reason: String) -> Bool {
         guard Self.isWebInspectorWindowTitle(window) else { return false }
-        guard !hasLiveDetachedWebInspectorWindow(window) else { return false }
+        guard !ownsLiveDetachedWebInspectorWindow(window) else { return false }
         guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return false }
         guard preferredDeveloperToolsPresentation == .attached || hasAttachedDeveloperToolsLayout() else {
             return false
