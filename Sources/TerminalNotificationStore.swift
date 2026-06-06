@@ -1664,10 +1664,13 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func acknowledgeStructuredAgentInputStatuses(for notificationsToAcknowledge: [TerminalNotification]) {
+        let remainingUnreadStructuredAgentInputs = remainingUnreadStructuredAgentInputKeys()
         for notification in notificationsToAcknowledge {
             let acknowledgementPanelId = notification.panelId ?? notification.surfaceId
             guard let statusKey = Self.structuredAgentStatusKey(for: notification),
-                  !hasRemainingUnreadStructuredAgentInputStatus(statusKey: statusKey, tabId: notification.tabId),
+                  !remainingUnreadStructuredAgentInputs.contains(
+                      StructuredAgentInputNotificationKey(tabId: notification.tabId, statusKey: statusKey)
+                  ),
                   let workspace = workspaceForStructuredAgentInputAcknowledgement(
                       tabId: notification.tabId,
                       panelId: acknowledgementPanelId
@@ -1682,14 +1685,22 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func hasRemainingUnreadStructuredAgentInputStatus(statusKey: String, tabId: UUID) -> Bool {
-        notifications.contains { notification in
+    private struct StructuredAgentInputNotificationKey: Hashable {
+        let tabId: UUID
+        let statusKey: String
+    }
+
+    private func remainingUnreadStructuredAgentInputKeys() -> Set<StructuredAgentInputNotificationKey> {
+        var keys = Set<StructuredAgentInputNotificationKey>()
+        keys.reserveCapacity(notifications.count)
+        for notification in notifications {
             guard !notification.isRead,
-                  notification.tabId == tabId else {
-                return false
+                  let statusKey = Self.structuredAgentStatusKey(for: notification) else {
+                continue
             }
-            return Self.structuredAgentStatusKey(for: notification) == statusKey
+            keys.insert(StructuredAgentInputNotificationKey(tabId: notification.tabId, statusKey: statusKey))
         }
+        return keys
     }
 
     private func workspaceForStructuredAgentInputAcknowledgement(

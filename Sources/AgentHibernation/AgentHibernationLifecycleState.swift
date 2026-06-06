@@ -45,7 +45,7 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
     }
 }
 
-enum AgentHibernationLifecycleStatusKeys {
+nonisolated enum AgentHibernationLifecycleStatusKeys {
     static let notificationTitleByStatusKey: [String: String] = [
         "amp": "Amp",
         "antigravity": "Antigravity",
