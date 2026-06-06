@@ -508,7 +508,8 @@ struct cmuxApp: App {
                     defaultValue: "Browser Engine"
                 )) {
                     ForEach(BrowserEngineKind.allCases, id: \.self) { kind in
-                        let isCurrent = BrowserEngineKind.current == kind
+                        let selectedKind = BrowserEngineKind(rawValue: browserEngineRaw) ?? BrowserEngineKind.default
+                        let isCurrent = selectedKind == kind
                         let isAvailable = (kind != .cef) || BrowserEngineKind.canSelectCEF
                         Button(action: {
                             if kind == .cef {

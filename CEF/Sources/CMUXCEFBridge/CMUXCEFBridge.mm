@@ -63,18 +63,27 @@ static os_log_t cmuxCEFLog(void) {
     return log;
 }
 
+static std::atomic_bool gCMUXCEFMessagePumpEnabled{false};
 static std::atomic_bool gCMUXCEFMessagePumpRunning{false};
 
 static void CMUXCEFRunMessagePumpWorkIfIdle(void) {
+    if (!gCMUXCEFMessagePumpEnabled.load()) {
+        return;
+    }
     bool expected = false;
     if (!gCMUXCEFMessagePumpRunning.compare_exchange_strong(expected, true)) {
         return;
     }
-    CefDoMessageLoopWork();
+    if (gCMUXCEFMessagePumpEnabled.load()) {
+        CefDoMessageLoopWork();
+    }
     gCMUXCEFMessagePumpRunning.store(false);
 }
 
 static void CMUXCEFPostMessagePumpWork(int64_t delay_ms) {
+    if (!gCMUXCEFMessagePumpEnabled.load()) {
+        return;
+    }
     dispatch_time_t when = (delay_ms <= 0)
         ? DISPATCH_TIME_NOW
         : dispatch_time(DISPATCH_TIME_NOW, delay_ms * NSEC_PER_MSEC);
@@ -405,6 +414,7 @@ private:
     }
 
     _initialized.store(true);
+    gCMUXCEFMessagePumpEnabled.store(true);
     // Anchor the profile registry under the engine's root_cache_path so
     // per-profile cache dirs satisfy CEF's "child of root_cache_path" check.
     [CMUXCEFProfileRegistryBridge shared].profilesRoot =
@@ -431,6 +441,7 @@ private:
 
 - (void)shutdown {
     if (!_initialized.exchange(false)) return;
+    gCMUXCEFMessagePumpEnabled.store(false);
     os_log(cmuxCEFLog(), "CMUXCEFEngine shutting down");
     CefShutdown();
     _app = nullptr;
