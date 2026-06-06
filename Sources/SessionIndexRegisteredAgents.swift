@@ -499,7 +499,11 @@ extension SessionIndexStore {
         var sessionIDsInReverseHistoryOrder: [String] = []
         var targetSessionIDs = Set<String>()
         var stableTargetMetadataCount = 0
-        let scanLimits = antigravityHistoryScanLimits(offset: offset, limit: limit)
+        let scanLimits = antigravityHistoryScanLimits(
+            offset: offset,
+            limit: limit,
+            usesSparseFilter: !needle.isEmpty || cwdFilter != nil
+        )
         let target = antigravityHistoryTarget(offset: offset, limit: limit)
 
         for root in roots {
@@ -591,7 +595,14 @@ extension SessionIndexStore {
         return Array(entries.dropFirst(offset).prefix(limit))
     }
 
-    nonisolated private static func antigravityHistoryScanLimits(offset: Int, limit: Int) -> (maxBytes: Int, maxLines: Int) {
+    nonisolated private static func antigravityHistoryScanLimits(
+        offset: Int,
+        limit: Int,
+        usesSparseFilter: Bool
+    ) -> (maxBytes: Int, maxLines: Int) {
+        if usesSparseFilter {
+            return (antigravityHistoryMaximumScanBytes, antigravityHistoryMaximumScanLines)
+        }
         let target = antigravityHistoryTarget(offset: offset, limit: limit)
         let byteBudget = scaledBound(
             target: target,

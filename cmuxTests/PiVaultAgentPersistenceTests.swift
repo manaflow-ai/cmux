@@ -217,6 +217,43 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.modified, Date(timeIntervalSince1970: 1_779_263_001))
     }
 
+    func testBuiltInAntigravityRegistrationUsesMaximumWindowForSparseSearch() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-vault-sparse-search-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let historyURL = tempDir.appendingPathComponent("history.jsonl", isDirectory: false)
+        var lines = [
+            """
+            {"display":"needle prompt","timestamp":1779263000000,"workspace":"/tmp/antigravity repo","conversationId":"conversation-needle"}
+            """
+        ]
+        lines.append(
+            contentsOf: (0..<700).map { index in
+                """
+                {"display":"filler prompt \(index)","timestamp":\(1_779_263_001_000 + index),"workspace":"/tmp/antigravity repo","conversationId":"conversation-\(index)"}
+                """
+            }
+        )
+        try (lines.joined(separator: "\n") + "\n").write(to: historyURL, atomically: true, encoding: .utf8)
+
+        var registration = CmuxVaultAgentRegistration.builtInAntigravity
+        registration.sessionDirectory = tempDir.path
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "needle",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 1
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entry.sessionId, "conversation-needle")
+        XCTAssertEqual(entry.title, "needle prompt")
+    }
+
     func testRegisteredAgentJSONLWorkspaceKeyIsSharedCWDMetadata() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-workspace-cwd-\(UUID().uuidString)", isDirectory: true)
