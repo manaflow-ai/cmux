@@ -330,6 +330,30 @@ def main() -> int:
                 f"surface.create with page_id must not mutate the active editor page: {page_targeted_list}",
             )
 
+            positional_duplicate = _run_cli_json(
+                cli,
+                ["duplicate-page", "--workspace", workspace_id, first_page_ref, "--title", "agents-positional"],
+            )
+            positional_duplicate_id = str(positional_duplicate.get("page_id") or "")
+            positional_duplicate_ref = str(positional_duplicate.get("page_ref") or "")
+            _must(
+                bool(positional_duplicate_id) and bool(positional_duplicate_ref),
+                f"duplicate-page positional page handle returned no page handle: {positional_duplicate}",
+            )
+            positional_duplicate_list = c._call("page.list", {"workspace_id": workspace_id}) or {}
+            positional_duplicate_pages = {
+                str(page.get("title") or ""): page
+                for page in (positional_duplicate_list.get("pages") or [])
+            }
+            _must(
+                int(positional_duplicate_pages.get("agents-positional", {}).get("surface_count", -1)) == 2,
+                f"duplicate-page positional handle should duplicate the requested page, not the active page: {positional_duplicate_list}",
+            )
+            _run_cli_json(
+                cli,
+                ["close-page", "--workspace", workspace_id, "--page", positional_duplicate_ref],
+            )
+
             selected = _run_cli_json(
                 cli,
                 ["select-page", "--workspace", workspace_id, "--page", first_page_ref],
