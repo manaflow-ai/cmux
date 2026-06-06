@@ -64,6 +64,7 @@ struct WorkspaceShellView: View {
                 createWorkspace: createWorkspaceInCompactStack,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
+                store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure
             )
@@ -116,6 +117,7 @@ struct WorkspaceShellView: View {
                 createWorkspace: store.createWorkspace,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
+                store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure
             )

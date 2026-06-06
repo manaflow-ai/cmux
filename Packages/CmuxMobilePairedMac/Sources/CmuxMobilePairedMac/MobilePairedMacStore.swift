@@ -196,7 +196,20 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     public func setActive(macDeviceID: String) throws {
         try ensureReady()
         try transaction {
-            try exec("UPDATE paired_macs SET is_active = 0;")
+            // Clear the active flag only within the target Mac's own Stack-user
+            // scope, mirroring the scoped clear in `upsert`. On a shared device
+            // (more than one Stack user has pairings), switching hosts for one
+            // signed-in user must not wipe another user's active Mac, or that
+            // user fails to auto-reconnect after signing back in. `IS` is
+            // SQLite's null-safe equality, so a NULL-scoped target clears only
+            // other NULL-scoped rows.
+            try exec("""
+                UPDATE paired_macs SET is_active = 0
+                WHERE stack_user_id IS (
+                    SELECT stack_user_id FROM paired_macs WHERE mac_device_id = ?
+                );
+                """,
+                binding: [.text(macDeviceID)])
             try exec("UPDATE paired_macs SET is_active = 1 WHERE mac_device_id = ?;",
                      binding: [.text(macDeviceID)])
         }

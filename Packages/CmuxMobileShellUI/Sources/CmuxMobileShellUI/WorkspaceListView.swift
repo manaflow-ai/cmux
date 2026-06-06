@@ -1,3 +1,4 @@
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -20,6 +21,9 @@ struct WorkspaceListView: View {
     /// previews), the menu is hidden.
     var rescanQR: (() -> Void)?
     var signOut: (() -> Void)?
+    /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
+    /// `nil` in previews.
+    var store: CMUXMobileShellStore?
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
@@ -107,7 +111,8 @@ struct WorkspaceListView: View {
             MobileSettingsView(
                 connectedHostName: host,
                 rescanQR: rescanQR,
-                signOut: signOut
+                signOut: signOut,
+                store: store
             )
         }
         #endif
