@@ -73,6 +73,271 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
+        let context = try makeClaudeHookContext(name: "claude-pretool-tail")
+        defer { context.cleanup() }
+
+        let transcriptURL = context.root.appendingPathComponent("large-claude-session.jsonl")
+        _ = FileManager.default.createFile(atPath: transcriptURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: transcriptURL)
+
+        func writeLine(_ line: String) throws {
+            try handle.write(contentsOf: Data((line + "\n").utf8))
+        }
+
+        try writeLine(#"{"type":"user","message":{"role":"user","content":"ancient user message"}}"#)
+        try writeLine(#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ancient assistant response"},{"type":"tool_use","name":"Bash","input":{"command":"echo old"}}]}}"#)
+        let fillerPayload = String(repeating: "x", count: 1_200)
+        for _ in 0..<1_200 {
+            try writeLine(#"{"type":"user","message":{"role":"user","content":"\#(fillerPayload)"}}"#)
+        }
+        try writeLine(#"{"type":"user","message":{"role":"user","content":"recent user message"}}"#)
+        try writeLine(#"{"type":"assistant","message":{"role":"assistant","content":"recent assistant response"}}"#)
+        try handle.close()
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"tail-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo recent"}}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let preToolEvent = try XCTUnwrap(
+            feedPushEvents(in: context).last { $0["hook_event_name"] as? String == "PreToolUse" }
+        )
+        let feedContext = try XCTUnwrap(preToolEvent["context"] as? [String: Any])
+        XCTAssertEqual(feedContext["lastUserMessage"] as? String, "recent user message")
+        XCTAssertEqual(feedContext["assistantPreamble"] as? String, "recent assistant response")
+        XCTAssertFalse(String(describing: feedContext).contains("ancient"), "\(feedContext)")
+    }
+
+    func testClaudePreToolUseFeedContextKeepsOversizedFinalTranscriptLine() throws {
+        let context = try makeClaudeHookContext(name: "claude-pretool-oversized-final")
+        defer { context.cleanup() }
+
+        let transcriptURL = context.root.appendingPathComponent("oversized-final-claude-session.jsonl")
+        _ = FileManager.default.createFile(atPath: transcriptURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: transcriptURL)
+        defer { try? handle.close() }
+
+        try handle.write(contentsOf: Data(#"{"type":"user","message":{"role":"user","content":"ancient user message"}}"#.utf8))
+        try handle.write(contentsOf: Data("\n".utf8))
+        let longAssistantText = "recent assistant response " + String(repeating: "r", count: 1_100_000)
+        let finalLine = #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"\#(longAssistantText)"},{"type":"tool_use","name":"Bash","input":{"command":"echo huge"}}]}}"#
+        try handle.write(contentsOf: Data(finalLine.utf8))
+        try handle.close()
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"oversized-final-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo huge"}}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let preToolEvent = try XCTUnwrap(
+            feedPushEvents(in: context).last { $0["hook_event_name"] as? String == "PreToolUse" }
+        )
+        let feedContext = try XCTUnwrap(preToolEvent["context"] as? [String: Any])
+        let assistantPreamble = try XCTUnwrap(feedContext["assistantPreamble"] as? String)
+        XCTAssertTrue(assistantPreamble.hasPrefix("recent assistant response"), "\(feedContext)")
+    }
+
+    func testCodexStopReadsOversizedFinalTranscriptLine() throws {
+        let context = try makeClaudeHookContext(name: "codex-oversized-final-transcript")
+        defer { context.cleanup() }
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let turnId = "oversized-final-turn"
+        let transcriptURL = context.root.appendingPathComponent("oversized-final-codex-session.jsonl")
+        _ = FileManager.default.createFile(atPath: transcriptURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: transcriptURL)
+        defer { try? handle.close() }
+
+        try handle.write(contentsOf: Data(#"{"type":"session_meta","payload":{"id":"codex-oversized-final-session"}}"#.utf8))
+        try handle.write(contentsOf: Data("\n".utf8))
+        let padding = String(repeating: "p", count: 600_000)
+        let finalLine = #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"\#(turnId)","padding":"\#(padding)"}}"#
+        try handle.write(contentsOf: Data(finalLine.utf8))
+        try handle.close()
+
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"codex-oversized-final-session","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":null}"#
+        )
+
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains { command in
+                command.contains("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|Error|Codex ended before sending a final response")
+            },
+            "Expected Codex to parse the oversized final transcript line, saw \(context.state.commands)"
+        )
+    }
+
+    func testCodexPromptSubmitRefreshesLastTurnDiffBaseline() throws {
+        let context = try makeClaudeHookContext(name: "codex-prompt-baseline")
+        defer { context.cleanup() }
+
+        let storyURL = context.root.appendingPathComponent("story.txt")
+        func runGit(_ arguments: [String]) throws -> String {
+            let result = runProcess(
+                executablePath: "/usr/bin/env",
+                arguments: ["git", "-C", context.root.path] + arguments,
+                environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+                timeout: 10
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            guard result.status == 0 else {
+                throw NSError(domain: "CLINotifyProcessIntegrationRegressionTests.git", code: Int(result.status))
+            }
+            return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        func baselineRecords() throws -> [[String: Any]] {
+            let storeURL = context.root.appendingPathComponent("agent-turn-diff-baselines.json")
+            let store = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            return try XCTUnwrap(store["records"] as? [[String: Any]])
+        }
+
+        _ = try runGit(["init"])
+        _ = try runGit(["checkout", "-b", "main"])
+        _ = try runGit(["config", "user.name", "cmux tests"])
+        _ = try runGit(["config", "user.email", "cmux@example.invalid"])
+        try "one\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        _ = try runGit(["add", "story.txt"])
+        _ = try runGit(["commit", "-m", "initial"])
+        let initialCommit = try runGit(["rev-parse", "HEAD"])
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        let sessionId = "codex-last-turn-session"
+        let sessionStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-0","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(sessionStart.timedOut, sessionStart.stderr)
+        XCTAssertEqual(sessionStart.status, 0, sessionStart.stderr)
+
+        try "one\ntwo\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        _ = try runGit(["add", "story.txt"])
+        _ = try runGit(["commit", "-m", "add two"])
+        let promptCommit = try runGit(["rev-parse", "HEAD"])
+
+        let promptSubmit = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(promptSubmit.timedOut, promptSubmit.stderr)
+        XCTAssertEqual(promptSubmit.status, 0, promptSubmit.stderr)
+
+        let records = try baselineRecords()
+        let startRecord = try XCTUnwrap(records.first { $0["turnId"] as? String == "turn-0" })
+        let promptRecord = try XCTUnwrap(records.first { $0["turnId"] as? String == "turn-1" })
+        XCTAssertEqual(startRecord["baseCommit"] as? String, initialCommit)
+        XCTAssertEqual(promptRecord["baseCommit"] as? String, promptCommit)
+        XCTAssertEqual(promptRecord["workspaceId"] as? String, context.workspaceId)
+        XCTAssertEqual(promptRecord["surfaceId"] as? String, context.surfaceId)
+
+        try "one\ntwo\nnested\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        _ = try runGit(["add", "story.txt"])
+        _ = try runGit(["commit", "-m", "nested child change"])
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+
+        let childRecords = try baselineRecords()
+        XCTAssertNil(
+            childRecords.first { $0["turnId"] as? String == "child-turn" },
+            "Nested Codex prompts should not create a last-turn diff baseline."
+        )
+        let parentRecordAfterChild = try XCTUnwrap(childRecords.first { $0["turnId"] as? String == "turn-1" })
+        XCTAssertEqual(parentRecordAfterChild["baseCommit"] as? String, promptCommit)
+
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+
+        try "one\ntwo\nthree\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        let dirtyPromptSubmit = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(dirtyPromptSubmit.timedOut, dirtyPromptSubmit.stderr)
+        XCTAssertEqual(dirtyPromptSubmit.status, 0, dirtyPromptSubmit.stderr)
+
+        let dirtyRecords = try baselineRecords()
+        let dirtyRecord = try XCTUnwrap(dirtyRecords.first { $0["turnId"] as? String == "turn-1" })
+        let dirtyBaseCommit = try XCTUnwrap(dirtyRecord["baseCommit"] as? String)
+        XCTAssertEqual(
+            try runGit(["show-ref", "--verify", "--hash", "refs/cmux/last-turn/\(dirtyBaseCommit)"]),
+            dirtyBaseCommit
+        )
+
+        let dirtyStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"dirty done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(dirtyStop.timedOut, dirtyStop.stderr)
+        XCTAssertEqual(dirtyStop.status, 0, dirtyStop.stderr)
+
+        try "one\ntwo\nthree\nfour\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        let refreshedDirtyPromptSubmit = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(refreshedDirtyPromptSubmit.timedOut, refreshedDirtyPromptSubmit.stderr)
+        XCTAssertEqual(refreshedDirtyPromptSubmit.status, 0, refreshedDirtyPromptSubmit.stderr)
+
+        let refreshedRecords = try baselineRecords()
+        let refreshedRecord = try XCTUnwrap(refreshedRecords.first { $0["turnId"] as? String == "turn-1" })
+        let refreshedBaseCommit = try XCTUnwrap(refreshedRecord["baseCommit"] as? String)
+        XCTAssertNotEqual(refreshedBaseCommit, dirtyBaseCommit)
+        let oldRef = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", context.root.path, "show-ref", "--verify", "--hash", "refs/cmux/last-turn/\(dirtyBaseCommit)"],
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            timeout: 10
+        )
+        XCTAssertFalse(oldRef.timedOut, oldRef.stderr)
+        XCTAssertNotEqual(oldRef.status, 0, oldRef.stdout)
+        XCTAssertEqual(
+            try runGit(["show-ref", "--verify", "--hash", "refs/cmux/last-turn/\(refreshedBaseCommit)"]),
+            refreshedBaseCommit
+        )
+    }
+
     func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
         defer { context.cleanup() }
@@ -2221,18 +2486,165 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let run = try runMockedSSH(arguments: [], jsonOutput: true)
         let payload = try jsonPayload(from: run.stdout)
         let sessionID = try XCTUnwrap(payload["ssh_pty_session_id"] as? String)
+        let persistentDaemonSlot = try XCTUnwrap(payload["persistent_daemon_slot"] as? String)
 
         XCTAssertEqual(sessionID, "ssh-\(run.workspaceId)-\(run.surfaceId)")
         XCTAssertFalse(sessionID.contains("$"), sessionID)
         XCTAssertFalse(sessionID.contains("{"), sessionID)
+        XCTAssertTrue(persistentDaemonSlot.hasPrefix("ssh-"), persistentDaemonSlot)
+        XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
     }
 
     func testSSHPersistentPTYJSONResolvesSessionIDWhenWorkspaceCreateOmitsSurfaceID() throws {
         let run = try runMockedSSH(arguments: [], jsonOutput: true, omitWorkspaceCreateSurfaceID: true)
         let payload = try jsonPayload(from: run.stdout)
         let sessionID = try XCTUnwrap(payload["ssh_pty_session_id"] as? String)
+        let persistentDaemonSlot = try XCTUnwrap(payload["persistent_daemon_slot"] as? String)
 
         XCTAssertEqual(sessionID, "ssh-\(run.workspaceId)-\(run.surfaceId)")
+        XCTAssertTrue(persistentDaemonSlot.hasPrefix("ssh-"), persistentDaemonSlot)
+        XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
+    }
+
+    func testSSHForwardAgentFlagPropagatesCallerAgentSocket() throws {
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        let run = try runMockedSSH(
+            arguments: ["--forward-agent"],
+            environmentOverrides: ["SSH_AUTH_SOCK": agentSocketPath]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
+
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=yes"), "ssh_options: \(sshOptions)")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
+    }
+
+    func testSSHForwardAgentOptionPropagatesCallerAgentSocket() throws {
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        let run = try runMockedSSH(
+            arguments: ["--ssh-option", "ForwardAgent=yes"],
+            environmentOverrides: ["SSH_AUTH_SOCK": agentSocketPath]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
+
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=yes"), "ssh_options: \(sshOptions)")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
+    }
+
+    func testSSHForwardAgentRepeatedOptionUsesLastValue() throws {
+        let run = try runMockedSSH(
+            arguments: [
+                "--ssh-option", "ForwardAgent=yes",
+                "--ssh-option", "ForwardAgent=no",
+            ],
+            environmentOverrides: [
+                "SSH_AUTH_SOCK": "/tmp/cmux-test-agent-\(UUID().uuidString).sock",
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+
+        XCTAssertEqual(sshOptions.filter { $0.hasPrefix("ForwardAgent=") }, [
+            "ForwardAgent=yes",
+            "ForwardAgent=no",
+        ])
+        XCTAssertNil(createParams["initial_env"])
+        XCTAssertNil(configureParams["ssh_auth_sock"])
+    }
+
+    func testSSHPreservesCallerAgentSocketForOpenSSHConfigResolution() throws {
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        let run = try runMockedSSH(
+            arguments: [],
+            environmentOverrides: [
+                "SSH_AUTH_SOCK": agentSocketPath,
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
+
+        XCTAssertNil(configureParams["ssh_options"])
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
+    }
+
+    func testSSHForwardAgentLiteralSocketPathPropagatesSocketPath() throws {
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        let run = try runMockedSSH(
+            arguments: ["--ssh-option", "ForwardAgent=\(agentSocketPath)"]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
+
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=\(agentSocketPath)"), "ssh_options: \(sshOptions)")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
+    }
+
+    func testSSHForwardAgentTildeSocketPathExpandsSocketPath() throws {
+        let homeURL = try makeTemporaryDirectory(prefix: "cmux-ssh-home")
+        let tildeSocketPath = "~/.ssh/cmux-test-agent.sock"
+        let expandedSocketURL = homeURL.appendingPathComponent(".ssh/cmux-test-agent.sock")
+        try createExistingFile(at: expandedSocketURL)
+        let run = try runMockedSSH(
+            arguments: ["--ssh-option", "ForwardAgent=\(tildeSocketPath)"],
+            environmentOverrides: [
+                "HOME": homeURL.path,
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
+
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=\(tildeSocketPath)"), "ssh_options: \(sshOptions)")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], expandedSocketURL.path)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, expandedSocketURL.path)
+    }
+
+    func testSSHForwardAgentAskDoesNotPropagateInvalidSocketPath() throws {
+        let run = try runMockedSSH(
+            arguments: ["--ssh-option", "ForwardAgent=ask"],
+            environmentOverrides: [
+                "SSH_AUTH_SOCK": "/tmp/cmux-test-agent-\(UUID().uuidString).sock",
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=ask"), "ssh_options: \(sshOptions)")
+        XCTAssertNil(createParams["initial_env"])
+        XCTAssertNil(configureParams["ssh_auth_sock"])
+    }
+
+    func testSSHNoForwardAgentFlagOverridesConfig() throws {
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        let run = try runMockedSSH(
+            arguments: ["--no-forward-agent"],
+            environmentOverrides: [
+                "SSH_AUTH_SOCK": agentSocketPath,
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
+
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=no"), "ssh_options: \(sshOptions)")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
     private func assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(
@@ -2305,6 +2717,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
         XCTAssertNotNil(configureParams["foreground_auth_token"] as? String)
         XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
+        let persistentDaemonSlot = try XCTUnwrap(configureParams["persistent_daemon_slot"] as? String)
+        XCTAssertTrue(persistentDaemonSlot.hasPrefix("ssh-"), persistentDaemonSlot)
+        XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
     }
 
     func testSSHPersistentPTYFallsBackWhenForegroundAuthCannotBeReused() throws {
@@ -2338,6 +2753,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(configureParams["auto_connect"] as? Bool, true, testCase.name)
             XCTAssertNil(configureParams["foreground_auth_token"], testCase.name)
             XCTAssertNil(configureParams["preserve_after_terminal_exit"], testCase.name)
+            XCTAssertNil(configureParams["persistent_daemon_slot"], testCase.name)
         }
     }
 
@@ -3203,6 +3619,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(params["remote_pty_session_id"] as? String, sessionId)
             XCTAssertEqual(params["focus"] as? Bool, true)
             let initialCommand = params["initial_command"] as? String ?? ""
+            XCTAssertTrue(initialCommand.hasPrefix("/bin/sh -c "), initialCommand)
             XCTAssertTrue(initialCommand.contains("ssh-pty-attach"), initialCommand)
             XCTAssertTrue(initialCommand.contains("--require-existing"), initialCommand)
             XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
@@ -4157,214 +4574,209 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    @MainActor
-    func testNotificationCLIActionsMutateSocketStateAndListExtendedFields() async throws {
+    func testNotificationCLIActionsUseSocketAPIAndParseExtendedFields() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notif-actions")
-        let store = TerminalNotificationStore.shared
-        let previousShared = AppDelegate.shared
-        let appDelegate = previousShared ?? AppDelegate()
-        let manager = TabManager()
-        let originalTabManager = appDelegate.tabManager
-        let originalNotificationStore = appDelegate.notificationStore
-        let originalAppFocusOverride = AppFocusState.overrideIsFocused
-
-        AppDelegate.shared = appDelegate
-        store.replaceNotificationsForTesting([])
-        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
-        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
-        appDelegate.tabManager = manager
-        appDelegate.notificationStore = store
-        AppFocusState.overrideIsFocused = false
-
-        let workspace = manager.addWorkspace(title: "CLI|Notification Workspace", select: true)
-        let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-        window.makeKeyAndOrderFront(nil)
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let notificationId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+        let surfaceId = UUID().uuidString
+        let openNotificationId = UUID().uuidString
+        let openWorkspaceId = UUID().uuidString
+        let openSurfaceId = UUID().uuidString
+        let jumpNotificationId = UUID().uuidString
 
         defer {
-            TerminalController.shared.stop()
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            window.close()
-            for workspace in manager.tabs {
-                manager.closeWorkspace(workspace)
-            }
-            store.replaceNotificationsForTesting([])
-            store.resetNotificationDeliveryHandlerForTesting()
-            store.resetSuppressedNotificationFeedbackHandlerForTesting()
-            appDelegate.tabManager = originalTabManager
-            appDelegate.notificationStore = originalNotificationStore
-            AppFocusState.overrideIsFocused = originalAppFocusOverride
-            AppDelegate.shared = previousShared
+            Darwin.close(listenerFD)
             unlink(socketPath)
         }
-
-        TerminalController.shared.start(
-            tabManager: manager,
-            socketPath: socketPath,
-            accessMode: .allowAll
-        )
-        XCTAssertTrue(waitForSocketFile(at: socketPath), "Socket did not appear at \(socketPath)")
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        func run(_ arguments: [String], timeout: TimeInterval = 5) async -> ProcessRunResult {
-            await withCheckedContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let result = self.runProcess(
-                        executablePath: cliPath,
-                        arguments: ["--socket", socketPath] + arguments,
-                        environment: environment,
-                        timeout: timeout
-                    )
-                    continuation.resume(returning: result)
-                }
-            }
+        func run(
+            _ arguments: [String],
+            handler: @escaping @Sendable (String) -> String
+        ) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state, handler: handler)
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["--socket", socketPath] + arguments,
+                environment: environment,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
         }
 
-        let createdAt = Date(timeIntervalSince1970: 1_767_225_600)
-        let listedNotification = TerminalNotification(
-            id: UUID(),
-            tabId: workspace.id,
-            surfaceId: surfaceId,
-            title: "List Fields",
-            subtitle: "cli-test",
-            body: "body",
-            createdAt: createdAt,
-            isRead: false
-        )
-        store.replaceNotificationsForTesting([listedNotification])
-
-        var result = await run(["list-notifications", "--json", "--id-format", "uuids"])
+        var result = run(["list-notifications", "--json", "--id-format", "uuids"]) { line in
+            guard line == "list_notifications" else {
+                return "ERROR: Unexpected command \(line)"
+            }
+            return "0:\(notificationId)|\(workspaceId)|\(surfaceId)|unread|List Fields|cli-test|body|2026-01-01T00:00:00Z|pct:CLI%7CNotification Workspace"
+        }
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         var rows = try notificationRows(from: result.stdout)
-        var row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == listedNotification.id.uuidString }))
-        XCTAssertEqual(row["workspace_id"] as? String, workspace.id.uuidString)
-        XCTAssertEqual(row["surface_id"] as? String, surfaceId.uuidString)
+        var row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == notificationId }))
+        XCTAssertEqual(row["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(row["surface_id"] as? String, surfaceId)
         XCTAssertEqual(row["created_at"] as? String, "2026-01-01T00:00:00Z")
         XCTAssertEqual(row["tab_title"] as? String, "CLI|Notification Workspace")
 
-        result = await run(["--json", "list-notifications", "--id-format", "uuids"])
+        result = run(["--json", "list-notifications", "--id-format", "uuids"]) { line in
+            guard line == "list_notifications" else {
+                return "ERROR: Unexpected command \(line)"
+            }
+            return "0:\(notificationId)|\(workspaceId)|\(surfaceId)|unread|List Fields|cli-test|body|2026-01-01T00:00:00Z|pct:CLI%7CNotification Workspace"
+        }
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         rows = try notificationRows(from: result.stdout)
-        row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == listedNotification.id.uuidString }))
+        row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == notificationId }))
         XCTAssertEqual(row["created_at"] as? String, "2026-01-01T00:00:00Z")
 
-        result = await run(["mark-notification-read", "--id", listedNotification.id.uuidString, "--json", "--id-format", "uuids"])
+        result = run(["mark-notification-read", "--id", notificationId, "--json", "--id-format", "uuids"]) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "notification.mark_read")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["id"] as? String, notificationId)
+            return self.v2Response(id: id, ok: true, result: ["marked_read": 1, "id": notificationId])
+        }
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        rows = try notificationRows(from: await run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
-        row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == listedNotification.id.uuidString }))
-        XCTAssertEqual(row["is_read"] as? Bool, true)
+        let markByIdPayload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(markByIdPayload["marked_read"] as? Int, 1)
+        XCTAssertEqual(markByIdPayload["id"] as? String, notificationId)
 
-        result = await run(["dismiss-notification", "--all-read", "--json", "--id-format", "uuids"])
+        result = run(["dismiss-notification", "--all-read", "--json", "--id-format", "uuids"]) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "notification.dismiss")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["all_read"] as? Bool, true)
+            return self.v2Response(id: id, ok: true, result: ["dismissed": 1, "all_read": true])
+        }
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let dismissPayload = try jsonPayload(from: result.stdout)
         XCTAssertEqual(dismissPayload["dismissed"] as? Int, 1)
         XCTAssertEqual(dismissPayload["all_read"] as? Bool, true)
-        rows = try notificationRows(from: await run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
-        XCTAssertTrue(rows.isEmpty)
 
-        let scopedNotification = TerminalNotification(
-            id: UUID(),
-            tabId: workspace.id,
-            surfaceId: surfaceId,
-            title: "Scoped",
-            subtitle: "cli-test",
-            body: "body",
-            createdAt: createdAt,
-            isRead: false
-        )
-        let siblingNotification = TerminalNotification(
-            id: UUID(),
-            tabId: workspace.id,
-            surfaceId: UUID(),
-            title: "Sibling",
-            subtitle: "cli-test",
-            body: "body",
-            createdAt: createdAt,
-            isRead: false
-        )
-        store.replaceNotificationsForTesting([scopedNotification, siblingNotification])
-
-        result = await run([
+        result = run([
             "mark-notification-read",
-            "--workspace",
-            workspace.id.uuidString,
-            "--surface",
-            surfaceId.uuidString,
+            "--workspace", workspaceId,
+            "--surface", surfaceId,
             "--json",
             "--id-format",
             "uuids",
-        ])
+        ]) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "notification.mark_read")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["tab_id"] as? String, workspaceId)
+            XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: ["marked_read": 1, "workspace_id": workspaceId, "surface_id": surfaceId]
+            )
+        }
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        rows = try notificationRows(from: await run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
-        row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == scopedNotification.id.uuidString }))
-        XCTAssertEqual(row["is_read"] as? Bool, true)
-        row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == siblingNotification.id.uuidString }))
-        XCTAssertEqual(row["is_read"] as? Bool, false)
+        let markScopedPayload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(markScopedPayload["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(markScopedPayload["surface_id"] as? String, surfaceId)
 
-        let targetWorkspace = manager.addWorkspace(title: "CLI Open Target", select: false)
-        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
-        let openNotification = TerminalNotification(
-            id: UUID(),
-            tabId: targetWorkspace.id,
-            surfaceId: targetSurfaceId,
-            title: "Open",
-            subtitle: "cli-test",
-            body: "body",
-            createdAt: createdAt,
-            isRead: false
-        )
-        store.replaceNotificationsForTesting([openNotification])
-        manager.selectTab(workspace)
-
-        result = await run(["open-notification", "--id", openNotification.id.uuidString, "--json", "--id-format", "uuids"])
+        result = run(["open-notification", "--id", openNotificationId, "--json", "--id-format", "uuids"]) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "notification.open")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["id"] as? String, openNotificationId)
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "id": openNotificationId,
+                    "workspace_id": openWorkspaceId,
+                    "surface_id": openSurfaceId,
+                    "opened": true,
+                    "is_read": true,
+                ]
+            )
+        }
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let openPayload = try jsonPayload(from: result.stdout)
-        XCTAssertEqual(openPayload["workspace_id"] as? String, targetWorkspace.id.uuidString)
-        XCTAssertEqual(openPayload["surface_id"] as? String, targetSurfaceId.uuidString)
-        rows = try notificationRows(from: await run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
-        row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == openNotification.id.uuidString }))
-        XCTAssertEqual(row["is_read"] as? Bool, true)
+        XCTAssertEqual(openPayload["workspace_id"] as? String, openWorkspaceId)
+        XCTAssertEqual(openPayload["surface_id"] as? String, openSurfaceId)
+        XCTAssertEqual(openPayload["is_read"] as? Bool, true)
 
-        let jumpNotification = TerminalNotification(
-            id: UUID(),
-            tabId: targetWorkspace.id,
-            surfaceId: targetSurfaceId,
-            title: "Jump",
-            subtitle: "cli-test",
-            body: "body",
-            createdAt: createdAt,
-            isRead: false
-        )
-        store.replaceNotificationsForTesting([jumpNotification])
-        manager.selectTab(workspace)
-
-        result = await run(["jump-to-unread", "--json", "--id-format", "uuids"])
+        result = run(["jump-to-unread", "--json", "--id-format", "uuids"]) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "notification.jump_to_unread")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertTrue(params.isEmpty, "jump-to-unread should not send selector params")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "id": jumpNotificationId,
+                    "workspace_id": openWorkspaceId,
+                    "surface_id": openSurfaceId,
+                    "opened": true,
+                    "is_read": true,
+                ]
+            )
+        }
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let jumpPayload = try jsonPayload(from: result.stdout)
-        XCTAssertEqual(jumpPayload["workspace_id"] as? String, targetWorkspace.id.uuidString)
-        XCTAssertEqual(jumpPayload["surface_id"] as? String, targetSurfaceId.uuidString)
-        rows = try notificationRows(from: await run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
-        row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == jumpNotification.id.uuidString }))
-        XCTAssertEqual(row["is_read"] as? Bool, true)
+        XCTAssertEqual(jumpPayload["id"] as? String, jumpNotificationId)
+        XCTAssertEqual(jumpPayload["workspace_id"] as? String, openWorkspaceId)
+        XCTAssertEqual(jumpPayload["surface_id"] as? String, openSurfaceId)
+        XCTAssertEqual(jumpPayload["is_read"] as? Bool, true)
+
+        let methods = state.snapshot().map { command -> String in
+            if command == "list_notifications" {
+                return command
+            }
+            return self.jsonObject(command)?["method"] as? String ?? "invalid"
+        }
+        XCTAssertEqual(
+            methods,
+            [
+                "list_notifications",
+                "list_notifications",
+                "notification.mark_read",
+                "notification.dismiss",
+                "notification.mark_read",
+                "notification.open",
+                "notification.jump_to_unread",
+            ]
+        )
     }
 
     func testListNotificationsKeepsOldServerPipeBodiesAsBody() throws {
@@ -6484,7 +6896,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["auto_resume"] as? Bool, true)
         XCTAssertEqual(
             request["command"] as? String,
-            "cd '\(root.path)' && '/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            "{ cd -- '\(root.path)' 2>/dev/null || [ ! -d '\(root.path)' ]; } && '/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
         )
     }
 
@@ -7442,6 +7854,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return try XCTUnwrap(sessions[sessionId] as? [String: Any])
     }
 
+    private func feedPushEvents(in context: ClaudeHookContext) -> [[String: Any]] {
+        context.state.snapshot().compactMap { line in
+            guard let payload = jsonObject(line),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event
+        }
+    }
+
     func testBrowserImportDefaultsNonInteractiveInCodingAgent() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("browser-import-agent")
@@ -7808,11 +8232,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         arguments sshArguments: [String],
         jsonOutput: Bool = false,
         omitWorkspaceCreateSurfaceID: Bool = false,
+        environmentOverrides: [String: String] = [:],
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws -> MockedSSHRun {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh")
+        let homeURL = try makeTemporaryDirectory(prefix: "cmux-ssh-home")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let workspaceId = "11111111-1111-1111-1111-111111111111"
@@ -7881,6 +8307,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
+        for (key, value) in environmentOverrides {
+            environment[key] = value
+        }
 
         let commandArguments = jsonOutput
             ? ["--json", "--id-format", "uuids", "ssh", "example.test", "--no-focus"] + sshArguments
@@ -7906,6 +8336,34 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             stdout: result.stdout,
             workspaceId: workspaceId,
             surfaceId: surfaceId
+        )
+    }
+
+    private func makeExistingAgentSocketPath() throws -> String {
+        let directory = try makeTemporaryDirectory(prefix: "cmux-agent")
+        let url = directory.appendingPathComponent("agent.sock")
+        try createExistingFile(at: url)
+        return url.path
+    }
+
+    private func makeTemporaryDirectory(prefix: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: url)
+        }
+        return url
+    }
+
+    private func createExistingFile(at url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        XCTAssertTrue(
+            FileManager.default.createFile(atPath: url.path, contents: Data()),
+            "Expected to create \(url.path)"
         )
     }
 
