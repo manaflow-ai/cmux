@@ -98,10 +98,11 @@ struct MobilePairingView: View {
 
     /// `true` reachable, `false` not detected, `nil` not yet known.
     private var tailscaleReachable: Bool? {
-        if case let .ready(ready) = model.state {
-            return ready.reachableViaTailscale
+        switch model.state {
+        case let .ready(ready): return ready.reachableViaTailscale
+        case .needsTailscale: return false
+        default: return nil
         }
-        return nil
     }
 
     private func tailscaleSubtitle(reachable: Bool?) -> String {
@@ -157,11 +158,36 @@ struct MobilePairingView: View {
                 Text(String(localized: "mobile.pairing.preparing", defaultValue: "Preparing a pairing code…"))
                     .foregroundStyle(.secondary)
             }
+        case .needsTailscale:
+            needsTailscaleContent
         case let .failed(message):
             failure(message: message)
         case let .ready(ready):
             readyContent(ready)
         }
+    }
+
+    private var needsTailscaleContent: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "network.slash")
+                .font(.system(size: 28))
+                .foregroundStyle(.orange)
+            Text(String(localized: "mobile.pairing.needsTailscale.body", defaultValue: "This Mac has no Tailscale address, so your iPhone can't reach it. Install Tailscale on this Mac and your iPhone (same account), then refresh."))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Link(
+                String(localized: "mobile.pairing.req.tailscale.get", defaultValue: "Get Tailscale"),
+                destination: Self.tailscaleDownloadURL
+            )
+            .buttonStyle(.borderedProminent)
+            Button(String(localized: "mobile.pairing.refresh", defaultValue: "Refresh Code")) {
+                Task { await model.refresh() }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity, minHeight: 200)
     }
 
     private var signedOut: some View {

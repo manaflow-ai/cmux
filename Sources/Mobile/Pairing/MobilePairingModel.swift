@@ -25,6 +25,9 @@ final class MobilePairingModel {
         case preparing
         /// A ticket is ready to display.
         case ready(Ready)
+        /// The listener is up but there is no route a phone can reach (no
+        /// Tailscale address on this Mac), so no ticket can be minted yet.
+        case needsTailscale
         /// The listener could not be started or no ticket could be minted.
         case failed(String)
     }
@@ -97,6 +100,13 @@ final class MobilePairingModel {
             )
             return
         }
+        // No route a phone can reach (no Tailscale address on this Mac, and no
+        // debug loopback in release): surface the Tailscale-missing guidance
+        // instead of letting `createAttachTicket` throw a raw `noRoutes`.
+        guard !status.routes.isEmpty else {
+            state = .needsTailscale
+            return
+        }
         do {
             let payload = try await host.createAttachTicket(
                 workspaceID: "",
@@ -119,8 +129,15 @@ final class MobilePairingModel {
                     tailscaleLines: Self.tailscaleLines(status.routes)
                 )
             )
+        } catch MobileAttachTicketStoreError.noRoutes, MobileAttachTicketStoreError.routeUnavailable {
+            state = .needsTailscale
         } catch {
-            state = .failed(String(describing: error))
+            state = .failed(
+                String(
+                    localized: "mobile.pairing.error.noTicket",
+                    defaultValue: "Could not generate a pairing code. Try again."
+                )
+            )
         }
     }
 
