@@ -628,8 +628,8 @@ final class AgentSessionProcessStore {
         var openCodeEventTask: Task<Void, Never>?
         var pendingExitStatus: Int32?
         var drainedStreams: Set<String> = []
-        private var stdoutBuffer = Data()
-        private var stderrBuffer = Data()
+        private var stdoutBuffer = AgentSessionOutputLineBuffer()
+        private var stderrBuffer = AgentSessionOutputLineBuffer()
         private var openCodeEventTextAccumulator = OpenCodeEventTextAccumulator()
 
         init(
@@ -654,16 +654,16 @@ final class AgentSessionProcessStore {
 
         func appendOutputData(_ data: Data, stream: String) -> [String] {
             if stream == "stdout" {
-                return Self.appendOutputData(data, buffer: &stdoutBuffer)
+                return stdoutBuffer.append(data)
             }
-            return Self.appendOutputData(data, buffer: &stderrBuffer)
+            return stderrBuffer.append(data)
         }
 
         func flushBufferedOutput(stream: String) -> [String] {
             if stream == "stdout" {
-                return Self.flushBufferedOutput(buffer: &stdoutBuffer)
+                return stdoutBuffer.flush()
             }
-            return Self.flushBufferedOutput(buffer: &stderrBuffer)
+            return stderrBuffer.flush()
         }
 
         func consumeClaudeStreamJSONLine(_ line: String) -> [String] {
@@ -680,24 +680,6 @@ final class AgentSessionProcessStore {
 
         func openCodeEventCompletesAssistantTurn(_ event: [String: Any], openCodeSessionID: String) -> Bool {
             OpenCodeEventTextAccumulator.completesAssistantTurn(event, sessionID: openCodeSessionID)
-        }
-
-        private static func appendOutputData(_ data: Data, buffer: inout Data) -> [String] {
-            buffer.append(data)
-            var lines: [String] = []
-            while let newlineIndex = buffer.firstIndex(of: 0x0A) {
-                let lineData = buffer[..<newlineIndex]
-                buffer.removeSubrange(...newlineIndex)
-                lines.append(String(decoding: lineData, as: UTF8.self) + "\n")
-            }
-            return lines
-        }
-
-        private static func flushBufferedOutput(buffer: inout Data) -> [String] {
-            guard !buffer.isEmpty else { return [] }
-            let text = String(decoding: buffer, as: UTF8.self)
-            buffer.removeAll()
-            return [text]
         }
     }
 }

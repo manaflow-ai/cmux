@@ -41,6 +41,30 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testAgentSessionOutputLineBufferBoundsNewlineFreeOutput() {
+        var buffer = AgentSessionOutputLineBuffer()
+        let oversizedLine = Data(repeating: 97, count: 2 * 1024 * 1024 + 5)
+
+        let lines = buffer.append(oversizedLine)
+
+        expectEqual(lines.count, 2)
+        expectTrue(lines.allSatisfy { $0.hasSuffix("\n") })
+        expectTrue(lines.allSatisfy { $0.count <= 1024 * 1024 + 1 })
+        expectEqual(buffer.bufferedByteCountForTesting, 5)
+        expectEqual(buffer.flush(), [String(repeating: "a", count: 5)])
+    }
+
+    @Test
+    func testAgentSessionOutputLineBufferPreservesNormalNewlineFrames() {
+        var buffer = AgentSessionOutputLineBuffer()
+
+        expectEqual(buffer.append(Data("hello\npartial".utf8)), ["hello\n"])
+        expectEqual(buffer.bufferedByteCountForTesting, "partial".utf8.count)
+        expectEqual(buffer.append(Data(" line\n".utf8)), ["partial line\n"])
+        expectEqual(buffer.flush(), [])
+    }
+
+    @Test
     func testOpenCodeProcessStdoutLogsAreNotAssistantOutput() throws {
         let serverURL = try #require(URL(string: "http://127.0.0.1:49211"))
 
@@ -487,7 +511,7 @@ struct CodexAppServerSessionTests {
             ),
             ["hello"]
         )
-        expectEqual(accumulator.retainedTextCharacterCountForTesting, 5)
+        expectEqual(accumulator.retainedTextCharacterCountForTesting, 0)
         expectEqual(accumulator.consumeLine(#"{"type":"message_stop"}"#), [])
         expectEqual(accumulator.retainedTextCharacterCountForTesting, 0)
     }

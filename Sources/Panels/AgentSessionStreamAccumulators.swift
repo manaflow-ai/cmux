@@ -16,19 +16,62 @@ struct OpenCodeServerAuth: Equatable {
     }
 }
 
+struct AgentSessionOutputLineBuffer {
+    private static let maxBufferedBytes = 1024 * 1024
+
+    private var buffer = Data()
+
+    var bufferedByteCountForTesting: Int {
+        buffer.count
+    }
+
+    mutating func append(_ data: Data) -> [String] {
+        var lines: [String] = []
+        var cursor = data.startIndex
+        while cursor < data.endIndex {
+            let availableByteCount = max(1, Self.maxBufferedBytes - buffer.count)
+            let chunkEnd = data.index(
+                cursor,
+                offsetBy: min(availableByteCount, data.distance(from: cursor, to: data.endIndex))
+            )
+            buffer.append(contentsOf: data[cursor..<chunkEnd])
+            cursor = chunkEnd
+            drainBufferedLines(into: &lines)
+            if buffer.count >= Self.maxBufferedBytes {
+                lines.append(String(decoding: buffer, as: UTF8.self) + "\n")
+                buffer.removeAll(keepingCapacity: true)
+            }
+        }
+        return lines
+    }
+
+    mutating func flush() -> [String] {
+        guard !buffer.isEmpty else { return [] }
+        let text = String(decoding: buffer, as: UTF8.self)
+        buffer.removeAll(keepingCapacity: true)
+        return [text]
+    }
+
+    private mutating func drainBufferedLines(into lines: inout [String]) {
+        while let newlineIndex = buffer.firstIndex(of: 0x0A) {
+            let lineData = buffer[..<newlineIndex]
+            buffer.removeSubrange(...newlineIndex)
+            lines.append(String(decoding: lineData, as: UTF8.self) + "\n")
+        }
+    }
+}
+
 struct ClaudeStreamJSONAccumulator {
     private static let maxTrackedMessages = 16
 
-    private var emittedTextByMessageID: [String: String] = [:]
+    private var emittedCharacterCountByMessageID: [String: Int] = [:]
     private var messageIDOrder: [String] = []
     private var currentMessageID: String?
-    private var pendingDeltaText = ""
+    private var pendingDeltaCharacterCount = 0
     private var emittedAnyAssistantText = false
 
     var retainedTextCharacterCountForTesting: Int {
-        emittedTextByMessageID.values.reduce(pendingDeltaText.count) { partial, text in
-            partial + text.count
-        }
+        0
     }
 
     mutating func consumeLine(_ line: String) -> [String] {
@@ -42,7 +85,7 @@ struct ClaudeStreamJSONAccumulator {
         if let messageID = assistantMessageID(fromMessageStart: object) {
             rememberMessageID(messageID)
             currentMessageID = messageID
-            pendingDeltaText = ""
+            pendingDeltaCharacterCount = 0
             return []
         }
 
@@ -50,9 +93,9 @@ struct ClaudeStreamJSONAccumulator {
             emittedAnyAssistantText = true
             if let currentMessageID {
                 rememberMessageID(currentMessageID)
-                emittedTextByMessageID[currentMessageID, default: ""] += delta
+                emittedCharacterCountByMessageID[currentMessageID, default: 0] += delta.count
             } else {
-                pendingDeltaText += delta
+                pendingDeltaCharacterCount += delta.count
             }
             return [delta]
         }
@@ -125,15 +168,15 @@ struct ClaudeStreamJSONAccumulator {
 
         let messageID = (message["id"] as? String) ?? "assistant"
         rememberMessageID(messageID)
-        let previousText = emittedTextByMessageID[messageID] ??
-            (fullText.hasPrefix(pendingDeltaText) ? pendingDeltaText : "")
-        emittedTextByMessageID[messageID] = fullText
+        let previousCharacterCount = emittedCharacterCountByMessageID[messageID] ??
+            min(pendingDeltaCharacterCount, fullText.count)
+        emittedCharacterCountByMessageID[messageID] = fullText.count
         if currentMessageID == messageID {
             currentMessageID = nil
         }
-        pendingDeltaText = ""
-        if fullText.hasPrefix(previousText) {
-            return String(fullText.dropFirst(previousText.count))
+        pendingDeltaCharacterCount = 0
+        if previousCharacterCount > 0, fullText.count >= previousCharacterCount {
+            return String(fullText.dropFirst(previousCharacterCount))
         }
         return fullText
     }
@@ -144,15 +187,15 @@ struct ClaudeStreamJSONAccumulator {
         }
         while messageIDOrder.count > Self.maxTrackedMessages {
             let removed = messageIDOrder.removeFirst()
-            emittedTextByMessageID.removeValue(forKey: removed)
+            emittedCharacterCountByMessageID.removeValue(forKey: removed)
         }
     }
 
     private mutating func resetTurnTracking() {
-        emittedTextByMessageID.removeAll(keepingCapacity: true)
+        emittedCharacterCountByMessageID.removeAll(keepingCapacity: true)
         messageIDOrder.removeAll(keepingCapacity: true)
         currentMessageID = nil
-        pendingDeltaText = ""
+        pendingDeltaCharacterCount = 0
     }
 
     private static func contentText(from content: Any?) -> String {
