@@ -39,7 +39,11 @@ public struct MobilePairingRoute: Sendable, Equatable, Identifiable {
     }
 
     /// The `host:port` pair as a single display string (e.g. `100.64.0.1:58465`).
+    ///
+    /// IPv6 literals are wrapped in brackets per RFC 3986 (`[fe80::1]:58465`) so
+    /// the port colon isn't ambiguous with the address colons.
     public var endpoint: String {
-        "\(host):\(port)"
+        let isIPv6Literal = host.contains(":")
+        return isIPv6Literal ? "[\(host)]:\(port)" : "\(host):\(port)"
     }
 }

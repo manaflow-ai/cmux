@@ -269,7 +269,7 @@ struct MobileHostServiceStatus {
     }
 }
 
-/// What ``MobileHostService/syncToSettings(defaults:)`` should do to reconcile
+/// What ``MobileHostService/syncToSettings()`` should do to reconcile
 /// the live listener with the current settings. A pure value so the
 /// restart-on-port-change logic is unit-testable without a real `NWListener`.
 enum MobileHostSyncDecision: Equatable {
@@ -443,7 +443,7 @@ final class MobileHostService {
     ///   - desiredPort: The preferred port from settings (``configuredPort(defaults:)``).
     ///   - appliedPort: The preferred port the running listener targeted, or
     ///     `nil` when stopped.
-    /// - Returns: The action ``syncToSettings(defaults:)`` should take.
+    /// - Returns: The action ``syncToSettings()`` should take.
     nonisolated static func syncDecision(
         enabled: Bool,
         listenerRunning: Bool,
@@ -540,8 +540,12 @@ final class MobileHostService {
     /// Applies an explicitly-requested pairing port. Persists it only when it can
     /// be bound (or pairing is off); when the port is in use the running listener
     /// is left untouched so devices stay connected. On a successful apply the
-    /// persisted-value change drives ``syncToSettings(defaults:)`` to rebind.
-    func applyConfiguredPort(_ port: Int, defaults: UserDefaults = .standard) async -> MobileHostPortApplyOutcome {
+    /// persisted-value change drives ``syncToSettings()`` to rebind.
+    ///
+    /// Operates on `UserDefaults.standard` because it persists to and rebinds the
+    /// live singleton listener (`restart`/`start` read the standard store too).
+    func applyConfiguredPort(_ port: Int) async -> MobileHostPortApplyOutcome {
+        let defaults = UserDefaults.standard
         let enabled = Self.isListeningEnabled(defaults: defaults)
         let boundPort = listenerPort
         // Probe only when a running listener would actually move to a different,
@@ -745,13 +749,14 @@ final class MobileHostService {
     }
 
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
-        let configured = Self.configuredPort()
         let isRunning = listener != nil && listenerPort != nil
         return MobileHostServiceStatus(
             isRunning: isRunning,
             port: listenerPort,
-            configuredPort: configured,
-            usesEphemeralFallback: isRunning && listenerPort != configured,
+            configuredPort: Self.configuredPort(),
+            // The actual bind outcome, not a recomputation from current defaults:
+            // editing the preferred port before a restart must not flip this.
+            usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
             routes: routes,
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: lastErrorDescription
@@ -762,7 +767,12 @@ final class MobileHostService {
     /// preferred-port changes). Safe to call on any settings change: it no-ops
     /// unless the enabled state or the configured port actually changed, so an
     /// unrelated `UserDefaults` write does not drop active iOS connections.
-    func syncToSettings(defaults: UserDefaults = .standard) {
+    ///
+    /// Reads `UserDefaults.standard` because the live singleton listener binds
+    /// against the app's real store; `start`/`restart` do the same, so there is
+    /// no caller-supplied store to honor here.
+    func syncToSettings() {
+        let defaults = UserDefaults.standard
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via
