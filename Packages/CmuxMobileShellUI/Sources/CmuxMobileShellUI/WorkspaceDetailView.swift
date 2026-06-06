@@ -31,7 +31,9 @@ struct WorkspaceDetailView: View {
     @State private var isTerminalPickerPresented = false
     #if canImport(UIKit)
     @State private var diagnosticsReport: MobileDiagnosticsReport?
-    @State private var diagnosticsPreparationTask: Task<MobileDiagnosticsReport, Never>?
+    @State private var diagnosticsSessionID = UUID()
+    @State private var diagnosticsPreparationTask: Task<MobileDiagnosticsReport, Error>?
+    @State private var diagnosticsActionTask: Task<Void, Never>?
     @State private var diagnosticsShareSheetItem: MobileDiagnosticsActivityItem?
     @State private var pendingDiagnosticsShareSheetItem: MobileDiagnosticsActivityItem?
     @State private var isPreparingDiagnostics = false
@@ -151,11 +153,7 @@ struct WorkspaceDetailView: View {
         Button {
             dismissTerminalKeyboardForChrome()
             #if canImport(UIKit)
-            diagnosticsReport = nil
-            diagnosticsPreparationTask?.cancel()
-            diagnosticsPreparationTask = nil
-            pendingDiagnosticsShareSheetItem = nil
-            isPreparingDiagnostics = false
+            resetDiagnosticsForNewPickerSession()
             #endif
             isTerminalPickerPresented = true
         } label: {
@@ -177,7 +175,7 @@ struct WorkspaceDetailView: View {
     private var terminalPickerPopoverContent: some View {
         #if canImport(UIKit)
         terminalPickerContent
-            .onDisappear(perform: presentPendingFeedbackComposerIfNeeded)
+            .onDisappear(perform: terminalPickerDidDisappear)
         #else
         terminalPickerContent
         #endif
@@ -248,9 +246,7 @@ struct WorkspaceDetailView: View {
     /// Copies the assembled, scrubbed diagnostics report to the clipboard.
     @ViewBuilder
     private var diagnosticsCopyButton: some View {
-        Button {
-            Task { await copyDiagnosticsToPasteboard() }
-        } label: {
+        Button(action: startCopyDiagnosticsToPasteboard) {
             diagnosticsActionLabel(
                 title: L10n.string("mobile.diagnostics.copy", defaultValue: "Copy Diagnostics"),
                 systemImage: "doc.on.clipboard"
@@ -293,9 +289,7 @@ struct WorkspaceDetailView: View {
             .padding(.vertical, 10)
             .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
         } else {
-            Button {
-                Task { await prepareAndPresentDiagnosticsShareSheet() }
-            } label: {
+            Button(action: startDiagnosticsShare) {
                 diagnosticsActionLabel(
                     title: isPreparingDiagnostics
                         ? L10n.string("mobile.diagnostics.preparing", defaultValue: "Preparing Diagnostics…")
@@ -325,6 +319,7 @@ struct WorkspaceDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(isPreparingDiagnostics)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .accessibilityIdentifier("MobileSendFeedbackMenuItem")
@@ -334,6 +329,28 @@ struct WorkspaceDetailView: View {
     #if canImport(UIKit)
     private func diagnosticsActionLabel(title: String, systemImage: String) -> Label<Text, Image> {
         Label(title, systemImage: systemImage)
+    }
+
+    @MainActor
+    private func resetDiagnosticsForNewPickerSession() {
+        diagnosticsSessionID = UUID()
+        diagnosticsActionTask?.cancel()
+        diagnosticsActionTask = nil
+        diagnosticsPreparationTask?.cancel()
+        diagnosticsPreparationTask = nil
+        diagnosticsReport = nil
+        diagnosticsShareSheetItem = nil
+        pendingDiagnosticsShareSheetItem = nil
+        isPreparingDiagnostics = false
+    }
+
+    @MainActor
+    private func cancelDiagnosticsWorkForCurrentSession() {
+        diagnosticsActionTask?.cancel()
+        diagnosticsActionTask = nil
+        diagnosticsPreparationTask?.cancel()
+        diagnosticsPreparationTask = nil
+        isPreparingDiagnostics = false
     }
 
     /// The shell's live runtime state, mapped into the decoupled diagnostics
@@ -369,35 +386,72 @@ struct WorkspaceDetailView: View {
     /// Builds the report after the user chooses a diagnostics action, so the
     /// terminal picker itself stays a cheap navigation control.
     @MainActor
-    private func prepareDiagnosticsReport() async -> MobileDiagnosticsReport {
-        if let diagnosticsReport {
-            return diagnosticsReport
-        }
+    private func prepareDiagnosticsReport(sessionID: UUID, cacheResult: Bool) async -> MobileDiagnosticsReport? {
+        guard diagnosticsSessionID == sessionID else { return nil }
         if let diagnosticsPreparationTask {
-            let report = await diagnosticsPreparationTask.value
-            diagnosticsReport = report
-            self.diagnosticsPreparationTask = nil
-            isPreparingDiagnostics = false
-            return report
+            do {
+                let report = try await diagnosticsPreparationTask.value
+                guard diagnosticsSessionID == sessionID, !Task.isCancelled else { return nil }
+                if cacheResult {
+                    diagnosticsReport = report
+                }
+                self.diagnosticsPreparationTask = nil
+                isPreparingDiagnostics = false
+                return report
+            } catch {
+                guard diagnosticsSessionID == sessionID else { return nil }
+                self.diagnosticsPreparationTask = nil
+                isPreparingDiagnostics = false
+                return nil
+            }
         }
 
         isPreparingDiagnostics = true
         let task = Task { @MainActor in
-            await buildDiagnosticsReport()
+            try Task.checkCancellation()
+            let report = await buildDiagnosticsReport()
+            try Task.checkCancellation()
+            return report
         }
         diagnosticsPreparationTask = task
-        let report = await task.value
-        diagnosticsReport = report
-        diagnosticsPreparationTask = nil
-        isPreparingDiagnostics = false
-        return report
+        do {
+            let report = try await task.value
+            guard diagnosticsSessionID == sessionID, !Task.isCancelled else { return nil }
+            if cacheResult {
+                diagnosticsReport = report
+            }
+            diagnosticsPreparationTask = nil
+            isPreparingDiagnostics = false
+            return report
+        } catch {
+            guard diagnosticsSessionID == sessionID else { return nil }
+            diagnosticsPreparationTask = nil
+            isPreparingDiagnostics = false
+            return nil
+        }
     }
 
     @MainActor
-    private func prepareAndPresentDiagnosticsShareSheet() async {
-        let report = await prepareDiagnosticsReport()
-        pendingDiagnosticsShareSheetItem = .init(text: report.text)
-        isTerminalPickerPresented = false
+    private func startDiagnosticsShare() {
+        let sessionID = diagnosticsSessionID
+        diagnosticsActionTask?.cancel()
+        diagnosticsActionTask = Task { @MainActor in
+            await prepareAndPresentDiagnosticsShareSheet(sessionID: sessionID)
+        }
+    }
+
+    @MainActor
+    private func prepareAndPresentDiagnosticsShareSheet(sessionID: UUID) async {
+        guard let report = await prepareDiagnosticsReport(sessionID: sessionID, cacheResult: true) else { return }
+        guard diagnosticsSessionID == sessionID, !Task.isCancelled else { return }
+        let item = MobileDiagnosticsActivityItem(text: report.text)
+        if isTerminalPickerPresented {
+            pendingDiagnosticsShareSheetItem = item
+            isTerminalPickerPresented = false
+        } else {
+            diagnosticsShareSheetItem = item
+        }
+        diagnosticsActionTask = nil
     }
 
     /// Builds the diagnostics report (in-process log + OS log + live state +
@@ -420,11 +474,23 @@ struct WorkspaceDetailView: View {
 
     /// Copies the prepared diagnostics text to the system pasteboard.
     @MainActor
-    private func copyDiagnosticsToPasteboard() async {
-        let report = await prepareDiagnosticsReport()
+    private func startCopyDiagnosticsToPasteboard() {
+        let sessionID = diagnosticsSessionID
+        diagnosticsActionTask?.cancel()
+        diagnosticsActionTask = Task { @MainActor in
+            await copyDiagnosticsToPasteboard(sessionID: sessionID)
+        }
+    }
+
+    /// Copies the prepared diagnostics text to the system pasteboard.
+    @MainActor
+    private func copyDiagnosticsToPasteboard(sessionID: UUID) async {
+        guard let report = await prepareDiagnosticsReport(sessionID: sessionID, cacheResult: false) else { return }
+        guard diagnosticsSessionID == sessionID, !Task.isCancelled else { return }
         isTerminalPickerPresented = false
         UIPasteboard.general.string = report.text
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+        diagnosticsActionTask = nil
     }
 
     /// Presents the mobile feedback form with the current diagnostics report.
@@ -433,15 +499,22 @@ struct WorkspaceDetailView: View {
         isTerminalPickerPresented = false
     }
 
-    private func presentPendingFeedbackComposerIfNeeded() {
+    private func terminalPickerDidDisappear() {
+        guard !presentPendingPostPickerSheetIfNeeded() else { return }
+        cancelDiagnosticsWorkForCurrentSession()
+    }
+
+    @discardableResult
+    private func presentPendingPostPickerSheetIfNeeded() -> Bool {
         if let pendingDiagnosticsShareSheetItem {
             self.pendingDiagnosticsShareSheetItem = nil
             diagnosticsShareSheetItem = pendingDiagnosticsShareSheetItem
-            return
+            return true
         }
-        guard shouldPresentFeedbackAfterPickerDismisses else { return }
+        guard shouldPresentFeedbackAfterPickerDismisses else { return false }
         shouldPresentFeedbackAfterPickerDismisses = false
         isFeedbackComposerPresented = true
+        return true
     }
     #endif
 
