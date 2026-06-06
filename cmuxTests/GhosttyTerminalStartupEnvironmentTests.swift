@@ -7,6 +7,36 @@ import XCTest
 #endif
 
 final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
+    @MainActor
+    func testTerminalSurfaceStartupEnvironmentIncludesCmuxContextValues() throws {
+        let workspaceId = UUID()
+        let surface = TerminalSurface(
+            tabId: workspaceId,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil
+        )
+        defer { TerminalSurfaceRegistry.shared.unregister(surface) }
+
+        let expectedContextValues = [
+            "CMUX_WORKSPACE_ID": workspaceId.uuidString,
+            "CMUX_SURFACE_ID": surface.id.uuidString,
+            "CMUX_TAB_ID": workspaceId.uuidString,
+            "CMUX_PANEL_ID": surface.id.uuidString
+        ]
+
+        for (key, expectedValue) in expectedContextValues {
+            let value = try XCTUnwrap(surface.startupEnvironmentValue(key), "\(key) should be present")
+            XCTAssertFalse(value.isEmpty, "\(key) should be non-empty")
+            XCTAssertEqual(value, expectedValue)
+        }
+
+        let socketPath = try XCTUnwrap(
+            surface.startupEnvironmentValue("CMUX_SOCKET_PATH"),
+            "CMUX_SOCKET_PATH should be present"
+        )
+        XCTAssertFalse(socketPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
     func testApplyManagedTerminalIdentityEnvironmentOverridesInheritedValues() {
         var environment = [
             "TERM": "xterm-ghostty",
@@ -67,6 +97,25 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         )
 
         XCTAssertEqual(merged["CMUX_NO_GIT_WATCH"], "")
+    }
+
+    func testApplyManagedGitWatchEnvironmentDisablesShellPullRequestWatchWhenHidden() {
+        var environment = [
+            "CMUX_NO_PR_WATCH": ""
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedGitWatchEnvironment(
+            watchGitStatusEnabled: true,
+            showPullRequestsEnabled: false,
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        XCTAssertEqual(environment["CMUX_NO_GIT_WATCH"], "")
+        XCTAssertEqual(environment["CMUX_NO_PR_WATCH"], "1")
+        XCTAssertTrue(protectedKeys.contains("CMUX_NO_GIT_WATCH"))
+        XCTAssertTrue(protectedKeys.contains("CMUX_NO_PR_WATCH"))
     }
 
     func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {
@@ -210,5 +259,62 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(merged["CLAUDE_CONFIG_DIR"], "/tmp/resume-claude-config")
         XCTAssertEqual(merged["ANTHROPIC_API_KEY"], "explicit-api-key")
         XCTAssertEqual(merged["ANTHROPIC_MODEL"], "")
+    }
+
+    func testMergedStartupEnvironmentDoesNotDeriveHermesCodexBaseURLForGenericTerminals() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-codex-startup-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try """
+        openai_base_url = "http://subrouter-team:31415/v1"
+        chatgpt_base_url = "http://subrouter-team:31415/backend-api"
+        """.write(to: codexHome.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [
+                "CODEX_HOME": codexHome.path
+            ],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [:]
+        )
+
+        XCTAssertNil(merged["HERMES_CODEX_BASE_URL"])
+        XCTAssertNil(merged["CUSTOM_BASE_URL"])
+    }
+
+    func testMergedStartupEnvironmentDerivesHermesCodexBaseURLWhenRequested() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-codex-startup-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try """
+        openai_base_url = "http://subrouter-team:31415/v1"
+        chatgpt_base_url = "http://subrouter-team:31415/backend-api"
+        """.write(to: codexHome.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [
+                "CODEX_HOME": codexHome.path
+            ],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [:],
+            applyHermesCodexDefaults: true
+        )
+
+        XCTAssertEqual(
+            merged["HERMES_CODEX_BASE_URL"],
+            "http://subrouter-team:31415/backend-api/codex"
+        )
+        XCTAssertEqual(
+            merged["CUSTOM_BASE_URL"],
+            "http://subrouter-team:31415/v1"
+        )
     }
 }

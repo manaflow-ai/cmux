@@ -140,6 +140,41 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 #endif
     }
 
+    func testDebugTextBoxEndpointsRejectBlankSurfaceID() throws {
+#if DEBUG
+        TerminalController.shared.setActiveTabManager(TabManager())
+        defer { TerminalController.shared.setActiveTabManager(nil) }
+
+        let requests: [(method: String, params: [String: Any], id: Int)] = [
+            ("debug.textbox.inline_fixture", ["surface_id": "   "], 1),
+            ("debug.textbox.interact", ["surface_id": "   ", "action": "select"], 2)
+        ]
+
+        for request in requests {
+            let payload: [String: Any] = [
+                "jsonrpc": "2.0",
+                "id": request.id,
+                "method": request.method,
+                "params": request.params
+            ]
+            let data = try JSONSerialization.data(withJSONObject: payload)
+            let line = try XCTUnwrap(String(data: data, encoding: .utf8))
+            let responseText = TerminalController.shared.handleSocketLine(line)
+            let responseData = try XCTUnwrap(responseText.data(using: .utf8))
+            let response = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+                "Unexpected JSON-RPC response: \(responseText)"
+            )
+            XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+            let error = try XCTUnwrap(response["error"] as? [String: Any])
+            XCTAssertEqual(error["code"] as? String, "invalid_params")
+            XCTAssertEqual(error["message"] as? String, "surface_id cannot be empty")
+        }
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testRemoteStatusPayloadOmitsSensitiveSSHConfiguration() {
         let tabManager = TabManager()
         let workspace = tabManager.addWorkspace(select: false, eagerLoadTerminal: false)
@@ -165,6 +200,578 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertNil(payload["ssh_options"])
         XCTAssertEqual(payload["has_identity_file"] as? Bool, true)
         XCTAssertEqual(payload["has_ssh_options"] as? Bool, true)
+    }
+
+    func testRemoteConfigureRejectsInvalidPersistentDaemonSlot() throws {
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": UUID().uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "persistent_daemon_slot": "../bad",
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        XCTAssertEqual(
+            error["message"] as? String,
+            "persistent_daemon_slot must contain only letters, numbers, '.', '_' or '-'"
+        )
+    }
+
+    func testRemoteConfigureDefaultsPersistentDaemonSlotForBootstrapSSH() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "preserve_after_terminal_exit": true,
+                "auto_connect": false,
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(workspace.remoteConfiguration?.preserveAfterTerminalExit, true)
+        XCTAssertEqual(
+            workspace.remoteConfiguration?.persistentDaemonSlot,
+            "ssh-\(workspace.id.uuidString.lowercased())"
+        )
+    }
+
+    func testRemoteConfigureDerivesAgentSocketPathFromForwardAgentOption() throws {
+        let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        setenv("SSH_AUTH_SOCK", agentSocketPath, 1)
+        defer {
+            if let previousAgentSocketPath {
+                setenv("SSH_AUTH_SOCK", previousAgentSocketPath, 1)
+            } else {
+                unsetenv("SSH_AUTH_SOCK")
+            }
+        }
+
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "ssh_options": ["ForwardAgent=yes"],
+                "auto_connect": false,
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(workspace.remoteConfiguration?.agentSocketPath, agentSocketPath)
+        XCTAssertEqual(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
+    }
+
+    func testRemoteConfigureExplicitEmptyAgentSocketSuppressesForwardAgentFallback() throws {
+        let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        setenv("SSH_AUTH_SOCK", agentSocketPath, 1)
+        defer {
+            if let previousAgentSocketPath {
+                setenv("SSH_AUTH_SOCK", previousAgentSocketPath, 1)
+            } else {
+                unsetenv("SSH_AUTH_SOCK")
+            }
+        }
+
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "ssh_options": ["ForwardAgent=yes"],
+                "ssh_auth_sock": "",
+                "auto_connect": false,
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertNil(workspace.remoteConfiguration?.agentSocketPath)
+        XCTAssertNil(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
+    }
+
+    func testRemoteConfigureUsesLastForwardAgentOption() throws {
+        let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        setenv("SSH_AUTH_SOCK", agentSocketPath, 1)
+        defer {
+            if let previousAgentSocketPath {
+                setenv("SSH_AUTH_SOCK", previousAgentSocketPath, 1)
+            } else {
+                unsetenv("SSH_AUTH_SOCK")
+            }
+        }
+
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "ssh_options": ["ForwardAgent=yes", "ForwardAgent=no"],
+                "auto_connect": false,
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertNil(workspace.remoteConfiguration?.agentSocketPath)
+        XCTAssertNil(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
+    }
+
+    func testRemoteConfigureRejectsPersistentDaemonSlotWithoutPreserve() throws {
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": UUID().uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "persistent_daemon_slot": "ssh-test-slot",
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        XCTAssertEqual(
+            error["message"] as? String,
+            "preserve_after_terminal_exit is required when persistent_daemon_slot is set"
+        )
+    }
+
+    func testRemotePTYResizeRunsOnSocketWorker() async throws {
+        let socketPath = makeSocketPath("pty-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let params: [String: Any] = [
+            "workspace_id": UUID().uuidString,
+            "session_id": "session",
+            "attachment_id": "attachment",
+            "attachment_token": "token",
+            "cols": 100,
+            "rows": 30,
+        ]
+        let requestLine = try makeV2RequestLine(
+            method: "workspace.remote.pty_resize",
+            params: params
+        )
+
+        let mainEnvelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+        let mainError = try XCTUnwrap(mainEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(mainError["code"] as? String, "invalid_dispatch")
+
+        let workerEnvelope = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_resize",
+            params: params,
+            to: socketPath
+        )
+        let workerError = try XCTUnwrap(workerEnvelope["error"] as? [String: Any])
+        XCTAssertNotEqual(workerError["code"] as? String, "invalid_dispatch")
+        XCTAssertNotEqual(workerError["code"] as? String, "method_not_found")
+        XCTAssertEqual(workerError["code"] as? String, "not_found")
+    }
+
+    func testWorkspaceWorkerMethodRejectsWindowAliasInsteadOfDefaultWindowFallback() async throws {
+        let socketPath = makeSocketPath("alias-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let params: [String: Any] = ["window": "window:2"]
+        let requestLine = try makeV2RequestLine(
+            method: "workspace.remote.pty_sessions",
+            params: params
+        )
+
+        let mainEnvelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+        let mainError = try XCTUnwrap(mainEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(mainError["code"] as? String, "invalid_dispatch")
+
+        let workerEnvelope = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_sessions",
+            params: params,
+            to: socketPath
+        )
+        try assertUnsupportedWorkspaceWindowAlias(workerEnvelope)
+    }
+
+    func testHeartbeatMethodsSupportInProcessAndSocketDispatch() async throws {
+        let socketPath = makeSocketPath("heartbeat-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        for method in ["system.ping", "system.capabilities"] {
+            let requestLine = try makeV2RequestLine(method: method, params: [:])
+            let mainEnvelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+            XCTAssertEqual(mainEnvelope["ok"] as? Bool, true, method)
+            try assertHeartbeatResult(method: method, envelope: mainEnvelope)
+
+            let workerEnvelope = try await sendV2RequestAsync(method: method, params: [:], to: socketPath)
+            XCTAssertEqual(workerEnvelope["ok"] as? Bool, true, method)
+            try assertHeartbeatResult(method: method, envelope: workerEnvelope)
+        }
+    }
+
+    private func assertHeartbeatResult(method: String, envelope: [String: Any], file: StaticString = #filePath, line: UInt = #line) throws {
+        let result = try XCTUnwrap(envelope["result"] as? [String: Any], method, file: file, line: line)
+        switch method {
+        case "system.ping":
+            XCTAssertEqual(result["pong"] as? Bool, true, file: file, line: line)
+        case "system.capabilities":
+            let methods = try XCTUnwrap(result["methods"] as? [String], method, file: file, line: line)
+            let advertisedMethods = Set(methods)
+            let expectedMethods: Set<String> = [
+                "system.ping",
+                "system.capabilities",
+                "mobile.host.status",
+                "mobile.attach_ticket.create",
+                "mobile.workspace.list",
+                "workspace.list",
+                "workspace.create",
+                "mobile.terminal.create",
+                "terminal.create",
+                "mobile.terminal.input",
+                "terminal.input",
+                "mobile.terminal.replay",
+                "terminal.replay",
+                "mobile.terminal.viewport",
+                "terminal.viewport",
+                "mobile.events.subscribe",
+                "mobile.events.unsubscribe",
+            ]
+            XCTAssertTrue(
+                expectedMethods.isSubset(of: advertisedMethods),
+                "Missing capabilities: \(expectedMethods.subtracting(advertisedMethods).sorted())",
+                file: file,
+                line: line
+            )
+        default:
+            XCTFail("Unexpected heartbeat method \(method)", file: file, line: line)
+        }
+    }
+
+    func testRemotePTYBridgeWaitForReadyRunsOnSocketWorker() async throws {
+        let socketPath = makeSocketPath("pty-bridge-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let params: [String: Any] = [
+            "workspace_id": UUID().uuidString,
+            "session_id": "session",
+            "attachment_id": "attachment",
+            "wait_for_ready": true,
+        ]
+        let requestLine = try makeV2RequestLine(
+            method: "workspace.remote.pty_bridge",
+            params: params
+        )
+
+        let mainEnvelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+        let mainError = try XCTUnwrap(mainEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(mainError["code"] as? String, "invalid_dispatch")
+
+        let workerEnvelope = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_bridge",
+            params: params,
+            to: socketPath
+        )
+        let workerError = try XCTUnwrap(workerEnvelope["error"] as? [String: Any])
+        XCTAssertNotEqual(workerError["code"] as? String, "invalid_dispatch")
+        XCTAssertNotEqual(workerError["code"] as? String, "method_not_found")
+        XCTAssertEqual(workerError["code"] as? String, "not_found")
+    }
+
+    func testRemotePTYAttachEndRoutesMovedSurfaceToCurrentWorkspace() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let moved = try makeMovedRemotePTYSurface(in: manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: makeSocketPath("pty-end"),
+            accessMode: .allowAll
+        )
+
+        let requestLine = try makeV2RequestLine(
+            method: "workspace.remote.pty_attach_end",
+            params: [
+                "workspace_id": moved.source.id.uuidString,
+                "surface_id": moved.panel.id.uuidString,
+                "session_id": moved.sessionID,
+            ]
+        )
+        let envelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+
+        XCTAssertEqual(envelope["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(envelope)")
+        let result = try XCTUnwrap(envelope["result"] as? [String: Any])
+        XCTAssertEqual(result["window_id"] as? String, windowId.uuidString)
+        XCTAssertEqual(result["workspace_id"] as? String, moved.destination.id.uuidString)
+        XCTAssertEqual(result["surface_id"] as? String, moved.panel.id.uuidString)
+        XCTAssertEqual(result["cleared_remote_pty_session"] as? Bool, true)
+        XCTAssertEqual(result["untracked_remote_terminal"] as? Bool, true)
+        XCTAssertFalse(moved.destination.isRemoteTerminalSurface(moved.panel.id))
+        XCTAssertEqual(moved.destination.activeRemoteTerminalSessionCount, 0)
+    }
+
+    func testRemotePTYRejectsWorkspaceSurfaceMismatchWithoutMovedSurfaceOptIn() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let socketPath = makeSocketPath("pty-mismatch")
+        let manager = TabManager()
+        let moved = try makeMovedRemotePTYSurface(in: manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_resize",
+            params: [
+                "workspace_id": moved.source.id.uuidString,
+                "surface_id": moved.panel.id.uuidString,
+                "session_id": moved.sessionID,
+                "attachment_id": moved.panel.id.uuidString,
+                "attachment_token": "token",
+                "cols": 100,
+                "rows": 30,
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        XCTAssertEqual(error["message"] as? String, "surface_id does not belong to workspace_id")
+        let data = try XCTUnwrap(error["data"] as? [String: Any])
+        XCTAssertEqual(data["workspace_id"] as? String, moved.source.id.uuidString)
+        XCTAssertEqual(data["surface_id"] as? String, moved.panel.id.uuidString)
+        XCTAssertEqual(data["resolved_workspace_id"] as? String, moved.destination.id.uuidString)
+    }
+
+    func testRemotePTYResizeRoutesMovedSurfaceToCurrentWorkspace() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let socketPath = makeSocketPath("pty-move")
+        let manager = TabManager()
+        let moved = try makeMovedRemotePTYSurface(in: manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_resize",
+            params: [
+                "workspace_id": moved.source.id.uuidString,
+                "surface_id": moved.panel.id.uuidString,
+                "session_id": moved.sessionID,
+                "attachment_id": moved.panel.id.uuidString,
+                "attachment_token": "token",
+                "cols": 100,
+                "rows": 30,
+                "allow_moved_surface": true,
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "remote_pty_error")
+        let data = try XCTUnwrap(error["data"] as? [String: Any])
+        let locatedWorkspaceId = appDelegate.workspaceContainingPanel(
+            panelId: moved.panel.id,
+            preferredWorkspaceId: moved.source.id
+        )?.workspace.id.uuidString
+        XCTAssertEqual(
+            data["workspace_id"] as? String,
+            moved.destination.id.uuidString,
+            "source=\(moved.source.id.uuidString) destination=\(moved.destination.id.uuidString) " +
+            "located=\(locatedWorkspaceId ?? "nil") " +
+            "sourceActive=\(moved.source.surfaceIdFromPanelId(moved.panel.id) != nil) " +
+            "destinationActive=\(moved.destination.surfaceIdFromPanelId(moved.panel.id) != nil)"
+        )
+        XCTAssertEqual(data["session_id"] as? String, moved.sessionID)
+        XCTAssertEqual(data["attachment_id"] as? String, moved.panel.id.uuidString)
+    }
+
+    func testRemotePTYBridgeRoutesMovedSurfaceToCurrentWorkspace() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let socketPath = makeSocketPath("pty-bridge-move")
+        let manager = TabManager()
+        let moved = try makeMovedRemotePTYSurface(in: manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_bridge",
+            params: [
+                "workspace_id": moved.source.id.uuidString,
+                "surface_id": moved.panel.id.uuidString,
+                "session_id": moved.sessionID,
+                "attachment_id": moved.panel.id.uuidString,
+                "command": "",
+                "require_existing": true,
+                "allow_moved_surface": true,
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "remote_pty_error")
+        let data = try XCTUnwrap(error["data"] as? [String: Any])
+        XCTAssertEqual(data["workspace_id"] as? String, moved.destination.id.uuidString)
+        XCTAssertEqual(data["session_id"] as? String, moved.sessionID)
+        XCTAssertEqual(data["attachment_id"] as? String, moved.panel.id.uuidString)
+    }
+
+    func testRemotePTYAllWorkspacesTreatsMissingPTYListAsUnsupported() {
+        let unsupported = NSError(
+            domain: "cmux.remote.daemon.rpc",
+            code: 14,
+            userInfo: [
+                NSLocalizedDescriptionKey: "pty.list failed (method_not_found): Unknown method",
+            ]
+        )
+        XCTAssertTrue(remotePTYSessionListErrorIsUnsupportedDaemon(unsupported))
+
+        let notReady = NSError(
+            domain: "cmux.remote.pty",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon is not ready",
+            ]
+        )
+        XCTAssertFalse(remotePTYSessionListErrorIsUnsupportedDaemon(notReady))
+
+        let differentRPCMethod = NSError(
+            domain: "cmux.remote.daemon.rpc",
+            code: 14,
+            userInfo: [
+                NSLocalizedDescriptionKey: "pty.close failed (method_not_found): Unknown method",
+            ]
+        )
+        XCTAssertFalse(remotePTYSessionListErrorIsUnsupportedDaemon(differentRPCMethod))
     }
 
     func testRightSidebarV1CommandsDriveExistingState() throws {
@@ -711,6 +1318,112 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(manager.tabs.contains(where: { $0.id == pinnedWorkspace.id }))
     }
 
+    func testV2SurfaceCloseCommandsRecordRecentlyClosedHistory() throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        BrowserAvailabilitySettings.setDisabled(true)
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            if let previousBrowserDisabled {
+                defaults.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let terminalPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true))
+        workspace.setPanelCustomTitle(panelId: terminalPanel.id, title: "Socket Terminal")
+        let browserPanel = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: true,
+            creationPolicy: .restoration
+        ))
+        workspace.setPanelCustomTitle(panelId: browserPanel.id, title: "Socket Browser")
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let terminalClose = try handleV2Request(
+            method: "surface.close",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": terminalPanel.id.uuidString
+            ]
+        )
+        XCTAssertEqual(terminalClose["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(terminalClose)")
+        XCTAssertNil(workspace.panels[terminalPanel.id])
+
+        let browserClose = try handleV2Request(
+            method: "browser.tab.close",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": browserPanel.id.uuidString
+            ]
+        )
+        XCTAssertEqual(browserClose["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(browserClose)")
+        XCTAssertNil(workspace.panels[browserPanel.id])
+
+        XCTAssertEqual(
+            ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title),
+            ["Socket Browser", "Socket Terminal"]
+        )
+    }
+
+    func testBrowserOpenSplitDoesNotExternallyOpenDiffViewerWhenBrowserDisabled() throws {
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        BrowserAvailabilitySettings.setDisabled(true)
+        defer {
+            if let previousBrowserDisabled {
+                defaults.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        TerminalController.shared.setActiveTabManager(TabManager())
+        let token = UUID().uuidString.lowercased()
+        let response = try handleV2Request(
+            method: "browser.open_split",
+            params: [
+                "url": "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/diff.html",
+                "diff_viewer_token": token
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(error["code"] as? String, "browser_disabled")
+    }
+
+    func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true))
+        workspace.setPanelCustomTitle(panelId: panel.id, title: "Legacy Socket Terminal")
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let response = TerminalController.shared.handleSocketLine("close_surface \(panel.id.uuidString)")
+
+        XCTAssertEqual(response, "OK")
+        XCTAssertNil(workspace.panels[panel.id])
+        XCTAssertEqual(
+            ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title),
+            ["Legacy Socket Terminal"]
+        )
+    }
+
     private func waitForSocket(at path: String, timeout: TimeInterval = 5.0) throws {
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
@@ -773,6 +1486,89 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             responses.append(try readLine(from: fd))
         }
         return responses
+    }
+
+    private func makeV2RequestLine(method: String, params: [String: Any]) throws -> String {
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": method,
+            "params": params,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try XCTUnwrap(String(data: data, encoding: .utf8))
+    }
+
+    private func makeMovedRemotePTYSurface(
+        in manager: TabManager
+    ) throws -> (source: Workspace, destination: Workspace, panel: TerminalPanel, sessionID: String) {
+        let source = manager.addWorkspace(select: true)
+        let destination = manager.addWorkspace(select: false)
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64011,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
+        )
+        source.configureRemoteConnection(config, autoConnect: false)
+        destination.configureRemoteConnection(config, autoConnect: false)
+
+        let sourcePanelID = try XCTUnwrap(source.focusedTerminalPanel?.id)
+        let destinationPaneID = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        let sessionID = "moved-surface-session"
+        let panel = try XCTUnwrap(
+            source.newTerminalSplit(
+                from: sourcePanelID,
+                orientation: .horizontal,
+                initialCommand: nil,
+                remotePTYSessionID: sessionID
+            )
+        )
+        let detached = try XCTUnwrap(source.detachSurface(panelId: panel.id))
+        XCTAssertEqual(detached.remotePTYSessionID, sessionID)
+        XCTAssertEqual(
+            destination.attachDetachedSurface(detached, inPane: destinationPaneID, focus: false),
+            panel.id
+        )
+        XCTAssertTrue(destination.isRemoteTerminalSurface(panel.id))
+
+        return (source, destination, panel, sessionID)
+    }
+
+    private func decodeV2Envelope(_ raw: String) throws -> [String: Any] {
+        let data = try XCTUnwrap(raw.data(using: .utf8))
+        return try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            "Expected JSON-RPC response object"
+        )
+    }
+
+    private func handleV2Request(
+        method: String,
+        params: [String: Any]
+    ) throws -> [String: Any] {
+        let requestLine = try makeV2RequestLine(method: method, params: params)
+        return try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+    }
+
+    private func assertUnsupportedWorkspaceWindowAlias(
+        _ envelope: [String: Any],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertEqual(envelope["ok"] as? Bool, false, file: file, line: line)
+        let error = try XCTUnwrap(envelope["error"] as? [String: Any], file: file, line: line)
+        XCTAssertEqual(error["code"] as? String, "invalid_params", file: file, line: line)
+        let data = try XCTUnwrap(error["data"] as? [String: Any], file: file, line: line)
+        XCTAssertEqual(data["unsupported_param"] as? String, "window", file: file, line: line)
+        XCTAssertEqual(data["supported_param"] as? String, "window_id", file: file, line: line)
     }
 
     private nonisolated func sendV2Request(
@@ -898,6 +1694,21 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             ])
         }
         return line
+    }
+
+    private func makeExistingAgentSocketPath() throws -> String {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let url = directory.appendingPathComponent("agent.sock")
+        XCTAssertTrue(
+            FileManager.default.createFile(atPath: url.path, contents: Data()),
+            "Expected to create \(url.path)"
+        )
+        return url.path
     }
 
     private nonisolated func posixError(_ operation: String) -> NSError {
