@@ -2309,6 +2309,7 @@ extension Workspace {
     enum CustomLayoutExportError: LocalizedError {
         case emptyPane
         case unsupportedSurfaceTypes([String])
+        case unresolvedSurface
 
         var errorDescription: String? {
             switch self {
@@ -2324,6 +2325,11 @@ extension Workspace {
                         defaultValue: "Layout export supports terminal and browser surfaces only; unsupported surfaces: %@"
                     ),
                     types.joined(separator: ", ")
+                )
+            case .unresolvedSurface:
+                return String(
+                    localized: "workspace.layoutExport.error.unresolvedSurface",
+                    defaultValue: "Layout export could not include every visible tab. Try again after the workspace finishes updating."
                 )
             }
         }
@@ -2350,10 +2356,13 @@ extension Workspace {
             var surfaces: [CmuxSurfaceDefinition] = []
             let unsupportedCountBefore = unsupportedSurfaces.count
             for tab in pane.tabs {
-                guard let tabUUID = UUID(uuidString: tab.id),
-                      let panelId = panelIdFromSurfaceId(TabID(uuid: tabUUID)),
+                guard let tabUUID = UUID(uuidString: tab.id) else {
+                    throw CustomLayoutExportError.unresolvedSurface
+                }
+                let tabId = TabID(uuid: tabUUID)
+                guard let panelId = panelIdFromSurfaceId(tabId),
                       let panel = panels[panelId] else {
-                    continue
+                    throw CustomLayoutExportError.unresolvedSurface
                 }
                 guard let surface = exportCustomSurfaceDefinition(
                     panel: panel,

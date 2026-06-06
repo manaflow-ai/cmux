@@ -152,6 +152,27 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         )
     }
 
+    func testCustomLayoutExportFailsWhenVisibleTabHasNoLivePanel() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: panelId))
+        let surfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(panelId))
+        XCTAssertTrue(workspace.bonsplitController.tabs(inPane: paneId).contains { $0.id == surfaceId })
+
+        workspace.panels[panelId] = nil
+
+        XCTAssertThrowsError(try workspace.exportCustomLayoutDefinition()) { error in
+            guard let exportError = error as? Workspace.CustomLayoutExportError else {
+                XCTFail("Expected CustomLayoutExportError, got \(error)")
+                return
+            }
+            guard case .unresolvedSurface = exportError else {
+                XCTFail("Expected unresolved surface export error, got \(exportError)")
+                return
+            }
+        }
+    }
+
     func testTabManagerSplitCarriesRequestedWorkingDirectoryAndStartupCommand() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
