@@ -851,7 +851,20 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         defaults.set("Ping", forKey: NotificationSoundSettings.key)
         XCTAssertTrue(NotificationSoundSettings.usesSystemSound(defaults: defaults))
-        XCTAssertNotNil(NotificationSoundSettings.sound(defaults: defaults))
+        let stagingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-notification-sound-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: stagingDirectory)
+        }
+        XCTAssertNotNil(NotificationSoundSettings.sound(
+            defaults: defaults,
+            systemSoundStagingDirectory: stagingDirectory
+        ))
+        let stagedSoundURL = stagingDirectory.appendingPathComponent(
+            NotificationSoundSettings.stagedSystemSoundFileName(for: "Ping"),
+            isDirectory: false
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagedSoundURL.path))
     }
 
     func testNotificationSoundDisablesSystemSoundForNoneAndCustomFile() {
@@ -1332,6 +1345,9 @@ final class NotificationDockBadgeTests: XCTestCase {
             scheduler: { _, block in block() },
             urlOpener: { openedURL = $0 }
         )
+        addTeardownBlock {
+            store.resetNotificationSettingsPromptHooksForTesting()
+        }
 
         store.promptToEnableNotificationsForTesting()
         let drained = expectation(description: "main queue drained")
@@ -1340,9 +1356,14 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         XCTAssertEqual(alertSpy.beginSheetModalCallCount, 1)
         XCTAssertEqual(alertSpy.runModalCallCount, 0)
+        guard let encodedBundleIdentifier = Bundle.main.bundleIdentifier?
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            XCTFail("Expected test bundle identifier to be URL-encodable")
+            return
+        }
         XCTAssertEqual(
             openedURL?.absoluteString,
-            "x-apple.systempreferences:com.apple.preference.notifications"
+            "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(encodedBundleIdentifier)"
         )
     }
 
@@ -1357,8 +1378,13 @@ final class NotificationDockBadgeTests: XCTestCase {
             windowProvider: { promptWindow },
             alertFactory: { alertSpy },
             scheduler: { _, block in queuedRetryBlocks.append(block) },
-            urlOpener: { _ in XCTFail("Should not open settings for Not Now response") }
+            urlOpener: { _ in
+                XCTFail("Should not open settings for Not Now response")
+            }
         )
+        addTeardownBlock {
+            store.resetNotificationSettingsPromptHooksForTesting()
+        }
 
         store.promptToEnableNotificationsForTesting()
         let drained = expectation(description: "main queue drained")

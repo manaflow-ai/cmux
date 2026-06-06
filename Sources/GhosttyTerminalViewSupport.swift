@@ -43,4 +43,8 @@ extension TerminalSurface {
         let byteCount = initialInput?.utf8.count ?? 0
         return (byteCount > 0, byteCount)
     }
+
+    func debugInitialInputForTesting() -> String? {
+        initialInput
+    }
 }
