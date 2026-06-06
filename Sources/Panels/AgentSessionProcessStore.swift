@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 @MainActor
 final class AgentSessionProcessStore {
@@ -13,6 +14,7 @@ final class AgentSessionProcessStore {
     }
     private var sessions: [String: AgentSessionRunningSession] = [:]
     private var lastEmittedHasActiveProviderSession: Bool?
+    private static let closeTerminationGracePeriodNanoseconds: UInt64 = 3_000_000_000
 
     func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) throws -> AgentSessionStartedSession {
         guard sessions.isEmpty else {
@@ -141,17 +143,13 @@ final class AgentSessionProcessStore {
         guard let session = sessions[sessionId] else {
             throw AgentSessionBridgeError.sessionNotFound(sessionId)
         }
-        session.openCodeEventTask?.cancel()
-        session.process.terminate()
+        requestTermination(for: session, escalateIfNeeded: false)
     }
 
     func closeAll() {
         for session in sessions.values {
-            session.openCodeEventTask?.cancel()
-            session.process.terminate()
+            requestTermination(for: session, escalateIfNeeded: true)
         }
-        sessions.removeAll()
-        emitActiveProviderStateIfNeeded()
     }
 
     private func installReadHandler(_ fileHandle: FileHandle, sessionId: String, stream: String) {
@@ -185,7 +183,7 @@ final class AgentSessionProcessStore {
             return
         }
         sessions.removeValue(forKey: session.sessionId)
-        session.openCodeEventTask?.cancel()
+        cancelSessionTasks(session)
         emitActiveProviderStateIfNeeded()
         emitExit(
             sessionId: session.sessionId,
@@ -199,15 +197,43 @@ final class AgentSessionProcessStore {
             return
         }
         emitActiveProviderStateIfNeeded()
-        session.openCodeEventTask?.cancel()
-        if session.process.isRunning {
-            session.process.terminate()
-        }
+        cancelSessionTasks(session)
+        requestTermination(for: session, escalateIfNeeded: false)
         emitExit(
             sessionId: session.sessionId,
             providerID: session.providerID,
             status: status
         )
+    }
+
+    private func requestTermination(for session: AgentSessionRunningSession, escalateIfNeeded: Bool) {
+        session.openCodeEventTask?.cancel()
+        if session.process.isRunning {
+            session.process.terminate()
+        }
+        guard escalateIfNeeded,
+              session.terminationEscalationTask == nil else {
+            return
+        }
+        let process = session.process
+        // Panel close gets a bounded grace period, then escalates so ignored SIGTERM cannot orphan agents.
+        session.terminationEscalationTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: Self.closeTerminationGracePeriodNanoseconds)
+            } catch {
+                return
+            }
+            guard process.isRunning else {
+                return
+            }
+            _ = kill(process.processIdentifier, SIGKILL)
+        }
+    }
+
+    private func cancelSessionTasks(_ session: AgentSessionRunningSession) {
+        session.openCodeEventTask?.cancel()
+        session.terminationEscalationTask?.cancel()
+        session.terminationEscalationTask = nil
     }
 
     private func handleOutputLine(_ text: String, session: AgentSessionRunningSession, stream: String) {
@@ -314,10 +340,8 @@ final class AgentSessionProcessStore {
                     return
                 }
                 self.emitActiveProviderStateIfNeeded()
-                session.openCodeEventTask?.cancel()
-                if session.process.isRunning {
-                    session.process.terminate()
-                }
+                self.cancelSessionTasks(session)
+                self.requestTermination(for: session, escalateIfNeeded: false)
                 let message = (error as? AgentSessionBridgeError)?.localizedDescription
                     ?? String(
                         localized: "agentSession.opencode.error.sessionCreateFailed",
