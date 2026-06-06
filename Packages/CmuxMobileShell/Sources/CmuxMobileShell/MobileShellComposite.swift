@@ -173,6 +173,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var pairingAttemptID: UUID
     private var diagnosticsImmediateEvents: [String] = []
     private var diagnosticsLogClearTask: Task<Void, Never>?
+    /// Earliest OSLog entry date allowed in a diagnostics report for the current auth session.
     public private(set) var diagnosticsOSLogBoundaryDate: Date
 
     /// Synchronous mirror of recent high-signal state events.
@@ -312,6 +313,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         CMUXMobileShellStore(runtime: runtime, workspaces: PreviewMobileHost.workspaces)
     }
 
+    /// Mark the shell authenticated and start a fresh diagnostics session when crossing from signed out.
     public func signIn() {
         if !isSignedIn {
             clearDiagnosticsEvents()
@@ -320,6 +322,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionError = nil
     }
 
+    /// Clear auth-bound shell state, cancel live connection work, and reset diagnostics for the next user.
     public func signOut() {
         clearDiagnosticsEvents(resetOSLogBoundary: false)
         pairingAttemptID = UUID()

@@ -80,6 +80,11 @@ public actor MobileDiagnosticsOSLogReader {
         let maxEntries = self.maxEntries
         let maxBytes = self.maxBytes
         let notBefore = notBefore
+        let noMatchingEntriesMessage = if notBefore != nil {
+            "(no matching os log entries since diagnostics session start)"
+        } else {
+            "(no matching os log entries in the last \(Int(lookback))s)"
+        }
         return await Task.detached(priority: .utility) {
             func levelLabel(_ level: OSLogEntryLog.Level) -> String {
                 switch level {
@@ -131,7 +136,7 @@ public actor MobileDiagnosticsOSLogReader {
                 if lines.isEmpty {
                     return truncated
                         ? "(os log lines exceeded diagnostics limit)"
-                        : Self.noMatchingEntriesMessage(lookback: lookback, notBefore: notBefore)
+                        : noMatchingEntriesMessage
                 }
                 if truncated {
                     _ = Self.appendRecentLine(
@@ -158,13 +163,6 @@ public actor MobileDiagnosticsOSLogReader {
             return lookbackStart
         }
         return max(lookbackStart, notBefore)
-    }
-
-    private static func noMatchingEntriesMessage(lookback: TimeInterval, notBefore: Date?) -> String {
-        if notBefore != nil {
-            return "(no matching os log entries since diagnostics session start)"
-        }
-        return "(no matching os log entries in the last \(Int(lookback))s)"
     }
 
     @discardableResult
