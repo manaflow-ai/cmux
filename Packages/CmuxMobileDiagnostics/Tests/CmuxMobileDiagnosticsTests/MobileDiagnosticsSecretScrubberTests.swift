@@ -41,6 +41,8 @@ import Testing
 
     @Test func redactsProviderPrefixedKeys() {
         #expect(scrubber.scrub("sk-abcdefghij0123456789xyz").contains("<redacted>"))
+        #expect(scrubber.scrub("const key = \"sk-proj-abcdefghij0123456789xyz\"").contains("<redacted>"))
+        #expect(!scrubber.scrub("const key = \"sk-proj-abcdefghij0123456789xyz\"").contains("sk-proj"))
         #expect(scrubber.scrub("ghp_abcdefghij0123456789abcdef").contains("<redacted>"))
     }
 
