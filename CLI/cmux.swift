@@ -7083,10 +7083,13 @@ struct CMUXCLI {
         let rest = commandArgs.isEmpty ? [] : Array(commandArgs.dropFirst())
 
         if subcommand == "list" {
-            let themes = availableThemeNames()
+            let payload = try client.sendV2(method: "workspace.theme.list", params: [:])
             if jsonOutput {
-                print(jsonString(["themes": themes.map { ["name": $0] }]))
-            } else if themes.isEmpty {
+                print(jsonString(payload))
+                return
+            }
+            let themes = (payload["themes"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
+            if themes.isEmpty {
                 print("No themes found.")
             } else {
                 for theme in themes {

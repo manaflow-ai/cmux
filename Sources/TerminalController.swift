@@ -1905,6 +1905,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspacePromptSubmit(params: params))
         case "workspace.rename":
             return v2Result(id: id, self.v2WorkspaceRename(params: params))
+        case "workspace.theme.list":
+            return v2Result(id: id, self.v2WorkspaceThemeList(params: params))
         case "workspace.theme.get":
             return v2Result(id: id, self.v2WorkspaceThemeGet(params: params))
         case "workspace.theme.set":
@@ -2418,6 +2420,7 @@ class TerminalController {
             "workspace.reorder_many",
             "workspace.prompt_submit",
             "workspace.rename",
+            "workspace.theme.list",
             "workspace.theme.get",
             "workspace.theme.set",
             "workspace.theme.clear",
@@ -4100,6 +4103,11 @@ class TerminalController {
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspaces": workspaces
         ])
+    }
+
+    private func v2WorkspaceThemeList(params _: [String: Any]) -> V2CallResult {
+        let themes = WorkspaceGhosttyThemeCatalog.availableThemeNames()
+        return .ok(["themes": themes.map { ["name": $0] }])
     }
 
     private func v2WorkspaceThemeGet(params: [String: Any]) -> V2CallResult {
