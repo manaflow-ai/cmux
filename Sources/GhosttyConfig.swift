@@ -222,17 +222,17 @@ struct GhosttyConfig {
         }
 
         if rawSidebarBackground != nil {
-            applySidebarBackgroundColor(
+            applySidebarColor(
                 sidebarBackgroundLight,
                 key: "sidebarTintHexLight",
                 appliedValues: &appliedValues
             )
-            applySidebarBackgroundColor(
+            applySidebarColor(
                 sidebarBackgroundDark,
                 key: "sidebarTintHexDark",
                 appliedValues: &appliedValues
             )
-            applySidebarBackgroundColor(
+            applySidebarColor(
                 sidebarBackground,
                 key: "sidebarTintHex",
                 appliedValues: &appliedValues
@@ -329,20 +329,6 @@ struct GhosttyConfig {
     }
 
     private func applySidebarColor(
-        _ color: NSColor?,
-        key: String,
-        appliedValues: inout [String: String]
-    ) {
-        guard let color else {
-            clearManagedSidebarAppearanceValue(key: key, appliedValues: &appliedValues)
-            return
-        }
-        let value = color.hexString()
-        UserDefaults.standard.set(value, forKey: key)
-        appliedValues[key] = value
-    }
-
-    private func applySidebarBackgroundColor(
         _ color: NSColor?,
         key: String,
         appliedValues: inout [String: String]
