@@ -25570,12 +25570,16 @@ function hasRetryStatus(tokens) {
 
 function descriptorForOpenCodeStatus(rawStatus) {
   const primaryTokens = statusTokens(statusWordsForKeys(rawStatus, ["type", "status", "state", "phase"]));
+  if (primaryTokens.length) {
+    if (hasAnyStatusToken(primaryTokens, ERROR_STATUS_TOKENS)) return STATUS_DESCRIPTORS.error;
+    if (hasRetryStatus(primaryTokens)) return STATUS_DESCRIPTORS.retrying;
+    if (hasAnyStatusToken(primaryTokens, IDLE_STATUS_TOKENS)) return STATUS_DESCRIPTORS.idle;
+    if (hasAnyStatusToken(primaryTokens, RUNNING_STATUS_TOKENS)) return STATUS_DESCRIPTORS.running;
+    return null;
+  }
+
   const tokens = statusTokens(statusWords(rawStatus));
   if (!tokens.length) return null;
-  if (hasAnyStatusToken(primaryTokens, ERROR_STATUS_TOKENS)) return STATUS_DESCRIPTORS.error;
-  if (hasRetryStatus(primaryTokens)) return STATUS_DESCRIPTORS.retrying;
-  if (hasAnyStatusToken(primaryTokens, IDLE_STATUS_TOKENS)) return STATUS_DESCRIPTORS.idle;
-  if (hasAnyStatusToken(primaryTokens, RUNNING_STATUS_TOKENS)) return STATUS_DESCRIPTORS.running;
   if (hasAnyStatusToken(tokens, ERROR_STATUS_TOKENS)) return STATUS_DESCRIPTORS.error;
   if (hasRetryStatus(tokens)) return STATUS_DESCRIPTORS.retrying;
   if (hasAnyStatusToken(tokens, IDLE_STATUS_TOKENS)) return STATUS_DESCRIPTORS.idle;

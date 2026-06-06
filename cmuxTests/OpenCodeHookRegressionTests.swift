@@ -240,7 +240,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         await send("permission.replied", { sessionID: sessionId });
         await send("session.idle", { info });
         await send("session.status", status("running"));
-        await send("session.status", { info: { ...info, status: { type: "queued", message: "truncate inactive workbench" } } });
+        await send("session.status", { info: { ...info, status: { type: "queued", message: "done waiting for inactive workbench" } } });
         await send("session.status", status("idle"));
         await send("todo.updated", { info });
         await send("session.idle", { info });
@@ -290,6 +290,8 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertEqual(runningStatuses.count, 5, log)
         let retryingStatuses = commands.filter { $0.contains("hooks opencode runtime-status retrying") }
         XCTAssertEqual(retryingStatuses.count, 0, log)
+        let idleStatuses = commands.filter { $0.contains("hooks opencode runtime-status idle") }
+        XCTAssertEqual(idleStatuses.count, lifecycleEvictionSessionCount + 6, log)
         let stopHooks = commands.filter { $0 == "hooks opencode stop" }
         XCTAssertEqual(stopHooks.count, lifecycleEvictionSessionCount + 5, log)
     }
