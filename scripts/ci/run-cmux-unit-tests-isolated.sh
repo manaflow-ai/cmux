@@ -374,9 +374,16 @@ print("" if total is None else total)
         echo "Retrying ${#CRASH_RETRY_TESTS[@]} crash-reported XCTest methods from $BATCH_LABEL in fresh app-host processes" >&2
         retry_index=0
         for test_identifier in "${CRASH_RETRY_TESTS[@]}"; do
-          retry_identifier="${test_identifier#cmuxTests/}"
-          retry_identifier="$(/usr/bin/python3 -c 'import sys; sys.stdout.write(sys.argv[1].replace("\\", ""))' "$retry_identifier")"
-          retry_identifier="${retry_identifier/./\/}"
+          retry_identifier="$(/usr/bin/python3 -c '
+import sys
+
+value = sys.argv[1].removeprefix("cmuxTests/")
+value = value.replace("\\/", "/").replace("\\", "")
+if "/" not in value and "." in value:
+    test_class, test_method = value.split(".", 1)
+    value = f"{test_class}/{test_method}"
+sys.stdout.write(value)
+' "$test_identifier")"
           retry_only_testing="cmuxTests/$retry_identifier"
           retry_label="${BATCH_LABEL}-crash-retry-${retry_index}"
           retry_log="$LOG_ROOT/$retry_label.log"

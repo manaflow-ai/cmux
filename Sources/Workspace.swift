@@ -14722,7 +14722,7 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return nil }
 
-        let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let requestedWorkingDirectory: String? = {
             if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !workingDirectory.isEmpty {
@@ -14750,6 +14750,9 @@ final class Workspace: Identifiable, ObservableObject {
         let launchContext = oldPanel.surface.launchContext
         let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
         let additionalEnvironment = oldPanel.surface.respawnAdditionalEnvironment
+        var respawnConfig = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+        respawnConfig.waitAfterCommand = true
+        inheritedConfig = respawnConfig
 
         oldPanel.unfocus()
         oldPanel.hostedView.setVisibleInUI(false)

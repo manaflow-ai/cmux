@@ -72,9 +72,9 @@ ISOLATED_RUNNER_PATTERNS=(
 	  'Retrying ${#CRASH_RETRY_TESTS[@]} crash-reported XCTest methods from $BATCH_LABEL in fresh app-host processes'
   'in_flight_test = test_identifier'
   'Restarting after unexpected exit, crash, or test timeout'
-  'retry_identifier="${test_identifier#cmuxTests/}"'
-  'retry_identifier="$(/usr/bin/python3 -c '\''import sys; sys.stdout.write(sys.argv[1].replace("\\", ""))'\'' "$retry_identifier")"'
-  'retry_identifier="${retry_identifier/./\/}"'
+  'value = sys.argv[1].removeprefix("cmuxTests/")'
+  'value = value.replace("\\/", "/").replace("\\", "")'
+  'value = f"{test_class}/{test_method}"'
   'retry_only_testing="cmuxTests/$retry_identifier"'
   '"-only-testing:$retry_only_testing"'
   'retry_executed_count="$(executed_test_count "$retry_log" "$retry_result")"'
@@ -117,9 +117,16 @@ fi
 normalize_retry_identifier() {
   local test_identifier="$1"
   local retry_identifier
-  retry_identifier="${test_identifier#cmuxTests/}"
-  retry_identifier="$(/usr/bin/python3 -c 'import sys; sys.stdout.write(sys.argv[1].replace("\\", ""))' "$retry_identifier")"
-  retry_identifier="${retry_identifier/./\/}"
+  retry_identifier="$(/usr/bin/python3 -c '
+import sys
+
+value = sys.argv[1].removeprefix("cmuxTests/")
+value = value.replace("\\/", "/").replace("\\", "")
+if "/" not in value and "." in value:
+    test_class, test_method = value.split(".", 1)
+    value = f"{test_class}/{test_method}"
+sys.stdout.write(value)
+' "$test_identifier")"
   printf 'cmuxTests/%s\n' "$retry_identifier"
 }
 
