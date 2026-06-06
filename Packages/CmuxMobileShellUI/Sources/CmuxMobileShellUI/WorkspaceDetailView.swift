@@ -332,6 +332,7 @@ struct WorkspaceDetailView: View {
     }
 
     /// Runs when the picker opens so both Copy and `ShareLink` have a ready item.
+    @MainActor
     private func prepareDiagnosticsReport() async {
         guard !isBuildingDiagnostics else { return }
         isBuildingDiagnostics = true
@@ -342,10 +343,15 @@ struct WorkspaceDetailView: View {
 
     /// Builds the diagnostics report (in-process log + OS log + live state +
     /// visible terminal, then scrubbed) and writes the shareable temp file.
+    @MainActor
     private func buildDiagnosticsReport() async -> MobileDiagnosticsReport {
         let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
         let liveState = diagnosticsLiveState
-        let builder = MobileDiagnosticsReportBuilder(sink: MobileDebugLog.shared.sink)
+        let environment = MobileDiagnosticsEnvironment.current()
+        let builder = MobileDiagnosticsReportBuilder(
+            environment: environment,
+            sink: MobileDebugLog.shared.sink
+        )
         return await builder.buildReport(
             liveState: liveState,
             terminalSnapshot: terminalText

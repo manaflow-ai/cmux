@@ -159,6 +159,22 @@ import Testing
         }
     }
 
+    @Test func redactsCanonicalAWSCredentialEnvironmentVariables() {
+        let samples = [
+            ("AWS_ACCESS_KEY_ID=AKIAIOSDIAGNOSTICS123", "AKIAIOSDIAGNOSTICS123"),
+            ("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "wJalrXUtnFEMI"),
+            ("AWS_SESSION_TOKEN=IQoJb3JpZ2luX2VjEFAaCXVzLXdlc3QtMiJHMEUCIQD", "IQoJb3JpZ2lu"),
+            ("AWS_SECURITY_TOKEN=legacySecurityTokenValue123", "legacySecurityTokenValue123"),
+        ]
+
+        for (sample, leakedFragment) in samples {
+            let out = scrubber.scrub(sample)
+            #expect(out.contains("<redacted>"), "expected redaction for \(sample), got \(out)")
+            #expect(out.contains(sample.split(separator: "=")[0]))
+            #expect(!out.contains(leakedFragment), "value leaked for \(sample): \(out)")
+        }
+    }
+
     @Test func doesNotRedactKeywordSubstrings() {
         // `tokenizer` / `mytokenstuff` contain "token" but are not the keyword,
         // so the trailing `\b` and the separator-terminated prefix must reject them.

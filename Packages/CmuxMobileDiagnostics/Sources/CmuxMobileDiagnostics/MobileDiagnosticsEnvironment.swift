@@ -54,7 +54,7 @@ public struct MobileDiagnosticsEnvironment: Sendable {
     /// model and OS version come from `ProcessInfo`.
     ///
     /// - Returns: The live environment snapshot.
-    public static func current() -> MobileDiagnosticsEnvironment {
+    @MainActor public static func current() -> MobileDiagnosticsEnvironment {
         let bundle = Bundle.main
 
         let deviceModel: String

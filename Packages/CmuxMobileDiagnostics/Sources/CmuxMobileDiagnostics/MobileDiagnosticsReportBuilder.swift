@@ -19,7 +19,8 @@ public import Foundation
 /// serialize.
 ///
 /// ```swift
-/// let builder = MobileDiagnosticsReportBuilder(sink: MobileDebugLog.shared.sink)
+/// let environment = await MobileDiagnosticsEnvironment.current()
+/// let builder = MobileDiagnosticsReportBuilder(environment: environment, sink: MobileDebugLog.shared.sink)
 /// let report = await builder.buildReport(
 ///     liveState: state,
 ///     terminalSnapshot: visibleText
@@ -40,8 +41,9 @@ public actor MobileDiagnosticsReportBuilder {
     /// Creates a report builder.
     ///
     /// - Parameters:
-    ///   - environment: Static app/device facts for the header. Defaults to the
-    ///     live environment; tests pin it.
+    ///   - environment: Static app/device facts for the header. Capture this on
+    ///     the main actor via ``MobileDiagnosticsEnvironment/current()`` or pin
+    ///     it in tests.
     ///   - sink: The PRIMARY in-process log buffer to snapshot.
     ///   - osLogReader: Best-effort OS-log supplement reader. Defaults to a fresh
     ///     reader over the cmux subsystem set.
@@ -52,7 +54,7 @@ public actor MobileDiagnosticsReportBuilder {
     ///   - temporaryDirectory: Directory the `.txt` file is written to. Defaults
     ///     to `FileManager.default.temporaryDirectory`; tests pass a temp dir.
     public init(
-        environment: MobileDiagnosticsEnvironment = .current(),
+        environment: MobileDiagnosticsEnvironment,
         sink: MobileDebugLogSink,
         osLogReader: MobileDiagnosticsOSLogReader = MobileDiagnosticsOSLogReader(),
         scrubber: MobileDiagnosticsSecretScrubber = MobileDiagnosticsSecretScrubber(),

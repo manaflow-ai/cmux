@@ -101,6 +101,13 @@ public struct MobileDiagnosticsSecretScrubber: Sendable {
             // keyword; the value is any run of token-ish characters.
             ("(?i)(\\bBearer\\s+)([A-Za-z0-9._~+/=-]{8,})", 2),
 
+            // Canonical AWS credential environment variables. These do not all
+            // include generic secret keywords in the right shape (`ACCESS_KEY_ID`
+            // is the common miss), so cover them explicitly before the generic
+            // key/value rule.
+            ("(?i)(?:^|[\\s\"'`({\\[,;&])((?:AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|SECURITY_TOKEN))\\b\\s*[:=]\\s*\"?)([^\\s\"'&]{4,})",
+             2),
+
             // `token=...`, `password=...`, `secret=...`, `api[_-]?key=...`,
             // `access_token=...`, `auth=...` style key/value pairs (query strings,
             // env dumps, config). The optional non-capturing identifier prefix
