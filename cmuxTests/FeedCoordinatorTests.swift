@@ -237,6 +237,14 @@ final class FeedCoordinatorTests: XCTestCase {
             mode: "once"
         )?["decision"] as? [String: Any]
         XCTAssertNotNil(onceAmendmentDecision?["applyNetworkPolicyAmendment"])
+        let unspecifiedAmendmentDecision = CMUXCLI.codexTeamsAppServerApprovalResponse(
+            method: "item/commandExecution/requestApproval",
+            params: [
+                "proposedExecpolicyAmendment": [["kind": "prefix", "value": "npm test"]]
+            ],
+            mode: "all"
+        )?["decision"] as? [String: Any]
+        XCTAssertNotNil(unspecifiedAmendmentDecision?["acceptWithExecpolicyAmendment"])
         let mixedParams: [String: Any] = [
             "availableDecisions": [
                 "acceptForSession",
@@ -299,6 +307,30 @@ final class FeedCoordinatorTests: XCTestCase {
             "decline"
         )
         XCTAssertNil(CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: ["status": "timed_out"]))
+    }
+
+    func testCodexApprovalItemSnapshotStripsLargePayloads() {
+        let snapshot = CMUXCLI.codexTeamsApprovalItemSnapshot([
+            "id": "call-1",
+            "type": "commandExecution",
+            "command": String(repeating: "x", count: 5_000),
+            "cwd": "/tmp/project",
+            "output": String(repeating: "y", count: 100_000),
+            "changes": [
+                [
+                    "path": "/tmp/file.txt",
+                    "diff": String(repeating: "z", count: 100_000)
+                ]
+            ]
+        ])
+
+        XCTAssertEqual(snapshot["id"] as? String, "call-1")
+        XCTAssertEqual(snapshot["cwd"] as? String, "/tmp/project")
+        XCTAssertEqual((snapshot["command"] as? String)?.count, 4_096)
+        XCTAssertNil(snapshot["output"])
+        let changes = snapshot["changes"] as? [[String: Any]]
+        XCTAssertEqual(changes?.first?["path"] as? String, "/tmp/file.txt")
+        XCTAssertNil(changes?.first?["diff"])
     }
 
     func testBlockingIngestExpiresItemWhenHookTimesOut() async {

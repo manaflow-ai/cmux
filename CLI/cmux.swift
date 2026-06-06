@@ -18383,7 +18383,7 @@ struct CMUXCLI {
             if approvalItemById[itemId] == nil {
                 approvalItemOrder.append(itemId)
             }
-            approvalItemById[itemId] = item
+            approvalItemById[itemId] = CMUXCLI.codexTeamsApprovalItemSnapshot(item)
             while approvalItemOrder.count > CMUXCLI.codexTeamsMaxCachedApprovalItems {
                 let evicted = approvalItemOrder.removeFirst()
                 approvalItemById.removeValue(forKey: evicted)
@@ -18796,7 +18796,7 @@ struct CMUXCLI {
     }
 
     static func codexTeamsCommandApprovalAmendmentDecision(params: [String: Any]) -> Any? {
-        if codexTeamsAvailableDecisions(params).contains("acceptWithExecpolicyAmendment"),
+        if codexTeamsDecisionAvailableOrUnspecified("acceptWithExecpolicyAmendment", params: params),
            let amendment = params["proposedExecpolicyAmendment"] ?? params["proposed_execpolicy_amendment"] {
             return [
                 "acceptWithExecpolicyAmendment": [
@@ -18804,7 +18804,7 @@ struct CMUXCLI {
                 ]
             ]
         }
-        if codexTeamsAvailableDecisions(params).contains("applyNetworkPolicyAmendment"),
+        if codexTeamsDecisionAvailableOrUnspecified("applyNetworkPolicyAmendment", params: params),
            let amendments = (params["proposedNetworkPolicyAmendments"] as? [Any])
                 ?? (params["proposed_network_policy_amendments"] as? [Any]),
            let amendment = amendments.first {
@@ -18813,6 +18813,42 @@ struct CMUXCLI {
                     "network_policy_amendment": amendment
                 ]
             ]
+        }
+        return nil
+    }
+
+    static func codexTeamsApprovalItemSnapshot(_ item: [String: Any]) -> [String: Any] {
+        var snapshot: [String: Any] = [:]
+        for key in ["id", "type", "threadId", "thread_id", "turnId", "turn_id", "command", "cwd", "path", "status"] {
+            if let value = item[key],
+               let bounded = codexTeamsBoundedApprovalItemValue(value) {
+                snapshot[key] = bounded
+            }
+        }
+        if let changes = item["changes"] as? [[String: Any]] {
+            snapshot["changes"] = changes.prefix(20).map { change in
+                var changeSnapshot: [String: Any] = [:]
+                for key in ["path", "kind", "type", "status"] {
+                    if let value = change[key],
+                       let bounded = codexTeamsBoundedApprovalItemValue(value) {
+                        changeSnapshot[key] = bounded
+                    }
+                }
+                return changeSnapshot
+            }
+        }
+        return snapshot
+    }
+
+    static func codexTeamsBoundedApprovalItemValue(_ value: Any) -> Any? {
+        if let string = value as? String {
+            let limit = 4_096
+            guard string.count > limit else { return string }
+            let index = string.index(string.startIndex, offsetBy: limit)
+            return String(string[..<index])
+        }
+        if value is NSNumber || value is Bool || value is NSNull {
+            return value
         }
         return nil
     }
