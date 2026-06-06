@@ -237,7 +237,7 @@ extension AppDelegate {
                 return false
             }
             var restoredCount = 0
-            for item in op.items where !item.isRestored {
+            for item in op.items.reversed() where !item.isRestored {
                 if reopenClosedHistoryItem(
                     id: item.id,
                     preferredTabManager: preferredTabManager,
