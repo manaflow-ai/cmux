@@ -7378,6 +7378,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                       baseWebUIURL: serveWebURL,
                       directoryPath: directoryPath
                   ) else {
+                if Self.discardProvisionalDefaultCodeEditor(
+                    tabManager: targetTabManager,
+                    workspaceId: targetWorkspaceId,
+                    panelId: panelId
+                ) {
+                    NSSound.beep()
+                }
                 return
             }
 
@@ -7390,6 +7397,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     static func initialCodeEditorDirectoryPath(for workspace: Workspace) -> String? {
         workspace.resolvedWorkingDirectory()
+    }
+
+    @discardableResult
+    static func discardProvisionalDefaultCodeEditor(
+        tabManager: TabManager,
+        workspaceId: UUID,
+        panelId: UUID
+    ) -> Bool {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return false
+        }
+        return discardProvisionalDefaultCodeEditor(in: workspace, panelId: panelId)
+    }
+
+    @discardableResult
+    static func discardProvisionalDefaultCodeEditor(in workspace: Workspace, panelId: UUID) -> Bool {
+        guard let panel = workspace.browserPanel(for: panelId),
+              shouldDiscardProvisionalDefaultCodeEditor(panel) else {
+            return false
+        }
+        return workspace.closePanel(panelId, force: true)
+    }
+
+    static func shouldDiscardProvisionalDefaultCodeEditor(_ panel: BrowserPanel) -> Bool {
+        guard panel.surfaceRole == .codeEditor else {
+            return false
+        }
+        return isCodeEditorDefaultInitialURL(panel.currentURL)
+    }
+
+    static func isCodeEditorDefaultInitialURL(_ url: URL?) -> Bool {
+        guard let url,
+              let defaultURL = BrowserPanel.SurfaceRole.codeEditor.defaultInitialURL else {
+            return false
+        }
+        return url.absoluteString == defaultURL.absoluteString
     }
 
     func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
