@@ -8551,7 +8551,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let color = effectiveBackgroundColor()
         let snapshot = WindowAppearanceSnapshot
             .currentFromUserDefaults(app: GhosttyApp.shared)
-            .replacingTerminalBackgroundColor(backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor)
+            .replacingTerminalBackground(
+                color: backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor,
+                opacity: backgroundOpacity
+            )
         let plan = snapshot.backdropPlan()
         _ = WindowBackdropController.apply(plan: plan, to: window)
         if GhosttyApp.shared.backgroundLogEnabled {

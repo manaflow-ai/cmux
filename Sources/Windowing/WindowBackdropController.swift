@@ -128,9 +128,14 @@ extension WindowAppearanceSnapshot {
     }
 
     func replacingTerminalBackgroundColor(_ color: NSColor) -> Self {
-        Self(
+        replacingTerminalBackground(color: color, opacity: Double(terminalBackgroundOpacity))
+    }
+
+    func replacingTerminalBackground(color: NSColor, opacity: Double) -> Self {
+        let clampedOpacity = WindowAppearanceSnapshot.clampedOpacity(opacity)
+        return Self(
             terminalBackgroundColor: color,
-            terminalBackgroundOpacity: terminalBackgroundOpacity,
+            terminalBackgroundOpacity: clampedOpacity,
             terminalBackgroundBlur: terminalBackgroundBlur,
             terminalRenderingMode: terminalRenderingMode,
             unifySurfaceBackdrops: unifySurfaceBackdrops,
@@ -141,7 +146,7 @@ extension WindowAppearanceSnapshot {
                 tintHex: windowGlassSettings.tintHex,
                 tintOpacity: windowGlassSettings.tintOpacity,
                 terminalBackgroundBlur: terminalBackgroundBlur,
-                terminalGlassTintColor: color.withAlphaComponent(terminalBackgroundOpacity)
+                terminalGlassTintColor: color.withAlphaComponent(clampedOpacity)
             )
         )
     }
