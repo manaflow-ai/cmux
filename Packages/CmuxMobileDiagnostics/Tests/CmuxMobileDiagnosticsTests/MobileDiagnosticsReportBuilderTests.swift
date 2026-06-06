@@ -97,6 +97,21 @@ import Testing
         #expect(report.contains("iOS 18.4"))
     }
 
+    @Test func reportRedactsBasicAuthorizationHeader() async {
+        let builder = makeBuilder()
+        let basicCredential = "dXNlcjpwYXNzd29yZA=="
+        let report = await builder.composeReportScrubbed(
+            liveState: makeState(),
+            logCount: 1,
+            logBody: "curl -H 'Authorization: Basic \(basicCredential)' https://example.com",
+            osLog: "(none)",
+            terminalSnapshot: "$ curl -H 'Authorization: Basic \(basicCredential)' https://example.com"
+        )
+
+        #expect(report.contains("Authorization: Basic <redacted>"))
+        #expect(!report.contains(basicCredential))
+    }
+
     @Test func emptyTerminalSnapshotShowsPlaceholder() async {
         let builder = makeBuilder()
         let report = await builder.composeReportScrubbed(

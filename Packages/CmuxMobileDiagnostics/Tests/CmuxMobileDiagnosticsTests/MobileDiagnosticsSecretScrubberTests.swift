@@ -10,6 +10,12 @@ import Testing
         #expect(out == "Authorization: Bearer <redacted>")
     }
 
+    @Test func redactsBasicAuthorizationHeader() {
+        let out = scrubber.scrub("Authorization: Basic dXNlcjpwYXNzd29yZA==")
+        #expect(out == "Authorization: Basic <redacted>")
+        #expect(!out.contains("dXNlcjpwYXNzd29yZA"))
+    }
+
     @Test func redactsJwtLikeTriple() {
         let jwt = "eyJhbGciOi.eyJzdWIiOiI.SflKxwRJSM"
         let out = scrubber.scrub("token is \(jwt) here")

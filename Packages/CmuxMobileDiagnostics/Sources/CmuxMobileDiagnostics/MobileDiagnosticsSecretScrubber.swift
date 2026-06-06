@@ -97,6 +97,12 @@ public struct MobileDiagnosticsSecretScrubber: Sendable {
             // keyword; the value is any run of token-ish characters.
             ("(?i)(\\bBearer\\s+)([A-Za-z0-9._~+/=-]{8,})", 2),
 
+            // `Authorization: Basic <base64>` and other credential-bearing
+            // Authorization header schemes. Redact the header value through the
+            // end of the line so Digest-style parameters do not leak either.
+            ("(?i)(\\b(?:Proxy-)?Authorization\\s*:\\s*(?:Basic|Digest|Negotiate|NTLM|AWS4-HMAC-SHA256)\\s+)([^\\r\\n]{4,})",
+             2),
+
             // Canonical AWS credential environment variables. These do not all
             // include generic secret keywords in the right shape (`ACCESS_KEY_ID`
             // is the common miss), so cover them explicitly before the generic
