@@ -160,6 +160,13 @@ fi
 
 if [[ -z "$ARCHIVE_PATH" ]]; then
   ARCHIVE_PATH="$OUT_DIR/cmux.xcarchive"
+  # Archive WITHOUT signing. The export step below does all signing (manual cert
+  # or automatic cloud distribution). Signing the archive with automatic +
+  # -allowProvisioningUpdates makes Xcode mint a NEW Apple Development cert on
+  # every ephemeral CI runner, which exhausts the account's certificate cap and
+  # then fails ("maximum number of certificates" / "no profiles found"). An
+  # unsigned archive creates no certs; the reused (cloud-managed) distribution
+  # cert is applied only at export, where it does not churn.
   xcodebuild archive \
     -workspace "$WORKSPACE" \
     -scheme "$SCHEME" \
@@ -167,12 +174,12 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
     -destination "generic/platform=iOS" \
     -archivePath "$ARCHIVE_PATH" \
     -derivedDataPath "$DERIVED_DATA" \
-    -allowProvisioningUpdates \
     DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
     PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
     CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-    CODE_SIGN_STYLE=Automatic \
-    "${XCODE_AUTH_ARGS[@]}" \
+    CODE_SIGNING_ALLOWED=NO \
+    CODE_SIGNING_REQUIRED=NO \
+    CODE_SIGN_IDENTITY="" \
     | tee "$OUT_DIR/archive.log"
 else
   if [[ ! -d "$ARCHIVE_PATH" ]]; then
