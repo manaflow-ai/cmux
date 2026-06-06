@@ -284,6 +284,16 @@ choose_cmux_dev_port() {
     echo "$PORT"
     return 0
   fi
+  # Derive a stable, tag-unique default so concurrent dev builds don't all
+  # collide on 3777 (the old constant). Same tag -> same port across reloads;
+  # different tags -> different ports in 3800-4799. Set CMUX_PORT to pin one.
+  local tag="${TAG_SLUG:-${TAG:-}}"
+  if [[ -n "$tag" ]]; then
+    local hash
+    hash="$(printf '%s' "$tag" | cksum | awk '{print $1}')"
+    echo $(( 3800 + (hash % 1000) ))
+    return 0
+  fi
   echo "3777"
 }
 
