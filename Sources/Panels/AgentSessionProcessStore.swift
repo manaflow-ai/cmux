@@ -142,12 +142,12 @@ final class AgentSessionProcessStore {
         guard let session = sessions[sessionId] else {
             throw AgentSessionBridgeError.sessionNotFound(sessionId)
         }
-        requestTermination(for: session, forceIfNeeded: true)
+        requestTermination(for: session)
     }
 
     func closeAll() {
         for session in sessions.values {
-            requestTermination(for: session, forceIfNeeded: true)
+            requestTermination(for: session)
         }
     }
 
@@ -208,7 +208,7 @@ final class AgentSessionProcessStore {
         }
         emitActiveProviderStateIfNeeded()
         cancelSessionTasks(session)
-        requestTermination(for: session, forceIfNeeded: true)
+        requestTermination(for: session)
         emitExit(
             sessionId: session.sessionId,
             providerID: session.providerID,
@@ -216,16 +216,11 @@ final class AgentSessionProcessStore {
         )
     }
 
-    private func requestTermination(for session: AgentSessionRunningSession, forceIfNeeded: Bool) {
+    private func requestTermination(for session: AgentSessionRunningSession) {
         session.openCodeEventTask?.cancel()
         if session.process.isRunning {
             session.process.terminate()
         }
-        guard forceIfNeeded,
-              session.process.isRunning else {
-            return
-        }
-        _ = kill(session.process.processIdentifier, SIGKILL)
     }
 
     private func cancelSessionTasks(_ session: AgentSessionRunningSession) {
@@ -342,7 +337,7 @@ final class AgentSessionProcessStore {
                 }
                 self.emitActiveProviderStateIfNeeded()
                 self.cancelSessionTasks(session)
-                self.requestTermination(for: session, forceIfNeeded: true)
+                self.requestTermination(for: session)
                 let message = (error as? AgentSessionBridgeError)?.localizedDescription
                     ?? String(
                         localized: "agentSession.opencode.error.sessionCreateFailed",

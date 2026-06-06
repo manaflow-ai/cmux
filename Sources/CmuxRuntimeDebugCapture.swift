@@ -15,6 +15,7 @@ enum CmuxRuntimeDebugCapture {
     }()
 
     private static let sequence = CmuxRuntimeDebugCaptureSequence()
+    private static let inFlightRequests = DispatchSemaphore(value: 16)
 
     static func logIfConfigured(
         hypothesisID: String,
@@ -25,10 +26,14 @@ enum CmuxRuntimeDebugCapture {
         data: [String: Any] = [:]
     ) {
         guard let configuration else { return }
+        guard inFlightRequests.wait(timeout: .now()) == .success else { return }
 
-        Task {
+        Task(priority: .utility) {
+            defer {
+                inFlightRequests.signal()
+            }
             let sequenceNumber = await sequence.next()
-            sendLog(
+            await sendLog(
                 configuration: configuration,
                 sequenceNumber: sequenceNumber,
                 hypothesisID: hypothesisID,
@@ -50,7 +55,7 @@ enum CmuxRuntimeDebugCapture {
         expected: String?,
         actual: String?,
         data: [String: Any]
-    ) {
+    ) async {
         var payload: [String: Any] = [
             "session_id": configuration.sessionID,
             "hypothesis_id": hypothesisID,
@@ -76,10 +81,11 @@ enum CmuxRuntimeDebugCapture {
 
         var request = URLRequest(url: configuration.baseURL.appendingPathComponent("api/logs"))
         request.httpMethod = "POST"
+        request.timeoutInterval = 2
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(configuration.token, forHTTPHeaderField: "X-Debug-Token")
         request.httpBody = requestBody
 
-        URLSession.shared.dataTask(with: request).resume()
+        _ = try? await URLSession.shared.data(for: request)
     }
 }
