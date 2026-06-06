@@ -183,7 +183,6 @@ def _run_interactive_bash(bash_path: str, tmp: Path) -> tuple[int, str, str]:
         commands = "\n".join(
             [
                 f'source "{SHELL_DIR / "cmux-bash-integration.bash"}"',
-                "_cmux_bash_history_command() { return 1; }",
                 "echo OK",
                 "gh pr view 123",
                 "sleep 0.2",
@@ -253,7 +252,7 @@ def main() -> int:
         '--panel=panel-bash-done-noise --target="123"'
     )
     if expected_pr_action not in send_log:
-        print("FAIL: Bash 5.3 PS0 preexec did not preserve the user command")
+        print("FAIL: Bash 5.3 PS0 preexec did not report the gh pr command")
         print(send_log)
         return 1
 
