@@ -13,8 +13,8 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `5579fa80f`, merging `395d13a76` with
-`176bd550f`, with the
+Current cmux pinned fork head: `fd8b1da51`, merging the alternate-screen
+scrollback head `5579fa80f` with current cmux main pin `f78189ac1`, with the
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
 the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369,
 the URL/path regex bound for spaced file paths followed by prose, and the
@@ -23,9 +23,11 @@ This head keeps the cmux theme picker hooks, exposes the manual surface IO
 needed by libghostty iOS clients, bounds shaped glyph iteration during
 IME/preedit row rebuilds, prevents Cmd-hover from highlighting normal sentence
 text after a file path, supports Ctrl-N and Ctrl-P in the cmux theme picker,
-and keeps TUI output scrollable in the alternate screen.
+keeps TUI output scrollable in the alternate screen, and preserves the mobile
+render-grid export, PTY tee callback, and bounded render-queue acquisition
+changes already carried by `f78189ac1`.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5579fa80f0eb990ace671c3ce566cdd9e0880611-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fd8b1da51618a77a5d2bd353af7694dfcfb84c5d-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -231,9 +233,9 @@ tend to conflict together during rebases.
 
 The current cmux pin is the head listed above. It is reachable from
 `manaflow-ai/ghostty` through the
-`xcframework-5579fa80f0eb990ace671c3ce566cdd9e0880611-crashsubdir-cmux-crash-v1`
+`xcframework-fd8b1da51618a77a5d2bd353af7694dfcfb84c5d-crashsubdir-cmux-crash-v1`
 release tag and branch `issue-2334-alt-screen-scrollback`.
-Published `xcframework-5579fa80f0eb990ace671c3ce566cdd9e0880611-crashsubdir-cmux-crash-v1` and pinned its
+Published `xcframework-fd8b1da51618a77a5d2bd353af7694dfcfb84c5d-crashsubdir-cmux-crash-v1` and pinned its
 archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
 pin must be regenerated whenever this commit changes, even for comment-only
 amends, because the release tag is keyed by the Ghostty commit SHA.
@@ -259,6 +261,15 @@ amends, because the release tag is keyed by the Ghostty commit SHA.
 ## Merge conflict notes
 
 These files change frequently upstream; be careful when rebasing the fork:
+
+- June 6, 2026, alternate-screen scrollback against current cmux main:
+  - Merged current cmux main Ghostty pin `f78189ac1` into the
+    `issue-2334-alt-screen-scrollback` Ghostty branch as `fd8b1da51`.
+  - Preserved the `src/terminal/Terminal.zig` invariant from `f66517a01`: alternate
+    screens inherit the primary screen's configured scrollback limit instead of
+    forcing zero scrollback.
+  - Kept both checksum histories from the parent merge: the prior alternate-screen
+    scrollback pins and the newer main pins through `f78189ac1`.
 
 - April 28, 2026, upstream merge:
   - Merged upstream `659019666` into `465a9a621` without textual conflicts.
