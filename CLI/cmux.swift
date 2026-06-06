@@ -7936,11 +7936,17 @@ struct CMUXCLI {
         let env = ProcessInfo.processInfo.environment
         guard let workspaceId = env["CMUX_WORKSPACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !workspaceId.isEmpty else {
-            throw CLIError(message: "ssh --here: must be run inside a cmux terminal (CMUX_WORKSPACE_ID is not set)")
+            cliDebugLog("cli.ssh.here.guard missing=CMUX_WORKSPACE_ID")
+            throw CLIError(message: "ssh --here must be run from an active cmux terminal pane.")
         }
         guard let surfaceId = env["CMUX_SURFACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !surfaceId.isEmpty else {
-            throw CLIError(message: "ssh --here: must be run inside a cmux terminal (CMUX_SURFACE_ID is not set)")
+            cliDebugLog("cli.ssh.here.guard missing=CMUX_SURFACE_ID")
+            throw CLIError(message: "ssh --here must be run from an active cmux terminal pane.")
+        }
+        // --here always connects in the current pane, so an explicit window target makes no sense.
+        if options.windowRaw != nil {
+            throw CLIError(message: "ssh --here uses the current pane and cannot target another window; drop --window or use `cmux ssh`.")
         }
 
         // Guard: --here connects in the workspace's single terminal. Splits would leave remote
@@ -8033,8 +8039,15 @@ struct CMUXCLI {
         defer { for item in argv { free(item) } }
         argv.append(nil)
         execv("/bin/sh", &argv)
+        // execv only returns on failure — and we have already configured this workspace as remote.
+        // Roll it back to local so the pane isn't stranded in a dangling remote-configured state.
         let code = errno
-        throw CLIError(message: "ssh --here: failed to start ssh session: \(String(cString: strerror(code)))")
+        cliDebugLog("cli.ssh.here.exec.failed errno=\(code) detail=\(String(cString: strerror(code)))")
+        _ = try? client.sendV2(method: "workspace.remote.disconnect", params: [
+            "workspace_id": workspaceId,
+            "clear": true,
+        ])
+        throw CLIError(message: "ssh --here: could not start the ssh session in this pane.")
     }
 
     private func parseSSHCommandOptions(
