@@ -11348,6 +11348,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Bonsplit pane-close does not emit per-tab didClose callbacks.
     private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
     private var pendingPaneCloseHistoryEntries: [UUID: [ClosedPanelHistoryEntry]] = [:]
+    private var pendingPaneCloseOperationIds: [UUID: UUID] = [:]
     private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
     private var isApplyingTabSelection = false
     private struct PendingTabSelectionRequest {
@@ -19129,13 +19130,14 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let closedHistoryEntries = pendingPaneCloseHistoryEntries.removeValue(forKey: paneId.id) ?? []
+        let closeOperationId = pendingPaneCloseOperationIds.removeValue(forKey: paneId.id)
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
         publishCmuxPaneClosed(paneId, closedPanelIds: closedPanelIds, origin: "pane_close")
         if !closedPanelIds.isEmpty {
             if !isDetachingCloseTransaction && !suppressClosedPanelHistory {
                 for entry in closedHistoryEntries {
-                    ClosedItemHistoryStore.shared.push(.panel(entry))
+                    ClosedItemHistoryStore.shared.push(.panel(entry), operationId: closeOperationId)
                 }
             }
 
@@ -19188,6 +19190,7 @@ extension Workspace: BonsplitDelegate {
                ) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+                pendingPaneCloseOperationIds.removeValue(forKey: pane.id)
                 return false
             }
         }
@@ -19195,6 +19198,7 @@ extension Workspace: BonsplitDelegate {
         pendingPaneClosePanelIds[pane.id] = panelIds
         if suppressClosedPanelHistory || isDetachingCloseTransaction {
             pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+            pendingPaneCloseOperationIds.removeValue(forKey: pane.id)
         } else {
             let historyEntries = tabs.compactMap { tab -> ClosedPanelHistoryEntry? in
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { return nil }
@@ -19202,8 +19206,10 @@ extension Workspace: BonsplitDelegate {
             }
             if historyEntries.isEmpty {
                 pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+                pendingPaneCloseOperationIds.removeValue(forKey: pane.id)
             } else {
                 pendingPaneCloseHistoryEntries[pane.id] = historyEntries
+                pendingPaneCloseOperationIds[pane.id] = UUID()
             }
         }
         return true
