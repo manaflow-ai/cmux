@@ -72,6 +72,12 @@ LANE="beta"
 # is NUMERICALLY LOWER than those (~2.0e13), so it would regress below the
 # existing max and never surface as an update. Keep seconds.
 BUILD_NUMBER="$(date -u +%Y%m%d%H%M%S)"
+# Whether BUILD_NUMBER was supplied by the caller (--build-number) rather than the
+# UTC-timestamp default. The default is monotonic by construction, so it is safe
+# to ship even if the App Store Connect lookup fails (fail-open). An explicit
+# value carries no such guarantee, so if it can't be verified against ASC the
+# guard fails CLOSED instead of shipping a possibly-stale build.
+BUILD_NUMBER_EXPLICIT=0
 ARCHIVE_PATH=""
 EXPORT_ONLY=0
 # Export signing mode. "manual" keeps the original local-keychain behavior;
@@ -89,6 +95,7 @@ while [[ $# -gt 0 ]]; do
     --build-number)
       require_option_value "$1" "${2:-}"
       BUILD_NUMBER="$2"
+      BUILD_NUMBER_EXPLICIT=1
       shift 2
       ;;
     --signing)
@@ -225,7 +232,11 @@ if [[ "$RUN_GUARD" -eq 1 && "$EXPORT_ONLY" -ne 1 && -n "${ASC_API_KEY_ID:-}" && 
       echo "error: reused --archive-path but could not verify its build number against App Store Connect; refusing to upload a possibly non-updatable archive (a reused archive cannot be renumbered). Re-run with App Store Connect access or re-archive." >&2
       exit 1
     fi
-    echo "warning: build-number guard skipped (could not read App Store Connect max); using $GUARD_BUILD_NUMBER" >&2
+    if [[ "$BUILD_NUMBER_EXPLICIT" -eq 1 ]]; then
+      echo "error: explicit --build-number $GUARD_BUILD_NUMBER could not be verified monotonic against App Store Connect; refusing to upload (an explicit value may be stale). Re-run when ASC is reachable, or omit --build-number to use a monotonic UTC timestamp." >&2
+      exit 1
+    fi
+    echo "warning: build-number guard skipped (generated timestamp $GUARD_BUILD_NUMBER is monotonic by construction; could not read App Store Connect max)" >&2
   fi
 fi
 
