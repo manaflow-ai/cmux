@@ -97,6 +97,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
 
             // Mobile
+            .init(section: .mobile, id: "pairDevice", title: "Pair a Device", synonyms: "pair pairing add device qr qr code scan iphone ipad ios mobile tailscale connect onboarding sign in"),
             .init(section: .mobile, id: "iOSPairingHost", title: "iOS Pairing", synonyms: "ios iphone ipad mobile pairing local network permission sync"),
 
             // Beta
