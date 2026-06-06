@@ -296,7 +296,7 @@ def _default_socket_path() -> str:
         if os.path.exists(path) and _can_connect(path):
             return path
 
-    if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID:
+    if _should_discover_tagged_sockets(bundle_id):
         tagged = glob.glob("/tmp/cmux-debug-*.sock")
         tagged.extend(glob.glob("/tmp/cmux-*.sock"))
         tagged.extend(glob.glob(os.path.join(_STATE_DIR, "com.cmuxterm.app.dev.*.sock")))
@@ -313,6 +313,23 @@ def _default_socket_path() -> str:
                     return p
 
     return candidates[0]
+
+
+def _should_discover_tagged_sockets(bundle_id: str) -> bool:
+    variant, slug = _socket_variant()
+    if variant != "dev":
+        return False
+    if slug is None:
+        return bundle_id == _DEFAULT_DEBUG_BUNDLE_ID
+
+    tag = os.environ.get("CMUX_TAG")
+    if not tag or not _sanitize_marker_slug(tag):
+        return False
+    if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID:
+        return True
+
+    synthesized_bundle_id = f"{_DEFAULT_DEBUG_BUNDLE_ID}.{_sanitize_bundle_suffix(tag)}"
+    return bundle_id == synthesized_bundle_id
 
 
 class _DefaultSocketPath:

@@ -465,9 +465,9 @@ enum CLISocketPathResolver {
             timeout: timeout,
             currentUserID: currentUserID,
             inspectSocketPathEntry: inspectSocketPathEntry
-        ) { fd in
-            guard writeAll(Data("ping\n".utf8), to: fd) else { return .notCmux }
-            guard let response = readFirstLine(from: fd) else {
+        ) { fd, deadline in
+            guard writeAll(Data("ping\n".utf8), to: fd, until: deadline) else { return .notCmux }
+            guard let response = readFirstLine(from: fd, until: deadline) else {
                 return .indeterminate
             }
             return response == "PONG" ? .cmux : .notCmux
@@ -485,10 +485,10 @@ enum CLISocketPathResolver {
             timeout: timeout,
             currentUserID: currentUserID,
             inspectSocketPathEntry: inspectSocketPathEntry
-        ) { fd in
+        ) { fd, deadline in
             let payload = #"{"id":1,"method":"system.ping","params":{}}"# + "\n"
-            guard writeAll(Data(payload.utf8), to: fd) else { return .notCmux }
-            guard let response = readFirstLine(from: fd) else {
+            guard writeAll(Data(payload.utf8), to: fd, until: deadline) else { return .notCmux }
+            guard let response = readFirstLine(from: fd, until: deadline) else {
                 return .indeterminate
             }
             return isSuccessfulV2PingResponse(response) ? .cmux : .notCmux
@@ -500,7 +500,7 @@ enum CLISocketPathResolver {
         timeout: TimeInterval,
         currentUserID: uid_t,
         inspectSocketPathEntry: (String) -> SocketPathEntry,
-        perform: (Int32) -> SocketProbeResult
+        perform: (Int32, TimeInterval) -> SocketProbeResult
     ) -> SocketProbeResult {
         guard isOwnedSocketFile(
             path,
@@ -512,8 +512,8 @@ enum CLISocketPathResolver {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return .unavailable }
         defer { Darwin.close(fd) }
-        configureSocketTimeouts(fd, timeout: timeout)
         configureNoSigPipe(fd)
+        let deadline = ProcessInfo.processInfo.systemUptime + max(timeout, minimumSocketProbeTimeout)
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -529,7 +529,16 @@ enum CLISocketPathResolver {
         guard connectSocketWithTimeout(fd, to: &addr, timeout: timeout) else {
             return .unavailable
         }
-        return perform(fd)
+        guard socketProbeTimeoutRemaining(until: deadline) != nil else {
+            return .indeterminate
+        }
+
+        let originalFlags = fcntl(fd, F_GETFL, 0)
+        guard originalFlags >= 0 else { return .unavailable }
+        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return .unavailable }
+        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
+
+        return perform(fd, deadline)
     }
 
     private static func connectSocketWithTimeout(
@@ -618,20 +627,6 @@ enum CLISocketPathResolver {
         return false
     }
 
-    private static func configureSocketTimeouts(_ fd: Int32, timeout: TimeInterval) {
-        let clamped = max(timeout, 0.01)
-        var socketTimeout = timeval(
-            tv_sec: Int(clamped),
-            tv_usec: Int32((clamped - floor(clamped)) * 1_000_000)
-        )
-        _ = withUnsafePointer(to: &socketTimeout) { ptr in
-            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
-        }
-        _ = withUnsafePointer(to: &socketTimeout) { ptr in
-            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
-        }
-    }
-
     private static func configureNoSigPipe(_ fd: Int32) {
 #if os(macOS)
         var noSigPipe: Int32 = 1
@@ -643,7 +638,7 @@ enum CLISocketPathResolver {
 #endif
     }
 
-    private static func writeAll(_ data: Data, to fd: Int32) -> Bool {
+    private static func writeAll(_ data: Data, to fd: Int32, until deadline: TimeInterval) -> Bool {
         data.withUnsafeBytes { rawBuffer in
             guard var cursor = rawBuffer.baseAddress else { return true }
             var remaining = rawBuffer.count
@@ -651,6 +646,12 @@ enum CLISocketPathResolver {
                 let written = Darwin.write(fd, cursor, remaining)
                 if written < 0 {
                     if errno == EINTR { continue }
+                    if errno == EAGAIN || errno == EWOULDBLOCK {
+                        guard waitForSocketEvent(fd, events: Int16(POLLOUT), until: deadline) else {
+                            return false
+                        }
+                        continue
+                    }
                     return false
                 }
                 guard written > 0 else { return false }
@@ -661,13 +662,19 @@ enum CLISocketPathResolver {
         }
     }
 
-    private static func readFirstLine(from fd: Int32) -> String? {
+    private static func readFirstLine(from fd: Int32, until deadline: TimeInterval) -> String? {
         var bytes: [UInt8] = []
         var buffer = [UInt8](repeating: 0, count: 128)
         while bytes.count < 512 {
             let count = Darwin.read(fd, &buffer, buffer.count)
             if count < 0 {
                 if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    guard waitForSocketEvent(fd, events: Int16(POLLIN), until: deadline) else {
+                        break
+                    }
+                    continue
+                }
                 if !bytes.isEmpty { break }
                 return nil
             }
@@ -683,6 +690,36 @@ enum CLISocketPathResolver {
             .components(separatedBy: .newlines)
             .first
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+
+    private static func waitForSocketEvent(_ fd: Int32, events: Int16, until deadline: TimeInterval) -> Bool {
+        while true {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { return false }
+
+            var descriptor = pollfd(
+                fd: fd,
+                events: events,
+                revents: 0
+            )
+            let timeoutMilliseconds = Int32(max(1, ceil(remaining * 1_000)))
+            let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+            if ready < 0 {
+                if errno == EINTR { continue }
+                return false
+            }
+            guard ready > 0 else {
+                return false
+            }
+
+            let errorMask = Int16(POLLERR) | Int16(POLLNVAL)
+            if descriptor.revents & errorMask != 0 {
+                return false
+            }
+            if descriptor.revents & (events | Int16(POLLHUP)) != 0 {
+                return true
+            }
+        }
     }
 
     private static func knownImplicitDefaultPaths(
