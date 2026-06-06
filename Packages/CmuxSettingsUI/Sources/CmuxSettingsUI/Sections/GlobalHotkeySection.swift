@@ -3,7 +3,7 @@ import SwiftUI
 
 /// **Global Hotkey** section — mirrors the legacy in-app section:
 /// one card with an Enable toggle and the system-wide chord recorder,
-/// followed by a card note explaining macOS permissions.
+/// followed by a card note explaining the native overlay panel.
 ///
 /// The recorder reads and writes the same JSON-backed shortcut binding
 /// the legacy app uses — `shortcuts.bindings["showHideAllWindows"]` —
@@ -40,7 +40,7 @@ public struct GlobalHotkeySection: View {
                 .accessibilityIdentifier("SettingsGlobalHotkeySection")
             mainCard
             SettingsCardNote(
-                String(localized: "settings.globalHotkey.note", defaultValue: "Use Command, Option, or Control with another key. No extra macOS permission is required.")
+                String(localized: "settings.globalHotkey.note", defaultValue: "Use Command, Option, or Control with another key. The overlay uses a native panel that can appear over full-screen apps.")
             )
             .accessibilityIdentifier("SettingsGlobalHotkeyNote")
         }
@@ -56,8 +56,8 @@ public struct GlobalHotkeySection: View {
                 searchAnchorID: "setting:globalHotkey:enable-hotkey",
                 String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"),
                 subtitle: enabled.current
-                    ? String(localized: "settings.globalHotkey.enable.subtitleOn", defaultValue: "Press the shortcut from any app to show or hide all cmux windows.")
-                    : String(localized: "settings.globalHotkey.enable.subtitleOff", defaultValue: "Turn this on to show or hide all cmux windows from any app.")
+                    ? String(localized: "settings.globalHotkey.enable.subtitleOn", defaultValue: "Press the shortcut from any app to show or hide the cmux hotkey window.")
+                    : String(localized: "settings.globalHotkey.enable.subtitleOff", defaultValue: "Turn this on to show or hide a cmux overlay from any app, including full-screen spaces.")
             ) {
                 Toggle("", isOn: Binding(get: { enabled.current }, set: { enabled.set($0) }))
                     .labelsHidden()
@@ -78,7 +78,7 @@ public struct GlobalHotkeySection: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows"))
+                    Text(String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide Hotkey Window"))
                 }
                 Spacer()
                 ShortcutRecorderView(

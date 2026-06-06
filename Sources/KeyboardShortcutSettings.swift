@@ -164,7 +164,7 @@ enum KeyboardShortcutSettings {
             switch self {
             case .openSettings: return String(localized: "menu.app.settings", defaultValue: "Settings…")
             case .reloadConfiguration: return String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration")
-            case .showHideAllWindows: return String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows")
+            case .showHideAllWindows: return String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide Hotkey Window")
             case .globalSearch: return String(localized: "shortcut.globalSearch.label", defaultValue: "Global Search")
             case .newWindow: return String(localized: "shortcut.newWindow.label", defaultValue: "New Window")
             case .closeWindow: return String(localized: "shortcut.closeWindow.label", defaultValue: "Close Window")

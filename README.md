@@ -230,6 +230,7 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 
 | Shortcut | Action |
 |----------|--------|
+| ⌃ ⌥ ⌘ . | Show/hide hotkey overlay |
 | ⌘ ⇧ N | New window |
 | ⌘ ⇧ O | Reopen previous session |
 | ⌘ , | Settings |
