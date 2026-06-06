@@ -12214,7 +12214,10 @@ private final class TerminalViewportBorderOverlayView: NSView {
             path.move(to: NSPoint(x: 0, y: y))
             path.line(to: NSPoint(x: x, y: y))
         }
-        NSColor.separatorColor.withAlphaComponent(0.95).setStroke()
+        // Match the pane/split divider color (single source of truth) so the
+        // iOS-connected viewport border looks like every other border in the app,
+        // instead of the previous hardcoded near-white separator stroke.
+        GhosttyConfig.load().resolvedSplitDividerColor.setStroke()
         path.stroke()
     }
 }
@@ -13216,6 +13219,12 @@ final class GhosttySurfaceScrollView: NSView {
         layer.backgroundColor = color.cgColor
         layer.isOpaque = color.alphaComponent >= 1.0
         CATransaction.commit()
+        // The viewport border strokes the resolved split-divider color, which tracks the
+        // terminal background. Repaint it when the background changes (e.g. theme switch)
+        // so a connected iOS device's visible-area border stays in sync.
+        if !mobileViewportBorderOverlayView.isHidden {
+            mobileViewportBorderOverlayView.needsDisplay = true
+        }
     }
 
     /// Keeps the shared-backdrop cutout view present only while a pane-local fill needs it.
