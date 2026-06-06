@@ -43,15 +43,17 @@ extension CMUXCLI {
         commandName: String,
         terminalOnly: Bool
     ) throws -> ListSurfacesCommandOptions {
+        let workspaceWasProvided = listSurfaceOptionWasProvided(args, name: "--workspace")
         let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
-        if rem0.contains("--workspace") {
+        if listSurfaceOptionRequiresHandle(workspaceOpt, wasProvided: workspaceWasProvided) {
             throw CLIError(message: String(format: String(
                 localized: "cli.listSurfaces.error.missingHandleOption",
                 defaultValue: "%@ requires %@ <id|ref|index>"
             ), commandName, "--workspace"))
         }
+        let windowWasProvided = listSurfaceOptionWasProvided(rem0, name: "--window")
         let (windowOpt, rem1) = parseOption(rem0, name: "--window")
-        if rem1.contains("--window") {
+        if listSurfaceOptionRequiresHandle(windowOpt, wasProvided: windowWasProvided) {
             throw CLIError(message: String(format: String(
                 localized: "cli.listSurfaces.error.missingHandleOption",
                 defaultValue: "%@ requires %@ <id|ref|index>"
@@ -100,6 +102,27 @@ extension CMUXCLI {
             jsonOutput: jsonOutput,
             terminalOnly: terminalOnly
         )
+    }
+
+    private func listSurfaceOptionWasProvided(_ args: [String], name: String) -> Bool {
+        var pastTerminator = false
+        for arg in args {
+            if arg == "--" {
+                pastTerminator = true
+                continue
+            }
+            if !pastTerminator, arg == name || arg.hasPrefix("\(name)=") {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func listSurfaceOptionRequiresHandle(_ value: String?, wasProvided: Bool) -> Bool {
+        guard wasProvided else { return false }
+        guard let value else { return true }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed.hasPrefix("-")
     }
 
     private func buildListSurfacesPayload(

@@ -4121,6 +4121,44 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testListSurfacesRejectsMissingScopedHandlesBeforeSocket() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = makeSocketPath("nosocket")
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let workspaceResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-surfaces", "--workspace", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(workspaceResult.timedOut, workspaceResult.stderr)
+        XCTAssertEqual(workspaceResult.status, 1)
+        XCTAssertTrue(
+            workspaceResult.stderr.contains("list-surfaces requires --workspace <id|ref|index>"),
+            workspaceResult.stderr
+        )
+
+        let windowResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-terminals", "--window="],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(windowResult.timedOut, windowResult.stderr)
+        XCTAssertEqual(windowResult.status, 1)
+        XCTAssertTrue(
+            windowResult.stderr.contains("list-terminals requires --window <id|ref|index>"),
+            windowResult.stderr
+        )
+    }
+
     func testSSHSessionListAllWorkspacesReportsQueryErrors() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshlist")
