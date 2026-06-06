@@ -5539,13 +5539,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard confirmCloseMainWindow(window) else { return false }
         }
         closedWindowHistoryOperationIdsByWindowId[windowId] = operationId
-        window.close()
-        return tabManagerFor(windowId: windowId) == nil
+        window.performClose(nil)
+        let didClose = tabManagerFor(windowId: windowId) == nil
+        if !didClose {
+            closedWindowHistoryOperationIdsByWindowId.removeValue(forKey: windowId)
+        }
+        return didClose
     }
 
     func confirmMainWindowForHistoryRedo(windowId: UUID, force: Bool = false) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
-        return force || confirmCloseMainWindow(window)
+        if !force {
+            guard confirmCloseMainWindow(window) else { return false }
+        }
+        return handleMainTerminalWindowShouldClose()
     }
 
     func discardMainWindowWithoutClosedHistory(windowId: UUID) {
