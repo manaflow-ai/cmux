@@ -289,6 +289,19 @@ final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
         )
     }
 
+    func testRowsLayoutCompletenessIgnoresCollapsedGroupMembersWhenGivenVisibleRows() {
+        let groupAnchor = "group-anchor"
+        let looseWorkspace = "loose"
+
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
+                laidOutRowIds: Set([groupAnchor, looseWorkspace]),
+                workspaceIds: [groupAnchor, looseWorkspace]
+            ),
+            .complete
+        )
+    }
+
     func testZeroHeightCompleteRowsCollapseEmptyAreaAndShowScroller() {
         let contentMinHeight: CGFloat = 480
 

@@ -10813,6 +10813,8 @@ struct VerticalTabsSidebar: View {
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
+        let workspaceRenderItems: [SidebarWorkspaceRenderItem]
+        let visibleWorkspaceRowIds: [UUID]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -10842,6 +10844,11 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
+        let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
+            tabs: tabs,
+            groupsById: workspaceGroupById
+        )
+        let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         let draggedSidebarTabId = dragState.draggedTabId
         let sidebarReorderIds = draggedSidebarTabId.map {
             tabManager.sidebarReorderWorkspaceIds(
@@ -10865,7 +10872,9 @@ struct VerticalTabsSidebar: View {
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
             workspaceGroups: workspaceGroups,
             workspaceGroupById: workspaceGroupById,
-            workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot
+            workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
+            workspaceRenderItems: workspaceRenderItems,
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -10971,11 +10980,11 @@ struct VerticalTabsSidebar: View {
                 insets: scrollInsets
             )
             let measuredWorkspaceRowsHeight = workspaceRowsMeasurement?.rowsHeight(
-                for: renderContext.workspaceIds
+                for: renderContext.visibleWorkspaceRowIds
             )
             let workspaceRowsLayoutCompleteness = SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
                 laidOutRowIds: laidOutWorkspaceRowIds,
-                workspaceIds: renderContext.workspaceIds
+                workspaceIds: renderContext.visibleWorkspaceRowIds
             )
             let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
                 contentMinHeight: contentMinHeight,
@@ -11085,8 +11094,6 @@ struct VerticalTabsSidebar: View {
                     requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
                 }
                 .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
-                    laidOutWorkspaceRowIds = []
-                    workspaceRowsMeasurement = nil
                     guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
                         from: oldWorkspaceIds,
                         to: newWorkspaceIds
@@ -11095,6 +11102,10 @@ struct VerticalTabsSidebar: View {
                         return
                     }
                     requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: newWorkspaceIds)
+                }
+                .onChange(of: renderContext.visibleWorkspaceRowIds) { _, _ in
+                    laidOutWorkspaceRowIds = []
+                    workspaceRowsMeasurement = nil
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
                     requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
@@ -12299,10 +12310,7 @@ struct VerticalTabsSidebar: View {
 
     @ViewBuilder
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
-        let renderItems = SidebarWorkspaceRenderItem.renderItems(
-            tabs: renderContext.tabs,
-            groupsById: renderContext.workspaceGroupById
-        )
+        let renderItems = renderContext.workspaceRenderItems
         let shouldCollectWorkspaceDropTargets = SidebarDropPlanner.shouldCollectWorkspaceDropTargets(
             draggedTabId: dragState.draggedTabId,
             isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive
@@ -12338,7 +12346,7 @@ struct VerticalTabsSidebar: View {
                     Color.clear.preference(
                         key: SidebarWorkspaceRowsHeightPreferenceKey.self,
                         value: SidebarWorkspaceRowsMeasurement(
-                            workspaceIds: renderContext.workspaceIds,
+                            workspaceIds: renderContext.visibleWorkspaceRowIds,
                             rowsHeight: proxy.size.height
                         )
                     )
