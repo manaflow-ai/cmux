@@ -56,20 +56,13 @@ final class TextBoxMentionCompletionController {
         guard let query else { return }
 
         guard activeQuery != query || activeRootDirectory != rootDirectory else { return }
-        let previousQuery = activeQuery
-        let previousRootDirectory = activeRootDirectory
-        let shouldKeepStaleSuggestions = previousQuery?.kind == query.kind &&
-            previousQuery?.trigger == query.trigger &&
-            previousRootDirectory == rootDirectory
         activeQuery = query
         activeRootDirectory = rootDirectory
         selectionIndex = 0
         isLoadingSuggestions = true
-        if !shouldKeepStaleSuggestions {
-            suggestions = []
-            suggestionsQuery = nil
-            suggestionsRootDirectory = nil
-        }
+        suggestions = []
+        suggestionsQuery = nil
+        suggestionsRootDirectory = nil
         lookupTask?.cancel()
         lookupGeneration &+= 1
         let generation = lookupGeneration
