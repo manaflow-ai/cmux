@@ -14,6 +14,17 @@ struct WorkspaceGhosttyThemeTests {
         #expect(WorkspaceGhosttyThemeSelection(light: nil, dark: "Catppuccin Mocha").configContents() == nil)
     }
 
+    @Test func concreteConfigContentsResolvesConditionalThemeForColorScheme() {
+        let selection = WorkspaceGhosttyThemeSelection(
+            light: "Catppuccin Latte",
+            dark: "Catppuccin Mocha"
+        )
+
+        #expect(selection.configContents() == "theme = light:Catppuccin Latte,dark:Catppuccin Mocha")
+        #expect(selection.configContents(preferredColorScheme: .light) == "theme = Catppuccin Latte")
+        #expect(selection.configContents(preferredColorScheme: .dark) == "theme = Catppuccin Mocha")
+    }
+
     @Test func catalogIncludesXDGDataDirs() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-theme-catalog-\(UUID().uuidString)", isDirectory: true)

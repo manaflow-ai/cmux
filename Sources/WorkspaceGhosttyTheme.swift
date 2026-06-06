@@ -103,11 +103,25 @@ struct WorkspaceGhosttyThemeSelection: Codable, Equatable, Sendable {
         return "theme = \(rawValue)"
     }
 
+    func configContents(preferredColorScheme: GhosttyConfig.ColorSchemePreference) -> String? {
+        guard isComplete else { return nil }
+        guard let rawValue else { return nil }
+        let resolvedTheme = GhosttyConfig.resolveThemeName(
+            from: rawValue,
+            preferredColorScheme: preferredColorScheme
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedTheme.isEmpty,
+              resolvedTheme.rangeOfCharacter(from: .newlines) == nil else {
+            return nil
+        }
+        return "theme = \(resolvedTheme)"
+    }
+
     func resolvedGhosttyConfig(
         preferredColorScheme: GhosttyConfig.ColorSchemePreference
     ) -> GhosttyConfig {
         var config = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false)
-        if let contents = configContents() {
+        if let contents = configContents(preferredColorScheme: preferredColorScheme) {
             config.parse(contents, loadingThemesImmediatelyFor: preferredColorScheme)
         }
         return config

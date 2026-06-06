@@ -18,7 +18,7 @@ extension GhosttyApp {
             newConfig,
             preferredColorScheme: reloadColorScheme,
             conditionalThemeColorScheme: GhosttyConfig.currentColorSchemePreference(),
-            additionalConfigContents: workspaceTheme?.configContents()
+            additionalConfigContents: workspaceTheme?.configContents(preferredColorScheme: reloadColorScheme)
         )
         // Ghostty Surface.updateConfig derives its own surface state from the
         // passed config. The C API does not retain this temporary pointer.
