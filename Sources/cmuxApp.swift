@@ -382,6 +382,7 @@ struct cmuxApp: App {
         defaults.set(targetVersion, forKey: migrationKey)
     }
 
+    @SceneBuilder
     var body: some Scene {
         if isPureUnitTestAppHost {
             WindowGroup {
