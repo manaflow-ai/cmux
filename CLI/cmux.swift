@@ -4240,8 +4240,7 @@ struct CMUXCLI {
         case "close-page":
             let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
             let (pageOpt, rem1) = parseOption(pageContextOptions.remaining, name: "--page")
-            let positionalArgs = rem1.dropFirst(rem1.first == "--" ? 1 : 0)
-            let pageRaw = pageOpt ?? positionalArgs.first
+            let pageRaw = pageOpt ?? firstPositionalPageHandle(rem1)
             var params: [String: Any] = [:]
             let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
             applyPageCommandContext(pageContext, to: &params)
@@ -4266,7 +4265,7 @@ struct CMUXCLI {
         case "select-page":
             let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
             let (pageOpt, rem0) = parseOption(pageContextOptions.remaining, name: "--page")
-            let pageRaw = pageOpt ?? rem0.first
+            let pageRaw = pageOpt ?? firstPositionalPageHandle(rem0)
             guard let pageRaw else {
                 throw CLIError(message: "select-page requires --page <id|ref|index>")
             }
@@ -6795,7 +6794,12 @@ struct CMUXCLI {
     ) throws {
         let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowOverride)
         let (pageOpt, rem0) = parseOption(pageContextOptions.remaining, name: "--page")
-        let pageRaw = pageOpt ?? rem0.first
+        let (beforeOpt, rem1) = parseOption(rem0, name: "--before")
+        let (beforePageOpt, rem2) = parseOption(rem1, name: "--before-page")
+        let (afterOpt, rem3) = parseOption(rem2, name: "--after")
+        let (afterPageOpt, rem4) = parseOption(rem3, name: "--after-page")
+        let (indexRaw, rem5) = parseOption(rem4, name: "--index")
+        let pageRaw = pageOpt ?? firstPositionalPageHandle(rem5)
         guard let pageRaw else {
             throw CLIError(message: "reorder-page requires --page <id|ref|index>")
         }
@@ -6803,8 +6807,8 @@ struct CMUXCLI {
         let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
         let pageHandle = try normalizePageHandle(pageRaw, client: client, workspaceHandle: pageContext.workspaceHandle)
 
-        let beforeRaw = optionValue(rem0, name: "--before") ?? optionValue(rem0, name: "--before-page")
-        let afterRaw = optionValue(rem0, name: "--after") ?? optionValue(rem0, name: "--after-page")
+        let beforeRaw = beforeOpt ?? beforePageOpt
+        let afterRaw = afterOpt ?? afterPageOpt
         let beforeHandle = try normalizePageHandle(beforeRaw, client: client, workspaceHandle: pageContext.workspaceHandle)
         let afterHandle = try normalizePageHandle(afterRaw, client: client, workspaceHandle: pageContext.workspaceHandle)
 
@@ -6813,7 +6817,7 @@ struct CMUXCLI {
         if let pageHandle { params["page_id"] = pageHandle }
         if let beforeHandle { params["before_page_id"] = beforeHandle }
         if let afterHandle { params["after_page_id"] = afterHandle }
-        if let indexRaw = optionValue(rem0, name: "--index") {
+        if let indexRaw {
             guard let index = Int(indexRaw) else {
                 throw CLIError(message: "--index must be an integer")
             }
@@ -15227,18 +15231,26 @@ struct CMUXCLI {
         }
     }
 
+    private func positionalArgsAfterOptionalTerminator(_ args: [String]) -> [String] {
+        args.first == "--" ? Array(args.dropFirst()) : args
+    }
+
+    private func firstPositionalPageHandle(_ args: [String]) -> String? {
+        positionalArgsAfterOptionalTerminator(args).first
+    }
+
     private func splitOptionalPositionalPageHandle(
         _ args: [String],
         explicitPage: String?
     ) -> (page: String?, titleArgs: [String]) {
+        let positionalArgs = positionalArgsAfterOptionalTerminator(args)
         guard explicitPage == nil,
-              let first = args.first,
-              first != "--",
+              let first = positionalArgs.first,
               looksLikePageHandle(first)
         else {
             return (nil, args)
         }
-        return (first, Array(args.dropFirst()))
+        return (first, Array(positionalArgs.dropFirst()))
     }
 
     private func looksLikePageHandle(_ raw: String) -> Bool {
