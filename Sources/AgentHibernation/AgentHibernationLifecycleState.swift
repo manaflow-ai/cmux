@@ -71,6 +71,13 @@ enum AgentHibernationLifecycleStatusKeys {
         allowedStatusKeys.contains(key)
     }
 
+    static func normalizedAllowedStatusKey(_ key: String?) -> String? {
+        guard let key else { return nil }
+        let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, isAllowed(normalized) else { return nil }
+        return normalized
+    }
+
     static func statusKey(forNotificationTitle title: String) -> String? {
         statusKeyByNormalizedNotificationTitle[normalizedNotificationTitle(title)]
     }

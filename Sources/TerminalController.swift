@@ -9852,6 +9852,7 @@ class TerminalController {
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
+        let structuredAgentStatusKey = v2StructuredAgentStatusKey(params)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         v2MainSync {
@@ -9873,7 +9874,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                structuredAgentStatusKey: structuredAgentStatusKey
             )
             result = .ok(["workspace_id": ws.id.uuidString, "surface_id": v2OrNull(surfaceId?.uuidString)])
         }
@@ -9891,6 +9893,7 @@ class TerminalController {
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
+        let structuredAgentStatusKey = v2StructuredAgentStatusKey(params)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         v2MainSync {
@@ -9907,7 +9910,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                structuredAgentStatusKey: structuredAgentStatusKey
             )
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
@@ -9928,6 +9932,7 @@ class TerminalController {
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
+        let structuredAgentStatusKey = v2StructuredAgentStatusKey(params)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         v2MainSync {
@@ -9944,11 +9949,18 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                structuredAgentStatusKey: structuredAgentStatusKey
             )
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
         return result
+    }
+
+    private func v2StructuredAgentStatusKey(_ params: [String: Any]) -> String? {
+        let rawValue = params["agent_status_key"] as? String
+            ?? params["structured_agent_status_key"] as? String
+        return AgentHibernationLifecycleStatusKeys.normalizedAllowedStatusKey(rawValue)
     }
 
     private func v2NotificationList() -> [String: Any] {
@@ -10168,6 +10180,9 @@ class TerminalController {
         ]
         if includeReadState {
             payload["is_read"] = notification.isRead
+        }
+        if let structuredAgentStatusKey = notification.structuredAgentStatusKey {
+            payload["structured_agent_status_key"] = structuredAgentStatusKey
         }
         if let opened {
             payload["opened"] = opened
@@ -17222,13 +17237,14 @@ class TerminalController {
                 return
             }
             let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-            let (title, subtitle, body) = parseNotificationPayload(args)
+            let notificationPayload = parseNotificationPayload(args)
             deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
-                title: title,
-                subtitle: subtitle,
-                body: body
+                title: notificationPayload.title,
+                subtitle: notificationPayload.subtitle,
+                body: notificationPayload.body,
+                structuredAgentStatusKey: notificationPayload.structuredAgentStatusKey
             )
         }
         return result
@@ -17254,13 +17270,14 @@ class TerminalController {
                 result = "ERROR: Surface not found"
                 return
             }
-            let (title, subtitle, body) = parseNotificationPayload(payload)
+            let notificationPayload = parseNotificationPayload(payload)
             deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
-                title: title,
-                subtitle: subtitle,
-                body: body
+                title: notificationPayload.title,
+                subtitle: notificationPayload.subtitle,
+                body: notificationPayload.body,
+                structuredAgentStatusKey: notificationPayload.structuredAgentStatusKey
             )
         }
         return result
@@ -17277,7 +17294,7 @@ class TerminalController {
         let tabArg = parts[0]
         let panelArg = parts[1]
         let payload = parts.count > 2 ? parts[2] : ""
-        let (title, subtitle, body) = parseNotificationPayload(payload)
+        let notificationPayload = parseNotificationPayload(payload)
 
         if let workspaceId = UUID(uuidString: tabArg),
            let panelId = UUID(uuidString: panelArg) {
@@ -17294,9 +17311,10 @@ class TerminalController {
                 deliverNotificationSynchronously(
                     tabId: workspaceId,
                     surfaceId: panelId,
-                    title: title,
-                    subtitle: subtitle,
-                    body: body
+                    title: notificationPayload.title,
+                    subtitle: notificationPayload.subtitle,
+                    body: notificationPayload.body,
+                    structuredAgentStatusKey: notificationPayload.structuredAgentStatusKey
                 )
             }
             return result
@@ -17322,9 +17340,10 @@ class TerminalController {
             deliverNotificationSynchronously(
                 tabId: tab.id,
                 surfaceId: panelId,
-                title: title,
-                subtitle: subtitle,
-                body: body
+                title: notificationPayload.title,
+                subtitle: notificationPayload.subtitle,
+                body: notificationPayload.body,
+                structuredAgentStatusKey: notificationPayload.structuredAgentStatusKey
             )
         }
         return result
@@ -17351,18 +17370,19 @@ class TerminalController {
         guard !payload.isEmpty else {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
-        let (title, subtitle, body) = parseNotificationPayload(payload)
+        let notificationPayload = parseNotificationPayload(payload)
 #if DEBUG
         cmuxDebugLog(
-            "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
+            "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(notificationPayload.title.count) subtitleLen=\(notificationPayload.subtitle.count) bodyLen=\(notificationPayload.body.count) coalesces=0"
         )
 #endif
         TerminalMutationBus.shared.enqueueNotification(
             tabId: tabId,
             surfaceId: surfaceId,
-            title: title,
-            subtitle: subtitle,
-            body: body,
+            title: notificationPayload.title,
+            subtitle: notificationPayload.subtitle,
+            body: notificationPayload.body,
+            structuredAgentStatusKey: notificationPayload.structuredAgentStatusKey,
             coalesces: false
         )
         return "OK"
@@ -18113,16 +18133,59 @@ class TerminalController {
         return nil
     }
 
-    private func parseNotificationPayload(_ args: String) -> (String, String, String) {
+    private struct ParsedNotificationPayload {
+        let title: String
+        let subtitle: String
+        let body: String
+        let structuredAgentStatusKey: String?
+    }
+
+    private func parseNotificationPayload(_ args: String) -> ParsedNotificationPayload {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return ("Notification", "", "") }
-        let parts = trimmed.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+        guard !trimmed.isEmpty else {
+            return ParsedNotificationPayload(
+                title: "Notification",
+                subtitle: "",
+                body: "",
+                structuredAgentStatusKey: nil
+            )
+        }
+        let (structuredAgentStatusKey, payloadText) = parseNotificationPayloadOptions(trimmed)
+        let parts = payloadText.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
         let title = parts.count > 0 ? parts[0].trimmingCharacters(in: .whitespacesAndNewlines) : ""
         let subtitle = parts.count > 2 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
         let body = parts.count > 2
             ? parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
             : (parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : "")
-        return (title.isEmpty ? "Notification" : title, subtitle, body)
+        return ParsedNotificationPayload(
+            title: title.isEmpty ? "Notification" : title,
+            subtitle: subtitle,
+            body: body,
+            structuredAgentStatusKey: structuredAgentStatusKey
+        )
+    }
+
+    private func parseNotificationPayloadOptions(_ args: String) -> (String?, String) {
+        let optionPrefixes = [
+            "--agent-status-key=",
+            "--structured-agent-status-key=",
+        ]
+        guard let prefix = optionPrefixes.first(where: { args.hasPrefix($0) }) else {
+            return (nil, args)
+        }
+        let valueStart = args.index(args.startIndex, offsetBy: prefix.count)
+        let remainder = args[valueStart...]
+        let optionParts = remainder.split(
+            separator: " ",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        ).map(String.init)
+        guard optionParts.count == 2 else {
+            return (nil, "")
+        }
+        let statusKey = AgentHibernationLifecycleStatusKeys
+            .normalizedAllowedStatusKey(optionParts[0])
+        return (statusKey, optionParts[1].trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private func closeWorkspace(_ tabId: String) -> String {

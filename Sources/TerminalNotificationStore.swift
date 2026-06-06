@@ -775,6 +775,7 @@ struct TerminalNotification: Identifiable, Hashable {
     let tabId: UUID
     let surfaceId: UUID?
     let panelId: UUID?
+    let structuredAgentStatusKey: String?
     let title: String
     let subtitle: String
     let body: String
@@ -788,6 +789,7 @@ struct TerminalNotification: Identifiable, Hashable {
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID? = nil,
+        structuredAgentStatusKey: String? = nil,
         title: String,
         subtitle: String,
         body: String,
@@ -800,6 +802,8 @@ struct TerminalNotification: Identifiable, Hashable {
         self.tabId = tabId
         self.surfaceId = surfaceId
         self.panelId = panelId
+        self.structuredAgentStatusKey = AgentHibernationLifecycleStatusKeys
+            .normalizedAllowedStatusKey(structuredAgentStatusKey)
         self.title = title
         self.subtitle = subtitle
         self.body = body
@@ -1238,6 +1242,7 @@ final class TerminalNotificationStore: ObservableObject {
         title: String,
         subtitle: String,
         body: String,
+        structuredAgentStatusKey: String? = nil,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil
@@ -1278,11 +1283,13 @@ final class TerminalNotificationStore: ObservableObject {
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            structuredAgentStatusKey: structuredAgentStatusKey
         )
         guard !policyContext.hooks.isEmpty else {
             applyNotification(
                 request: policyContext.request,
+                structuredAgentStatusKey: policyContext.structuredAgentStatusKey,
                 effects: TerminalNotificationPolicyEffects(),
                 now: now,
                 cooldownReservation: cooldownReservation,
@@ -1300,6 +1307,7 @@ final class TerminalNotificationStore: ObservableObject {
             guard !authorizedHooks.isEmpty else {
                 self.applyNotification(
                     request: policyContext.request,
+                    structuredAgentStatusKey: policyContext.structuredAgentStatusKey,
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
@@ -1317,6 +1325,7 @@ final class TerminalNotificationStore: ObservableObject {
                 self.applyNotification(
                     request: policyContext.request,
                     envelope: envelope,
+                    structuredAgentStatusKey: policyContext.structuredAgentStatusKey,
                     now: Date(),
                     cooldownReservation: cooldownReservation,
                     clickAction: clickAction
@@ -1324,6 +1333,7 @@ final class TerminalNotificationStore: ObservableObject {
             case .failure(let failure):
                 self.applyNotification(
                     request: policyContext.request,
+                    structuredAgentStatusKey: policyContext.structuredAgentStatusKey,
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
@@ -1341,6 +1351,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private struct NotificationPolicyContext: Sendable {
         let request: TerminalNotificationPolicyRequest
+        let structuredAgentStatusKey: String?
         let hooks: [CmuxResolvedNotificationHook]
         let globalConfigPath: String?
     }
@@ -1378,7 +1389,8 @@ final class TerminalNotificationStore: ObservableObject {
         surfaceId: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        structuredAgentStatusKey: String?
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
@@ -1412,6 +1424,8 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel
             ),
+            structuredAgentStatusKey: AgentHibernationLifecycleStatusKeys
+                .normalizedAllowedStatusKey(structuredAgentStatusKey),
             hooks: cmuxConfigStore?.notificationHooks(startingFrom: cwd) ?? [],
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
@@ -1420,6 +1434,7 @@ final class TerminalNotificationStore: ObservableObject {
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
         envelope: TerminalNotificationPolicyEnvelope,
+        structuredAgentStatusKey: String?,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
         clickAction: TerminalNotificationClickAction?
@@ -1437,6 +1452,7 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: request.isAppFocused,
                 isFocusedPanel: request.isFocusedPanel
             ),
+            structuredAgentStatusKey: structuredAgentStatusKey,
             effects: envelope.effects,
             now: now,
             cooldownReservation: cooldownReservation,
@@ -1446,6 +1462,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
+        structuredAgentStatusKey: String?,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
@@ -1460,6 +1477,7 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: request.tabId,
             surfaceId: request.surfaceId,
             panelId: request.panelId,
+            structuredAgentStatusKey: structuredAgentStatusKey,
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,
@@ -1641,7 +1659,8 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private static func structuredAgentStatusKey(for notification: TerminalNotification) -> String? {
-        AgentHibernationLifecycleStatusKeys.statusKey(forNotificationTitle: notification.title)
+        notification.structuredAgentStatusKey
+            ?? AgentHibernationLifecycleStatusKeys.statusKey(forNotificationTitle: notification.title)
     }
 
     private func acknowledgeStructuredAgentInputStatuses(for notificationsToAcknowledge: [TerminalNotification]) {
@@ -1908,6 +1927,7 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: notification.tabId,
             surfaceId: notification.surfaceId,
             panelId: notification.panelId,
+            structuredAgentStatusKey: notification.structuredAgentStatusKey,
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,
@@ -1993,6 +2013,7 @@ final class TerminalNotificationStore: ObservableObject {
                 tabId: destinationTabId,
                 surfaceId: notification.surfaceId,
                 panelId: notification.panelId,
+                structuredAgentStatusKey: notification.structuredAgentStatusKey,
                 title: notification.title,
                 subtitle: notification.subtitle,
                 body: notification.body,
