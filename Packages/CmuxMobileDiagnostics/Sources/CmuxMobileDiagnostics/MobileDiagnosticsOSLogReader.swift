@@ -77,6 +77,18 @@ public actor MobileDiagnosticsOSLogReader {
         let maxEntries = self.maxEntries
         let maxBytes = self.maxBytes
         return await Task.detached(priority: .utility) {
+            func levelLabel(_ level: OSLogEntryLog.Level) -> String {
+                switch level {
+                case .undefined: return "undefined"
+                case .debug: return "debug"
+                case .info: return "info"
+                case .notice: return "notice"
+                case .error: return "error"
+                case .fault: return "fault"
+                @unknown default: return "unknown"
+                }
+            }
+
             do {
                 let store = try OSLogStore(scope: .currentProcessIdentifier)
                 let since = store.position(date: Date().addingTimeInterval(-lookback))
@@ -92,7 +104,7 @@ public actor MobileDiagnosticsOSLogReader {
                     guard let logEntry = entry as? OSLogEntryLog else { continue }
                     guard includedSubsystems.contains(logEntry.subsystem) else { continue }
                     let time = formatter.string(from: logEntry.date)
-                    let level = Self.levelLabel(logEntry.level)
+                    let level = levelLabel(logEntry.level)
                     let category = logEntry.category.isEmpty ? "-" : logEntry.category
                     let line = "\(time) \(category) [\(level)] \(logEntry.subsystem): \(logEntry.composedMessage)"
                     if Self.appendRecentLine(
@@ -129,21 +141,6 @@ public actor MobileDiagnosticsOSLogReader {
         return "(os log unavailable: OSLog not importable on this platform)"
         #endif
     }
-
-    #if canImport(OSLog)
-    /// Short human label for an OSLog entry level.
-    private static func levelLabel(_ level: OSLogEntryLog.Level) -> String {
-        switch level {
-        case .undefined: return "undefined"
-        case .debug: return "debug"
-        case .info: return "info"
-        case .notice: return "notice"
-        case .error: return "error"
-        case .fault: return "fault"
-        @unknown default: return "unknown"
-        }
-    }
-#endif
 
     @discardableResult
     static func appendRecentLine(

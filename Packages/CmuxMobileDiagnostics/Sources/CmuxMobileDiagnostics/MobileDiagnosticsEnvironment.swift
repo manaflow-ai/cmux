@@ -57,6 +57,21 @@ public struct MobileDiagnosticsEnvironment: Sendable {
     @MainActor public static func current() -> MobileDiagnosticsEnvironment {
         let bundle = Bundle.main
 
+        func infoString(_ key: String, in bundle: Bundle) -> String {
+            (bundle.object(forInfoDictionaryKey: key) as? String) ?? "?"
+        }
+
+        func hardwareModelIdentifier() -> String? {
+            var systemInfo = utsname()
+            uname(&systemInfo)
+            let mirror = Mirror(reflecting: systemInfo.machine)
+            let identifier = mirror.children.reduce(into: "") { partial, element in
+                guard let value = element.value as? Int8, value != 0 else { return }
+                partial.append(Character(UnicodeScalar(UInt8(value))))
+            }
+            return identifier.isEmpty ? nil : identifier
+        }
+
         let deviceModel: String
         let osVersion: String
         #if canImport(UIKit)
@@ -76,22 +91,5 @@ public struct MobileDiagnosticsEnvironment: Sendable {
             deviceModel: deviceModel,
             osVersion: osVersion
         )
-    }
-
-    /// Read a string `Info.plist` value, falling back to `"?"` when missing.
-    private static func infoString(_ key: String, in bundle: Bundle) -> String {
-        (bundle.object(forInfoDictionaryKey: key) as? String) ?? "?"
-    }
-
-    /// The hardware model identifier (e.g. `"iPhone16,2"`), if available.
-    private static func hardwareModelIdentifier() -> String? {
-        var systemInfo = utsname()
-        uname(&systemInfo)
-        let mirror = Mirror(reflecting: systemInfo.machine)
-        let identifier = mirror.children.reduce(into: "") { partial, element in
-            guard let value = element.value as? Int8, value != 0 else { return }
-            partial.append(Character(UnicodeScalar(UInt8(value))))
-        }
-        return identifier.isEmpty ? nil : identifier
     }
 }

@@ -224,11 +224,3 @@ private func base64URLEncode(_ data: Data) -> String {
         .replacingOccurrences(of: "/", with: "_")
         .replacingOccurrences(of: "=", with: "")
 }
-
-private struct PreviewIdentityProvider: MobileIdentityProviding {
-    let userID: String?
-
-    @MainActor var currentUserID: String? {
-        userID
-    }
-}

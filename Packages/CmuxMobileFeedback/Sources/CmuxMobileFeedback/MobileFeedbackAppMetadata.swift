@@ -69,6 +69,33 @@ public struct MobileFeedbackAppMetadata: Sendable {
     /// - Returns: Metadata ready to include in a feedback submission.
     @MainActor
     public static func current(environment: MobileDiagnosticsEnvironment = .current()) -> MobileFeedbackAppMetadata {
+        func formatMemoryGB() -> String {
+            let bytes = ProcessInfo.processInfo.physicalMemory
+            let gb = Double(bytes) / (1_024 * 1_024 * 1_024)
+            return "\(Int(gb)) GB"
+        }
+
+        func currentArchitecture() -> String {
+            #if arch(arm64)
+            return "arm64"
+            #elseif arch(x86_64)
+            return "x86_64"
+            #else
+            return "unknown"
+            #endif
+        }
+
+        func currentDisplayInfo() -> String {
+            let descriptions = UIScreen.screens.map { screen -> String in
+                let bounds = screen.bounds
+                let scale = screen.scale
+                return "\(Int(bounds.width))x\(Int(bounds.height)) @\(Int(scale))x"
+            }
+            let count = UIScreen.screens.count
+            let prefix = "\(count) display\(count == 1 ? "" : "s")"
+            return "\(prefix), \(descriptions.joined(separator: "; "))"
+        }
+
         let infoDictionary = Bundle.main.infoDictionary ?? [:]
         let env = ProcessInfo.processInfo.environment
         let commit = (infoDictionary["CMUXCommit"] as? String).flatMap { value in
@@ -87,34 +114,6 @@ public struct MobileFeedbackAppMetadata: Sendable {
             architecture: currentArchitecture(),
             displayInfo: currentDisplayInfo()
         )
-    }
-
-    private static func formatMemoryGB() -> String {
-        let bytes = ProcessInfo.processInfo.physicalMemory
-        let gb = Double(bytes) / (1_024 * 1_024 * 1_024)
-        return "\(Int(gb)) GB"
-    }
-
-    private static func currentArchitecture() -> String {
-        #if arch(arm64)
-        return "arm64"
-        #elseif arch(x86_64)
-        return "x86_64"
-        #else
-        return "unknown"
-        #endif
-    }
-
-    @MainActor
-    private static func currentDisplayInfo() -> String {
-        let descriptions = UIScreen.screens.map { screen -> String in
-            let bounds = screen.bounds
-            let scale = screen.scale
-            return "\(Int(bounds.width))x\(Int(bounds.height)) @\(Int(scale))x"
-        }
-        let count = UIScreen.screens.count
-        let prefix = "\(count) display\(count == 1 ? "" : "s")"
-        return "\(prefix), \(descriptions.joined(separator: "; "))"
     }
 }
 #endif

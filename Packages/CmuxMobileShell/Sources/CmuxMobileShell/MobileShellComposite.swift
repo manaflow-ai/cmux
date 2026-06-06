@@ -1496,7 +1496,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func markMacConnectionUnavailableIfNeeded(after error: any Error) {
-        guard Self.isMobileMacAvailabilityFailure(error) else { return }
+        guard isMobileMacAvailabilityFailure(error) else { return }
         markMacConnectionUnavailable()
     }
 
@@ -2515,7 +2515,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = workspaces.first?.terminals.first?.id
     }
 
-    private static func isMobileMacAvailabilityFailure(_ error: any Error) -> Bool {
+    private func isMobileMacAvailabilityFailure(_ error: any Error) -> Bool {
         if error is CmxNetworkByteTransportError {
             return true
         }

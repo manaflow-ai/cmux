@@ -26,7 +26,7 @@ public struct MobileFeedbackPhotoProcessor: Sendable {
     ) async throws -> MobileFeedbackPhotoAttachment {
         try await Task.detached(priority: .userInitiated) {
             let boundedMaximumByteCount = max(maximumByteCount, 1)
-            let jpegData = try Self.optimizedJPEGData(
+            let jpegData = try self.optimizedJPEGData(
                 from: sourceData,
                 maximumByteCount: boundedMaximumByteCount
             )
@@ -39,7 +39,7 @@ public struct MobileFeedbackPhotoProcessor: Sendable {
         }.value
     }
 
-    private static func optimizedJPEGData(
+    private func optimizedJPEGData(
         from sourceData: Data,
         maximumByteCount: Int
     ) throws -> Data {
@@ -71,7 +71,7 @@ public struct MobileFeedbackPhotoProcessor: Sendable {
         throw MobileFeedbackSubmissionError.photoPreparationFailed
     }
 
-    private static func jpegData(from image: CGImage, quality: Double) -> Data? {
+    private func jpegData(from image: CGImage, quality: Double) -> Data? {
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(
             data,
