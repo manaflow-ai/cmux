@@ -10979,6 +10979,7 @@ struct VerticalTabsSidebar: View {
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
+        let workspaceGhosttyThemeNames: [String]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -11008,6 +11009,7 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
+        let workspaceGhosttyThemeNames = WorkspaceGhosttyThemeCatalogCache.availableThemeNames()
         let draggedSidebarTabId = dragState.draggedTabId
         let sidebarReorderIds = draggedSidebarTabId.map {
             tabManager.sidebarReorderWorkspaceIds(
@@ -11031,7 +11033,8 @@ struct VerticalTabsSidebar: View {
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
             workspaceGroups: workspaceGroups,
             workspaceGroupById: workspaceGroupById,
-            workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot
+            workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
+            workspaceGhosttyThemeNames: workspaceGhosttyThemeNames
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -12664,6 +12667,7 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             contextMenuPinState: contextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
+            workspaceGhosttyThemeNames: renderContext.workspaceGhosttyThemeNames,
             settings: renderContext.tabItemSettings,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
@@ -15157,6 +15161,7 @@ struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
+        lhs.workspaceGhosttyThemeNames == rhs.workspaceGhosttyThemeNames &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
         lhs.settings == rhs.settings
@@ -15202,6 +15207,7 @@ struct TabItemView: View, Equatable {
     let allRemoteContextMenuTargetsDisconnected: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
+    let workspaceGhosttyThemeNames: [String]
     let settings: SidebarTabItemSettingsSnapshot
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
@@ -16168,7 +16174,7 @@ struct TabItemView: View, Equatable {
                 }
             }
 
-            let themeNames = WorkspaceGhosttyThemeCatalogCache.availableThemeNames()
+            let themeNames = workspaceGhosttyThemeNames
             if themeNames.isEmpty {
                 Text(String(localized: "contextMenu.noGhosttyThemesFound", defaultValue: "No themes found"))
             } else {
