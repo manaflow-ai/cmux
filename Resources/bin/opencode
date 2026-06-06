@@ -74,11 +74,9 @@ opencode_passthrough_option_flag() {
     return 1
 }
 
-opencode_builtin_command_name() {
+opencode_passthrough_command_name() {
     case "$1" in
-        completion|acp|mcp|attach|run|debug|providers|auth|agent|upgrade|\
-        uninstall|serve|web|models|stats|export|import|pr|github|session|\
-        plugin|plug|db|help|version)
+        completion|help|version)
             return 0
             ;;
     esac
@@ -93,7 +91,7 @@ opencode_command_like_invocation() {
             return 1
             ;;
     esac
-    opencode_builtin_command_name "$candidate"
+    opencode_passthrough_command_name "$candidate"
 }
 
 should_install_opencode_hooks() {

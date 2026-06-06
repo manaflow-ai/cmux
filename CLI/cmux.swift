@@ -25625,6 +25625,15 @@ function markSessionNeedsInput(event) {
   record.errorNotified = false;
 }
 
+function markSessionInputResolved(event) {
+  const record = lifecycleRecordFor(event);
+  if (!record) return;
+  if (record.phase === "needs-input") {
+    record.phase = "active";
+    record.errorNotified = false;
+  }
+}
+
 function shouldNotifySessionError(event) {
   const record = lifecycleRecordFor(event);
   if (!record) return true;
@@ -25761,6 +25770,12 @@ const CMUXSessionRestore = async (ctx) => {
           markSessionNeedsInput(event);
           setStatus(STATUS_DESCRIPTORS.needsInput, ctx, event);
           notifyOpenCode("question", promptBody(props), ctx, event);
+          break;
+        case "permission.replied":
+        case "permission.answered":
+        case "question.replied":
+        case "question.answered":
+          markSessionInputResolved(event);
           break;
         case "session.error":
           setStatus(STATUS_DESCRIPTORS.error, ctx, event);

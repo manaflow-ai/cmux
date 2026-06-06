@@ -118,7 +118,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
 
         let result = runProcess(
             executablePath: wrapperPath,
-            arguments: ["--model", "anthropic/claude-sonnet-4-6"],
+            arguments: ["run", "--model", "anthropic/claude-sonnet-4-6", "fix this"],
             environment: environment,
             timeout: 5
         )
@@ -128,7 +128,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let log = try String(contentsOf: logURL, encoding: .utf8)
         XCTAssertTrue(log.contains("cmux:--socket \(socketURL.path) ping"), log)
         XCTAssertTrue(log.contains("cmux:--socket \(socketURL.path) hooks opencode install --yes"), log)
-        XCTAssertTrue(log.contains("opencode:--model anthropic/claude-sonnet-4-6"), log)
+        XCTAssertTrue(log.contains("opencode:run --model anthropic/claude-sonnet-4-6 fix this"), log)
         XCTAssertTrue(log.contains("cmux-bin:\(fakeCmuxURL.path)"), log)
         XCTAssertTrue(log.contains("kind:opencode"), log)
         XCTAssertTrue(log.range(of: #"pid:\d+"#, options: .regularExpression) != nil, log)
@@ -234,6 +234,8 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         await send("session.error", { info, error: { message: "upstream quota" } });
         await send("permission.asked", { info, message: "approve" });
         await send("session.idle", { info });
+        await send("permission.replied", { sessionID: sessionId });
+        await send("session.idle", { info });
         await send("session.status", status("running"));
         await send("session.status", { info: { ...info, status: { type: "queued", message: "truncate inactive workbench" } } });
         await send("session.status", status("idle"));
@@ -279,7 +281,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let runningStatuses = commands.filter { $0.contains("hooks opencode runtime-status running") }
         XCTAssertEqual(runningStatuses.count, 3, log)
         let stopHooks = commands.filter { $0 == "hooks opencode stop" }
-        XCTAssertEqual(stopHooks.count, lifecycleEvictionSessionCount + 3, log)
+        XCTAssertEqual(stopHooks.count, lifecycleEvictionSessionCount + 4, log)
     }
 
     private func bundledCLIPath() throws -> String {
