@@ -52,11 +52,15 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// The Mac's libghostty self-gates: a normal screen treats it as a harmless
     /// empty selection. Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int)
+    /// The user tapped the "customize" button at the end of the input-accessory
+    /// bar; the host should present the toolbar shortcuts editor. Optional.
+    func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView)
 }
 
 public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
+    func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
 }
 
 @MainActor
@@ -238,7 +242,7 @@ struct TerminalHardwareKeyResolver {
     }
 }
 
-public enum TerminalInputAccessoryAction: Int, CaseIterable {
+public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     case control
     case alternate
     case command
@@ -800,6 +804,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             } else {
                 self.focusInput()
             }
+        }
+        inputProxy.onOpenToolbarSettings = { [weak self] in
+            guard let self else { return }
+            self.delegate?.ghosttySurfaceViewDidRequestToolbarSettings(self)
         }
         inputProxy.accessoryLayoutInsetsProvider = { [weak self] in
             guard let self,

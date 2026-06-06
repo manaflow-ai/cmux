@@ -630,6 +630,23 @@
         }
       }
     },
+    "mobile.common.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
     "mobile.common.done": {
       "extractionState": "manual",
       "localizations": {
@@ -643,6 +660,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "完了"
+          }
+        }
+      }
+    },
+    "mobile.common.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集"
           }
         }
       }
@@ -1408,6 +1442,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Macを切り替え"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.addAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Custom Action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムアクションを追加"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose which buttons appear on the terminal keyboard bar, and drag to reorder them. Swipe a custom action to edit or delete it. The modifier keys and zoom controls are always shown."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのキーボードバーに表示するボタンを選び、ドラッグして並べ替えできます。カスタムアクションはスワイプで編集または削除できます。修飾キーとズームコントロールは常に表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shortcut Buttons"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショートカットボタン"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset to Defaults"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトに戻す"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Shortcuts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルショートカット"
           }
         }
       }
@@ -2738,6 +2857,159 @@
         }
       }
     },
+    "mobile.toolbar.editor.addTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクションを追加"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.commandFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The text typed into the terminal when tapped. Turn on Run after typing to press Return automatically."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップしたときにターミナルへ入力されるテキストです。「入力後に実行」をオンにすると、自動的にReturnが押されます。"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.commandHeader": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信内容"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.commandPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude --dangerously-skip-permissions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude --dangerously-skip-permissions"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.editTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクションを編集"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.runAfterTyping": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run after typing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力後に実行"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.titleFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shown on the button in the keyboard toolbar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーボードツールバーのボタンに表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.titleHeader": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Label"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラベル"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.titlePlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Button label"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボタンのラベル"
+          }
+        }
+      }
+    },
     "mobile.workspace.emptyTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -2908,6 +3180,23 @@
         }
       }
     },
+    "terminal.input_accessory.customize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize Toolbar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールバーをカスタマイズ"
+          }
+        }
+      }
+    },
     "terminal.input_accessory.hideKeyboard": {
       "extractionState": "manual",
       "localizations": {
@@ -2959,6 +3248,23 @@
         }
       }
     },
+    "terminal.input_accessory.title.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリア"
+          }
+        }
+      }
+    },
     "terminal.input_accessory.title.control": {
       "extractionState": "manual",
       "localizations": {
@@ -2989,40 +3295,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "End"
-          }
-        }
-      }
-    },
-    "terminal.input_accessory.title.clear": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clear"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クリア"
-          }
-        }
-      }
-    },
-    "terminal.shortcut.name.ctrlL": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clear (Control-L)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クリア (Control-L)"
           }
         }
       }
@@ -3108,6 +3380,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "縮小"
+          }
+        }
+      }
+    },
+    "terminal.shortcut.name.ctrlL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear (Control-L)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリア (Control-L)"
           }
         }
       }
