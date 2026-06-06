@@ -56,13 +56,17 @@ final class RemoteTmuxControlConnection {
     private let maxRecentEvents = 100
 
     private enum CommandKind: Equatable {
-        case listWindows, capturePane(Int), paneCursor(Int), panePath(Int), other
+        case listWindows, capturePane(Int), paneCursor(Int), panePath(Int), paneAltScreen(Int), other
     }
 
     /// Subscription-name prefix for per-pane `pane_current_path` (`refresh-client -B`).
     /// The tmux pane id is appended so an inbound `%subscription-changed` can be
     /// routed back to its pane; defined once so the writer and reader can't drift.
     private static let cwdSubscriptionPrefix = "cmux_cwd_"
+
+    /// `ESC[?1049h` — enter the alternate screen, emitted to a mirror surface when
+    /// the remote pane is on the alternate screen (see ``capturePane(paneId:)``).
+    private static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
 
     init(host: RemoteTmuxHost, sessionName: String, createIfMissing: Bool = false) {
         self.host = host
@@ -224,7 +228,23 @@ final class RemoteTmuxControlConnection {
     /// Captures a pane's current visible contents (with escapes) and delivers
     /// them to the pane-output observers so a freshly-mounted display surface shows
     /// the existing screen instead of starting blank.
+    ///
+    /// First queries `#{alternate_on}` and, if the remote pane is on the alternate
+    /// screen, enters it on the mirror surface (emits `ESC[?1049h`) before the
+    /// captured rows so they land on the matching screen and resize behaves like the
+    /// remote (the alternate screen does not reflow).
     func capturePane(paneId: Int) {
+        // Match the remote pane's screen (primary vs alternate) BEFORE seeding the
+        // captured rows. An alt-screen TUI (e.g. claude) must render on the mirror's
+        // alternate screen so resize matches the remote (the alternate screen does
+        // not reflow; the primary screen reflows/scrolls and offsets rows). The
+        // pane was already on the alt screen before cmux attached, so its 1049h is
+        // not in the live %output — query `#{alternate_on}` and enter alt ourselves.
+        // Ordered first so the enter lands before the capture paint in the FIFO.
+        sendInternal(
+            "display-message -p -t %\(paneId) -F \"#{alternate_on}\"",
+            kind: .paneAltScreen(paneId)
+        )
         sendInternal("capture-pane -p -e -t %\(paneId)", kind: .capturePane(paneId))
         // Follow with the real cursor position so the surface cursor lines up
         // with tmux's prompt (capture-pane alone doesn't carry the cursor).
@@ -471,6 +491,15 @@ final class RemoteTmuxControlConnection {
         case let .panePath(paneId):
             if let path = lines.first?.trimmingCharacters(in: .whitespaces), !path.isEmpty {
                 emitPaneCwd(paneId, path)
+            }
+        case let .paneAltScreen(paneId):
+            // Enter the alternate screen on the mirror surface so it matches the
+            // remote pane (alt = no reflow on resize). Emitted before the capture
+            // paint that follows in the FIFO, so the seeded rows land on the alt
+            // screen. A pane on the primary screen needs no toggle (the surface
+            // defaults to primary, and a later live `%output` 1049l would leave alt).
+            if lines.first?.trimmingCharacters(in: .whitespaces) == "1" {
+                emitPaneOutput(paneId, Self.altScreenEnterSequence)
             }
         case .other:
             break
