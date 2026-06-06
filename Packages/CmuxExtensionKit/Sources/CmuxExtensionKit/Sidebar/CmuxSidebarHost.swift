@@ -3,11 +3,12 @@ import Foundation
 /// Typed command channel from a sidebar extension back to CMUX.
 @MainActor
 public struct CmuxSidebarHost {
-    private let performAction: @MainActor @Sendable (CMUXSidebarAction, @escaping @MainActor @Sendable (CMUXExtensionActionResult) -> Void) -> CmuxSidebarActionCancellation?
+    private let performAction: @MainActor @Sendable (CmuxSidebarAction, @escaping @MainActor @Sendable (CmuxSidebarActionResult) -> Void) -> CmuxSidebarActionCancellation?
     private let refreshSnapshot: @MainActor @Sendable () -> Void
 
+    @_spi(CmuxHostTransport)
     public init(
-        performAction: @escaping @MainActor @Sendable (CMUXSidebarAction, @escaping @MainActor @Sendable (CMUXExtensionActionResult) -> Void) -> Void,
+        performAction: @escaping @MainActor @Sendable (CmuxSidebarAction, @escaping @MainActor @Sendable (CmuxSidebarActionResult) -> Void) -> Void,
         refreshSnapshot: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         self.performAction = { action, reply in
@@ -19,10 +20,11 @@ public struct CmuxSidebarHost {
 
     /// Creates a typed host channel with cancellable action dispatch.
     ///
-    /// Use this initializer when the underlying transport can remove pending
-    /// replies after the caller's task is cancelled.
+    /// This initializer is transport SPI for CMUX's ExtensionKit runtime. SDK
+    /// consumers receive `CmuxSidebarHost` through `CmuxSidebarContext`.
+    @_spi(CmuxHostTransport)
     public init(
-        performCancellableAction: @escaping @MainActor @Sendable (CMUXSidebarAction, @escaping @MainActor @Sendable (CMUXExtensionActionResult) -> Void) -> CmuxSidebarActionCancellation?,
+        performCancellableAction: @escaping @MainActor @Sendable (CmuxSidebarAction, @escaping @MainActor @Sendable (CmuxSidebarActionResult) -> Void) -> CmuxSidebarActionCancellation?,
         refreshSnapshot: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         self.performAction = performCancellableAction
@@ -34,74 +36,117 @@ public struct CmuxSidebarHost {
         refreshSnapshot()
     }
 
+    /// Requests that CMUX create a workspace.
+    public func createWorkspace(
+        title: String? = nil,
+        select: Bool = true
+    ) async throws {
+        try await send(.createWorkspace(title: title, workingDirectory: nil, select: select))
+    }
+
+    /// Requests that CMUX create a workspace rooted at a specific local folder.
+    ///
+    /// This requires the `.createWorkspaceWithPath` action scope in addition to
+    /// `.createWorkspace`.
+    public func createWorkspace(
+        title: String? = nil,
+        at workingDirectory: String,
+        select: Bool = true
+    ) async throws {
+        try await send(.createWorkspace(title: title, workingDirectory: workingDirectory, select: select))
+    }
+
     /// Selects a workspace in CMUX.
-    public func selectWorkspace(_ id: UUID) async -> CMUXExtensionActionResult {
-        await perform(.selectWorkspace(id))
+    public func selectWorkspace(_ id: UUID) async throws {
+        try await send(.selectWorkspace(id))
     }
 
     /// Requests that CMUX close a workspace.
-    public func closeWorkspace(_ id: UUID) async -> CMUXExtensionActionResult {
-        await perform(.closeWorkspace(id))
+    public func closeWorkspace(_ id: UUID) async throws {
+        try await send(.closeWorkspace(id))
+    }
+
+    /// Selects the next workspace in CMUX's current sidebar order.
+    public func selectNextWorkspace() async throws {
+        try await send(.selectNextWorkspace)
+    }
+
+    /// Selects the previous workspace in CMUX's current sidebar order.
+    public func selectPreviousWorkspace() async throws {
+        try await send(.selectPreviousWorkspace)
     }
 
     /// Requests that CMUX open a web URL.
-    public func openURL(_ url: URL) async -> CMUXExtensionActionResult {
-        await perform(.openURL(url.absoluteString))
+    public func openURL(_ url: URL) async throws {
+        try await send(.openURL(url.absoluteString))
     }
 
-    public func createTerminalSurface(
-        in workspaceID: UUID? = nil,
-        initialInput: String? = nil
-    ) async -> CMUXExtensionActionResult {
-        await perform(.createTerminalSurface(workspaceID: workspaceID, initialInput: initialInput))
+    /// Requests that CMUX create a terminal surface.
+    ///
+    /// Extensions can ask CMUX to create the surface, but cannot seed shell
+    /// input. This keeps `.createSurface` separate from command execution.
+    public func createTerminalSurface(in workspaceID: UUID? = nil) async throws {
+        try await send(.createTerminalSurface(workspaceID: workspaceID))
     }
 
     public func createBrowserSurface(
         in workspaceID: UUID? = nil,
         url: URL? = nil
-    ) async -> CMUXExtensionActionResult {
-        await perform(.createBrowserSurface(workspaceID: workspaceID, url: url?.absoluteString))
+    ) async throws {
+        try await send(.createBrowserSurface(workspaceID: workspaceID, url: url?.absoluteString))
     }
 
-    public func selectSurface(workspaceID: UUID, surfaceID: UUID) async -> CMUXExtensionActionResult {
-        await perform(.selectSurface(workspaceID: workspaceID, surfaceID: surfaceID))
+    public func selectSurface(workspaceID: UUID, surfaceID: UUID) async throws {
+        try await send(.selectSurface(workspaceID: workspaceID, surfaceID: surfaceID))
     }
 
-    public func selectNextSurface() async -> CMUXExtensionActionResult {
-        await perform(.selectNextSurface)
+    public func selectNextSurface() async throws {
+        try await send(.selectNextSurface)
     }
 
-    public func selectPreviousSurface() async -> CMUXExtensionActionResult {
-        await perform(.selectPreviousSurface)
+    public func selectPreviousSurface() async throws {
+        try await send(.selectPreviousSurface)
     }
 
-    public func closeSurface(workspaceID: UUID, surfaceID: UUID) async -> CMUXExtensionActionResult {
-        await perform(.closeSurface(workspaceID: workspaceID, surfaceID: surfaceID))
+    public func closeSurface(workspaceID: UUID, surfaceID: UUID) async throws {
+        try await send(.closeSurface(workspaceID: workspaceID, surfaceID: surfaceID))
     }
 
     public func splitTerminal(
         workspaceID: UUID,
         surfaceID: UUID,
-        direction: CMUXSplitDirection
-    ) async -> CMUXExtensionActionResult {
-        await perform(.splitTerminal(workspaceID: workspaceID, surfaceID: surfaceID, direction: direction))
+        direction: CmuxSidebarSplitDirection
+    ) async throws {
+        try await send(.splitTerminal(workspaceID: workspaceID, surfaceID: surfaceID, direction: direction))
     }
 
     public func splitBrowser(
         workspaceID: UUID,
         surfaceID: UUID,
-        direction: CMUXSplitDirection,
+        direction: CmuxSidebarSplitDirection,
         url: URL? = nil
-    ) async -> CMUXExtensionActionResult {
-        await perform(.splitBrowser(workspaceID: workspaceID, surfaceID: surfaceID, direction: direction, url: url?.absoluteString))
+    ) async throws {
+        try await send(.splitBrowser(workspaceID: workspaceID, surfaceID: surfaceID, direction: direction, url: url?.absoluteString))
     }
 
-    public func toggleSurfaceZoom(workspaceID: UUID, surfaceID: UUID) async -> CMUXExtensionActionResult {
-        await perform(.toggleSurfaceZoom(workspaceID: workspaceID, surfaceID: surfaceID))
+    public func toggleSurfaceZoom(workspaceID: UUID, surfaceID: UUID) async throws {
+        try await send(.toggleSurfaceZoom(workspaceID: workspaceID, surfaceID: surfaceID))
+    }
+
+    private func send(_ action: CmuxSidebarAction) async throws {
+        let result = await perform(action)
+        guard result.accepted else {
+            let message = result.message ?? "cmux did not allow that action"
+            if result.rejectionReason == .cancelled {
+                throw CmuxSidebarActionError.cancelled
+            }
+            throw CmuxSidebarActionError.rejected(message)
+        }
     }
 
     /// Sends a raw sidebar action and returns CMUX's acceptance result.
-    public func perform(_ action: CMUXSidebarAction) async -> CMUXExtensionActionResult {
+    @_spi(CmuxHostTransport)
+    public func perform(_ action: CmuxSidebarAction) async -> CmuxSidebarActionResult {
         let replyGate = CmuxSidebarActionReplyGate()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -119,25 +164,30 @@ public struct CmuxSidebarHost {
     }
 
     /// Sends a raw sidebar action. Prefer the async typed helpers above when possible.
+    @_spi(CmuxHostTransport)
     public func perform(
-        _ action: CMUXSidebarAction,
-        reply: @escaping @MainActor @Sendable (CMUXExtensionActionResult) -> Void
+        _ action: CmuxSidebarAction,
+        reply: @escaping @MainActor @Sendable (CmuxSidebarActionResult) -> Void
     ) {
         _ = performAction(action, reply)
     }
 }
 
 private final class CmuxSidebarActionReplyGate: @unchecked Sendable {
+    // The host transport completes actions through escaping XPC callbacks while
+    // task cancellation can arrive from any executor. A small lock keeps the
+    // continuation and transport cancellation token single-resume without
+    // adding actor hops to the callback path.
     private let lock = NSLock()
-    private var continuation: CheckedContinuation<CMUXExtensionActionResult, Never>?
+    private var continuation: CheckedContinuation<CmuxSidebarActionResult, Never>?
     private var cancellation: CmuxSidebarActionCancellation?
     private var didComplete = false
 
-    func setContinuation(_ continuation: CheckedContinuation<CMUXExtensionActionResult, Never>) -> Bool {
+    func setContinuation(_ continuation: CheckedContinuation<CmuxSidebarActionResult, Never>) -> Bool {
         lock.lock()
         if didComplete {
             lock.unlock()
-            continuation.resume(returning: .rejected("Extension action was cancelled"))
+            continuation.resume(returning: .cancelled)
             return false
         }
         self.continuation = continuation
@@ -156,14 +206,14 @@ private final class CmuxSidebarActionReplyGate: @unchecked Sendable {
         lock.unlock()
     }
 
-    func resume(returning result: CMUXExtensionActionResult) {
+    func resume(returning result: CmuxSidebarActionResult) {
         let continuation = complete()
         continuation?.resume(returning: result)
     }
 
     func cancel() {
         let cancellation: CmuxSidebarActionCancellation?
-        let continuation: CheckedContinuation<CMUXExtensionActionResult, Never>?
+        let continuation: CheckedContinuation<CmuxSidebarActionResult, Never>?
         lock.lock()
         if didComplete {
             lock.unlock()
@@ -177,10 +227,10 @@ private final class CmuxSidebarActionReplyGate: @unchecked Sendable {
         lock.unlock()
 
         cancellation?.cancel()
-        continuation?.resume(returning: .rejected("Extension action was cancelled"))
+        continuation?.resume(returning: .cancelled)
     }
 
-    private func complete() -> CheckedContinuation<CMUXExtensionActionResult, Never>? {
+    private func complete() -> CheckedContinuation<CmuxSidebarActionResult, Never>? {
         lock.lock()
         if didComplete {
             lock.unlock()

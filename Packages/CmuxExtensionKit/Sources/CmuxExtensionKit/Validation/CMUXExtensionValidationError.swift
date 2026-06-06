@@ -1,8 +1,8 @@
 import Foundation
 
-public enum CMUXExtensionValidationError: Error, Equatable, Sendable {
-    case unsupportedKind(CMUXExtensionKind)
-    case unsupportedAPIVersion(requested: CMUXExtensionAPIVersion, supported: CMUXExtensionAPIVersion)
+@_spi(CmuxHostTransport)
+public enum CmuxExtensionValidationError: Error, Equatable, Sendable {
+    case unsupportedAPIVersion(requested: CmuxExtensionAPIVersion, supported: CmuxExtensionAPIVersion)
     case emptyIdentifier
     case emptyDisplayName
     case payloadTooLarge(kind: String, actualBytes: Int, maximumBytes: Int)

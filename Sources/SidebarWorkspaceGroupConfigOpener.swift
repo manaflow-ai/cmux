@@ -3,8 +3,23 @@ import Foundation
 
 /// Opens workspace-group configuration and documentation surfaces.
 enum SidebarWorkspaceGroupConfigOpener {
+    /// Opens the cmux config file (`~/.config/cmux/cmux.json`) in the user's
+    /// configured editor, materializing an empty config first if none exists.
     static func openCmuxConfigInEditor() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
+        openCmuxConfigInEditor(
+            home: FileManager.default.homeDirectoryForCurrentUser,
+            open: { PreferredEditorSettings.open($0) }
+        )
+    }
+
+    /// Testable seam: resolves the cmux config path under `home`, materializes
+    /// an empty config if absent, then hands the file to `open`.
+    ///
+    /// The public ``openCmuxConfigInEditor()`` entry point passes
+    /// `PreferredEditorSettings.open` so the config file honors
+    /// `preferredEditorCommand` (with an OS-default fallback). Tests inject a
+    /// capturing closure to assert the config file is routed through `open`.
+    static func openCmuxConfigInEditor(home: URL, open: (URL) -> Void) {
         let configURL = home
             .appendingPathComponent(".config", isDirectory: true)
             .appendingPathComponent("cmux", isDirectory: true)
@@ -17,7 +32,7 @@ enum SidebarWorkspaceGroupConfigOpener {
             )
             try? Data("{}\n".utf8).write(to: configURL, options: .atomic)
         }
-        NSWorkspace.shared.open(configURL)
+        open(configURL)
     }
 
     static func openWorkspaceGroupsDocs() {

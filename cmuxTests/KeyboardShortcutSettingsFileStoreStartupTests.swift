@@ -434,6 +434,98 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileParsesMarkdownTypographyDefaults() throws {
+        let defaults = UserDefaults.standard
+
+        try preservingDefaults(keys: [
+            MarkdownFontSizeSettings.key,
+            MarkdownFontFamily.key,
+            MarkdownMaxWidthSettings.key,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey
+        ]) {
+            defaults.removeObject(forKey: MarkdownFontSizeSettings.key)
+            defaults.removeObject(forKey: MarkdownFontFamily.key)
+            defaults.removeObject(forKey: MarkdownMaxWidthSettings.key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "markdown": {
+                    "fontSize": 22,
+                    "fontFamily": "  Avenir Next  \\n",
+                    "maxWidth": 1220
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            withExtendedLifetime(store) {
+                XCTAssertEqual(defaults.integer(forKey: MarkdownFontSizeSettings.key), 22)
+                XCTAssertEqual(defaults.string(forKey: MarkdownFontFamily.key), "Avenir Next")
+                XCTAssertEqual(defaults.integer(forKey: MarkdownMaxWidthSettings.key), 1220)
+            }
+        }
+    }
+
+    func testSettingsFileParsesFileEditorWordWrap() throws {
+        let defaults = UserDefaults.standard
+
+        try preservingDefaults(keys: [
+            FilePreviewWordWrapSettings.key,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey
+        ]) {
+            defaults.removeObject(forKey: FilePreviewWordWrapSettings.key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            // Defaults to off until the config opts in.
+            XCTAssertFalse(FilePreviewWordWrapSettings.isEnabled(defaults: defaults))
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "fileEditor": {
+                    "wordWrap": true
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            withExtendedLifetime(store) {
+                XCTAssertTrue(defaults.bool(forKey: FilePreviewWordWrapSettings.key))
+                XCTAssertTrue(FilePreviewWordWrapSettings.isEnabled(defaults: defaults))
+            }
+        }
+    }
+
     func testManagedAppearanceUserDefaultSurvivesSettingsFileReapplyUntilFileChanges() throws {
         let defaults = UserDefaults.standard
         let key = AppearanceSettings.appearanceModeKey
@@ -983,6 +1075,46 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
             XCTAssertEqual(defaults.object(forKey: TerminalTextBoxInputSettings.maxLinesKey) as? Int, 14)
             XCTAssertEqual(TerminalTextBoxInputSettings.maxLines(defaults: defaults), 14)
+        }
+    }
+
+    func testSettingsFileStoreAppliesFocusTextBoxOnNewTerminalsSetting() throws {
+        let defaults = UserDefaults.standard
+        let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
+        let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey
+        try preservingDefaults(keys: [showKey, focusKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: showKey)
+            defaults.removeObject(forKey: focusKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "showTextBoxOnNewTerminals": true,
+                    "focusTextBoxOnNewTerminals": true
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: showKey) as? Bool, true)
+            XCTAssertEqual(defaults.object(forKey: focusKey) as? Bool, true)
+            XCTAssertTrue(TerminalTextBoxInputSettings.showOnNewTerminals(defaults: defaults))
+            XCTAssertTrue(TerminalTextBoxInputSettings.focusOnNewTerminals(defaults: defaults))
         }
     }
 
