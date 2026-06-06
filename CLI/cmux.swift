@@ -25572,11 +25572,12 @@ function descriptorForOpenCodeStatus(rawStatus) {
   const primaryTokens = statusTokens(statusWordsForKeys(rawStatus, ["type", "status", "state", "phase"]));
   const tokens = statusTokens(statusWords(rawStatus));
   if (!tokens.length) return null;
-  if (hasRetryStatus(tokens)) return STATUS_DESCRIPTORS.retrying;
   if (hasAnyStatusToken(primaryTokens, ERROR_STATUS_TOKENS)) return STATUS_DESCRIPTORS.error;
+  if (hasRetryStatus(primaryTokens)) return STATUS_DESCRIPTORS.retrying;
   if (hasAnyStatusToken(primaryTokens, IDLE_STATUS_TOKENS)) return STATUS_DESCRIPTORS.idle;
   if (hasAnyStatusToken(primaryTokens, RUNNING_STATUS_TOKENS)) return STATUS_DESCRIPTORS.running;
   if (hasAnyStatusToken(tokens, ERROR_STATUS_TOKENS)) return STATUS_DESCRIPTORS.error;
+  if (hasRetryStatus(tokens)) return STATUS_DESCRIPTORS.retrying;
   if (hasAnyStatusToken(tokens, IDLE_STATUS_TOKENS)) return STATUS_DESCRIPTORS.idle;
   if (hasAnyStatusToken(tokens, RUNNING_STATUS_TOKENS)) return STATUS_DESCRIPTORS.running;
   return null;
@@ -25625,12 +25626,13 @@ function markSessionNeedsInput(event) {
   record.errorNotified = false;
 }
 
-function markSessionInputResolved(event) {
+function markSessionInputResolved(ctx, event) {
   const record = lifecycleRecordFor(event);
   if (!record) return;
   if (record.phase === "needs-input") {
     record.phase = "active";
     record.errorNotified = false;
+    setStatus(STATUS_DESCRIPTORS.running, ctx, event);
   }
 }
 
@@ -25775,7 +25777,7 @@ const CMUXSessionRestore = async (ctx) => {
         case "permission.answered":
         case "question.replied":
         case "question.answered":
-          markSessionInputResolved(event);
+          markSessionInputResolved(ctx, event);
           break;
         case "session.error":
           setStatus(STATUS_DESCRIPTORS.error, ctx, event);

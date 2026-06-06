@@ -231,6 +231,8 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         await send("session.status", status("error"));
         await send("session.error", { info, error: { message: "upstream quota" } });
         await send("session.status", status("running"));
+        await send("session.status", { info: { ...info, status: { type: "error", message: "retry after rate limit" } } });
+        await send("session.status", status("running"));
         await send("session.error", { info, error: { message: "upstream quota" } });
         await send("permission.asked", { info, message: "approve" });
         await send("session.idle", { info });
@@ -275,11 +277,13 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let log = try String(contentsOf: logURL, encoding: .utf8)
         let commands = log.split(separator: "\n").map(String.init)
         let errorNotifications = commands.filter { $0.contains("hooks opencode runtime-notification error") }
-        XCTAssertEqual(errorNotifications.count, 2, log)
+        XCTAssertEqual(errorNotifications.count, 3, log)
         let needsInputStatuses = commands.filter { $0.contains("hooks opencode runtime-status needs-input") }
         XCTAssertEqual(needsInputStatuses.count, 1, log)
         let runningStatuses = commands.filter { $0.contains("hooks opencode runtime-status running") }
-        XCTAssertEqual(runningStatuses.count, 3, log)
+        XCTAssertEqual(runningStatuses.count, 5, log)
+        let retryingStatuses = commands.filter { $0.contains("hooks opencode runtime-status retrying") }
+        XCTAssertEqual(retryingStatuses.count, 0, log)
         let stopHooks = commands.filter { $0 == "hooks opencode stop" }
         XCTAssertEqual(stopHooks.count, lifecycleEvictionSessionCount + 4, log)
     }
