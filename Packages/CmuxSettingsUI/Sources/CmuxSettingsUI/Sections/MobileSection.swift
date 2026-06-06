@@ -12,10 +12,22 @@ public struct MobileSection: View {
     @State private var displayName: DefaultsValueModel<String>
     @State private var status: MobilePairingStatusModel
 
+    /// The port value being edited in the field. Local so editing does not
+    /// rebind the listener; only the **Apply** button does, after checking the
+    /// port is free.
+    @State private var draftPort: Int
+    /// Result of the most recent Apply, shown inline. Cleared when the draft
+    /// changes.
+    @State private var applyResult: MobilePairingPortApplyResult?
+
     /// The Mac's system name, used as the display-name placeholder when no
     /// override is set. Captured once from the host; it does not change during a
     /// settings session, so it never goes stale as the override is edited.
     private let defaultDisplayName: String
+
+    /// Applies a requested port through the host (availability-checked). Captured
+    /// as a closure so the section holds no reference to the host bridge.
+    private let applyPort: (Int) -> MobilePairingPortApplyResult
 
     private static let columnWidth: CGFloat = 196
 
@@ -31,11 +43,24 @@ public struct MobileSection: View {
         catalog: SettingCatalog,
         hostActions: SettingsHostActions
     ) {
+        let portModel = DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort)
         _iOSPairingHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingHost))
-        _port = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort))
+        _port = State(initialValue: portModel)
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
+        _draftPort = State(initialValue: portModel.current)
         defaultDisplayName = hostActions.mobilePairingDefaultDisplayName()
+        applyPort = { hostActions.applyMobilePairingPort($0) }
+    }
+
+    /// The port currently in effect: the bound port when running, otherwise the
+    /// persisted preference. Apply is offered only when the draft differs from it.
+    private var effectivePort: Int {
+        status.current?.boundPort ?? port.current
+    }
+
+    private var isDraftValid: Bool {
+        (1...65535).contains(draftPort)
     }
 
     /// The Mobile settings section content.
@@ -55,7 +80,7 @@ public struct MobileSection: View {
                 }
                 SettingsCardNote(String(
                     localized: "settings.mobile.port.note",
-                    defaultValue: "The port is a preference. If it is already in use, cmux binds an available port instead and the iOS app still pairs on the actual port shown above. Changing the port disconnects connected devices; pair again if they don't reconnect."
+                    defaultValue: "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, it rebinds and connected devices reconnect on the new port."
                 ))
             }
         }
@@ -84,33 +109,68 @@ public struct MobileSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingPort",
             String(localized: "settings.mobile.port", defaultValue: "Pairing Port"),
-            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "Preferred TCP port for the iOS pairing listener (1–65535)."),
-            controlWidth: Self.columnWidth
+            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "Preferred TCP port for the iOS pairing listener (1–65535).")
         ) {
-            TextField(
-                "",
-                value: Binding(get: { port.current }, set: { port.set($0) }),
-                format: .number.grouping(.never)
-            )
-            .textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing)
-            .accessibilityIdentifier("SettingsMobilePairingPortField")
+            HStack(spacing: 8) {
+                TextField(
+                    "",
+                    value: Binding(get: { draftPort }, set: { draftPort = $0 }),
+                    format: .number.grouping(.never)
+                )
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 90)
+                .onChange(of: draftPort) { applyResult = nil }
+                .onSubmit { applyDraftPort() }
+                .accessibilityIdentifier("SettingsMobilePairingPortField")
+
+                Button(String(localized: "settings.mobile.port.apply", defaultValue: "Apply")) {
+                    applyDraftPort()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!isDraftValid || draftPort == effectivePort)
+                .accessibilityIdentifier("SettingsMobilePairingPortApplyButton")
+            }
         }
     }
 
-    /// Live indicator of the actual bound port, with a warning when the typed
-    /// value is out of range or when the listener fell back from the configured
-    /// port. The out-of-range warning shows even while pairing is off so an
-    /// invalid value is never silently accepted.
+    private func applyDraftPort() {
+        guard isDraftValid, draftPort != effectivePort else { return }
+        applyResult = applyPort(draftPort)
+    }
+
+    /// Status under the port row: an out-of-range hint, the most recent Apply
+    /// result for the cases the live indicator can't convey, or the live
+    /// bound-port indicator otherwise.
     @ViewBuilder
     private var boundPortStatusRow: some View {
-        if !(1...65535).contains(port.current) {
+        if !isDraftValid {
             statusCaption {
                 Label(
                     String(localized: "settings.mobile.port.status.invalid", defaultValue: "Port must be between 1 and 65535."),
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .foregroundStyle(.orange)
+            }
+        } else if case let .portInUse(requested) = applyResult {
+            statusCaption {
+                Label(
+                    String(
+                        localized: "settings.mobile.port.apply.inUse",
+                        defaultValue: "Port \(requested) is in use. Still listening on \(status.current?.boundPort ?? requested)."
+                    ),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(.orange)
+            }
+        } else if case let .savedForLater(saved) = applyResult {
+            statusCaption {
+                Label(
+                    String(localized: "settings.mobile.port.apply.saved", defaultValue: "Saved. Will use port \(saved) when iOS Pairing is on."),
+                    systemImage: "checkmark.circle.fill"
+                )
+                .foregroundStyle(.secondary)
             }
         } else if iOSPairingHost.current, let snapshot = status.current {
             statusCaption { boundPortStatusText(snapshot) }

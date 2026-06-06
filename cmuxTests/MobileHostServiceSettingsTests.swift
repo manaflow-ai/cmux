@@ -71,6 +71,33 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == nil)
     }
 
+    @Test func portApplyDecisionChecksValidityEnabledAndAvailability() {
+        // Out of range → invalid, regardless of anything else.
+        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: nil, requestedPort: 0, isAvailable: true) == .invalid)
+        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: nil, requestedPort: 70000, isAvailable: true) == .invalid)
+        // Pairing off → saved for when it's enabled (no availability check).
+        #expect(MobileHostService.portApplyDecision(enabled: false, currentBoundPort: nil, requestedPort: 58465, isAvailable: false) == .savedWhileDisabled)
+        // Already bound to the requested port → applied without probing.
+        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: 58465, requestedPort: 58465, isAvailable: false) == .applied(58465))
+        // Enabled, different port, free → applied.
+        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: 58465, requestedPort: 58470, isAvailable: true) == .applied(58470))
+        // Enabled, different port, in use → portInUse (running listener left alone).
+        #expect(MobileHostService.portApplyDecision(enabled: true, currentBoundPort: 58465, requestedPort: 58470, isAvailable: false) == .portInUse)
+    }
+
+    @Test func portApplyDecisionDoesNotProbeForNoOpApply() {
+        // `isAvailable` must not be evaluated when already bound to the port.
+        var probed = false
+        let outcome = MobileHostService.portApplyDecision(
+            enabled: true,
+            currentBoundPort: 58465,
+            requestedPort: 58465,
+            isAvailable: { probed = true; return false }()
+        )
+        #expect(outcome == .applied(58465))
+        #expect(!probed)
+    }
+
     @Test func syncDecisionStartsStopsAndNoOpsForEnabledState() {
         // Disabled: stop only when something is running, otherwise no-op.
         #expect(MobileHostService.syncDecision(enabled: false, listenerRunning: false, desiredPort: 58465, appliedPort: nil) == .noop)

@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxSettings
 import CryptoKit
+import Darwin
 import Foundation
 @preconcurrency import Network
 import OSLog
@@ -277,6 +278,20 @@ enum MobileHostSyncDecision: Equatable {
     case restart
 }
 
+/// Outcome of an explicit "Apply port" request from settings. A pure value so
+/// ``MobileHostService/portApplyDecision(enabled:currentBoundPort:requestedPort:isAvailable:)``
+/// is unit-testable without binding a real `NWListener`.
+enum MobileHostPortApplyOutcome: Equatable {
+    /// The port was accepted; the listener is (or will be) bound to it.
+    case applied(Int)
+    /// The port is in use by another process; the running listener was left untouched.
+    case portInUse
+    /// Pairing is off, so the port was saved and will bind when pairing is enabled.
+    case savedWhileDisabled
+    /// The requested port was outside the valid `1...65535` range.
+    case invalid
+}
+
 @MainActor
 final class MobileHostService {
     static let shared = MobileHostService()
@@ -418,6 +433,81 @@ final class MobileHostService {
         guard listenerRunning else { return .start }
         if appliedPort != desiredPort { return .restart }
         return .noop
+    }
+
+    /// Pure decision for an explicit "Apply port" request, factored out so it is
+    /// unit-testable with `isAvailable` injected (the real availability check
+    /// does I/O). `isAvailable` is only evaluated when a running listener would
+    /// have to move to a new port, so a no-op apply never probes.
+    ///
+    /// - Parameters:
+    ///   - enabled: Whether iOS pairing is enabled in settings.
+    ///   - currentBoundPort: The port the listener is currently bound to, or `nil`.
+    ///   - requestedPort: The port the user asked to apply.
+    ///   - isAvailable: Whether `requestedPort` can be bound (probed lazily).
+    nonisolated static func portApplyDecision(
+        enabled: Bool,
+        currentBoundPort: Int?,
+        requestedPort: Int,
+        isAvailable: @autoclosure () -> Bool
+    ) -> MobileHostPortApplyOutcome {
+        guard (1...65535).contains(requestedPort) else { return .invalid }
+        guard enabled else { return .savedWhileDisabled }
+        if currentBoundPort == requestedPort { return .applied(requestedPort) }
+        return isAvailable() ? .applied(requestedPort) : .portInUse
+    }
+
+    /// Whether `port` can currently be bound for the pairing listener.
+    ///
+    /// A synchronous one-shot bind probe on `INADDR_ANY` without
+    /// `SO_REUSEADDR`, matching `NWListener`'s default (`allowLocalEndpointReuse`
+    /// is false). It only gates whether an apply is attempted; the live bound-port
+    /// status remains the source of truth for what is displayed, so a rare
+    /// dual-stack disagreement self-corrects to the ephemeral-fallback warning.
+    nonisolated static func isPortAvailable(_ port: Int) -> Bool {
+        guard (1...65535).contains(port) else { return false }
+        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { return false }
+        defer { close(descriptor) }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(port).bigEndian
+        address.sin_addr.s_addr = INADDR_ANY
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                bind(descriptor, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
+            }
+        }
+        return bindResult == 0
+    }
+
+    /// Whether `error` means the address/port cannot be bound (in use, not
+    /// available, or permission denied) versus a transient waiting reason.
+    nonisolated static func isAddressUnavailable(_ error: NWError) -> Bool {
+        if case let .posix(code) = error {
+            return code == .EADDRINUSE || code == .EADDRNOTAVAIL || code == .EACCES
+        }
+        return false
+    }
+
+    /// Applies an explicitly-requested pairing port. Persists it only when it can
+    /// be bound (or pairing is off); when the port is in use the running listener
+    /// is left untouched so devices stay connected. On a successful apply the
+    /// persisted-value change drives ``syncToSettings(defaults:)`` to rebind.
+    func applyConfiguredPort(_ port: Int, defaults: UserDefaults = .standard) -> MobileHostPortApplyOutcome {
+        let outcome = Self.portApplyDecision(
+            enabled: Self.isListeningEnabled(defaults: defaults),
+            currentBoundPort: listenerPort,
+            requestedPort: port,
+            isAvailable: Self.isPortAvailable(port)
+        )
+        switch outcome {
+        case .invalid, .portInUse:
+            break
+        case .applied, .savedWhileDisabled:
+            defaults.set(port, forKey: Self.portDefaultsKey)
+        }
+        return outcome
     }
 
     func start() {
@@ -1113,32 +1203,51 @@ final class MobileHostService {
             }
             mobileHostLog.info("mobile host listener ready on port \(self.listenerPort ?? 0)")
         case let .failed(error):
-            lastErrorDescription = String(describing: error)
-            MobileHostPublicStatusCache.update(routes: [])
-            mobileHostLog.error("mobile host listener failed: \(String(describing: error), privacy: .public)")
-            let shouldRetryWithEphemeralPort = !listenerUsesEphemeralFallback
-            listener?.stateUpdateHandler = nil
-            listener?.newConnectionHandler = nil
-            listener?.cancel()
-            listenerGeneration = UUID()
-            listener = nil
-            listenerUsesEphemeralFallback = false
-            listenerPort = nil
-            if shouldRetryWithEphemeralPort {
-                mobileHostLog.info("mobile host preferred port failed after start, falling back to an ephemeral port")
-                startListener(usePreferredPort: false)
-            }
+            handleListenerBindFailure(error: error, context: "failed after start")
         case .cancelled:
             listenerGeneration = UUID()
             listener = nil
             listenerUsesEphemeralFallback = false
             listenerPort = nil
             MobileHostPublicStatusCache.update(routes: [])
-        case .setup, .waiting:
+        case let .waiting(error):
+            // A preferred-port bind blocked by another listener surfaces as
+            // `.waiting(.posix(.EADDRINUSE))` rather than `.failed`, and NWListener
+            // would otherwise wait forever; treat address-unavailable the same as
+            // a failure so the ephemeral fallback (and bound-port warning) fire.
+            if Self.isAddressUnavailable(error) {
+                handleListenerBindFailure(error: error, context: "in use (waiting)")
+            } else {
+                listenerPort = nil
+                MobileHostPublicStatusCache.update(routes: [])
+            }
+        case .setup:
             listenerPort = nil
             MobileHostPublicStatusCache.update(routes: [])
         @unknown default:
             break
+        }
+    }
+
+    /// Tears down a listener that could not bind its preferred port and, unless
+    /// it was already on the ephemeral fallback, retries on an OS-assigned port.
+    /// Shared by the `.failed` and `.waiting(addressUnavailable)` paths.
+    private func handleListenerBindFailure(error: NWError, context: String) {
+        lastErrorDescription = String(describing: error)
+        MobileHostPublicStatusCache.update(routes: [])
+        let shouldRetryWithEphemeralPort = !listenerUsesEphemeralFallback
+        listener?.stateUpdateHandler = nil
+        listener?.newConnectionHandler = nil
+        listener?.cancel()
+        listenerGeneration = UUID()
+        listener = nil
+        listenerUsesEphemeralFallback = false
+        listenerPort = nil
+        if shouldRetryWithEphemeralPort {
+            mobileHostLog.info("mobile host preferred port \(context, privacy: .public), falling back to an ephemeral port")
+            startListener(usePreferredPort: false)
+        } else {
+            mobileHostLog.error("mobile host listener bind failed on ephemeral port: \(String(describing: error), privacy: .public)")
         }
     }
 

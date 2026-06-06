@@ -123,6 +123,13 @@ public protocol SettingsHostActions: AnyObject {
     /// from the override, so the placeholder never goes stale as the override
     /// is edited.
     func mobilePairingDefaultDisplayName() -> String
+
+    /// Applies an explicitly-requested iOS pairing port, checking availability
+    /// first so a port already in use leaves the running listener untouched. The
+    /// Mobile section calls this from its **Apply** button and renders the
+    /// returned ``MobilePairingPortApplyResult`` as inline feedback; the live
+    /// status stream then reflects the actual bound port.
+    func applyMobilePairingPort(_ port: Int) -> MobilePairingPortApplyResult
 }
 
 public extension SettingsHostActions {
@@ -138,6 +145,11 @@ public extension SettingsHostActions {
 
     /// Default: empty, for hosts that cannot resolve the Mac's system name.
     func mobilePairingDefaultDisplayName() -> String { "" }
+
+    /// Default: save-for-later, for hosts without a live mobile service (previews/tests).
+    func applyMobilePairingPort(_ port: Int) -> MobilePairingPortApplyResult {
+        (1...65535).contains(port) ? .savedForLater(port: port) : .invalid(requestedPort: port)
+    }
 
     func sidebarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 12.5, minimum: 10, maximum: 20, defaultValue: 12.5)

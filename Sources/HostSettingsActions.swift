@@ -266,6 +266,19 @@ final class HostSettingsActions: SettingsHostActions {
         Host.current().localizedName ?? ""
     }
 
+    func applyMobilePairingPort(_ port: Int) -> MobilePairingPortApplyResult {
+        switch MobileHostService.shared.applyConfiguredPort(port) {
+        case .applied(let bound):
+            return .applied(port: bound)
+        case .portInUse:
+            return .portInUse(requestedPort: port)
+        case .savedWhileDisabled:
+            return .savedForLater(port: port)
+        case .invalid:
+            return .invalid(requestedPort: port)
+        }
+    }
+
     /// Localized transport label for a pairing route shown in diagnostics.
     private static func routeKindLabel(_ kind: CmxAttachTransportKind) -> String {
         switch kind {
