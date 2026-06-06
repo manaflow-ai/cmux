@@ -12,6 +12,7 @@ import AppKit
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
@@ -60,6 +61,7 @@ struct WorkspaceShellView: View {
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .push,
+                wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
@@ -113,6 +115,7 @@ struct WorkspaceShellView: View {
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .sidebar,
+                wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: store.createWorkspace,
                 rescanQR: { store.disconnectAndForgetActiveMac() },

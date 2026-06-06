@@ -4,9 +4,11 @@ import SwiftUI
 
 struct WorkspaceRow: View {
     let workspace: MobileWorkspacePreview
-    let host: String
     let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
+    /// When `true`, the workspace title wraps onto multiple lines instead of
+    /// truncating to one (driven by the "Wrap Workspace Titles" setting).
+    let wrapWorkspaceTitles: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -24,11 +26,11 @@ struct WorkspaceRow: View {
                     Text(workspace.name)
                         .font(.headline)
                         .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
-                        .lineLimit(1)
+                        .lineLimit(wrapWorkspaceTitles ? nil : 1)
 
                     Spacer(minLength: 8)
 
-                    Text(workspace.timestampOrStatus(host: host, connectionStatus: connectionStatus))
+                    Text(workspace.timestampOrStatus(connectionStatus: connectionStatus))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -44,7 +46,7 @@ struct WorkspaceRow: View {
                         .fill(workspace.statusColor(connectionStatus: connectionStatus))
                         .frame(width: 7, height: 7)
 
-                    Text(workspace.detailLine(host: host, connectionStatus: connectionStatus))
+                    Text(workspace.detailLine(connectionStatus: connectionStatus))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

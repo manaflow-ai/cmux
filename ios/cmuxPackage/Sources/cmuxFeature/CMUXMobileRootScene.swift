@@ -30,6 +30,7 @@ public struct CMUXMobileRootScene: View {
     private let reachability: any ReachabilityProviding
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
+    private let displaySettings: MobileDisplaySettings
     #endif
     private let pairedMacStore: (any MobilePairedMacStoring)?
 
@@ -42,16 +43,20 @@ public struct CMUXMobileRootScene: View {
     ///     the shell store (already used to build `auth`).
     ///   - pushCoordinator: The app-root push coordinator (shared with the app
     ///     delegate) injected into the environment.
+    ///   - displaySettings: The app-root mobile display settings injected into
+    ///     the environment (drives workspace-title wrapping).
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
-        pushCoordinator: MobilePushCoordinator
+        pushCoordinator: MobilePushCoordinator,
+        displaySettings: MobileDisplaySettings
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
         self.pushCoordinator = pushCoordinator
+        self.displaySettings = displaySettings
         self.pairedMacStore = Self.openPairedMacStore()
     }
     #else
@@ -84,6 +89,7 @@ public struct CMUXMobileRootScene: View {
             .environment(auth.coordinator)
             #if os(iOS)
             .environment(pushCoordinator)
+            .environment(displaySettings)
             #endif
     }
 

@@ -35,13 +35,15 @@ extension MobileWorkspacePreview {
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
-    func timestampOrStatus(host: String, connectionStatus: MobileMacConnectionStatus) -> String {
+    func timestampOrStatus(connectionStatus: MobileMacConnectionStatus) -> String {
         if connectionStatus != .connected {
             return connectionStatus.label
         }
         let date = latestActivityDate
+        // A healthy connection shows no host name here; without a real activity
+        // timestamp the trailing slot stays empty rather than echoing the Mac.
         guard date.timeIntervalSince1970 > 1 else {
-            return host.isEmpty ? (terminals.first?.name ?? "") : host
+            return ""
         }
         if Calendar.current.isDateInToday(date) {
             return date.formatted(date: .omitted, time: .shortened)
@@ -49,19 +51,14 @@ extension MobileWorkspacePreview {
         return date.formatted(.dateTime.month(.defaultDigits).day(.defaultDigits))
     }
 
-    func detailLine(host: String, connectionStatus: MobileMacConnectionStatus) -> String {
-        let count = L10n.terminalCount(terminals.count)
-        guard connectionStatus == .connected else {
-            return count
-        }
-        guard !host.isEmpty else {
-            return count
-        }
-        return "\(host), \(count)"
+    func detailLine(connectionStatus: MobileMacConnectionStatus) -> String {
+        // The connected row shows only the terminal count; the host Mac name
+        // lives in Settings and the disconnected status row, never the row body.
+        L10n.terminalCount(terminals.count)
     }
 
-    func accessibilitySummary(host: String, connectionStatus: MobileMacConnectionStatus) -> String {
-        let detail = detailLine(host: host, connectionStatus: connectionStatus)
+    func accessibilitySummary(connectionStatus: MobileMacConnectionStatus) -> String {
+        let detail = detailLine(connectionStatus: connectionStatus)
         // A healthy connection contributes no status text anywhere, including VoiceOver.
         guard connectionStatus != .connected else {
             return "\(previewLine), \(detail)"
