@@ -7,7 +7,8 @@ public enum RightSidebarWidthSettings {
     public static let rememberedMaxWidthKey = "rightSidebarRememberedMaxWidth"
     public static let noOverrideValue = -1.0
     public static let minimumWidth = 276.0
-    public static let defaultConfiguredMaximumWidth = 900.0
+    public static let builtInMaximumWidth = 1200.0
+    public static let defaultConfiguredMaximumWidth = builtInMaximumWidth
     public static let settingsEditorMaximumWidth = 4096.0
 
     public static func configuredMaximumWidth(from storedValue: Double) -> Double? {

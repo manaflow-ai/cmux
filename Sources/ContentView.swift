@@ -1590,7 +1590,7 @@ struct ContentView: View {
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
     private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
-    private static let maximumRightSidebarWidth: CGFloat = 1200
+    private static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {

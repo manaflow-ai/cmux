@@ -76,6 +76,14 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
+    func testRightSidebarFirstCustomMaximumMatchesBuiltInCap() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(10_000, availableWidth: 10_000),
+            CGFloat(RightSidebarWidthSettings.defaultConfiguredMaximumWidth),
+            accuracy: 0.001
+        )
+    }
+
     func testRightSidebarClampLeavesTerminalWidthWhenMaxWidthSettingIsMissing() {
         XCTAssertEqual(
             ContentView.clampedRightSidebarWidth(10_000, availableWidth: 1000),
