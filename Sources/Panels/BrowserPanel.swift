@@ -4456,7 +4456,8 @@ final class BrowserPanel: Panel, ObservableObject {
         renderInitialNavigation: Bool = true,
         preloadInitialNavigationInBackground: Bool = false,
         bypassInsecureHTTPHostOnce: String? = nil,
-        omnibarVisible: Bool = true,
+        useSurfaceRoleDefaultInitialURL: Bool = true,
+        omnibarVisible: Bool? = nil,
         transparentBackground: Bool = false,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
@@ -4466,6 +4467,10 @@ final class BrowserPanel: Panel, ObservableObject {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
+        let resolvedInitialURL = initialURL
+            ?? (useSurfaceRoleDefaultInitialURL ? surfaceRole.defaultInitialURL : nil)
+        let resolvedOmnibarVisible = surfaceRole.showsBrowserChrome
+            && (omnibarVisible ?? surfaceRole.showsBrowserChrome)
         self.id = UUID()
         self.surfaceRole = surfaceRole
         self.panelType = surfaceRole.panelType
@@ -4482,7 +4487,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
-        self.isOmnibarVisible = omnibarVisible
+        self.isOmnibarVisible = resolvedOmnibarVisible
         self.usesTransparentBackground = transparentBackground
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
@@ -4635,7 +4640,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     recordTypedNavigation: false
                 )
             }
-        } else if let url = initialURL {
+        } else if let url = resolvedInitialURL {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = url
             shouldRenderWebView = renderInitialNavigation

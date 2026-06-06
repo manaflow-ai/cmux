@@ -7302,7 +7302,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetWorkspaceId = targetWorkspace.id
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
-        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+        Task { @MainActor in
+            let serveWebURL = await VSCodeServeWebController.shared.ensureServeWebURL(
+                vscodeApplicationURL: vscodeApplicationURL
+            )
             guard let serveWebURL,
                   let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
                       baseWebUIURL: serveWebURL,
@@ -7378,7 +7381,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
-        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+        Task { @MainActor in
+            let serveWebURL = await VSCodeServeWebController.shared.ensureServeWebURL(
+                vscodeApplicationURL: vscodeApplicationURL
+            )
             guard let serveWebURL,
                   let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
                       baseWebUIURL: serveWebURL,
