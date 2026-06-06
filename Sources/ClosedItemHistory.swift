@@ -337,8 +337,8 @@ final class ClosedItemHistoryStore {
     private static func entry(_ entry: ClosedItemHistoryEntry, matches ref: ReopenedItemRef) -> Bool {
         switch entry {
         case .panel(let panelEntry):
-            guard case .panel(let workspaceId, let panelId) = ref else { return false }
-            return panelEntry.workspaceId == workspaceId && panelEntry.snapshot.id == panelId
+            guard case .panel(_, let panelId) = ref else { return false }
+            return panelEntry.snapshot.id == panelId
         case .workspace(let workspaceEntry):
             guard case .workspace(let workspaceId) = ref else { return false }
             return workspaceEntry.workspaceId == workspaceId

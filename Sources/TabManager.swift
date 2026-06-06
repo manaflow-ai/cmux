@@ -5524,21 +5524,18 @@ class TabManager: ObservableObject {
             ) else { return }
         }
 
-        if plan.workspaces.count == tabs.count,
-           let firstWorkspace = plan.workspaces.first {
-            if let window {
-                window.performClose(nil)
-                return
-            }
-            if AppDelegate.shared != nil {
-                AppDelegate.shared?.closeMainWindowContainingTabId(firstWorkspace.id)
-                return
-            }
-        }
-
         // All closes in this multi-select share one operationId so they form a
         // single restorable group in the History pane.
         let batchOperationId = UUID()
+        if plan.workspaces.count == tabs.count,
+           let firstWorkspace = plan.workspaces.first {
+            if AppDelegate.shared?.closeMainWindowContainingTabId(firstWorkspace.id, operationId: batchOperationId) == true {
+                return
+            }
+            window?.performClose(nil)
+            return
+        }
+
         for workspace in plan.workspaces {
             guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
             // Anchor-close confirms inside closeWorkspaceIfRunningProcess.
@@ -5558,10 +5555,8 @@ class TabManager: ObservableObject {
                 // Anchor confirmed (or suppressed); skip the inner re-prompt
                 // by closing without going through closeWorkspaceIfRunningProcess.
                 if tabs.count <= 1 {
-                    if let window {
-                        window.performClose(nil)
-                    } else {
-                        AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
+                    if AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id, operationId: batchOperationId) != true {
+                        window?.performClose(nil)
                     }
                 } else {
                     closeWorkspace(workspace, operationId: batchOperationId)
