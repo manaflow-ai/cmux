@@ -690,6 +690,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func pairAdditionalMac(_ rawValue: String) async -> Bool {
         // The session to fall back to if the new pairing fails to connect.
         let hadLiveConnection = connectionState == .connected
+        // Capture the scoped Stack user id *before* the destructive connect. The
+        // failure fallback must reconnect only within this user's pairings, never
+        // via `activeMac(stackUserID: nil)`, which is the store's all-users query
+        // and could reconnect another Stack user's Mac on a shared device.
+        let fallbackStackUserID = identityProvider?.currentUserID
         let result = await connectPairingURLResult(rawValue)
         switch result {
         case .connected:
@@ -700,10 +705,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         case .failed:
             // The destructive connect path dropped the previous session; if we
-            // had one, reconnect the still-active stored Mac so the user is not
-            // left disconnected after a bad scan.
-            if hadLiveConnection {
-                _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+            // had one and still have a scoped identity, reconnect the still-active
+            // stored Mac so the user is not left disconnected after a bad scan. No
+            // scoped identity means no safe reconnect target, so we skip it rather
+            // than fall into the unscoped all-users lookup.
+            if hadLiveConnection, let fallbackStackUserID {
+                _ = await reconnectActiveMacIfAvailable(stackUserID: fallbackStackUserID)
             }
             await loadPairedMacs()
             return false
