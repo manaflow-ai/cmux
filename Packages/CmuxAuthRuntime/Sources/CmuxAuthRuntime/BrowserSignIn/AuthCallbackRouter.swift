@@ -1,47 +1,60 @@
-import Foundation
+public import Foundation
 
-struct CMUXAuthCallbackPayload: Equatable, Sendable {
-    let refreshToken: String
-    let accessToken: String
-}
+/// Recognizes and parses cmux auth callback URLs.
+///
+/// Accepts the built-in cmux callback schemes (`cmux`, `cmux-nightly`,
+/// `cmux-dev`) plus an optional runtime override (e.g. a per-tag Debug build's
+/// unique scheme), injected at construction so the type never reads the
+/// process environment itself. A pure value; construct it once at the
+/// composition root and inject it.
+public struct AuthCallbackRouter: Sendable {
+    private static let builtInSchemes: Set<String> = ["cmux", "cmux-nightly", "cmux-dev"]
+    private let extraAllowedScheme: String?
 
-enum AuthCallbackRouter {
-    static func isAuthCallbackURL(_ url: URL) -> Bool {
-        guard isAllowedScheme(url.scheme) else { return false }
-        return callbackTarget(for: url) == "auth-callback"
+    /// Creates a router.
+    /// - Parameter extraAllowedScheme: An additional callback scheme to honor
+    ///   (the composition root passes its resolved runtime scheme so any
+    ///   `CMUX_AUTH_CALLBACK_SCHEME` override round-trips).
+    public init(extraAllowedScheme: String? = nil) {
+        self.extraAllowedScheme = extraAllowedScheme?.lowercased()
     }
 
-    static func callbackPayload(from url: URL) -> CMUXAuthCallbackPayload? {
+    /// Whether `url` is a cmux auth callback (`<scheme>://auth-callback`).
+    public func isAuthCallbackURL(_ url: URL) -> Bool {
+        guard isAllowedScheme(url.scheme) else { return false }
+        return Self.callbackTarget(for: url) == "auth-callback"
+    }
+
+    /// Parse the token payload from a callback URL, or `nil` when the URL is
+    /// not a valid auth callback.
+    public func callbackPayload(from url: URL) -> AuthCallbackPayload? {
         guard isAuthCallbackURL(url) else { return nil }
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return nil
         }
 
-        guard let refreshToken = queryValue(named: "stack_refresh", in: components)?
+        guard let refreshToken = Self.queryValue(named: "stack_refresh", in: components)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               !refreshToken.isEmpty,
-              let accessCookie = queryValue(named: "stack_access", in: components)?
+              let accessCookie = Self.queryValue(named: "stack_access", in: components)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               !accessCookie.isEmpty,
-              let accessToken = decodeAccessToken(from: accessCookie) else {
+              let accessToken = Self.decodeAccessToken(from: accessCookie) else {
             return nil
         }
 
-        return CMUXAuthCallbackPayload(
+        return AuthCallbackPayload(
             refreshToken: refreshToken,
             accessToken: accessToken
         )
     }
 
-    private static func isAllowedScheme(_ scheme: String?) -> Bool {
+    private func isAllowedScheme(_ scheme: String?) -> Bool {
         guard let normalized = scheme?.lowercased() else { return false }
-        if normalized == "cmux" || normalized == "cmux-nightly" || normalized == "cmux-dev" {
+        if Self.builtInSchemes.contains(normalized) {
             return true
         }
-        // Honor the runtime override so any AuthEnvironment.callbackScheme
-        // chosen via CMUX_AUTH_CALLBACK_SCHEME round-trips through the
-        // router (e.g. per-tag Debug builds with a unique scheme).
-        return normalized == AuthEnvironment.callbackScheme.lowercased()
+        return normalized == extraAllowedScheme
     }
 
     private static func callbackTarget(for url: URL) -> String {

@@ -7,7 +7,7 @@ import Foundation
 /// magic-link callback URL and the cmux web API base URL, so both apps build
 /// `StackClientApp` and the push registration service from one value instead of
 /// the per-app `AppEnvironment` / `AuthEnvironment` tables. Resolve it once at
-/// the composition root via ``resolve(environment:overrides:)`` (injecting the
+/// the composition root via ``init(environment:overrides:)`` (injecting the
 /// `LocalConfig.plist` overrides) and inject it down; the type never reads
 /// `Bundle.main` itself.
 public struct AuthConfig: Equatable, Sendable {
@@ -34,12 +34,11 @@ public struct AuthConfig: Equatable, Sendable {
     ///   - overrides: String overrides (e.g. parsed from a bundled
     ///     `LocalConfig.plist`). Recognized keys: `STACK_PROJECT_ID_DEV/PROD`,
     ///     `STACK_PUBLISHABLE_CLIENT_KEY_DEV/PROD`, and `ApiBaseURL`.
-    /// - Returns: The resolved configuration.
-    public static func resolve(
+    public init(
         environment: CMUXAuthEnvironment,
         overrides: [String: String] = [:]
-    ) -> Self {
-        let stack = CMUXAuthConfig.resolve(
+    ) {
+        let stack = CMUXAuthConfig(
             environment: environment,
             overrides: overrides,
             developmentProjectId: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
@@ -59,12 +58,13 @@ public struct AuthConfig: Equatable, Sendable {
             defaultAPIBaseURL = "https://cmux.dev"
         }
 
-        let apiBaseURL = resolvedAPIBaseURL(override: overrides["ApiBaseURL"], fallback: defaultAPIBaseURL)
-        return Self(stack: stack, magicLinkCallbackURL: callbackURL, apiBaseURL: apiBaseURL)
-    }
-
-    private static func resolvedAPIBaseURL(override: String?, fallback: String) -> String {
-        guard let override, !override.isEmpty else { return fallback }
-        return override.hasSuffix("/") ? String(override.dropLast()) : override
+        let override = overrides["ApiBaseURL"]
+        let apiBaseURL: String
+        if let override, !override.isEmpty {
+            apiBaseURL = override.hasSuffix("/") ? String(override.dropLast()) : override
+        } else {
+            apiBaseURL = defaultAPIBaseURL
+        }
+        self.init(stack: stack, magicLinkCallbackURL: callbackURL, apiBaseURL: apiBaseURL)
     }
 }
