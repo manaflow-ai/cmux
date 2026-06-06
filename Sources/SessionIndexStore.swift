@@ -238,6 +238,7 @@ final class SessionIndexStore: ObservableObject {
         loadGeneration &+= 1
         isLoading = false
         entries.removeAll { $0.id == entry.id }
+        directorySnapshotGeneration += 1
         invalidateDirectorySnapshots()
         return true
     }
