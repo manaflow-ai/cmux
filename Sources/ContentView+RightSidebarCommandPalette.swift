@@ -137,7 +137,7 @@ extension ContentView {
     }
 
     static func commandPaletteRightSidebarToolPaneCommandDescriptors() -> [(mode: RightSidebarMode, commandId: String, title: String)] {
-        RightSidebarMode.paneModes.compactMap { mode in
+        RightSidebarMode.availablePaneModes().compactMap { mode in
             guard let commandId = commandPaletteRightSidebarToolPaneCommandID(mode),
                   let title = commandPaletteRightSidebarToolPaneTitle(mode) else {
                 return nil
