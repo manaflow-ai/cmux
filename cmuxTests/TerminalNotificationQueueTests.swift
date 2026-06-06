@@ -226,6 +226,112 @@ final class TerminalNotificationQueueTests: XCTestCase {
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }
 
+    func testMarkReadKeepsAgentStatusWhenPolicyHookNotificationIsPending() async throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-notification-policy-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "global", "command": "cat" }]
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        let cmuxConfigStore = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        cmuxConfigStore.loadAll()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        let asyncNotificationDelivered = expectation(description: "policy hook notification delivered")
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            if notification.title == "Localized Claude Code" {
+                asyncNotificationDelivered.fulfill()
+            }
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        let windowId = appDelegate.registerMainWindowContextForTesting(
+            tabManager: manager,
+            cmuxConfigStore: cmuxConfigStore
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100
+        )
+        workspace.recordAgentPID(
+            key: "claude_code.session-policy-hook-needs-input",
+            pid: pid_t(12345),
+            panelId: focusedPanelId,
+            refreshPorts: false
+        )
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspace.id,
+                surfaceId: focusedPanelId,
+                panelId: focusedPanelId,
+                structuredAgentStatusKey: "claude_code",
+                title: "Claude Code",
+                subtitle: "Waiting",
+                body: "Claude needs your input",
+                createdAt: Date(),
+                isRead: false
+            ),
+        ])
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: focusedPanelId,
+            title: "Localized Claude Code",
+            subtitle: "Waiting",
+            body: "Claude still needs your input",
+            structuredAgentStatusKey: "claude_code"
+        )
+        let deliveredNotification = try XCTUnwrap(
+            store.notifications.first(where: { $0.title == "Claude Code" })
+        )
+        store.markRead(id: deliveredNotification.id)
+
+        let statusBeforePolicyDelivery = try XCTUnwrap(workspace.statusEntries["claude_code"])
+        XCTAssertEqual(statusBeforePolicyDelivery.value, "Needs input")
+        XCTAssertEqual(statusBeforePolicyDelivery.icon, "bell.fill")
+
+        await fulfillment(of: [asyncNotificationDelivered], timeout: 2.0)
+
+        XCTAssertTrue(store.notifications.contains { notification in
+            notification.title == "Localized Claude Code" && !notification.isRead
+        })
+    }
+
     func testNotifyTargetAsyncMalformedAgentStatusOptionPreservesPayloadText() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
