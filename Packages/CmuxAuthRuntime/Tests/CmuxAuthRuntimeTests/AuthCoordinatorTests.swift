@@ -101,6 +101,18 @@ import Testing
         #expect(await ranHook.fired)
     }
 
+    @Test func signOutClearsPreviousDiagnosticsError() async {
+        let (coordinator, _) = makeCoordinator(client: FakeAuthClient())
+        await #expect(throws: AuthError.unauthorized) {
+            _ = try await coordinator.accessToken()
+        }
+        #expect(coordinator.lastAuthErrorDescription != nil)
+
+        await coordinator.signOut()
+
+        #expect(coordinator.lastAuthErrorDescription == nil)
+    }
+
     @Test func devAuthFortyTwoShortcutSignsIn() async throws {
         let user = CMUXAuthUser(id: "debug", primaryEmail: "l@l.com", displayName: "L")
         let client = FakeAuthClient(user: user)

@@ -359,6 +359,7 @@ struct WorkspaceDetailView: View {
         let host = store.connectedHostName.isEmpty ? nil : store.connectedHostName
         let activeTicket = store.activeTicket
         let activePairedMac = store.activePairedMac
+        let persistedActivePairedMac = store.pairedMacs.first { $0.isActive }
         return MobileDiagnosticsLiveState(
             connectionState: diagnosticsConnectionState,
             isSignedIn: store.isSignedIn,
@@ -367,9 +368,13 @@ struct WorkspaceDetailView: View {
             connectedHostName: host,
             pairedMacName: activeTicket?.macDisplayName
                 ?? activePairedMac?.displayName
+                ?? persistedActivePairedMac?.displayName
                 ?? activeTicket?.macDeviceID
-                ?? activePairedMac?.macDeviceID,
-            pairedMacDeviceID: activeTicket?.macDeviceID ?? activePairedMac?.macDeviceID,
+                ?? activePairedMac?.macDeviceID
+                ?? persistedActivePairedMac?.macDeviceID,
+            pairedMacDeviceID: activeTicket?.macDeviceID
+                ?? activePairedMac?.macDeviceID
+                ?? persistedActivePairedMac?.macDeviceID,
             connectionError: store.connectionError
         )
     }

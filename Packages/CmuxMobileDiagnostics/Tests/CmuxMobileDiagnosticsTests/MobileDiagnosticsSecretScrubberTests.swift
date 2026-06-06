@@ -31,6 +31,11 @@ import Testing
         #expect(scrubber.scrub("API_TOKEN='opaquevalue123'") == "API_TOKEN='<redacted>'")
         #expect(scrubber.scrub("DB_PASSWORD='hunter2longvalue'") == "DB_PASSWORD='<redacted>'")
         #expect(scrubber.scrub("AUTH=opaque-secret-123") == "AUTH=<redacted>")
+        #expect(scrubber.scrub("_authToken=npm_secret_value_123") == "_authToken=<redacted>")
+        #expect(
+            scrubber.scrub("//registry.npmjs.org/:_authToken=npm_secret_value_456")
+                == "//registry.npmjs.org/:_authToken=<redacted>"
+        )
     }
 
     @Test func redactsQuotedKeyValueSecretsContainingSpaces() {

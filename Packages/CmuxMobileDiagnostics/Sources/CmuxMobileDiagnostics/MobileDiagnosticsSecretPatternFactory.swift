@@ -37,6 +37,11 @@ struct MobileDiagnosticsSecretPatternFactory {
             ("(?i)(?:^|[\\s\"'`({\\[,;&?])((?:AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|SECURITY_TOKEN))\\b\\s*[:=]\\s*[\"']?)([^\\s\"'&]{4,})",
              2),
 
+            // npm registry auth tokens in `.npmrc` output can appear as either
+            // `_authToken=...` or `//registry.example/:_authToken=...`.
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?:])(_authToken\\b\\s*[:=]\\s*[\"']?)([^\\s\"'&]{4,})",
+             2),
+
             // Quoted `token=\"...\"` / `password='...'` style values can include
             // spaces. Handle those before the unquoted rule below so the whole
             // quoted value is redacted instead of only its first word.

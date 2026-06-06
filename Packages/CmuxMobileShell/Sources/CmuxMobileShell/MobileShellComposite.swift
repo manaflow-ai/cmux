@@ -729,6 +729,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         do {
             try await pairedMacStore?.remove(macDeviceID: macDeviceID)
+            pairedMacs.removeAll { $0.macDeviceID == macDeviceID }
             if activePairedMac?.macDeviceID == macDeviceID {
                 activePairedMac = nil
             }

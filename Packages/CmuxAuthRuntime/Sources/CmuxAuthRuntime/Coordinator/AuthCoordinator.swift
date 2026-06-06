@@ -280,10 +280,10 @@ public final class AuthCoordinator {
                 setLoading: false
             )
         } catch {
-            recordAuthError(error)
             authLog.error("Auto-login failed: \(error.localizedDescription, privacy: .private)")
             await clearPersistedStackSession()
             clearAuthState()
+            recordAuthError(error)
         }
     }
 
@@ -294,9 +294,9 @@ public final class AuthCoordinator {
                 return
             }
             authLog.info("Cached session validation returned no current user")
-            recordAuthError(AuthError.unauthorized)
             await clearPersistedStackSession()
             clearAuthState()
+            recordAuthError(AuthError.unauthorized)
         } catch {
             recordAuthError(error)
             // Drive the clear-vs-preserve decision from LIVE session validity, not
@@ -316,7 +316,7 @@ public final class AuthCoordinator {
                     "Session validation failed and no refresh token survives; routing to login error=\(error.localizedDescription, privacy: .private)"
                 )
                 await clearPersistedStackSession()
-                clearAuthState()
+                clearAuthState(clearDiagnosticsError: false)
                 return
             }
             let action = AuthError(displaySafe: error)?.cachedSessionValidationFailureAction
@@ -327,7 +327,7 @@ public final class AuthCoordinator {
             switch action {
             case .clearSession:
                 await clearPersistedStackSession()
-                clearAuthState()
+                clearAuthState(clearDiagnosticsError: false)
             case .preserveCachedSession:
                 preserveCachedSessionAfterValidationFailure()
             }
@@ -449,18 +449,17 @@ public final class AuthCoordinator {
     ///   post-sign-out side effects (e.g. push unregistration) that live above
     ///   this package. Defaults to a no-op.
     public func signOut(onSignedOut: @Sendable () async -> Void = {}) async {
-        var didFail = false
+        var signOutError: (any Error)?
         do {
             try await client.signOut()
         } catch {
-            didFail = true
-            recordAuthError(error)
+            signOutError = error
             authLog.error("Sign-out failed: \(error.localizedDescription, privacy: .private)")
         }
         if launch.includesDevAuth { debugCredentials = nil }
         clearAuthState()
-        if !didFail {
-            lastAuthErrorDescription = nil
+        if let signOutError {
+            recordAuthError(signOutError)
         }
         await onSignedOut()
     }
@@ -617,12 +616,15 @@ public final class AuthCoordinator {
         return teams.first?.id
     }
 
-    private func clearAuthState() {
+    private func clearAuthState(clearDiagnosticsError: Bool = true) {
         pendingNonce = nil
         userCache.clear()
         sessionCache.clear()
         availableTeams = []
         selectedTeamID = nil
+        if clearDiagnosticsError {
+            lastAuthErrorDescription = nil
+        }
         apply(.cleared())
     }
 
