@@ -315,15 +315,15 @@
 		D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */; };
 		D3284101A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */; };
 		617C70C1617C70C1617C70C1 /* GitPollClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 617C70C2617C70C2617C70C2 /* GitPollClock.swift */; };
+		2758B0012758B0012758B001 /* GlobalHotkeyPanelConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2758B0022758B0022758B002 /* GlobalHotkeyPanelConfiguration.swift */; };
+		2758B0052758B0052758B005 /* GlobalHotkeyPanelContentState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2758B0062758B0062758B006 /* GlobalHotkeyPanelContentState.swift */; };
+		2758A0012758A0012758A001 /* GlobalHotkeyPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2758A0022758A0022758A002 /* GlobalHotkeyPanelController.swift */; };
+		2758A0032758A0032758A003 /* GlobalHotkeyPanelControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2758A0042758A0042758A004 /* GlobalHotkeyPanelControllerTests.swift */; };
+		2758B0032758B0032758B003 /* GlobalHotkeyPanelLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2758B0042758B0042758B004 /* GlobalHotkeyPanelLayout.swift */; };
 		3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */; };
 		3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */; };
 		3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */; };
 		3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0053865B0053865B005 /* GlobalSearchShortcutSettingsTests.swift */; };
-		2758A0012758A0012758A001 /* GlobalHotkeyPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2758A0022758A0022758A002 /* GlobalHotkeyPanelController.swift */; };
-		2758A0032758A0032758A003 /* GlobalHotkeyPanelControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2758A0042758A0042758A004 /* GlobalHotkeyPanelControllerTests.swift */; };
-		2758B0012758B0012758B001 /* GlobalHotkeyPanelConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2758B0022758B0022758B002 /* GlobalHotkeyPanelConfiguration.swift */; };
-		2758B0032758B0032758B003 /* GlobalHotkeyPanelLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2758B0042758B0042758B004 /* GlobalHotkeyPanelLayout.swift */; };
-		2758B0052758B0052758B005 /* GlobalHotkeyPanelContentState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2758B0062758B0062758B006 /* GlobalHotkeyPanelContentState.swift */; };
 		C1ADE10002A1B2C3D4E5F719 /* grok in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE10001A1B2C3D4E5F719 /* grok */; };
 		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
@@ -999,15 +999,15 @@
 		D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalViewVisibilityPolicyTests.swift; sourceTree = "<group>"; };
 		D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTextInputSupport.swift; sourceTree = "<group>"; };
 		617C70C2617C70C2617C70C2 /* GitPollClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitPollClock.swift; sourceTree = "<group>"; };
+		2758B0022758B0022758B002 /* GlobalHotkeyPanelConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GlobalHotkeyPanelConfiguration.swift; sourceTree = "<group>"; };
+		2758B0062758B0062758B006 /* GlobalHotkeyPanelContentState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GlobalHotkeyPanelContentState.swift; sourceTree = "<group>"; };
+		2758A0022758A0022758A002 /* GlobalHotkeyPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GlobalHotkeyPanelController.swift; sourceTree = "<group>"; };
+		2758A0042758A0042758A004 /* GlobalHotkeyPanelControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyPanelControllerTests.swift; sourceTree = "<group>"; };
+		2758B0042758B0042758B004 /* GlobalHotkeyPanelLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GlobalHotkeyPanelLayout.swift; sourceTree = "<group>"; };
 		3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchCoordinator.swift; sourceTree = "<group>"; };
 		3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchDocuments.swift; sourceTree = "<group>"; };
 		3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchPanelCaptureManager.swift; sourceTree = "<group>"; };
 		3865B0053865B0053865B005 /* GlobalSearchShortcutSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchShortcutSettingsTests.swift; sourceTree = "<group>"; };
-		2758A0022758A0022758A002 /* GlobalHotkeyPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GlobalHotkeyPanelController.swift; sourceTree = "<group>"; };
-		2758A0042758A0042758A004 /* GlobalHotkeyPanelControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyPanelControllerTests.swift; sourceTree = "<group>"; };
-		2758B0022758B0022758B002 /* GlobalHotkeyPanelConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GlobalHotkeyPanelConfiguration.swift; sourceTree = "<group>"; };
-		2758B0042758B0042758B004 /* GlobalHotkeyPanelLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GlobalHotkeyPanelLayout.swift; sourceTree = "<group>"; };
-		2758B0062758B0062758B006 /* GlobalHotkeyPanelContentState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GlobalHotkeyPanelContentState.swift; sourceTree = "<group>"; };
 		C1ADE10001A1B2C3D4E5F719 /* grok */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/grok; sourceTree = SOURCE_ROOT; };
 		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
 		F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesAgentIndex.swift; sourceTree = "<group>"; };
@@ -2619,13 +2619,13 @@
 				D0B1000AA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift in Sources */,
 				D3284101A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift in Sources */,
 					617C70C1617C70C1617C70C1 /* GitPollClock.swift in Sources */,
+				2758B0012758B0012758B001 /* GlobalHotkeyPanelConfiguration.swift in Sources */,
+				2758B0052758B0052758B005 /* GlobalHotkeyPanelContentState.swift in Sources */,
+				2758A0012758A0012758A001 /* GlobalHotkeyPanelController.swift in Sources */,
+				2758B0032758B0032758B003 /* GlobalHotkeyPanelLayout.swift in Sources */,
 				3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */,
 				3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */,
 				3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
-				2758A0012758A0012758A001 /* GlobalHotkeyPanelController.swift in Sources */,
-				2758B0052758B0052758B005 /* GlobalHotkeyPanelContentState.swift in Sources */,
-				2758B0012758B0012758B001 /* GlobalHotkeyPanelConfiguration.swift in Sources */,
-				2758B0032758B0032758B003 /* GlobalHotkeyPanelLayout.swift in Sources */,
 				F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
 				CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */,
 				CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */,
@@ -2999,8 +2999,8 @@
 				3069F1D10000000000000003 /* GhosttyPasteboardFidelityTests.swift in Sources */,
 				C13519000000000000000003 /* GhosttyTerminalStartupEnvironmentTests.swift in Sources */,
 				D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */,
-				3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */,
 				2758A0032758A0032758A003 /* GlobalHotkeyPanelControllerTests.swift in Sources */,
+				3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */,
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
 				C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */,
 				E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */,
