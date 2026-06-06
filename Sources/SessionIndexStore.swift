@@ -1049,15 +1049,25 @@ final class SessionIndexStore: ObservableObject {
                 let lineData = leftover.subdata(in: 0..<nl)
                 leftover.removeSubrange(0..<(nl + 1))
                 if lineData.isEmpty { continue }
-                if let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] {
-                    if body(obj) { return }
+                let shouldStop = autoreleasepool { () -> Bool in
+                    guard let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
+                        return false
+                    }
+                    return body(obj)
+                }
+                if shouldStop {
+                    return
                 }
             }
         }
         // Flush trailing line if no newline at EOF.
-        if !leftover.isEmpty,
-           let obj = try? JSONSerialization.jsonObject(with: leftover) as? [String: Any] {
-            _ = body(obj)
+        if !leftover.isEmpty {
+            _ = autoreleasepool { () -> Bool in
+                guard let obj = try? JSONSerialization.jsonObject(with: leftover) as? [String: Any] else {
+                    return false
+                }
+                return body(obj)
+            }
         }
     }
 
