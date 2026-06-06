@@ -1176,6 +1176,40 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         XCTAssertNotNil(workspace.panels[secondPanel.id])
     }
 
+    func testBlockPolicyWorktreeAuthorizationUsesPreConfirmationSnapshot() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let firstPanelId = workspace.focusedPanelId,
+              let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused workspace and panel")
+            return
+        }
+        workspace.ephemeralWorktreesByPanelId[firstPanelId] = Self.blockPolicyWorktreeRecord(
+            sessionId: "block-before-confirm"
+        )
+
+        var panelAddedDuringConfirmation: UUID?
+        manager.confirmCloseHandler = { _, _, _ in
+            guard let panel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+                XCTFail("Expected to add a panel during confirmation")
+                return true
+            }
+            panelAddedDuringConfirmation = panel.id
+            workspace.ephemeralWorktreesByPanelId[panel.id] = Self.blockPolicyWorktreeRecord(
+                sessionId: "block-during-confirm"
+            )
+            return true
+        }
+
+        let authorizedPanelIds = try XCTUnwrap(
+            manager.confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(in: workspace)
+        )
+        let addedPanelId = try XCTUnwrap(panelAddedDuringConfirmation)
+
+        XCTAssertEqual(authorizedPanelIds, Set([firstPanelId]))
+        XCTAssertFalse(authorizedPanelIds.contains(addedPanelId))
+    }
+
     func testCloseWorkspacesWithConfirmationPromptsOnceAndClosesAcceptedWorkspaces() {
         let manager = TabManager()
         let second = manager.addWorkspace()
