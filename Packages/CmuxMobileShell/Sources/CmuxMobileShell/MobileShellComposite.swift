@@ -673,6 +673,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await loadPairedMacs()
     }
 
+    /// Pair another Mac from a scanned QR/link without stranding the current
+    /// session, for the "Pair Another Mac" action in the host switcher.
+    ///
+    /// ``connectPairingURL(_:)`` is destructive: it begins a fresh pairing
+    /// attempt that replaces/clears the live remote client during connect, so a
+    /// stale, expired, or offline code would otherwise tear down a working
+    /// session. Mirroring ``switchToMac(macDeviceID:)``, if there was a live
+    /// connection that failed to move to the new Mac, the previously-active Mac
+    /// is reconnected so the user is not dropped on a bad scan. The host picker
+    /// should dismiss only when this returns `true`.
+    /// - Parameter rawValue: The scanned pairing URL/code.
+    /// - Returns: `true` only when the new Mac connected; `false` on a failed or
+    ///   superseded attempt (the picker stays open).
+    @discardableResult
+    public func pairAdditionalMac(_ rawValue: String) async -> Bool {
+        // The session to fall back to if the new pairing fails to connect.
+        let hadLiveConnection = connectionState == .connected
+        let result = await connectPairingURLResult(rawValue)
+        switch result {
+        case .connected:
+            await loadPairedMacs()
+            return true
+        case .superseded:
+            // Another pairing/switch attempt took over; leave its state intact.
+            return false
+        case .failed:
+            // The destructive connect path dropped the previous session; if we
+            // had one, reconnect the still-active stored Mac so the user is not
+            // left disconnected after a bad scan.
+            if hadLiveConnection {
+                _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+            }
+            await loadPairedMacs()
+            return false
+        }
+    }
+
     static func firstReconnectHostPortRoute(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind]
