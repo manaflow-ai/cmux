@@ -39,19 +39,27 @@ func shouldRespectForeignFirstResponder(
     in window: NSWindow,
     isRightSidebarOwner: (NSResponder) -> Bool
 ) -> Bool {
-    // A focused text editor that is still hosted in a window is always being edited by the user, so the
-    // terminal must yield the keystroke. `NSText` covers AppKit field editors AND SwiftUI's private
-    // `_SystemTextFieldFieldEditor` (an `NSText` subclass — verified at runtime: the icon-picker field
-    // editor logs `isnst=1`).
+    // A focused text editor that `window` hosts is being edited by the user, so the terminal must yield
+    // the keystroke. `NSText` covers AppKit field editors AND SwiftUI's private `_SystemTextFieldFieldEditor`
+    // (an `NSText` subclass — verified at runtime: the icon-picker field editor logs `isnst=1`).
     //
-    // Text editors are accepted *before* the `.window === window` guard below but still require a
-    // non-nil backing window: SwiftUI hosts a popover/palette overlay's field editor in a window that
-    // differs from `window` even though the editor is `window`'s active first responder, so the strict
-    // membership guard rejected it and keyRepair stole the keystroke. A fully detached editor
-    // (`window == nil`, e.g. a removed field left as first responder) is NOT accepted, so it cannot
-    // permanently block the terminal from reclaiming focus (issue #5269).
-    if firstResponder is NSText, (firstResponder as? NSView)?.window != nil {
-        return true
+    // The editor counts as hosted by `window` when its backing window is `window` itself OR a child
+    // window `window` presents. SwiftUI hosts a popover/palette overlay's field editor in a separate
+    // `_NSPopoverWindow` whose `parent` chain reaches `window` (verified: chain `[popover, main]`,
+    // `isChildOfWin=1`), even though it is `window`'s active first responder — so the strict
+    // `.window === window` guard rejected it and keyRepair stole the keystroke. Walking the parent
+    // chain (rather than accepting any window) keeps the #5269 guarantee: a text editor stranded in an
+    // unrelated window, or fully detached (`window == nil`), never reaches `window` and is reclaimed.
+    if firstResponder is NSText {
+        var hostWindow = (firstResponder as? NSView)?.window
+        var hops = 0
+        while let current = hostWindow, hops < 8 {
+            if current === window {
+                return true
+            }
+            hostWindow = current.parent
+            hops += 1
+        }
     }
     // Non-text focus owners (right-sidebar / dock / feed hosts) must still belong to this window: a
     // stranded host reparented into another window without resigning must not block the terminal from

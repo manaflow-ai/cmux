@@ -33,16 +33,28 @@ import Testing
         #expect(shouldRespectForeignFirstResponder(textView, in: window, isRightSidebarOwner: neverSidebarOwner))
     }
 
-    /// A text editor is respected even when its backing window differs from the policy window. SwiftUI
-    /// hosts a popover/palette overlay's field editor in a separate window while it is still the main
-    /// window's active first responder; the terminal must yield the keystroke. (Terminal surfaces, the
-    /// real subject of the #5269 stranding guard, are excluded by callers before this policy.)
-    @Test func respectsTextEditorHostedInAnotherWindow() {
-        let windowA = makeWindow()
-        let windowB = makeWindow()
+    /// A text editor hosted in a *child* window of the policy window is respected. SwiftUI hosts a
+    /// popover/palette overlay's field editor in a separate `_NSPopoverWindow` whose `parent` chain
+    /// reaches the main window (verified at runtime), even though it is the main window's active first
+    /// responder; the strict `.window === window` guard rejected it and keyRepair stole the keystroke.
+    @Test func respectsTextEditorInChildPopoverWindow() {
+        let host = makeWindow()
+        let popover = makeWindow()
+        host.addChildWindow(popover, ordered: .above) // popover.parent === host, like an NSPopover window
         let textView = NSTextView(frame: .zero)
-        windowB.contentView?.addSubview(textView) // hosted in windowB's hierarchy (e.g. an overlay)
-        #expect(shouldRespectForeignFirstResponder(textView, in: windowA, isRightSidebarOwner: neverSidebarOwner))
+        popover.contentView?.addSubview(textView)
+        #expect(shouldRespectForeignFirstResponder(textView, in: host, isRightSidebarOwner: neverSidebarOwner))
+    }
+
+    /// A text editor stranded in an *unrelated* window (not the policy window and not a child it
+    /// presents) is reclaimed, so a field reparented into another cmux window cannot block the terminal
+    /// from recovering keyboard focus (issue #5269).
+    @Test func reclaimsFromTextEditorInUnrelatedWindow() {
+        let windowA = makeWindow()
+        let windowB = makeWindow() // not a child of windowA
+        let textView = NSTextView(frame: .zero)
+        windowB.contentView?.addSubview(textView)
+        #expect(!shouldRespectForeignFirstResponder(textView, in: windowA, isRightSidebarOwner: neverSidebarOwner))
     }
 
     @Test func respectsInWindowRightSidebarOwner() {
