@@ -10303,7 +10303,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// custom title is set. A present title with absent provenance is
     /// treated as `.user` so auto-naming never overwrites a title it
     /// cannot prove it owns.
-    var customTitleSource: CustomTitleSource?
+    @Published var customTitleSource: CustomTitleSource?
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
@@ -10484,7 +10484,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
-    var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
+    @Published var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
     @Published var manualUnreadPanelIds: Set<UUID> = [] {
         didSet {

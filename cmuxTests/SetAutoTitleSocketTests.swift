@@ -65,6 +65,61 @@ import Testing
         }
     }
 
+    @Test func probeWithWorkspaceIdReportsUserOwnership() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                var envelope = try call(method: "workspace.set_auto_title", params: [
+                    "probe": true,
+                    "workspace_id": workspace.id.uuidString
+                ])
+                var result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_user_owned"] as? Bool == false)
+
+                workspace.setCustomTitle("My Project")
+                envelope = try call(method: "workspace.set_auto_title", params: [
+                    "probe": true,
+                    "workspace_id": workspace.id.uuidString
+                ])
+                result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_user_owned"] as? Bool == true)
+            }
+        }
+    }
+
+    @Test func panelOnlyIfMultipleSuppressesSinglePanelWorkspace() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+                // One panel: the tab write is suppressed, the workspace still names.
+                guard workspace.panels.count == 1 else { return }
+                var envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true,
+                    "title": "Fix auth bug"
+                ])
+                var result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == true)
+                #expect(result["panel_applied"] is NSNull || result["panel_applied"] == nil)
+                #expect(workspace.panelCustomTitles[panelId] == nil)
+
+                // Two panels: the tab write fires.
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+                envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true,
+                    "title": "Debug login flow"
+                ])
+                result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["panel_applied"] as? Bool == true)
+                #expect(workspace.panelCustomTitles[panelId] == "Debug login flow")
+            }
+        }
+    }
+
     @Test func appliesAutoTitleToUntitledWorkspace() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in

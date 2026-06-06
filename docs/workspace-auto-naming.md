@@ -15,7 +15,8 @@ Off by default. Enable it in **Settings > Automation > Workspace Auto-Naming** o
 Custom titles carry a provenance marker (user vs auto):
 
 - A name you set yourself - sidebar rename, command palette, `cmux rename-workspace`/`rename-tab`, or Claude's `/rename` - is never overwritten by auto-naming, and auto-naming for that workspace or tab stops.
-- Clearing your custom name re-opens the workspace or tab to auto-naming.
+- Custom titles that predate this feature (snapshots persisted before provenance existed) restore as user-set: existing named workspaces are never auto-renamed. Workspaces without a custom title (the common "Claude Code"-row case) auto-name normally.
+- Clearing your custom name re-opens the workspace or tab to auto-naming (sidebar, command palette, or `cmux workspace-action --action clear-name`).
 - Auto names lose to the user everywhere else too: OSC terminal titles never override any custom title (unchanged behavior), and provenance survives session restore and moving tabs between workspaces.
 
 ## Guarantees

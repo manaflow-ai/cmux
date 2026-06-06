@@ -18,9 +18,16 @@ struct AutoNamingConfig: Sendable {
     /// Transcripts shorter than this are skipped entirely (subagent or
     /// trivial sessions).
     var minTranscriptLines: Int = 12
-    /// Hard deadline for the summarizer subprocess; also the in-flight
-    /// marker expiry, so a crashed call cannot block future naming.
+    /// Hard deadline for the summarizer subprocess.
     var llmTimeout: TimeInterval = 60
+    /// Extra slack on top of `llmTimeout` before an in-flight marker is
+    /// considered stale: covers the termination grace window and the socket
+    /// apply, so a pass still finishing cannot be doubled by a concurrent
+    /// Stop, while a crashed pass cannot block naming forever.
+    var inFlightExpiryGrace: TimeInterval = 15
+
+    /// Total lifetime of an in-flight marker before a new pass may start.
+    var inFlightExpiry: TimeInterval { llmTimeout + inFlightExpiryGrace }
     /// Maximum title length after sanitization.
     var maxTitleLength: Int = 50
     /// Leading user messages included in the summarization context.
@@ -76,20 +83,6 @@ struct AutoNamingTranscriptMessage: Equatable, Sendable {
         self.role = role
         self.text = text
     }
-}
-
-/// Seam for spawning the summarizer subprocess so tests never exercise a
-/// real agent binary.
-protocol AutoNamingProcessRunning {
-    /// Runs `executable` with `arguments`, writing `stdin` to the process and
-    /// returning captured stdout. Implementations must enforce `timeout`.
-    func run(
-        executable: String,
-        arguments: [String],
-        stdin: String,
-        environment: [String: String],
-        timeout: TimeInterval
-    ) throws -> String
 }
 
 /// Environment policy for the summarizer subprocess: scrub the variables
@@ -148,7 +141,7 @@ struct AutoNamingEngine: Sendable {
             return .skipShortTranscript
         }
         let nowInterval = now.timeIntervalSince1970
-        if let inFlightAt = snapshot.inFlightAt, nowInterval - inFlightAt < config.llmTimeout {
+        if let inFlightAt = snapshot.inFlightAt, nowInterval - inFlightAt < config.inFlightExpiry {
             return .skipInFlight
         }
         guard let lastLineCount = snapshot.lastLineCount, snapshot.lastNamedAt != nil else {

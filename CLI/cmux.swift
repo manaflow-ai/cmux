@@ -550,8 +550,13 @@ private final class ClaudeHookSessionStore {
     /// Atomically evaluates the auto-naming throttle for a session and, when
     /// the decision is to proceed, records the in-flight marker inside the
     /// same locked transaction so a concurrent Stop hook sees it and skips.
+    /// When no session record exists yet (the auto-name hook can race the
+    /// sync Stop hook's upsert), a minimal record is synthesized so the
+    /// marker and baseline writes are never silently dropped.
     func beginAutoNaming(
         sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
         transcriptLineCount: Int,
         now: Date,
         engine: AutoNamingEngine
@@ -561,12 +566,18 @@ private final class ClaudeHookSessionStore {
             return AutoNamingBeginOutcome(decision: .skipShortTranscript, lastTitle: nil)
         }
         return try withLockedState { state in
-            var record = state.sessions[normalized]
+            var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                startedAt: now.timeIntervalSince1970,
+                updatedAt: now.timeIntervalSince1970
+            )
             let snapshot = AutoNamingSessionSnapshot(
-                lastTitle: record?.autoNameLastTitle,
-                lastLineCount: record?.autoNameLastLineCount,
-                lastNamedAt: record?.autoNameLastNamedAt,
-                inFlightAt: record?.autoNameInFlightAt
+                lastTitle: record.autoNameLastTitle,
+                lastLineCount: record.autoNameLastLineCount,
+                lastNamedAt: record.autoNameLastNamedAt,
+                inFlightAt: record.autoNameInFlightAt
             )
             let decision = engine.throttleDecision(
                 snapshot: snapshot,
@@ -575,16 +586,14 @@ private final class ClaudeHookSessionStore {
             )
             switch decision {
             case .proceed:
-                record?.autoNameInFlightAt = now.timeIntervalSince1970
+                record.autoNameInFlightAt = now.timeIntervalSince1970
             case .reseedBaseline(let to):
-                record?.autoNameLastLineCount = to
+                record.autoNameLastLineCount = to
             case .skipShortTranscript, .skipInFlight, .skipTooSoon, .skipInsufficientGrowth:
                 break
             }
-            if var record {
-                record.updatedAt = Date().timeIntervalSince1970
-                state.sessions[normalized] = record
-            }
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
             return AutoNamingBeginOutcome(decision: decision, lastTitle: snapshot.lastTitle)
         }
     }
@@ -21355,6 +21364,8 @@ struct CMUXCLI {
         let engine = AutoNamingEngine()
         guard let outcome = try? sessionStore.beginAutoNaming(
             sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
             transcriptLineCount: lineCount,
             now: Date(),
             engine: engine
@@ -21407,6 +21418,10 @@ struct CMUXCLI {
             return
         }
 
+        // currentTitle is deliberately nil here: sanitizeResponse(_, currentTitle:)
+        // returns nil for BOTH garbage and an unchanged title, but the two
+        // outcomes diverge below - an unchanged title confirms the topic is
+        // stable and must advance the baseline, while garbage must not.
         let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil)
         guard let sanitized else { return }
         if sanitized == outcome.lastTitle {
@@ -21420,7 +21435,10 @@ struct CMUXCLI {
             "panel_id": surfaceId,
             "panel_only_if_multiple": true,
             "title": sanitized
-        ]) else { return }
+        ]) else {
+            telemetry.breadcrumb("claude-hook.auto-name.socket-failed")
+            return
+        }
         if payload["workspace_applied"] as? Bool == true {
             confirmedTitle = sanitized
             telemetry.breadcrumb("claude-hook.auto-name.applied")
@@ -21440,7 +21458,8 @@ struct CMUXCLI {
         workspaceId: String,
         surfaceId: String,
         transcriptPath: String?,
-        env: [String: String]
+        env: [String: String],
+        telemetry: CLISocketSentryTelemetry
     ) {
         let selfPath: String = {
             if let first = ProcessInfo.processInfo.arguments.first,
@@ -21473,7 +21492,15 @@ struct CMUXCLI {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try? process.run()
+        do {
+            try process.run()
+        } catch {
+            telemetry.breadcrumb("codex-hook.auto-name.spawn-failed")
+            return
+        }
+        // This waits only for the sh wrapper, which exits immediately after
+        // backgrounding the real pass with '&' - it reaps sh without blocking
+        // on the naming work itself.
         process.waitUntilExit()
     }
 
@@ -21523,6 +21550,8 @@ struct CMUXCLI {
         let engine = AutoNamingEngine()
         guard let outcome = try? sessionStore.beginAutoNaming(
             sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
             transcriptLineCount: lineCount,
             now: Date(),
             engine: engine
@@ -21579,9 +21608,12 @@ struct CMUXCLI {
         }
         let rawResponse = (try? String(contentsOf: outputFile, encoding: .utf8)) ?? ""
 
+        // currentTitle is deliberately nil: an unchanged title confirms the
+        // topic is stable (advance the baseline below); garbage must not.
         let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil)
         guard let sanitized else { return }
         if sanitized == outcome.lastTitle {
+            // Topic confirmed stable: keep the title, advance the baseline.
             confirmedTitle = sanitized
             return
         }
@@ -21591,7 +21623,10 @@ struct CMUXCLI {
             "panel_id": surfaceId,
             "panel_only_if_multiple": true,
             "title": sanitized
-        ]) else { return }
+        ]) else {
+            telemetry.breadcrumb("codex-hook.auto-name.socket-failed")
+            return
+        }
         if payload["workspace_applied"] as? Bool == true {
             confirmedTitle = sanitized
             telemetry.breadcrumb("codex-hook.auto-name.applied")
@@ -21665,8 +21700,13 @@ struct CMUXCLI {
             process.terminate()
             _ = try? waitForProcessExit(process, timeout: 2)
         }
-        drainItem.wait()
-        guard exited, process.terminationStatus == 0 else { return nil }
+        // Bounded: a grandchild inheriting the pipe's write end could keep it
+        // open past the child's exit, and an unbounded wait would hang the
+        // hook process on its readToEnd. `output` is only read after a
+        // successful wait (which establishes the happens-before with the
+        // drain queue); on timeout the captured var is never touched here.
+        let drained = drainItem.wait(timeout: .now() + 5) == .success
+        guard exited, drained, process.terminationStatus == 0 else { return nil }
         return String(data: output, encoding: .utf8)
     }
 
@@ -28857,16 +28897,22 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             // Opt-in auto-naming for Codex sessions: a detached pass so the
             // summarization subprocess never blocks this short sync hook.
-            // The detached process gates itself on the live setting (socket
-            // probe) and the session-store throttle, so this spawn is cheap
-            // and a no-op when the feature is disabled.
-            if def.name == "codex", !suppressVisibleMutations, !sessionId.isEmpty {
+            // Gate the fork on the live setting (one cheap socket probe) so a
+            // disabled feature spawns nothing extra on turn end; the detached
+            // process re-probes to honor a toggle that lands mid-pass.
+            if def.name == "codex", !suppressVisibleMutations, !sessionId.isEmpty,
+               let autoNameProbe = try? client.sendV2(
+                   method: "workspace.set_auto_title",
+                   params: ["probe": true]
+               ),
+               autoNameProbe["enabled"] as? Bool == true {
                 spawnDetachedCodexAutoName(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     transcriptPath: normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath),
-                    env: env
+                    env: env,
+                    telemetry: telemetry
                 )
             }
 

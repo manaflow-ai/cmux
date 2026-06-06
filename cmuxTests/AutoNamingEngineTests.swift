@@ -95,14 +95,18 @@ import Testing
         let unexpired = engine.throttleDecision(
             snapshot: snapshot(inFlightAt: base),
             transcriptLineCount: 100,
-            now: Date(timeIntervalSince1970: base + config.llmTimeout - 1)
+            now: Date(timeIntervalSince1970: base + config.inFlightExpiry - 1)
         )
         #expect(unexpired == .skipInFlight)
+
+        // The marker outlives the LLM deadline by the grace window, so a
+        // pass still in its termination/apply phase cannot be doubled.
+        #expect(config.inFlightExpiry > config.llmTimeout)
 
         let expired = engine.throttleDecision(
             snapshot: snapshot(inFlightAt: base),
             transcriptLineCount: 100,
-            now: Date(timeIntervalSince1970: base + config.llmTimeout + 1)
+            now: Date(timeIntervalSince1970: base + config.inFlightExpiry + 1)
         )
         #expect(expired == .proceed(baseline: 100))
     }
@@ -177,6 +181,14 @@ import Testing
         #expect(engine.sanitizeResponse("Fix auth bug\nextra line", currentTitle: nil) == "Fix auth bug")
         #expect(engine.sanitizeResponse("\n\n  \"Debug login flow\"  \n", currentTitle: nil) == "Debug login flow")
         #expect(engine.sanitizeResponse("Multi   space    title", currentTitle: nil) == "Multi space title")
+        #expect(engine.sanitizeResponse("\u{201C}Fix auth bug\u{201D}", currentTitle: nil) == "Fix auth bug")
+        #expect(engine.sanitizeResponse("'Fix auth bug'", currentTitle: nil) == "Fix auth bug")
+    }
+
+    @Test func sanitizationTruncatesUnbrokenStringsAtHardCap() {
+        let unbroken = String(repeating: "x", count: config.maxTitleLength + 10)
+        let sanitized = engine.sanitizeResponse(unbroken, currentTitle: nil)
+        #expect(sanitized == String(repeating: "x", count: config.maxTitleLength))
     }
 
     @Test func sanitizationRejectsGarbage() {
@@ -213,6 +225,8 @@ import Testing
             "CLAUDE_CODE_ENTRYPOINT": "cli",
             "CLAUDE_CODE_SESSION_ID": "abc",
             "NODE_OPTIONS": "--require /tmp/guard.js",
+            "CLAUDE_CODE_EXECPATH": "/usr/local/bin/claude",
+            "CLAUDE_CODE_SSE_PORT": "12345",
             "CLAUDE_CODE_USE_VERTEX": "1",
             "CLAUDE_CODE_USE_BEDROCK": "0",
             "ANTHROPIC_API_KEY": "key",
@@ -226,6 +240,8 @@ import Testing
         #expect(env["CLAUDE_CODE_ENTRYPOINT"] == nil)
         #expect(env["CLAUDE_CODE_SESSION_ID"] == nil)
         #expect(env["NODE_OPTIONS"] == nil)
+        #expect(env["CLAUDE_CODE_EXECPATH"] == nil)
+        #expect(env["CLAUDE_CODE_SSE_PORT"] == nil)
         #expect(env["CLAUDE_CODE_USE_VERTEX"] == "1")
         #expect(env["CLAUDE_CODE_USE_BEDROCK"] == "0")
         #expect(env["ANTHROPIC_API_KEY"] == "key")
