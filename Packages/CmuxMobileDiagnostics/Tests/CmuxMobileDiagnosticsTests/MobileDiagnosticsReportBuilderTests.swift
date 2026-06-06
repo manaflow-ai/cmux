@@ -4,13 +4,6 @@ import Testing
 
 @Suite struct MobileDiagnosticsReportBuilderTests {
     private func makeBuilder(now: Date = Date(timeIntervalSince1970: 1_700_000_000)) -> MobileDiagnosticsReportBuilder {
-        makeBuilder(now: now, temporaryDirectory: FileManager.default.temporaryDirectory)
-    }
-
-    private func makeBuilder(
-        now: Date = Date(timeIntervalSince1970: 1_700_000_000),
-        temporaryDirectory: URL
-    ) -> MobileDiagnosticsReportBuilder {
         let env = MobileDiagnosticsEnvironment(
             appName: "cmux",
             appVersion: "0.64.0",
@@ -22,8 +15,7 @@ import Testing
         return MobileDiagnosticsReportBuilder(
             environment: env,
             sink: MobileDebugLogSink(),
-            now: { now },
-            temporaryDirectory: temporaryDirectory
+            now: { now }
         )
     }
 
@@ -119,24 +111,15 @@ import Testing
         #expect(report.contains("Last auth error: (none)"))
     }
 
-    @Test func buildReportWritesUniqueShareFiles() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-diagnostics-test-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer {
-            try? FileManager.default.removeItem(at: directory)
-        }
+    @Test func buildReportReturnsScrubbedTextWithoutPersistingIt() async {
+        let builder = makeBuilder()
+        let report = await builder.buildReport(
+            liveState: makeState(),
+            terminalSnapshot: "token=ghp_abcdefghijklmnopqrstuvwxyz012345"
+        )
 
-        let builder = makeBuilder(temporaryDirectory: directory)
-        let first = await builder.buildReport(liveState: makeState(), terminalSnapshot: "first")
-        let second = await builder.buildReport(liveState: makeState(), terminalSnapshot: "second")
-
-        #expect(first.fileURL.lastPathComponent.hasPrefix("cmux-diagnostics-"))
-        #expect(second.fileURL.lastPathComponent.hasPrefix("cmux-diagnostics-"))
-        #expect(first.fileURL != second.fileURL)
-        let firstText = try String(contentsOf: first.fileURL, encoding: .utf8)
-        let secondText = try String(contentsOf: second.fileURL, encoding: .utf8)
-        #expect(firstText.contains("first"))
-        #expect(secondText.contains("second"))
+        #expect(report.text.contains("VISIBLE TERMINAL SNAPSHOT"))
+        #expect(report.text.contains("token=<redacted>"))
+        #expect(!report.text.contains("ghp_abcdefghijklmnopqrstuvwxyz012345"))
     }
 }

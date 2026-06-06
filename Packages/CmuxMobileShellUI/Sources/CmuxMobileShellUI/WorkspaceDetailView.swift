@@ -24,7 +24,6 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
-    let diagnosticsTemporaryDirectory: URL
     @State private var isTerminalPickerPresented = false
     #if canImport(UIKit)
     @State private var diagnosticsReport: MobileDiagnosticsReport?
@@ -261,16 +260,16 @@ struct WorkspaceDetailView: View {
         .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
     }
 
-    /// Shares the assembled, scrubbed diagnostics report as a `.txt` file.
+    /// Shares the assembled, scrubbed diagnostics report.
     ///
     /// `ShareLink` needs the shared item synchronously, so it only renders once
-    /// the temp file has been built; until then a disabled placeholder shows a
+    /// the report text has been built; until then a disabled placeholder shows a
     /// progress state.
     @ViewBuilder
     private var diagnosticsShareButton: some View {
         if let report = diagnosticsReport {
             ShareLink(
-                item: report.fileURL,
+                item: report.text,
                 preview: SharePreview(
                     L10n.string("mobile.diagnostics.shareTitle", defaultValue: "cmux Diagnostics")
                 )
@@ -359,7 +358,7 @@ struct WorkspaceDetailView: View {
     }
 
     /// Builds the diagnostics report (in-process log + OS log + live state +
-    /// visible terminal, then scrubbed) and writes the shareable temp file.
+    /// visible terminal, then scrubbed).
     @MainActor
     private func buildDiagnosticsReport() async -> MobileDiagnosticsReport {
         let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
@@ -367,8 +366,7 @@ struct WorkspaceDetailView: View {
         let environment = MobileDiagnosticsEnvironment.current()
         let builder = MobileDiagnosticsReportBuilder(
             environment: environment,
-            sink: MobileDebugLog.shared.sink,
-            temporaryDirectory: diagnosticsTemporaryDirectory
+            sink: MobileDebugLog.shared.sink
         )
         return await builder.buildReport(
             liveState: liveState,

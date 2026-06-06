@@ -1,36 +1,33 @@
 public import Foundation
 
 /// Assembles a single-text diagnostics bundle for a TestFlight beta tester to
-/// export from the iOS app, then writes it to a temp `.txt` file for sharing.
+/// export from the iOS app.
 ///
 /// The report is intentionally a *secrets-exfiltration surface*: it includes the
 /// visible terminal snapshot (which can contain live tokens/keys/env/source) and
 /// the in-process log, because those are what make a beta bug report actionable.
 /// To make sharing it safer, the whole assembled bundle is passed through
-/// ``MobileDiagnosticsSecretScrubber`` before it is returned or written to disk.
+/// ``MobileDiagnosticsSecretScrubber`` before it is returned.
 ///
 /// Sections, in order: header (app/device facts), live state, in-process log
 /// (PRIMARY, from ``MobileDebugLogSink/snapshotWithCount()``), OS log supplement
 /// (best-effort, from ``MobileDiagnosticsOSLogReader``), and the visible terminal
 /// snapshot (clearly section-labeled).
 ///
-/// I/O (the sink snapshot, the OS-log read, the temp-file write) happens off the
-/// caller via `async`; the builder is an `actor` so concurrent build requests
-/// serialize.
+/// I/O (the sink snapshot and the OS-log read) happens off the caller via
+/// `async`; the builder is an `actor` so concurrent build requests serialize.
 ///
 /// ```swift
 /// let environment = await MobileDiagnosticsEnvironment.current()
 /// let builder = MobileDiagnosticsReportBuilder(
 ///     environment: environment,
-///     sink: MobileDebugLog.shared.sink,
-///     temporaryDirectory: FileManager.default.temporaryDirectory
+///     sink: MobileDebugLog.shared.sink
 /// )
 /// let report = await builder.buildReport(
 ///     liveState: state,
 ///     terminalSnapshot: visibleText
 /// )
-/// // report.text  -> scrubbed string for the clipboard
-/// // report.fileURL -> temp .txt for ShareLink
+/// // report.text -> scrubbed string for clipboard, ShareLink, and feedback
 /// ```
 public actor MobileDiagnosticsReportBuilder {
     private let environment: MobileDiagnosticsEnvironment
@@ -38,7 +35,6 @@ public actor MobileDiagnosticsReportBuilder {
     private let osLogReader: MobileDiagnosticsOSLogReader
     private let scrubber: MobileDiagnosticsSecretScrubber
     private let now: @Sendable () -> Date
-    private let temporaryDirectory: URL
 
     private static let sectionRule = String(repeating: "=", count: 60)
 
@@ -53,31 +49,28 @@ public actor MobileDiagnosticsReportBuilder {
     ///     reader over the cmux subsystem set.
     ///   - scrubber: Secret scrubber applied to the whole bundle. Defaults to the
     ///     standard ``MobileDiagnosticsSecretScrubber``.
-    ///   - now: Clock used for the report timestamp and filename. Injected for
-    ///     deterministic tests; defaults to `Date.init`.
-    ///   - temporaryDirectory: Directory the `.txt` file is written to.
+    ///   - now: Clock used for the report timestamp. Injected for deterministic
+    ///     tests; defaults to `Date.init`.
     public init(
         environment: MobileDiagnosticsEnvironment,
         sink: MobileDebugLogSink,
         osLogReader: MobileDiagnosticsOSLogReader = MobileDiagnosticsOSLogReader(),
         scrubber: MobileDiagnosticsSecretScrubber = MobileDiagnosticsSecretScrubber(),
-        now: @escaping @Sendable () -> Date = { Date() },
-        temporaryDirectory: URL
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.environment = environment
         self.sink = sink
         self.osLogReader = osLogReader
         self.scrubber = scrubber
         self.now = now
-        self.temporaryDirectory = temporaryDirectory
     }
 
-    /// Build the diagnostics report, scrub it, and write it to a temp `.txt` file.
+    /// Build and scrub the diagnostics report.
     ///
     /// - Parameters:
     ///   - liveState: Decoupled snapshot of the shell's runtime state.
     ///   - terminalSnapshot: The visible terminal text, or `nil`/empty if none.
-    /// - Returns: The scrubbed report text and the temp file it was written to.
+    /// - Returns: The scrubbed report text.
     public func buildReport(
         liveState: MobileDiagnosticsLiveState,
         terminalSnapshot: String?
@@ -93,8 +86,7 @@ public actor MobileDiagnosticsReportBuilder {
             terminalSnapshot: terminalSnapshot
         )
         let scrubbed = scrubber.scrub(raw)
-        let fileURL = writeToTemporaryFile(scrubbed)
-        return MobileDiagnosticsReport(text: scrubbed, fileURL: fileURL)
+        return MobileDiagnosticsReport(text: scrubbed)
     }
 
     /// Compose the report text from already-resolved pieces (no I/O), scrubbed.
@@ -196,15 +188,4 @@ public actor MobileDiagnosticsReportBuilder {
         "\(title)\n\(Self.sectionRule)\n\(body)"
     }
 
-    /// Write `text` to a uniquely named `.txt` file in the temp directory.
-    ///
-    /// Each build receives its own URL so an older `ShareLink` export cannot race
-    /// with a later picker-open rebuild that overwrites the same file. Write
-    /// failures are swallowed (a partial share is still possible); the caller
-    /// never sees a thrown error.
-    private func writeToTemporaryFile(_ text: String) -> URL {
-        let url = temporaryDirectory.appendingPathComponent("cmux-diagnostics-\(UUID().uuidString).txt")
-        try? text.data(using: .utf8)?.write(to: url, options: .atomic)
-        return url
-    }
 }
