@@ -15,6 +15,7 @@ public struct AutomationSection: View {
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
     @State private var claudePathModel: DefaultsValueModel<String>
+    @State private var autoNamingModel: DefaultsValueModel<Bool>
     @State private var ripgrepPathModel: DefaultsValueModel<String>
     @State private var suppressSubagentModel: DefaultsValueModel<Bool>
     @State private var ampModel: DefaultsValueModel<Bool>
@@ -51,6 +52,7 @@ public struct AutomationSection: View {
         _modeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.socketControlMode))
         _claudeCodeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeHooksEnabled))
         _claudePathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeCustomClaudePath))
+        _autoNamingModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.workspaceAutoNaming))
         _ripgrepPathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ripgrepCustomBinaryPath))
         _suppressSubagentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications))
         _ampModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ampHooksEnabled))
@@ -71,6 +73,7 @@ public struct AutomationSection: View {
             socketControlCard
             claudeCodeCard
             claudePathCard
+            autoNamingCard
             ripgrepPathCard
             suppressSubagentCard
             ampCard
@@ -239,6 +242,33 @@ public struct AutomationSection: View {
                 )
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var autoNamingCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("automation.workspaceAutoNaming"),
+                String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
+                subtitle: autoNamingModel.current
+                    ? String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations.")
+                    : String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated.")
+            ) {
+                Toggle("", isOn: Binding(get: { autoNamingModel.current }, set: { autoNamingModel.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsWorkspaceAutoNamingToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardNote(String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes agent sessions into short workspace and tab names using your own agent binary (claude or codex), refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."))
+            if !claudeCodeModel.current {
+                Text(String(localized: "settings.automation.workspaceAutoNaming.hooksOffWarning", defaultValue: "Claude Code Integration is off, so Claude sessions will not be auto-named. Codex sessions still name when Codex hooks are installed (cmux hooks setup codex)."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
             }
         }
     }

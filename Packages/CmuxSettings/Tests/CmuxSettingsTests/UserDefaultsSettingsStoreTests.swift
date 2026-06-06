@@ -23,6 +23,19 @@ struct UserDefaultsSettingsStoreTests {
         #expect(value == .dark)
     }
 
+    @Test func workspaceAutoNamingDefaultsOffAndRoundTrips() async {
+        let (store, catalog) = makeStore()
+        // Auto-naming is opt-in: a fresh store must read false.
+        let unset = await store.value(for: catalog.automation.workspaceAutoNaming)
+        #expect(unset == false)
+        await store.set(true, for: catalog.automation.workspaceAutoNaming)
+        let enabled = await store.value(for: catalog.automation.workspaceAutoNaming)
+        #expect(enabled == true)
+        await store.reset(catalog.automation.workspaceAutoNaming)
+        let reset = await store.value(for: catalog.automation.workspaceAutoNaming)
+        #expect(reset == false)
+    }
+
     @Test func resetReturnsToDefault() async {
         let (store, catalog) = makeStore()
         await store.set(.light, for: catalog.app.appearance)
