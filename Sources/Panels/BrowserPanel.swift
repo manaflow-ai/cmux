@@ -8870,6 +8870,32 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         }
     }
 
+    private func presentFinishedDownloadSavePanel(_ info: DownloadState) {
+        onDownloadReadyToSave?()
+        let savePanel = NSSavePanel()
+        savePanel.nameFieldStringValue = info.suggestedFilename
+        savePanel.canCreateDirectories = true
+        savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+
+        let handleResult: (NSApplication.ModalResponse) -> Void = { result in
+            guard result == .OK, let destURL = savePanel.url else {
+                try? FileManager.default.removeItem(at: info.tempURL)
+                return
+            }
+            do {
+                try? FileManager.default.removeItem(at: destURL)
+                try FileManager.default.moveItem(at: info.tempURL, to: destURL)
+                NSLog("BrowserPanel download saved: %@", destURL.path)
+            } catch {
+                NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
+                try? FileManager.default.removeItem(at: info.tempURL)
+                self.onDownloadSaveFailed?(error)
+            }
+        }
+
+        presentSavePanel(savePanel, presentingWindow: info.presentingWindow, completionHandler: handleResult)
+    }
+
     func download(
         _ download: WKDownload,
         decideDestinationUsing response: URLResponse,
@@ -8913,29 +8939,13 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         #endif
         NSLog("BrowserPanel download finished: %@", info.suggestedFilename)
 
-        onDownloadReadyToSave?()
-        let savePanel = NSSavePanel()
-        savePanel.nameFieldStringValue = info.suggestedFilename
-        savePanel.canCreateDirectories = true
-        savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-
-        let handleResult: (NSApplication.ModalResponse) -> Void = { result in
-            guard result == .OK, let destURL = savePanel.url else {
+        Task { @MainActor [weak self] in
+            guard let self else {
                 try? FileManager.default.removeItem(at: info.tempURL)
                 return
             }
-            do {
-                try? FileManager.default.removeItem(at: destURL)
-                try FileManager.default.moveItem(at: info.tempURL, to: destURL)
-                NSLog("BrowserPanel download saved: %@", destURL.path)
-            } catch {
-                NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
-                try? FileManager.default.removeItem(at: info.tempURL)
-                self.onDownloadSaveFailed?(error)
-            }
+            self.presentFinishedDownloadSavePanel(info)
         }
-
-        presentSavePanel(savePanel, presentingWindow: info.presentingWindow, completionHandler: handleResult)
     }
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
