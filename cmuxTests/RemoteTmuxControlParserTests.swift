@@ -114,6 +114,33 @@ import Testing
         ])
     }
 
+    @Test func outputPreservesMultibyteCharSplitAcrossNotifications() {
+        // tmux sends pane bytes raw and can chunk a PTY read mid-character, so a
+        // box-drawing `─` (E2 94 80) arrives split across two %output
+        // notifications: "…E2 94" then "80…". Each half must be emitted as raw
+        // bytes — NOT run through String(decoding:as: UTF8.self), which replaces
+        // each incomplete half with U+FFFD (EF BF BD). ghostty's stream parser
+        // reassembles the split character across process_output calls, but only if
+        // it receives the original bytes. This reproduces the box-drawing
+        // corruption seen in mirrored TUIs (claude) at certain sizes.
+        var parser = RemoteTmuxControlStreamParser()
+        var stream = Data()
+        stream.append(Data("%output %1 ".utf8))
+        stream.append(Data([0xe2, 0x94]))        // first 2 bytes of `─`
+        stream.append(Data("\r\n".utf8))
+        stream.append(Data("%output %1 ".utf8))
+        stream.append(Data([0x80]))              // final byte of `─`
+        stream.append(Data("\r\n".utf8))
+
+        let messages = parser.feed(stream)
+        let payload = messages.reduce(into: Data()) { acc, message in
+            if case let .output(paneId, data) = message, paneId == 1 { acc.append(data) }
+        }
+        // Intact `─`, byte-for-byte — never a U+FFFD (EF BF BD) replacement.
+        #expect(payload == Data([0xe2, 0x94, 0x80]))
+        #expect(!payload.contains(0xef))
+    }
+
     @Test func sessionChangedKeepsMultiWordName() {
         let messages = parse("%session-changed $1 my session name\r\n")
         #expect(messages == [.sessionChanged(sessionId: 1, name: "my session name")])
@@ -122,6 +149,47 @@ import Testing
     @Test func layoutChangeCarriesRawLayoutString() {
         let messages = parse("%layout-change @4 f92f,80x24,0,0,1 @4 1\r\n")
         #expect(messages == [.layoutChange(windowId: 4, layout: "f92f,80x24,0,0,1")])
+    }
+
+    // MARK: - Pane state seeding (cursor / region / origin ordering)
+
+    @Test func paneStateSeedPlacesCursorLastWithOriginRelativeRow() {
+        // origin mode ON + a restricted scroll region: DECSTBM and DECOM each home
+        // the cursor, so the CUP must be emitted LAST, and tmux's absolute row
+        // converted to the region-relative row the origin-relative CUP expects.
+        let line = "cursor_x=4,cursor_y=10,"
+            + "scroll_region_upper=3,scroll_region_lower=20,"
+            + "cursor_flag=1,insert_flag=0,keypad_cursor_flag=0,keypad_flag=0,"
+            + "wrap_flag=1,origin_flag=1,pane_height=24"
+        let seq = String(
+            decoding: RemoteTmuxControlConnection.paneStateSeedSequence(from: line),
+            as: UTF8.self
+        )
+        #expect(seq.contains("\u{1b}[4;21r"))   // restricted region, 1-based 4..21
+        #expect(seq.contains("\u{1b}[?6h"))     // origin mode on
+        // Cursor placed LAST and region-relative: row = cy(10) - upper(3) = 7 → 8
+        // (1-based), col = cx(4) + 1 = 5.
+        #expect(seq.hasSuffix("\u{1b}[8;5H"))
+        // Mouse tracking is intentionally not seeded.
+        for mode in ["?1003h", "?1002h", "?1000h", "?9h", "?1006h", "?1005h"] {
+            #expect(!seq.contains(mode))
+        }
+    }
+
+    @Test func paneStateSeedSuppressesFullWindowRegionWithAbsoluteCursor() {
+        // A full-window region (upper 0, lower height-1) is NOT seeded — it is the
+        // surface default and would go stale on resize. origin off → absolute cursor.
+        let line = "cursor_x=2,cursor_y=46,"
+            + "scroll_region_upper=0,scroll_region_lower=51,"
+            + "cursor_flag=1,insert_flag=0,keypad_cursor_flag=0,keypad_flag=0,"
+            + "wrap_flag=1,origin_flag=0,pane_height=52"
+        let seq = String(
+            decoding: RemoteTmuxControlConnection.paneStateSeedSequence(from: line),
+            as: UTF8.self
+        )
+        #expect(!seq.contains(";52r"))            // full-window DECSTBM suppressed
+        #expect(seq.contains("\u{1b}[?6l"))       // origin off
+        #expect(seq.hasSuffix("\u{1b}[47;3H"))    // absolute cursor, placed last
     }
 
     // MARK: - Raw layout parser

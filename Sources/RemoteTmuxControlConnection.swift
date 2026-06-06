@@ -56,7 +56,7 @@ final class RemoteTmuxControlConnection {
     private let maxRecentEvents = 100
 
     private enum CommandKind: Equatable {
-        case listWindows, capturePane(Int), paneCursor(Int), panePath(Int), paneAltScreen(Int), other
+        case listWindows, capturePane(Int), paneState(Int), panePath(Int), paneAltScreen(Int), other
     }
 
     /// Subscription-name prefix for per-pane `pane_current_path` (`refresh-client -B`).
@@ -246,11 +246,29 @@ final class RemoteTmuxControlConnection {
             kind: .paneAltScreen(paneId)
         )
         sendInternal("capture-pane -p -e -t %\(paneId)", kind: .capturePane(paneId))
-        // Follow with the real cursor position so the surface cursor lines up
-        // with tmux's prompt (capture-pane alone doesn't carry the cursor).
+        // After the paint, restore the pane's terminal STATE — scroll region
+        // (DECSTBM) + DEC private modes + cursor. The live %output only carries
+        // changes made AFTER cmux attached, so state the app set earlier (most
+        // importantly the scroll region) is otherwise missing on the mirror, and an
+        // inline TUI's region-relative redraws then land on the wrong rows even at a
+        // static size. tmux exposes all of this as formats. Sent after capture-pane
+        // so it applies on top of the painted rows.
+        //
+        // Mouse tracking is deliberately NOT seeded: forwarding the local surface's
+        // mouse events to the remote pane would capture drag-to-select (turning it
+        // into the remote app's OSC 52 copy) and wheel scrolling, which is the
+        // "VIM scrolling" feel we want to avoid — native cmux selection/scroll is
+        // preferred. (tmux's mouse_*_flag → DECSET mapping is also ambiguous between
+        // the tmux docs and ghostty's viewer, so seeding it would be a guess.)
+        // Faithful mouse forwarding can be a deliberate follow-up.
         sendInternal(
-            "display-message -p -t %\(paneId) -F \"#{cursor_x},#{cursor_y}\"",
-            kind: .paneCursor(paneId)
+            "display-message -p -t %\(paneId) -F \""
+                + "cursor_x=#{cursor_x},cursor_y=#{cursor_y},"
+                + "scroll_region_upper=#{scroll_region_upper},scroll_region_lower=#{scroll_region_lower},"
+                + "cursor_flag=#{cursor_flag},insert_flag=#{insert_flag},"
+                + "keypad_cursor_flag=#{keypad_cursor_flag},keypad_flag=#{keypad_flag},"
+                + "wrap_flag=#{wrap_flag},origin_flag=#{origin_flag},pane_height=#{pane_height}\"",
+            kind: .paneState(paneId)
         )
     }
 
@@ -477,16 +495,13 @@ final class RemoteTmuxControlConnection {
             if let data = painted.data(using: .utf8) {
                 emitPaneOutput(paneId, data)
             }
-        case let .paneCursor(paneId):
-            // "x,y" (0-based) → absolute cursor-position escape so the surface
-            // cursor matches tmux's, even though capture-pane trims trailing
-            // spaces from the painted prompt line.
+        case let .paneState(paneId):
+            // Restore the pane's terminal state (scroll region + DEC modes + cursor)
+            // onto the mirror surface, applied after the capture paint. The scroll
+            // region (DECSTBM) is the important one: without it an inline TUI's
+            // region-relative redraws land on the wrong rows even at a static size.
             if let line = lines.first {
-                let parts = line.split(separator: ",")
-                if parts.count == 2, let x = Int(parts[0]), let y = Int(parts[1]),
-                   let data = "\u{1b}[\(y + 1);\(x + 1)H".data(using: .utf8) {
-                    emitPaneOutput(paneId, data)
-                }
+                emitPaneOutput(paneId, Self.paneStateSeedSequence(from: line))
             }
         case let .panePath(paneId):
             if let path = lines.first?.trimmingCharacters(in: .whitespaces), !path.isEmpty {
@@ -504,6 +519,68 @@ final class RemoteTmuxControlConnection {
         case .other:
             break
         }
+    }
+
+    /// Builds the escape sequence that restores a pane's terminal state onto the
+    /// mirror surface, from a `display-message` `key=value,…` line. Sets the scroll
+    /// region (DECSTBM), the DEC private modes (wrap/cursor/insert/app-cursor-keys/
+    /// keypad), origin mode, and finally the cursor position.
+    ///
+    /// The cursor placement is emitted LAST on purpose: setting the scroll region
+    /// (DECSTBM) and changing origin mode (DECOM) each move the cursor to the home
+    /// position, so any earlier cursor placement would be lost. When origin mode is
+    /// on with a restricted region, tmux's absolute cursor row is translated to the
+    /// region-relative row the (origin-relative) CUP then expects.
+    ///
+    /// Mouse tracking is intentionally not restored — see ``capturePane(paneId:)``.
+    nonisolated static func paneStateSeedSequence(from line: String) -> Data {
+        var fields: [String: String] = [:]
+        for pair in line.split(separator: ",") {
+            let kv = pair.split(separator: "=", maxSplits: 1)
+            if kv.count == 2 { fields[String(kv[0])] = String(kv[1]) }
+        }
+        let on: (String) -> Bool = { fields[$0] == "1" }
+        // Clamp to a plausible terminal-dimension range: the values come from an
+        // untrusted remote, and a crafted `Int.min`/`Int.max` would trap the later
+        // `+ 1` / `- 1` arithmetic (Swift overflow is a hard crash). Out-of-range or
+        // non-numeric values are treated as absent.
+        let num: (String) -> Int? = { fields[$0].flatMap { Int($0) }.flatMap { (0...65535).contains($0) ? $0 : nil } }
+
+        var seq = ""
+        // Scroll region (DECSTBM) — tmux reports 0-based, DECSTBM is 1-based. Only
+        // seed a RESTRICTED region: a full-window region (upper 0, lower height-1)
+        // is the surface's default already, and pinning it to the capture-time row
+        // count would go stale across a later resize (the surface, left at default,
+        // tracks resizes on its own). A restricted region is re-asserted by the
+        // remote app on its next redraw, so a transiently stale one self-heals.
+        let regionUpper = num("scroll_region_upper")
+        var restrictedRegion = false
+        if let upper = regionUpper, let lower = num("scroll_region_lower"), lower >= upper {
+            let isFullWindow = upper == 0 && (num("pane_height").map { lower == $0 - 1 } ?? false)
+            if !isFullWindow {
+                seq += "\u{1b}[\(upper + 1);\(lower + 1)r"
+                restrictedRegion = true
+            }
+        }
+        seq += on("wrap_flag") ? "\u{1b}[?7h" : "\u{1b}[?7l"            // DECAWM
+        seq += on("cursor_flag") ? "\u{1b}[?25h" : "\u{1b}[?25l"        // DECTCEM (cursor visible)
+        seq += on("insert_flag") ? "\u{1b}[4h" : "\u{1b}[4l"           // IRM
+        seq += on("keypad_cursor_flag") ? "\u{1b}[?1h" : "\u{1b}[?1l"   // DECCKM (app cursor keys)
+        seq += on("keypad_flag") ? "\u{1b}=" : "\u{1b}>"              // DECKPAM / DECKPNM
+        // (Bracketed-paste mode is intentionally not seeded: tmux exposes no
+        // reliable pane format for it, and paste fidelity is handled by tmux's own
+        // `paste-buffer -p` in ``pastePane(paneId:text:)``.)
+        // Origin mode (DECOM) before the cursor — changing it homes the cursor.
+        let originOn = on("origin_flag")
+        seq += originOn ? "\u{1b}[?6h" : "\u{1b}[?6l"
+        // Cursor LAST. tmux reports an absolute row; with origin mode on and a
+        // restricted region the CUP is interpreted region-relative, so subtract the
+        // region top.
+        if let cx = num("cursor_x"), let cy = num("cursor_y") {
+            let row = (originOn && restrictedRegion) ? max(0, cy - (regionUpper ?? 0)) : cy
+            seq += "\u{1b}[\(row + 1);\(cx + 1)H"
+        }
+        return Data(seq.utf8)
     }
 
     private func applyLayout(windowId: Int, layout: String) {

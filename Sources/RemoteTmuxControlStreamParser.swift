@@ -7,8 +7,13 @@ import Foundation
 /// `\r` that the SSH `-tt` pty adds, coalesces `%begin`…`%end` command blocks,
 /// and emits structured ``RemoteTmuxControlMessage`` values.
 ///
-/// The protocol is line-oriented printable ASCII (tmux octal-escapes every
-/// non-printable byte in `%output`), so line-based parsing is lossless.
+/// The protocol is line-oriented: notifications and command-block content are
+/// ASCII (tmux octal-escapes control bytes), so they are decoded to `String`. The
+/// exception is `%output`, whose payload carries raw pane bytes — including the
+/// high bytes of multi-byte UTF-8 characters, which tmux does NOT escape and can
+/// split across two notifications. `%output` is therefore parsed from raw bytes
+/// (see ``parseOutput(rawLine:)``) so those characters survive for ghostty to
+/// reassemble; a String round-trip would replace each split half with U+FFFD.
 struct RemoteTmuxControlStreamParser {
     private var buffer: [UInt8] = []
     private var inBlock = false
@@ -17,6 +22,10 @@ struct RemoteTmuxControlStreamParser {
 
     /// The DCS sequence tmux emits to enter control mode: `ESC P 1000 p`.
     private static let enterSequence: [UInt8] = [0x1b, 0x50, 0x31, 0x30, 0x30, 0x30, 0x70]
+
+    /// ASCII bytes of the `%output ` notification prefix (used to detect and parse
+    /// `%output` lines from raw bytes, before any String decode).
+    private static let outputPrefix: [UInt8] = Array("%output ".utf8)
 
     /// Feeds a chunk of stream bytes and returns any newly completed messages.
     mutating func feed(_ data: Data) -> [RemoteTmuxControlMessage] {
@@ -50,6 +59,17 @@ struct RemoteTmuxControlStreamParser {
         }
         if bytes.isEmpty { return prefixMessages }
 
+        // `%output` is the only notification whose payload carries raw, possibly
+        // multi-byte UTF-8 pane bytes. Parse it straight from the raw bytes so a
+        // character that tmux split across two `%output` notifications (it sends
+        // pane bytes raw and chunks PTY reads mid-character) survives intact —
+        // ghostty's stream parser reassembles split UTF-8 across process_output
+        // calls, but routing each half through `String(decoding:as: UTF8.self)`
+        // first would replace it with U+FFFD before ghostty ever sees it.
+        if !inBlock, let output = Self.parseOutput(rawLine: bytes) {
+            return prefixMessages + [output]
+        }
+
         let line = String(decoding: bytes, as: UTF8.self)
 
         if inBlock {
@@ -68,6 +88,11 @@ struct RemoteTmuxControlStreamParser {
                 blockLines = []
                 return prefixMessages + [result]
             }
+            // Block content is always tmux-formatted text — `capture-pane`/
+            // `display-message` responses are printable/escaped, never raw PTY
+            // bytes split mid-character — so this String round-trip is lossless.
+            // Only `%output` (handled above, from raw bytes) carries raw PTY bytes
+            // that a String decode would corrupt.
             blockLines.append(line)
             return prefixMessages
         }
@@ -82,20 +107,40 @@ struct RemoteTmuxControlStreamParser {
         return prefixMessages + [parseNotification(line)]
     }
 
+    /// Parses an `%output %<pane> <octal-escaped data…>` line directly from its raw
+    /// bytes, preserving the data's multi-byte UTF-8 exactly. Returns `nil` if the
+    /// line is not a well-formed `%output` notification, so the caller falls back to
+    /// the String-based notification parser.
+    ///
+    /// Only the prefix and pane id (pure ASCII) are interpreted as text; the data
+    /// after the second space is unescaped from raw bytes, so a multi-byte
+    /// character split across two `%output` notifications is never replaced with
+    /// U+FFFD.
+    private static func parseOutput(rawLine bytes: [UInt8]) -> RemoteTmuxControlMessage? {
+        guard bytes.starts(with: outputPrefix) else { return nil }
+        var i = outputPrefix.count
+        guard i < bytes.count, bytes[i] == UInt8(ascii: "%") else { return nil }
+        i += 1
+        let digitsStart = i
+        while i < bytes.count, bytes[i] >= UInt8(ascii: "0"), bytes[i] <= UInt8(ascii: "9") {
+            i += 1
+        }
+        guard i > digitsStart, i < bytes.count, bytes[i] == UInt8(ascii: " "),
+              let paneId = Int(String(decoding: bytes[digitsStart..<i], as: UTF8.self))
+        else { return nil }
+        return .output(paneId: paneId, data: unescapeOutput(Array(bytes[(i + 1)...])))
+    }
+
     private func parseNotification(_ line: String) -> RemoteTmuxControlMessage {
         if line == "%exit" || line.hasPrefix("%exit ") {
             let reason = line == "%exit" ? nil : String(line.dropFirst("%exit ".count))
             return .exit(reason: reason)
         }
-        if line.hasPrefix("%output ") {
-            // %output %<pane> <octal-escaped data...>
-            let rest = line.dropFirst("%output ".count)
-            guard let space = rest.firstIndex(of: " ") else { return .unparsed(line) }
-            let paneToken = rest[..<space]
-            guard let paneId = Self.id(paneToken, sigil: "%") else { return .unparsed(line) }
-            let dataPart = rest[rest.index(after: space)...]
-            return .output(paneId: paneId, data: Self.unescapeOutput(dataPart))
-        }
+        // NOTE: `%output` is parsed earlier from raw bytes in `parse(lineBytes:)`
+        // (see `parseOutput(rawLine:)`), never here — routing its payload through
+        // this String would corrupt multi-byte UTF-8 split across notifications. A
+        // malformed `%output` that `parseOutput` rejects falls through to the
+        // `%`-prefix catch-all below as `.ignoredNotification`.
         if line.hasPrefix("%session-changed ") {
             guard let id = Self.fieldId(line, 1, sigil: "$") else { return .unparsed(line) }
             // Session names may contain spaces; join the remaining fields.
@@ -187,13 +232,15 @@ struct RemoteTmuxControlStreamParser {
         return out
     }
 
-    /// Octal-unescapes a `%output` data field (`\ooo` → byte) into raw bytes.
-    static func unescapeOutput(_ field: Substring) -> Data {
-        let bytes = Array(field.utf8)
+    /// Octal-unescapes raw `%output` data bytes (`\ooo` → byte). Any byte that is
+    /// not part of a `\ooo` escape — including the raw high bytes of a multi-byte
+    /// UTF-8 character — passes through unchanged, so split or whole UTF-8 text
+    /// survives intact for ghostty to decode.
+    static func unescapeOutput(_ bytes: [UInt8]) -> Data {
         var out = Data()
         out.reserveCapacity(bytes.count)
         var i = 0
-        func isOctal(_ b: UInt8) -> Bool { b >= 0x30 && b <= 0x37 }
+        let isOctal: (UInt8) -> Bool = { $0 >= 0x30 && $0 <= 0x37 }
         while i < bytes.count {
             if bytes[i] == 0x5c, // backslash
                i + 3 < bytes.count,
