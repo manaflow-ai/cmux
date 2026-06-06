@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -91,6 +92,13 @@ def _workspace_node(tree: Dict, workspace_id: str) -> Dict:
     raise cmuxError(f"Workspace {workspace_id} not present in system.tree: {tree}")
 
 
+def _workspace_id_at_index(rows: List[Tuple[int, str, str, bool]], index: int, window_id: str) -> str:
+    for row_index, workspace_id, _title, _selected in rows:
+        if row_index == index:
+            return workspace_id
+    raise cmuxError(f"Window {window_id} has no workspace at index {index}: {rows}")
+
+
 def main() -> int:
     cli = _find_cli_binary()
 
@@ -99,6 +107,115 @@ def main() -> int:
     _must("current-page" in help_text, "list-pages --help should mention related page commands")
 
     with cmux(SOCKET_PATH) as c:
+        routed_window_id = None
+        try:
+            focused = c.identify().get("focused") or {}
+            current_window_id = str(focused.get("window_id") or c.current_window())
+            routed_window_id = c.new_window()
+            time.sleep(0.2)
+
+            current_window_ws1 = _workspace_id_at_index(
+                c.list_workspaces(window_id=current_window_id),
+                1,
+                current_window_id,
+            )
+            routed_window_ws1 = _workspace_id_at_index(
+                c.list_workspaces(window_id=routed_window_id),
+                1,
+                routed_window_id,
+            )
+            _must(
+                current_window_ws1 != routed_window_ws1,
+                f"Test setup expected each window to have its own workspace:1 (w1={current_window_ws1}, w2={routed_window_ws1})",
+            )
+
+            c.focus_window(current_window_id)
+            time.sleep(0.2)
+
+            first_routed_page = _run_cli_json(
+                cli,
+                [
+                    "new-page",
+                    "--window",
+                    routed_window_id,
+                    "--workspace",
+                    "workspace:1",
+                    "--title",
+                    "window-routed-a",
+                ],
+            )
+            _must(
+                str(first_routed_page.get("workspace_id") or "") == routed_window_ws1,
+                f"new-page --window should resolve workspace:1 inside the requested window: {first_routed_page}",
+            )
+            second_routed_page = _run_cli_json(
+                cli,
+                [
+                    "new-page",
+                    "--window",
+                    routed_window_id,
+                    "--workspace",
+                    "workspace:1",
+                    "--title",
+                    "window-routed-b",
+                ],
+            )
+            _must(
+                str(second_routed_page.get("workspace_id") or "") == routed_window_ws1,
+                f"second new-page --window should stay in the requested window: {second_routed_page}",
+            )
+
+            current_window_list = c._call("page.list", {"workspace_id": current_window_ws1}) or {}
+            current_window_titles, _ = _page_titles_and_selected(current_window_list)
+            _must(
+                "window-routed-a" not in current_window_titles and "window-routed-b" not in current_window_titles,
+                f"command-local --window must not create pages in the focused window: {current_window_list}",
+            )
+
+            routed_list = _run_cli_json(
+                cli,
+                ["list-pages", "--window", routed_window_id, "--workspace", "workspace:1"],
+            )
+            routed_titles, _ = _page_titles_and_selected(routed_list)
+            _must(
+                "window-routed-a" in routed_titles and "window-routed-b" in routed_titles,
+                f"list-pages --window should list pages from the requested window: {routed_list}",
+            )
+            routed_refs = _page_refs_by_title(routed_list)
+            second_routed_ref = routed_refs.get("window-routed-b")
+            _must(bool(second_routed_ref), f"list-pages --window returned no ref for window-routed-b: {routed_list}")
+
+            reordered_routed = _run_cli_json(
+                cli,
+                [
+                    "reorder-page",
+                    "--window",
+                    routed_window_id,
+                    "--workspace",
+                    "workspace:1",
+                    "--page",
+                    second_routed_ref,
+                    "--index",
+                    "0",
+                ],
+            )
+            _must(
+                str(reordered_routed.get("workspace_id") or "") == routed_window_ws1,
+                f"reorder-page --window should resolve workspace:1 inside the requested window: {reordered_routed}",
+            )
+            reordered_routed_list = c._call("page.list", {"workspace_id": routed_window_ws1}) or {}
+            reordered_titles, _ = _page_titles_and_selected(reordered_routed_list)
+            _must(
+                reordered_titles and reordered_titles[0] == "window-routed-b",
+                f"reorder-page --window should reorder the requested window workspace: {reordered_routed_list}",
+            )
+        finally:
+            if routed_window_id:
+                try:
+                    c.close_window(routed_window_id)
+                except Exception:
+                    pass
+
         created = c._call("workspace.create", {}) or {}
         workspace_id = str(created.get("workspace_id") or "")
         _must(bool(workspace_id), f"workspace.create returned no workspace_id: {created}")
