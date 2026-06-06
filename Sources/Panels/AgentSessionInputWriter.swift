@@ -3,9 +3,14 @@ import Foundation
 final class AgentSessionInputWriter {
     private static let maxQueuedBytes = 1024 * 1024
 
+    private struct PendingWrite {
+        let data: Data
+        let continuation: CheckedContinuation<Void, Error>
+    }
+
     private let fileHandle: FileHandle
     private let lock = NSLock()
-    private var queuedData: [Data] = []
+    private var queuedWrites: [PendingWrite] = []
     private var queuedByteCount = 0
     private var isClosed = false
     private var isDraining = false
@@ -14,20 +19,41 @@ final class AgentSessionInputWriter {
         self.fileHandle = fileHandle
     }
 
-    func write(_ data: Data) throws {
+    func write(_ data: Data) async throws {
         guard !data.isEmpty else { return }
 
+        try await withCheckedThrowingContinuation { continuation in
+            enqueue(data, continuation: continuation)
+        }
+    }
+
+    func close() {
+        lock.lock()
+        isClosed = true
+        let writes = queuedWrites
+        queuedWrites.removeAll()
+        queuedByteCount = 0
+        lock.unlock()
+
+        for write in writes {
+            write.continuation.resume(throwing: AgentSessionBridgeError.providerNotReady("Agent"))
+        }
+    }
+
+    private func enqueue(_ data: Data, continuation: CheckedContinuation<Void, Error>) {
         lock.lock()
         guard !isClosed else {
             lock.unlock()
-            throw AgentSessionBridgeError.providerNotReady("Agent")
+            continuation.resume(throwing: AgentSessionBridgeError.providerNotReady("Agent"))
+            return
         }
         guard queuedByteCount + data.count <= Self.maxQueuedBytes else {
             lock.unlock()
-            throw AgentSessionBridgeError.providerNotReady("Agent")
+            continuation.resume(throwing: AgentSessionBridgeError.providerNotReady("Agent"))
+            return
         }
 
-        queuedData.append(data)
+        queuedWrites.append(PendingWrite(data: data, continuation: continuation))
         queuedByteCount += data.count
         let shouldStartDrain = !isDraining
         if shouldStartDrain {
@@ -42,30 +68,24 @@ final class AgentSessionInputWriter {
         }
     }
 
-    func close() {
-        lock.lock()
-        isClosed = true
-        queuedData.removeAll()
-        queuedByteCount = 0
-        lock.unlock()
-    }
-
     private func drain() {
         while true {
-            let data: Data
+            let write: PendingWrite
             lock.lock()
-            if queuedData.isEmpty {
+            if queuedWrites.isEmpty {
                 isDraining = false
                 lock.unlock()
                 return
             }
-            data = queuedData.removeFirst()
-            queuedByteCount -= data.count
+            write = queuedWrites.removeFirst()
+            queuedByteCount -= write.data.count
             lock.unlock()
 
             do {
-                try fileHandle.write(contentsOf: data)
+                try fileHandle.write(contentsOf: write.data)
+                write.continuation.resume()
             } catch {
+                write.continuation.resume(throwing: error)
                 close()
                 return
             }

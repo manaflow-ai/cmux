@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class CodexAppServerSession {
-    typealias DataWriter = (Data) throws -> Void
+    typealias DataWriter = (Data) async throws -> Void
     typealias OutputSink = (_ stream: String, _ text: String) -> Void
     typealias ActivitySink = (_ activity: [String: Any]) -> Void
     typealias TurnCompleteSink = () -> Void
@@ -45,8 +45,8 @@ final class CodexAppServerSession {
         self.failureSink = failureSink
     }
 
-    func start() throws {
-        initializeRequestID = try sendRequest(
+    func start() async throws {
+        initializeRequestID = try await sendRequest(
             method: "initialize",
             params: [
                 "clientInfo": [
@@ -62,7 +62,7 @@ final class CodexAppServerSession {
         )
     }
 
-    func submit(_ text: String, permissionMode: AgentSessionPermissionMode = .standard) throws {
+    func submit(_ text: String, permissionMode: AgentSessionPermissionMode = .standard) async throws {
         guard !text.isEmpty else { return }
         guard !didFailStartup else {
             throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
@@ -74,13 +74,25 @@ final class CodexAppServerSession {
             guard canQueueInput(text) else {
                 throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
             }
-            queuedInputs.append(CodexAppServerQueuedInput(text: text, permissionMode: permissionMode))
-            if didInitialize {
-                try startThreadIfNeeded()
+            try await withCheckedThrowingContinuation { continuation in
+                queuedInputs.append(CodexAppServerQueuedInput(
+                    text: text,
+                    permissionMode: permissionMode,
+                    continuation: continuation
+                ))
+                if didInitialize {
+                    Task { @MainActor in
+                        do {
+                            try await startThreadIfNeeded()
+                        } catch {
+                            failQueuedInputs(error)
+                        }
+                    }
+                }
             }
             return
         }
-        try sendTurnStart(threadID: threadID, text: text, permissionMode: permissionMode)
+        try await sendTurnStart(threadID: threadID, text: text, permissionMode: permissionMode)
     }
 
     private func canQueueInput(_ text: String) -> Bool {
@@ -134,11 +146,13 @@ final class CodexAppServerSession {
         if id == initializeRequestID {
             initializeRequestID = nil
             didInitialize = true
-            do {
-                try sendNotification(method: "initialized")
-                try startThreadIfNeeded()
-            } catch {
-                failStartup(details: error.localizedDescription)
+            Task { @MainActor in
+                do {
+                    try await sendNotification(method: "initialized")
+                    try await startThreadIfNeeded()
+                } catch {
+                    failStartup(details: error.localizedDescription)
+                }
             }
             return
         }
@@ -433,28 +447,32 @@ final class CodexAppServerSession {
         case "execCommandApproval", "applyPatchApproval":
             result = ["decision": legacyReviewDecision()]
         default:
-            do {
-                try sendErrorResponse(
-                    id: id,
-                    code: -32601,
-                    message: String(
-                        format: String(
-                            localized: "agentSession.codex.error.unsupportedServerRequest",
-                            defaultValue: "Request from Codex app-server is not supported: %@"
-                        ),
-                        method
+            Task { @MainActor in
+                do {
+                    try await sendErrorResponse(
+                        id: id,
+                        code: -32601,
+                        message: String(
+                            format: String(
+                                localized: "agentSession.codex.error.unsupportedServerRequest",
+                                defaultValue: "Request from Codex app-server is not supported: %@"
+                            ),
+                            method
+                        )
                     )
-                )
-            } catch {
-                emitCodexRPCFailure(error)
+                } catch {
+                    emitCodexRPCFailure(error)
+                }
             }
             return
         }
 
-        do {
-            try sendJSONObject(["id": id, "result": result])
-        } catch {
-            emitCodexRPCFailure(error)
+        Task { @MainActor in
+            do {
+                try await sendJSONObject(["id": id, "result": result])
+            } catch {
+                emitCodexRPCFailure(error)
+            }
         }
     }
 
@@ -497,19 +515,23 @@ final class CodexAppServerSession {
         let inputs = queuedInputs
         queuedInputs.removeAll()
         for input in inputs {
-            do {
-                try sendTurnStart(
-                    threadID: threadID,
-                    text: input.text,
-                    permissionMode: input.permissionMode
-                )
-            } catch {
-                emitCodexRPCFailure(error)
+            Task { @MainActor in
+                do {
+                    try await sendTurnStart(
+                        threadID: threadID,
+                        text: input.text,
+                        permissionMode: input.permissionMode
+                    )
+                    input.resume()
+                } catch {
+                    input.resume(throwing: error)
+                    emitCodexRPCFailure(error)
+                }
             }
         }
     }
 
-    private func startThreadIfNeeded() throws {
+    private func startThreadIfNeeded() async throws {
         guard !didFailStartup else {
             throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
         }
@@ -521,7 +543,7 @@ final class CodexAppServerSession {
         if let workingDirectory {
             params["cwd"] = workingDirectory
         }
-        threadStartRequestID = try sendRequest(method: "thread/start", params: params)
+        threadStartRequestID = try await sendRequest(method: "thread/start", params: params)
     }
 
     private func failStartup(details: String?) {
@@ -534,16 +556,24 @@ final class CodexAppServerSession {
         isTurnInFlight = false
         activePermissionMode = .standard
         turnStartRequestIDs.removeAll()
-        queuedInputs.removeAll()
+        failQueuedInputs(AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName))
         emitCodexRPCFailure(details: details)
         failureSink(details)
+    }
+
+    private func failQueuedInputs(_ error: Error) {
+        let inputs = queuedInputs
+        queuedInputs.removeAll()
+        for input in inputs {
+            input.resume(throwing: error)
+        }
     }
 
     private func sendTurnStart(
         threadID: String,
         text: String,
         permissionMode: AgentSessionPermissionMode
-    ) throws {
+    ) async throws {
         var params: [String: Any] = [
             "threadId": threadID,
             "input": [
@@ -557,7 +587,7 @@ final class CodexAppServerSession {
         for (key, value) in permissionMode.codexTurnOverrides {
             params[key] = value
         }
-        let requestID = try sendRequest(
+        let requestID = try await sendRequest(
             method: "turn/start",
             params: params
         )
@@ -567,10 +597,10 @@ final class CodexAppServerSession {
     }
 
     @discardableResult
-    private func sendRequest(method: String, params: Any) throws -> Int {
+    private func sendRequest(method: String, params: Any) async throws -> Int {
         let id = nextRequestID
         nextRequestID += 1
-        try sendJSONObject([
+        try await sendJSONObject([
             "id": id,
             "method": method,
             "params": params
@@ -578,12 +608,12 @@ final class CodexAppServerSession {
         return id
     }
 
-    private func sendNotification(method: String) throws {
-        try sendJSONObject(["method": method])
+    private func sendNotification(method: String) async throws {
+        try await sendJSONObject(["method": method])
     }
 
-    private func sendErrorResponse(id: Any, code: Int, message: String) throws {
-        try sendJSONObject([
+    private func sendErrorResponse(id: Any, code: Int, message: String) async throws {
+        try await sendJSONObject([
             "id": id,
             "error": [
                 "code": code,
@@ -592,10 +622,10 @@ final class CodexAppServerSession {
         ])
     }
 
-    private func sendJSONObject(_ object: [String: Any]) throws {
+    private func sendJSONObject(_ object: [String: Any]) async throws {
         var data = try JSONSerialization.data(withJSONObject: object, options: [])
         data.append(0x0A)
-        try writeData(data)
+        try await writeData(data)
     }
 
     private func requestID(from value: Any?) -> Int? {

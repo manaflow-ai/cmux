@@ -351,6 +351,7 @@ function SessionSurface({
       isAutoContextOn,
     );
     const text = promptTextWithAttachments(providerInput, attachments);
+    const submittedAttachmentIds = new Set(attachments.map((attachment) => attachment.id));
     void sendInput(state, dispatch, {
       attachments,
       clearInput: currentInput,
@@ -359,7 +360,9 @@ function SessionSurface({
       text,
     }).then((didSend) => {
       if (didSend) {
-        setAttachments([]);
+        setAttachments((currentAttachments) =>
+          currentAttachments.filter((attachment) => !submittedAttachmentIds.has(attachment.id)),
+        );
       }
     });
   };

@@ -10,6 +10,17 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct CodexAppServerSessionTests {
+    private func expectThrowsErrorAsync<T>(
+        _ expression: () async throws -> T,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async {
+        do {
+            _ = try await expression()
+            Issue.record("Expected expression to throw", sourceLocation: sourceLocation)
+        } catch {
+        }
+    }
+
     @Test
     func testOpenCodeAuthHeaderMatchesServerEnvironment() {
         expectNil(OpenCodeServerAuth(environment: [:]))
@@ -708,7 +719,7 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
-    func testEncodesPromptAsJSONRPCInsteadOfRawStdin() throws {
+    func testEncodesPromptAsJSONRPCInsteadOfRawStdin() async throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(
             workingDirectory: "/tmp/cmux-agent-session-test",
@@ -718,12 +729,13 @@ struct CodexAppServerSessionTests {
             outputSink: { _, _ in }
         )
 
-        try session.start()
+        try await session.start()
         expectEqual(jsonLine(sentLines[0])["method"] as? String, "initialize")
 
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
+        await Task.yield()
         expectEqual(jsonLine(sentLines[1])["method"] as? String, "initialized")
 
         let threadStart = jsonLine(sentLines[2])
@@ -731,10 +743,11 @@ struct CodexAppServerSessionTests {
         let threadParams = try #require(threadStart["params"] as? [String: Any])
         expectEqual(threadParams["cwd"] as? String, "/tmp/cmux-agent-session-test")
 
-        try session.submit("hello codex", permissionMode: .fullAccess)
+        let submitTask = Task { try await session.submit("hello codex", permissionMode: .fullAccess) }
         expectEqual(sentLines.count, 3, "Prompt should queue until thread/start returns a thread id.")
 
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
+        try await submitTask.value
         let turnStart = jsonLine(sentLines[3])
         expectEqual(turnStart["method"] as? String, "turn/start")
         let turnParams = try #require(turnStart["params"] as? [String: Any])
@@ -753,7 +766,7 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
-    func testCodexInputQueueBeforeThreadIsBounded() throws {
+    func testCodexInputQueueBeforeThreadIsBounded() async throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(
             workingDirectory: nil,
@@ -763,14 +776,18 @@ struct CodexAppServerSessionTests {
             outputSink: { _, _ in }
         )
 
-        try session.start()
-        try session.submit("first prompt")
-        expectThrowsError(try session.submit("second prompt"))
+        try await session.start()
+        let submitTask = Task { try await session.submit("first prompt") }
+        await expectThrowsErrorAsync {
+            try await session.submit("second prompt")
+        }
 
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
+        await Task.yield()
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
+        try await submitTask.value
 
         expectEqual(sentLines.count, 4)
         let turnStart = jsonLine(sentLines[3])
@@ -781,19 +798,21 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
-    func testCodexInputQueueRejectsOversizedPromptBeforeThread() throws {
+    func testCodexInputQueueRejectsOversizedPromptBeforeThread() async throws {
         let session = CodexAppServerSession(
             workingDirectory: nil,
             writeData: { _ in },
             outputSink: { _, _ in }
         )
 
-        try session.start()
-        expectThrowsError(try session.submit(String(repeating: "x", count: 64 * 1024 + 1)))
+        try await session.start()
+        await expectThrowsErrorAsync {
+            try await session.submit(String(repeating: "x", count: 64 * 1024 + 1))
+        }
     }
 
     @Test
-    func testAutoReviewPermissionModeAddsCodexReviewerOverride() throws {
+    func testAutoReviewPermissionModeAddsCodexReviewerOverride() async throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(
             workingDirectory: nil,
@@ -803,12 +822,13 @@ struct CodexAppServerSessionTests {
             outputSink: { _, _ in }
         )
 
-        try session.start()
+        try await session.start()
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
+        await Task.yield()
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
-        try session.submit("please review", permissionMode: .autoReview)
+        try await session.submit("please review", permissionMode: .autoReview)
 
         let turnStart = jsonLine(sentLines[3])
         expectEqual(turnStart["method"] as? String, "turn/start")
@@ -820,7 +840,7 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
-    func testCustomPermissionModeLeavesCodexConfigInControl() throws {
+    func testCustomPermissionModeLeavesCodexConfigInControl() async throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(
             workingDirectory: nil,
@@ -830,12 +850,13 @@ struct CodexAppServerSessionTests {
             outputSink: { _, _ in }
         )
 
-        try session.start()
+        try await session.start()
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
+        await Task.yield()
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
-        try session.submit("use config", permissionMode: .custom)
+        try await session.submit("use config", permissionMode: .custom)
 
         let turnStart = jsonLine(sentLines[3])
         expectEqual(turnStart["method"] as? String, "turn/start")
@@ -847,7 +868,7 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
-    func testDefaultPermissionModeAvoidsInteractiveCodexApprovals() throws {
+    func testDefaultPermissionModeAvoidsInteractiveCodexApprovals() async throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(
             workingDirectory: nil,
@@ -857,14 +878,15 @@ struct CodexAppServerSessionTests {
             outputSink: { _, _ in }
         )
 
-        try session.start()
+        try await session.start()
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
+        await Task.yield()
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
-        try session.submit("use full access", permissionMode: .fullAccess)
+        try await session.submit("use full access", permissionMode: .fullAccess)
         session.consumeStdout(#"{"method":"turn/completed","params":{"threadId":"thread-1"}}"# + "\n")
-        try session.submit("back to defaults", permissionMode: .standard)
+        try await session.submit("back to defaults", permissionMode: .standard)
 
         let elevatedParams = try #require(jsonLine(sentLines[3])["params"] as? [String: Any])
         expectEqual(elevatedParams["approvalPolicy"] as? String, "never")
@@ -878,7 +900,7 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
-    func testCodexApprovalRequestsOnlyAutoApproveForFullAccessMode() throws {
+    func testCodexApprovalRequestsOnlyAutoApproveForFullAccessMode() async throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(
             workingDirectory: nil,
@@ -888,19 +910,22 @@ struct CodexAppServerSessionTests {
             outputSink: { _, _ in }
         )
 
-        try session.start()
+        try await session.start()
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
+        await Task.yield()
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
-        try session.submit("default prompt", permissionMode: .standard)
+        try await session.submit("default prompt", permissionMode: .standard)
         session.consumeStdout(
             #"{"id":"cmd-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread-1"}}"# + "\n")
         session.consumeStdout(
             #"{"id":"perm-1","method":"item/permissions/requestApproval","params":{"permissions":{"network":{"enabled":true}}}}"# + "\n")
-        expectThrowsError(try session.submit("blocked full access prompt", permissionMode: .fullAccess))
+        await expectThrowsErrorAsync {
+            try await session.submit("blocked full access prompt", permissionMode: .fullAccess)
+        }
         session.consumeStdout(#"{"method":"turn/completed","params":{"threadId":"thread-1"}}"# + "\n")
-        try session.submit("full access prompt", permissionMode: .fullAccess)
+        try await session.submit("full access prompt", permissionMode: .fullAccess)
         session.consumeStdout(
             #"{"id":"cmd-2","method":"item/commandExecution/requestApproval","params":{"threadId":"thread-1"}}"# + "\n")
         session.consumeStdout(
@@ -1055,7 +1080,7 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
-    func testInitializeErrorFailsStartupAndRejectsLaterPrompts() throws {
+    func testInitializeErrorFailsStartupAndRejectsLaterPrompts() async throws {
         var sentLines: [String] = []
         var output: [(String, String)] = []
         var failures: [String?] = []
@@ -1068,20 +1093,25 @@ struct CodexAppServerSessionTests {
             failureSink: { details in failures.append(details) }
         )
 
-        try session.start()
-        try session.submit("queued prompt")
+        try await session.start()
+        let submitTask = Task { try await session.submit("queued prompt") }
         session.consumeStdout(#"{"id":1,"error":{"message":"unsupported initialize"}}"# + "\n")
+        await expectThrowsErrorAsync {
+            try await submitTask.value
+        }
 
         expectEqual(sentLines.count, 1)
         expectEqual(failures.count, 1)
         expectEqual(failures.first!, "unsupported initialize")
         expectEqual(output.last?.0, "stderr")
         expectEqual(output.last?.1, "Codex app-server request failed.")
-        expectThrowsError(try session.submit("later prompt"))
+        await expectThrowsErrorAsync {
+            try await session.submit("later prompt")
+        }
     }
 
     @Test
-    func testThreadStartErrorClearsStartupStateAndRejectsLaterPrompts() throws {
+    func testThreadStartErrorClearsStartupStateAndRejectsLaterPrompts() async throws {
         var sentLines: [String] = []
         var failures: [String?] = []
         let session = CodexAppServerSession(
@@ -1093,17 +1123,23 @@ struct CodexAppServerSessionTests {
             failureSink: { details in failures.append(details) }
         )
 
-        try session.start()
+        try await session.start()
         session.consumeStdout(#"{"id":1,"result":{}}"# + "\n")
+        await Task.yield()
         expectEqual(jsonLine(sentLines[2])["method"] as? String, "thread/start")
 
-        try session.submit("queued prompt")
+        let submitTask = Task { try await session.submit("queued prompt") }
         session.consumeStdout(#"{"id":2,"error":{"message":"bad cwd"}}"# + "\n")
+        await expectThrowsErrorAsync {
+            try await submitTask.value
+        }
 
         expectEqual(failures.count, 1)
         expectEqual(failures.first!, "bad cwd")
         expectEqual(sentLines.count, 3)
-        expectThrowsError(try session.submit("later prompt"))
+        await expectThrowsErrorAsync {
+            try await session.submit("later prompt")
+        }
     }
 
     private func jsonLine(_ rawLine: String) -> [String: Any] {

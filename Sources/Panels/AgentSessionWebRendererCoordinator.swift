@@ -592,7 +592,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             guard !isClosed else {
                 throw AgentSessionBridgeError.invalidRequest
             }
-            let session = try processStore.start(
+            let session = try await processStore.start(
                 plan: plan,
                 workingDirectory: request.string("workingDirectory") ?? workingDirectory
             )

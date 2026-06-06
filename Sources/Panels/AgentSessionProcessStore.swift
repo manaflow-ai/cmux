@@ -16,7 +16,7 @@ final class AgentSessionProcessStore {
     private var lastEmittedHasActiveProviderSession: Bool?
     private static let terminationEscalationInterval: DispatchTimeInterval = .seconds(3)
 
-    func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) throws -> AgentSessionStartedSession {
+    func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) async throws -> AgentSessionStartedSession {
         guard sessions.isEmpty else {
             throw AgentSessionBridgeError.sessionAlreadyRunning
         }
@@ -56,7 +56,7 @@ final class AgentSessionProcessStore {
             running.codexAppServerSession = CodexAppServerSession(
                 workingDirectory: workingDirectory,
                 writeData: { data in
-                    try inputWriter.write(data)
+                    try await inputWriter.write(data)
                 },
                 outputSink: { [weak self] stream, text in
                     self?.emitOutput(
@@ -102,7 +102,7 @@ final class AgentSessionProcessStore {
         do {
             try process.run()
             emitActiveProviderStateIfNeeded()
-            try running.codexAppServerSession?.start()
+            try await running.codexAppServerSession?.start()
         } catch {
             if process.isRunning {
                 process.terminate()
@@ -133,9 +133,9 @@ final class AgentSessionProcessStore {
             guard let codexAppServerSession = session.codexAppServerSession else {
                 throw AgentSessionBridgeError.providerNotReady(session.providerID.displayName)
             }
-            try codexAppServerSession.submit(text, permissionMode: permissionMode)
+            try await codexAppServerSession.submit(text, permissionMode: permissionMode)
         case .claude:
-            try writeClaudeStreamJSON(text, to: session.inputWriter)
+            try await writeClaudeStreamJSON(text, to: session.inputWriter)
         case .opencode:
             try await postOpenCodePrompt(text, session: session)
         }
@@ -591,7 +591,7 @@ final class AgentSessionProcessStore {
         return decoded as? [String: Any] ?? [:]
     }
 
-    private func writeClaudeStreamJSON(_ text: String, to inputWriter: AgentSessionInputWriter) throws {
+    private func writeClaudeStreamJSON(_ text: String, to inputWriter: AgentSessionInputWriter) async throws {
         let message: [String: Any] = [
             "type": "user",
             "message": [
@@ -606,7 +606,7 @@ final class AgentSessionProcessStore {
         ]
         var data = try JSONSerialization.data(withJSONObject: message, options: [])
         data.append(0x0A)
-        try inputWriter.write(data)
+        try await inputWriter.write(data)
     }
 
     private func emitStarted(session: AgentSessionRunningSession) {
