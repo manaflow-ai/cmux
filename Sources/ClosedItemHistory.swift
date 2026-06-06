@@ -313,7 +313,8 @@ final class ClosedItemHistoryStore {
     /// Whether the given record's restored target is currently live (the single
     /// source of truth for "already restored").
     func isRecordRestored(_ recordId: UUID) -> Bool {
-        guard let ref = restoredRefByRecordId[recordId], let isTargetLive else { return false }
+        guard let ref = restoredRefByRecordId[recordId] else { return false }
+        guard let isTargetLive else { return true }
         return isTargetLive(ref)
     }
 

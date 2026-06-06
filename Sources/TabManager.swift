@@ -7843,7 +7843,7 @@ class TabManager: ObservableObject {
         if ClosedItemHistoryStore.shared.restoreFirstRestorableRef(using: { record in
             switch record.entry {
             case .panel(let panelEntry):
-                guard let panelId = restoreClosedPanel(panelEntry) else { return nil }
+                guard let panelId = restoreClosedPanelId(panelEntry) else { return nil }
                 return .panel(workspaceId: panelEntry.workspaceId, panelId: panelId)
             case .workspace(let workspaceEntry):
                 guard let workspaceId = restoreClosedWorkspace(workspaceEntry) else { return nil }
@@ -7876,7 +7876,7 @@ class TabManager: ObservableObject {
 
         switch record.entry {
         case .panel(let panelEntry):
-            guard let panelId = restoreClosedPanel(panelEntry) else { return false }
+            guard let panelId = restoreClosedPanelId(panelEntry) else { return false }
             ClosedItemHistoryStore.shared.markRestored(
                 recordId: record.id,
                 ref: .panel(workspaceId: panelEntry.workspaceId, panelId: panelId)
@@ -7907,7 +7907,12 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> UUID? {
+    func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> Bool {
+        restoreClosedPanelId(entry) != nil
+    }
+
+    @discardableResult
+    func restoreClosedPanelId(_ entry: ClosedPanelHistoryEntry) -> UUID? {
         guard let workspace = tabs.first(where: { $0.id == entry.workspaceId }) else {
             return nil
         }

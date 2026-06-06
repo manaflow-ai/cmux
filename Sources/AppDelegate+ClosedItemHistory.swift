@@ -97,7 +97,7 @@ extension AppDelegate {
                 tabManagerFor(tabId: panelEntry.workspaceId)
                 ?? preferredTabManager
                 ?? tabManager
-            guard let manager, let panelId = manager.restoreClosedPanel(panelEntry) else {
+            guard let manager, let panelId = manager.restoreClosedPanelId(panelEntry) else {
                 return nil
             }
             ClosedItemHistoryStore.shared.noteReopened(

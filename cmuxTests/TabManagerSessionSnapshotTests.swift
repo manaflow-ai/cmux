@@ -590,7 +590,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             snapshot: snapshot
         )
 
-        XCTAssertNil(manager.restoreClosedPanel(entry))
+        XCTAssertFalse(manager.restoreClosedPanel(entry))
         XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
     }
 
