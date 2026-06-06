@@ -169,6 +169,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         
         // Required headers
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
@@ -296,13 +297,34 @@ actor APIClient {
     }
     
     // MARK: - Token Refresh
-    
-    /// Performs the actual token refresh request.
-    /// Returns (wasValid, newAccessToken) where wasValid indicates if the refresh token was valid.
-    private func refresh(refreshToken: String) async -> (wasValid: Bool, accessToken: String?) {
+
+    /// Classified outcome of a refresh-token exchange.
+    ///
+    /// The distinction is load-bearing: only ``definitivelyRejected`` means the
+    /// refresh token is genuinely no longer accepted by the server, so it is the
+    /// *only* outcome that may clear stored tokens. ``transientFailure`` (offline,
+    /// timeout, DNS, 5xx, malformed body, any `URLError`) must preserve tokens so
+    /// a momentary network blip never silently signs the user out — a retry once
+    /// the network recovers will succeed against the same refresh token.
+    enum RefreshOutcome {
+        /// The server minted a new access token.
+        case success(accessToken: String)
+        /// The server rejected the refresh token (HTTP 400/401, e.g. `invalid_grant`).
+        /// The refresh token will never work again; clearing is correct.
+        case definitivelyRejected
+        /// The refresh could not be completed for a reason that is not the token's
+        /// fault (network/server). Tokens must be preserved and the caller retried.
+        case transientFailure
+    }
+
+    /// Performs the actual token refresh request, classifying the result so the
+    /// caller can preserve tokens on transient failures and clear them only on a
+    /// genuine server rejection.
+    private func refresh(refreshToken: String) async -> RefreshOutcome {
         let url = URL(string: "\(baseUrl)/api/v1/auth/oauth/token")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
         request.setValue(publishableClientKey, forHTTPHeaderField: "x-stack-publishable-client-key")
@@ -314,25 +336,39 @@ actor APIClient {
             "client_id=\(formURLEncode(projectId))",
             "client_secret=\(formURLEncode(publishableClientKey))"
         ].joined(separator: "&")
-        
+
         request.httpBody = body.data(using: .utf8)
-        
+
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
-                return (wasValid: false, accessToken: nil)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return .transientFailure
             }
-            
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let newAccessToken = json["access_token"] as? String else {
-                return (wasValid: false, accessToken: nil)
+
+            if httpResponse.statusCode == 200 {
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let newAccessToken = json["access_token"] as? String else {
+                    // 200 with an unparseable body is a server anomaly, not a
+                    // rejected token. Keep the refresh token and let the caller
+                    // retry rather than silently signing the user out.
+                    return .transientFailure
+                }
+                return .success(accessToken: newAccessToken)
             }
-            
-            return (wasValid: true, accessToken: newAccessToken)
+
+            // The OAuth token endpoint returns 400 (e.g. `invalid_grant`) or 401
+            // when the refresh token itself is no longer valid. Those are the only
+            // codes that mean "this token will never work again". Everything else
+            // (5xx, 429, redirects, unexpected) is treated as transient.
+            if httpResponse.statusCode == 400 || httpResponse.statusCode == 401 {
+                return .definitivelyRejected
+            }
+            return .transientFailure
         } catch {
-            return (wasValid: false, accessToken: nil)
+            // URLError and friends (offline, timeout, DNS, cancelled) are never the
+            // refresh token's fault. Preserve tokens; the caller retries.
+            return .transientFailure
         }
     }
     
@@ -392,9 +428,8 @@ actor APIClient {
                 result = TokenPair(refreshToken: refreshToken, accessToken: originalAccessToken)
             } else {
                 // Need to refresh
-                let (wasValid, newAccessToken) = await refresh(refreshToken: refreshToken)
-                
-                if wasValid, let newToken = newAccessToken {
+                switch await refresh(refreshToken: refreshToken) {
+                case .success(let newToken):
                     // Refresh succeeded - update tokens atomically
                     await ts.compareAndSet(
                         compareRefreshToken: refreshToken,
@@ -402,14 +437,26 @@ actor APIClient {
                         newAccessToken: newToken
                     )
                     result = TokenPair(refreshToken: refreshToken, accessToken: newToken)
-                } else {
-                    // Refresh failed - clear tokens atomically
+                case .definitivelyRejected:
+                    // The server rejected the refresh token; it will never work
+                    // again. Clear both tokens so the user is prompted to re-auth.
                     await ts.compareAndSet(
                         compareRefreshToken: refreshToken,
                         newRefreshToken: nil,
                         newAccessToken: nil
                     )
                     result = TokenPair(refreshToken: nil, accessToken: nil)
+                case .transientFailure:
+                    // Network/server hiccup. PRESERVE the refresh token so a retry
+                    // after recovery succeeds, and never silently sign the user out.
+                    // Return the original access token only if it is still usable;
+                    // a proactive refresh fires every 75s of token age (see
+                    // `isTokenFreshEnough`) while the token is valid for ~1h, so the
+                    // common transient-failure case still has a good token. When the
+                    // token is genuinely expired, return nil access + non-nil refresh
+                    // so the caller can classify "recoverable" without decoding a JWT.
+                    let usableAccessToken = isTokenExpired(originalAccessToken) ? nil : originalAccessToken
+                    result = TokenPair(refreshToken: refreshToken, accessToken: usableAccessToken)
                 }
             }
         }
@@ -435,22 +482,31 @@ actor APIClient {
         let result: TokenPair
         
         if let refreshToken = await ts.getStoredRefreshToken() {
-            let (wasValid, newAccessToken) = await refresh(refreshToken: refreshToken)
-            
-            if wasValid, let newToken = newAccessToken {
+            switch await refresh(refreshToken: refreshToken) {
+            case .success(let newToken):
                 await ts.compareAndSet(
                     compareRefreshToken: refreshToken,
                     newRefreshToken: refreshToken,
                     newAccessToken: newToken
                 )
                 result = TokenPair(refreshToken: refreshToken, accessToken: newToken)
-            } else {
+            case .definitivelyRejected:
                 await ts.compareAndSet(
                     compareRefreshToken: refreshToken,
                     newRefreshToken: nil,
                     newAccessToken: nil
                 )
                 result = TokenPair(refreshToken: nil, accessToken: nil)
+            case .transientFailure:
+                // Preserve the refresh token on a network/server hiccup; the caller
+                // retries later instead of being signed out (compareAndSet is NOT
+                // called, so the store keeps both tokens). Return nil access
+                // deliberately: this "force a NEW token" path runs only after the
+                // stored access token was just rejected (401 invalid_access_token in
+                // sendWithRetry), so handing it back would make the caller re-send the
+                // same dead token in a tight 401 loop. nil means "no new token right
+                // now"; the still-valid refresh token stays in the store for next time.
+                result = TokenPair(refreshToken: refreshToken, accessToken: nil)
             }
         } else {
             result = TokenPair(refreshToken: nil, accessToken: nil)
