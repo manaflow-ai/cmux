@@ -158,23 +158,46 @@ fi
 # as an *update* when its CFBundleVersion is the highest integer build for the
 # app, so a regressed numbering scheme (or a bad manual --build-number) silently
 # produces a build no tester can update to. Ask App Store Connect for the current
-# max and self-heal: never ship a number <= the existing max. This is FAIL-OPEN:
-# any ASC/network/JWT error logs a warning and keeps the timestamp BUILD_NUMBER,
-# because the publish must never be blocked by a transient API hiccup (the
-# timestamp scheme is already correct; this is a backstop, not the primary path).
-if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && ( -n "${ASC_API_KEY_PATH:-}" || -n "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+# max and never ship a number <= the existing max.
+#
+# Two cases:
+#  - Fresh archive (the common path): BUILD_NUMBER is stamped at archive time, so
+#    self-heal it up to (max + 1).
+#  - Reused archive (--archive-path): the CFBundleVersion is already baked into
+#    the archive and BUILD_NUMBER is never applied to it, so read the archive's
+#    embedded version and FAIL (re-archive needed) rather than self-heal a value
+#    that won't ship. EXPORT_ONLY exits before upload, so the guard is skipped.
+#
+# FAIL-OPEN on the *generated* path: any ASC/network/JWT error logs a warning and
+# keeps the timestamp BUILD_NUMBER, because a transient API hiccup must never
+# block a publish (the timestamp scheme is already correct; this is a backstop).
+GUARD_BUILD_NUMBER="$BUILD_NUMBER"
+GUARD_REUSED_ARCHIVE=0
+if [[ -n "$ARCHIVE_PATH" && -e "$ARCHIVE_PATH/Info.plist" ]]; then
+  ARCHIVE_BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleVersion' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
+  if [[ -n "$ARCHIVE_BUILD_NUMBER" ]]; then
+    GUARD_BUILD_NUMBER="$ARCHIVE_BUILD_NUMBER"
+    GUARD_REUSED_ARCHIVE=1
+  fi
+fi
+
+if [[ "$EXPORT_ONLY" -ne 1 && -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && ( -n "${ASC_API_KEY_PATH:-}" || -n "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
   if ASC_MAX="$(ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
       ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
       "$SCRIPT_DIR/asc_max_build.py" --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER")"; then
-    if [[ "$ASC_MAX" =~ ^[0-9]+$ && "$BUILD_NUMBER" =~ ^[0-9]+$ ]] && (( 10#$BUILD_NUMBER <= 10#$ASC_MAX )); then
+    if [[ "$ASC_MAX" =~ ^[0-9]+$ && "$GUARD_BUILD_NUMBER" =~ ^[0-9]+$ ]] && (( 10#$GUARD_BUILD_NUMBER <= 10#$ASC_MAX )); then
+      if [[ "$GUARD_REUSED_ARCHIVE" -eq 1 ]]; then
+        echo "error: reused archive CFBundleVersion $GUARD_BUILD_NUMBER <= App Store Connect max $ASC_MAX; TestFlight will not offer it as an update. Re-archive with a higher --build-number." >&2
+        exit 1
+      fi
       NEXT_BUILD=$((10#$ASC_MAX + 1))
-      echo "warning: build number $BUILD_NUMBER <= App Store Connect max $ASC_MAX; bumping to $NEXT_BUILD to keep CFBundleVersion monotonic" >&2
+      echo "warning: build number $GUARD_BUILD_NUMBER <= App Store Connect max $ASC_MAX; bumping to $NEXT_BUILD to keep CFBundleVersion monotonic" >&2
       BUILD_NUMBER="$NEXT_BUILD"
     else
-      echo "build-number guard: $BUILD_NUMBER > App Store Connect max ${ASC_MAX:-0}, keeping it" >&2
+      echo "build-number guard: $GUARD_BUILD_NUMBER > App Store Connect max ${ASC_MAX:-0}, keeping it" >&2
     fi
   else
-    echo "warning: build-number guard skipped (could not read App Store Connect max); using $BUILD_NUMBER" >&2
+    echo "warning: build-number guard skipped (could not read App Store Connect max); using $GUARD_BUILD_NUMBER" >&2
   fi
 fi
 
