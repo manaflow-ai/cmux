@@ -374,7 +374,10 @@ print("" if total is None else total)
         echo "Retrying ${#CRASH_RETRY_TESTS[@]} crash-reported XCTest methods from $BATCH_LABEL in fresh app-host processes" >&2
         retry_index=0
         for test_identifier in "${CRASH_RETRY_TESTS[@]}"; do
-          retry_only_testing="cmuxTests/${test_identifier/./\/}"
+          retry_identifier="${test_identifier#cmuxTests/}"
+          retry_identifier="${retry_identifier//\\/}"
+          retry_identifier="${retry_identifier/./\/}"
+          retry_only_testing="cmuxTests/$retry_identifier"
           retry_label="${BATCH_LABEL}-crash-retry-${retry_index}"
           retry_log="$LOG_ROOT/$retry_label.log"
           retry_result="$RESULT_ROOT/$retry_label.xcresult"
