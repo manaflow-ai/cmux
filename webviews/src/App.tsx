@@ -59,6 +59,8 @@ type AppAction =
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
 const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
+const persistedLayoutKey = "cmux.diffViewer.layout";
+type DiffViewerLayout = DiffViewerOptions["layout"];
 
 function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStatus): AppState {
   const payload = config.payload ?? {};
@@ -75,7 +77,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
       collapsed: false,
       diffIndicators: "bars",
       expandUnchanged: false,
-      layout: payload.layout === "unified" ? "unified" : "split",
+      layout: initialDiffViewerLayout(payload),
       lineNumbers: true,
       showBackgrounds: true,
       wordDiffs: false,
@@ -194,6 +196,10 @@ export function App({ config, initialStatus }: ConfigProps) {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
   };
+  const setLayout = (layout: DiffViewerLayout) => {
+    persistDiffViewerLayout(layout);
+    dispatch({ type: "set-option", key: "layout", value: layout });
+  };
 
   return (
     <div id="app">
@@ -214,6 +220,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           window.location.href = resolveDiffNavigationURL(url);
         }}
         onReload={() => window.location.reload()}
+        onSetLayout={setLayout}
         dispatch={dispatch}
         state={state}
       />
@@ -259,6 +266,34 @@ function resolveDiffViewerAssetURL(rawURL: string | undefined): URL {
   return new URL(rawURL || defaultWorkerModuleURL, window.location.href);
 }
 
+function initialDiffViewerLayout(payload: Record<string, any>): DiffViewerLayout {
+  const payloadLayout = parseDiffViewerLayout(payload.layout);
+  if (payload.layoutSource === "explicit" && payloadLayout) {
+    return payloadLayout;
+  }
+  return readPersistedDiffViewerLayout() ?? payloadLayout ?? "unified";
+}
+
+function readPersistedDiffViewerLayout(): DiffViewerLayout | null {
+  try {
+    return parseDiffViewerLayout(window.localStorage.getItem(persistedLayoutKey));
+  } catch {
+    return null;
+  }
+}
+
+function persistDiffViewerLayout(layout: DiffViewerLayout): void {
+  try {
+    window.localStorage.setItem(persistedLayoutKey, layout);
+  } catch {
+    // Storage may be unavailable for some generated viewer origins.
+  }
+}
+
+function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
+  return value === "split" || value === "unified" ? value : null;
+}
+
 function WorkerRenderOptionsSync({
   codeViewRef,
   highlighterOptions,
@@ -278,6 +313,7 @@ function Toolbar({
   onJump,
   onNavigate,
   onReload,
+  onSetLayout,
   state,
 }: {
   config: DiffViewerConfig;
@@ -287,6 +323,7 @@ function Toolbar({
   onJump: (itemId: string) => void;
   onNavigate: (url: string) => void;
   onReload: () => void;
+  onSetLayout: (layout: DiffViewerLayout) => void;
   state: AppState;
 }) {
   const payload = config.payload ?? {};
@@ -316,7 +353,7 @@ function Toolbar({
           type="button"
           title={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
           aria-label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
-          onClick={() => dispatch({ type: "set-option", key: "layout", value: state.options.layout === "split" ? "unified" : "split" })}
+          onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")}
         >
           <Icon name={state.options.layout} />
         </button>

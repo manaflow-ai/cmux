@@ -135,6 +135,66 @@ test("files sidebar width can be changed from the resize separator", async () =>
   await waitFor(() => contentFilesWidth() === "272px");
 });
 
+test("layout toggle persists user choice while explicit payload layout wins", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          layout: "unified",
+          statusMessage: "Rendered diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  expect(dom.window.document.documentElement.dataset.layout).toBe("unified");
+  dom.window.document.getElementById("layout-toggle")?.click();
+  await waitFor(() => dom?.window.localStorage.getItem("cmux.diffViewer.layout") === "split");
+  expect(dom.window.document.documentElement.dataset.layout).toBe("split");
+  flushSync(() => root?.unmount());
+  root = null;
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          layout: "unified",
+          statusMessage: "Rendered diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  expect(dom.window.document.documentElement.dataset.layout).toBe("split");
+  flushSync(() => root?.unmount());
+  root = null;
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          layout: "unified",
+          layoutSource: "explicit",
+          statusMessage: "Rendered diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  expect(dom.window.document.documentElement.dataset.layout).toBe("unified");
+});
+
 function createDom(): JSDOM {
   return new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
     url: "http://127.0.0.1/diff",

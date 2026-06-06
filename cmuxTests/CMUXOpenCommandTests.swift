@@ -274,6 +274,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         try ghosttyConfigContents.write(to: cmuxAppSupportConfigURL, atomically: true, encoding: .utf8)
         try """
         {
+          "diffViewer": {
+            "defaultLayout": "split"
+          },
           "shortcuts": {
             "bindings": {
               "diffViewerScrollDown": "ctrl+j",
@@ -442,6 +445,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(patchText.contains("hello.txt"), patchText)
         XCTAssertTrue(patchText.contains("literal </script> marker"), patchText)
         XCTAssertTrue(html.contains("\"layout\":\"unified\""), html)
+        XCTAssertEqual(viewerPayload["layout"] as? String, "unified")
+        XCTAssertEqual(viewerPayload["layoutSource"] as? String, "explicit")
         XCTAssertFalse(html.contains("git apply <<'PATCH'"), html)
 
         let darkOnlyConfigContents = """
@@ -461,8 +466,43 @@ final class CMUXOpenCommandTests: XCTestCase {
             ]
         )
         XCTAssertTrue(darkOnlyTheme.html.contains("\"fontSize\":14"), darkOnlyTheme.html)
+        let darkOnlyPayload = try diffViewerPayload(from: darkOnlyTheme.html)
+        XCTAssertEqual(darkOnlyPayload["layout"] as? String, "split")
+        XCTAssertEqual(darkOnlyPayload["layoutSource"] as? String, "default")
         XCTAssertTrue(darkOnlyTheme.html.contains("\"ghosttyName\":\"Apple System Colors Light\""), darkOnlyTheme.html)
         XCTAssertTrue(darkOnlyTheme.html.contains("\"ghosttyName\":\"Unit Dark\""), darkOnlyTheme.html)
+    }
+
+    func testDiffCommandDefaultsToUnifiedLayoutWhenConfigIsUnset() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let homeURL = rootURL.appendingPathComponent("home", isDirectory: true)
+        let patchURL = rootURL.appendingPathComponent("changes.patch", isDirectory: false)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+        try """
+        diff --git a/file.txt b/file.txt
+        index 1111111..2222222 100644
+        --- a/file.txt
+        +++ b/file.txt
+        @@ -1 +1 @@
+        -old
+        +new
+        """.write(to: patchURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let result = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", patchURL.path],
+            environmentOverrides: [
+                "HOME": homeURL.path,
+                "CFFIXED_USER_HOME": homeURL.path,
+            ]
+        )
+
+        let payload = try diffViewerPayload(from: result.html)
+        XCTAssertEqual(payload["layout"] as? String, "unified")
+        XCTAssertEqual(payload["layoutSource"] as? String, "default")
     }
 
     func testDiffCommandUsesTaggedSocketAppAssetsAndServer() throws {

@@ -3281,6 +3281,7 @@ extension CMUXCLI {
                         isError: true,
                         pollForReplacement: false,
                         layout: layout,
+                        layoutSource: layoutSource,
                         appearance: appearance,
                         sourceOptions: [],
                         repoOptions: [],
@@ -3812,6 +3813,7 @@ extension CMUXCLI {
             isError: true,
             pollForReplacement: false,
             layout: sourceSet.layout,
+            layoutSource: sourceSet.layoutSource,
             appearance: sourceSet.appearance,
             sourceOptions: page.sourceOptions,
             repoOptions: page.repoOptions,
@@ -3905,6 +3907,7 @@ extension CMUXCLI {
             isError: false,
             pollForReplacement: false,
             layout: sourceSet.layout,
+            layoutSource: sourceSet.layoutSource,
             appearance: sourceSet.appearance,
             sourceOptions: page.sourceOptions,
             repoOptions: page.repoOptions,
@@ -3960,6 +3963,7 @@ extension CMUXCLI {
             externalURL: input.externalURL,
             remotePatchURL: input.remotePatchURL,
             layout: sourceSet.layout,
+            layoutSource: sourceSet.layoutSource,
             appearance: sourceSet.appearance,
             sourceOptions: sourceOptions,
             repoOptions: repoOptions,
@@ -5467,6 +5471,7 @@ extension CMUXCLI {
         externalURL: String?,
         remotePatchURL: URL? = nil,
         layout: String,
+        layoutSource: String,
         appearance: DiffViewerAppearance,
         sourceOptions: [DiffViewerSourceOption],
         repoOptions: [DiffViewerSourceOption] = [],
@@ -5487,6 +5492,7 @@ extension CMUXCLI {
             externalURL: externalURL,
             remotePatchURL: remotePatchURL,
             layout: layout,
+            layoutSource: layoutSource,
             appearance: appearance,
             sourceOptions: sourceOptions,
             repoOptions: repoOptions,
@@ -5505,6 +5511,7 @@ extension CMUXCLI {
         isError: Bool,
         pollForReplacement: Bool,
         layout: String,
+        layoutSource: String,
         appearance: DiffViewerAppearance,
         sourceOptions: [DiffViewerSourceOption],
         repoOptions: [DiffViewerSourceOption] = [],
@@ -5520,6 +5527,7 @@ extension CMUXCLI {
             sourceLabel: sourceLabel,
             externalURL: nil,
             layout: layout,
+            layoutSource: layoutSource,
             appearance: appearance,
             sourceOptions: sourceOptions,
             repoOptions: repoOptions,
@@ -5575,6 +5583,7 @@ extension CMUXCLI {
         externalURL: String?,
         remotePatchURL: URL? = nil,
         layout: String,
+        layoutSource: String,
         appearance: DiffViewerAppearance,
         sourceOptions: [DiffViewerSourceOption],
         repoOptions: [DiffViewerSourceOption] = [],
@@ -5595,6 +5604,7 @@ extension CMUXCLI {
             "title": title,
             "sourceLabel": sourceLabel,
             "layout": layout,
+            "layoutSource": layoutSource,
             "appearance": appearance.jsonObject,
             "labels": labels.jsonObject,
             "shortcuts": diffViewerShortcutPayload(),
@@ -6056,7 +6066,7 @@ extension CMUXCLI {
           --focus <true|false>         Focus the diff browser split (default: false)
           --no-focus                   Do not focus the opened diff browser split
           --title <text>               Set the diff viewer title to the provided text
-          --layout <split|unified>     Diff layout (default: split)
+          --layout <split|unified>     Diff layout (default: unified; configurable via diffViewer.defaultLayout in cmux.json)
           --font-size <points>         Set diff font size (default: 10)
 
         Examples:
