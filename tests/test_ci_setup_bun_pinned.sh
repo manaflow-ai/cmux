@@ -1,22 +1,31 @@
 #!/usr/bin/env bash
-# Ensures setup-bun does not resolve "latest" through GitHub tag listing.
+# Ensures CI installs Bun through the retrying repo-owned installer, pinned to
+# an explicit semver, instead of relying on setup-bun's short download retry.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+found_setup=0
 while IFS= read -r workflow; do
+  if grep -n 'uses: oven-sh/setup-bun@' "$workflow"; then
+    echo "FAIL: $workflow must use scripts/ci/setup-bun-with-retry.sh instead of oven-sh/setup-bun" >&2
+    exit 1
+  fi
+
   while IFS=: read -r line_number _; do
-    block="$(sed -n "${line_number},$((line_number + 8))p" "$workflow")"
-    if ! grep -Eq 'bun-version:[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+' <<<"$block"; then
-      echo "FAIL: $workflow:$line_number setup-bun must pin bun-version to an explicit semver"
+    found_setup=1
+    line="$(sed -n "${line_number}p" "$workflow")"
+    if ! grep -Eq 'setup-bun-with-retry\.sh[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+([[:space:]]|$)' <<<"$line"; then
+      echo "FAIL: $workflow:$line_number setup-bun-with-retry.sh must pin Bun to an explicit semver"
       exit 1
     fi
-    if grep -Eq 'bun-version:[[:space:]]*latest([[:space:]]|$)' <<<"$block"; then
-      echo "FAIL: $workflow:$line_number setup-bun must not use bun-version: latest"
-      exit 1
-    fi
-  done < <(grep -n 'uses: oven-sh/setup-bun@' "$workflow" || true)
+  done < <(grep -n 'setup-bun-with-retry\.sh' "$workflow" || true)
 done < <(git -C "$ROOT_DIR" ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml')
 
-echo "PASS: setup-bun versions are pinned"
+if [[ "$found_setup" -eq 0 ]]; then
+  echo "FAIL: no setup-bun-with-retry.sh workflow calls found" >&2
+  exit 1
+fi
+
+echo "PASS: Bun setup uses retrying semver-pinned installer"
