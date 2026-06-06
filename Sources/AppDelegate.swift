@@ -3663,7 +3663,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
                 _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
@@ -3677,7 +3677,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 self.beginMainWindowDisplayGeometryTransition(
                     source: .workspaceSessionDidResignActive,
@@ -3698,7 +3698,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated { [weak self] in
                 self?.beginMainWindowDisplayGeometryTransition(
                     source: .workspaceScreensDidSleep,
                     reason: .sleepWake
@@ -3712,7 +3712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated { [weak self] in
                 self?.handleMainWindowDisplayGeometryChange(source: .workspaceScreensDidWake)
             }
         }
@@ -3723,7 +3723,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 self.handleMainWindowDisplayGeometryChange(source: .workspaceDidWake)
                 self.restartSocketListenerIfEnabled(source: "workspace.didWake")
@@ -3736,7 +3736,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated { [weak self] in
                 self?.handleMainWindowDisplayGeometryChange(source: .workspaceSessionDidBecomeActive)
             }
         }
@@ -3750,7 +3750,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 self.beginMainWindowDisplayGeometryTransition(
                     source: .applicationDidChangeScreenParameters,
