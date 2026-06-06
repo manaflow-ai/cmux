@@ -443,17 +443,20 @@ public final class AuthCoordinator {
     public func signOut(onSignedOut: @escaping @Sendable () async -> Void = {}) async {
         // Give token-authenticated teardown (the push-token DELETE) a bounded
         // chance to run while tokens are still valid, but never block local
-        // sign-out on a slow/stuck network call: proceed as soon as the hook
-        // finishes or the deadline elapses, whichever comes first.
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await onSignedOut() }
-            group.addTask {
-                // Bounded teardown deadline (cancelled below once one task wins).
-                try? await Task.sleep(for: .seconds(5))
-            }
-            await group.next()
-            group.cancelAll()
+        // sign-out on a stuck call. The teardown runs unstructured and cancels
+        // the deadline when it finishes; we only await the deadline, so a hook
+        // that ignores cancellation keeps running detached without holding up
+        // sign-out past the deadline.
+        let deadline = Task<Void, Never> {
+            // Bounded, cancellable sign-out teardown deadline (carve-out):
+            // cancelled early when the hook completes.
+            try? await Task.sleep(for: .seconds(5))
         }
+        _ = Task {
+            await onSignedOut()
+            deadline.cancel()
+        }
+        await deadline.value
         do {
             try await client.signOut()
         } catch {
