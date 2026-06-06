@@ -806,6 +806,10 @@ final class MarkdownPanelTests: XCTestCase {
             localized: "markdown.web.remoteImageOpenURL",
             defaultValue: "Open image URL"
         )
+        let expectedCopiedButton = String(
+            localized: "markdown.web.remoteImageCopied",
+            defaultValue: "Copied"
+        )
         let expectedHTTPSOnlyMessage = String(
             localized: "markdown.web.remoteImageHTTPSOnly",
             defaultValue: "Only HTTPS remote images can be loaded in the viewer."
@@ -819,6 +823,9 @@ final class MarkdownPanelTests: XCTestCase {
                 localized: "markdown.web.remoteImageURL",
                 defaultValue: "Image URL: {url}"
             ).replacingOccurrences(of: "{url}", with: url)
+        }
+        func copyButtonCount(_ buttons: [String]) -> Int {
+            buttons.filter { $0 == expectedCopyURLButton || $0 == expectedCopiedButton }.count
         }
 
         try await renderMarkdown(
@@ -996,7 +1003,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(loadingPlaceholders.count, 7)
         XCTAssertEqual(loadingButtons.filter { $0 == expectedLoadButton }.count, 1)
         XCTAssertEqual(loadingButtons.filter { $0 == expectedLoadingButton }.count, 2)
-        XCTAssertEqual(loadingButtons.filter { $0 == expectedCopyURLButton }.count, 7)
+        XCTAssertEqual(copyButtonCount(loadingButtons), 7)
         XCTAssertEqual(loadingButtons.filter { $0 == expectedOpenURLButton }.count, 7)
         let activeLoadingButtons = loadingButtonStates.filter { $0["loading"] as? String == "1" }
         XCTAssertEqual(activeLoadingButtons.count, 2)
@@ -1042,7 +1049,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(expandedIPv6Image["hidden"] as? Bool, true)
         XCTAssertEqual(afterPlaceholders.count, 5)
         XCTAssertEqual(afterButtons.filter { $0 == expectedLoadButton }.count, 1)
-        XCTAssertEqual(afterButtons.filter { $0 == expectedCopyURLButton }.count, 5)
+        XCTAssertEqual(copyButtonCount(afterButtons), 5)
         XCTAssertEqual(afterButtons.filter { $0 == expectedOpenURLButton }.count, 5)
         XCTAssertTrue(afterPlaceholders.contains { $0.contains(expectedHTTPSOnlyMessage) })
         XCTAssertTrue(afterPlaceholders.contains { $0.contains(expectedNotAllowedMessage) })
