@@ -265,7 +265,9 @@ final class AgentSessionProcessStore {
         session.stdoutReadTask = nil
         session.stderrReadTask?.cancel()
         session.stderrReadTask = nil
-        session.inputWriter.close()
+        Task {
+            await session.inputWriter.close()
+        }
         session.openCodeEventTask?.cancel()
         session.openCodeEventTask = nil
     }
