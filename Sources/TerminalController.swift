@@ -20740,6 +20740,17 @@ class TerminalController {
                 data: ["action": v2OrNull(rawAction)]
             )
         }
+        // Reject a present-but-malformed workspace_id like the other mobile
+        // handlers, then require it to actually be present and resolvable: this
+        // is a mutating action, so it must target an explicit workspace and never
+        // fall back to the Mac's currently selected workspace (which
+        // v2WorkspaceAction would otherwise do for a missing workspace_id).
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        guard v2UUID(params, "workspace_id") != nil else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
         return v2WorkspaceAction(params: params)
     }
 
