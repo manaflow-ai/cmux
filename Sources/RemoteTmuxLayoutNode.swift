@@ -83,12 +83,6 @@ struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
         }
     }
 
-    /// `true` when this node is a single pane (no split).
-    var isLeaf: Bool {
-        if case .pane = content { return true }
-        return false
-    }
-
     /// All pane ids in this subtree, in depth-first left-to-right order — the
     /// natural order to create matching cmux splits.
     var paneIDsInOrder: [Int] {
