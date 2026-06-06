@@ -2679,7 +2679,7 @@ struct SectionPopoverHost: NSViewRepresentable {
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
     let onResume: ((SessionEntry) -> Void)?
-    let onDelete: ((SessionEntry) -> Bool)?
+    let onDelete: ((SessionEntry) -> Bool)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(isPresented: $isPresented)
@@ -2755,7 +2755,7 @@ struct SectionPopoverHost: NSViewRepresentable {
             search: @escaping SessionSearchFn,
             loadSnapshot: @escaping DirectorySnapshotFn,
             onResume: ((SessionEntry) -> Void)?,
-            onDelete: ((SessionEntry) -> Bool)?
+            onDelete: ((SessionEntry) -> Bool)? = nil
         ) {
             currentSection = section
             currentSearch = search
