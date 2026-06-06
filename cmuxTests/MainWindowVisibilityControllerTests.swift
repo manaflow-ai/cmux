@@ -535,6 +535,61 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(beepCount, 1)
     }
 
+    func testQuickTerminalUnregisterClearsTrackedWindowIdAndKeepsSnapshotForPersistence() {
+        let appDelegate = AppDelegate()
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800)
+        )
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeCmuxWindow(frame: placement.visibleFrame)
+        let secondWindow = makeCmuxWindow(frame: placement.visibleFrame)
+        defer {
+            firstWindow.orderOut(nil)
+            secondWindow.orderOut(nil)
+        }
+        var pendingCreateIds = [firstWindowId, secondWindowId]
+        var liveWindowIds: Set<UUID> = []
+        let windowsById = [
+            firstWindowId: firstWindow,
+            secondWindowId: secondWindow
+        ]
+        var createdSnapshots: [SessionWindowSnapshot?] = []
+        let controller = QuickTerminalController(
+            appDelegate: appDelegate,
+            configurationProvider: { .fallback },
+            placementProvider: { _ in placement },
+            dependencies: makeQuickTerminalDependencies(
+                createMainWindow: { _, _, snapshot in
+                    createdSnapshots.append(snapshot)
+                    let id = pendingCreateIds.removeFirst()
+                    liveWindowIds.insert(id)
+                    return id
+                },
+                windowForMainWindowId: { _, id in
+                    liveWindowIds.contains(id) ? windowsById[id] : nil
+                }
+            )
+        )
+
+        controller.toggle()
+        XCTAssertNil(controller.pendingSessionSnapshotForPersistence())
+
+        liveWindowIds.remove(firstWindowId)
+        controller.handleWindowUnregistered(
+            windowId: firstWindowId,
+            pendingSnapshot: makeQuickTerminalWindowSnapshot()
+        )
+
+        XCTAssertEqual(controller.pendingSessionSnapshotForPersistence()?.isQuickTerminal, true)
+
+        controller.toggle()
+
+        XCTAssertEqual(createdSnapshots.count, 2)
+        XCTAssertEqual(createdSnapshots.last??.isQuickTerminal, true)
+        XCTAssertNil(controller.pendingSessionSnapshotForPersistence())
+    }
+
     func testQuickTerminalCenteredHideDoesNotRunNoOpFrameAnimation() {
         let appDelegate = AppDelegate()
         let configuration = QuickTerminalConfiguration(

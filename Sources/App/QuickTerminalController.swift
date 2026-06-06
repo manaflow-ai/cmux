@@ -117,6 +117,18 @@ final class QuickTerminalController {
         return pendingSessionSnapshot
     }
 
+    func handleWindowUnregistered(windowId: UUID, pendingSnapshot: SessionWindowSnapshot?) {
+        guard quickTerminalWindowId == windowId else { return }
+        quickTerminalWindowId = nil
+        pendingAnimationIntent = nil
+        animationPhase = .idle
+
+        if var pendingSnapshot {
+            pendingSnapshot.isQuickTerminal = true
+            pendingSessionSnapshot = pendingSnapshot
+        }
+    }
+
     func hideFromCloseShortcut(_ window: CmuxMainWindow) {
         if queueHideIfAnimating() {
             return

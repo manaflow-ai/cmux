@@ -15953,6 +15953,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        if removed.isQuickTerminal {
+            quickTerminalController.handleWindowUnregistered(
+                windowId: removed.windowId,
+                pendingSnapshot: isTerminatingApp
+                    ? nil
+                    : sessionWindowSnapshot(
+                        for: removed,
+                        includeScrollback: true,
+                        restorableAgentIndex: RestorableAgentSessionIndex.load()
+                    )
+            )
+        }
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
         commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
