@@ -2311,7 +2311,7 @@ class GhosttyApp {
         synchronizeGhosttyRuntimeColorScheme(effectiveTerminalColorSchemePreference, source: "initialize")
         lastAppearanceColorScheme = initialColorScheme
         GhosttyConfig.invalidateLoadCache()
-        WorkspaceGhosttyThemeCatalog.invalidateCachedAvailableThemeNames()
+        invalidateWorkspaceGhosttyThemeCatalogCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
 
         #if os(macOS)
@@ -3557,7 +3557,7 @@ class GhosttyApp {
             ghostty_app_update_config(app, config)
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
-            WorkspaceGhosttyThemeCatalog.invalidateCachedAvailableThemeNames()
+            invalidateWorkspaceGhosttyThemeCatalogCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
             scheduleSurfaceRefreshAfterConfigurationReload(
                 source: source,
@@ -3600,7 +3600,7 @@ class GhosttyApp {
         }
         config = newConfig
         lastAppearanceColorScheme = reloadColorScheme
-        WorkspaceGhosttyThemeCatalog.invalidateCachedAvailableThemeNames()
+        invalidateWorkspaceGhosttyThemeCatalogCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         scheduleSurfaceRefreshAfterConfigurationReload(
             source: source,
@@ -3618,6 +3618,19 @@ class GhosttyApp {
                 source: source,
                 preferredColorScheme: preferredColorScheme
             )
+        }
+    }
+
+    private func invalidateWorkspaceGhosttyThemeCatalogCache() {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                WorkspaceGhosttyThemeCatalogCache.invalidate()
+            }
+            return
+        }
+
+        DispatchQueue.main.sync {
+            WorkspaceGhosttyThemeCatalogCache.invalidate()
         }
     }
 

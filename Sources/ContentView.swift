@@ -7166,7 +7166,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
         )
-        for themeName in WorkspaceGhosttyThemeCatalog.cachedAvailableThemeNames() {
+        for themeName in WorkspaceGhosttyThemeCatalogCache.availableThemeNames() {
             contributions.append(
                 CommandPaletteCommandContribution(
                     commandId: commandPaletteWorkspaceGhosttyThemeCommandID(themeName),
@@ -8221,7 +8221,7 @@ struct ContentView: View {
             }
             tabManager.setWorkspaceGhosttyTheme(nil, toWorkspaceIds: [workspace.id])
         }
-        for themeName in WorkspaceGhosttyThemeCatalog.cachedAvailableThemeNames() {
+        for themeName in WorkspaceGhosttyThemeCatalogCache.availableThemeNames() {
             registry.register(commandId: commandPaletteWorkspaceGhosttyThemeCommandID(themeName)) {
                 guard let workspace = tabManager.selectedWorkspace else {
                     NSSound.beep()
@@ -16168,7 +16168,7 @@ struct TabItemView: View, Equatable {
                 }
             }
 
-            let themeNames = WorkspaceGhosttyThemeCatalog.cachedAvailableThemeNames()
+            let themeNames = WorkspaceGhosttyThemeCatalogCache.availableThemeNames()
             if themeNames.isEmpty {
                 Text(String(localized: "contextMenu.noGhosttyThemesFound", defaultValue: "No themes found"))
             } else {
