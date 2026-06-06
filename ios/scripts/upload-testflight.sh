@@ -212,6 +212,18 @@ if [[ "$RUN_GUARD" -eq 1 && "$EXPORT_ONLY" -ne 1 && -n "${ASC_API_KEY_ID:-}" && 
   fi
 fi
 
+# Expose the CFBundleVersion that will actually ship so a CI summary or caller
+# reports the post-guard value (the guard may have bumped a fresh build). For a
+# reused --archive-path the shipping version is the archive's embedded one, not
+# BUILD_NUMBER (which is never applied to it).
+SHIPPED_BUILD_NUMBER="$BUILD_NUMBER"
+if [[ "$GUARD_REUSED_ARCHIVE" -eq 1 && "${ARCHIVE_BUILD_NUMBER:-}" =~ ^[0-9]+$ ]]; then
+  SHIPPED_BUILD_NUMBER="$ARCHIVE_BUILD_NUMBER"
+fi
+if [[ -n "${CMUX_BUILD_NUMBER_OUT_FILE:-}" ]]; then
+  printf '%s\n' "$SHIPPED_BUILD_NUMBER" > "$CMUX_BUILD_NUMBER_OUT_FILE"
+fi
+
 OUT_DIR="${CMUX_IOS_UPLOAD_DIR:-/tmp/cmux-ios-testflight-$BUILD_NUMBER}"
 DERIVED_DATA="$OUT_DIR/DerivedData"
 EXPORT_PATH="$OUT_DIR/export"

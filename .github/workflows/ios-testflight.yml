@@ -200,19 +200,29 @@ jobs:
           echo "Using CFBundleVersion: $BN"
 
       - name: Archive, export, and upload to TestFlight
+        id: upload
         env:
           BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
+          # The script writes the CFBundleVersion that actually shipped here (the
+          # monotonic guard may bump it), so the summary reports the real value.
+          CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
         run: |
           set -euo pipefail
           ./ios/scripts/upload-testflight.sh \
             --lane beta \
             --signing automatic \
             --build-number "$BUILD_NUMBER"
+          FINAL_BN="$BUILD_NUMBER"
+          if [ -f "$CMUX_BUILD_NUMBER_OUT_FILE" ]; then
+            FINAL_BN="$(cat "$CMUX_BUILD_NUMBER_OUT_FILE")"
+          fi
+          echo "final_build_number=$FINAL_BN" >> "$GITHUB_OUTPUT"
+          echo "Shipped CFBundleVersion: $FINAL_BN"
 
       - name: Summary
         if: always()
         env:
-          BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
+          BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number || steps.build_number.outputs.build_number }}
         run: |
           {
             echo "### iOS TestFlight upload"
