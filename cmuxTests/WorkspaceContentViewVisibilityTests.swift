@@ -222,4 +222,26 @@ final class WorkspacePageLifecycleTests: XCTestCase {
         )
         XCTAssertNotEqual(workspace.activePageId, secondPage.id)
     }
+
+    func testRuntimePageRestoreDoesNotRecordPlaceholderPanelsAsClosedItems() throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let workspace = Workspace()
+        let firstPageId = workspace.activePageId
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertNotNil(workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal))
+
+        let secondPage = workspace.newPage(select: true)
+        let secondPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertNotNil(workspace.newTerminalSplit(from: secondPanelId, orientation: .vertical))
+
+        workspace.selectPage(firstPageId)
+        workspace.selectPage(secondPage.id)
+
+        XCTAssertFalse(
+            ClosedItemHistoryStore.shared.canReopen,
+            "Runtime page restore should not expose synthetic placeholder panels in recently closed items"
+        )
+    }
 }
