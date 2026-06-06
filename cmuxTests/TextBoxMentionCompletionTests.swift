@@ -1016,6 +1016,49 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionSkillSuggestionsFilterAutoreQuery() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-skill-autore-filter-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let skillsDirectory = root.appendingPathComponent("skills", isDirectory: true)
+        let skillNames = [
+            "agent-browser",
+            "agent-cli-integration",
+            "auto-issue",
+            "auto-merge",
+            "autoreview",
+            "cleanup-dev-builds",
+            "iterate-pr"
+        ] + (0..<40).map { String(format: "zzz-autore-distractor-%02d", $0) }
+        for skillName in skillNames {
+            let skillDirectory = skillsDirectory.appendingPathComponent(skillName, isDirectory: true)
+            try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+            try "name: \(skillName)\n".write(
+                to: skillDirectory.appendingPathComponent("SKILL.md"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 6),
+                query: "autore",
+                trigger: "$"
+            ),
+            rootDirectory: root.path
+        )
+
+        #expect(suggestions.first?.title == "$autoreview")
+        #expect(!suggestions.contains { $0.title == "$agent-browser" })
+    }
+
+    @Test
     func testTextBoxMentionCandidateIndexDoesNotReturnUnvalidatedNucleoRows() {
         let skillNames = [
             "agent-browser",
@@ -1104,6 +1147,55 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionControllerPublishesFilteredRenderStateBeforeAsyncLookup() {
+        let controller = TextBoxMentionCompletionController()
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/agent-browser/SKILL.md",
+            title: "$agent-browser",
+            subtitle: "/tmp/agent-browser/SKILL.md",
+            insertionText: "$agent-browser",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+        let matchingSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/autoreview/SKILL.md",
+            title: "$autoreview",
+            subtitle: "/tmp/autoreview/SKILL.md",
+            insertionText: "$autoreview",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        controller.debugSetState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "$"
+            ),
+            suggestions: [staleSuggestion, matchingSuggestion]
+        )
+        var stateChangeCount = 0
+        controller.onStateChanged = {
+            stateChangeCount += 1
+        }
+
+        controller.refresh(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 6),
+                query: "autore",
+                trigger: "$"
+            ),
+            rootDirectory: nil
+        )
+
+        #expect(stateChangeCount == 1)
+        #expect(controller.renderState.searchTerm == "autore")
+        #expect(controller.renderState.isLoading)
+        #expect(controller.renderState.suggestions.map(\.title) == ["$autoreview"])
+        #expect(!controller.debugHasCurrentSuggestions)
+    }
+
+    @Test
     func testTextBoxMentionRefreshClearsRowsWhenSameTriggerQueryBecomesNonEmpty() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$"
@@ -1125,12 +1217,12 @@ struct TextBoxMentionCompletionTests {
             ),
             suggestions: [staleSuggestion]
         )
-        #expect(textView.debugMentionSuggestionCount() == 1)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 1)
 
         textView.string = "$iterate-pr"
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!(textView.debugAcceptMentionCompletion()))
         #expect(!(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion)))
@@ -1163,13 +1255,44 @@ struct TextBoxMentionCompletionTests {
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.didChangeText()
 
-        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
     }
 
     @Test
-    func testTextBoxMentionRefreshKeepsRowsWhenSameTriggerQueryStaysNonEmpty() {
+    func testTextBoxMentionInsertTextRefreshesRowsAfterBareDollarTrigger() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$"
+        textView.setSelectedRange(NSRange(location: 1, length: 0))
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/agent-browser/SKILL.md",
+            title: "$agent-browser",
+            subtitle: "/tmp/agent-browser/SKILL.md",
+            insertionText: "$agent-browser",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "$"
+            ),
+            suggestions: [staleSuggestion]
+        )
+
+        textView.insertText("autore", replacementRange: textView.selectedRange())
+
+        #expect(textView.plainText() == "$autore")
+        #expect(textView.debugVisibleMentionSuggestionCount() == 0)
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(!textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
+    }
+
+    @Test
+    func testTextBoxMentionRefreshKeepsMatchingRowsWhenSameTriggerQueryStaysNonEmpty() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
@@ -1190,14 +1313,48 @@ struct TextBoxMentionCompletionTests {
             ),
             suggestions: [currentSuggestion]
         )
-        #expect(textView.debugMentionSuggestionCount() == 1)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 1)
 
         textView.string = "$iterate-pr"
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionCount() == 1)
+        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
         #expect(!textView.debugMentionSuggestionsAreCurrent())
-        #expect(!textView.debugAcceptMentionCompletion())
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(!textView.debugAcceptMentionCompletion(suggestion: currentSuggestion))
+    }
+
+    @Test
+    func testTextBoxMentionVisibleRowsKeepCurrentMatchesWhileQueryRefreshes() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$auto"
+        textView.setSelectedRange(NSRange(location: 5, length: 0))
+        let previousSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/autoreview/SKILL.md",
+            title: "$autoreview",
+            subtitle: "/tmp/autoreview/SKILL.md",
+            insertionText: "$autoreview",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 5),
+                query: "auto",
+                trigger: "$"
+            ),
+            suggestions: [previousSuggestion]
+        )
+
+        textView.string = "$autore"
+        textView.setSelectedRange(NSRange(location: 6, length: 0))
+        textView.refreshMentionCompletions()
+
+        #expect(textView.debugMentionSuggestionTitles() == ["$autoreview"])
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(!textView.debugAcceptMentionCompletion(suggestion: previousSuggestion))
     }
 
     @Test
@@ -1236,11 +1393,13 @@ struct TextBoxMentionCompletionTests {
 
         #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
         #expect(!textView.debugMentionSuggestionsAreCurrent())
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
+        #expect(!textView.debugAcceptMentionCompletion(suggestion: currentSuggestion))
     }
 
     @Test
-    func testTextBoxMentionFilteredRowsStayNonCurrentWhenQueryReturnsToPreviousValue() {
+    func testTextBoxMentionFilteredRowsStayNarrowWhenQueryReturnsToPreviousValue() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
@@ -1280,7 +1439,6 @@ struct TextBoxMentionCompletionTests {
         textView.refreshMentionCompletions()
         #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
         #expect(!textView.debugMentionSuggestionsAreCurrent())
-        #expect(!textView.debugAcceptMentionCompletion())
     }
 
     @Test
@@ -1317,13 +1475,63 @@ struct TextBoxMentionCompletionTests {
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
         #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
 
         textView.string = "$"
         textView.setSelectedRange(NSRange(location: 1, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         #expect(textView.debugMentionCompletionsShouldShowPopover())
         #expect(!textView.debugAcceptMentionCompletion())
+    }
+
+    @Test
+    func testTextBoxMentionAcceptanceKeysDoNotFallThroughWhileFilteredRowsRefresh() {
+        let scenarios: [(key: String, keyCode: UInt16)] = [
+            ("\r", UInt16(kVK_Return)),
+            ("\t", UInt16(kVK_Tab))
+        ]
+
+        for scenario in scenarios {
+            let textView = makeTextViewWithRefreshingAutoreMention()
+            var submitCount = 0
+            textView.onSubmit = { submitCount += 1 }
+            guard let event = makeKeyDownEvent(
+                key: scenario.key,
+                modifiers: [],
+                keyCode: scenario.keyCode,
+                windowNumber: 0
+            ) else {
+                #expect(Bool(false), "Failed to construct mention acceptance event")
+                continue
+            }
+
+            textView.keyDown(with: event)
+
+            #expect(submitCount == 0)
+            #expect(textView.string == "$autore")
+            #expect(textView.debugMentionSuggestionTitles() == ["$autoreview"])
+        }
+    }
+
+    @Test
+    func testTextBoxMentionAcceptanceCommandsDoNotFallThroughWhileFilteredRowsRefresh() {
+        let scenarios: [Selector] = [
+            #selector(NSResponder.insertNewline(_:)),
+            #selector(NSResponder.insertTab(_:))
+        ]
+
+        for commandSelector in scenarios {
+            let textView = makeTextViewWithRefreshingAutoreMention()
+            var submitCount = 0
+            textView.onSubmit = { submitCount += 1 }
+
+            textView.doCommand(by: commandSelector)
+
+            #expect(submitCount == 0)
+            #expect(textView.string == "$autore")
+            #expect(textView.debugMentionSuggestionTitles() == ["$autoreview"])
+        }
     }
 
     @Test
@@ -1365,7 +1573,7 @@ struct TextBoxMentionCompletionTests {
 
         textView.completionRootDirectory = newRoot.path
 
-        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         #expect(!(textView.debugAcceptMentionCompletion()))
     }
 
@@ -1393,7 +1601,7 @@ struct TextBoxMentionCompletionTests {
         textView.refreshMentionCompletions()
 
         #expect(textView.debugMentionCompletionsShouldShowPopover())
-        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugVisibleMentionSuggestionCount() == 0)
     }
 
     @Test
@@ -1485,7 +1693,7 @@ struct TextBoxMentionCompletionTests {
 
             #expect(submitCount == 1)
             #expect(textView.string == scenario.text)
-            #expect(textView.debugMentionSuggestionCount() == 0)
+            #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         }
     }
 
@@ -1533,8 +1741,37 @@ struct TextBoxMentionCompletionTests {
             textView.doCommand(by: #selector(NSResponder.insertTab(_:)))
 
             #expect(textView.string == scenario.expected)
-            #expect(textView.debugMentionSuggestionCount() == 0)
+            #expect(textView.debugVisibleMentionSuggestionCount() == 0)
         }
+    }
+
+    private func makeTextViewWithRefreshingAutoreMention() -> TextBoxInputTextView {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$auto"
+        textView.setSelectedRange(NSRange(location: 5, length: 0))
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 5),
+                query: "auto",
+                trigger: "$"
+            ),
+            suggestions: [
+                TextBoxMentionSuggestion(
+                    id: "$:/tmp/autoreview/SKILL.md",
+                    title: "$autoreview",
+                    subtitle: "/tmp/autoreview/SKILL.md",
+                    insertionText: "$autoreview",
+                    systemImageName: "sparkle.magnifyingglass"
+                )
+            ]
+        )
+        textView.string = "$autore"
+        textView.setSelectedRange(NSRange(location: 6, length: 0))
+        textView.refreshMentionCompletions()
+        #expect(textView.debugMentionSuggestionTitles() == ["$autoreview"])
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
+        return textView
     }
 
     private func makeKeyDownEvent(

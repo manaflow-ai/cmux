@@ -14889,6 +14889,8 @@ class TerminalController {
         let hasAttachment = rawPath?.isEmpty == false
         let beforeText = (params["before_text"] as? String) ?? (hasAttachment ? "hello " : "")
         let afterText = (params["after_text"] as? String) ?? (hasAttachment ? "world" : "")
+        let completionRootDirectory = (params["completion_root_directory"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let rawSurfaceID = params["surface_id"] as? String
         let target = rawSurfaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let rawSurfaceID,
@@ -14898,12 +14900,7 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "not_found", message: "Terminal panel not found", data: nil)
         v2MainSync {
-            let panel: TerminalPanel?
-            if let target, !target.isEmpty {
-                panel = resolveTerminalPanel(from: target, tabManager: tabManager)
-            } else {
-                panel = tabManager.selectedTerminalPanel
-            }
+            let panel = v2DebugTextBoxFixturePanel(target: target, tabManager: tabManager)
 
             guard let panel else {
                 return
@@ -14913,13 +14910,15 @@ class TerminalController {
             _ = panel.installDebugTextBoxInlineFixture(
                 localURL: url,
                 beforeText: beforeText,
-                afterText: afterText
+                afterText: afterText,
+                completionRootDirectory: completionRootDirectory?.isEmpty == false ? completionRootDirectory : nil
             )
             let textView = panel.textBoxInputView
             result = .ok([
                 "surface_id": panel.id.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
                 "path": url?.path ?? "",
+                "completion_root_directory": completionRootDirectory ?? "",
                 "text_box_active": panel.isTextBoxActive,
                 "has_text_view": textView != nil,
                 "text_view_has_window": textView?.window != nil,
@@ -14931,6 +14930,56 @@ class TerminalController {
             ])
         }
         return result
+    }
+
+    private func v2DebugTextBoxFixturePanel(target: String?, tabManager: TabManager) -> TerminalPanel? {
+        if let target, !target.isEmpty {
+            return resolveTerminalPanel(from: target, tabManager: tabManager)
+        }
+
+        func terminalPanels(in tab: Workspace) -> [TerminalPanel] {
+            orderedPanels(in: tab).compactMap { $0 as? TerminalPanel }
+        }
+
+        func visibleTerminal(in panels: [TerminalPanel]) -> TerminalPanel? {
+            panels.first { panel in
+                panel.hostedView.window != nil || panel.textBoxInputView?.window != nil
+            }
+        }
+
+        if let selected = tabManager.selectedTerminalPanel,
+           selected.hostedView.window != nil || selected.textBoxInputView?.window != nil {
+            return selected
+        }
+
+        if let selectedTabId = tabManager.selectedTabId,
+           let selectedTab = tabManager.tabs.first(where: { $0.id == selectedTabId }) {
+            let selectedWorkspaceTerminals = terminalPanels(in: selectedTab)
+            if let visible = visibleTerminal(in: selectedWorkspaceTerminals) {
+                return visible
+            }
+            if let selected = tabManager.selectedTerminalPanel {
+                return selected
+            }
+            if let first = selectedWorkspaceTerminals.first {
+                return first
+            }
+        }
+
+        for tab in tabManager.tabs {
+            let panels = terminalPanels(in: tab)
+            if let visible = visibleTerminal(in: panels) {
+                return visible
+            }
+        }
+
+        for tab in tabManager.tabs {
+            if let first = terminalPanels(in: tab).first {
+                return first
+            }
+        }
+
+        return nil
     }
 
     private func v2DebugTextBoxInteract(params: [String: Any]) -> V2CallResult {

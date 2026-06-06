@@ -10,6 +10,10 @@ final class AutomationSocketUITests: XCTestCase {
     private let legacyKey = "socketControlEnabled"
     private var launchTag = ""
     private var temporaryRoots: [URL] = []
+    private var skillFixtureDiagnostics = ""
+    private var lastTextBoxFixtureResponse = ""
+    private var lastMainWindowContextResponse = ""
+    private var lastWorkspaceCreateResponse = ""
 
     override func setUp() {
         super.setUp()
@@ -18,6 +22,10 @@ final class AutomationSocketUITests: XCTestCase {
         diagnosticsPath = "/tmp/cmux-ui-test-automation-socket-\(UUID().uuidString).json"
         launchTag = "ui-tests-automation-\(UUID().uuidString.prefix(8))"
         temporaryRoots = []
+        skillFixtureDiagnostics = ""
+        lastTextBoxFixtureResponse = ""
+        lastMainWindowContextResponse = ""
+        lastWorkspaceCreateResponse = ""
         resetSocketDefaults()
         removeSocketFile()
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
@@ -89,15 +97,18 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     func testTextBoxSkillMentionFiltersWhenTypingAfterBareDollarTrigger() throws {
-        let skillRoot = try makeSkillFixtureRoot(
+        let fixtureRoots = try makeSkillFixtureRoots(
             skillNames: [
                 "agent-browser",
                 "agent-cli-integration",
+                "auto-issue",
+                "auto-merge",
+                "autoreview",
                 "iterate-pr",
             ]
         )
         let app = XCUIApplication()
-        configureTextBoxMentionLaunchEnvironment(app)
+        configureTextBoxMentionLaunchEnvironment(app, fixtureHome: fixtureRoots.fixtureHome)
         defer { app.terminate() }
         app.launch()
 
@@ -105,64 +116,80 @@ final class AutomationSocketUITests: XCTestCase {
             ensureForegroundAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for textbox mention test. state=\(app.state.rawValue)"
         )
+
+        let textBox = app.textViews["TextBoxInput.TextView"].firstMatch
+        if !textBox.waitForExistence(timeout: 6.0) {
+            app.typeKey("n", modifierFlags: [.command])
+        }
         XCTAssertTrue(
-            waitForSocketPong(timeout: 12.0),
-            "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
+            textBox.waitForExistence(timeout: 12.0),
+            "Expected focused terminal textbox to exist"
         )
-
-        let workspace = try XCTUnwrap(
-            socketResult(
-                method: "workspace.create",
-                params: [
-                    "title": "Textbox mention XCUITest",
-                    "working_directory": skillRoot.path,
-                    "focus": true,
-                ]
-            ),
-            "Expected workspace.create to succeed"
-        )
-        let surfaceID = try XCTUnwrap(workspace["surface_id"] as? String, "Expected created surface id")
+        textBox.click()
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeText("$")
 
         _ = try XCTUnwrap(
-            waitForTextBoxFixture(surfaceID: surfaceID, beforeText: "$", timeout: 8.0),
-            "Expected text box fixture to mount with a bare $ trigger"
-        )
-        _ = try XCTUnwrap(
-            socketResult(
-                method: "debug.textbox.interact",
-                params: ["surface_id": surfaceID, "action": "focus"]
-            ),
-            "Expected text box focus to succeed"
-        )
-
-        let bareState = try XCTUnwrap(
-            waitForMentionState(surfaceID: surfaceID, timeout: 8.0) { state in
-                let titles = state["mention_titles"] as? [String] ?? []
-                return state["mention_trigger"] as? String == "$" &&
-                    state["mention_query"] as? String == "" &&
-                    titles.contains("$agent-browser")
+            waitForMentionRows(
+                in: app,
+                timeout: 8.0
+            ) { rows in
+                rows.contains { $0.contains("$agent-browser") }
             },
-            "Expected bare $ suggestions to include $agent-browser"
+            """
+            Expected bare $ popover rows to include $agent-browser.
+            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoots: fixtureRoots.skillRoots))
+            """
         )
-        XCTAssertEqual(bareState["plain_text"] as? String, "$")
 
-        app.typeText("iterate")
+        app.typeText("autore")
 
-        let typedState = try XCTUnwrap(
-            waitForMentionState(surfaceID: surfaceID, timeout: 8.0) { state in
-                let titles = state["mention_titles"] as? [String] ?? []
-                return state["plain_text"] as? String == "$iterate" &&
-                    state["mention_trigger"] as? String == "$" &&
-                    state["mention_query"] as? String == "iterate" &&
-                    state["mention_current"] as? Bool == true &&
-                    titles.contains("$iterate-pr") &&
-                    !titles.contains("$agent-browser")
+        let typedRows = try XCTUnwrap(
+            waitForMentionRows(
+                in: app,
+                timeout: 8.0
+            ) { rows in
+                rows.first?.contains("$autoreview") == true &&
+                    !rows.contains { $0.contains("$agent-browser") }
             },
-            "Expected typing iterate after bare $ to filter stale $agent-browser and show $iterate-pr"
+            """
+            Expected visible popover rows for $autore to hide stale $agent-browser.
+            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoots: fixtureRoots.skillRoots))
+            """
+        )
+        XCTAssertTrue(typedRows.first?.contains("$autoreview") == true)
+        assertMentionRowsRemain(
+            in: app,
+            firstTitle: "$autoreview",
+            absentTitle: "$agent-browser",
+            duration: 0.5
         )
 
-        let typedTitles = typedState["mention_titles"] as? [String] ?? []
-        XCTAssertEqual(typedTitles.first, "$iterate-pr")
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeText("$iterate")
+
+        let iterateRows = try XCTUnwrap(
+            waitForMentionRows(
+                in: app,
+                timeout: 8.0
+            ) { rows in
+                rows.first?.contains("$iterate-pr") == true &&
+                    !rows.contains { $0.contains("$agent-browser") }
+            },
+            """
+            Expected visible popover rows for $iterate to show $iterate-pr and hide stale $agent-browser.
+            \(mentionPopoverDiagnostics(in: app, textBox: textBox, fixtureRoots: fixtureRoots.skillRoots))
+            """
+        )
+        XCTAssertTrue(iterateRows.first?.contains("$iterate-pr") == true)
+        assertMentionRowsRemain(
+            in: app,
+            firstTitle: "$iterate-pr",
+            absentTitle: "$agent-browser",
+            duration: 0.5
+        )
     }
 
     private func configuredApp(mode: String) -> XCUIApplication {
@@ -177,22 +204,21 @@ final class AutomationSocketUITests: XCTestCase {
         return app
     }
 
-    private func configureTextBoxMentionLaunchEnvironment(_ app: XCUIApplication) {
+    private func configureTextBoxMentionLaunchEnvironment(_ app: XCUIApplication, fixtureHome: URL? = nil) {
         app.launchArguments += [
-            "-\(modeKey)", "allowAll",
+            "-terminal.showTextBoxOnNewTerminals", "1",
+            "-terminal.focusTextBoxOnNewTerminals", "1",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
         ]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
         if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
             app.launchEnvironment["PATH"] = path
+        }
+        if let fixtureHome {
+            app.launchEnvironment["CFFIXED_USER_HOME"] = fixtureHome.path
+            app.launchEnvironment["HOME"] = fixtureHome.path
         }
     }
 
@@ -204,6 +230,26 @@ final class AutomationSocketUITests: XCTestCase {
         if app.state == .runningBackground {
             app.activate()
             return app.wait(for: .runningForeground, timeout: 6.0)
+        }
+        return false
+    }
+
+    private func launchAllowingBackgroundActivation(_ app: XCUIApplication) {
+        // Headless cloud runners can launch the app but fail WindowServer activation.
+        // The socket and accessibility APIs used below still work in background.
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless UI runners", options: options) {
+            app.launch()
+        }
+    }
+
+    private func waitForRunningApp(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        if app.state == .runningBackground {
+            return true
         }
         return false
     }
@@ -229,6 +275,18 @@ final class AutomationSocketUITests: XCTestCase {
         let completed = XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
         if let resolvedPath {
             socketPath = resolvedPath
+        }
+        if completed {
+            return true
+        }
+        let diagnostics = loadDiagnostics()
+        if diagnostics["socketReady"] == "1",
+           diagnostics["socketPingResponse"] == "PONG",
+           let expectedPath = diagnostics["socketExpectedPath"],
+           !expectedPath.isEmpty,
+           FileManager.default.fileExists(atPath: expectedPath) {
+            socketPath = expectedPath
+            return socketCommand("ping") == "PONG"
         }
         return completed
     }
@@ -279,8 +337,11 @@ final class AutomationSocketUITests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    private func socketCommand(_ command: String) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: 1.0).sendLine(command)
+    private func socketCommand(_ command: String, responseTimeout: TimeInterval = 1.0) -> String? {
+        if let response = ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendLine(command) {
+            return response
+        }
+        return socketCommandViaNetcat(command, responseTimeout: responseTimeout)
     }
 
     private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
@@ -289,7 +350,49 @@ final class AutomationSocketUITests: XCTestCase {
             "method": method,
             "params": params,
         ]
-        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+        guard JSONSerialization.isValidJSONObject(request),
+              let data = try? JSONSerialization.data(withJSONObject: request),
+              let line = String(data: data, encoding: .utf8),
+              let response = socketCommand(line, responseTimeout: 2.0),
+              let responseData = response.data(using: .utf8) else {
+            return nil
+        }
+        return (try? JSONSerialization.jsonObject(with: responseData)) as? [String: Any]
+    }
+
+    private func socketCommandViaNetcat(_ command: String, responseTimeout: TimeInterval) -> String? {
+        let nc = "/usr/bin/nc"
+        guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let timeoutSeconds = max(1, Int(ceil(responseTimeout)))
+        let script = "printf '%s\\n' \(shellSingleQuote(command)) | \(nc) -U \(shellSingleQuote(socketPath)) -w \(timeoutSeconds) 2>/dev/null"
+        proc.arguments = ["-lc", script]
+
+        let outPipe = Pipe()
+        proc.standardOutput = outPipe
+
+        do {
+            try proc.run()
+        } catch {
+            return nil
+        }
+
+        proc.waitUntilExit()
+
+        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let outStr = String(data: outData, encoding: .utf8) else { return nil }
+        if let first = outStr.split(separator: "\n", maxSplits: 1).first {
+            return String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let trimmed = outStr.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func shellSingleQuote(_ value: String) -> String {
+        if value.isEmpty { return "''" }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
     private func socketResult(method: String, params: [String: Any]) -> [String: Any]? {
@@ -300,20 +403,120 @@ final class AutomationSocketUITests: XCTestCase {
         return envelope["result"] as? [String: Any]
     }
 
+    private func waitForMainWindowContext(timeout: TimeInterval) -> (windowID: String, surfaceID: String?)? {
+        waitForJSON(timeout: timeout) {
+            if let envelope = self.socketJSON(method: "system.identify", params: [:]) {
+                self.lastMainWindowContextResponse = "system.identify \(Self.debugDescription(envelope))"
+                if envelope["ok"] as? Bool == true,
+                   let result = envelope["result"] as? [String: Any],
+                   let focused = result["focused"] as? [String: Any],
+                   let windowID = focused["window_id"] as? String,
+                   !windowID.isEmpty {
+                    var payload: [String: Any] = ["window_id": windowID]
+                    if let surfaceID = focused["surface_id"] as? String, !surfaceID.isEmpty {
+                        payload["surface_id"] = surfaceID
+                    }
+                    return payload
+                }
+            } else {
+                self.lastMainWindowContextResponse = "system.identify nil envelope"
+            }
+
+            if let envelope = self.socketJSON(method: "window.list", params: [:]) {
+                self.lastMainWindowContextResponse += " window.list \(Self.debugDescription(envelope))"
+                if envelope["ok"] as? Bool == true,
+                   let result = envelope["result"] as? [String: Any],
+                   let windows = result["windows"] as? [[String: Any]] {
+                    let window = windows.first { item in
+                        item["visible"] as? Bool == true
+                    } ?? windows.first
+                    if let windowID = window?["id"] as? String, !windowID.isEmpty {
+                        return ["window_id": windowID]
+                    }
+                }
+            } else {
+                self.lastMainWindowContextResponse += " window.list nil envelope"
+            }
+
+            if let windowID = self.diagnosticMainWindowID() {
+                self.lastMainWindowContextResponse += " diagnostics_window_id \(windowID)"
+                return ["window_id": windowID]
+            }
+            return nil
+        }
+        .flatMap { payload in
+            guard let windowID = payload["window_id"] as? String else { return nil }
+            return (windowID, payload["surface_id"] as? String)
+        }
+    }
+
+    private func diagnosticMainWindowID() -> String? {
+        guard let identifiers = loadDiagnostics()["windowIdentifiers"] else { return nil }
+        for rawIdentifier in identifiers.split(separator: ",") {
+            let identifier = String(rawIdentifier).trimmingCharacters(in: .whitespacesAndNewlines)
+            let prefix = "cmux.main."
+            guard identifier.hasPrefix(prefix) else { continue }
+            let windowID = String(identifier.dropFirst(prefix.count))
+            guard UUID(uuidString: windowID) != nil else { continue }
+            return windowID
+        }
+        return nil
+    }
+
+    private func createTextBoxFixtureWorkspace(windowID: String?, workingDirectory: String) -> [String: Any]? {
+        var params: [String: Any] = [
+            "title": "Textbox mention XCUITest",
+            "working_directory": workingDirectory,
+            "focus": true,
+            "eager_load_terminal": true,
+            "auto_refresh_metadata": false,
+        ]
+        if let windowID, !windowID.isEmpty {
+            params["window_id"] = windowID
+            if let result = socketResultCapturingEnvelope(method: "workspace.create", params: params) {
+                return result
+            }
+            params.removeValue(forKey: "window_id")
+        }
+        return socketResultCapturingEnvelope(method: "workspace.create", params: params)
+    }
+
+    private func socketResultCapturingEnvelope(method: String, params: [String: Any]) -> [String: Any]? {
+        guard let envelope = socketJSON(method: method, params: params) else {
+            lastWorkspaceCreateResponse = "\(method) nil envelope"
+            return nil
+        }
+        lastWorkspaceCreateResponse = "\(method) \(Self.debugDescription(envelope))"
+        guard envelope["ok"] as? Bool == true else {
+            return nil
+        }
+        return envelope["result"] as? [String: Any]
+    }
+
     private func waitForTextBoxFixture(
-        surfaceID: String,
+        surfaceID: String?,
         beforeText: String,
+        completionRootDirectory: String? = nil,
         timeout: TimeInterval
     ) -> [String: Any]? {
         waitForJSON(timeout: timeout) {
-            guard let result = self.socketResult(
-                method: "debug.textbox.inline_fixture",
-                params: [
-                    "surface_id": surfaceID,
-                    "before_text": beforeText,
-                    "after_text": "",
-                ]
-            ) else {
+            var params: [String: Any] = [
+                "before_text": beforeText,
+                "after_text": "",
+            ]
+            if let surfaceID {
+                params["surface_id"] = surfaceID
+            }
+            if let completionRootDirectory {
+                params["completion_root_directory"] = completionRootDirectory
+            }
+            guard let envelope = self.socketJSON(method: "debug.textbox.inline_fixture", params: params) else {
+                self.lastTextBoxFixtureResponse = "nil envelope"
+                return nil
+            }
+            self.lastTextBoxFixtureResponse = Self.debugDescription(envelope)
+            guard envelope["ok"] as? Bool == true,
+                  let result = envelope["result"] as? [String: Any] else {
                 return nil
             }
             guard result["text_view_has_window"] as? Bool == true,
@@ -322,6 +525,15 @@ final class AutomationSocketUITests: XCTestCase {
             }
             return result
         }
+    }
+
+    private static func debugDescription(_ value: Any) -> String {
+        guard JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return String(describing: value)
+        }
+        return text
     }
 
     private func waitForMentionState(
@@ -341,6 +553,138 @@ final class AutomationSocketUITests: XCTestCase {
         }
     }
 
+    private func mentionPopoverRowTitles(
+        in app: XCUIApplication,
+        fallbackTitles: [String] = []
+    ) -> [String] {
+        let indexedRows = indexedMentionPopoverRowTitles(in: app)
+        if !indexedRows.isEmpty {
+            return indexedRows
+        }
+
+        return fallbackTitles.filter { mentionElementExists(in: app, title: $0) }
+    }
+
+    private func indexedMentionPopoverRowTitles(in app: XCUIApplication) -> [String] {
+        (0..<12).compactMap { index -> String? in
+            let row = app.descendants(matching: .any)
+                .matching(identifier: "TextBoxMentionCompletionPopover.Row.\(index)")
+                .firstMatch
+            guard row.exists else { return nil }
+            if !row.label.isEmpty {
+                return row.label
+            }
+            if let value = row.value as? String, !value.isEmpty {
+                return value
+            }
+            return nil
+        }
+    }
+
+    private func waitForMentionRows(
+        in app: XCUIApplication,
+        timeout: TimeInterval,
+        predicate: @escaping ([String]) -> Bool
+    ) -> [String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let rows = indexedMentionPopoverRowTitles(in: app)
+            if predicate(rows) {
+                return rows
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        let rows = indexedMentionPopoverRowTitles(in: app)
+        return predicate(rows) ? rows : nil
+    }
+
+    private func assertMentionRowsRemain(
+        in app: XCUIApplication,
+        firstTitle: String,
+        absentTitle: String,
+        duration: TimeInterval,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(duration)
+        var sampleCount = 0
+        while Date() < deadline {
+            let rows = indexedMentionPopoverRowTitles(in: app)
+            sampleCount += 1
+            guard rows.first?.contains(firstTitle) == true,
+                  !rows.contains(where: { $0.contains(absentTitle) }) else {
+                XCTFail(
+                    "Expected popover rows to remain filtered. firstTitle=\(firstTitle) absentTitle=\(absentTitle) rows=\(rows)",
+                    file: file,
+                    line: line
+                )
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertGreaterThan(sampleCount, 0, file: file, line: line)
+    }
+
+    private func mentionElementExists(in app: XCUIApplication, title: String) -> Bool {
+        if app.staticTexts[title].firstMatch.exists {
+            return true
+        }
+        if app.buttons[title].firstMatch.exists {
+            return true
+        }
+        let predicate = NSPredicate(format: "label == %@ OR value == %@", title, title)
+        return app.descendants(matching: .any)
+            .matching(predicate)
+            .firstMatch
+            .exists
+    }
+
+    private func mentionPopoverDiagnostics(
+        in app: XCUIApplication,
+        textBox: XCUIElement,
+        fixtureRoots: [URL]
+    ) -> String {
+        let indexedRows = (0..<12).compactMap { index -> String? in
+            let row = app.descendants(matching: .any)
+                .matching(identifier: "TextBoxMentionCompletionPopover.Row.\(index)")
+                .firstMatch
+            guard row.exists else { return nil }
+            return row.label.isEmpty ? row.value as? String : row.label
+        }
+        let knownTitles = ["$agent-browser", "$autoreview", "$iterate-pr"]
+        let rows = mentionPopoverRowTitles(in: app, fallbackTitles: knownTitles)
+        let popoverExists = app.descendants(matching: .any)
+            .matching(identifier: "TextBoxMentionCompletionPopover")
+            .firstMatch
+            .exists
+        let popoverValue = app.descendants(matching: .any)
+            .matching(identifier: "TextBoxMentionCompletionPopover")
+            .firstMatch
+            .value as? String ?? ""
+        let loadingExists = app.descendants(matching: .any)
+            .matching(identifier: "TextBoxMentionCompletionPopover.Loading")
+            .firstMatch
+            .exists
+        let knownTitleStates = knownTitles
+            .map { "\($0)=\(mentionElementExists(in: app, title: $0))" }
+            .joined(separator: ", ")
+        let fixtureRootStates = fixtureRoots
+            .map { "\($0.path)=\(FileManager.default.fileExists(atPath: $0.path))" }
+            .joined(separator: "\n")
+        return """
+        textBoxValue=\(String(describing: textBox.value))
+        \(skillFixtureDiagnostics)
+        fixtureRoots=
+        \(fixtureRootStates)
+        popoverExists=\(popoverExists)
+        popoverValue=\(popoverValue)
+        loadingExists=\(loadingExists)
+        indexedRows=\(indexedRows)
+        visibleMentionTexts=\(rows)
+        knownTitleStates=\(knownTitleStates)
+        """
+    }
+
     private func waitForJSON(
         timeout: TimeInterval,
         pollInterval: TimeInterval = 0.05,
@@ -356,13 +700,16 @@ final class AutomationSocketUITests: XCTestCase {
         return producer()
     }
 
-    private func makeSkillFixtureRoot(skillNames: [String]) throws -> URL {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-ui-textbox-skills-\(UUID().uuidString)", isDirectory: true)
-        let skills = root.appendingPathComponent("skills", isDirectory: true)
-        try FileManager.default.createDirectory(at: skills, withIntermediateDirectories: true)
+    private func makeSkillFixtureRoots(skillNames: [String]) throws -> (fixtureHome: URL, skillRoots: [URL]) {
+        let fixtureHome = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-ui-textbox-home-\(UUID().uuidString)", isDirectory: true)
+        let fixtureName = "cmux-ui-textbox-skills-\(UUID().uuidString)"
+        let root = fixtureHome
+            .appendingPathComponent(".codex/skills", isDirectory: true)
+            .appendingPathComponent(fixtureName, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         for skillName in skillNames {
-            let skillDirectory = skills.appendingPathComponent(skillName, isDirectory: true)
+            let skillDirectory = root.appendingPathComponent(skillName, isDirectory: true)
             try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
             let contents = """
             ---
@@ -377,8 +724,9 @@ final class AutomationSocketUITests: XCTestCase {
                 encoding: .utf8
             )
         }
-        temporaryRoots.append(root)
-        return root
+        temporaryRoots.append(fixtureHome)
+        skillFixtureDiagnostics = "fixtureHome=\(fixtureHome.path)"
+        return (fixtureHome.standardizedFileURL, [root.standardizedFileURL])
     }
 
     private func resolveSocketPath(timeout: TimeInterval, allowTmpFallback: Bool = true) -> String? {
@@ -469,24 +817,29 @@ final class AutomationSocketUITests: XCTestCase {
             guard fd >= 0 else { return nil }
             defer { close(fd) }
 
-            var timeout = timeval(
-                tv_sec: Int(responseTimeout),
-                tv_usec: Int32((responseTimeout - floor(responseTimeout)) * 1_000_000)
-            )
-            withUnsafePointer(to: &timeout) { ptr in
-                _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
-                _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
+#if os(macOS)
+            var noSigPipe: Int32 = 1
+            _ = withUnsafePointer(to: &noSigPipe) { ptr in
+                setsockopt(
+                    fd,
+                    SOL_SOCKET,
+                    SO_NOSIGPIPE,
+                    ptr,
+                    socklen_t(MemoryLayout<Int32>.size)
+                )
             }
+#endif
 
             var addr = sockaddr_un()
             memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
             addr.sun_family = sa_family_t(AF_UNIX)
 
-            let pathBytes = Array(path.utf8CString)
             let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+            let pathBytes = Array(path.utf8CString)
             guard pathBytes.count <= maxLen else { return nil }
             withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
                 let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+                memset(raw, 0, maxLen)
                 for index in 0..<pathBytes.count {
                     raw[index] = pathBytes[index]
                 }
@@ -494,33 +847,49 @@ final class AutomationSocketUITests: XCTestCase {
 
             let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
             let addrLen = socklen_t(pathOffset + pathBytes.count)
+#if os(macOS)
+            addr.sun_len = UInt8(min(Int(addrLen), 255))
+#endif
             let connected = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.connect(fd, sockaddrPtr, addrLen)
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    Darwin.connect(fd, sa, addrLen)
                 }
             }
             guard connected == 0 else { return nil }
 
-            let payload = Array((line + "\n").utf8)
-            let wrote = payload.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress else { return true }
-                return Darwin.write(fd, baseAddress, rawBuffer.count) == rawBuffer.count
+            let payload = line + "\n"
+            let wrote: Bool = payload.withCString { cString in
+                var remaining = strlen(cString)
+                var pointer = UnsafeRawPointer(cString)
+                while remaining > 0 {
+                    let written = Darwin.write(fd, pointer, remaining)
+                    if written <= 0 { return false }
+                    remaining -= written
+                    pointer = pointer.advanced(by: written)
+                }
+                return true
             }
             guard wrote else { return nil }
 
+            let deadline = Date().addingTimeInterval(responseTimeout)
             var buffer = [UInt8](repeating: 0, count: 4096)
             var accumulator = ""
-            let deadline = Date().addingTimeInterval(responseTimeout)
             while Date() < deadline {
+                var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                let ready = Darwin.poll(&descriptor, 1, 100)
+                if ready < 0 {
+                    return nil
+                }
+                if ready == 0 {
+                    continue
+                }
+
                 let count = Darwin.read(fd, &buffer, buffer.count)
-                guard count > 0 else { break }
+                if count <= 0 { break }
                 if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
                     accumulator.append(chunk)
                     if let newline = accumulator.firstIndex(of: "\n") {
                         return String(accumulator[..<newline])
-                    }
-                    if count < buffer.count {
-                        break
                     }
                 }
             }

@@ -6,9 +6,10 @@ import Observation
 final class TextBoxMentionCompletionController {
     private static let maxVisibleStaleSuggestionsToFilter = 500
 
-    private(set) var suggestions: [TextBoxMentionSuggestion] = []
+    private var suggestions: [TextBoxMentionSuggestion] = []
     private(set) var selectionIndex: Int = 0
     private(set) var isLoadingSuggestions = false
+    private(set) var renderState = TextBoxMentionCompletionRenderState.hidden
 
     @ObservationIgnored
     private(set) var activeQuery: TextBoxMentionQuery?
@@ -23,10 +24,24 @@ final class TextBoxMentionCompletionController {
     @ObservationIgnored
     private var suggestionsRootDirectory: String?
     @ObservationIgnored
+    private var locallyFilteredSuggestions: [TextBoxMentionSuggestion]?
+    @ObservationIgnored
     var onStateChanged: (() -> Void)?
 
-    var hasSuggestions: Bool {
+    private var hasSuggestions: Bool {
         !suggestions.isEmpty
+    }
+
+    var visibleSuggestions: [TextBoxMentionSuggestion] {
+        renderState.suggestions
+    }
+
+    var hasVisibleSuggestions: Bool {
+        !visibleSuggestions.isEmpty
+    }
+
+    var hasAcceptableSuggestions: Bool {
+        hasCurrentSuggestions
     }
 
     var isActive: Bool {
@@ -34,7 +49,7 @@ final class TextBoxMentionCompletionController {
     }
 
     var shouldShowPopover: Bool {
-        isActive && (hasSuggestions || isLoadingSuggestions)
+        isActive && renderState.shouldShowPopover
     }
 
     var hasCurrentSuggestions: Bool {
@@ -44,9 +59,19 @@ final class TextBoxMentionCompletionController {
     }
 
     var selectedSuggestion: TextBoxMentionSuggestion? {
-        guard hasCurrentSuggestions else { return nil }
-        guard suggestions.indices.contains(selectionIndex) else { return nil }
-        return suggestions[selectionIndex]
+        guard visibleSuggestions.indices.contains(renderState.selectionIndex) else { return nil }
+        return visibleSuggestions[renderState.selectionIndex]
+    }
+
+    func canAccept(_ suggestion: TextBoxMentionSuggestion) -> Bool {
+        hasAcceptableSuggestions && suggestions.contains(where: { $0.id == suggestion.id })
+    }
+
+    func matchesCurrentInput(query: TextBoxMentionQuery?, rootDirectory: String?) -> Bool {
+        guard let query else {
+            return activeQuery == nil
+        }
+        return activeQuery == query && activeRootDirectory == rootDirectory
     }
 
     func refresh(for query: TextBoxMentionQuery?, rootDirectory: String?) {
@@ -64,22 +89,18 @@ final class TextBoxMentionCompletionController {
         activeRootDirectory = rootDirectory
         selectionIndex = 0
         isLoadingSuggestions = true
-        // Moving between a bare trigger and typed query changes the expected
-        // result shape. Show the loading row until that exact query finishes.
         let previousQueryWasEmpty = previousActiveQuery?.query
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty ?? true
         let queryIsEmpty = query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let queryChangedToNonEmpty = previousQueryWasEmpty &&
-            !queryIsEmpty
         let queryChangedToEmpty = !previousQueryWasEmpty && queryIsEmpty
         if previousActiveQuery?.trigger != query.trigger ||
             previousRootDirectory != rootDirectory ||
-            queryChangedToNonEmpty ||
             queryChangedToEmpty {
             suggestions = []
             suggestionsQuery = nil
             suggestionsRootDirectory = nil
+            locallyFilteredSuggestions = nil
         } else if previousActiveQuery?.query != query.query,
                   !queryIsEmpty {
             filterVisibleStaleSuggestions(matching: query.query)
@@ -87,7 +108,7 @@ final class TextBoxMentionCompletionController {
         lookupTask?.cancel()
         lookupGeneration &+= 1
         let generation = lookupGeneration
-        onStateChanged?()
+        publishStateChanged()
 
         lookupTask = Task { [weak self, generation] in
             let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
@@ -105,18 +126,19 @@ final class TextBoxMentionCompletionController {
                 self.suggestions = suggestions
                 self.suggestionsQuery = query
                 self.suggestionsRootDirectory = rootDirectory
+                self.locallyFilteredSuggestions = nil
                 self.isLoadingSuggestions = false
                 self.selectionIndex = suggestions.isEmpty ? 0 : min(self.selectionIndex, suggestions.count - 1)
-                self.onStateChanged?()
+                self.publishStateChanged()
             }
         }
     }
 
     func moveSelection(delta: Int) {
-        guard hasCurrentSuggestions else { return }
-        let count = suggestions.count
+        guard hasVisibleSuggestions else { return }
+        let count = visibleSuggestions.count
         selectionIndex = (selectionIndex + delta + count) % count
-        onStateChanged?()
+        publishStateChanged()
     }
 
     func clear() {
@@ -125,29 +147,54 @@ final class TextBoxMentionCompletionController {
         suggestions = []
         suggestionsQuery = nil
         suggestionsRootDirectory = nil
+        locallyFilteredSuggestions = nil
         isLoadingSuggestions = false
         selectionIndex = 0
         lookupTask?.cancel()
         lookupTask = nil
         lookupGeneration &+= 1
+        publishStateChanged()
+    }
+
+    private func publishStateChanged() {
+        updateRenderState()
         onStateChanged?()
+    }
+
+    private func updateRenderState() {
+        let rows: [TextBoxMentionSuggestion]
+        if hasCurrentSuggestions {
+            rows = suggestions
+        } else if isLoadingSuggestions {
+            rows = locallyFilteredSuggestions ?? []
+        } else {
+            rows = []
+        }
+        renderState = TextBoxMentionCompletionRenderState(
+            suggestions: rows,
+            selectionIndex: rows.indices.contains(selectionIndex) ? selectionIndex : 0,
+            searchTerm: activeQuery?.query ?? "",
+            isLoading: isLoadingSuggestions
+        )
     }
 
     private func filterVisibleStaleSuggestions(matching query: String) {
         let normalizedQuery = Self.normalizedMentionSearchText(query)
         guard !normalizedQuery.isEmpty, !suggestions.isEmpty else { return }
+        let filteredSuggestions: [TextBoxMentionSuggestion]
         if suggestions.count > Self.maxVisibleStaleSuggestionsToFilter {
             // The index store caps visible rows at this size; oversized injected
             // stale state is safer to clear than filter on the main actor.
-            suggestions = []
+            filteredSuggestions = []
         } else {
-            suggestions = suggestions.filter { suggestion in
+            filteredSuggestions = suggestions.filter { suggestion in
                 Self.title(suggestion.title, matchesNormalizedQuery: normalizedQuery)
             }
         }
+        locallyFilteredSuggestions = filteredSuggestions
         suggestionsQuery = nil
         suggestionsRootDirectory = nil
-        selectionIndex = suggestions.isEmpty ? 0 : min(selectionIndex, suggestions.count - 1)
+        selectionIndex = filteredSuggestions.isEmpty ? 0 : min(selectionIndex, filteredSuggestions.count - 1)
     }
 
     private static func title(_ title: String, matchesNormalizedQuery normalizedQuery: String) -> Bool {
@@ -192,13 +239,18 @@ final class TextBoxMentionCompletionController {
         suggestions = debugSuggestions
         suggestionsQuery = query
         suggestionsRootDirectory = rootDirectory
+        locallyFilteredSuggestions = nil
         isLoadingSuggestions = isLoading
         selectionIndex = suggestions.isEmpty ? 0 : min(selectionIndex, suggestions.count - 1)
-        onStateChanged?()
+        publishStateChanged()
     }
 
     var debugSuggestionCount: Int {
         suggestions.count
+    }
+
+    var debugVisibleSuggestionCount: Int {
+        visibleSuggestions.count
     }
 
     var debugHasCurrentSuggestions: Bool {
@@ -210,7 +262,7 @@ final class TextBoxMentionCompletionController {
     }
 
     var debugSuggestionTitles: [String] {
-        suggestions.map(\.title)
+        visibleSuggestions.map(\.title)
     }
 #endif
 }
