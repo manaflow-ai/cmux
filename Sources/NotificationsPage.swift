@@ -7,10 +7,14 @@ struct NotificationsPage: View {
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @AppStorage(PhonePushSettings.forwardEnabledKey) private var forwardToPhone = false
+    @AppStorage(PhonePushSettings.hideContentKey) private var hidePhoneNotificationContent = false
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            Divider()
+            phoneForwardingRow
             Divider()
 
             if !notificationStore.notificationMenuSnapshot.hasNotifications {
@@ -85,6 +89,28 @@ struct NotificationsPage: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private var phoneForwardingRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $forwardToPhone) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(localized: "notifications.forwardToPhone.title", defaultValue: "Forward notifications to my iPhone"))
+                    Text(String(localized: "notifications.forwardToPhone.subtitle", defaultValue: "Send agent notifications to the cmux iPhone app. Off by default; nothing is uploaded unless this is on."))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            if forwardToPhone {
+                Toggle(isOn: $hidePhoneNotificationContent) {
+                    Text(String(localized: "notifications.forwardToPhone.hideContent", defaultValue: "Hide content (send a generic message instead of the terminal text)"))
+                        .font(.caption)
+                }
+                .padding(.leading, 20)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     private var emptyState: some View {
