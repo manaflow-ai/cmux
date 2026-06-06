@@ -31,7 +31,7 @@ struct WorkspaceDetailView: View {
     @State private var isTerminalPickerPresented = false
     #if canImport(UIKit)
     @State private var diagnosticsReport: MobileDiagnosticsReport?
-    @State private var diagnosticsOpenNonce = UUID()
+    @State private var isPreparingDiagnostics = false
     @State private var isFeedbackComposerPresented = false
     @State private var shouldPresentFeedbackAfterPickerDismisses = false
     #endif
@@ -145,8 +145,8 @@ struct WorkspaceDetailView: View {
         Button {
             dismissTerminalKeyboardForChrome()
             #if canImport(UIKit)
-            diagnosticsOpenNonce = UUID()
             diagnosticsReport = nil
+            isPreparingDiagnostics = false
             #endif
             isTerminalPickerPresented = true
         } label: {
@@ -233,31 +233,24 @@ struct WorkspaceDetailView: View {
         }
         .frame(minWidth: 240, maxWidth: 320, alignment: .leading)
         .presentationCompactAdaptation(.popover)
-        #if canImport(UIKit)
-        // Build the report once when the picker opens so both the Copy action and
-        // the synchronous-item `ShareLink` can use it. Rebuilt each open so the
-        // snapshot is fresh.
-        .task(id: diagnosticsOpenNonce) {
-            let nonce = diagnosticsOpenNonce
-            await prepareDiagnosticsReport(for: nonce)
-        }
-        #endif
     }
 
     #if canImport(UIKit)
     /// Copies the assembled, scrubbed diagnostics report to the clipboard.
     @ViewBuilder
     private var diagnosticsCopyButton: some View {
-        Button(action: copyDiagnosticsToPasteboard) {
-            Label(
-                L10n.string("mobile.diagnostics.copy", defaultValue: "Copy Diagnostics"),
+        Button {
+            Task { await copyDiagnosticsToPasteboard() }
+        } label: {
+            diagnosticsActionLabel(
+                title: L10n.string("mobile.diagnostics.copy", defaultValue: "Copy Diagnostics"),
                 systemImage: "doc.on.clipboard"
             )
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(diagnosticsReport == nil)
+        .disabled(isPreparingDiagnostics)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         // Preserve the historical accessibility id so existing automation that
@@ -291,12 +284,20 @@ struct WorkspaceDetailView: View {
             .padding(.vertical, 10)
             .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
         } else {
-            Label(
-                L10n.string("mobile.diagnostics.preparing", defaultValue: "Preparing Diagnostics…"),
-                systemImage: "square.and.arrow.up"
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .foregroundStyle(.secondary)
+            Button {
+                Task { await prepareDiagnosticsForSharing() }
+            } label: {
+                diagnosticsActionLabel(
+                    title: isPreparingDiagnostics
+                        ? L10n.string("mobile.diagnostics.preparing", defaultValue: "Preparing Diagnostics…")
+                        : L10n.string("mobile.diagnostics.share", defaultValue: "Share Diagnostics"),
+                    systemImage: "square.and.arrow.up"
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isPreparingDiagnostics)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
@@ -322,6 +323,10 @@ struct WorkspaceDetailView: View {
     #endif
 
     #if canImport(UIKit)
+    private func diagnosticsActionLabel(title: String, systemImage: String) -> Label<Text, Image> {
+        Label(title, systemImage: systemImage)
+    }
+
     /// The shell's live runtime state, mapped into the decoupled diagnostics
     /// snapshot the report builder consumes.
     private var diagnosticsLiveState: MobileDiagnosticsLiveState {
@@ -352,12 +357,24 @@ struct WorkspaceDetailView: View {
         }
     }
 
-    /// Runs when the picker opens so both Copy and `ShareLink` have a ready item.
+    /// Builds the report after the user chooses a diagnostics action, so the
+    /// terminal picker itself stays a cheap navigation control.
     @MainActor
-    private func prepareDiagnosticsReport(for nonce: UUID) async {
+    private func prepareDiagnosticsReport() async -> MobileDiagnosticsReport {
+        if let diagnosticsReport {
+            return diagnosticsReport
+        }
+
+        isPreparingDiagnostics = true
+        defer { isPreparingDiagnostics = false }
         let report = await buildDiagnosticsReport()
-        guard diagnosticsOpenNonce == nonce, !Task.isCancelled else { return }
         diagnosticsReport = report
+        return report
+    }
+
+    @MainActor
+    private func prepareDiagnosticsForSharing() async {
+        _ = await prepareDiagnosticsReport()
     }
 
     /// Builds the diagnostics report (in-process log + OS log + live state +
@@ -378,8 +395,9 @@ struct WorkspaceDetailView: View {
     }
 
     /// Copies the prepared diagnostics text to the system pasteboard.
-    private func copyDiagnosticsToPasteboard() {
-        guard let report = diagnosticsReport else { return }
+    @MainActor
+    private func copyDiagnosticsToPasteboard() async {
+        let report = await prepareDiagnosticsReport()
         isTerminalPickerPresented = false
         UIPasteboard.general.string = report.text
         UINotificationFeedbackGenerator().notificationOccurred(.success)

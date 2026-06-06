@@ -40,6 +40,20 @@ import Testing
         }
     }
 
+    @Test func redactsJSONKeyValueSecrets() {
+        let samples = [
+            (#"{"access_token":"opaque-refresh-token-1234"}"#, #"{"access_token":"<redacted>"}"#, "refresh-token"),
+            (#"{"password":"hunter2longvalue"}"#, #"{"password":"<redacted>"}"#, "hunter2longvalue"),
+            ("{'client_secret': 'oauth secret value'}", "{'client_secret': '<redacted>'}", "oauth secret"),
+        ]
+
+        for (sample, expected, leakedFragment) in samples {
+            let out = scrubber.scrub(sample)
+            #expect(out == expected)
+            #expect(!out.contains(leakedFragment), "value leaked for \(sample): \(out)")
+        }
+    }
+
     @Test func redactsConnectionURLCredentials() {
         let samples = [
             ("DATABASE_URL=postgres://user:dbpass1234@example.com/app", "DATABASE_URL=postgres://user:<redacted>@example.com/app", "dbpass1234"),

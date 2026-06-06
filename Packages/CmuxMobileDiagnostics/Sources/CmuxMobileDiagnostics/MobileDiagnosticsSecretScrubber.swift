@@ -112,6 +112,13 @@ public struct MobileDiagnosticsSecretScrubber: Sendable {
             ("(?i)(?:^|[\\s\"'`({\\[,;&?])(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b(\\s*[:=]\\s*')([^'\\r\\n]{4,})'",
              2),
 
+            // JSON or JavaScript object output, e.g.
+            // `"access_token":"..."` or `'password': '...'`.
+            ("(?i)(\"(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b\"\\s*:\\s*\")([^\"\\r\\n]{4,})(\")",
+             2),
+            ("(?i)('(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b'\\s*:\\s*')([^'\\r\\n]{4,})(')",
+             2),
+
             // `token=...`, `password=...`, `secret=...`, `api[_-]?key=...`,
             // `access_token=...`, `auth=...` style key/value pairs (query strings,
             // env dumps, config). The optional non-capturing identifier prefix
