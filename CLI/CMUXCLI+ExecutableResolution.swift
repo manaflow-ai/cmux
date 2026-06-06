@@ -37,6 +37,25 @@ extension CMUXCLI {
         resolveExecutableInSearchPath("codex", searchPath: searchPath)
     }
 
+    func resolveGrokExecutable(searchPath: String?) -> String? {
+        // Prefer GROK_HOME/bin/grok when set (matches the AgentHookDef configDirEnvOverride),
+        // then the conventional ~/.grok/bin/grok symlink (what the installer creates),
+        // then fall back to grok in PATH.
+        if let grokHome = ProcessInfo.processInfo.environment["GROK_HOME"] {
+            let candidate = URL(fileURLWithPath: grokHome)
+                .appendingPathComponent("bin/grok", isDirectory: false)
+                .path
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        let userHomeCandidate = NSString(string: "~/.grok/bin/grok").expandingTildeInPath
+        if FileManager.default.isExecutableFile(atPath: userHomeCandidate) {
+            return userHomeCandidate
+        }
+        return resolveExecutableInSearchPath("grok", searchPath: searchPath)
+    }
+
     func claudeTeamsHasExplicitTeammateMode(commandArgs: [String]) -> Bool {
         commandArgs.contains { arg in
             arg == "--teammate-mode" || arg.hasPrefix("--teammate-mode=")
