@@ -717,7 +717,7 @@
           "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner.",
           "warnBeforeClosingTabXButton": "Vis en bekreftelse før en fane lukkes med fanens lukkeknapp.",
           "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten.",
-          "workspaceInheritWorkingDirectory": "When omitted, new workspaces follow Ghostty's window-inherit-working-directory setting. Set true to always inherit the current workspace directory, or false to leave the working directory unset so Ghostty's working-directory setting can provide the default.",
+          "workspaceInheritWorkingDirectory": "Når den utelates, følger nye arbeidsområder Ghosttys window-inherit-working-directory-innstilling. Sett til true for alltid å arve arbeidsmappen fra gjeldende arbeidsområde, eller false for å la arbeidsmappen være uinnstilt slik at Ghosttys working-directory-innstilling kan gi standardverdien.",
           "forkConversationDefaultDestination": "Standardmål for den primære Fork Conversation-handlingen i fanehurtigmenyen. Undermenyen viser fortsatt alle mål."
         },
         "terminal": {

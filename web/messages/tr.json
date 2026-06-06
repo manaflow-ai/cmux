@@ -717,7 +717,7 @@
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
-          "workspaceInheritWorkingDirectory": "When omitted, new workspaces follow Ghostty's window-inherit-working-directory setting. Set true to always inherit the current workspace directory, or false to leave the working directory unset so Ghostty's working-directory setting can provide the default.",
+          "workspaceInheritWorkingDirectory": "Atlandığında yeni çalışma alanları Ghostty'nin window-inherit-working-directory ayarını izler. Geçerli çalışma alanının çalışma dizinini her zaman devralmak için true, çalışma dizinini ayarlanmamış bırakarak Ghostty'nin working-directory ayarının varsayılanı sağlaması için false olarak ayarlayın.",
           "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder."
         },
         "terminal": {

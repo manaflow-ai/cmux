@@ -717,7 +717,7 @@
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen.",
           "warnBeforeClosingTabXButton": "Vor dem Schließen eines Tabs über die Tab-Schließen-Schaltfläche eine Bestätigung anzeigen.",
           "hideTabCloseButton": "Tab-Schließen-Schaltflächen in der Pane-Tableiste ausblenden.",
-          "workspaceInheritWorkingDirectory": "When omitted, new workspaces follow Ghostty's window-inherit-working-directory setting. Set true to always inherit the current workspace directory, or false to leave the working directory unset so Ghostty's working-directory setting can provide the default.",
+          "workspaceInheritWorkingDirectory": "Wenn ausgelassen, folgen neue Arbeitsbereiche Ghosttys Einstellung window-inherit-working-directory. Setze den Wert auf true, um immer das Arbeitsverzeichnis des aktuellen Arbeitsbereichs zu übernehmen, oder auf false, um das Arbeitsverzeichnis nicht festzulegen, damit Ghosttys Einstellung working-directory den Standard liefern kann.",
           "forkConversationDefaultDestination": "Standardziel für die primäre Fork Conversation-Aktion im Tab-Kontextmenü. Das Untermenü zeigt weiterhin alle Ziele."
         },
         "terminal": {
