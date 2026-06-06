@@ -99,6 +99,8 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
 
 @MainActor
 private func makeHiddenWebViewDiscardBlockerSnapshot(
+    isLoading: Bool = false,
+    webViewIsLoading: Bool = false,
     hasActiveMainFrameProvisionalNavigation: Bool = false,
     isVisualAutomationCaptureActive: Bool = false,
     isCapturingMedia: Bool = false,
@@ -110,8 +112,8 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
         shouldRenderWebView: true,
         hasPendingRemoteNavigation: false,
         hasCurrentURL: true,
-        isLoading: false,
-        webViewIsLoading: false,
+        isLoading: isLoading,
+        webViewIsLoading: webViewIsLoading,
         hasActiveMainFrameProvisionalNavigation: hasActiveMainFrameProvisionalNavigation,
         isDownloading: false,
         activeDownloadCount: 0,
@@ -230,6 +232,40 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         XCTAssertEqual(manager.blockers(for: snapshot), ["visual_automation"])
 
         manager.scheduleIfNeeded(reason: "test.visualAutomation")
+
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+
+    func testLoadingIndicatorWithoutWebKitLoadingDoesNotBlockHiddenWebViewDiscardScheduling() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(
+            isLoading: true,
+            webViewIsLoading: false
+        )
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+        manager.delegate = delegate
+
+        XCTAssertEqual(manager.blockers(for: snapshot), [])
+
+        manager.scheduleIfNeeded(reason: "test.loadingIndicator")
+
+        XCTAssertTrue(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+
+    func testWebKitLoadingBlocksHiddenWebViewDiscardScheduling() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(
+            isLoading: false,
+            webViewIsLoading: true
+        )
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+        manager.delegate = delegate
+
+        XCTAssertEqual(manager.blockers(for: snapshot), ["loading"])
+
+        manager.scheduleIfNeeded(reason: "test.webKitLoading")
 
         XCTAssertFalse(manager.hasScheduledDiscard)
         XCTAssertEqual(delegate.discardRequestCount, 0)
