@@ -266,7 +266,9 @@ enum AgentHibernationSettings {
     static let confirmationSecondsKey = "terminal.agentHibernation.confirmationSeconds"
 
     static let defaultEnabled = false
-    static let defaultIdleSeconds: TimeInterval = 60 * 60
+    // Hibernation is opt-in. Once enabled, reclaim idle background agents quickly:
+    // the maxLiveTerminals cap and the confirmationSeconds settle window keep this safe.
+    static let defaultIdleSeconds: TimeInterval = 5
     static let defaultMaxLiveTerminals = 12
     static let defaultConfirmationSeconds: TimeInterval = 60
     static let didChangeNotification = Notification.Name("cmux.agentHibernationSettingsDidChange")
