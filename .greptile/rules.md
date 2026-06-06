@@ -18,6 +18,7 @@ Review production Swift and runtime changes for:
 - Architectural fixes that patch symptoms while leaving bad state representable.
 - User-facing errors, alerts, command output, API error bodies, and recovery copy that expose implementation details.
 - Algorithmic complexity regressions on scalable user-owned collections.
+- Local/generated artifacts, dependency checkouts, caches, logs, screenshots, temp folders, and scratch directories that accidentally enter source control.
 
 ## Runtime No Hacky Sleeps
 
@@ -48,3 +49,9 @@ Error copy should say what happened in cmux terms, provide concrete user actiona
 For production code over scalable user-owned collections, flag nested full-collection scans, per-target rescans for batch actions, repeated sort/filter/map work in hot UI/socket/search/process paths, in-memory joins that belong in the data store, and unbenchmarked slower algorithms for paths expected to handle about 1000 workspaces or similar records.
 
 Pass for tiny fixed-size collections, tests, benchmark harnesses, existing inefficient code not worsened by the PR, and documented bounds backed by measurements.
+
+## Source Control Artifacts
+
+For every changed path, flag local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, DerivedData, package-manager downloads, and broad scratch directories that enter source control without a deliberate product, docs, fixture, build, release, or test-system reason.
+
+Pass for intentional source files, configs, localization catalogs, review rules, durable docs assets, required fixtures, generated files that are already part of the repo's source-of-truth model, and PRs that only remove or ignore existing accidental artifacts.

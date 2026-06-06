@@ -284,7 +284,7 @@ actor TextBoxMentionIndexStore {
                     subtitle: Self.displayPath(path),
                     targetPath: path,
                     systemImageName: "sparkle.magnifyingglass",
-                    searchKey: "\(skillName) \(path)".lowercased(),
+                    searchKey: Self.skillSearchKey(skillName: skillName, skillURL: skillURL, rootURL: root),
                     priority: rootIndex
                 ))
                 if candidates.count >= Self.maxIndexedSkills {
@@ -895,6 +895,15 @@ actor TextBoxMentionIndexStore {
             }
         }
         return skillURL.deletingLastPathComponent().lastPathComponent
+    }
+
+    private static func skillSearchKey(skillName: String, skillURL: URL, rootURL: URL) -> String {
+        let skillDirectory = skillURL.deletingLastPathComponent().standardizedFileURL
+        let relativeSkillPath = relativePath(
+            for: skillDirectory.path,
+            rootPath: rootURL.standardizedFileURL.path
+        )
+        return "\(skillName) \(relativeSkillPath)".lowercased()
     }
 
     private static func normalizedDirectory(_ path: String?) -> String? {
