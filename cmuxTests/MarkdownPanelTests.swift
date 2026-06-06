@@ -11,6 +11,20 @@ import XCTest
 
 @MainActor
 final class MarkdownPanelTests: XCTestCase {
+    private var originalRuntimeSurfaceCreationSuppression = false
+
+    override func setUp() {
+        super.setUp()
+        originalRuntimeSurfaceCreationSuppression = TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = true
+    }
+
+    override func tearDown() {
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = originalRuntimeSurfaceCreationSuppression
+        TerminalController.shared.setActiveTabManager(nil)
+        super.tearDown()
+    }
+
     func testMarkdownThemeUsesTransparentPageAndOverlayTintsForTranslucentBackgrounds() throws {
         let theme = MarkdownWebTheme.resolve(
             backgroundColor: NSColor(
@@ -1031,16 +1045,18 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(activeLoadingButtons.allSatisfy { $0["text"] as? String == expectedLoadingButton })
         XCTAssertTrue(activeLoadingButtons.allSatisfy { $0["disabled"] as? Bool == true })
 
-        _ = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              Array.prototype.slice.call(document.querySelectorAll('img[src^="cmux-remote-image://"]')).forEach(function(img) {
-                img.dispatchEvent(new Event('load'));
-              });
-            })();
-            """
-        )
-        let after = try await remoteImageSnapshot(in: webView)
+        remoteImageHandler.finishOpenTasks(data: Self.onePixelPNG)
+        let after = try await waitForRemoteImageSnapshot(in: webView) { snapshot in
+            guard let images = snapshot["images"] as? [[String: Any]],
+                  let placeholders = snapshot["placeholders"] as? [String] else {
+                return false
+            }
+            let linkedImage = images.first { $0["alt"] as? String == "Linked remote" }
+            let duplicateImage = images.first { $0["alt"] as? String == "Duplicate linked remote" }
+            return placeholders.count == 5 &&
+                linkedImage?["hidden"] as? Bool == false &&
+                duplicateImage?["hidden"] as? Bool == false
+        }
         let afterImages = try XCTUnwrap(after["images"] as? [[String: Any]])
         let afterPlaceholders = try XCTUnwrap(after["placeholders"] as? [String])
         let afterButtons = try XCTUnwrap(after["buttons"] as? [String])
@@ -1108,15 +1124,11 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(autoLoadingButtons.filter { $0 == expectedOpenURLButton }.count, 1)
         XCTAssertEqual(autoLoadingButtonStates.filter { $0["loading"] as? String == "1" }.count, 1)
 
-        _ = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              var img = document.querySelector('img[alt="Auto approved remote"]');
-              if (img) { img.dispatchEvent(new Event('error')); }
-            })();
-            """
-        )
-        let autoFailed = try await remoteImageSnapshot(in: webView)
+        remoteImageHandler.cancelOpenTasks()
+        let autoFailed = try await waitForRemoteImageSnapshot(in: webView) { snapshot in
+            guard let buttons = snapshot["buttons"] as? [String] else { return false }
+            return buttons.contains(expectedLoadButton) && !buttons.contains(expectedLoadingButton)
+        }
         let autoFailedImages = try XCTUnwrap(autoFailed["images"] as? [[String: Any]])
         let autoFailedPlaceholders = try XCTUnwrap(autoFailed["placeholders"] as? [String])
         let autoFailedButtons = try XCTUnwrap(autoFailed["buttons"] as? [String])
@@ -1421,6 +1433,31 @@ final class MarkdownPanelTests: XCTestCase {
         return try XCTUnwrap(result as? [String: Any])
     }
 
+    private func waitForRemoteImageSnapshot(
+        in webView: WKWebView,
+        matching predicate: ([String: Any]) throws -> Bool
+    ) async throws -> [String: Any] {
+        let deadline = Date().addingTimeInterval(3)
+        var lastSnapshot: [String: Any] = [:]
+
+        while Date() < deadline {
+            let snapshot = try await remoteImageSnapshot(in: webView)
+            lastSnapshot = snapshot
+            if try predicate(snapshot) {
+                return snapshot
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        throw NSError(
+            domain: "MarkdownPanelTests",
+            code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Timed out waiting for remote image state. Last snapshot: \(lastSnapshot)"
+            ]
+        )
+    }
+
     private func scrollSmokeMarkdown(extraBeforeSection20: Bool) -> String {
         var lines: [String] = ["# Scroll Smoke", ""]
         for section in 1...36 {
@@ -1633,6 +1670,22 @@ private final class MarkdownRemoteImageHoldingSchemeHandler: NSObject, WKURLSche
         let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
         for task in openTasks {
             task.didFailWithError(error)
+        }
+    }
+
+    func finishOpenTasks(data: Data) {
+        let openTasks = Array(tasks.values)
+        tasks.removeAll()
+        for task in openTasks {
+            let response = URLResponse(
+                url: task.request.url ?? URL(string: "cmux-remote-image://image")!,
+                mimeType: "image/png",
+                expectedContentLength: data.count,
+                textEncodingName: nil
+            )
+            task.didReceive(response)
+            task.didReceive(data)
+            task.didFinish()
         }
     }
 }

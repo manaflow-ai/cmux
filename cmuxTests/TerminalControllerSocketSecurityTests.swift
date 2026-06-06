@@ -781,8 +781,6 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 
         let windowId = UUID()
         let tabManager = TabManager(createInitialWorkspace: false)
-        let sidebarState = SidebarState()
-        let sidebarSelectionState = SidebarSelectionState()
         let fileExplorerState = FileExplorerState()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
@@ -793,16 +791,15 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
 
         appDelegate.fileExplorerState = fileExplorerState
-        appDelegate.registerMainWindow(
-            window,
+        appDelegate.registerMainWindowContextForTesting(
             windowId: windowId,
             tabManager: tabManager,
-            sidebarState: sidebarState,
-            sidebarSelectionState: sidebarSelectionState,
-            fileExplorerState: fileExplorerState
+            fileExplorerState: fileExplorerState,
+            window: window,
+            notifyObservers: false
         )
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId, notifyObservers: false)
             window.close()
         }
 

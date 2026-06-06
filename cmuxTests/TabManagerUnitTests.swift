@@ -1244,6 +1244,20 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
 
 @MainActor
 final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
+    private var originalRuntimeSurfaceCreationSuppression = false
+
+    override func setUp() {
+        super.setUp()
+        originalRuntimeSurfaceCreationSuppression = TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = true
+    }
+
+    override func tearDown() {
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = originalRuntimeSurfaceCreationSuppression
+        super.tearDown()
+    }
+
     func testCloseCurrentTabSpamWithConfirmationEnabledPromptsOnceAndClosesOneWorkspace() {
         let manager = TabManager()
         while manager.tabs.count < 6 {
@@ -1297,9 +1311,6 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
             XCTAssertFalse(Thread.isMainThread, "Native surface free must not run on the main thread")
             nativeFreeStarted.fulfill()
-        }
-        defer {
-            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
         }
 
         manager.confirmCloseHandler = { _, _, _ in true }

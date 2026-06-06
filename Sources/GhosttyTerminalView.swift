@@ -7937,6 +7937,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surface = runtimeSurface
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
+        TerminalSurfaceRegistry.shared.registerRuntimeSurface(runtimeSurface, ownerId: id)
     }
 #endif
 
