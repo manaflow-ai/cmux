@@ -13060,12 +13060,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Pane cycling: focus the next/previous split pane in stable split-tree order.
         if matchConfiguredShortcut(event: event, action: .nextPane) {
-            let targetManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            let targetContext = preferredMainWindowContextForShortcutRouting(event: event)
+            let targetManager = targetContext?.tabManager ?? tabManager
+            let targetWindow = targetContext.flatMap { $0.window ?? windowForMainWindowId($0.windowId) } ?? NSApp.keyWindow
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: targetManager, window: targetWindow)
             _ = targetManager?.focusNextPane()
             return true
         }
         if matchConfiguredShortcut(event: event, action: .prevPane) {
-            let targetManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            let targetContext = preferredMainWindowContextForShortcutRouting(event: event)
+            let targetManager = targetContext?.tabManager ?? tabManager
+            let targetWindow = targetContext.flatMap { $0.window ?? windowForMainWindowId($0.windowId) } ?? NSApp.keyWindow
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: targetManager, window: targetWindow)
             _ = targetManager?.focusPreviousPane()
             return true
         }
