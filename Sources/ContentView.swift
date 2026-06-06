@@ -11557,6 +11557,8 @@ struct VerticalTabsSidebar: View {
             return .terminal
         case .browser:
             return .browser
+        case .codeEditor:
+            return .codeEditor
         case .markdown:
             return .markdown
         case .filePreview:

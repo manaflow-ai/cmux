@@ -3,6 +3,7 @@ import Foundation
 public enum CmuxSidebarSurfaceKind: String, Codable, CaseIterable, Equatable, Sendable {
     case terminal
     case browser
+    case codeEditor
     case markdown
     case filePreview
     case rightSidebarTool

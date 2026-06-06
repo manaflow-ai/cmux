@@ -165,6 +165,8 @@ struct TabsVisibleSidebarView: View {
             return "terminal"
         case .browser:
             return "globe"
+        case .codeEditor:
+            return "chevron.left.forwardslash.chevron.right"
         case .markdown:
             return "doc.text"
         case .filePreview:
