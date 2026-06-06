@@ -73,7 +73,7 @@ ISOLATED_RUNNER_PATTERNS=(
 	  'in_flight_test = test_identifier'
 	  'Restarting after unexpected exit, crash, or test timeout'
   'retry_identifier="${test_identifier#cmuxTests/}"'
-  'retry_identifier="${retry_identifier//\\/}"'
+  'retry_identifier="$(printf '\''%s'\'' "$retry_identifier" | tr -d '\''\\'\'')"'
   'retry_identifier="${retry_identifier/./\/}"'
   'retry_only_testing="cmuxTests/$retry_identifier"'
   '"-only-testing:$retry_only_testing"'
@@ -117,7 +117,7 @@ normalize_retry_identifier() {
   local test_identifier="$1"
   local retry_identifier
   retry_identifier="${test_identifier#cmuxTests/}"
-  retry_identifier="${retry_identifier//\\/}"
+  retry_identifier="$(printf '%s' "$retry_identifier" | tr -d '\\')"
   retry_identifier="${retry_identifier/./\/}"
   printf 'cmuxTests/%s\n' "$retry_identifier"
 }
