@@ -638,6 +638,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // supersedes it via `beginPairingAttempt`, leaving `connectionState`
         // `.connected` for the other Mac; matching the live route prevents this
         // superseded task from persisting a stale active target.
+        //
+        // Route equality is the only reliable signal here: `connectManualHost`
+        // mints a synthetic `manual-<host>:<port>` ticket id (see
+        // `manualHostTicket`), so `activeTicket?.macDeviceID` cannot reconcile
+        // against the real stored Mac id. A host:port that has been reassigned to
+        // a different Mac is an unhandleable manual-reconnect limitation shared
+        // with `reconnectActiveMacIfAvailable`, not specific to switching.
         if connectionState == .connected,
            case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
            liveHost == normalizedHost, livePort == port {
