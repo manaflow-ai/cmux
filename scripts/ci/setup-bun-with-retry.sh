@@ -29,8 +29,10 @@ esac
 install_root="${BUN_INSTALL:-$HOME/.bun}"
 install_dir="$install_root/bin"
 install_path="$install_dir/bun"
+bunx_path="$install_dir/bunx"
 
 if [[ -x "$install_path" ]] && [[ "$("$install_path" --version 2>/dev/null)" == "$version" ]]; then
+  ln -sf bun "$bunx_path"
   echo "$install_dir" >> "${GITHUB_PATH:-/dev/null}"
   "$install_path" --version
   exit 0
@@ -38,6 +40,9 @@ fi
 
 if command -v bun >/dev/null 2>&1 && [[ "$(bun --version 2>/dev/null)" == "$version" ]]; then
   bun_dir="$(dirname "$(command -v bun)")"
+  if [[ -w "$bun_dir" && ! -e "$bun_dir/bunx" ]]; then
+    ln -sf bun "$bun_dir/bunx"
+  fi
   echo "$bun_dir" >> "${GITHUB_PATH:-/dev/null}"
   bun --version
   exit 0
@@ -79,6 +84,7 @@ fi
 mkdir -p "$install_dir"
 cp "$bun_binary" "$install_path"
 chmod +x "$install_path"
+ln -sf bun "$bunx_path"
 
 actual_version="$("$install_path" --version)"
 if [[ "$actual_version" != "$version" ]]; then
