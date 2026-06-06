@@ -150,6 +150,21 @@ def main() -> int:
                 str(socket_restored_current.get("page_id") or "") == second_page_id,
                 f"page.rename without page_id should keep targeting the active page: {socket_restored_current}",
             )
+            try:
+                c._call(
+                    "page.duplicate",
+                    {
+                        "workspace_id": workspace_id,
+                        "page_id": "00000000-0000-4000-8000-000000000001",
+                        "title": "wrong-page",
+                    },
+                )
+                _must(False, "page.duplicate with a stale explicit page_id should fail")
+            except cmuxError as exc:
+                _must(
+                    "not_found" in str(exc),
+                    f"page.duplicate with a stale explicit page_id should return not_found: {exc}",
+                )
 
             listed = c._call("page.list", {"workspace_id": workspace_id}) or {}
             titles, selected_titles = _page_titles_and_selected(listed)
