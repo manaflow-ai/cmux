@@ -1163,7 +1163,7 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
             fifth.id,
             "Selection should match the same-index survivor after the selected workspace is batch-closed"
         )
-        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().totalCount, 3)
+        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount, 3)
     }
 
     func testCloseWorkspacesWithConfirmationKeepsWorkspacesWhenCancelled() {
