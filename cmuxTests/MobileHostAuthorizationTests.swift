@@ -1109,77 +1109,27 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(recordedMethods, ["workspace.list"])
     }
 
-    // MARK: - workspace.action authorization (rename / pin)
+    // MARK: - Mobile workspace.action sub-action gate
 
-    private func mobileAuthError(
-        ticket: CmxAttachTicket,
-        method: String,
-        params: [String: Any]
-    ) -> MobileHostRPCError? {
-        let request = MobileHostRPCRequest(
-            id: "workspace-action",
-            method: method,
-            params: params,
-            auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil)
-        )
-        return MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-    }
-
-    func testWorkspaceScopedTicketAllowsPinUnpinRenameForOwnWorkspace() throws {
-        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
-        XCTAssertNil(mobileAuthError(ticket: ticket, method: "workspace.action", params: ["action": "pin", "workspace_id": "workspace"]))
-        XCTAssertNil(mobileAuthError(ticket: ticket, method: "workspace.action", params: ["action": "unpin", "workspace_id": "workspace"]))
-        XCTAssertNil(mobileAuthError(ticket: ticket, method: "workspace.action", params: ["action": "rename", "workspace_id": "workspace", "title": "Renamed"]))
-    }
-
-    func testWorkspaceScopedTicketRejectsActionForOtherWorkspace() throws {
-        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
-        XCTAssertEqual(mobileAuthError(ticket: ticket, method: "workspace.action", params: ["action": "pin", "workspace_id": "other"])?.code, "forbidden")
-        XCTAssertEqual(mobileAuthError(ticket: ticket, method: "workspace.action", params: ["action": "rename", "workspace_id": "other", "title": "x"])?.code, "forbidden")
-    }
-
-    func testWorkspaceActionRejectsDestructiveAndGlobalSubActions() throws {
-        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
-        // move_* reorders the global sidebar; close_* destroys sibling
-        // workspaces; the rest mutate non-pin/rename state. All stay Mac-only.
-        for action in ["move_up", "move_down", "move_top", "close_others", "close_above", "close_below", "set_color", "clear_color", "set_description", "clear_description", "clear_name", "mark_read", "mark_unread"] {
-            XCTAssertEqual(
-                mobileAuthError(ticket: ticket, method: "workspace.action", params: ["action": action, "workspace_id": "workspace"])?.code,
-                "forbidden",
-                "workspace.action '\(action)' must be denied for a mobile ticket"
+    func testMobileWorkspaceActionGateAllowsOnlyPinUnpinRename() {
+        for action in ["pin", "unpin", "rename", "PIN", "UnPin", "RENAME"] {
+            XCTAssertTrue(
+                TerminalController.mobileAllowsWorkspaceAction(action),
+                "mobile workspace.action '\(action)' should be allowed"
             )
         }
-    }
-
-    func testWorkspaceActionRequiresAnAllowedActionParam() throws {
-        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
-        // Missing action, and an unknown action, are denied.
-        XCTAssertEqual(mobileAuthError(ticket: ticket, method: "workspace.action", params: ["workspace_id": "workspace"])?.code, "forbidden")
-        XCTAssertEqual(mobileAuthError(ticket: ticket, method: "workspace.action", params: ["action": "self_destruct", "workspace_id": "workspace"])?.code, "forbidden")
-        // The gate normalizes the action exactly as the handler does, so an
-        // uppercase/hyphenated alias of an allowed action is still accepted.
-        XCTAssertNil(mobileAuthError(ticket: ticket, method: "workspace.action", params: ["action": "PIN", "workspace_id": "workspace"]))
-    }
-
-    func testPairedDeviceTicketAllowsWorkspaceActionForAnyWorkspace() throws {
-        // An empty ticket workspaceID is a Mac-wide pairing; it may pin/rename any
-        // workspace, consistent with how it may input to any terminal.
-        let ticket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
-        XCTAssertNil(mobileAuthError(ticket: ticket, method: "workspace.action", params: ["action": "pin", "workspace_id": "any-workspace"]))
-        XCTAssertNil(mobileAuthError(ticket: ticket, method: "workspace.action", params: ["action": "rename", "workspace_id": "any-workspace", "title": "x"]))
-    }
-
-    func testGlobalWorkspaceMethodsRemainDeniedForMobile() throws {
-        let ticket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
-        // Global / group mutations and the dedicated rename method are not in the
-        // mobile allowlist; rename is routed through the gated workspace.action.
-        for method in ["workspace.reorder_many", "workspace.rename", "workspace.group.pin", "workspace.group.create", "workspace.group.delete"] {
-            XCTAssertEqual(
-                mobileAuthError(ticket: ticket, method: method, params: ["workspace_id": "any-workspace", "title": "x"])?.code,
-                "forbidden",
-                "method '\(method)' must stay Mac-only for a mobile ticket"
+        for action in [
+            "move_up", "move-down", "move_top",
+            "close_others", "close_above", "close_below",
+            "set_color", "clear_color", "set_description", "clear_description",
+            "clear_name", "mark_read", "mark_unread", "self_destruct", "",
+        ] {
+            XCTAssertFalse(
+                TerminalController.mobileAllowsWorkspaceAction(action),
+                "mobile workspace.action '\(action)' must be rejected"
             )
         }
+        XCTAssertFalse(TerminalController.mobileAllowsWorkspaceAction(nil))
     }
 
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {

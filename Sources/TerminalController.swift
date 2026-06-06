@@ -20702,12 +20702,45 @@ class TerminalController {
             result = v2MobileTerminalScroll(params: request.params)
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
+        case "workspace.action":
+            result = v2MobileWorkspaceAction(params: request.params)
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
             ])
         }
         return mobileHostResult(result)
+    }
+
+    /// The `workspace.action` sub-actions the mobile data plane may invoke.
+    ///
+    /// Mobile gets pin/unpin/rename only. The other sub-actions of
+    /// ``v2WorkspaceAction(params:)`` (`move_*`, `close_*`, `set_color`,
+    /// `set_description`, `mark_*`, …) reorder the global sidebar or destroy
+    /// sibling workspaces, so they stay on the Mac/automation socket. The action
+    /// is normalized exactly as ``v2ActionKey(_:_:)`` so this gate and the
+    /// handler can never disagree on which action runs.
+    /// - Parameter rawAction: The raw `action` param value.
+    /// - Returns: `true` when the normalized action is mobile-allowed.
+    nonisolated static func mobileAllowsWorkspaceAction(_ rawAction: String?) -> Bool {
+        guard let trimmed = rawAction?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return false }
+        let normalized = trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
+        return ["pin", "unpin", "rename"].contains(normalized)
+    }
+
+    /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``: rejects every
+    /// sub-action except pin/unpin/rename before dispatching.
+    private func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
+        let rawAction = v2RawString(params, "action")
+        guard Self.mobileAllowsWorkspaceAction(rawAction) else {
+            return .err(
+                code: "method_not_found",
+                message: "Unsupported workspace action for mobile",
+                data: ["action": v2OrNull(rawAction)]
+            )
+        }
+        return v2WorkspaceAction(params: params)
     }
 
     private func mobileHostResult(_ result: V2CallResult) -> MobileHostRPCResult {
