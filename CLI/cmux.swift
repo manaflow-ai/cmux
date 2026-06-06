@@ -9456,8 +9456,10 @@ struct CMUXCLI {
         }
 
         let client: SocketClient
+        let ownsClientConnection: Bool
         if let existingClient {
             client = existingClient
+            ownsClientConnection = false
         } else {
             guard let socketPath = env["CMUX_SOCKET_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !socketPath.isEmpty else {
@@ -9465,10 +9467,12 @@ struct CMUXCLI {
                 return
             }
             client = SocketClient(path: socketPath)
+            ownsClientConnection = true
         }
 
         VMPtyReadyReporter(
             client: client,
+            ownsClientConnection: ownsClientConnection,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             log: { [self] message in
@@ -9479,6 +9483,7 @@ struct CMUXCLI {
 
     private final class VMPtyReadyReporter {
         private let client: SocketClient
+        private let ownsClientConnection: Bool
         private let workspaceId: String
         private let surfaceId: String
         private let log: (String) -> Void
@@ -9490,8 +9495,15 @@ struct CMUXCLI {
         private var attempt = 0
         private var retryTimer: DispatchSourceTimer?
 
-        init(client: SocketClient, workspaceId: String, surfaceId: String, log: @escaping (String) -> Void) {
+        init(
+            client: SocketClient,
+            ownsClientConnection: Bool,
+            workspaceId: String,
+            surfaceId: String,
+            log: @escaping (String) -> Void
+        ) {
             self.client = client
+            self.ownsClientConnection = ownsClientConnection
             self.workspaceId = workspaceId
             self.surfaceId = surfaceId
             self.log = log
@@ -9506,6 +9518,9 @@ struct CMUXCLI {
         private func reportOnce() {
             attempt += 1
             do {
+                if ownsClientConnection {
+                    try client.connectWithoutRetry(responseTimeout: 2)
+                }
                 _ = try client.sendV2(
                     method: "workspace.remote.terminal_ready",
                     params: [
@@ -9514,9 +9529,15 @@ struct CMUXCLI {
                     ],
                     responseTimeout: 2
                 )
+                if ownsClientConnection {
+                    client.close()
+                }
                 log("cli.vm.pty.ready.reported workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) attempt=\(attempt)")
                 return
             } catch {
+                if ownsClientConnection {
+                    client.close()
+                }
                 guard attempt < maxAttempts else {
                     log("cli.vm.pty.ready.report_failed workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) attempts=\(attempt) error=\(String(describing: error))")
                     return
