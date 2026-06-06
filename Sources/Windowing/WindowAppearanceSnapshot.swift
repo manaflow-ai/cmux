@@ -275,8 +275,15 @@ struct WindowAppearanceSnapshot {
         CGFloat(max(0.0, min(1.0, opacity)))
     }
 
-    static func compositedTerminalColor(backgroundColor: NSColor, opacity: Double) -> NSColor {
-        backgroundColor.withAlphaComponent(clampedOpacity(opacity))
+    static func compositedTerminalColor(
+        backgroundColor: NSColor,
+        opacity: Double,
+        over baseColor: NSColor = .windowBackgroundColor
+    ) -> NSColor {
+        cmuxCompositedNSColor(
+            backgroundColor.withAlphaComponent(clampedOpacity(opacity)),
+            over: baseColor
+        )
     }
 
     static func terminalRenderingMode(
@@ -286,7 +293,18 @@ struct WindowAppearanceSnapshot {
     }
 
     var compositedTerminalBackgroundColor: NSColor {
-        terminalBackgroundColor.withAlphaComponent(terminalBackgroundOpacity)
+        Self.compositedTerminalColor(
+            backgroundColor: terminalBackgroundColor,
+            opacity: terminalBackgroundOpacity
+        )
+    }
+
+    var chromeColorScheme: ColorScheme {
+        cmuxReadableColorScheme(for: compositedTerminalBackgroundColor)
+    }
+
+    var sidebarContentColorScheme: ColorScheme {
+        unifySurfaceBackdrops ? chromeColorScheme : sidebarSettings.colorScheme
     }
 
     func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {

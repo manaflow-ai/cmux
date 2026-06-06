@@ -16,6 +16,7 @@ enum KeyboardShortcutBareStartCache {
         let resolvedKeys = Set(
             KeyboardShortcutSettings.Action.allCases.compactMap { action -> String? in
                 guard action != .showHideAllWindows else { return nil }
+                guard !action.isBrowserContentShortcut else { return nil }
                 return KeyboardShortcutSettings.shortcut(for: action).bareShortcutStartKey
             }
         )

@@ -21,6 +21,8 @@ fi
 echo "==> Provisioning CEF SDK for local builds..."
 "$PROJECT_DIR/CEF/vendor/fetch_cef.sh"
 
+"$SCRIPT_DIR/install-git-hooks.sh"
+
 echo "==> Setup complete!"
 echo ""
 echo "You can now build and run the app:"
