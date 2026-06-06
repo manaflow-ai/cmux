@@ -53,11 +53,14 @@ extension TerminalSurface {
 
     static func applyManagedGitWatchEnvironment(
         watchGitStatusEnabled: Bool,
+        showPullRequestsEnabled: Bool = true,
         to environment: inout [String: String],
         protectedKeys: inout Set<String>
     ) {
         environment["CMUX_NO_GIT_WATCH"] = watchGitStatusEnabled ? "" : "1"
         protectedKeys.insert("CMUX_NO_GIT_WATCH")
+        environment["CMUX_NO_PR_WATCH"] = (watchGitStatusEnabled && showPullRequestsEnabled) ? "" : "1"
+        protectedKeys.insert("CMUX_NO_PR_WATCH")
     }
 
     static func mergedStartupEnvironment(
@@ -65,7 +68,8 @@ extension TerminalSurface {
         protectedKeys: Set<String>,
         additionalEnvironment: [String: String],
         initialEnvironmentOverrides: [String: String],
-        ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        applyHermesCodexDefaults: Bool = false
     ) -> [String: String] {
         var merged = base
         for key in inheritedClaudeAuthSelectionEnvironmentKeys where merged[key] != nil || ambientEnvironment[key] != nil {
@@ -79,6 +83,12 @@ extension TerminalSurface {
         }
         if let claudeConfigDir = merged["CLAUDE_CONFIG_DIR"], !claudeConfigDir.isEmpty {
             merged["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(claudeConfigDir)
+        }
+        if applyHermesCodexDefaults {
+            merged = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
+                to: merged,
+                ambientEnvironment: ambientEnvironment
+            )
         }
         return merged
     }
