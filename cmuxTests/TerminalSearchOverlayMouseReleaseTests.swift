@@ -18,6 +18,10 @@ struct TerminalSearchOverlayMouseReleaseTests {
         let (hostedView, window) = try attachToWindow(surface: surface)
         defer { window.orderOut(nil) }
 
+        #expect(waitUntil(description: "runtime surface to start") {
+            surface.surface != nil
+        })
+
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
         #expect(waitUntil(description: "search overlay to mount") {
             hostedView.debugHasSearchOverlay()
@@ -54,6 +58,10 @@ struct TerminalSearchOverlayMouseReleaseTests {
 
         let (hostedView, window) = try attachToWindow(surface: surface)
         defer { window.orderOut(nil) }
+
+        #expect(waitUntil(description: "runtime surface to start") {
+            surface.surface != nil
+        })
 
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
         #expect(waitUntil(description: "search overlay to mount") {
@@ -102,6 +110,8 @@ struct TerminalSearchOverlayMouseReleaseTests {
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
         contentView.layoutSubtreeIfNeeded()
         hostedView.layoutSubtreeIfNeeded()
 
