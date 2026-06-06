@@ -67,10 +67,7 @@ struct MobilePairingView: View {
     }
 
     private var signInRow: some View {
-        let signedIn = model.signedInEmail != nil
-        return requirementRow(
-            systemImage: signedIn ? "checkmark.circle.fill" : "person.crop.circle",
-            tint: signedIn ? .green : .secondary,
+        requirementRow(
             title: String(localized: "mobile.pairing.req.signIn.title", defaultValue: "Signed in to cmux"),
             subtitle: model.signedInEmail
                 ?? String(localized: "mobile.pairing.req.signIn.subtitle", defaultValue: "Sign in to authorize this Mac for pairing.")
@@ -82,8 +79,6 @@ struct MobilePairingView: View {
     private var tailscaleRow: some View {
         let reachable = tailscaleReachable
         return requirementRow(
-            systemImage: reachable == true ? "checkmark.circle.fill" : (reachable == false ? "exclamationmark.triangle.fill" : "network"),
-            tint: reachable == true ? .green : (reachable == false ? .orange : .secondary),
             title: String(localized: "mobile.pairing.req.tailscale.title", defaultValue: "Tailscale"),
             subtitle: tailscaleSubtitle(reachable: reachable)
         ) {
@@ -118,16 +113,11 @@ struct MobilePairingView: View {
     }
 
     private func requirementRow<Trailing: View>(
-        systemImage: String,
-        tint: Color,
         title: String,
         subtitle: String,
         @ViewBuilder trailing: () -> Trailing
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: systemImage)
-                .foregroundStyle(tint)
-                .frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.callout.weight(.medium))
                 Text(subtitle)
