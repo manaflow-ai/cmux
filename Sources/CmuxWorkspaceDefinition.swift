@@ -75,6 +75,45 @@ struct CmuxWorkspacePresetDefinition: Codable, Sendable {
         try container.encode(workspace, forKey: .workspace)
     }
 
+    static func normalizedPresetName(_ raw: String?, fallbackName: String = "workspace") -> String {
+        let candidates: [String?] = [
+            raw,
+            raw.map(Self.sanitizedPresetNameComponent),
+            fallbackName,
+            Self.sanitizedPresetNameComponent(fallbackName),
+            "workspace"
+        ]
+
+        for candidate in candidates {
+            if let valid = validPresetName(candidate) {
+                return valid
+            }
+        }
+        return "workspace"
+    }
+
+    static func sanitizedPresetNameComponent(_ raw: String) -> String {
+        let sanitized = raw.replacingOccurrences(
+            of: #"[^\p{L}\p{N}._-]+"#,
+            with: "-",
+            options: .regularExpression
+        )
+        let trimmed = sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "-."))
+        return trimmed.isEmpty ? "workspace" : trimmed
+    }
+
+    private static func validPresetName(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        guard trimmed.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        guard !trimmed.hasPrefix(".") else { return nil }
+        guard !trimmed.contains("..") else { return nil }
+        return trimmed
+    }
+
     private static func validatedPresetName(_ raw: String, codingPath: [CodingKey]) throws -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {

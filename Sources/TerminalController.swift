@@ -4406,11 +4406,13 @@ class TerminalController {
                     return
                 }
 
-                let presetName = (requestedName?.isEmpty == false ? requestedName : nil)
-                    ?? workspace.customTitle
-                    ?? workspace.title
+                let workspaceName = workspace.customTitle ?? workspace.title
+                let presetName = CmuxWorkspacePresetDefinition.normalizedPresetName(
+                    requestedName,
+                    fallbackName: workspaceName
+                )
                 var workspaceObject: [String: Any] = [
-                    "name": workspace.customTitle ?? workspace.title,
+                    "name": workspaceName,
                     "cwd": workspace.currentDirectory,
                     "layout": layoutObject
                 ]

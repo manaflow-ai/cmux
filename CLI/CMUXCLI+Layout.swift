@@ -503,23 +503,11 @@ extension CMUXCLI {
         fallbackName: String,
         commandName: String
     ) throws -> String {
-        if let raw {
-            if let valid = try? layoutPresetName(raw, commandName: commandName) {
-                return valid
-            }
-            let sanitized = sanitizedFilenameComponent(raw)
-            if let valid = try? layoutPresetName(sanitized, commandName: commandName) {
-                return valid
-            }
-        }
-
-        if let valid = try? layoutPresetName(fallbackName, commandName: commandName) {
-            return valid
-        }
-        return try layoutPresetName(
-            sanitizedFilenameComponent(fallbackName),
-            commandName: commandName
+        let normalized = CmuxWorkspacePresetDefinition.normalizedPresetName(
+            raw,
+            fallbackName: fallbackName
         )
+        return try layoutPresetName(normalized, commandName: commandName)
     }
 
     private func layoutReadJSONObject(from url: URL) throws -> [String: Any] {
@@ -678,13 +666,4 @@ extension CMUXCLI {
         return nil
     }
 
-    func sanitizedFilenameComponent(_ raw: String) -> String {
-        let sanitized = raw.replacingOccurrences(
-            of: #"[^\p{L}\p{N}._-]+"#,
-            with: "-",
-            options: .regularExpression
-        )
-        let trimmed = sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "-."))
-        return trimmed.isEmpty ? "item" : trimmed
-    }
 }

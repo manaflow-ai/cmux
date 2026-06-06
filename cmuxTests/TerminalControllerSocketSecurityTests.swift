@@ -222,6 +222,28 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
     }
 
+    func testWorkspaceLayoutExportNormalizesPresetNameForSocketAPI() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.setCustomTitle("Agent Workspace")
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(nil) }
+
+        let response = try handleV2Request(
+            method: "workspace.layout_export",
+            params: ["workspace_id": workspace.id.uuidString]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["name"] as? String, "Agent-Workspace")
+        let workspaceObject = try XCTUnwrap(result["workspace"] as? [String: Any])
+        XCTAssertEqual(workspaceObject["name"] as? String, "Agent Workspace")
+
+        let data = try JSONSerialization.data(withJSONObject: result)
+        XCTAssertNoThrow(try JSONDecoder().decode(CmuxWorkspacePresetDefinition.self, from: data))
+    }
+
     func testRemoteConfigureDefaultsPersistentDaemonSlotForBootstrapSSH() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
