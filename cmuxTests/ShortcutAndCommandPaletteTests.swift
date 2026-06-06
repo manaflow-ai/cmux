@@ -1128,6 +1128,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .focusRightSidebar,
         .switchRightSidebarToFiles,
         .switchRightSidebarToFind,
+        .switchRightSidebarToCodeReview,
         .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
         .switchRightSidebarToDock,
@@ -1179,6 +1180,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     func testModeShortcutActionsMatchModeSwitchingActions() {
         XCTAssertEqual(RightSidebarMode.files.shortcutAction, .switchRightSidebarToFiles)
         XCTAssertEqual(RightSidebarMode.find.shortcutAction, .switchRightSidebarToFind)
+        XCTAssertEqual(RightSidebarMode.codeReview.shortcutAction, .switchRightSidebarToCodeReview)
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
         XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
@@ -1205,6 +1207,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
             .dock
         )
+        XCTAssertTrue(KeyboardShortcutSettings.Action.switchRightSidebarToCodeReview.defaultShortcut.isUnbound)
     }
 
     func testModeShortcutUsesConfiguredBindings() {
@@ -1216,10 +1219,18 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             control: true
         )
         KeyboardShortcutSettings.setShortcut(customFilesShortcut, for: .switchRightSidebarToFiles)
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "6", command: false, shift: false, option: false, control: true),
+            for: .switchRightSidebarToCodeReview
+        )
 
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),
             .files
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "6", modifiers: [.control], keyCode: 22)),
+            .codeReview
         )
         XCTAssertNil(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.control], keyCode: 18))
@@ -1232,7 +1243,8 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         try """
         {
           "shortcuts": {
-            "switchRightSidebarToFiles": "ctrl+8"
+            "switchRightSidebarToFiles": "ctrl+8",
+            "switchRightSidebarToCodeReview": "ctrl+7"
           }
         }
         """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
@@ -1253,6 +1265,10 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "3", modifiers: [.control], keyCode: 20)),
             .sessions
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "7", modifiers: [.control], keyCode: 26)),
+            .codeReview
         )
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),

@@ -74,7 +74,12 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerScrollToTop,
              .diffViewerOpenFileSearch:
             return .browserPanel
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+        case .switchRightSidebarToFiles,
+             .switchRightSidebarToFind,
+             .switchRightSidebarToCodeReview,
+             .switchRightSidebarToSessions,
+             .switchRightSidebarToFeed,
+             .switchRightSidebarToDock:
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal:
             return .nonBrowserPanel

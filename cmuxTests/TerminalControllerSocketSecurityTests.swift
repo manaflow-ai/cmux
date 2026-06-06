@@ -866,8 +866,16 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: RightSidebarRemoteTarget())
             ),
             (
+                "right_sidebar set review",
+                RightSidebarRemoteRequest(command: .setMode(.codeReview, focus: true), target: RightSidebarRemoteTarget())
+            ),
+            (
                 "right_sidebar set vault --no-focus",
                 RightSidebarRemoteRequest(command: .setMode(.sessions, focus: false), target: RightSidebarRemoteTarget())
+            ),
+            (
+                "right_sidebar diff",
+                RightSidebarRemoteRequest(command: .setMode(.codeReview, focus: true), target: RightSidebarRemoteTarget())
             ),
             (
                 "right_sidebar sessions",

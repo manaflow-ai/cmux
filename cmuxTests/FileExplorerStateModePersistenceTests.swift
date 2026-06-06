@@ -38,6 +38,18 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         }
     }
 
+    func testCodeReviewStoredModeSurvivesByDefault() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.codeReview.rawValue, forKey: modeKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .codeReview)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.codeReview.rawValue)
+        }
+    }
+
     func testModeSetterClampsUnavailableBetaModes() {
         withSavedRightSidebarModeDefaults {
             let defaults = UserDefaults.standard
@@ -64,6 +76,12 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
     func testCLIArgumentNormalizerMapsVaultAndSessionsToSessions() {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "files"), .files)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "find"), .find)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "review"), .codeReview)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "diff"), .codeReview)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "code-review"), .codeReview)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "code_review"), .codeReview)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "codereview"), .codeReview)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "code"), .codeReview)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "vault"), .sessions)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "sessions"), .sessions)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "feed"), .feed)

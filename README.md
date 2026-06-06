@@ -160,6 +160,8 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌥ ⌘ B | Toggle right sidebar |
 | ⌘ ⇧ E | Toggle right sidebar focus |
 
+The Code Review right-sidebar mode is available from the Command Palette and `cmux right-sidebar review`. Its `switchRightSidebarToCodeReview` shortcut action is unbound by default and can be assigned in Settings or `~/.config/cmux/cmux.json`.
+
 ### Surfaces
 
 | Shortcut | Action |

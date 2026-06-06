@@ -7,6 +7,8 @@ extension RightSidebarMode {
             return .files
         case "find":
             return .find
+        case "review", "diff", "code-review", "code_review", "codereview", "code":
+            return .codeReview
         case "vault", "sessions":
             return .sessions
         case "feed":
@@ -38,7 +40,7 @@ extension RightSidebarMode {
 
     func isAvailable(feedEnabled: Bool, dockEnabled: Bool) -> Bool {
         switch self {
-        case .files, .find, .sessions:
+        case .files, .find, .codeReview, .sessions:
             return true
         case .feed:
             return feedEnabled

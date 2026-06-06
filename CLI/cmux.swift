@@ -14500,10 +14500,10 @@ struct CMUXCLI {
               show                           Show the right sidebar
               hide                           Hide the right sidebar
               focus                          Focus the current right sidebar mode
-              set <files|find|vault|sessions|feed|dock>
+              set <files|find|review|diff|vault|sessions|feed|dock>
                                              Show, switch mode, and focus
               mode                           Print {"visible":bool,"mode":string}
-              files|find|vault|sessions|feed|dock
+              files|find|review|diff|vault|sessions|feed|dock
                                              Alias for show + set + focus
 
             Flags:
@@ -15195,7 +15195,7 @@ struct CMUXCLI {
 
         case "set":
             guard parsed.positional.count == 2 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, or dock"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, review, diff, vault, sessions, feed, or dock"))
             }
             let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             guard isRightSidebarCLIMode(mode) else {
@@ -15207,7 +15207,7 @@ struct CMUXCLI {
             }
             return args
 
-        case "files", "find", "vault", "sessions", "feed", "dock":
+        case "files", "find", "review", "diff", "code-review", "code_review", "codereview", "code", "vault", "sessions", "feed", "dock":
             guard parsed.positional.count == 1 else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
             }
@@ -15223,7 +15223,7 @@ struct CMUXCLI {
 
     private func isRightSidebarCLIMode(_ value: String) -> Bool {
         switch value {
-        case "files", "find", "vault", "sessions", "feed", "dock":
+        case "files", "find", "review", "diff", "code-review", "code_review", "codereview", "code", "vault", "sessions", "feed", "dock":
             return true
         default:
             return false
@@ -31982,7 +31982,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           open-notification --id <uuid>
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
-          right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+          right-sidebar <toggle|show|hide|focus|set|mode|files|find|review|diff|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]

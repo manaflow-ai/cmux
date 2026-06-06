@@ -30,6 +30,7 @@ enum KeyboardShortcutSettings {
             .focusRightSidebar,
             .toggleRightSidebar,
             .findInDirectory,
+            .switchRightSidebarToCodeReview,
         ].filter(actions.contains)
         let actionSet = Set(colocatedSidebarActions)
         let baseActions = actions.filter { !actionSet.contains($0) }
@@ -85,6 +86,7 @@ enum KeyboardShortcutSettings {
         case focusRightSidebar
         case switchRightSidebarToFiles
         case switchRightSidebarToFind
+        case switchRightSidebarToCodeReview
         case switchRightSidebarToSessions
         case switchRightSidebarToFeed
         case switchRightSidebarToDock
@@ -187,6 +189,7 @@ enum KeyboardShortcutSettings {
             case .focusRightSidebar: return String(localized: "shortcut.focusRightSidebar.label", defaultValue: "Toggle Right Sidebar Focus")
             case .switchRightSidebarToFiles: return String(localized: "shortcut.switchRightSidebarToFiles.label", defaultValue: "Show Sidebar Files")
             case .switchRightSidebarToFind: return String(localized: "shortcut.switchRightSidebarToFind.label", defaultValue: "Show Sidebar Find")
+            case .switchRightSidebarToCodeReview: return String(localized: "shortcut.switchRightSidebarToCodeReview.label", defaultValue: "Show Sidebar Code Review")
             case .switchRightSidebarToSessions: return String(localized: "shortcut.switchRightSidebarToSessions.label", defaultValue: "Show Sidebar Vault")
             case .switchRightSidebarToFeed: return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
             case .switchRightSidebarToDock: return String(localized: "shortcut.switchRightSidebarToDock.label", defaultValue: "Show Sidebar Dock")
@@ -324,6 +327,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
             case .switchRightSidebarToFind:
                 return StoredShortcut(key: "2", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToCodeReview:
+                return .unbound
             case .switchRightSidebarToSessions:
                 return StoredShortcut(key: "3", command: false, shift: false, option: false, control: true)
             case .switchRightSidebarToFeed:

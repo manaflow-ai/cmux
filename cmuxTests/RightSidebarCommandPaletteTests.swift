@@ -36,7 +36,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            XCTAssertEqual(contributions.count, 3)
+            XCTAssertEqual(contributions.count, 4)
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.codeReview)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
         }
@@ -57,6 +58,14 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 )
             }
         }
+    }
+
+    func testCommandPaletteIncludesCodeReviewPaneCommand() throws {
+        let descriptors = ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
+        let codeReviewDescriptor = try XCTUnwrap(descriptors.first { $0.mode == .codeReview })
+
+        XCTAssertEqual(codeReviewDescriptor.commandId, "palette.openCodeReviewPane")
+        XCTAssertEqual(codeReviewDescriptor.title, String(localized: "command.openCodeReviewPane.title", defaultValue: "Open Code Review as Pane"))
     }
 
     func testCommandPaletteUnreadActionsUseConfigurableShortcutActions() {
