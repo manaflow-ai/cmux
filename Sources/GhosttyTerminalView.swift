@@ -10125,6 +10125,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let accumulatedText = keyTextAccumulator ?? []
         let accumulatedCommands = keyCommandAccumulator ?? []
+        let forwardableCommands = accumulatedCommands.filter {
+            shouldForwardTextInputCommand($0, from: textInputEvent)
+        }
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
             before: markedStateBefore,
             after: (markedText.string, markedSelectedRange),
@@ -10225,8 +10228,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 _ = ghostty_surface_key(surface, keyEvent)
 #endif
             }
-        } else if !accumulatedCommands.isEmpty {
-            for command in accumulatedCommands {
+        } else if !forwardableCommands.isEmpty {
+            for command in forwardableCommands {
                 keyEvent.keycode = command.keycode
                 keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                 keyEvent.composing = false
@@ -10553,6 +10556,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func shouldConsumeSuppressedFindEscape(_ event: NSEvent) -> Bool {
         isFindEscapeSuppressionArmed && cmuxFindEventIsPlainEscape(event)
+    }
+
+    private func shouldForwardTextInputCommand(
+        _ command: GhosttyTextInputCommand,
+        from event: NSEvent
+    ) -> Bool {
+        switch command {
+        case .deleteBackward:
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let hasTerminalModifier = flags.intersection([.control, .option, .command]).isEmpty == false
+            return !hasTerminalModifier &&
+                (event.characters ?? "").isEmpty &&
+                (event.charactersIgnoringModifiers ?? "").isEmpty
+        }
     }
 
     /// Get the characters for a key event with control character handling.
