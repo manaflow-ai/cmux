@@ -31,8 +31,15 @@ public struct MobileDebugLog: Sendable {
     ///
     /// - Parameter sink: The actor-backed buffer to bridge synchronous calls to.
     public init(sink: MobileDebugLogSink) {
+        self.init(sink: sink, pendingOperationLimit: MobileDebugLogOperationQueue.defaultPendingOperationLimit)
+    }
+
+    init(sink: MobileDebugLogSink, pendingOperationLimit: Int) {
         self.sink = sink
-        self.operationQueue = MobileDebugLogOperationQueue(sink: sink)
+        self.operationQueue = MobileDebugLogOperationQueue(
+            sink: sink,
+            pendingOperationLimit: pendingOperationLimit
+        )
     }
 
     /// Append one line, dispatching the write into the actor.

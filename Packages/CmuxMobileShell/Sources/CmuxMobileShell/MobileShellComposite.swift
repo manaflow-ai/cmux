@@ -932,18 +932,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Disconnect the live connection and forget the currently-active paired Mac
     /// (drops it from the store), returning the UI to the pairing flow. Backs the
     /// "Rescan QR" action.
-    public func disconnectAndForgetActiveMac() {
+    @discardableResult
+    public func disconnectAndForgetActiveMac() -> Task<Void, Never>? {
         let staleMacID = activeTicket?.macDeviceID
+            ?? activePairedMac?.macDeviceID
+            ?? pairedMacs.first(where: { $0.isActive })?.macDeviceID
         disconnectLiveConnection()
-        if let pairedMacStore, let macID = staleMacID {
-            // Fire-and-forget: forgetting the persisted mac is cleanup that must
-            // not block the synchronous disconnect UI state update above.
-            Task {
-                do {
-                    try await pairedMacStore.remove(macDeviceID: macID)
-                } catch {
-                    mobileShellLog.error("forgetActiveMac removal failed: \(String(describing: error), privacy: .private)")
-                }
+        guard let pairedMacStore, let macID = staleMacID else { return nil }
+        // Fire-and-forget: forgetting the persisted mac is cleanup that must
+        // not block the synchronous disconnect UI state update above.
+        return Task {
+            do {
+                try await pairedMacStore.remove(macDeviceID: macID)
+            } catch {
+                mobileShellLog.error("forgetActiveMac removal failed: \(String(describing: error), privacy: .private)")
             }
         }
     }

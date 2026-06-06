@@ -172,6 +172,39 @@ import Testing
         #expect(store.connectedHostName.isEmpty)
     }
 
+    @Test func rescanQRForgetsActivePairedMacWithoutActiveTicket() async throws {
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: CmxMobileDefaults.defaultHostPort
+        )
+        let pairedMac = MobilePairedMac(
+            macDeviceID: "mac-offline",
+            displayName: "Studio Offline",
+            routes: [route],
+            createdAt: Date(timeIntervalSince1970: 1),
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            isActive: true,
+            stackUserID: nil
+        )
+        let pairedMacStore = PreviewPairedMacStore(activeMac: pairedMac)
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore
+        )
+        let didConnect = await store.reconnectActiveMacIfAvailable(stackUserID: nil)
+        #expect(didConnect == false)
+        #expect(store.activeTicket == nil)
+        #expect(store.activePairedMac?.macDeviceID == "mac-offline")
+
+        let forgetTask = store.disconnectAndForgetActiveMac()
+        await forgetTask?.value
+
+        #expect(store.activePairedMac == nil)
+        let remaining = try await pairedMacStore.loadAll(stackUserID: nil)
+        #expect(remaining.isEmpty)
+    }
+
     @Test func pairingURLPublishesActivePairedMacForDiagnostics() async throws {
         let route = try hostPortRoute(
             kind: .debugLoopback,
