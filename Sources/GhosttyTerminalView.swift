@@ -4771,9 +4771,12 @@ class GhosttyApp {
                     preferredColorScheme: preferredColorScheme,
                     workspaceTheme: surfaceView.terminalSurface?.workspaceThemeSelection
                 )
+                let workspaceThemeColorScheme = surfaceView.terminalSurface?.workspaceThemeSelection == nil
+                    ? preferredColorScheme
+                    : GhosttyConfig.currentColorSchemePreference()
                 surfaceView.terminalSurface?.hostedView.applyWorkspaceThemeBackground(
                     selection: surfaceView.terminalSurface?.workspaceThemeSelection,
-                    preferredColorScheme: preferredColorScheme,
+                    preferredColorScheme: workspaceThemeColorScheme,
                     reason: "surface.reloadConfig"
                 )
                 surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
@@ -6761,6 +6764,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         if let surface, let workspaceThemeSelection {
+            let workspaceThemeColorScheme = GhosttyConfig.currentColorSchemePreference()
             GhosttyApp.shared.reloadSurfaceConfiguration(
                 surface,
                 soft: false,
@@ -6770,7 +6774,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
             hostedView.applyWorkspaceThemeBackground(
                 selection: workspaceThemeSelection,
-                preferredColorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference,
+                preferredColorScheme: workspaceThemeColorScheme,
                 reason: "surface.create.workspaceTheme"
             )
         }

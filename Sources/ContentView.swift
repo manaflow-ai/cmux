@@ -10667,6 +10667,7 @@ struct VerticalTabsSidebar: View {
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     @State private var workspaceGhosttyThemeNames: [String] = []
+    @State private var workspaceGhosttyThemeNamesRevision: UInt64 = 0
     /// Bumped whenever any workspace's currentDirectory changes; the group
     /// header's resolved cwd-based config (color/icon/context menu /
     /// newWorkspacePlacement) reads it through the body, so a state
@@ -11009,6 +11010,7 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceGhosttyThemeNames: [String]
+        let workspaceGhosttyThemeNamesRevision: UInt64
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -11039,6 +11041,7 @@ struct VerticalTabsSidebar: View {
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
         let workspaceGhosttyThemeNamesSnapshot = workspaceGhosttyThemeNames
+        let workspaceGhosttyThemeNamesRevisionSnapshot = workspaceGhosttyThemeNamesRevision
         let draggedSidebarTabId = dragState.draggedTabId
         let sidebarReorderIds = draggedSidebarTabId.map {
             tabManager.sidebarReorderWorkspaceIds(
@@ -11063,7 +11066,8 @@ struct VerticalTabsSidebar: View {
             workspaceGroups: workspaceGroups,
             workspaceGroupById: workspaceGroupById,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
-            workspaceGhosttyThemeNames: workspaceGhosttyThemeNamesSnapshot
+            workspaceGhosttyThemeNames: workspaceGhosttyThemeNamesSnapshot,
+            workspaceGhosttyThemeNamesRevision: workspaceGhosttyThemeNamesRevisionSnapshot
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -11338,6 +11342,7 @@ struct VerticalTabsSidebar: View {
         }.value
         guard names != workspaceGhosttyThemeNames else { return }
         workspaceGhosttyThemeNames = names
+        workspaceGhosttyThemeNamesRevision &+= 1
     }
 
     @ViewBuilder
@@ -12713,6 +12718,7 @@ struct VerticalTabsSidebar: View {
             contextMenuPinState: contextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             workspaceGhosttyThemeNames: renderContext.workspaceGhosttyThemeNames,
+            workspaceGhosttyThemeNamesRevision: renderContext.workspaceGhosttyThemeNamesRevision,
             settings: renderContext.tabItemSettings,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
@@ -15206,7 +15212,7 @@ struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
-        lhs.workspaceGhosttyThemeNames == rhs.workspaceGhosttyThemeNames &&
+        lhs.workspaceGhosttyThemeNamesRevision == rhs.workspaceGhosttyThemeNamesRevision &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
         lhs.settings == rhs.settings
@@ -15253,6 +15259,7 @@ struct TabItemView: View, Equatable {
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let workspaceGhosttyThemeNames: [String]
+    let workspaceGhosttyThemeNamesRevision: UInt64
     let settings: SidebarTabItemSettingsSnapshot
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents

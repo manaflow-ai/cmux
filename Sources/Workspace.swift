@@ -12140,13 +12140,13 @@ final class Workspace: Identifiable, ObservableObject {
             applyGhosttyTheme(to: terminalPanel, source: source)
         }
 
-        let preferredColorScheme = GhosttyApp.shared.effectiveTerminalColorSchemePreference
+        let preferredColorScheme = workspaceThemeColorSchemePreference()
         let config = ghosttyAppearanceConfigForWorkspaceTheme(preferredColorScheme: preferredColorScheme)
         applyGhosttyChrome(from: config, reason: source)
     }
 
     private func applyGhosttyTheme(to terminalPanel: TerminalPanel, source: String) {
-        let preferredColorScheme = GhosttyApp.shared.effectiveTerminalColorSchemePreference
+        let preferredColorScheme = workspaceThemeColorSchemePreference()
         let liveSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
             reason: "workspace.applyGhosttyTheme"
         )
@@ -12184,6 +12184,12 @@ final class Workspace: Identifiable, ObservableObject {
             return ghosttyThemeSelection.resolvedGhosttyConfig(preferredColorScheme: preferredColorScheme)
         }
         return GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false)
+    }
+
+    private func workspaceThemeColorSchemePreference() -> GhosttyConfig.ColorSchemePreference {
+        ghosttyThemeSelection == nil
+            ? GhosttyApp.shared.effectiveTerminalColorSchemePreference
+            : GhosttyConfig.currentColorSchemePreference()
     }
 
     func setTerminalScrollBarHidden(_ hidden: Bool) {

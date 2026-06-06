@@ -14,11 +14,12 @@ extension GhosttyApp {
 
         guard let newConfig = ghostty_config_new() else { return }
         let reloadColorScheme = preferredColorScheme ?? effectiveTerminalColorSchemePreference
+        let workspaceThemeColorScheme = GhosttyConfig.currentColorSchemePreference()
         _ = loadDefaultConfigFilesWithLegacyFallback(
             newConfig,
             preferredColorScheme: reloadColorScheme,
-            conditionalThemeColorScheme: GhosttyConfig.currentColorSchemePreference(),
-            additionalConfigContents: workspaceTheme?.configContents(preferredColorScheme: reloadColorScheme)
+            conditionalThemeColorScheme: workspaceThemeColorScheme,
+            additionalConfigContents: workspaceTheme?.configContents(preferredColorScheme: workspaceThemeColorScheme)
         )
         // Ghostty Surface.updateConfig derives its own surface state from the
         // passed config. The C API does not retain this temporary pointer.
