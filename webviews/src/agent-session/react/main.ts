@@ -1017,6 +1017,20 @@ const TranscriptTurn = React.memo(function TranscriptTurn({
       );
     }
     case "assistant":
+      if (entry.isComplete === false) {
+        return h(
+          "div",
+          { className: "codex-assistant-turn group flex min-w-0 flex-col" },
+          h(
+            "div",
+            {
+              className:
+                "codex-assistant-message codex-assistant-message-streaming text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]",
+            },
+            entry.text,
+          ),
+        );
+      }
       return h(
         "div",
         { className: "codex-assistant-turn group flex min-w-0 flex-col" },
@@ -1028,7 +1042,7 @@ const TranscriptTurn = React.memo(function TranscriptTurn({
             dangerouslySetInnerHTML: { __html: renderMarkdownHTML(entry.text) },
           },
         ),
-        entry.text.trim().length > 0 && entry.isComplete !== false
+        entry.text.trim().length > 0
           ? h(AssistantMessageActions, { copy, sentAtMs: entry.sentAtMs, text: entry.text })
           : null,
       );

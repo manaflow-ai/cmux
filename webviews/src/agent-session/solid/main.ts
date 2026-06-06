@@ -376,8 +376,14 @@ function updateTranscriptTurn(row: HTMLDivElement, entry: TranscriptEntry): void
       row.className = "codex-assistant-turn";
       const content = row.firstElementChild as HTMLDivElement | null;
       if (content) {
-        content.className = "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]";
-        content.innerHTML = renderMarkdownHTML(entry.text);
+        if (entry.isComplete === false) {
+          content.className =
+            "codex-assistant-message codex-assistant-message-streaming text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]";
+          content.textContent = entry.text;
+        } else {
+          content.className = "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]";
+          content.innerHTML = renderMarkdownHTML(entry.text);
+        }
       }
       break;
     }

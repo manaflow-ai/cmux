@@ -375,6 +375,10 @@ select {
   overflow-wrap: anywhere;
 }
 
+.codex-assistant-message-streaming {
+  white-space: break-spaces;
+}
+
 .codex-assistant-message :where(p) {
   margin: 0 0 0.85em;
 }
