@@ -17,6 +17,7 @@ export async function SiteFooter() {
         { label: t("blog"), href: "/blog" },
         { label: t("community"), href: "/community" },
         { label: t("nightly"), href: "/nightly" },
+        { label: t("assets"), href: "/assets" },
       ],
     },
     {

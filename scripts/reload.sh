@@ -16,8 +16,21 @@ CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CLI_PATH=""
-LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
+# Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
+# read the last-socket-path markers (https://github.com/manaflow-ai/cmux/issues/5146).
+# Resolve the real account home via getpwuid (the same syscall
+# homeDirectoryForCurrentUser uses) rather than $HOME, which a shell can override.
+# perl ships with macOS and returns the full home path even when it contains spaces;
+# `dscl ... | awk` mis-parses such paths because dscl wraps a value with spaces onto
+# a second line. `|| true` keeps the lookup from aborting the script under
+# `set -euo pipefail`; an empty result falls back to $HOME.
+_cmux_account_home="$(perl -e 'print((getpwuid($<))[7])' 2>/dev/null || true)"
+LAST_SOCKET_PATH_DIR="${_cmux_account_home:-$HOME}/.local/state/cmux"
 AUTO_SKIP_ZIG_BUILD_REASON=""
+SWIFT_FRONTEND_WORKAROUND=0
+XCODEBUILD_STARTED=0
+XCODEBUILD_OUTPUT_VALID=0
+XCODEBUILD_CLEANED_OUTPUTS=0
 
 should_skip_ghostty_cli_helper_zig_build() {
   if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
@@ -190,6 +203,13 @@ Options:
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
+  --swift-frontend-workaround
+                         Work around Swift arm64 frontend spins for this reload
+                         only by disabling batch mode, debug symbol emission,
+                         and AArch64 GlobalISel. Also enabled by
+                         CMUX_SWIFT_FRONTEND_WORKAROUND=1.
+  --swift-disable-global-isel
+                         Alias for --swift-frontend-workaround.
   -h, --help             Show this help.
 EOF
 }
@@ -272,6 +292,55 @@ set_plist_env() {
 tagged_derived_data_path() {
   local slug="$1"
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
+}
+
+remove_app_bundle_output() {
+  local path="${1:-}"
+  if [[ -z "$path" || ! -e "$path" ]]; then
+    return 0
+  fi
+  if [[ -z "${BUILD_PRODUCTS_DEBUG_DIR:-}" ]]; then
+    echo "warning: refusing to remove app output without a build products directory: $path" >&2
+    return 0
+  fi
+  case "$path" in
+    "$BUILD_PRODUCTS_DEBUG_DIR"/*.app)
+      rm -rf "$path"
+      ;;
+    *)
+      echo "warning: refusing to remove unexpected app output: $path" >&2
+      ;;
+  esac
+}
+
+cleanup_incomplete_xcodebuild_outputs() {
+  if [[ "$XCODEBUILD_CLEANED_OUTPUTS" -eq 1 ]]; then
+    return 0
+  fi
+  XCODEBUILD_CLEANED_OUTPUTS=1
+  remove_app_bundle_output "${XCODEBUILD_SOURCE_APP_PATH:-}"
+  remove_app_bundle_output "${XCODEBUILD_TAG_APP_PATH:-}"
+  remove_app_bundle_output "${TAG_APP_STAGING_PATH:-}"
+}
+
+validate_app_bundle() {
+  local app_path="$1"
+  local executable_name="$2"
+  local executable_path="$app_path/Contents/MacOS/$executable_name"
+  local info_plist="$app_path/Contents/Info.plist"
+
+  if [[ ! -d "$app_path" ]]; then
+    echo "error: app bundle not found after xcodebuild: $app_path" >&2
+    return 1
+  fi
+  if [[ ! -f "$info_plist" ]]; then
+    echo "error: app Info.plist not found after xcodebuild: $info_plist" >&2
+    return 1
+  fi
+  if [[ ! -x "$executable_path" ]]; then
+    echo "error: app executable not found after xcodebuild: $executable_path" >&2
+    return 1
+  fi
 }
 
 print_tag_cleanup_reminder() {
@@ -373,6 +442,14 @@ while [[ $# -gt 0 ]]; do
       DERIVED_SET=1
       shift 2
       ;;
+    --swift-disable-global-isel)
+      SWIFT_FRONTEND_WORKAROUND=1
+      shift
+      ;;
+    --swift-frontend-workaround)
+      SWIFT_FRONTEND_WORKAROUND=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -421,6 +498,23 @@ RELOAD_LOG="/tmp/cmux-reload-${TAG_SLUG}.log"
 RELOAD_START_TIME="$(date +%s)"
 : > "$RELOAD_LOG"
 
+BUILD_PRODUCTS_DEBUG_DIR=""
+XCODEBUILD_SOURCE_APP_NAME="$APP_NAME"
+XCODEBUILD_SOURCE_APP_PATH=""
+XCODEBUILD_TAG_APP_PATH=""
+TAG_APP_FINAL_PATH=""
+TAG_APP_STAGING_PATH=""
+if [[ -n "$DERIVED_DATA" ]]; then
+  BUILD_PRODUCTS_DEBUG_DIR="${DERIVED_DATA}/Build/Products/Debug"
+  if [[ -n "$TAG" ]]; then
+    XCODEBUILD_SOURCE_APP_NAME="$BASE_APP_NAME"
+  fi
+  XCODEBUILD_SOURCE_APP_PATH="${BUILD_PRODUCTS_DEBUG_DIR}/${XCODEBUILD_SOURCE_APP_NAME}.app"
+  if [[ -n "$TAG" && "$APP_NAME" != "$XCODEBUILD_SOURCE_APP_NAME" ]]; then
+    XCODEBUILD_TAG_APP_PATH="${BUILD_PRODUCTS_DEBUG_DIR}/${APP_NAME}.app"
+  fi
+fi
+
 # Save the original stdout/stderr so the EXIT trap can write the user-facing
 # summary after the body redirect, then redirect bulk output into the log.
 exec 3>&1 4>&2
@@ -432,6 +526,13 @@ reload_finalize() {
   exec 1>&3 2>&4
   local elapsed=$(( $(date +%s) - RELOAD_START_TIME ))
   if [[ "$rc" -ne 0 ]]; then
+    if [[ "$XCODEBUILD_STARTED" -eq 1 && "$XCODEBUILD_OUTPUT_VALID" -ne 1 ]]; then
+      cleanup_incomplete_xcodebuild_outputs
+      echo "==> removed incomplete xcodebuild app outputs" >&2
+    elif [[ -n "${TAG_APP_STAGING_PATH:-}" && -e "$TAG_APP_STAGING_PATH" ]]; then
+      remove_app_bundle_output "$TAG_APP_STAGING_PATH"
+      echo "==> removed incomplete staged tagged app" >&2
+    fi
     if [[ -s "$RELOAD_LOG" ]]; then
       cat "$RELOAD_LOG" >&2
     fi
@@ -463,6 +564,11 @@ reload_finalize() {
       echo "  $CMUX_SHIM_TARGET ..."
     fi
     echo "If your shell still resolves the old cmux, run: rehash"
+  fi
+  if [[ "${SWIFT_FRONTEND_WORKAROUND_EFFECTIVE:-0}" -eq 1 ]]; then
+    echo
+    echo "Swift workaround:"
+    echo "  batch mode, debug symbols, and AArch64 GlobalISel disabled for this reload"
   fi
   if [[ "$LAUNCH" -eq 0 ]]; then
     echo
@@ -500,14 +606,36 @@ if [[ -z "$TAG" ]]; then
   XCODEBUILD_ARGS+=(
     INFOPLIST_KEY_CFBundleName="$APP_NAME"
     INFOPLIST_KEY_CFBundleDisplayName="$APP_NAME"
-    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
   )
+fi
+XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+# Scope the sidebar ExtensionKit point per build tag so concurrent dev builds (and
+# their tagged sample extensions) don't share one point. The host bundle declares
+# the point under Contents/Extensions, and Info.plist carries the same identifier.
+if [[ -n "$TAG" ]]; then
+  XCODEBUILD_ARGS+=(CMUX_SIDEBAR_EXTENSION_POINT_ID="${BUNDLE_ID}.cmux.sidebar")
 fi
 # Forward explicit CMUX_SKIP_ZIG_BUILD to xcodebuild run script phases.
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
 fi
+if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
+  SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
+  echo "==> Swift frontend workaround enabled for this reload"
+  XCODEBUILD_ARGS+=(SWIFT_ENABLE_BATCH_MODE=NO)
+  XCODEBUILD_ARGS+=(DEBUG_INFORMATION_FORMAT=)
+  XCODEBUILD_ARGS+=(GCC_GENERATE_DEBUGGING_SYMBOLS=NO)
+  XCODEBUILD_ARGS+=('OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1')
+else
+  SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=0
+fi
 XCODEBUILD_ARGS+=(build)
+
+if [[ -n "$BUILD_PRODUCTS_DEBUG_DIR" ]]; then
+  mkdir -p "$BUILD_PRODUCTS_DEBUG_DIR"
+  cleanup_incomplete_xcodebuild_outputs
+  XCODEBUILD_CLEANED_OUTPUTS=0
+fi
 
 XCODEBUILD_LOCK_DIR="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).locks"
 XCODEBUILD_LOCK_CONCURRENCY="${CMUX_XCODEBUILD_LOCK_CONCURRENCY:-5}"
@@ -523,6 +651,7 @@ fi
 # Xcode 26's SWBBuildService is a per-user singleton. Too many concurrent
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
+XCODEBUILD_STARTED=1
 python3 -c '
 import array
 import fcntl
@@ -663,16 +792,23 @@ except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
 ' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" xcodebuild "${XCODEBUILD_ARGS[@]}"
 sleep 0.2
+if LC_ALL=C grep -q 'BUILD INTERRUPTED' "$RELOAD_LOG"; then
+  echo "error: xcodebuild reported ** BUILD INTERRUPTED **; refusing to reuse DerivedData app artifacts" >&2
+  exit 65
+fi
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"
 SEARCH_APP_NAME="$APP_NAME"
+APP_EXECUTABLE_NAME="$SEARCH_APP_NAME"
 if [[ -n "$TAG" ]]; then
   SEARCH_APP_NAME="$BASE_APP_NAME"
+  APP_EXECUTABLE_NAME="$BASE_APP_NAME"
 fi
 if [[ -n "$DERIVED_DATA" ]]; then
   APP_PATH="${DERIVED_DATA}/Build/Products/Debug/${SEARCH_APP_NAME}.app"
   if [[ ! -d "${APP_PATH}" && "$SEARCH_APP_NAME" != "$FALLBACK_APP_NAME" ]]; then
     APP_PATH="${DERIVED_DATA}/Build/Products/Debug/${FALLBACK_APP_NAME}.app"
+    APP_EXECUTABLE_NAME="$FALLBACK_APP_NAME"
   fi
 else
   APP_BINARY="$(
@@ -695,6 +831,7 @@ else
     )"
     if [[ -n "${APP_BINARY}" ]]; then
       APP_PATH="$(dirname "$(dirname "$(dirname "$APP_BINARY")")")"
+      APP_EXECUTABLE_NAME="$FALLBACK_APP_NAME"
     fi
   fi
 fi
@@ -702,6 +839,8 @@ if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
   echo "${APP_NAME}.app not found in DerivedData" >&2
   exit 1
 fi
+validate_app_bundle "$APP_PATH" "$APP_EXECUTABLE_NAME"
+XCODEBUILD_OUTPUT_VALID=1
 
 if [[ -n "${TAG_SLUG:-}" ]]; then
   TMP_COMPAT_DERIVED_LINK="/tmp/cmux-${TAG_SLUG}"
@@ -713,10 +852,11 @@ if [[ -n "${TAG_SLUG:-}" ]]; then
 fi
 
 if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
-  TAG_APP_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
-  rm -rf "$TAG_APP_PATH"
-  cp -R "$APP_PATH" "$TAG_APP_PATH"
-  INFO_PLIST="$TAG_APP_PATH/Contents/Info.plist"
+  TAG_APP_FINAL_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
+  TAG_APP_STAGING_PATH="$(dirname "$APP_PATH")/.${APP_NAME}.reload-$$.app"
+  rm -rf "$TAG_APP_STAGING_PATH"
+  cp -R "$APP_PATH" "$TAG_APP_STAGING_PATH"
+  INFO_PLIST="$TAG_APP_STAGING_PATH/Contents/Info.plist"
   if [[ -f "$INFO_PLIST" ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$INFO_PLIST" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Add :CFBundleName string $APP_NAME" "$INFO_PLIST"
@@ -740,8 +880,8 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
       set_plist_env "$INFO_PLIST" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD "1"
       set_plist_env "$INFO_PLIST" CMUXTERM_REPO_ROOT "$PWD"
-      set_plist_env "$INFO_PLIST" CMUX_BUNDLED_CLI_PATH "$TAG_APP_PATH/Contents/Resources/bin/cmux"
-      set_plist_env "$INFO_PLIST" CMUX_SHELL_INTEGRATION_DIR "$TAG_APP_PATH/Contents/Resources/shell-integration"
+      set_plist_env "$INFO_PLIST" CMUX_BUNDLED_CLI_PATH "$TAG_APP_FINAL_PATH/Contents/Resources/bin/cmux"
+      set_plist_env "$INFO_PLIST" CMUX_SHELL_INTEGRATION_DIR "$TAG_APP_FINAL_PATH/Contents/Resources/shell-integration"
       set_plist_env "$INFO_PLIST" CMUX_PORT "$CMUX_DEV_PORT"
       set_plist_env "$INFO_PLIST" CMUX_PORT_END "$CMUX_DEV_PORT_END"
       set_plist_env "$INFO_PLIST" CMUX_PORT_RANGE "$CMUX_DEV_PORT_RANGE"
@@ -760,7 +900,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       fi
     fi
   fi
-  APP_PATH="$TAG_APP_PATH"
+  APP_PATH="$TAG_APP_STAGING_PATH"
 fi
 
 CLI_PATH="$(dirname "$APP_PATH")/cmux"
@@ -812,9 +952,15 @@ if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-
     exit 1
   fi
 fi
+if [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
+  rm -rf "$TAG_APP_FINAL_PATH"
+  mv "$TAG_APP_STAGING_PATH" "$TAG_APP_FINAL_PATH"
+  APP_PATH="$TAG_APP_FINAL_PATH"
+fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 if [[ -x "$CLI_PATH" ]]; then
   echo "$CLI_PATH" > /tmp/cmux-last-cli-path || true
+  ln -sfn "$CLI_PATH" /tmp/cmux-cli || true
 fi
 
 # Tag mode: always terminate the existing same-tag instance after a successful build,
