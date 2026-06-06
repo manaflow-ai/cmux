@@ -339,6 +339,23 @@ def main() -> int:
             _must(final_titles == ["agents"], f"list-pages should reflect closed duplicate page: {final_list}")
             _must(final_selected == ["agents"], f"list-pages should report agents selected after close: {final_list}")
             _must(str(final_list.get("page_id") or "") == first_page_id, f"list-pages active page mismatch after close: {final_list}")
+
+            scratch_page = _run_cli_json(
+                cli,
+                ["new-page", "--workspace", workspace_id, "--title", "scratch"],
+            )
+            scratch_page_id = str(scratch_page.get("page_id") or "")
+            _must(bool(scratch_page_id), f"new-page scratch returned no page_id: {scratch_page}")
+            closed_current_cli = _run_cli_json(cli, ["close-page", "--workspace", workspace_id])
+            _must(
+                str(closed_current_cli.get("page_id") or "") == scratch_page_id,
+                f"close-page --workspace without --page should close the active page: {closed_current_cli}",
+            )
+            _must(
+                str(closed_current_cli.get("selected_page_id") or "") == first_page_id,
+                f"close-page --workspace should return to the surviving page: {closed_current_cli}",
+            )
+
             _must(
                 second_page_ref.startswith("page:"),
                 f"new-page should return a page ref handle: {created_page}",
