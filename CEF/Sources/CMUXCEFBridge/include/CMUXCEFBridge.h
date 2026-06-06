@@ -43,6 +43,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 0 = default, 1 = verbose, 2 = info, 3 = warning, 4 = error, 5 = fatal.
 @property (nonatomic, assign) NSInteger logSeverity;
 
+/// When YES, sets CefSettings.no_sandbox and forwards the matching
+/// Chromium command-line switches. Development/ad-hoc signed helpers use
+/// this; production callers should normally leave it NO.
+@property (nonatomic, assign) BOOL disableSandbox;
+
 /// Optional. Forwarded to CefSettings.user_agent_product. cmux brand
 /// suffix appears in chrome://version.
 @property (nonatomic, copy, nullable) NSString *userAgentProduct;

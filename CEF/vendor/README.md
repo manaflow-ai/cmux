@@ -9,7 +9,7 @@ Embedded Framework binary distribution lives here. **One place** decides
 
 | File | Purpose |
 | --- | --- |
-| `cef.lock.json` | Pinned CEF version + SHA1 + size + extracted directory name. The only authoritative source of "what CEF do we ship." |
+| `cef.lock.json` | Pinned CEF version + SHA-256 + size + extracted directory name. The only authoritative source of "what CEF do we ship." |
 | `cef.lock.schema.json` | JSON Schema for the lockfile. Editors and CI should validate against this. |
 | `fetch_cef.sh` | Idempotent download + verify + extract + build wrapper. Called explicitly from `./scripts/setup.sh` and CI provisioning. |
 | `README.md` | This file. |
@@ -17,7 +17,7 @@ Embedded Framework binary distribution lives here. **One place** decides
 ## Quick start
 
 ```bash
-# Download (or use cache), verify SHA1, extract, build C++ wrapper, populate
+# Download (or use cache), verify SHA-256, extract, build C++ wrapper, populate
 # the build's Frameworks/ dir.
 vendor/fetch_cef.sh
 
@@ -56,17 +56,17 @@ If neither works *and* the cache is empty, the script exits non-zero.
    Use the **standard** distribution for `macosarm64` (not `minimal`,
    `client`, `tools`, or any of the symbol packs).
 2. Update `cef.lock.json` with the new `version`, `tarball`, `sha1`,
-   `size_bytes`, and `extracted_dir_name`. Keep the JSON sorted and the
-   diff minimal.
+   `sha256`, `size_bytes`, and `extracted_dir_name`. Keep the JSON
+   sorted and the diff minimal.
 3. Run `vendor/fetch_cef.sh`. It should download the new tarball and
-   verify it against the new SHA1.
+   verify it against the new SHA-256.
 4. Run cmux against the new CEF and exercise the runtime flow described in
    `../INTEGRATION.md`.
 5. Commit `cef.lock.json` in a separate PR titled `cef: bump to <version>`.
    Include the cef-builds release notes link in the PR body.
 
 CI gating: a nightly job verifies the lockfile by re-downloading from
-`cef-builds.spotifycdn.com` and re-computing the SHA1. If the public CDN
+`cef-builds.spotifycdn.com` and re-computing the SHA-256. If the public CDN
 mutates the artefact for the pinned version, the job goes red and a human
 investigates before any cmux release.
 
@@ -87,7 +87,7 @@ time. The lockfile is 0.5 KiB; that's what we version-control.
 | --- | --- |
 | 0 | Success. |
 | 2 | Lockfile parse or argument error. |
-| 3 | SHA1 mismatch on lockfile or downloaded artefact. |
+| 3 | SHA-256 mismatch on lockfile or downloaded artefact. |
 | 4 | Network failure with no cache fallback. |
 | 5 | C++ wrapper build failed. |
 

@@ -7199,7 +7199,7 @@ class TerminalController {
                 }
 
                 let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-                guard let newPanel = workspace.newBrowserSurface(
+                guard let newPanel = workspace.newBrowserEngineSurface(
                     inPane: paneId,
                     url: url,
                     focus: focus,
@@ -7787,7 +7787,7 @@ class TerminalController {
             let insertFirst = direction.insertFirst
             let newId: UUID?
             if panelType == .browser {
-                newId = ws.newBrowserSplit(
+                newId = ws.newBrowserEngineSplit(
                     from: targetSurfaceId,
                     orientation: orientation,
                     insertFirst: insertFirst,
@@ -8023,7 +8023,7 @@ class TerminalController {
             let newPanelId: UUID?
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if panelType == .browser {
-                newPanelId = ws.newBrowserSurface(
+                newPanelId = ws.newBrowserEngineSurface(
                     inPane: paneId,
                     url: url,
                     focus: focus,
@@ -9415,7 +9415,7 @@ class TerminalController {
             let newPanelId: UUID?
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if panelType == .browser {
-                newPanelId = ws.newBrowserSplit(
+                newPanelId = ws.newBrowserEngineSplit(
                     from: sourcePanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
@@ -11469,9 +11469,9 @@ class TerminalController {
 
             var createdSplit = true
             var placementStrategy = "split_right"
-            let createdPanel: BrowserPanel?
+            let createdPanel: (any BrowserEngineBackedPanel)?
             if let targetPane = ws.preferredRightSideTargetPane(fromPanelId: sourceSurfaceId) {
-                createdPanel = ws.newBrowserSurface(
+                createdPanel = ws.newBrowserEngineSurface(
                     inPane: targetPane,
                     url: url,
                     focus: focus,
@@ -11484,7 +11484,7 @@ class TerminalController {
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
             } else {
-                createdPanel = ws.newBrowserSplit(
+                createdPanel = ws.newBrowserEngineSplit(
                     from: sourceSurfaceId,
                     orientation: .horizontal,
                     url: url,
@@ -14338,7 +14338,7 @@ class TerminalController {
                 return
             }
 
-            guard let panel = ws.newBrowserSurface(
+            guard let panel = ws.newBrowserEngineSurface(
                 inPane: pane,
                 url: url,
                 focus: true,
@@ -18462,7 +18462,7 @@ class TerminalController {
                 return
             }
 
-            if let browserPanelId = tab.newBrowserSplit(
+            if let browserPanelId = tab.newBrowserEngineSplit(
                 from: focusedPanelId,
                 orientation: .horizontal,
                 url: url,
@@ -18903,7 +18903,7 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = tab.newBrowserSplit(
+                newPanelId = tab.newBrowserEngineSplit(
                     from: focusedPanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
@@ -20659,7 +20659,7 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = tab.newBrowserSurface(
+                newPanelId = tab.newBrowserEngineSurface(
                     inPane: targetPaneId,
                     url: url,
                     focus: focus,

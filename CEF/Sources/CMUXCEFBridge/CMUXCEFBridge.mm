@@ -187,9 +187,11 @@ namespace {
 class CMUXCEFApp final : public CefApp, public CefBrowserProcessHandler {
 public:
     explicit CMUXCEFApp(NSString * _Nullable loadExtensionsArg,
-                        NSString * _Nullable userAgentProduct)
+                        NSString * _Nullable userAgentProduct,
+                        bool disableSandbox)
         : load_extensions_(loadExtensionsArg ? [loadExtensionsArg UTF8String] : ""),
-          user_agent_product_(userAgentProduct ? [userAgentProduct UTF8String] : "") {}
+          user_agent_product_(userAgentProduct ? [userAgentProduct UTF8String] : ""),
+          disable_sandbox_(disableSandbox) {}
 
     // CefApp:
     CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
@@ -205,13 +207,12 @@ public:
         if (!command_line->HasSwitch("extensions-on-chrome-urls")) {
             command_line->AppendSwitch("extensions-on-chrome-urls");
         }
-        // Dev builds: the ad-hoc-signed CEF framework and helpers cannot
-        // satisfy macOS GPU sandbox prerequisites. Production cmux builds
-        // re-sign with Developer ID and these switches go away.
-        if (!command_line->HasSwitch("no-sandbox")) {
+        // Dev/ad-hoc-signed CEF helpers cannot satisfy Chromium's macOS
+        // sandbox prerequisites. Production callers leave this off.
+        if (disable_sandbox_ && !command_line->HasSwitch("no-sandbox")) {
             command_line->AppendSwitch("no-sandbox");
         }
-        if (!command_line->HasSwitch("disable-gpu-sandbox")) {
+        if (disable_sandbox_ && !command_line->HasSwitch("disable-gpu-sandbox")) {
             command_line->AppendSwitch("disable-gpu-sandbox");
         }
         // Without a fully-integrated app bundle the GPU helper can't find
@@ -246,6 +247,7 @@ public:
 private:
     std::string load_extensions_;
     std::string user_agent_product_;
+    bool disable_sandbox_;
 
     IMPLEMENT_REFCOUNTING(CMUXCEFApp);
     DISALLOW_COPY_AND_ASSIGN(CMUXCEFApp);
@@ -295,7 +297,7 @@ private:
             return 1;
         }
         CefMainArgs main_args(argc, argv);
-        CefRefPtr<CMUXCEFApp> app(new CMUXCEFApp(nil, nil));
+        CefRefPtr<CMUXCEFApp> app(new CMUXCEFApp(nil, nil, false));
         int code = CefExecuteProcess(main_args, app, nullptr);
         if (code >= 0) {
             return code;
@@ -347,11 +349,10 @@ private:
 
     CefMainArgs main_args(0, nullptr);
     CefSettings settings;
-    // Dev/ad-hoc-signed CEF helpers do not carry Chromium's sandbox
-    // signing profile. This must be set at CefSettings level; appending a
-    // late --no-sandbox switch is not enough for early services created
-    // during CefInitialize (notably network.mojom.NetworkService).
-    settings.no_sandbox = true;
+    // When requested by the caller, set CefSettings.no_sandbox before
+    // CefInitialize. Appending a late --no-sandbox switch is not enough for
+    // early services created during CefInitialize.
+    settings.no_sandbox = config.disableSandbox;
     // cmux is a SwiftUI / AppKit app — its main thread runs
     // NSApplication's run loop, NOT `CefRunMessageLoop()`. Without an
     // external pump, CEF's UI thread message queue (which carries every
@@ -385,7 +386,7 @@ private:
             .FromString([config.browserSubprocessPath UTF8String]);
     }
 
-    _app = new CMUXCEFApp(config.loadExtensionsArg, config.userAgentProduct);
+    _app = new CMUXCEFApp(config.loadExtensionsArg, config.userAgentProduct, config.disableSandbox);
     if (!CefInitialize(main_args, settings, _app, nullptr)) {
         _app = nullptr;
         if (error) {

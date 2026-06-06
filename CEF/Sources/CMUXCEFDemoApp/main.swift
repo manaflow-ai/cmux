@@ -53,6 +53,7 @@ if exitCode >= 0 {
 
 @MainActor
 final class DemoController: NSObject, NSSplitViewDelegate {
+    private static let pendingExtensionFoldersDefaultsKey = "cmux.cefDemo.pendingExtensionFolders"
 
     private let panes: [(profile: String, url: URL)] = [
         ("default", URL(string: "https://github.com")!),
@@ -64,7 +65,7 @@ final class DemoController: NSObject, NSSplitViewDelegate {
     private var splitView: NSSplitView!
     private var browsers: [CEFBrowser] = []
     private var addressField: NSTextField!
-    private var pendingExtensionFolders: [URL] = []
+    private var pendingExtensionFolders: [URL] = Self.loadPendingExtensionFolders()
     /// Index into `browsers` / `splitView.arrangedSubviews` of the pane
     /// the user most recently clicked. Address-bar input + back / forward /
     /// reload route to this pane. Defaults to right-most.
@@ -100,6 +101,7 @@ final class DemoController: NSObject, NSSplitViewDelegate {
                 rootCachePath: root,
                 extensionDirectories: pendingExtensionFolders,
                 logSeverity: 0,
+                disableSandbox: true,
                 userAgentProduct: "cmux-cef-demo/0",
                 frameworkDirectoryPath: frameworkDir,
                 browserSubprocessPath: helperPath))
@@ -274,6 +276,7 @@ final class DemoController: NSObject, NSSplitViewDelegate {
             "selected path is appended and the message loop is restarted."
         guard panel.runModal() == .OK, let folder = panel.url else { return }
         pendingExtensionFolders.append(folder)
+        savePendingExtensionFolders()
         let alert = NSAlert()
         alert.messageText = "Extension queued"
         alert.informativeText =
@@ -283,6 +286,19 @@ final class DemoController: NSObject, NSSplitViewDelegate {
         if let url = URL(string: "chrome://extensions") {
             activeBrowser()?.load(url)
         }
+    }
+
+    private static func loadPendingExtensionFolders() -> [URL] {
+        UserDefaults.standard
+            .stringArray(forKey: pendingExtensionFoldersDefaultsKey)?
+            .map { URL(fileURLWithPath: $0) } ?? []
+    }
+
+    private func savePendingExtensionFolders() {
+        UserDefaults.standard.set(
+            pendingExtensionFolders.map(\.path),
+            forKey: Self.pendingExtensionFoldersDefaultsKey
+        )
     }
 
     private func makeBtn(symbol: String, tip: String, action: Selector) -> NSButton {

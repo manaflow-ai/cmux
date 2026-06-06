@@ -54,7 +54,7 @@
   "definitions": {
     "platform": {
       "type": "object",
-      "required": ["tarball", "sha1", "size_bytes", "extracted_dir_name"],
+      "required": ["tarball", "sha1", "sha256", "size_bytes", "extracted_dir_name"],
       "additionalProperties": false,
       "properties": {
         "tarball": {
@@ -65,6 +65,10 @@
         "sha1": {
           "type": "string",
           "pattern": "^[a-f0-9]{40}$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
         },
         "size_bytes": {
           "type": "integer",

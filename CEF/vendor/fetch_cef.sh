@@ -18,7 +18,7 @@
 # Exit codes:
 #   0   success
 #   2   lockfile parse / arg error
-#   3   SHA1 mismatch (lockfile or downloaded artefact)
+#   3   SHA-256 mismatch (lockfile or downloaded artefact)
 #   4   network error and no cache fallback
 #   5   wrapper build failed
 #
@@ -36,7 +36,7 @@
 #   Frameworks/include/                           C++ headers
 #
 # This script is the single source of truth for "where does CEF come from."
-# Do not duplicate the URL / SHA1 anywhere else; read cef.lock.json instead.
+# Do not duplicate the URL / SHA-256 anywhere else; read cef.lock.json instead.
 
 set -euo pipefail
 
@@ -117,7 +117,7 @@ PY
 
 CEF_VERSION="$(read_lock version)"
 TARBALL_NAME="$(read_lock platforms.macosarm64.tarball)"
-TARBALL_SHA1="$(read_lock platforms.macosarm64.sha1)"
+TARBALL_SHA256="$(read_lock platforms.macosarm64.sha256)"
 TARBALL_SIZE="$(read_lock platforms.macosarm64.size_bytes)"
 EXTRACTED_NAME="$(read_lock platforms.macosarm64.extracted_dir_name)"
 PUBLIC_BASE_URL="$(read_lock sources[0].base_url)"
@@ -129,10 +129,10 @@ if [[ "${DO_PRINT_PATHS}" == "1" ]]; then
   exit 0
 fi
 
-# ─── SHA1 helpers ────────────────────────────────────────────────────────────
+# ─── SHA-256 helpers ─────────────────────────────────────────────────────────
 
-sha1_of() {
-  shasum -a 1 "$1" | awk '{print $1}'
+sha256_of() {
+  shasum -a 256 "$1" | awk '{print $1}'
 }
 
 verify_tarball() {
@@ -140,17 +140,17 @@ verify_tarball() {
   if [[ ! -f "${path}" ]]; then
     return 1
   fi
-  local actual_size actual_sha1
+  local actual_size actual_sha256
   actual_size=$(stat -f%z "${path}")
   if [[ "${actual_size}" != "${TARBALL_SIZE}" ]]; then
     echo "fetch_cef: cached tarball size mismatch (got ${actual_size}, want ${TARBALL_SIZE})" >&2
     return 1
   fi
-  actual_sha1=$(sha1_of "${path}")
-  if [[ "${actual_sha1}" != "${TARBALL_SHA1}" ]]; then
-    echo "fetch_cef: cached tarball SHA1 mismatch" >&2
-    echo "  got:  ${actual_sha1}" >&2
-    echo "  want: ${TARBALL_SHA1}" >&2
+  actual_sha256=$(sha256_of "${path}")
+  if [[ "${actual_sha256}" != "${TARBALL_SHA256}" ]]; then
+    echo "fetch_cef: cached tarball SHA-256 mismatch" >&2
+    echo "  got:  ${actual_sha256}" >&2
+    echo "  want: ${TARBALL_SHA256}" >&2
     return 1
   fi
   return 0
@@ -177,7 +177,7 @@ ensure_tarball() {
 
   if verify_tarball "${tarball_path}"; then
     # Log to stderr so the caller's $() capture only sees the path.
-    echo "fetch_cef: cached tarball at ${tarball_path} (sha1 OK)" >&2
+    echo "fetch_cef: cached tarball at ${tarball_path} (sha256 OK)" >&2
     printf '%s' "${tarball_path}"
     return 0
   fi

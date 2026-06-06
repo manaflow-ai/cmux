@@ -23,6 +23,14 @@ public struct CEFEngineConfig: Sendable, Equatable {
     /// 4 = error, 5 = fatal.
     public let logSeverity: Int
 
+    /// Whether to disable Chromium's process sandbox for this engine run.
+    ///
+    /// Development and ad-hoc signed helper builds need this because their
+    /// helpers do not carry Chromium's sandbox signing profile. Production
+    /// callers should leave the sandbox enabled unless their signing pipeline
+    /// deliberately opts out.
+    public let disableSandbox: Bool
+
     /// Optional product suffix shown in user-agent and chrome://version.
     public let userAgentProduct: String?
 
@@ -41,6 +49,7 @@ public struct CEFEngineConfig: Sendable, Equatable {
         rootCachePath: URL,
         extensionDirectories: [URL] = [],
         logSeverity: Int = 0,
+        disableSandbox: Bool = false,
         userAgentProduct: String? = nil,
         frameworkDirectoryPath: URL? = nil,
         browserSubprocessPath: URL? = nil
@@ -48,6 +57,7 @@ public struct CEFEngineConfig: Sendable, Equatable {
         self.rootCachePath = rootCachePath
         self.extensionDirectories = extensionDirectories
         self.logSeverity = logSeverity
+        self.disableSandbox = disableSandbox
         self.userAgentProduct = userAgentProduct
         self.frameworkDirectoryPath = frameworkDirectoryPath
         self.browserSubprocessPath = browserSubprocessPath

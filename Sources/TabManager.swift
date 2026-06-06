@@ -7553,7 +7553,7 @@ class TabManager: ObservableObject {
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSplit(
+        return tab.newBrowserEngineSplit(
             from: fromPanelId,
             orientation: orientation,
             insertFirst: insertFirst,
@@ -7573,7 +7573,7 @@ class TabManager: ObservableObject {
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSurface(
+        return tab.newBrowserEngineSurface(
             inPane: paneId,
             url: url,
             preferredProfileID: preferredProfileID
@@ -7603,7 +7603,7 @@ class TabManager: ObservableObject {
 
         if preferSplitRight {
             if let targetPaneId = workspace.topRightBrowserReusePane(),
-               let browserPanel = workspace.newBrowserSurface(
+               let browserPanel = workspace.newBrowserEngineSurface(
                    inPane: targetPaneId,
                    url: url,
                    focus: true,
@@ -7630,7 +7630,7 @@ class TabManager: ObservableObject {
             }()
 
             if let splitSourcePanelId,
-               let browserPanel = workspace.newBrowserSplit(
+               let browserPanel = workspace.newBrowserEngineSplit(
                    from: splitSourcePanelId,
                    orientation: .horizontal,
                    url: url,
@@ -7643,7 +7643,7 @@ class TabManager: ObservableObject {
         }
 
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
-              let browserPanel = workspace.newBrowserSurface(
+              let browserPanel = workspace.newBrowserEngineSurface(
                   inPane: paneId,
                   url: url,
                   focus: true,
@@ -7919,7 +7919,7 @@ class TabManager: ObservableObject {
         in workspace: Workspace
     ) -> UUID? {
         if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
-           let browserPanel = workspace.newBrowserSurface(
+           let browserPanel = workspace.newBrowserEngineSurface(
                inPane: originalPane,
                url: snapshot.url,
                focus: true,
@@ -7937,7 +7937,7 @@ class TabManager: ObservableObject {
            let anchorPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
            let anchorTab = workspace.bonsplitController.selectedTab(inPane: anchorPane) ?? workspace.bonsplitController.tabs(inPane: anchorPane).first,
            let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id),
-           let browserPanelId = workspace.newBrowserSplit(
+           let browserPanelId = workspace.newBrowserEngineSplit(
                from: anchorPanelId,
                orientation: orientation,
                insertFirst: snapshot.fallbackSplitInsertFirst,
@@ -7950,7 +7950,7 @@ class TabManager: ObservableObject {
         guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return nil
         }
-        return workspace.newBrowserSurface(
+        return workspace.newBrowserEngineSurface(
             inPane: focusedPane,
             url: snapshot.url,
             focus: true,

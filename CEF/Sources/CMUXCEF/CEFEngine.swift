@@ -73,6 +73,7 @@ public final class CEFEngine {
         bridgeConfig.loadExtensionsArg = Self.serializeLoadExtensionsArg(
             config.extensionDirectories)
         bridgeConfig.logSeverity = config.logSeverity
+        bridgeConfig.disableSandbox = config.disableSandbox
         bridgeConfig.userAgentProduct = config.userAgentProduct
         bridgeConfig.frameworkDirectoryPath = config.frameworkDirectoryPath?.path
         bridgeConfig.browserSubprocessPath = config.browserSubprocessPath?.path

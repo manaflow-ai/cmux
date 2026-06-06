@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
+import Observation
 
 enum CEFRuntimeInstallPhase: Equatable {
     case idle
@@ -27,50 +28,55 @@ enum CEFRuntimeInstallerError: LocalizedError, Equatable {
     case downloadedFileHashMismatch(got: String, expected: String)
     case expectedExtractedDirectoryMissing(String)
     case expectedFrameworkMissing(String)
-    case commandFailed(String)
+    case commandFailed(executable: String, status: Int32, output: String)
 
     var errorDescription: String? {
+        userFacingMessage
+    }
+
+    var userFacingMessage: String {
         switch self {
-        case .unsupportedArchitecture(let architecture):
+        case .unsupportedArchitecture:
             return String(
                 localized: "cefRuntime.installError.unsupportedArchitecture",
-                defaultValue: "CEF runtime install is only configured for macOS arm64 right now. Current architecture: \(architecture)."
+                defaultValue: "CEF runtime install is only configured for Apple Silicon Macs."
             )
-        case .insufficientDiskSpace(let available, let required):
+        case .insufficientDiskSpace:
             return String(
                 localized: "cefRuntime.installError.insufficientDiskSpace",
-                defaultValue: "Not enough free disk space to install CEF. Available: \(Self.formatBytes(available)); required: \(Self.formatBytes(required))."
+                defaultValue: "Not enough free disk space to install the Chromium runtime. Free disk space and try again."
             )
+        case .downloadedFileMissing, .downloadedFileSizeMismatch, .downloadedFileHashMismatch:
+            return String(
+                localized: "cefRuntime.installError.integrityCheckFailed",
+                defaultValue: "The Chromium runtime download could not be verified. Try again, or switch back to WKWebView."
+            )
+        case .expectedExtractedDirectoryMissing, .expectedFrameworkMissing, .commandFailed:
+            return String(
+                localized: "cefRuntime.installError.installationFailed",
+                defaultValue: "The Chromium runtime could not be installed. Try again, or switch back to WKWebView."
+            )
+        }
+    }
+
+    var diagnosticDescription: String {
+        switch self {
+        case .unsupportedArchitecture(let architecture):
+            return "unsupportedArchitecture architecture=\(architecture)"
+        case .insufficientDiskSpace(let available, let required):
+            return "insufficientDiskSpace available=\(Self.formatBytes(available)) required=\(Self.formatBytes(required))"
         case .downloadedFileMissing:
-            return String(
-                localized: "cefRuntime.installError.downloadedFileMissing",
-                defaultValue: "The CEF download did not produce a file."
-            )
+            return "downloadedFileMissing"
         case .downloadedFileSizeMismatch(let got, let expected):
-            return String(
-                localized: "cefRuntime.installError.downloadedFileSizeMismatch",
-                defaultValue: "CEF download size mismatch. Got \(got) bytes, expected \(expected) bytes."
-            )
+            return "downloadedFileSizeMismatch got=\(got) expected=\(expected)"
         case .downloadedFileHashMismatch(let got, let expected):
-            return String(
-                localized: "cefRuntime.installError.downloadedFileHashMismatch",
-                defaultValue: "CEF download SHA-256 mismatch. Got \(got), expected \(expected)."
-            )
+            return "downloadedFileHashMismatch algorithm=sha256 got=\(got) expected=\(expected)"
         case .expectedExtractedDirectoryMissing(let path):
-            return String(
-                localized: "cefRuntime.installError.expectedExtractedDirectoryMissing",
-                defaultValue: "The CEF archive did not contain the expected directory: \(path)."
-            )
+            return "expectedExtractedDirectoryMissing path=\(path)"
         case .expectedFrameworkMissing(let path):
-            return String(
-                localized: "cefRuntime.installError.expectedFrameworkMissing",
-                defaultValue: "The installed CEF framework is missing: \(path)."
-            )
-        case .commandFailed(let message):
-            return String(
-                localized: "cefRuntime.installError.commandFailed",
-                defaultValue: "CEF installer command failed: \(message)"
-            )
+            return "expectedFrameworkMissing path=\(path)"
+        case .commandFailed(let executable, let status, let output):
+            return "commandFailed executable=\(executable) status=\(status) output=\(output)"
         }
     }
 
@@ -80,10 +86,11 @@ enum CEFRuntimeInstallerError: LocalizedError, Equatable {
 }
 
 @MainActor
-final class CEFRuntimeInstaller: ObservableObject {
+@Observable
+final class CEFRuntimeInstaller {
     static let shared = CEFRuntimeInstaller()
 
-    @Published private(set) var phase: CEFRuntimeInstallPhase = .idle
+    private(set) var phase: CEFRuntimeInstallPhase = .idle
 
     var isInstalledOrBundled: Bool {
         CEFRuntimeLocator.resolvedLocation() != nil
@@ -147,7 +154,21 @@ final class CEFRuntimeInstaller: ObservableObject {
             phase = .installed
             return true
         } catch {
-            let message = error.localizedDescription
+            let message: String
+            if let installerError = error as? CEFRuntimeInstallerError {
+                message = installerError.userFacingMessage
+                #if DEBUG
+                cmuxDebugLog("cef.runtime.install.failed \(installerError.diagnosticDescription)")
+                #endif
+            } else {
+                message = String(
+                    localized: "cefRuntime.installError.generic",
+                    defaultValue: "The Chromium runtime could not be installed. Try again, or switch back to WKWebView."
+                )
+                #if DEBUG
+                cmuxDebugLog("cef.runtime.install.failed unexpected=\(String(describing: error))")
+                #endif
+            }
             progressPresenter.close()
             phase = .failed(message)
             presentFailure(message, presentingWindow: presentingWindow)
@@ -405,7 +426,9 @@ final class CEFRuntimeInstaller: ObservableObject {
                 let text = String(data: data, encoding: .utf8) ?? ""
                 guard terminatedProcess.terminationStatus == 0 else {
                     continuation.resume(throwing: CEFRuntimeInstallerError.commandFailed(
-                        "\(launchPath) \(arguments.joined(separator: " ")) failed with exit \(terminatedProcess.terminationStatus): \(text)"
+                        executable: launchPath,
+                        status: terminatedProcess.terminationStatus,
+                        output: text
                     ))
                     return
                 }

@@ -8,12 +8,12 @@ import Foundation
 /// over there is a one-conditional "detour to here when the feature
 /// flag is on" guard.
 ///
-/// These helpers are intentionally minimal: they construct a
-/// ``CEFBrowserPanel``, register it in the workspace's panel map, and
-/// hand a Bonsplit tab to ``BonsplitController``. They do *not*
-/// replicate the WKWebView-specific follow-up (process pool sharing,
-/// rendering-state subscription, remote-workspace status, downloads,
-/// popup routing). Those are wired in follow-up PRs.
+/// These helpers construct a ``CEFBrowserPanel`` and share the same
+/// workspace-level side effects as the WK path: Bonsplit registration,
+/// lifecycle event publication, preferred-profile tracking, tab placement,
+/// and focus preservation. WKWebView-only follow-up (process pool sharing,
+/// rendering-state subscription, downloads, popup routing) stays on the WK
+/// branch until CEF owns equivalent behavior.
 ///
 /// v1 scope: opening a new browser pane with the CEF flag on produces
 /// a CEF browser that loads its initial URL inside the cmux pane.
@@ -23,7 +23,7 @@ extension Workspace {
 
     /// Create a new browser pane via `bonsplitController.splitPane`,
     /// backed by ``CEFBrowserPanel``. Returns the newly-registered
-    /// panel id, or nil if the split itself failed.
+    /// panel, or nil if the split itself failed.
     @discardableResult
     func registerCEFBrowserSplit(
         fromPaneId paneId: PaneID,
@@ -34,7 +34,7 @@ extension Workspace {
         focus: Bool,
         creationPolicy: BrowserPanelCreationPolicy,
         initialDividerPosition: CGFloat?
-    ) -> UUID? {
+    ) -> CEFBrowserPanel? {
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
         let panel = CEFBrowserPanel(
             workspaceId: id,
@@ -62,6 +62,8 @@ extension Workspace {
             isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = panel.id
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
@@ -83,11 +85,30 @@ extension Workspace {
             newPaneId: newPaneId
         )
         setPreferredBrowserProfileID(panel.profileID)
+        publishCmuxSplitCreated(
+            newPaneId,
+            sourcePaneId: paneId,
+            orientation: orientation,
+            surfaceId: panel.id,
+            kind: "browser",
+            origin: "browser_split",
+            focused: focus
+        )
 
         if focus {
+            suppressReparentFocusUntilLayoutFollowUp(
+                previousHostedView,
+                reason: "workspace.cefBrowserSplitReparent"
+            )
             focusPanel(panel.id)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: panel.id,
+                previousHostedView: previousHostedView
+            )
         }
-        return panel.id
+        return panel
     }
 
     /// Create a new browser tab inside an existing pane, backed by
@@ -97,10 +118,12 @@ extension Workspace {
         inPaneId paneId: PaneID,
         url: URL?,
         focus: Bool,
+        selectWhenNotFocused: Bool,
+        insertAtEnd: Bool,
         preferredProfileID: UUID?,
         creationPolicy: BrowserPanelCreationPolicy,
         sourcePanelId: UUID?
-    ) -> UUID? {
+    ) -> CEFBrowserPanel? {
         let panel = CEFBrowserPanel(
             workspaceId: id,
             profileID: resolvedNewBrowserProfileID(
@@ -133,11 +156,38 @@ extension Workspace {
         }
         surfaceIdToPanelId[newTabId] = panel.id
         setPreferredBrowserProfileID(panel.profileID)
+        if insertAtEnd {
+            let targetIndex = max(0, bonsplitController.tabs(inPane: paneId).count - 1)
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(
+            panel.id,
+            paneId: paneId,
+            kind: "browser",
+            origin: "browser_tab",
+            focused: focus
+        )
 
         if focus {
+            let previousHostedView = focusedTerminalPanel?.hostedView
+            bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(newTabId)
-            focusPanel(panel.id)
+            panel.focus()
+            applyTabSelection(
+                tabId: newTabId,
+                inPane: paneId,
+                previousTerminalHostedView: previousHostedView
+            )
+        } else {
+            if selectWhenNotFocused {
+                hideBrowserPortalsForDeselectedTabs(inPane: paneId, selectedTabId: newTabId)
+            }
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: focusedPanelId,
+                splitPanelId: panel.id,
+                previousHostedView: focusedTerminalPanel?.hostedView
+            )
         }
-        return panel.id
+        return panel
     }
 }

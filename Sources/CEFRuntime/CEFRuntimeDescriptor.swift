@@ -44,7 +44,15 @@ struct CEFRuntimeDescriptor: Equatable, Sendable {
     }
 
     var downloadURL: URL {
-        sourceBaseURL.appendingPathComponent(tarballName)
+        var baseComponents = URLComponents(url: sourceBaseURL, resolvingAgainstBaseURL: false)
+        let basePath = baseComponents?.percentEncodedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
+        var filenameAllowedCharacters = CharacterSet.urlPathAllowed
+        filenameAllowedCharacters.remove(charactersIn: "+")
+        let encodedName = tarballName.addingPercentEncoding(withAllowedCharacters: filenameAllowedCharacters) ?? tarballName
+        baseComponents?.percentEncodedPath = "/" + [basePath, encodedName]
+            .filter { !$0.isEmpty }
+            .joined(separator: "/")
+        return baseComponents?.url ?? sourceBaseURL.appendingPathComponent(tarballName)
     }
 
     static let requiredFreeBytes: Int64 = 2_500_000_000

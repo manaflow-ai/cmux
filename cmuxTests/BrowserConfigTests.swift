@@ -4437,9 +4437,10 @@ final class CEFRuntimeInstallerTests: XCTestCase {
 
         XCTAssertEqual(
             descriptor.downloadURL.absoluteString,
-            "https://cef-builds.spotifycdn.com/cef_binary_146.0.10+g8219561+chromium-146.0.7680.179_macosarm64.tar.bz2"
+            "https://cef-builds.spotifycdn.com/cef_binary_146.0.10%2Bg8219561%2Bchromium-146.0.7680.179_macosarm64.tar.bz2"
         )
         XCTAssertEqual(descriptor.tarballSHA1, "a483c800e506a592c63b60b36a12127eea3fc39f")
+        XCTAssertEqual(descriptor.tarballSHA256, "01d134dd8f0ac37b231b0fefbe272d77dc932e4754d53c5f576dec70dd0b035f")
         XCTAssertEqual(descriptor.tarballSizeBytes, 282_101_327)
     }
 
@@ -4448,7 +4449,7 @@ final class CEFRuntimeInstallerTests: XCTestCase {
         XCTAssertFalse(CEFRuntimeInstaller.hasEnoughDiskSpace(available: 99, required: 100))
     }
 
-    func testVerifyTarballMetadataAcceptsMatchingSizeAndSHA1() throws {
+    func testVerifyTarballMetadataAcceptsMatchingSizeAndSHA256() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-cef-runtime-test-\(UUID().uuidString)",
             isDirectory: true
@@ -4462,6 +4463,7 @@ final class CEFRuntimeInstallerTests: XCTestCase {
             version: "test",
             tarballName: "cef-test.tar.bz2",
             tarballSHA1: "a9993e364706816aba3e25717850c26c9cd0d89d",
+            tarballSHA256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
             tarballSizeBytes: 3,
             extractedDirectoryName: "cef-test",
             sourceBaseURL: URL(string: "https://example.com/")!
@@ -4482,6 +4484,7 @@ final class CEFRuntimeInstallerTests: XCTestCase {
             version: "test",
             tarballName: "cef-test.tar.bz2",
             tarballSHA1: "sha",
+            tarballSHA256: "sha256",
             tarballSizeBytes: 1,
             extractedDirectoryName: "cef-test",
             sourceBaseURL: URL(string: "https://example.com/")!

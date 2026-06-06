@@ -24,6 +24,9 @@ protocol BrowserEngineBackedPanel: Panel {
     /// True while a navigation is in flight. cmux's Bonsplit tab uses
     /// this to render the per-tab loading spinner.
     var isLoading: Bool { get }
+
+    /// Current main-frame URL, when the engine has reported one.
+    var currentURL: URL? { get }
 }
 
 // MARK: - BrowserPanel already satisfies the protocol shape via its

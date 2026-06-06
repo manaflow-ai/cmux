@@ -58,7 +58,7 @@ struct cmuxApp: App {
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     /// Selects the browser engine for newly-created browser panes.
     @AppStorage(BrowserEngineKind.userDefaultsKey) private var browserEngineRaw = BrowserEngineKind.default.rawValue
-    @StateObject private var cefRuntimeInstaller = CEFRuntimeInstaller.shared
+    @State private var cefRuntimeInstaller = CEFRuntimeInstaller.shared
     @State private var browserFocusModeMenuRevision = 0
     @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate

@@ -1815,7 +1815,7 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
         case .browser:
-            guard let browserPanel = newBrowserSurface(
+            guard let browserPanel = newBrowserEngineSurface(
                 inPane: paneId,
                 url: nil,
                 focus: false,
@@ -2136,7 +2136,7 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(
+            if let panel = newBrowserEngineSurface(
                 inPane: paneId,
                 url: url,
                 focus: false,
@@ -2182,7 +2182,7 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(
+            if let panel = newBrowserEngineSurface(
                 inPane: paneId,
                 url: url,
                 focus: false,
@@ -14771,7 +14771,63 @@ final class Workspace: Identifiable, ObservableObject {
         return command
     }
 
-    /// Create a new browser panel split
+    /// Create a new browser panel split using the currently selected browser engine.
+    @discardableResult
+    func newBrowserEngineSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        url: URL? = nil,
+        preferredProfileID: UUID? = nil,
+        focus: Bool = true,
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
+        omnibarVisible: Bool = true,
+        transparentBackground: Bool = false,
+        bypassRemoteProxy: Bool = false,
+        initialDividerPosition: CGFloat? = nil
+    ) -> (any BrowserEngineBackedPanel)? {
+        let browserEnabled = BrowserAvailabilitySettings.isEnabled()
+        guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
+            if let url {
+                _ = NSWorkspace.shared.open(url)
+            }
+            return nil
+        }
+
+        if BrowserEngineKind.current == .cef && BrowserEngineKind.isCEFAvailable {
+            guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+            let sourcePaneId = bonsplitController.allPaneIds.first { paneId in
+                bonsplitController.tabs(inPane: paneId).contains { $0.id == sourceTabId }
+            }
+            guard let sourcePaneId else { return nil }
+            return registerCEFBrowserSplit(
+                fromPaneId: sourcePaneId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                url: url,
+                preferredProfileID: preferredProfileID,
+                focus: focus,
+                creationPolicy: creationPolicy,
+                initialDividerPosition: initialDividerPosition
+            )
+        }
+
+        return newBrowserSplit(
+            from: panelId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            url: url,
+            preferredProfileID: preferredProfileID,
+            focus: focus,
+            creationPolicy: creationPolicy,
+            omnibarVisible: omnibarVisible,
+            transparentBackground: transparentBackground,
+            bypassRemoteProxy: bypassRemoteProxy,
+            initialDividerPosition: initialDividerPosition
+        )
+    }
+
+    /// Create a new WKWebView browser panel split.
     @discardableResult
     func newBrowserSplit(
         from panelId: UUID,
@@ -14806,27 +14862,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         guard let paneId = sourcePaneId else { return nil }
-
-        // Engine fork: when the user has enabled CEF in Debug → Browser
-        // Engine, route through a parallel registration path that
-        // constructs a ``CEFBrowserPanel`` and registers it as the new
-        // pane's surface. The CEF path returns nil because callers of
-        // ``newBrowserSplit`` expect a ``BrowserPanel`` (WKWebView) and
-        // CEF-specific follow-up (extensions UI, devtools, etc.) is
-        // wired in later PRs.
-        if BrowserEngineKind.current == .cef && BrowserEngineKind.isCEFAvailable {
-            _ = registerCEFBrowserSplit(
-                fromPaneId: paneId,
-                orientation: orientation,
-                insertFirst: insertFirst,
-                url: url,
-                preferredProfileID: preferredProfileID,
-                focus: focus,
-                creationPolicy: creationPolicy,
-                initialDividerPosition: initialDividerPosition
-            )
-            return nil
-        }
 
         // Create browser panel
         let browserPanel = BrowserPanel(
@@ -14898,7 +14933,62 @@ final class Workspace: Identifiable, ObservableObject {
         return browserPanel
     }
 
-    /// Create a new browser surface in the specified pane.
+    /// Create a new browser surface in the specified pane using the currently selected browser engine.
+    @discardableResult
+    func newBrowserEngineSurface(
+        inPane paneId: PaneID,
+        url: URL? = nil,
+        initialRequest: URLRequest? = nil,
+        focus: Bool? = nil,
+        selectWhenNotFocused: Bool = false,
+        insertAtEnd: Bool = false,
+        preferredProfileID: UUID? = nil,
+        bypassInsecureHTTPHostOnce: String? = nil,
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
+        omnibarVisible: Bool = true,
+        transparentBackground: Bool = false,
+        bypassRemoteProxy: Bool = false
+    ) -> (any BrowserEngineBackedPanel)? {
+        let browserEnabled = BrowserAvailabilitySettings.isEnabled()
+        guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
+            if let externalURL = url ?? initialRequest?.url {
+                _ = NSWorkspace.shared.open(externalURL)
+            }
+            return nil
+        }
+
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
+        if BrowserEngineKind.current == .cef && BrowserEngineKind.isCEFAvailable {
+            return registerCEFBrowserSurface(
+                inPaneId: paneId,
+                url: url ?? initialRequest?.url,
+                focus: shouldFocusNewTab,
+                selectWhenNotFocused: selectWhenNotFocused,
+                insertAtEnd: insertAtEnd,
+                preferredProfileID: preferredProfileID,
+                creationPolicy: creationPolicy,
+                sourcePanelId: sourcePanelId
+            )
+        }
+
+        return newBrowserSurface(
+            inPane: paneId,
+            url: url,
+            initialRequest: initialRequest,
+            focus: focus,
+            selectWhenNotFocused: selectWhenNotFocused,
+            insertAtEnd: insertAtEnd,
+            preferredProfileID: preferredProfileID,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            creationPolicy: creationPolicy,
+            omnibarVisible: omnibarVisible,
+            transparentBackground: transparentBackground,
+            bypassRemoteProxy: bypassRemoteProxy
+        )
+    }
+
+    /// Create a new WKWebView browser surface in the specified pane.
     /// - Parameter focus: nil = focus only if the target pane is already focused (default UI behavior),
     ///                    true = force focus/selection of the new surface,
     ///                    false = never focus (used for internal placeholder repair paths).
@@ -14929,22 +15019,6 @@ final class Workspace: Identifiable, ObservableObject {
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
-
-        // Engine fork: see the comment in `newBrowserSplit` for the
-        // rationale. The CEF detour registers a ``CEFBrowserPanel`` in
-        // this same pane and returns nil for backward-compat with
-        // callers that consume ``BrowserPanel`` directly.
-        if BrowserEngineKind.current == .cef && BrowserEngineKind.isCEFAvailable {
-            _ = registerCEFBrowserSurface(
-                inPaneId: paneId,
-                url: url,
-                focus: shouldFocusNewTab,
-                preferredProfileID: preferredProfileID,
-                creationPolicy: creationPolicy,
-                sourcePanelId: sourcePanelId
-            )
-            return nil
-        }
 
         let browserPanel = BrowserPanel(
             workspaceId: id,
@@ -16263,7 +16337,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     // MARK: - Focus Management
 
-    private func preserveFocusAfterNonFocusSplit(
+    func preserveFocusAfterNonFocusSplit(
         preferredPanelId: UUID?,
         splitPanelId: UUID,
         previousHostedView: GhosttySurfaceScrollView?
@@ -16955,7 +17029,7 @@ final class Workspace: Identifiable, ObservableObject {
         scheduleLayoutFollowUpAttempt()
     }
 
-    private func suppressReparentFocusUntilLayoutFollowUp(
+    func suppressReparentFocusUntilLayoutFollowUp(
         _ hostedView: GhosttySurfaceScrollView?,
         reason: String
     ) {
@@ -17597,8 +17671,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func createBrowserToRight(of anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        let preferredProfileID = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0)?.profileID }
-        guard let newPanel = newBrowserSurface(
+        let preferredProfileID = panelIdFromSurfaceId(anchorTabId)
+            .flatMap { panels[$0] as? (any BrowserEngineBackedPanel) }?
+            .profileID
+        guard let newPanel = newBrowserEngineSurface(
             inPane: paneId,
             url: url,
             focus: true,
@@ -18252,7 +18328,7 @@ extension Workspace: BonsplitDelegate {
 
     /// Apply the side-effects of selecting a tab (unfocus others, focus this panel, update state).
     /// bonsplit doesn't always emit didSelectTab for programmatic selection paths (e.g. createTab).
-    private func applyTabSelection(
+    func applyTabSelection(
         tabId: TabID,
         inPane pane: PaneID,
         reassertAppKitFocus: Bool = true,
@@ -18292,7 +18368,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     /// Hide browser portals for tabs that are no longer selected in the given pane.
-    private func hideBrowserPortalsForDeselectedTabs(inPane pane: PaneID, selectedTabId: TabID) {
+    func hideBrowserPortalsForDeselectedTabs(inPane pane: PaneID, selectedTabId: TabID) {
         for tab in bonsplitController.tabs(inPane: pane) {
             guard tab.id != selectedTabId else { continue }
             guard let panelId = panelIdFromSurfaceId(tab.id),
@@ -19384,7 +19460,7 @@ extension Workspace: BonsplitDelegate {
         case "terminal":
             _ = newTerminalSurface(inPane: pane)
         case "browser":
-            _ = newBrowserSurface(inPane: pane)
+            _ = newBrowserEngineSurface(inPane: pane)
         default:
             _ = newTerminalSurface(inPane: pane)
         }

@@ -904,7 +904,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
         ".gpu")    HELPER_DIR="cmux Helper (GPU).app";;
         ".renderer") HELPER_DIR="cmux Helper (Renderer).app";;
       esac
-      HELPER_PLIST="$TAG_APP_PATH/Contents/Frameworks/$HELPER_DIR/Contents/Info.plist"
+      HELPER_PLIST="$TAG_APP_STAGING_PATH/Contents/Frameworks/$HELPER_DIR/Contents/Info.plist"
       [[ -f "$HELPER_PLIST" ]] || continue
       /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${BUNDLE_ID}.helper${HELPER_SUFFIX}" "$HELPER_PLIST" 2>/dev/null \
         || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string ${BUNDLE_ID}.helper${HELPER_SUFFIX}" "$HELPER_PLIST"
@@ -988,6 +988,24 @@ if [[ -x "$CMUXD_SRC" ]]; then
 fi
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
+fi
+if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
+  for CEF_HELPER_DIR in \
+    "cmux Helper.app" \
+    "cmux Helper (GPU).app" \
+    "cmux Helper (Renderer).app"
+  do
+    CEF_HELPER_PATH="$APP_PATH/Contents/Frameworks/$CEF_HELPER_DIR"
+    [[ -d "$CEF_HELPER_PATH" ]] || continue
+    if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der --preserve-metadata=entitlements "$CEF_HELPER_PATH" >/dev/null 2>&1; then
+      if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
+        echo "warning: codesign failed for $CEF_HELPER_PATH; continuing because CMUX_ALLOW_UNSIGNED_DEV_APP=1" >&2
+      else
+        echo "error: codesign failed for $CEF_HELPER_PATH" >&2
+        exit 1
+      fi
+    fi
+  done
 fi
 if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der --preserve-metadata=entitlements "$APP_PATH" >/dev/null 2>&1; then
   if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then

@@ -82,6 +82,8 @@
 		EEB483BCFDE329054E88832B /* cef.lock.json in Resources */ = {isa = PBXBuildFile; fileRef = EEB483BDFDE329054E88832B /* cef.lock.json */; };
 		2ED1CFA236A19BEF10A66F8C /* CEFBrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2663AE54AECC766B7D266810 /* CEFBrowserPanel.swift */; };
 		2C4EEF951C0B3032EEF3FF20 /* CEFBrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCF6F3F014B22A4412339DEF /* CEFBrowserPanelView.swift */; };
+		CEF0C0DE0000000000000001 /* CEFContentRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF0C0DE0000000000000002 /* CEFContentRepresentable.swift */; };
+		CEF0C0DE0000000000000003 /* CEFReparentContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF0C0DE0000000000000004 /* CEFReparentContainerView.swift */; };
 		CEF000000000000000000001 /* CEFRuntimeDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF000000000000000000005 /* CEFRuntimeDescriptor.swift */; };
 		CEF000000000000000000002 /* CEFRuntimeInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF000000000000000000006 /* CEFRuntimeInstaller.swift */; };
 		CEF000000000000000000004 /* CEFRuntimeInstallProgressPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF000000000000000000008 /* CEFRuntimeInstallProgressPresenter.swift */; };
@@ -811,6 +813,8 @@
 		EEB483BDFDE329054E88832B /* cef.lock.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = CEF/vendor/cef.lock.json; sourceTree = SOURCE_ROOT; };
 		2663AE54AECC766B7D266810 /* CEFBrowserPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CEFBrowserPanel.swift; path = Panels/CEFBrowserPanel.swift; sourceTree = "<group>"; };
 		DCF6F3F014B22A4412339DEF /* CEFBrowserPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CEFBrowserPanelView.swift; path = Panels/CEFBrowserPanelView.swift; sourceTree = "<group>"; };
+		CEF0C0DE0000000000000002 /* CEFContentRepresentable.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CEFContentRepresentable.swift; path = Panels/CEFContentRepresentable.swift; sourceTree = "<group>"; };
+		CEF0C0DE0000000000000004 /* CEFReparentContainerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CEFReparentContainerView.swift; path = Panels/CEFReparentContainerView.swift; sourceTree = "<group>"; };
 		CEF000000000000000000005 /* CEFRuntimeDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CEFRuntimeDescriptor.swift; sourceTree = "<group>"; };
 		CEF000000000000000000006 /* CEFRuntimeInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CEFRuntimeInstaller.swift; sourceTree = "<group>"; };
 		CEF000000000000000000008 /* CEFRuntimeInstallProgressPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CEFRuntimeInstallProgressPresenter.swift; sourceTree = "<group>"; };
@@ -1807,6 +1811,8 @@
 				5B77447FF0E81CC9DE8DF935 /* BrowserEngineBackedPanel.swift */,
 				2663AE54AECC766B7D266810 /* CEFBrowserPanel.swift */,
 				DCF6F3F014B22A4412339DEF /* CEFBrowserPanelView.swift */,
+				CEF0C0DE0000000000000002 /* CEFContentRepresentable.swift */,
+				CEF0C0DE0000000000000004 /* CEFReparentContainerView.swift */,
 				4472B0014472B0014472B001 /* BrowserScreenshot.swift */,
 				4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */,
 				4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */,
@@ -2430,6 +2436,11 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/CEF/vendor/cef.lock.json",
+				"$(SRCROOT)/CEF/Scripts/embed_cef_into_cmux.sh",
+				"$(SRCROOT)/CEF/Package.swift",
+				"$(SRCROOT)/CEF/Sources/CMUXCEFBridge/CMUXCEFBridge.mm",
+				"$(SRCROOT)/CEF/Sources/CMUXCEFHelper/main.mm",
+				"$(SRCROOT)/CEF/Sources/CMUXCEFHelperRenderer/main.mm",
 			);
 			name = "Embed CEF";
 			outputFileListPaths = (
@@ -2577,6 +2588,8 @@
 				A5001534 /* BrowserWindowPortal.swift in Sources */,
 				2ED1CFA236A19BEF10A66F8C /* CEFBrowserPanel.swift in Sources */,
 				2C4EEF951C0B3032EEF3FF20 /* CEFBrowserPanelView.swift in Sources */,
+				CEF0C0DE0000000000000001 /* CEFContentRepresentable.swift in Sources */,
+				CEF0C0DE0000000000000003 /* CEFReparentContainerView.swift in Sources */,
 				CEF000000000000000000001 /* CEFRuntimeDescriptor.swift in Sources */,
 				CEF000000000000000000002 /* CEFRuntimeInstaller.swift in Sources */,
 				CEF000000000000000000004 /* CEFRuntimeInstallProgressPresenter.swift in Sources */,

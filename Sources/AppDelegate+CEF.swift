@@ -6,7 +6,7 @@ import OSLog
 import CMUXCEF
 #endif
 
-private let cefStartupLogger = Logger(subsystem: "com.cmuxterm.app", category: "cef-startup")
+nonisolated private let cefStartupLogger = Logger(subsystem: "com.cmuxterm.app", category: "cef-startup")
 
 /// Boots the Chromium Embedded Framework runtime if (a) the `CMUXCEF`
 /// SwiftPM package is linked into this build and (b) the user has
@@ -96,12 +96,19 @@ func startCEFEngineIfNeeded() {
             }
 
             #if DEBUG
+            let disableCEFSandbox = true
+            #else
+            let disableCEFSandbox = false
+            #endif
+
+            #if DEBUG
             cmuxDebugLog("cef.engine.start.calling root=\(root.path) fwParent=\(frameworksDir.path) helper=\(helperExec.path)")
             #endif
             try CEFEngine.shared.start(config: CEFEngineConfig(
                 rootCachePath: root,
                 extensionDirectories: [],
                 logSeverity: 0,
+                disableSandbox: disableCEFSandbox,
                 userAgentProduct: "cmux",
                 frameworkDirectoryPath: frameworksDir,
                 browserSubprocessPath: helperExec))
@@ -115,4 +122,19 @@ func startCEFEngineIfNeeded() {
             cefStartupLogger.error("Failed to start CEF engine: \(String(describing: error), privacy: .private)")
         }
         #endif
+}
+
+/// Shuts down the CEF engine if this process has lazily started it.
+@MainActor
+func shutdownCEFEngineIfNeeded() {
+    #if canImport(CMUXCEF)
+    guard CEFEngine.shared.isRunning else { return }
+    #if DEBUG
+    cmuxDebugLog("cef.engine.shutdown.calling")
+    #endif
+    CEFEngine.shared.shutdown()
+    #if DEBUG
+    cmuxDebugLog("cef.engine.shutdown.done")
+    #endif
+    #endif
 }

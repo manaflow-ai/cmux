@@ -78,6 +78,7 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
     /// Held strongly; `close()` releases it.
     @ObservationIgnored private var browser: CMUXCEF.CEFBrowser?
     #endif
+    @ObservationIgnored private var needsFocusOnActivation = false
     private let renderInitialNavigation: Bool
 
     /// Bumped whenever the underlying CEF browser is (re)created so SwiftUI
@@ -89,7 +90,7 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
     // MARK: Construction
 
     /// Mirrors the BrowserPanel initializer signature closely enough
-    /// that ``Workspace/newBrowserSplit(...)`` can swap engines with a
+    /// that ``Workspace/newBrowserEngineSplit(...)`` can swap engines with a
     /// minimal branch. Fields that don't apply to CEF (proxy endpoint,
     /// remote website data store, telemetry flags) are accepted and
     /// stored for later, not yet wired through.
@@ -171,6 +172,7 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
             currentURL = initialURL
         }
         activationRevision &+= 1
+        focusMountedViewIfNeeded()
         #if DEBUG
         let viewDesc = createdBrowser.embeddableView.map { "\($0)" } ?? "nil"
         cmuxDebugLog("cef.panel.activate.done panel=\(id.uuidString.prefix(5)) view=\(viewDesc)")
@@ -274,6 +276,7 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
 
     func close() {
         #if canImport(CMUXCEF)
+        needsFocusOnActivation = false
         detachEmbeddableViewFromAppKit()
         browser?.close()
         browser = nil
@@ -282,12 +285,23 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
     }
 
     func focus() {
-        // CEF takes focus via the embeddableView's first-responder
-        // chain. cmux's window code already calls
-        // `makeFirstResponder(panel.webView)` for browser panes; once
-        // CEFBrowserPanelView is wired we route the same signal.
-        guard let view = embeddableView, let window = view.window else { return }
+        #if canImport(CMUXCEF)
+        if browser == nil {
+            needsFocusOnActivation = true
+            try? activate()
+        }
+        guard let view = embeddableView, let window = view.window else {
+            needsFocusOnActivation = true
+            return
+        }
+        needsFocusOnActivation = false
         window.makeFirstResponder(view)
+        #endif
+    }
+
+    func focusMountedViewIfNeeded() {
+        guard needsFocusOnActivation else { return }
+        focus()
     }
 
     func unfocus() {
@@ -374,7 +388,7 @@ extension CEFBrowserPanel: CMUXCEF.CEFBrowserDelegate {
     }
 
     func cefBrowser(_ browser: CMUXCEF.CEFBrowser, didFailLoad error: Error) {
-        loadErrorDescription = error.localizedDescription
+        loadErrorDescription = String(describing: type(of: error))
         refreshNavigationState(from: browser)
         isLoading = false
         #if DEBUG
