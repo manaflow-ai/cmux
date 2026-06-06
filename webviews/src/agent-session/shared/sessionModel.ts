@@ -70,6 +70,11 @@ export type Action =
       submittedInput: string;
     };
 
+const maxAssistantTranscriptChars = 256 * 1024;
+const maxActivityOutputChars = 64 * 1024;
+const assistantTruncationMarker = "[earlier assistant output truncated]\n";
+const activityTruncationMarker = "[earlier command output truncated]\n";
+
 export function initialState(_renderer: AppContext["renderer"]): SessionState {
   return {
     selectedProviderId: "codex",
@@ -521,7 +526,7 @@ function appendProviderTranscript(
       {
         ...previous,
         isComplete: false,
-        text: previous.text + event.text,
+        text: appendBoundedText(previous.text, event.text, maxAssistantTranscriptChars, assistantTruncationMarker),
       },
     ];
   }
@@ -532,7 +537,7 @@ function appendProviderTranscript(
     isComplete: false,
     sessionId: event.sessionId,
     sentAtMs: Date.now(),
-    text: event.text,
+    text: boundedText(event.text, maxAssistantTranscriptChars, assistantTruncationMarker),
   });
 }
 
@@ -566,7 +571,9 @@ function appendProviderActivityTranscript(
         detail: event.detail ?? previous.detail,
         activityKind: event.kind,
         activityStatus: event.status,
-        output: (previous.output ?? "") + (event.outputDelta ?? ""),
+        output: event.outputDelta === undefined
+          ? previous.output
+          : appendBoundedText(previous.output ?? "", event.outputDelta, maxActivityOutputChars, activityTruncationMarker),
       },
       ...state.transcript.slice(existingIndex + 1),
     ];
@@ -581,7 +588,9 @@ function appendProviderActivityTranscript(
     activityId: event.activityId,
     activityKind: event.kind,
     activityStatus: event.status,
-    output: event.outputDelta,
+    output: event.outputDelta === undefined
+      ? undefined
+      : boundedText(event.outputDelta, maxActivityOutputChars, activityTruncationMarker),
   });
 }
 
@@ -610,6 +619,22 @@ function appendNoticeTranscript(
 
 function appendTranscript(entries: TranscriptEntry[], entry: TranscriptEntry): TranscriptEntry[] {
   return [...entries, entry].slice(-200);
+}
+
+function appendBoundedText(previous: string, delta: string, maxChars: number, marker: string): string {
+  const wasTruncated = previous.startsWith(marker);
+  const retainedPrevious = previous.startsWith(marker) ? previous.slice(marker.length) : previous;
+  if (wasTruncated) {
+    return marker + (retainedPrevious + delta).slice(-(maxChars - marker.length));
+  }
+  return boundedText(retainedPrevious + delta, maxChars, marker);
+}
+
+function boundedText(text: string, maxChars: number, marker: string): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return marker + text.slice(-(maxChars - marker.length));
 }
 
 function copyText<K extends keyof AppContext["copy"]>(state: SessionState, key: K, fallback: string): string {

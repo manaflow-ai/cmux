@@ -203,6 +203,61 @@ struct CodexAppServerSessionTests {
                 ], sessionID: "session-1"),
             ["hello"]
         )
+        expectEqual(accumulator.retainedTextCharacterCountForTesting, 0)
+    }
+
+    @Test
+    func testOpenCodeEventTextAccumulatorPrunesCompletedAssistantMessages() {
+        var accumulator = OpenCodeEventTextAccumulator()
+
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.updated",
+                    "properties": [
+                        "sessionID": "session-1",
+                        "info": [
+                            "id": "message-1",
+                            "role": "assistant",
+                        ],
+                    ],
+                ], sessionID: "session-1"),
+            []
+        )
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.part.updated",
+                    "properties": [
+                        "sessionID": "session-1",
+                        "part": [
+                            "id": "part-1",
+                            "sessionID": "session-1",
+                            "messageID": "message-1",
+                            "type": "text",
+                            "text": String(repeating: "a", count: 1024),
+                        ],
+                    ],
+                ], sessionID: "session-1").first?.count,
+            1024
+        )
+        expectEqual(accumulator.retainedTextCharacterCountForTesting, 1024)
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.updated",
+                    "properties": [
+                        "sessionID": "session-1",
+                        "info": [
+                            "id": "message-1",
+                            "role": "assistant",
+                            "time": ["completed": "2026-06-05T00:00:00Z"],
+                        ],
+                    ],
+                ], sessionID: "session-1"),
+            []
+        )
+        expectEqual(accumulator.retainedTextCharacterCountForTesting, 0)
     }
 
     @Test
@@ -420,6 +475,21 @@ struct CodexAppServerSessionTests {
             ),
             []
         )
+    }
+
+    @Test
+    func testClaudeStreamJSONAccumulatorPrunesTurnStateOnCompletion() {
+        var accumulator = ClaudeStreamJSONAccumulator()
+
+        expectEqual(
+            accumulator.consumeLine(
+                #"{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"hello"}]}}"#
+            ),
+            ["hello"]
+        )
+        expectEqual(accumulator.retainedTextCharacterCountForTesting, 5)
+        expectEqual(accumulator.consumeLine(#"{"type":"message_stop"}"#), [])
+        expectEqual(accumulator.retainedTextCharacterCountForTesting, 0)
     }
 
     @Test

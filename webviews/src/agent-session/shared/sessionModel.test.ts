@@ -363,6 +363,57 @@ test("provider activity updates a single transcript turn by activity id", () => 
   });
 });
 
+test("provider activity output is retained with a bounded tail", () => {
+  const running = {
+    ...initialState("solid"),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const started = reduceSession(running, {
+    type: "event",
+    event: {
+      type: "provider.activity",
+      providerId: "codex",
+      sessionId: "session-1",
+      activityId: "item-1",
+      kind: "command",
+      status: "inProgress",
+      action: "Running",
+    },
+  });
+  const first = reduceSession(started, {
+    type: "event",
+    event: {
+      type: "provider.activity",
+      providerId: "codex",
+      sessionId: "session-1",
+      activityId: "item-1",
+      kind: "command",
+      status: "inProgress",
+      action: "Running",
+      outputDelta: "a".repeat(70_000),
+    },
+  });
+  const second = reduceSession(first, {
+    type: "event",
+    event: {
+      type: "provider.activity",
+      providerId: "codex",
+      sessionId: "session-1",
+      activityId: "item-1",
+      kind: "command",
+      status: "completed",
+      action: "Ran",
+      outputDelta: "tail",
+    },
+  });
+
+  const output = second.transcript[0]?.output ?? "";
+  expect(output.length).toBeLessThanOrEqual(64 * 1024);
+  expect(output.startsWith("[earlier command output truncated]\n")).toBe(true);
+  expect(output.endsWith("tail")).toBe(true);
+});
+
 test("sent action appends a user transcript turn", () => {
   const running = {
     ...reduceSession(initialState("react"), { type: "context", context }),

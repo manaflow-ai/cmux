@@ -17,10 +17,19 @@ struct OpenCodeServerAuth: Equatable {
 }
 
 struct ClaudeStreamJSONAccumulator {
+    private static let maxTrackedMessages = 16
+
     private var emittedTextByMessageID: [String: String] = [:]
+    private var messageIDOrder: [String] = []
     private var currentMessageID: String?
     private var pendingDeltaText = ""
     private var emittedAnyAssistantText = false
+
+    var retainedTextCharacterCountForTesting: Int {
+        emittedTextByMessageID.values.reduce(pendingDeltaText.count) { partial, text in
+            partial + text.count
+        }
+    }
 
     mutating func consumeLine(_ line: String) -> [String] {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -31,6 +40,7 @@ struct ClaudeStreamJSONAccumulator {
         }
 
         if let messageID = assistantMessageID(fromMessageStart: object) {
+            rememberMessageID(messageID)
             currentMessageID = messageID
             pendingDeltaText = ""
             return []
@@ -39,6 +49,7 @@ struct ClaudeStreamJSONAccumulator {
         if let delta = assistantTextDelta(from: object), !delta.isEmpty {
             emittedAnyAssistantText = true
             if let currentMessageID {
+                rememberMessageID(currentMessageID)
                 emittedTextByMessageID[currentMessageID, default: ""] += delta
             } else {
                 pendingDeltaText += delta
@@ -51,9 +62,13 @@ struct ClaudeStreamJSONAccumulator {
            let result = object["result"] as? String,
            !result.isEmpty {
             emittedAnyAssistantText = true
+            resetTurnTracking()
             return [result]
         }
 
+        if Self.completesAssistantTurn(from: object) {
+            resetTurnTracking()
+        }
         return []
     }
 
@@ -66,6 +81,15 @@ struct ClaudeStreamJSONAccumulator {
             return false
         }
 
+        return completesAssistantTurn(type: type)
+    }
+
+    private static func completesAssistantTurn(from object: [String: Any]) -> Bool {
+        guard let type = object["type"] as? String else { return false }
+        return completesAssistantTurn(type: type)
+    }
+
+    private static func completesAssistantTurn(type: String) -> Bool {
         switch type {
         case "result", "message_stop", "done":
             return true
@@ -100,6 +124,7 @@ struct ClaudeStreamJSONAccumulator {
         guard !fullText.isEmpty else { return nil }
 
         let messageID = (message["id"] as? String) ?? "assistant"
+        rememberMessageID(messageID)
         let previousText = emittedTextByMessageID[messageID] ??
             (fullText.hasPrefix(pendingDeltaText) ? pendingDeltaText : "")
         emittedTextByMessageID[messageID] = fullText
@@ -111,6 +136,23 @@ struct ClaudeStreamJSONAccumulator {
             return String(fullText.dropFirst(previousText.count))
         }
         return fullText
+    }
+
+    private mutating func rememberMessageID(_ messageID: String) {
+        if !messageIDOrder.contains(messageID) {
+            messageIDOrder.append(messageID)
+        }
+        while messageIDOrder.count > Self.maxTrackedMessages {
+            let removed = messageIDOrder.removeFirst()
+            emittedTextByMessageID.removeValue(forKey: removed)
+        }
+    }
+
+    private mutating func resetTurnTracking() {
+        emittedTextByMessageID.removeAll(keepingCapacity: true)
+        messageIDOrder.removeAll(keepingCapacity: true)
+        currentMessageID = nil
+        pendingDeltaText = ""
     }
 
     private static func contentText(from content: Any?) -> String {
@@ -164,11 +206,21 @@ struct OpenCodeEventStreamParser {
 }
 
 struct OpenCodeEventTextAccumulator {
+    private static let maxTrackedMessages = 16
+    private static let maxTrackedPartTextCharacters = 256 * 1024
+
     private var messageRoleByID: [String: String] = [:]
+    private var messageIDOrder: [String] = []
     private var messageIDByPartID: [String: String] = [:]
     private var isTextPartByID: [String: Bool] = [:]
     private var textByPartID: [String: String] = [:]
     private var emittedCharacterCountByPartID: [String: Int] = [:]
+
+    var retainedTextCharacterCountForTesting: Int {
+        textByPartID.values.reduce(0) { partial, text in
+            partial + text.count
+        }
+    }
 
     mutating func consumeEvent(_ event: [String: Any], sessionID: String) -> [String] {
         guard let type = event["type"] as? String,
@@ -274,12 +326,19 @@ struct OpenCodeEventTextAccumulator {
             return []
         }
 
+        rememberMessageID(messageID)
         messageRoleByID[messageID] = role
         guard role == "assistant" else { return [] }
         let partIDs = messageIDByPartID.compactMap { partID, candidateMessageID in
             candidateMessageID == messageID ? partID : nil
         }
-        return partIDs.flatMap { flushPart($0) }
+        let output = partIDs.flatMap { flushPart($0) }
+        if Self.messageInfoHasCompletedTime(info) ||
+            Self.firstString(info["finish"], info["finishedReason"], properties["finish"]) != nil ||
+            info["error"] != nil {
+            pruneMessage(messageID)
+        }
+        return output
     }
 
     private mutating func consumePartUpdated(_ properties: [String: Any]) -> [String] {
@@ -290,8 +349,10 @@ struct OpenCodeEventTextAccumulator {
         }
 
         messageIDByPartID[partID] = messageID
+        rememberMessageID(messageID)
         guard part["type"] as? String == "text",
               part["ignored"] as? Bool != true else {
+            prunePart(partID)
             return []
         }
 
@@ -302,7 +363,7 @@ struct OpenCodeEventTextAccumulator {
 
         let existingText = textByPartID[partID] ?? ""
         if text.count >= existingText.count {
-            textByPartID[partID] = text
+            textByPartID[partID] = Self.boundedStoredText(text)
         }
         return flushPart(partID)
     }
@@ -317,7 +378,13 @@ struct OpenCodeEventTextAccumulator {
         }
 
         messageIDByPartID[partID] = messageID
-        textByPartID[partID, default: ""] += delta
+        rememberMessageID(messageID)
+        if isTextPartByID[partID] == true,
+           messageRoleByID[messageID] == "assistant" {
+            emittedCharacterCountByPartID[partID, default: 0] += delta.count
+            return [delta]
+        }
+        textByPartID[partID] = Self.boundedStoredText((textByPartID[partID] ?? "") + delta)
         return flushPart(partID)
     }
 
@@ -334,5 +401,37 @@ struct OpenCodeEventTextAccumulator {
         guard text.count > emittedCharacterCount else { return [] }
         emittedCharacterCountByPartID[partID] = text.count
         return [String(text.dropFirst(emittedCharacterCount))]
+    }
+
+    private mutating func rememberMessageID(_ messageID: String) {
+        if !messageIDOrder.contains(messageID) {
+            messageIDOrder.append(messageID)
+        }
+        while messageIDOrder.count > Self.maxTrackedMessages {
+            pruneMessage(messageIDOrder[0])
+        }
+    }
+
+    private mutating func pruneMessage(_ messageID: String) {
+        messageRoleByID.removeValue(forKey: messageID)
+        messageIDOrder.removeAll { $0 == messageID }
+        let partIDs = messageIDByPartID.compactMap { partID, candidateMessageID in
+            candidateMessageID == messageID ? partID : nil
+        }
+        for partID in partIDs {
+            prunePart(partID)
+        }
+    }
+
+    private mutating func prunePart(_ partID: String) {
+        messageIDByPartID.removeValue(forKey: partID)
+        isTextPartByID.removeValue(forKey: partID)
+        textByPartID.removeValue(forKey: partID)
+        emittedCharacterCountByPartID.removeValue(forKey: partID)
+    }
+
+    private static func boundedStoredText(_ text: String) -> String {
+        guard text.count > maxTrackedPartTextCharacters else { return text }
+        return String(text.suffix(maxTrackedPartTextCharacters))
     }
 }
