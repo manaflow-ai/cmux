@@ -237,6 +237,71 @@ socket_path_for_file_name() {
   python3 "$SCRIPT_DIR/cmux_socket_paths.py" "$file_name"
 }
 
+wait_for_socket_file() {
+  local socket_path="$1"
+  local timeout_seconds="${2:-30}"
+
+  python3 - "$socket_path" "$timeout_seconds" <<'PY'
+from __future__ import annotations
+
+import os
+import select
+import stat
+import sys
+import time
+
+socket_path = sys.argv[1]
+timeout = float(sys.argv[2])
+directory = os.path.dirname(socket_path) or "."
+deadline = time.monotonic() + timeout
+
+
+def socket_is_ready() -> bool:
+    try:
+        return stat.S_ISSOCK(os.stat(socket_path).st_mode)
+    except OSError:
+        return False
+
+
+if socket_is_ready():
+    raise SystemExit(0)
+
+if not hasattr(select, "kqueue"):
+    raise SystemExit(2)
+
+os.makedirs(directory, exist_ok=True)
+directory_fd = os.open(directory, os.O_RDONLY)
+try:
+    queue = select.kqueue()
+    flags = select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_CLEAR
+    fflags = (
+        select.KQ_NOTE_WRITE
+        | select.KQ_NOTE_EXTEND
+        | select.KQ_NOTE_ATTRIB
+        | select.KQ_NOTE_RENAME
+        | select.KQ_NOTE_DELETE
+    )
+    queue.control([
+        select.kevent(
+            directory_fd,
+            filter=select.KQ_FILTER_VNODE,
+            flags=flags,
+            fflags=fflags,
+        )
+    ], 0, 0)
+
+    while True:
+        if socket_is_ready():
+            raise SystemExit(0)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise SystemExit(1)
+        queue.control(None, 1, remaining)
+finally:
+    os.close(directory_fd)
+PY
+}
+
 socket_file_name_for_tagged_bundle() {
   local bundle_id="${BUNDLE_ID:-}"
   local tag_slug="${TAG_SLUG:-}"
@@ -1112,8 +1177,18 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     "${LAUNCH_RETRY_CMD[@]}"
   fi
 
+  if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
+    if ! wait_for_socket_file "$CMUX_SOCKET_PATH_VALUE" 30; then
+      echo "error: tagged app did not create socket: $CMUX_SOCKET_PATH_VALUE" >&2
+      if [[ -n "${TAG_LAUNCH_LOG:-}" && -f "$TAG_LAUNCH_LOG" ]]; then
+        echo "Launch log: $TAG_LAUNCH_LOG" >&2
+        tail -n 80 "$TAG_LAUNCH_LOG" >&2 || true
+      fi
+      exit 1
+    fi
+  fi
+
   # Safety: ensure only one instance is running.
-  sleep 0.2
   PIDS=($(pgrep -f "${APP_PATH}/Contents/MacOS/" || true))
   if [[ -n "${TAG_SLUG:-}" && "${#PIDS[@]}" -eq 0 ]]; then
     echo "error: tagged app exited immediately after launch" >&2
@@ -1138,27 +1213,6 @@ if [[ "$LAUNCH" -eq 1 ]]; then
         kill "$PID" 2>/dev/null || true
       fi
     done
-  fi
-  if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-    SOCKET_READY=0
-    for _ in {1..80}; do
-      if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
-        SOCKET_READY=1
-        break
-      fi
-      if ! pgrep -f "${APP_PATH}/Contents/MacOS/" >/dev/null 2>&1; then
-        break
-      fi
-      sleep 0.1
-    done
-    if [[ "$SOCKET_READY" -ne 1 ]]; then
-      echo "error: tagged app did not create socket: $CMUX_SOCKET_PATH_VALUE" >&2
-      if [[ -n "${TAG_LAUNCH_LOG:-}" && -f "$TAG_LAUNCH_LOG" ]]; then
-        echo "Launch log: $TAG_LAUNCH_LOG" >&2
-        tail -n 80 "$TAG_LAUNCH_LOG" >&2 || true
-      fi
-      exit 1
-    fi
   fi
 fi
 
