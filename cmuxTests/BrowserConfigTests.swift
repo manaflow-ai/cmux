@@ -1829,6 +1829,26 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         panel.webView.removeFromSuperview()
     }
 
+    private func waitForUnderPageBackgroundColor(
+        in panel: BrowserPanel,
+        matching expected: NSColor,
+        timeout: TimeInterval = 1.0,
+        accuracy: CGFloat = 0.005
+    ) -> NSColor? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
+               abs(actual.redComponent - expected.redComponent) <= accuracy,
+               abs(actual.greenComponent - expected.greenComponent) <= accuracy,
+               abs(actual.blueComponent - expected.blueComponent) <= accuracy,
+               abs(actual.alphaComponent - expected.alphaComponent) <= accuracy {
+                return actual
+            }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        return panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB)
+    }
+
     func testBrowserPanelEnablesInspectableWebViewAndDeveloperExtras() {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { closeBrowserPanel(panel) }
@@ -1858,13 +1878,14 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
                 GhosttyNotificationKey.backgroundOpacity: updatedOpacity
             ]
         )
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = GhosttyBackgroundTheme.color(
+        guard let expected = GhosttyBackgroundTheme.color(
                 backgroundColor: updatedColor,
                 opacity: updatedOpacity
               ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible under-page background colors")
+            return
+        }
+        guard let actual = waitForUnderPageBackgroundColor(in: panel, matching: expected) else {
             XCTFail("Expected sRGB-convertible under-page background colors")
             return
         }
@@ -1941,13 +1962,14 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
                 GhosttyNotificationKey.backgroundOpacity: NSNumber(value: 0.57),
             ]
         )
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = GhosttyBackgroundTheme.color(
+        guard let expected = GhosttyBackgroundTheme.color(
                 backgroundColor: updatedColor,
                 opacity: 0.57
               ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible under-page background colors")
+            return
+        }
+        guard let actual = waitForUnderPageBackgroundColor(in: panel, matching: expected) else {
             XCTFail("Expected sRGB-convertible under-page background colors")
             return
         }
