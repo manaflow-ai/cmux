@@ -30,6 +30,7 @@ import Testing
         #expect(scrubber.scrub("api_key: \"sekret-value-here\"").contains("<redacted>"))
         #expect(scrubber.scrub("API_TOKEN='opaquevalue123'") == "API_TOKEN='<redacted>'")
         #expect(scrubber.scrub("DB_PASSWORD='hunter2longvalue'") == "DB_PASSWORD='<redacted>'")
+        #expect(scrubber.scrub("AUTH=opaque-secret-123") == "AUTH=<redacted>")
     }
 
     @Test func redactsQuotedKeyValueSecretsContainingSpaces() {
@@ -37,6 +38,7 @@ import Testing
             ("PASSWORD='correct horse battery staple'", "PASSWORD='<redacted>'", "horse battery"),
             ("client_secret=\"super secret oauth value\"", "client_secret=\"<redacted>\"", "oauth value"),
             ("api_key: 'key with spaces inside'", "api_key: '<redacted>'", "spaces inside"),
+            ("auth=\"opaque auth value\"", "auth=\"<redacted>\"", "auth value"),
         ]
 
         for (sample, expected, leakedFragment) in samples {
@@ -50,6 +52,7 @@ import Testing
         let samples = [
             (#"{"access_token":"opaque-refresh-token-1234"}"#, #"{"access_token":"<redacted>"}"#, "refresh-token"),
             (#"{"password":"hunter2longvalue"}"#, #"{"password":"<redacted>"}"#, "hunter2longvalue"),
+            (#"{"auth":"opaque-secret-123"}"#, #"{"auth":"<redacted>"}"#, "opaque-secret"),
             ("{'client_secret': 'oauth secret value'}", "{'client_secret': '<redacted>'}", "oauth secret"),
         ]
 
@@ -108,6 +111,10 @@ import Testing
         #expect(scrubbedAPIKeyURL.contains("api_key=<redacted>"))
         #expect(!scrubbedAccessTokenURL.contains("abcd1234efgh"))
         #expect(!scrubbedAPIKeyURL.contains("sekretvalue123"))
+        let authURL = "https://example.com/callback?auth=opaque-secret-123&ok=1"
+        let scrubbedAuthURL = scrubber.scrub(authURL)
+        #expect(scrubbedAuthURL.contains("auth=<redacted>"))
+        #expect(!scrubbedAuthURL.contains("opaque-secret-123"))
     }
 
     @Test func redactsProviderPrefixedKeys() {
@@ -178,6 +185,7 @@ import Testing
     @Test func doesNotRedactKeywordSubstrings() {
         #expect(scrubber.scrub("tokenizer=gpt2") == "tokenizer=gpt2")
         #expect(scrubber.scrub("mytokenstuff=value") == "mytokenstuff=value")
+        #expect(scrubber.scrub("author=lawrence") == "author=lawrence")
     }
 
     @Test func preservesDottedIdentifiers() {

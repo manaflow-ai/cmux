@@ -40,16 +40,16 @@ struct MobileDiagnosticsSecretPatternFactory {
             // Quoted `token=\"...\"` / `password='...'` style values can include
             // spaces. Handle those before the unquoted rule below so the whole
             // quoted value is redacted instead of only its first word.
-            ("(?i)(?:^|[\\s\"'`({\\[,;&?])(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b(\\s*[:=]\\s*\")([^\"\\r\\n]{4,})\"",
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?])(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|auth|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b(\\s*[:=]\\s*\")([^\"\\r\\n]{4,})\"",
              2),
-            ("(?i)(?:^|[\\s\"'`({\\[,;&?])(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b(\\s*[:=]\\s*')([^'\\r\\n]{4,})'",
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?])(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|auth|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b(\\s*[:=]\\s*')([^'\\r\\n]{4,})'",
              2),
 
             // JSON or JavaScript object output, e.g.
             // `"access_token":"..."` or `'password': '...'`.
-            ("(?i)(\"(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b\"\\s*:\\s*\")([^\"\\r\\n]{4,})(\")",
+            ("(?i)(\"(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|auth|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b\"\\s*:\\s*\")([^\"\\r\\n]{4,})(\")",
              2),
-            ("(?i)('(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b'\\s*:\\s*')([^'\\r\\n]{4,})(')",
+            ("(?i)('(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|auth|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b'\\s*:\\s*')([^'\\r\\n]{4,})(')",
              2),
 
             // `token=...`, `password=...`, `secret=...`, `api[_-]?key=...`,
@@ -62,7 +62,7 @@ struct MobileDiagnosticsSecretPatternFactory {
             // trailing `\b` still rejects `tokenizer=` / `mytokenstuff=`. The
             // value capture group stays group 2. Value runs until whitespace,
             // quote, or `&`.
-            ("(?i)(?:^|[\\s\"'`({\\[,;&?])(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b(\\s*[:=]\\s*[\"']?)([^\\s\"'&]{4,})",
+            ("(?i)(?:^|[\\s\"'`({\\[,;&?])(?:[A-Za-z0-9]+[_-])*(?:access[_-]?token|refresh[_-]?token|api[_-]?key|auth[_-]?token|auth|token|password|passwd|secret|client[_-]?secret|x-stack-refresh-token)\\b(\\s*[:=]\\s*[\"']?)([^\\s\"'&]{4,})",
              2),
 
             // Connection URLs with userinfo credentials, e.g.
