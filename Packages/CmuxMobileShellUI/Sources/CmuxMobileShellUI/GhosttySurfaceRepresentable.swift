@@ -140,6 +140,35 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 await self.store?.clickTerminal(surfaceID: self.surfaceID, col: col, row: row)
             }
         }
+
+        func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {
+            // The "customize" button on the keyboard toolbar. The editor view
+            // lives in this UI package, so present it here (the terminal package
+            // that owns the bar can't reach up to it) from the surface's owning
+            // view controller.
+            guard let presenter = presentingController(for: surfaceView) else { return }
+            let editor = UIHostingController(rootView: TerminalShortcutsSettingsView())
+            presenter.present(editor, animated: true)
+        }
+
+        /// Walk up from `view` to the nearest owning `UIViewController`, then to
+        /// its top-most presented controller, so a sheet presents above whatever
+        /// is already on screen.
+        @MainActor
+        private func presentingController(for view: UIView) -> UIViewController? {
+            var responder: UIResponder? = view
+            while let current = responder {
+                if let controller = current as? UIViewController {
+                    var top = controller
+                    while let presented = top.presentedViewController {
+                        top = presented
+                    }
+                    return top
+                }
+                responder = current.next
+            }
+            return view.window?.rootViewController
+        }
     }
 }
 #endif
