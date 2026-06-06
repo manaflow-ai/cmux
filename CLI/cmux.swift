@@ -21418,10 +21418,10 @@ struct CMUXCLI {
             return
         }
 
-        // currentTitle is deliberately nil here: sanitizeResponse(_, currentTitle:)
-        // returns nil for BOTH garbage and an unchanged title, but the two
-        // outcomes diverge below - an unchanged title confirms the topic is
-        // stable and must advance the baseline, while garbage must not.
+        // currentTitle is deliberately nil so sanitizeResponse's unchanged-title
+        // fold (which returns nil, same as garbage) never fires here: the two
+        // outcomes must diverge below - an unchanged title confirms the topic
+        // is stable and advances the baseline, while garbage must not.
         let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil)
         guard let sanitized else { return }
         if sanitized == outcome.lastTitle {
@@ -21608,8 +21608,9 @@ struct CMUXCLI {
         }
         let rawResponse = (try? String(contentsOf: outputFile, encoding: .utf8)) ?? ""
 
-        // currentTitle is deliberately nil: an unchanged title confirms the
-        // topic is stable (advance the baseline below); garbage must not.
+        // currentTitle is deliberately nil so the unchanged-title fold inside
+        // sanitizeResponse never fires; the explicit comparison below must
+        // distinguish topic-stable (advance baseline) from garbage (retry).
         let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil)
         guard let sanitized else { return }
         if sanitized == outcome.lastTitle {
