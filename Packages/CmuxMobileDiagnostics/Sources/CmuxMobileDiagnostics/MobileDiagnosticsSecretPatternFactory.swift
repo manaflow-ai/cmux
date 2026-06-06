@@ -73,6 +73,7 @@ struct MobileDiagnosticsSecretPatternFactory {
             // `ghp_/gho_/ghu_/ghs_/ghr_...`, Stack `pck_/sck_...`, generic
             // `key-...`. Require a meaningful length.
             ("\\b((?:sk|pk|rk)-[A-Za-z0-9_-]{16,})", 1),
+            ("\\b(github_pat_[A-Za-z0-9_]{20,})\\b", 1),
             ("\\b(gh[pousr]_[A-Za-z0-9]{20,})", 1),
             ("\\b((?:pck|sck|ssk)_[A-Za-z0-9]{16,})", 1),
 

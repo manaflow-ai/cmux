@@ -115,6 +115,8 @@ import Testing
         #expect(scrubber.scrub("const key = \"sk-proj-abcdefghij0123456789xyz\"").contains("<redacted>"))
         #expect(!scrubber.scrub("const key = \"sk-proj-abcdefghij0123456789xyz\"").contains("sk-proj"))
         #expect(scrubber.scrub("ghp_abcdefghij0123456789abcdef").contains("<redacted>"))
+        #expect(scrubber.scrub("github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz_abcdefghijklmno").contains("<redacted>"))
+        #expect(!scrubber.scrub("github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz_abcdefghijklmno").contains("github_pat_"))
     }
 
     @Test func redactsPrivateKeyBlocks() {
