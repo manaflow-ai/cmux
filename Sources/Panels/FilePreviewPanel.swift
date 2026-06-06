@@ -2,6 +2,7 @@ import AppKit
 import AVKit
 import Bonsplit
 import Combine
+import CodeEditLanguages
 import Foundation
 import PDFKit
 import Quartz
@@ -24,6 +25,25 @@ enum FilePreviewInteraction {
         return min(max(factor, 0.2), 5.0)
     }
 
+}
+
+@MainActor
+protocol FilePreviewTextInsertionTarget: AnyObject {
+    var filePreviewCurrentText: String { get }
+    func focusFilePreviewTextTarget()
+    func insertFilePreviewText(_ text: String)
+}
+
+extension NSTextView: FilePreviewTextInsertionTarget {
+    var filePreviewCurrentText: String { string }
+
+    func focusFilePreviewTextTarget() {
+        window?.makeFirstResponder(self)
+    }
+
+    func insertFilePreviewText(_ text: String) {
+        insertText(text, replacementRange: selectedRange())
+    }
 }
 
 struct FileExternalOpenApplication: Identifiable, Equatable, Sendable {
@@ -663,8 +683,9 @@ enum FilePreviewKindResolver {
     private static let textExtensions: Set<String> = [
         "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "cts", "env",
         "fish", "go", "h", "hpp", "htm", "html", "ini", "java", "js", "json",
-        "jsx", "kt", "log", "m", "markdown", "md", "mdx", "mm", "mts", "plist",
-        "py", "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
+        "jsx", "kt", "log", "m", "markdown", "md", "mdown", "mdwn", "mdx",
+        "mkd", "mkdn", "mm", "mts", "plist", "py",
+        "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
         "xml", "yaml", "yml", "zsh"
     ]
 
@@ -978,6 +999,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var displayIcon: String?
     @Published private(set) var isFileUnavailable = false
     @Published private(set) var textContent = ""
+    @Published private(set) var textContentUTF8ByteCount: Int?
+    @Published private(set) var highlightedTextLanguage: CodeLanguage?
     @Published private(set) var isDirty = false
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
@@ -991,7 +1014,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textLoadGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
-    private weak var textView: NSTextView?
+    private weak var textInsertionTarget: (any FilePreviewTextInsertionTarget)?
     private let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
@@ -1015,6 +1038,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
         self.previewMode = initialPreviewMode
         self.displayIcon = FilePreviewKindResolver.iconName(for: initialPreviewMode)
+        self.highlightedTextLanguage = initialPreviewMode == .text
+            ? SyntaxLanguageDetector.language(for: fileURL)
+            : nil
         self.focusCoordinator = FilePreviewFocusCoordinator(
             preferredIntent: Self.defaultFocusIntent(for: initialPreviewMode)
         )
@@ -1033,7 +1059,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func close() {
         nativeViewSessions.closeAll()
-        textView = nil
+        textInsertionTarget = nil
         focusCoordinator.unregisterAll()
     }
 
@@ -1044,17 +1070,27 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func attachTextView(_ textView: NSTextView) {
-        self.textView = textView
+        attachTextInsertionTarget(textView)
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
     }
 
+    func attachTextInsertionTarget(_ target: any FilePreviewTextInsertionTarget) {
+        textInsertionTarget = target
+    }
+
+    func detachTextInsertionTarget(_ target: any FilePreviewTextInsertionTarget) {
+        guard let current = textInsertionTarget,
+              current === target else { return }
+        textInsertionTarget = nil
+    }
+
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
-        guard previewMode == .text, let textView else { return false }
+        guard previewMode == .text, let textInsertionTarget else { return false }
         let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
         guard !text.isEmpty else { return false }
-        textView.window?.makeFirstResponder(textView)
-        textView.insertText(text, replacementRange: textView.selectedRange())
-        updateTextContent(textView.string)
+        textInsertionTarget.focusFilePreviewTextTarget()
+        textInsertionTarget.insertFilePreviewText(text)
+        updateTextContent(textInsertionTarget.filePreviewCurrentText)
         return true
     }
 
@@ -1072,6 +1108,14 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         intent: FilePreviewPanelFocusIntent
     ) {
         focusCoordinator.register(root: root, primaryResponder: primaryResponder, intent: intent)
+    }
+
+    func detachPreviewFocus(
+        root: NSView,
+        primaryResponder: NSView,
+        intent: FilePreviewPanelFocusIntent
+    ) {
+        focusCoordinator.unregister(root: root, primaryResponder: primaryResponder, intent: intent)
     }
 
     func noteFilePreviewFocusIntent(_ intent: FilePreviewPanelFocusIntent) {
@@ -1135,8 +1179,34 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func updateTextContent(_ nextContent: String) {
         guard textContent != nextContent else { return }
-        textContent = nextContent
+        let wasUsingHighlightedEditor = highlightedTextLanguage != nil
+        setTextContent(nextContent)
+        refreshHighlightedTextLanguageForEditedContent(wasUsingHighlightedEditor: wasUsingHighlightedEditor)
         isDirty = nextContent != originalTextContent
+    }
+
+    private func setTextContent(_ nextContent: String) {
+        textContent = nextContent
+        textContentUTF8ByteCount = nextContent.utf8.count
+    }
+
+    private func refreshHighlightedTextLanguageForLoadedContent() {
+        guard previewMode == .text, !isFileUnavailable else {
+            highlightedTextLanguage = nil
+            return
+        }
+        highlightedTextLanguage = SyntaxLanguageDetector.language(
+            for: fileURL,
+            currentContentUTF8ByteCount: textContentUTF8ByteCount
+        )
+    }
+
+    private func refreshHighlightedTextLanguageForEditedContent(wasUsingHighlightedEditor: Bool) {
+        guard wasUsingHighlightedEditor else { return }
+        highlightedTextLanguage = SyntaxLanguageDetector.language(
+            for: fileURL,
+            currentContentUTF8ByteCount: textContentUTF8ByteCount
+        ) ?? SyntaxLanguageDetector.plainTextLanguage
     }
 
     private func prepareContentForPreviewMode() {
@@ -1166,6 +1236,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard previewMode != mode else { return }
         if mode != .text {
             textLoadGeneration += 1
+            highlightedTextLanguage = nil
+        } else {
+            highlightedTextLanguage = SyntaxLanguageDetector.language(for: fileURL)
         }
         previewMode = mode
         displayIcon = FilePreviewKindResolver.iconName(for: mode)
@@ -1203,10 +1276,11 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 isFileUnavailable = true
                 return
             }
-            textContent = ""
+            setTextContent("")
             originalTextContent = ""
             isDirty = false
             isFileUnavailable = true
+            refreshHighlightedTextLanguageForLoadedContent()
             return
         case .loaded(let content, let encoding):
             if !replacingDirtyContent && isDirty {
@@ -1215,11 +1289,12 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 isFileUnavailable = false
                 return
             }
-            textContent = content
+            setTextContent(content)
             originalTextContent = content
             textEncoding = encoding
             isDirty = false
             isFileUnavailable = false
+            refreshHighlightedTextLanguageForLoadedContent()
         }
     }
 
@@ -1227,9 +1302,11 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func saveTextContent() -> Task<Void, Never>? {
         guard previewMode == .text else { return nil }
         guard !isSaving else { return nil }
-        let currentContent = textView?.string ?? textContent
+        let currentContent = textInsertionTarget?.filePreviewCurrentText ?? textContent
         guard currentContent != originalTextContent else {
-            textContent = currentContent
+            let wasUsingHighlightedEditor = highlightedTextLanguage != nil
+            setTextContent(currentContent)
+            refreshHighlightedTextLanguageForEditedContent(wasUsingHighlightedEditor: wasUsingHighlightedEditor)
             isDirty = false
             return nil
         }
@@ -1237,7 +1314,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textLoadGeneration += 1
         saveGeneration += 1
         let generation = saveGeneration
-        textContent = currentContent
+        let wasUsingHighlightedEditor = highlightedTextLanguage != nil
+        setTextContent(currentContent)
+        refreshHighlightedTextLanguageForEditedContent(wasUsingHighlightedEditor: wasUsingHighlightedEditor)
         isSaving = true
         activeSaveGeneration = generation
         let fileURL = fileURL
@@ -1350,7 +1429,7 @@ struct FilePreviewPanelView: View {
         } else {
             switch panel.previewMode {
             case .text:
-                FilePreviewTextEditor(
+                HighlightedFilePreviewRouter(
                     panel: panel,
                     isVisibleInUI: isVisibleInUI,
                     themeBackgroundColor: contentBackgroundColor,

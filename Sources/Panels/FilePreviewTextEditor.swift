@@ -1,6 +1,8 @@
 import AppKit
 import SwiftUI
 
+// MARK: - Panel protocol (upstream addition)
+
 @MainActor
 protocol FilePreviewTextEditingPanel: AnyObject {
     var textContent: String { get }
@@ -11,6 +13,58 @@ protocol FilePreviewTextEditingPanel: AnyObject {
     @discardableResult
     func saveTextContent() -> Task<Void, Never>?
 }
+
+// MARK: - Router (chooses highlighted or plain editor based on file extension)
+
+struct HighlightedFilePreviewRouter: View {
+    @ObservedObject var panel: FilePreviewPanel
+    let isVisibleInUI: Bool
+    let themeBackgroundColor: NSColor
+    let themeForegroundColor: NSColor
+    let drawsBackground: Bool
+    let wordWrap: Bool
+
+    init(
+        panel: FilePreviewPanel,
+        isVisibleInUI: Bool,
+        themeBackgroundColor: NSColor,
+        themeForegroundColor: NSColor,
+        drawsBackground: Bool,
+        wordWrap: Bool
+    ) {
+        self.panel = panel
+        self.isVisibleInUI = isVisibleInUI
+        self.themeBackgroundColor = themeBackgroundColor
+        self.themeForegroundColor = themeForegroundColor
+        self.drawsBackground = drawsBackground
+        self.wordWrap = wordWrap
+    }
+
+    var body: some View {
+        if let language = panel.highlightedTextLanguage {
+            HighlightedFilePreviewEditor(
+                panel: panel,
+                isVisibleInUI: isVisibleInUI,
+                themeBackgroundColor: themeBackgroundColor,
+                themeForegroundColor: themeForegroundColor,
+                drawsBackground: drawsBackground,
+                language: language,
+                wordWrap: wordWrap
+            )
+        } else {
+            FilePreviewTextEditor(
+                panel: panel,
+                isVisibleInUI: isVisibleInUI,
+                themeBackgroundColor: themeBackgroundColor,
+                themeForegroundColor: themeForegroundColor,
+                drawsBackground: drawsBackground,
+                wordWrap: wordWrap
+            )
+        }
+    }
+}
+
+// MARK: - Plain text editor (upstream generic version — used as fallback)
 
 struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
     @ObservedObject var panel: PanelModel

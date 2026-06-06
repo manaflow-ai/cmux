@@ -1,5 +1,5 @@
 {
-  "originHash" : "479d2beb6d00ebd22fd7980c6c810943eed57a34910f939b43d59a0e1ed4b636",
+  "originHash" : "41215ae2c5061e0161d487aefd58e5772a48a5a0a9c40d72245dc765ec0d74a6",
   "pins" : [
     {
       "identity" : "aexml",
@@ -8,6 +8,41 @@
       "state" : {
         "revision" : "db806756c989760b35108146381535aec231092b",
         "version" : "4.7.0"
+      }
+    },
+    {
+      "identity" : "codeeditlanguages",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/CodeEditApp/CodeEditLanguages.git",
+      "state" : {
+        "revision" : "331d5dbc5fc8513be5848fce8a2a312908f36a11",
+        "version" : "0.1.20"
+      }
+    },
+    {
+      "identity" : "codeeditsourceeditor",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/manaflow-ai/CodeEditSourceEditor",
+      "state" : {
+        "revision" : "c8bcf1970551394eb82153725f97c5b4d985dc13"
+      }
+    },
+    {
+      "identity" : "codeeditsymbols",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/CodeEditApp/CodeEditSymbols.git",
+      "state" : {
+        "revision" : "ae69712b08571c4469c2ed5cd38ad9f19439793e",
+        "version" : "0.2.3"
+      }
+    },
+    {
+      "identity" : "codeedittextview",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/CodeEditApp/CodeEditTextView.git",
+      "state" : {
+        "revision" : "d7ac3f11f22ec2e820187acce8f3a3fb7aa8ddec",
+        "version" : "0.12.1"
       }
     },
     {
@@ -35,6 +70,15 @@
       "state" : {
         "revision" : "5afb749442ecf7798a725ccd30342d94abb5e57f",
         "version" : "3.41.0"
+      }
+    },
+    {
+      "identity" : "rearrange",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/Rearrange",
+      "state" : {
+        "revision" : "4de8be41dba304192e87dc0a11e0aa39e72aa2e8",
+        "version" : "2.1.1"
       }
     },
     {
@@ -83,6 +127,15 @@
       }
     },
     {
+      "identity" : "swift-collections",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-collections.git",
+      "state" : {
+        "revision" : "fea17c02d767f46b23070fdfdacc28a03a39232a",
+        "version" : "1.5.1"
+      }
+    },
+    {
       "identity" : "swift-crypto",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-crypto.git",
@@ -107,6 +160,51 @@
       "state" : {
         "revision" : "0687f71944021d616d34d922343dcef086855920",
         "version" : "600.0.1"
+      }
+    },
+    {
+      "identity" : "swiftlintplugin",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/lukepistrol/SwiftLintPlugin",
+      "state" : {
+        "revision" : "a3877065a7d72ee40e1fa64e13b9e33e846c667c",
+        "version" : "0.63.1"
+      }
+    },
+    {
+      "identity" : "swifttreesitter",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/SwiftTreeSitter.git",
+      "state" : {
+        "revision" : "08ef81eb8620617b55b08868126707ad72bf754f",
+        "version" : "0.25.0"
+      }
+    },
+    {
+      "identity" : "textformation",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/TextFormation",
+      "state" : {
+        "revision" : "b1ce9a14bd86042bba4de62236028dc4ce9db6a1",
+        "version" : "0.9.0"
+      }
+    },
+    {
+      "identity" : "textstory",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/TextStory",
+      "state" : {
+        "revision" : "a52db1a2eca74d37c8c19bf3165416941632ed45",
+        "version" : "0.9.2"
+      }
+    },
+    {
+      "identity" : "tree-sitter",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tree-sitter/tree-sitter",
+      "state" : {
+        "revision" : "da6fe9beb4f7f67beb75914ca8e0d48ae48d6406",
+        "version" : "0.25.10"
       }
     },
     {

@@ -124,6 +124,7 @@ jobs:
           mkdir -p "$SOURCE_PACKAGES_DIR"
           xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -skipPackagePluginValidation \
             -resolvePackageDependencies
 
       - name: Run terminal corpus unit tests
@@ -133,6 +134,7 @@ jobs:
           xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
+            -skipPackagePluginValidation \
             -destination "platform=macOS" \
             -only-testing:cmuxTests/GhosttyCommandShiftForwardingTests \
             -only-testing:cmuxTests/GhosttyTerminalStartupEnvironmentTests \

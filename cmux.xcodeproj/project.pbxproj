@@ -205,6 +205,8 @@
 		7D5DA4DC51454ECDBF9AC978 /* CmuxWebViewMouseNavigationButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */; };
 		E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */; };
 		AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */ = {isa = PBXBuildFile; productRef = AA11BB22CC33DD44EE550002 /* CMUXWorkstream */; };
+		C0DE5EDEC0DE5EDE00000013 /* CodeEditLanguages in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE5EDEC0DE5EDE00000012 /* CodeEditLanguages */; };
+		C0DE5EDEC0DE5EDE00000003 /* CodeEditSourceEditor in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE5EDEC0DE5EDE00000002 /* CodeEditSourceEditor */; };
 		C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4041001000000000000001A /* CommandClickFileOpenRouter.swift */; };
 		C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */; };
 		C0DEC0DE000000000000F202 /* CommandPaletteNucleoFFILibrarySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */; };
@@ -323,6 +325,7 @@
 		C1ADE10002A1B2C3D4E5F719 /* grok in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE10001A1B2C3D4E5F719 /* grok */; };
 		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
+		C0DE5EDEC0DE5EDE00000031 /* HighlightedFilePreviewEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5EDEC0DE5EDE00000030 /* HighlightedFilePreviewEditor.swift */; };
 		CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */; };
 		CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */; };
 		F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */; };
@@ -527,6 +530,7 @@
 		F20F85FC5900550685FA33AD /* StackAuth in Frameworks */ = {isa = PBXBuildFile; productRef = A8BD195031FC4B82B4354297 /* StackAuth */; };
 		D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B71010000000000000002 /* StartupBreadcrumbLog.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
+		C0DE5EDEC0DE5EDE00000021 /* SyntaxLanguageDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5EDEC0DE5EDE00000020 /* SyntaxLanguageDetector.swift */; };
 		C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */; };
 		C3677003000000000000001 /* TabManager+CompatibilityTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677003000000000000002 /* TabManager+CompatibilityTypes.swift */; };
 		D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */; };
@@ -1003,6 +1007,7 @@
 		C1ADE10001A1B2C3D4E5F719 /* grok */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/grok; sourceTree = SOURCE_ROOT; };
 		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
 		F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesAgentIndex.swift; sourceTree = "<group>"; };
+		C0DE5EDEC0DE5EDE00000030 /* HighlightedFilePreviewEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/HighlightedFilePreviewEditor.swift; sourceTree = "<group>"; };
 		CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostAccountFlow.swift; sourceTree = "<group>"; };
 		CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostSettingsActions.swift; sourceTree = "<group>"; };
 		F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InactivePaneFirstClickFocusTests.swift; sourceTree = "<group>"; };
@@ -1197,6 +1202,7 @@
 		F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupSignalLifecycleTests.swift; sourceTree = "<group>"; };
 		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
+		C0DE5EDEC0DE5EDE00000020 /* SyntaxLanguageDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SyntaxLanguageDetector.swift; sourceTree = "<group>"; };
 		C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		C3677003000000000000002 /* TabManager+CompatibilityTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+CompatibilityTypes.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DetachedWorkspace.swift"; sourceTree = "<group>"; };
@@ -1355,6 +1361,8 @@
 				CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */,
 				CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
+				C0DE5EDEC0DE5EDE00000013 /* CodeEditLanguages in Frameworks */,
+				C0DE5EDEC0DE5EDE00000003 /* CodeEditSourceEditor in Frameworks */,
 				A5001006 /* GhosttyKit.xcframework in Frameworks */,
 				A5001290 /* MarkdownUI in Frameworks */,
 				A5001270 /* PostHog in Frameworks */,
@@ -1803,6 +1811,8 @@
 				64D7B3C5A409C0B3EDD002CE /* FilePreviewMediaSession.swift */,
 				0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */,
 				D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */,
+				C0DE5EDEC0DE5EDE00000020 /* SyntaxLanguageDetector.swift */,
+				C0DE5EDEC0DE5EDE00000030 /* HighlightedFilePreviewEditor.swift */,
 				A5001451A5001451A5001451 /* FilePreviewNativeBackground.swift */,
 				A5001442A5001442A5001442 /* FilePreviewModeSupport.swift */,
 				A5001444A5001444A5001444 /* FilePreviewWorkspaceOpenSupport.swift */,
@@ -2152,6 +2162,8 @@
 				CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
+				C0DE5EDEC0DE5EDE00000002 /* CodeEditSourceEditor */,
+				C0DE5EDEC0DE5EDE00000012 /* CodeEditLanguages */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
 			);
 			productName = cmux;
@@ -2312,6 +2324,8 @@
 				CDFEED0400000000CDFEED04 /* XCLocalSwiftPackageReference "CmuxUpdaterUI" */,
 				CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
+				C0DE5EDEC0DE5EDE00000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */,
+				C0DE5EDEC0DE5EDE00000011 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */,
 				0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */,
 			);
 			productRefGroup = A5001042 /* Products */;
@@ -2612,6 +2626,7 @@
 				3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */,
 				3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
 				F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
+				C0DE5EDEC0DE5EDE00000031 /* HighlightedFilePreviewEditor.swift in Sources */,
 				CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */,
 				CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */,
 				4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */,
@@ -2733,6 +2748,7 @@
 				E3309A0D /* SplitEqualizer.swift in Sources */,
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
+				C0DE5EDEC0DE5EDE00000021 /* SyntaxLanguageDetector.swift in Sources */,
 				C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */,
 				C3677003000000000000001 /* TabManager+CompatibilityTypes.swift in Sources */,
 				D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */,
@@ -3613,6 +3629,22 @@
 				minimumVersion = 2.4.1;
 			};
 		};
+		C0DE5EDEC0DE5EDE00000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/manaflow-ai/CodeEditSourceEditor";
+			requirement = {
+				kind = revision;
+				revision = c8bcf1970551394eb82153725f97c5b4d985dc13;
+			};
+		};
+		C0DE5EDEC0DE5EDE00000011 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/CodeEditApp/CodeEditLanguages";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.1.20;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -3780,6 +3812,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */;
 			productName = StackAuth;
+		};
+		C0DE5EDEC0DE5EDE00000002 /* CodeEditSourceEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DE5EDEC0DE5EDE00000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */;
+			productName = CodeEditSourceEditor;
+		};
+		C0DE5EDEC0DE5EDE00000012 /* CodeEditLanguages */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DE5EDEC0DE5EDE00000011 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */;
+			productName = CodeEditLanguages;
 		};
 		EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */ = {
 			isa = XCSwiftPackageProductDependency;

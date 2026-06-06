@@ -20,6 +20,13 @@ final class FilePreviewFocusCoordinator {
         fulfillPendingFocusIfNeeded(for: intent)
     }
 
+    func unregister(root: NSView, primaryResponder: NSView, intent: FilePreviewPanelFocusIntent) {
+        guard let endpoint = endpoints[intent],
+              endpoint.root === root,
+              endpoint.primaryResponder === primaryResponder else { return }
+        endpoints.removeValue(forKey: intent)
+    }
+
     func unregisterAll() {
         endpoints.removeAll()
         pendingIntent = nil
