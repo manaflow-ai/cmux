@@ -5831,8 +5831,7 @@ final class BrowserPanel: Panel, ObservableObject {
             var discoveredURL: URL?
             if let href = await self.evaluateJavaScriptString(
                 js,
-                in: webView,
-                timeoutNanoseconds: 400_000_000
+                in: webView
             ) {
                 let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty, let u = URL(string: trimmed) {
@@ -5896,8 +5895,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 """
                 if let href = await self.evaluateJavaScriptString(
                     waitForIconJS,
-                    in: webView,
-                    timeoutNanoseconds: 800_000_000
+                    in: webView
                 ) {
                     let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty, let u = URL(string: trimmed) {
@@ -6119,28 +6117,11 @@ final class BrowserPanel: Panel, ObservableObject {
     @MainActor
     private func evaluateJavaScriptString(
         _ script: String,
-        in webView: WKWebView,
-        timeoutNanoseconds: UInt64
+        in webView: WKWebView
     ) async -> String? {
         await withCheckedContinuation { continuation in
-            var hasResumed = false
-
-            func resume(_ value: String?) {
-                guard !hasResumed else { return }
-                hasResumed = true
-                continuation.resume(returning: value)
-            }
-
             webView.evaluateJavaScript(script) { result, _ in
-                let value = result as? String
-                Task { @MainActor in
-                    resume(value)
-                }
-            }
-
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
-                resume(nil)
+                continuation.resume(returning: result as? String)
             }
         }
     }
