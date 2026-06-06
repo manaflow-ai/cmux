@@ -12117,7 +12117,7 @@ final class Workspace: Identifiable, ObservableObject {
         _ selection: WorkspaceGhosttyThemeSelection?,
         reload: Bool = true
     ) {
-        let normalized = selection?.isEmpty == true ? nil : selection
+        let normalized = selection?.isEmpty == true || selection?.isComplete == false ? nil : selection
         guard ghosttyThemeSelection != normalized else { return }
         ghosttyThemeSelection = normalized
         if reload {

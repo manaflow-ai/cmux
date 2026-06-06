@@ -7133,6 +7133,9 @@ struct CMUXCLI {
                 guard rem3.isEmpty else {
                     throw CLIError(message: "workspace theme set: unexpected argument '\(rem3.joined(separator: " "))'")
                 }
+                guard lightOpt != nil, darkOpt != nil else {
+                    throw CLIError(message: "workspace theme set requires both --light and --dark when setting conditional themes")
+                }
                 if let lightOpt { params["light"] = lightOpt }
                 if let darkOpt { params["dark"] = darkOpt }
             }

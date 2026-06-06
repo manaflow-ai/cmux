@@ -4135,6 +4135,9 @@ class TerminalController {
             }
             selection = .single(theme)
         } else {
+            guard rawLight?.isEmpty == false, rawDark?.isEmpty == false else {
+                return .err(code: "invalid_params", message: "light and dark themes must be provided together", data: nil)
+            }
             let light = rawLight?.isEmpty == false
                 ? WorkspaceGhosttyThemeCatalog.validatedThemeName(rawLight ?? "", availableThemes: availableThemes)
                 : nil

@@ -73,15 +73,9 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
         XCTAssertEqual(resolved.backgroundColor.hexString(), "#272822")
     }
 
-    func testWorkspaceThemeSelectionPartialOverrideEmitsConcreteThemeConfig() {
-        XCTAssertEqual(
-            WorkspaceGhosttyThemeSelection(light: "Catppuccin Latte", dark: nil).configContents(),
-            "theme = Catppuccin Latte"
-        )
-        XCTAssertEqual(
-            WorkspaceGhosttyThemeSelection(light: nil, dark: "Catppuccin Mocha").configContents(),
-            "theme = Catppuccin Mocha"
-        )
+    func testWorkspaceThemeSelectionPartialOverrideDoesNotEmitGhosttyConfig() {
+        XCTAssertNil(WorkspaceGhosttyThemeSelection(light: "Catppuccin Latte", dark: nil).configContents())
+        XCTAssertNil(WorkspaceGhosttyThemeSelection(light: nil, dark: "Catppuccin Mocha").configContents())
     }
 
     func testWorkspaceThemeCatalogIncludesXDGDataDirs() throws {

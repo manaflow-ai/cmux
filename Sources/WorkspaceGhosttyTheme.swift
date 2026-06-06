@@ -13,6 +13,10 @@ struct WorkspaceGhosttyThemeSelection: Codable, Equatable, Sendable {
         light == nil && dark == nil
     }
 
+    var isComplete: Bool {
+        (light != nil && dark != nil) || isEmpty
+    }
+
     var rawValue: String? {
         let trimmedLight = Self.normalizedThemeName(light)
         let trimmedDark = Self.normalizedThemeName(dark)
@@ -23,9 +27,9 @@ struct WorkspaceGhosttyThemeSelection: Codable, Equatable, Sendable {
         case let (light?, dark?):
             return "light:\(light),dark:\(dark)"
         case let (light?, nil):
-            return light
+            return nil
         case let (nil, dark?):
-            return dark
+            return nil
         case (nil, nil):
             return nil
         }
@@ -90,10 +94,11 @@ struct WorkspaceGhosttyThemeSelection: Codable, Equatable, Sendable {
             light: lightTheme ?? fallbackTheme,
             dark: darkTheme ?? fallbackTheme
         )
-        return selection.isEmpty ? nil : selection
+        return selection.isEmpty || !selection.isComplete ? nil : selection
     }
 
     func configContents() -> String? {
+        guard isComplete else { return nil }
         guard let rawValue else { return nil }
         return "theme = \(rawValue)"
     }
