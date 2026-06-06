@@ -6636,6 +6636,7 @@ class TerminalController {
                 "surface_id": requestedSurfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
                 "directory": directory,
+                "accepted": true,
                 "pending": true,
             ])
         }
@@ -6672,6 +6673,7 @@ class TerminalController {
             "surface_id": NSNull(),
             "surface_ref": NSNull(),
             "directory": directory,
+            "accepted": true,
             "pending": true,
         ])
     }

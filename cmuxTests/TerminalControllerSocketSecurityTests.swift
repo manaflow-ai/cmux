@@ -247,6 +247,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 
         XCTAssertEqual(response["ok"] as? Bool, true)
         let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["accepted"] as? Bool, true)
         XCTAssertEqual(result["pending"] as? Bool, true)
         let deadline = Date().addingTimeInterval(1.0)
         while workspace.currentDirectory != directory && Date() < deadline {

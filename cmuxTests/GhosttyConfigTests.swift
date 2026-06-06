@@ -5315,6 +5315,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             contents: """
             #!/bin/sh
             printf '%s\\n' "$*" >> "\(logPath.path)"
+            printf '%s\\n' '{"ok":true,"result":{"accepted":true,"pending":true}}'
             exit 0
             """
         )
@@ -5378,6 +5379,13 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
               command grep -q "surface.report_pwd" "\(logPath.path)" && break
               sleep 0.05
             done
+            repeat 20; do
+              [[ -s "${_CMUX_PWD_RELAY_ACK_FILE:-}" ]] && break
+              sleep 0.05
+            done
+            _CMUX_PWD_RELAY_PENDING_STARTED_AT=0
+            _cmux_precmd
+            printf 'LAST=%s\\n' "$_CMUX_PWD_LAST_PWD"
             cat "\(logPath.path)"
             """,
             extraEnvironment: [
@@ -5393,6 +5401,9 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             output.contains(#"rpc surface.report_pwd {"workspace_id":"11111111-1111-1111-1111-111111111111","surface_id":"22222222-2222-2222-2222-222222222222","directory":"\#(remoteDirectory.path)"}"#),
             output
         )
+        let reportCount = output.components(separatedBy: "rpc surface.report_pwd").count - 1
+        XCTAssertEqual(reportCount, 1, output)
+        XCTAssertTrue(output.contains("LAST=\(remoteDirectory.path)\n"), output)
     }
 
     func testShellIntegrationRelayPromptRetriesPWDWhenRelayFailsInZsh() throws {
@@ -5531,6 +5542,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             contents: """
             #!/bin/sh
             printf '%s\\n' "$*" >> "\(logPath.path)"
+            printf '%s\\n' '{"ok":true,"result":{"accepted":true,"pending":true}}'
             exit 0
             """
         )
@@ -5687,6 +5699,13 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
               grep -q "surface.report_pwd" "\(logPath.path)" && break
               sleep 0.05
             done
+            for _cmux_i in $(seq 1 20); do
+              [ -s "${_CMUX_PWD_RELAY_ACK_FILE:-}" ] && break
+              sleep 0.05
+            done
+            _CMUX_PWD_RELAY_PENDING_STARTED_AT=0
+            _cmux_prompt_command
+            printf 'LAST=%s\\n' "$_CMUX_PWD_LAST_PWD"
             cat "\(logPath.path)"
             """,
             extraEnvironment: [
@@ -5702,6 +5721,9 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             result.stdout.contains(#"rpc surface.report_pwd {"workspace_id":"11111111-1111-1111-1111-111111111111","surface_id":"22222222-2222-2222-2222-222222222222","directory":"\#(remoteDirectory.path)"}"#),
             result.stdout
         )
+        let reportCount = result.stdout.components(separatedBy: "rpc surface.report_pwd").count - 1
+        XCTAssertEqual(reportCount, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("LAST=\(remoteDirectory.path)\n"), result.stdout)
     }
 
     func testShellIntegrationRelayPromptRetriesPWDWhenRelayFailsInBash() throws {

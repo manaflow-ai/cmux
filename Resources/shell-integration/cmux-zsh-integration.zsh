@@ -109,6 +109,15 @@ _cmux_relay_rpc_bg() {
     { "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true } >/dev/null 2>&1 &!
 }
 
+_cmux_relay_pwd_response_accepted() {
+    local response="$1"
+    [[ "$response" == *'"ok":false'* || "$response" == *'"ok": false'* ]] && return 1
+    [[ "$response" == *'"accepted":false'* || "$response" == *'"accepted": false'* ]] && return 1
+    [[ "$response" == *'"accepted":true'* || "$response" == *'"accepted": true'* ]] && return 0
+    [[ "$response" == *'"pending":true'* || "$response" == *'"pending": true'* ]] && return 1
+    return 0
+}
+
 _cmux_relay_rpc_bg_ack_pwd() {
     local method="$1"
     local params="$2"
@@ -126,12 +135,7 @@ _cmux_relay_rpc_bg_ack_pwd() {
         response_status="$?"
         response="${response//$'\n'/}"
         response="${response//$'\r'/}"
-        if (( response_status == 0 )) &&
-           [[ "$response" != *'"ok":false'* &&
-              "$response" != *'"ok": false'* &&
-              "$response" != *'"pending":true'* &&
-              "$response" != *'"pending": true'*
-           ]]; then
+        if (( response_status == 0 )) && _cmux_relay_pwd_response_accepted "$response"; then
             print -r -- "$pwd" >| "$ack_file" 2>/dev/null || true
         fi
     } >/dev/null 2>&1 &!
