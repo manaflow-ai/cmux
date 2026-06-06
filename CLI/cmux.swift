@@ -18773,7 +18773,7 @@ struct CMUXCLI {
     }
 
     static func codexTeamsCommandApprovalDecision(params: [String: Any], mode: String) -> Any {
-        if mode == "deny" { return "decline" }
+        if mode == "deny" { return codexTeamsRejectApprovalDecision(params: params) }
         if mode == "all" || mode == "bypass",
            let decision = codexTeamsCommandApprovalAmendmentDecision(params: params) {
             return decision
@@ -18786,7 +18786,13 @@ struct CMUXCLI {
            let decision = codexTeamsCommandApprovalAmendmentDecision(params: params) {
             return decision
         }
-        return "accept"
+        if codexTeamsDecisionAvailableOrUnspecified("accept", params: params) {
+            return "accept"
+        }
+        if let decision = codexTeamsCommandApprovalAmendmentDecision(params: params) {
+            return decision
+        }
+        return codexTeamsRejectApprovalDecision(params: params)
     }
 
     static func codexTeamsCommandApprovalAmendmentDecision(params: [String: Any]) -> Any? {
@@ -18812,12 +18818,15 @@ struct CMUXCLI {
     }
 
     static func codexTeamsFileChangeApprovalDecision(params: [String: Any], mode: String) -> String {
-        if mode == "deny" { return "decline" }
+        if mode == "deny" { return codexTeamsRejectApprovalDecision(params: params) }
         if codexTeamsModeRequestsPersistentApproval(mode)
             && codexTeamsDecisionAvailableOrUnspecified("acceptForSession", params: params) {
             return "acceptForSession"
         }
-        return "accept"
+        if codexTeamsDecisionAvailableOrUnspecified("accept", params: params) {
+            return "accept"
+        }
+        return codexTeamsRejectApprovalDecision(params: params)
     }
 
     static func codexTeamsPermissionsApprovalResponse(params: [String: Any], mode: String) -> [String: Any] {
@@ -18849,6 +18858,17 @@ struct CMUXCLI {
             return true
         }
         return codexTeamsAvailableDecisions(params).contains(decision)
+    }
+
+    static func codexTeamsRejectApprovalDecision(params: [String: Any]) -> String {
+        let available = codexTeamsAvailableDecisions(params)
+        if available.contains("decline") || available.isEmpty {
+            return "decline"
+        }
+        if available.contains("cancel") {
+            return "cancel"
+        }
+        return "decline"
     }
 
     static func codexTeamsDecisionNames(_ raw: Any) -> [String] {

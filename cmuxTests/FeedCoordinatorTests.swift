@@ -228,6 +228,15 @@ final class FeedCoordinatorTests: XCTestCase {
             mode: "always"
         )?["decision"] as? [String: Any]
         XCTAssertNotNil(amendmentDecision?["acceptWithExecpolicyAmendment"])
+        let onceAmendmentDecision = CMUXCLI.codexTeamsAppServerApprovalResponse(
+            method: "item/commandExecution/requestApproval",
+            params: [
+                "availableDecisions": [["applyNetworkPolicyAmendment": [:]]],
+                "proposedNetworkPolicyAmendments": [["host": "example.com"]]
+            ],
+            mode: "once"
+        )?["decision"] as? [String: Any]
+        XCTAssertNotNil(onceAmendmentDecision?["applyNetworkPolicyAmendment"])
         let mixedParams: [String: Any] = [
             "availableDecisions": [
                 "acceptForSession",
@@ -249,6 +258,14 @@ final class FeedCoordinatorTests: XCTestCase {
             mode: "all"
         )?["decision"] as? [String: Any]
         XCTAssertNotNil(allToolsDecision?["acceptWithExecpolicyAmendment"])
+        XCTAssertEqual(
+            CMUXCLI.codexTeamsAppServerApprovalResponse(
+                method: "item/commandExecution/requestApproval",
+                params: ["availableDecisions": ["decline"]],
+                mode: "once"
+            )?["decision"] as? String,
+            "decline"
+        )
         XCTAssertEqual(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/fileChange/requestApproval",
