@@ -7,6 +7,7 @@ const DEFAULT_DIFF_VIEWER_LABELS = {
   collapseAllDiffs: "Collapse all diffs",
   collapseUnchangedContext: "Collapse unchanged context",
   commit: "Commit",
+  copyFailedGitApplyCommand: "Could not copy git apply command.",
   copiedGitApplyCommand: "Copied git apply command",
   copyGitApplyCommand: "Copy git apply command",
   deletions: "Deletions",
