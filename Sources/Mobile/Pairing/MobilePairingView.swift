@@ -42,18 +42,13 @@ struct MobilePairingView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "desktopcomputer.and.iphone")
-                .font(.system(size: 28))
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(String(localized: "mobile.pairing.window.heading", defaultValue: "Pair your iPhone"))
-                    .font(.title2.weight(.semibold))
-                Text(String(localized: "mobile.pairing.window.subheading", defaultValue: "Scan this code with the cmux app on your iPhone to sync your terminal workspaces."))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        VStack(alignment: .leading, spacing: 2) {
+            Text(String(localized: "mobile.pairing.window.heading", defaultValue: "Pair your iPhone"))
+                .font(.title2.weight(.semibold))
+            Text(String(localized: "mobile.pairing.window.subheading", defaultValue: "Scan this code with the cmux app on your iPhone to sync your terminal workspaces."))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
