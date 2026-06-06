@@ -1,4 +1,4 @@
-import CoreGraphics
+import CmuxSettings
 import Foundation
 
 enum SidebarWorkspaceDetailDefaults {
@@ -21,6 +21,19 @@ enum SidebarWorkspaceDetailDefaults {
     static let showCustomMetadata = true
 }
 
+enum SidebarWorkspaceTitleWrapSettings {
+    static let key = "sidebarWrapWorkspaceTitles"
+    static let defaultWrap = false
+
+    static func wraps(defaults: UserDefaults = .standard) -> Bool {
+        SidebarWorkspaceDetailDefaults.boolValue(
+            defaults: defaults,
+            key: key,
+            defaultValue: defaultWrap
+        )
+    }
+}
+
 extension SidebarWorkspaceDetailDefaults {
     static func boolValue(defaults: UserDefaults, key: String, defaultValue: Bool) -> Bool {
         if defaults.object(forKey: key) == nil {
@@ -36,6 +49,10 @@ extension SidebarWorkspaceDetailDefaults {
     static func watchGitStatusValue(defaults: UserDefaults) -> Bool {
         boolValue(defaults: defaults, key: watchGitStatusKey, defaultValue: watchGitStatus)
     }
+
+    static func pullRequestPollingEnabled(defaults: UserDefaults) -> Bool {
+        watchGitStatusValue(defaults: defaults) && showPullRequestsValue(defaults: defaults)
+    }
 }
 
 enum AutomationSettings {
@@ -43,30 +60,6 @@ enum AutomationSettings {
     static let portRangeKey = "cmuxPortRange"
     static let defaultPortBase = 9100
     static let defaultPortRange = 10
-}
-
-enum RightSidebarWidthSettings {
-    static let jsonKey = "rightMaxWidth"
-    static let settingsPath = "sidebar.rightMaxWidth"
-    static let maxWidthKey = "rightSidebarMaxWidth"
-    static let noOverrideValue = -1.0
-    static let minimumWidth = 276.0
-    static let defaultConfiguredMaximumWidth = 900.0
-    static let settingsEditorMaximumWidth = 4096.0
-
-    static func configuredMaximumWidth(from storedValue: Double) -> CGFloat? {
-        guard storedValue.isFinite, storedValue > 0 else {
-            return nil
-        }
-        return CGFloat(storedValue)
-    }
-
-    static func clampedSettingsEditorMaximumWidth(_ value: Double) -> Double {
-        guard value.isFinite else {
-            return defaultConfiguredMaximumWidth
-        }
-        return min(settingsEditorMaximumWidth, max(minimumWidth, value.rounded()))
-    }
 }
 
 struct SettingsFileBooleanMapping {
@@ -187,6 +180,10 @@ enum SidebarSettingsFileMapping {
             defaultsKey: SidebarWorkspaceDetailSettings.hideAllDetailsKey
         ),
         .init(
+            jsonKey: "wrapWorkspaceTitles",
+            defaultsKey: SidebarWorkspaceTitleWrapSettings.key
+        ),
+        .init(
             jsonKey: "showWorkspaceDescription",
             defaultsKey: SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey
         ),
@@ -258,8 +255,10 @@ enum AutomationSettingsFileMapping {
             jsonKey: "suppressSubagentNotifications",
             defaultsKey: AgentSubagentNotificationSettings.suppressNotificationsKey
         ),
+        .init(jsonKey: "ampIntegration", defaultsKey: AmpIntegrationSettings.hooksEnabledKey),
         .init(jsonKey: "cursorIntegration", defaultsKey: CursorIntegrationSettings.hooksEnabledKey),
         .init(jsonKey: "geminiIntegration", defaultsKey: GeminiIntegrationSettings.hooksEnabledKey),
+        .init(jsonKey: "kiroIntegration", defaultsKey: KiroIntegrationSettings.hooksEnabledKey),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
@@ -332,9 +331,12 @@ extension CmuxSettingsFileStore {
         "app.hideTabCloseButton",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
+        "workspaceGroups.newWorkspacePlacement",
         "terminal.showScrollBar",
         "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
+        "terminal.showTextBoxOnNewTerminals",
+        "terminal.focusTextBoxOnNewTerminals",
         "terminal.agentHibernation.enabled",
         "terminal.agentHibernation.idleSeconds",
         "terminal.agentHibernation.maxLiveTerminals",
@@ -350,6 +352,7 @@ extension CmuxSettingsFileStore {
         "notifications.hooks",
         "notifications.hooksMode",
         "sidebar.hideAllDetails",
+        "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
         "sidebar.branchLayout",
         "sidebar.stackBranchDirectory",
@@ -384,11 +387,16 @@ extension CmuxSettingsFileStore {
         "automation.claudeBinaryPath",
         "automation.ripgrepBinaryPath",
         "automation.suppressSubagentNotifications",
+        "automation.ampIntegration",
         "automation.cursorIntegration",
         "automation.geminiIntegration",
+        "automation.kiroIntegration",
+        "automation.kiroNotificationLevel",
         "automation.portBase",
         "automation.portRange",
         "browser.defaultSearchEngine",
+        "browser.customSearchEngineName",
+        "browser.customSearchEngineURLTemplate",
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.discardHiddenWebViews",
@@ -400,6 +408,10 @@ extension CmuxSettingsFileStore {
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
+        "markdown.fontSize",
+        "markdown.fontFamily",
+        "markdown.maxWidth",
+        "fileEditor.wordWrap",
         "shortcuts.bindings",
     ]
 }
