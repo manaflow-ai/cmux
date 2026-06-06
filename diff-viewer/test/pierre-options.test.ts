@@ -6,6 +6,7 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
 
   expect(css).toContain("--diffs-light-bg: var(--cmux-diff-bg)");
   expect(css).toContain("--diffs-dark-bg: var(--cmux-diff-bg)");
+  expect(css).toContain("--diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent)");
   expect(css).toContain("--diffs-bg-context-override: var(--cmux-diff-bg)");
   expect(css).toContain("--diffs-bg-context-gutter-override: var(--cmux-diff-bg)");
   expect(css).toContain("background-color: var(--cmux-diff-bg)");
@@ -21,8 +22,12 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
   expect(css).not.toContain("@container sticky-header scroll-state");
   expect(css).toContain("[data-separator='line-info'] {");
   expect(css).toContain("[data-separator='line-info'] [data-separator-wrapper]");
-  expect(css).not.toContain("[data-line-type='change-addition'] span");
-  expect(css).not.toContain("[data-line-type='change-deletion'] span");
+  expect(css).toContain("[data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer])");
+  expect(css).toContain("[data-line-type='change-deletion']:where([data-column-number], [data-gutter-buffer])");
+  expect(css).toContain("[data-gutter-buffer='buffer']");
+  expect(css).toContain("background-image: repeating-linear-gradient(");
+  expect(css).not.toContain("[data-line-type='change-addition'] {");
+  expect(css).not.toContain("[data-line-type='change-deletion'] {");
 });
 
 test("file tree sticky overlays use a non-transparent surface", () => {

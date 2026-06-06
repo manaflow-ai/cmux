@@ -2505,7 +2505,8 @@ struct ContentView: View {
             }
             return
         }
-        let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = tabManager.resolvedWorkspaceDisplayTitle(for: tab)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if titlebarText != title {
             titlebarText = title
         }
@@ -2929,6 +2930,14 @@ struct ContentView: View {
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
+            scheduleTitlebarTextRefresh()
+        })
+
+        // A grouped anchor's title-bar name is derived from its group's name, so
+        // a group rename must refresh the cached titlebar text (#5404). Scope to
+        // this view's `tabManager` (the notification's `object`) so a rename in
+        // another window doesn't spuriously refresh this one.
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceGroupNameDidChange, object: tabManager)) { _ in
             scheduleTitlebarTextRefresh()
         })
 
@@ -6645,6 +6654,17 @@ struct ContentView: View {
         return snapshot
     }
 
+    /// Search keywords for the "Mobile Connect" command palette entry.
+    ///
+    /// Kept as a single source of truth so the contribution and its behavioral
+    /// test agree on what queries (e.g. `ios`, `ipados`) must surface the
+    /// command. These are platform/technical terms that read the same across
+    /// locales, so they are not localized.
+    static let commandPaletteMobileConnectKeywords: [String] = [
+        "mobile", "connect", "pair", "pairing", "device",
+        "ios", "ipados", "iphone", "ipad", "phone", "tablet", "qr",
+    ]
+
     private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
@@ -6960,6 +6980,14 @@ struct ContentView: View {
                     String(localized: "command.openGhosttySettings.subtitle", defaultValue: "Ghostty Config Files")
                 ),
                 keywords: ["open", "ghostty", "settings", "config", "configuration", "file", "textedit", "terminal"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.mobileConnect",
+                title: constant(String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")),
+                subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")),
+                keywords: Self.commandPaletteMobileConnectKeywords
             )
         )
         contributions.append(
@@ -8062,6 +8090,12 @@ struct ContentView: View {
             cmuxDebugLog("palette.openGhosttySettings.invoke")
 #endif
             GhosttyApp.shared.openConfigurationInTextEdit()
+        }
+        registry.register(commandId: "palette.mobileConnect") {
+#if DEBUG
+            cmuxDebugLog("palette.mobileConnect.invoke")
+#endif
+            MobilePairingWindowController.shared.show()
         }
         registry.register(commandId: "palette.makeDefaultTerminal") {
             DefaultTerminalUserAction.setAsDefault(debugSource: "palette.makeDefaultTerminal")
@@ -15459,6 +15493,31 @@ struct TabItemView: View, Equatable {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
+
+                // The close button is a sibling that always reserves its width
+                // when the workspace is closable, so the title wraps/truncates
+                // before this corner instead of flowing under the hover x. Its
+                // visibility toggles via opacity so hover never re-lays-out the
+                // row. (Matches the group-header plus-button pattern.)
+                if canCloseWorkspace {
+                    Button(action: {
+                        #if DEBUG
+                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                        #endif
+                        tabManager.closeWorkspaceWithConfirmation(tab)
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: scaledFontSize(9), weight: .medium))
+                            .foregroundColor(activeSecondaryColor(0.7))
+                            .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .safeHelp(closeButtonTooltip)
+                    .opacity(showCloseButton ? 1 : 0)
+                    .allowsHitTesting(showCloseButton)
+                    .accessibilityHidden(!showCloseButton)
+                }
             }
 
             if let description = workspaceSnapshot.customDescription {
@@ -15727,27 +15786,6 @@ struct TabItemView: View, Equatable {
             offsetY: sidebarShortcutHintYOffset,
             fontSize: scaledFontSize(10)
         )
-        .overlay(alignment: .topTrailing) {
-            if showsWorkspaceShortcutHint {
-                EmptyView()
-            } else if showCloseButton {
-                Button(action: {
-                    #if DEBUG
-                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                    #endif
-                    tabManager.closeWorkspaceWithConfirmation(tab)
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: scaledFontSize(9), weight: .medium))
-                        .foregroundColor(activeSecondaryColor(0.7))
-                }
-                .buttonStyle(.plain)
-                .safeHelp(closeButtonTooltip)
-                .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                .padding(.top, 8)
-                .padding(.trailing, 10)
-            }
-        }
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
         .background { rowHeightProbe }

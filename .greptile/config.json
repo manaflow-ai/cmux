@@ -71,6 +71,12 @@
       "rule": "Flag Swift fixes that patch symptoms while leaving bad state representable: timing repairs, new flags/caches/singletons/observers/side channels, duplicate behavior wired through multiple entrypoints, split SwiftUI/AppKit lifecycle ownership, or fixes that do not name the invariant and source of truth.",
       "scope": ["**/*.swift", "**/Package.swift", "cmux.xcodeproj/**"],
       "severity": "high"
+    },
+    {
+      "id": "cmux-source-control-artifacts",
+      "rule": "Flag local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, DerivedData, package-manager downloads, and broad scratch directories that enter source control without a deliberate product, docs, fixture, build, release, or test-system reason. Pass for intentional source files, configs, localization catalogs, review rules, durable docs assets, required fixtures, generated files that are already part of the repo's source-of-truth model, and PRs that only remove or ignore existing accidental artifacts.",
+      "scope": ["**/*"],
+      "severity": "high"
     }
   ]
 }
