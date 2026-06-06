@@ -203,6 +203,28 @@ test("provider output is appended without changing running session", () => {
   });
 });
 
+test("provider output log entries are byte bounded", () => {
+  const running = {
+    ...initialState("solid"),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const state = reduceSession(running, {
+    type: "event",
+    event: {
+      type: "provider.output",
+      providerId: "codex",
+      sessionId: "session-1",
+      stream: "stdout",
+      text: "a".repeat(1024 * 1024),
+    },
+  });
+
+  const logText = state.log.at(-1)?.text ?? "";
+  expect(logText.length).toBeLessThanOrEqual(8 * 1024);
+  expect(logText.startsWith("[earlier log output truncated]\n")).toBe(true);
+});
+
 test("provider stdout deltas append to the current assistant transcript turn", () => {
   const running = {
     ...initialState("solid"),

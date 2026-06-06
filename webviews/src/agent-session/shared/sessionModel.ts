@@ -72,8 +72,10 @@ export type Action =
 
 const maxAssistantTranscriptChars = 256 * 1024;
 const maxActivityOutputChars = 64 * 1024;
+const maxLogEntryChars = 8 * 1024;
 const assistantTruncationMarker = "[earlier assistant output truncated]\n";
 const activityTruncationMarker = "[earlier command output truncated]\n";
+const logTruncationMarker = "[earlier log output truncated]\n";
 
 export function initialState(_renderer: AppContext["renderer"]): SessionState {
   return {
@@ -490,7 +492,7 @@ function appendLog(state: SessionState, level: LogEntry["level"], text: string):
     {
       id: makeClientId(),
       level,
-      text,
+      text: boundedText(text, maxLogEntryChars, logTruncationMarker),
     },
   ];
   return next.slice(-300);
