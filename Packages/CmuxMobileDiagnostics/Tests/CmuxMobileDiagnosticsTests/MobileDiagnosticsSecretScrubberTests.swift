@@ -74,6 +74,29 @@ import Testing
         }
     }
 
+    @Test func redactsCmuxAttachPayloads() {
+        let attachPayload = "eyJ2ZXJzaW9uIjoxLCJhdXRoX3Rva2VuIjoidGlja2V0LXNlY3JldCJ9"
+        let pairPayload = "eyJ2ZXJzaW9uIjoxLCJtYWNfZGV2aWNlX2lkIjoiTUFDLTEifQ"
+        let samples = [
+            (
+                "open cmux-ios://attach?v=1&payload=\(attachPayload)",
+                "open cmux-ios://attach?v=1&payload=<redacted>",
+                attachPayload
+            ),
+            (
+                "scan cmux-ios://pair?payload=\(pairPayload)&v=1",
+                "scan cmux-ios://pair?payload=<redacted>&v=1",
+                pairPayload
+            ),
+        ]
+
+        for (sample, expected, leakedPayload) in samples {
+            let out = scrubber.scrub(sample)
+            #expect(out == expected)
+            #expect(!out.contains(leakedPayload), "payload leaked for \(sample): \(out)")
+        }
+    }
+
     @Test func redactsFirstQueryStringSecrets() {
         let accessTokenURL = "https://example.com/callback?access_token=abcd1234efgh&ok=1"
         let apiKeyURL = "https://example.com/search?api_key=sekretvalue123&q=cmux"
@@ -163,6 +186,11 @@ import Testing
 
     @Test func preservesNormalTerminalOutput() {
         let sample = "$ ls -la\ntotal 8\ndrwxr-xr-x  3 user staff   96 Jun  5 16:00 ."
+        #expect(scrubber.scrub(sample) == sample)
+    }
+
+    @Test func preservesNonCmuxPayloadParameters() {
+        let sample = "https://example.com/submit?payload=ordinaryPayloadValue123"
         #expect(scrubber.scrub(sample) == sample)
     }
 }

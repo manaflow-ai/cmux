@@ -24,6 +24,12 @@ struct MobileDiagnosticsSecretPatternFactory {
             ("(?i)(\\b(?:Proxy-)?Authorization\\s*:\\s*(?:Basic|Digest|Negotiate|NTLM|AWS4-HMAC-SHA256)\\s+)([^\\r\\n]{4,})",
              2),
 
+            // cmux attach/pairing URLs carry base64url JSON payloads. Attach
+            // tickets include auth tokens, so redact the opaque payload value
+            // whenever those deep links appear in logs or terminal snapshots.
+            ("(?i)(\\bcmux-ios://(?:attach|pair)\\?[^\\s\"'<>]*?\\bpayload=)([A-Za-z0-9_-]{8,})",
+             2),
+
             // Canonical AWS credential environment variables. These do not all
             // include generic secret keywords in the right shape (`ACCESS_KEY_ID`
             // is the common miss), so cover them explicitly before the generic
