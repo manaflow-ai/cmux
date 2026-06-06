@@ -36,6 +36,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   detect-ios-changes:
     runs-on: ubuntu-latest
@@ -101,7 +105,7 @@ jobs:
   mobile-core-package:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: macos-26
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -138,7 +142,7 @@ jobs:
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: macos-26
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false

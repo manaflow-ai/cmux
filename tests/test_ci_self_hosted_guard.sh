@@ -14,6 +14,7 @@ GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
 PERF_FILE="$ROOT_DIR/.github/workflows/perf-activation.yml"
+TEST_IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
 NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 RELEASE_FILE="$ROOT_DIR/.github/workflows/release.yml"
 TEST_DEPOT_FILE="$ROOT_DIR/.github/workflows/test-depot.yml"
@@ -874,6 +875,11 @@ check_e2e_runner_fallbacks
 check_e2e_recording_preflight
 check_e2e_ui_tests_require_nonzero_execution
 check_self_hosted_workspace_prep "$E2E_FILE" "e2e"
+
+# test-ios.yml runs app and package tests on macOS 26. Keep it on the paid
+# runner variable so PR runs do not sit behind the generic GitHub-hosted queue.
+check_macos_runner "$TEST_IOS_FILE" "mobile-core-package"
+check_macos_runner "$TEST_IOS_FILE" "ios-simulator"
 
 # test-depot.yml is also manual, but it still needs the same self-hosted
 # hygiene and fail-closed behavior as other macOS test workflows.
