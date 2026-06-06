@@ -10503,6 +10503,8 @@ final class Workspace: Identifiable, ObservableObject {
     )
 
     private struct StoredPageState {
+        // Mirrors transient per-page Workspace state that is not encoded by the session snapshot.
+        // New runtime-only page state should be captured and restored with this boundary.
         struct RuntimeState {
             var currentDirectory: String
             var focusedPanelId: UUID?

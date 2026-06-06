@@ -7332,14 +7332,6 @@ class TerminalController {
                 sourcePageId = workspace.activePageId
             }
 
-            guard workspace.pageIndex(pageId: sourcePageId) != nil else {
-                result = .err(code: "not_found", message: "Page not found", data: [
-                    "page_id": v2OrNull(requestedPageId?.uuidString),
-                    "page_ref": v2Ref(kind: .page, uuid: requestedPageId)
-                ])
-                return
-            }
-
             if select {
                 v2MaybeFocusWindow(for: tabManager)
                 v2MaybeSelectWorkspace(tabManager, workspace: workspace)
