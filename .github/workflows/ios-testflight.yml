@@ -167,6 +167,17 @@ jobs:
           # Write the expanded path ($HOME, not ~) so later steps can read it.
           echo "ASC_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
 
+      - name: Ensure cryptography for the build-number guard
+        # The upload script's monotonic build-number guard (asc_max_build.py)
+        # mints an ES256 JWT with `cryptography`. Best-effort install: the guard
+        # is fail-open, so if this can't install, the publish still proceeds with
+        # the timestamp build number (it just skips the ASC monotonic check).
+        run: |
+          python3 -c 'import cryptography' 2>/dev/null && exit 0
+          python3 -m pip install --quiet --disable-pip-version-check cryptography \
+            || python3 -m pip install --quiet --break-system-packages cryptography \
+            || echo "warning: could not install cryptography; build-number guard will be skipped" >&2
+
       - name: Resolve build number
         id: build_number
         env:

@@ -38,7 +38,10 @@ or:
 
 Options:
   --lane <beta>             Distribution lane. Only beta is currently defined.
-  --build-number <number>   CFBundleVersion. Defaults to UTC yyyyMMddHHmm.
+  --build-number <number>   CFBundleVersion. Defaults to UTC yyyyMMddHHmmss.
+                            Self-healed up to (App Store Connect max + 1) if it
+                            would not be the highest build (TestFlight only offers
+                            the highest build as an update).
   --signing <mode>          Export signing mode: manual (default) or automatic.
                             manual uses the "Apple Distribution" certificate and
                             the "cmux Beta Distribution" provisioning profile from
@@ -140,19 +143,47 @@ IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
-OUT_DIR="${CMUX_IOS_UPLOAD_DIR:-/tmp/cmux-ios-testflight-$BUILD_NUMBER}"
-DERIVED_DATA="$OUT_DIR/DerivedData"
-EXPORT_PATH="$OUT_DIR/export"
-EXPORT_OPTIONS="$OUT_DIR/ExportOptions.plist"
 
-mkdir -p "$OUT_DIR"
-
+# Resolve App Store Connect API auth (env, else local plist) BEFORE the
+# monotonic guard and output-path computation below: the guard may finalize
+# BUILD_NUMBER, and OUT_DIR is derived from BUILD_NUMBER.
 LOCAL_ASC_CONFIG="$IOS_DIR/Config/AppStoreConnect.local.plist"
 if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
   ASC_API_KEY_ID="${ASC_API_KEY_ID:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_KEY_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
   ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_ISSUER_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
   ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_KEY_PATH' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
 fi
+
+# Monotonic build-number guard (defense in depth). TestFlight only offers a build
+# as an *update* when its CFBundleVersion is the highest integer build for the
+# app, so a regressed numbering scheme (or a bad manual --build-number) silently
+# produces a build no tester can update to. Ask App Store Connect for the current
+# max and self-heal: never ship a number <= the existing max. This is FAIL-OPEN:
+# any ASC/network/JWT error logs a warning and keeps the timestamp BUILD_NUMBER,
+# because the publish must never be blocked by a transient API hiccup (the
+# timestamp scheme is already correct; this is a backstop, not the primary path).
+if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && ( -n "${ASC_API_KEY_PATH:-}" || -n "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+  if ASC_MAX="$(ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
+      ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
+      "$SCRIPT_DIR/asc_max_build.py" --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER")"; then
+    if [[ "$ASC_MAX" =~ ^[0-9]+$ && "$BUILD_NUMBER" =~ ^[0-9]+$ ]] && (( 10#$BUILD_NUMBER <= 10#$ASC_MAX )); then
+      NEXT_BUILD=$((10#$ASC_MAX + 1))
+      echo "warning: build number $BUILD_NUMBER <= App Store Connect max $ASC_MAX; bumping to $NEXT_BUILD to keep CFBundleVersion monotonic" >&2
+      BUILD_NUMBER="$NEXT_BUILD"
+    else
+      echo "build-number guard: $BUILD_NUMBER > App Store Connect max ${ASC_MAX:-0}, keeping it" >&2
+    fi
+  else
+    echo "warning: build-number guard skipped (could not read App Store Connect max); using $BUILD_NUMBER" >&2
+  fi
+fi
+
+OUT_DIR="${CMUX_IOS_UPLOAD_DIR:-/tmp/cmux-ios-testflight-$BUILD_NUMBER}"
+DERIVED_DATA="$OUT_DIR/DerivedData"
+EXPORT_PATH="$OUT_DIR/export"
+EXPORT_OPTIONS="$OUT_DIR/ExportOptions.plist"
+
+mkdir -p "$OUT_DIR"
 
 XCODE_AUTH_ARGS=()
 if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && -n "${ASC_API_KEY_PATH:-}" ]]; then
