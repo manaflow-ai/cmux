@@ -21647,13 +21647,6 @@ struct CMUXCLI {
                 }
             }
 
-            if let mappedSession,
-               let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
-               shouldUseSavedNeedsInputSummary(for: summary) {
-                let savedSubtitle = mappedSession.lastSubtitle ?? summary.subtitle
-                summary = (subtitle: savedSubtitle, body: savedBody)
-            }
-
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
@@ -22040,7 +22033,7 @@ struct CMUXCLI {
         "\(subtitle)\n\(body)"
     }
 
-    private func shouldUseSavedNeedsInputSummary(for summary: (subtitle: String, body: String)) -> Bool {
+    private func isGenericNeedsInputSummary(_ summary: (subtitle: String, body: String)) -> Bool {
         summary.subtitle == "Waiting" ||
             summary.subtitle == claudeWaitingSubtitle() ||
             isGenericNeedsInputAttention(summary)
@@ -22076,7 +22069,7 @@ struct CMUXCLI {
         summary: (subtitle: String, body: String),
         savedSignature: String
     ) -> Bool {
-        shouldUseSavedNeedsInputSummary(for: summary) ||
+        isGenericNeedsInputSummary(summary) ||
             needsInputNotificationSignature(subtitle: summary.subtitle, body: summary.body) == savedSignature
     }
 

@@ -328,6 +328,37 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
+        stale_generic_payload = {
+            "session_id": session_id,
+            "hook_event_name": "Notification",
+            "message": "入力が必要です",
+        }
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            stale_generic_payload,
+            env,
+        )
+
+        notify_commands = [
+            command for command in server.commands
+            if command.startswith(f"notify_target_async {workspace_id} {surface_id} ")
+        ]
+        if len(notify_commands) != 4:
+            print("FAIL: generic needs-input Notification without a pre-tool signature should publish")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        last_notification = notify_commands[-1]
+        if (
+            "Claude Code|Waiting|入力が必要です" not in last_notification
+            or "Review the current plan when ready." in last_notification
+        ):
+            print("FAIL: generic needs-input Notification should not reuse stale Attention text")
+            print(f"commands={server.commands!r}")
+            return 1
+
         run_claude_hook(
             cli_path,
             server.socket_path,
@@ -354,7 +385,7 @@ def main() -> int:
             command for command in server.commands
             if command.startswith(f"notify_target_async {workspace_id} {surface_id} ")
         ]
-        if len(notify_commands) != 5:
+        if len(notify_commands) != 6:
             print("FAIL: non-duplicate Notification hook should not be suppressed")
             print(f"commands={server.commands!r}")
             return 1
