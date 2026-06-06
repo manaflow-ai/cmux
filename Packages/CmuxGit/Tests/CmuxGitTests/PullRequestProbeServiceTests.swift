@@ -230,7 +230,7 @@ import CmuxProcess
             repoReferences: [GitHubRepositoryReference(host: GitHubHost(hostname: "gitlab.com"), owner: "o", repo: "r")]
         )
 
-        let result = PullRequestProbeService.resolveRefreshResults(candidates: [candidate], repoResults: [])
+        let result = PullRequestProbeService.resolveRefreshResults(candidates: [candidate], repoResults: [:])
 
         guard case .unsupportedRepository = result[0].resolution else {
             Issue.record("expected unsupportedRepository for a reference skipped before fetch")
