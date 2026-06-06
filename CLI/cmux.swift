@@ -23113,24 +23113,14 @@ struct CMUXCLI {
     }
 
     private func codexTranscriptISO8601Date(from value: String) -> Date? {
-        Self.codexTranscriptISO8601FormatterLock.lock()
-        defer { Self.codexTranscriptISO8601FormatterLock.unlock() }
-        if let date = Self.codexTranscriptFractionalISO8601Formatter.date(from: value) {
+        if let date = try? Self.codexTranscriptFractionalISO8601Format.parse(value) {
             return date
         }
-        return Self.codexTranscriptBasicISO8601Formatter.date(from: value)
+        return try? Self.codexTranscriptBasicISO8601Format.parse(value)
     }
 
-    private static let codexTranscriptFractionalISO8601Formatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private static let codexTranscriptBasicISO8601Formatter = ISO8601DateFormatter()
-    // ISO8601DateFormatter is mutable and not documented as thread-safe; this CLI path is
-    // synchronous, so a lock keeps cached parser reuse simple without introducing an actor hop.
-    private static let codexTranscriptISO8601FormatterLock = NSLock()
+    private static let codexTranscriptFractionalISO8601Format = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let codexTranscriptBasicISO8601Format = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
 
     private func codexTranscriptDate(fromUnixTime value: Double) -> Date? {
         guard value.isFinite, value > 0 else { return nil }
