@@ -5470,6 +5470,9 @@ class TabManager: ObservableObject {
            !WorkspaceGroupAnchorCloseSettings.suppressed() {
             return true
         }
+        if tabs.count <= 1 {
+            return true
+        }
         return shouldConfirmClose(
             requiresConfirmation: workspaceNeedsConfirmClose(workspace),
             source: .workspace
