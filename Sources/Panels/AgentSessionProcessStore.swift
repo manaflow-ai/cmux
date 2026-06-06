@@ -236,16 +236,15 @@ final class AgentSessionProcessStore {
             deadline: .now() + Self.terminationEscalationInterval,
             repeating: Self.terminationEscalationInterval
         )
-        let sessionId = session.sessionId
-        timer.setEventHandler { [weak self] in
+        timer.setEventHandler { [weak self, session] in
             Task { @MainActor in
-                guard let self,
-                      let session = self.sessions[sessionId] else {
-                    timer.cancel()
-                    return
-                }
                 if session.process.isRunning {
                     _ = kill(session.process.processIdentifier, SIGKILL)
+                    return
+                }
+                guard let self,
+                      self.sessions[session.sessionId] === session else {
+                    timer.cancel()
                     return
                 }
                 guard session.pendingExitStatus != nil else {
