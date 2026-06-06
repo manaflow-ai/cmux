@@ -240,6 +240,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionError = nil
         activeTicket = nil
         activeRoute = nil
+        // Drop the cached paired Macs so the next signed-in user never sees the
+        // previous user's hosts in the switcher.
+        pairedMacs = []
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
@@ -509,16 +512,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     // MARK: - Paired Mac switching
 
     /// Every Mac paired with this device, for the host switcher. Refreshed via
-    /// ``loadPairedMacs()`` and after switch/forget.
+    /// ``loadPairedMacs()`` and after switch/forget. Cleared on sign-out so a
+    /// shared device never shows the previous user's Macs. The active row is
+    /// marked by each ``MobilePairedMac/isActive`` flag (the live connection's
+    /// attach ticket carries a transient manual id, so it is not a reliable
+    /// active marker on its own).
     public private(set) var pairedMacs: [MobilePairedMac] = []
-
-    /// The device id of the Mac the live connection currently targets, if any.
-    /// Used by the switcher to mark the active row.
-    public var activeMacDeviceID: String? { activeTicket?.macDeviceID }
 
     /// Reload ``pairedMacs`` from the store, scoped to the signed-in user.
     public func loadPairedMacs() async {
-        guard let pairedMacStore else {
+        guard let pairedMacStore, isSignedIn else {
             pairedMacs = []
             return
         }
@@ -529,18 +532,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Make `macDeviceID` the active pairing and reconnect to it. A no-op when it
-    /// is already the active Mac.
+    /// Switch the live connection to `macDeviceID`, persisting it as the active
+    /// pairing only on a successful connect.
+    ///
+    /// Connecting first means a failed switch (the Mac is offline or its saved
+    /// route is stale) leaves the previously-working Mac active and reachable,
+    /// instead of stranding the user on an unreachable Mac that recovery keeps
+    /// retrying. A no-op when already connected to that Mac.
     /// - Parameter macDeviceID: The stored Mac to switch to.
     public func switchToMac(macDeviceID: String) async {
-        guard let pairedMacStore, macDeviceID != activeMacDeviceID else { return }
-        do {
-            try await pairedMacStore.setActive(macDeviceID: macDeviceID)
-        } catch {
-            mobileShellLog.error("paired mac store setActive failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        guard let pairedMacStore,
+              let target = pairedMacs.first(where: { $0.macDeviceID == macDeviceID }) else { return }
+        if target.isActive, connectionState == .connected { return }
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        guard let (host, port) = Self.firstReconnectHostPortRoute(
+            target.routes,
+            supportedKinds: supportedKinds
+        ) else {
+            mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .public)")
             return
         }
-        _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+        await connectManualHost(name: target.displayName ?? host, host: host, port: port)
+        if connectionState == .connected {
+            do {
+                try await pairedMacStore.setActive(macDeviceID: macDeviceID)
+            } catch {
+                mobileShellLog.error("paired mac store setActive failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            }
+        }
         await loadPairedMacs()
     }
 
@@ -548,7 +567,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// dropped too; otherwise only the stored entry is removed.
     /// - Parameter macDeviceID: The stored Mac to forget.
     public func forgetMac(macDeviceID: String) async {
-        if macDeviceID == activeMacDeviceID {
+        let isActiveMac = pairedMacs.first(where: { $0.macDeviceID == macDeviceID })?.isActive ?? false
+        if isActiveMac, connectionState == .connected {
             disconnectAndForgetActiveMac()
         } else {
             do {

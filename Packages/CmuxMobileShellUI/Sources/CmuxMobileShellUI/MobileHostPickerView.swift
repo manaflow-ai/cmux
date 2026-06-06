@@ -73,7 +73,7 @@ struct MobileHostPickerView: View {
 
     @ViewBuilder
     private func macRow(_ mac: MobilePairedMac) -> some View {
-        let isActive = mac.macDeviceID == store.activeMacDeviceID
+        let isActive = mac.isActive
         Button {
             Task { await store.switchToMac(macDeviceID: mac.macDeviceID) }
         } label: {
