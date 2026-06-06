@@ -6453,7 +6453,9 @@ final class BrowserPanel: Panel, ObservableObject {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
         webViewObservers.removeAll()
-        resetWebViewBackgroundObservation()
+        if let ghosttyBackgroundObserver {
+            NotificationCenter.default.removeObserver(ghosttyBackgroundObserver)
+        }
         let webView = webView
         Task { @MainActor in
             BrowserWindowPortalRegistry.detach(webView: webView)
