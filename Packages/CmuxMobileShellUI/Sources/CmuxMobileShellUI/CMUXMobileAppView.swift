@@ -22,7 +22,7 @@ public struct CMUXMobileAppView: View {
     ///   - feedbackClient: Feedback submission dependency passed into the diagnostics feedback flow.
     public init(
         store: CMUXMobileShellStore = .preview(),
-        feedbackClient: any MobileFeedbackSubmitting = MobileFeedbackClient()
+        feedbackClient: any MobileFeedbackSubmitting
     ) {
         _store = State(initialValue: store)
         self.feedbackClient = feedbackClient

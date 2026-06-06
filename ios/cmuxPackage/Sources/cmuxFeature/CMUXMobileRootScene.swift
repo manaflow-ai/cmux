@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxMobileFeedback
 import CmuxMobilePairedMac
 import CmuxMobileShell
 @_exported import CmuxMobileShellUI
@@ -30,6 +31,7 @@ public struct CMUXMobileRootScene: View {
     private let reachability: any ReachabilityProviding
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
+    private let feedbackClient: any MobileFeedbackSubmitting
     #endif
     private let pairedMacStore: (any MobilePairedMacStoring)?
 
@@ -46,12 +48,14 @@ public struct CMUXMobileRootScene: View {
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
-        pushCoordinator: MobilePushCoordinator
+        pushCoordinator: MobilePushCoordinator,
+        feedbackClient: any MobileFeedbackSubmitting = MobileFeedbackClient()
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
         self.pushCoordinator = pushCoordinator
+        self.feedbackClient = feedbackClient
         self.pairedMacStore = Self.openPairedMacStore()
     }
     #else
@@ -93,10 +97,10 @@ public struct CMUXMobileRootScene: View {
         if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
         } else {
-            CMUXMobileAppView(store: makeStore())
+            CMUXMobileAppView(store: makeStore(), feedbackClient: feedbackClient)
         }
         #else
-        CMUXMobileAppView(store: makeStore())
+        CMUXMobileAppView(store: makeStore(), feedbackClient: feedbackClient)
         #endif
     }
 
