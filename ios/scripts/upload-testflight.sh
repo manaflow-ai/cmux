@@ -5,7 +5,7 @@ usage() {
   cat <<'EOF'
 Usage:
   ios/scripts/upload-testflight.sh [--lane beta] [--build-number <number>]
-                                  [--signing manual|automatic]
+                                  [--signing manual|automatic] [--external]
                                   [--archive-path <path>] [--export-only]
 
 Archives cmux iOS, exports an App Store Connect IPA, and uploads it to
@@ -49,6 +49,14 @@ Options:
                             uses Xcode cloud-managed signing via the ASC API key
                             and -allowProvisioningUpdates, so CI does not need an
                             iOS distribution cert/profile in the keychain.
+  --external                Make the build eligible for EXTERNAL TestFlight
+                            testers (sets testFlightInternalTestingOnly=NO).
+                            Default is internal-only: builds reach internal
+                            groups (e.g. "cmux beta") instantly but can never
+                            be added to an external group. External-eligible
+                            builds must pass Apple Beta App Review (~24h) before
+                            external testers can install. Also set via
+                            CMUX_TESTFLIGHT_EXTERNAL=1.
   --archive-path <path>     Reuse an existing archive instead of archiving.
   --export-only             Stop after exporting the signed IPA.
   -h, --help                Show this help.
@@ -84,6 +92,15 @@ EXPORT_ONLY=0
 # "automatic" switches the export to Xcode cloud-managed signing (used by CI,
 # which has no iOS distribution cert/profile, only the ASC API key).
 SIGNING="manual"
+# Whether the exported build is eligible for external TestFlight testers.
+# Default 0 keeps the historical internal-only behavior (fast dogfood, no Apple
+# review). Set to 1 by --external or CMUX_TESTFLIGHT_EXTERNAL=1 to drop the
+# testFlightInternalTestingOnly flag so the build can be added to an external
+# group; such builds then require a one-time Apple Beta App Review per version.
+EXTERNAL_TESTING=0
+if [[ "${CMUX_TESTFLIGHT_EXTERNAL:-}" == "1" ]]; then
+  EXTERNAL_TESTING=1
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -107,6 +124,10 @@ while [[ $# -gt 0 ]]; do
       require_option_value "$1" "${2:-}"
       ARCHIVE_PATH="$2"
       shift 2
+      ;;
+    --external)
+      EXTERNAL_TESTING=1
+      shift
       ;;
     --export-only)
       EXPORT_ONLY=1
@@ -329,7 +350,14 @@ plutil -insert method -string app-store-connect "$EXPORT_OPTIONS"
 plutil -insert destination -string export "$EXPORT_OPTIONS"
 plutil -insert teamID -string "$DEVELOPMENT_TEAM" "$EXPORT_OPTIONS"
 plutil -insert manageAppVersionAndBuildNumber -bool NO "$EXPORT_OPTIONS"
-plutil -insert testFlightInternalTestingOnly -bool YES "$EXPORT_OPTIONS"
+if [[ "$EXTERNAL_TESTING" == "1" ]]; then
+  # External-eligible: omit/clear the internal-only restriction so the build can
+  # be added to an external group (after Apple Beta App Review).
+  plutil -insert testFlightInternalTestingOnly -bool NO "$EXPORT_OPTIONS"
+  echo "note: --external set; build will be eligible for external TestFlight testers (requires Apple Beta App Review per version)." >&2
+else
+  plutil -insert testFlightInternalTestingOnly -bool YES "$EXPORT_OPTIONS"
+fi
 plutil -insert uploadSymbols -bool YES "$EXPORT_OPTIONS"
 if [[ "$SIGNING" == "automatic" ]]; then
   # Cloud-managed signing: Xcode mints the distribution cert/profile on demand
