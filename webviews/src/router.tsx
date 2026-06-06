@@ -24,12 +24,22 @@ export function createWebviewsRouter(WebviewComponent: WebviewRouteComponent) {
     path: "/diff",
     component: WebviewComponent,
   });
+  const generatedDiffRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/cmux-diff-viewer",
+    component: WebviewComponent,
+  });
   const agentSessionRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/agent-session",
     component: WebviewComponent,
   });
-  const routeTree = rootRoute.addChildren([indexRoute, diffRoute, agentSessionRoute]);
+  const routeTree = rootRoute.addChildren([
+    indexRoute,
+    diffRoute,
+    generatedDiffRoute,
+    agentSessionRoute,
+  ]);
   return createRouter({
     history: createHashHistory(),
     routeTree,

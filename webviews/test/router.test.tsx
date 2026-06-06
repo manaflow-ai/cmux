@@ -6,8 +6,20 @@ import { RouterProvider } from "@tanstack/react-router";
 import { createWebviewsRouter } from "../src/router";
 
 test("generated diff viewer file paths render the webview instead of TanStack not-found", async () => {
+  await expectRouteToRenderWebview(
+    "cmux-diff-viewer://01234567-89ab-cdef-0123-456789abcdef/diff-123-opening.html",
+  );
+});
+
+test("generated diff viewer hash routes render the webview instead of TanStack not-found", async () => {
+  await expectRouteToRenderWebview(
+    "http://127.0.0.1:49308/fe60ff23-48f0-4d00-b066-85564f88c99e/diff-1780725374-17DB604C-unstaged.html#/cmux-diff-viewer",
+  );
+});
+
+async function expectRouteToRenderWebview(url: string) {
   const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
-    url: "cmux-diff-viewer://01234567-89ab-cdef-0123-456789abcdef/diff-123-opening.html",
+    url,
   });
   const originalWindow = (globalThis as any).window;
   const originalDocument = (globalThis as any).document;
@@ -54,4 +66,4 @@ test("generated diff viewer file paths render the webview instead of TanStack no
       (globalThis as any).scrollTo = originalScrollTo;
     }
   }
-});
+}
