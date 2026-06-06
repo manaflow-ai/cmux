@@ -7362,9 +7362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
-        let directoryPath = targetWorkspace.currentDirectory
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !directoryPath.isEmpty,
+        guard let directoryPath = Self.initialCodeEditorDirectoryPath(for: targetWorkspace),
               let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return openDefaultCodeEditor()
         }
@@ -7388,6 +7386,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return panelId
+    }
+
+    static func initialCodeEditorDirectoryPath(for workspace: Workspace) -> String? {
+        workspace.resolvedWorkingDirectory()
     }
 
     func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
@@ -15026,7 +15028,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted?()
                 return true
             case .newCodeEditor:
-                guard context.tabManager.openCodeEditor(insertAtEnd: true) != nil else {
+                guard openCodeEditor(tabManager: context.tabManager, insertAtEnd: true) != nil else {
                     return false
                 }
                 onExecuted?()

@@ -4427,6 +4427,45 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         )
     }
 
+    func testInitialCodeEditorDirectoryUsesFocusedPanelDirectoryWhenWorkspaceDirectoryIsEmpty() {
+        let workspace = Workspace()
+        guard let focusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        let focusedDirectory = "/tmp/cmux-focused-editor-cwd"
+        workspace.currentDirectory = ""
+        workspace.panelDirectories[focusedPanelId] = focusedDirectory
+
+        XCTAssertEqual(workspace.resolvedWorkingDirectory(), focusedDirectory)
+        XCTAssertEqual(AppDelegate.initialCodeEditorDirectoryPath(for: workspace), focusedDirectory)
+    }
+
+    func testInitialCodeEditorDirectoryUsesRequestedTerminalDirectoryBeforeLiveReport() {
+        let workspace = Workspace()
+        guard let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused pane in new workspace")
+            return
+        }
+
+        let requestedDirectory = "/tmp/cmux-requested-editor-cwd"
+        guard let requestedPanel = workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            workingDirectory: requestedDirectory
+        ) else {
+            XCTFail("Expected terminal panel with requested cwd")
+            return
+        }
+
+        workspace.currentDirectory = ""
+        workspace.panelDirectories.removeValue(forKey: requestedPanel.id)
+
+        XCTAssertEqual(workspace.resolvedWorkingDirectory(), requestedDirectory)
+        XCTAssertEqual(AppDelegate.initialCodeEditorDirectoryPath(for: workspace), requestedDirectory)
+    }
+
     func testNewTerminalSplitSkipsFreedInheritedSurfacePointer() throws {
 #if DEBUG
         let workspace = Workspace()
