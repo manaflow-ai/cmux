@@ -25601,14 +25601,16 @@ function canEvictLifecycleRecord(record) {
 
 function pruneLifecycleRecords() {
   while (SESSION_LIFECYCLE.size > SESSION_LIFECYCLE_LIMIT) {
-    let evicted = false;
+    let evictedSessionId = null;
     for (const [oldestSessionId, record] of SESSION_LIFECYCLE) {
-      if (!canEvictLifecycleRecord(record)) continue;
-      SESSION_LIFECYCLE.delete(oldestSessionId);
-      evicted = true;
-      break;
+      if (canEvictLifecycleRecord(record)) {
+        evictedSessionId = oldestSessionId;
+        break;
+      }
+      if (evictedSessionId === null) evictedSessionId = oldestSessionId;
     }
-    if (!evicted) return;
+    if (evictedSessionId === null) return;
+    SESSION_LIFECYCLE.delete(evictedSessionId);
   }
 }
 
