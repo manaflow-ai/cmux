@@ -15,10 +15,7 @@ extension WorkspaceContentView {
         defaultSelectionForeground: () -> NSColor = { GhosttyApp.shared.defaultSelectionForeground },
         defaultBackgroundOpacity: () -> Double = { GhosttyApp.shared.defaultBackgroundOpacity }
     ) -> GhosttyConfig {
-        var next = loadConfig()
-        if let workspaceThemeContents = workspaceTheme?.configContents() {
-            next.parse(workspaceThemeContents, loadingThemesImmediatelyFor: GhosttyConfig.currentColorSchemePreference())
-        }
+        var next = workspaceTheme?.resolvedGhosttyConfig(preferredColorScheme: GhosttyConfig.currentColorSchemePreference()) ?? loadConfig()
         let loadedBackgroundHex = next.backgroundColor.hexString()
         let loadedForegroundHex = next.foregroundColor.hexString()
         let hasWorkspaceTheme = workspaceTheme != nil

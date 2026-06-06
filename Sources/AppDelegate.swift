@@ -5474,6 +5474,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                 },
                 refreshHostBackground: {
+                    terminalPanel.hostedView.applyWorkspaceThemeBackground(
+                        selection: terminalPanel.surface.workspaceThemeSelection,
+                        preferredColorScheme: preferredColorScheme,
+                        reason: source
+                    )
                     terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
                 },
                 forceRefresh: { reason in
