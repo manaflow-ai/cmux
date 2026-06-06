@@ -78,7 +78,8 @@ ISOLATED_RUNNER_PATTERNS=(
   'retry_only_testing="cmuxTests/$retry_identifier"'
   '"-only-testing:$retry_only_testing"'
   'retry_executed_count="$(executed_test_count "$retry_log" "$retry_result")"'
-  'retry_suite_identifier="${retry_identifier%%/*}"'
+  'retry_suite_identifier="$(/usr/bin/python3 -c '\''import re, sys; value = sys.argv[1].removeprefix("cmuxTests/"); match = re.match(r"[A-Za-z_][A-Za-z0-9_]*", value); sys.stdout.write(match.group(0) if match else "")'\'' "$test_identifier")"'
+  'could not derive containing XCTest suite'
   'retry_suite_only_testing="cmuxTests/$retry_suite_identifier"'
   'method selector reported zero tests; retrying containing suite'
   'run_xctest_batch "$retry_suite_label" "$retry_suite_log" "$retry_suite_result" "$retry_suite_home" "-only-testing:$retry_suite_only_testing"'
@@ -129,6 +130,15 @@ fi
 
 if [ "$(normalize_retry_identifier 'CLIHookNoResponseTests.genericLifecycleFeedTelemetryDoesNotWaitForSocketResponse')" != "cmuxTests/CLIHookNoResponseTests/genericLifecycleFeedTelemetryDoesNotWaitForSocketResponse" ]; then
   echo "FAIL: retry selector normalization must convert XCTest dot identifiers to -only-testing paths"
+  exit 1
+fi
+
+derive_retry_suite_identifier() {
+  /usr/bin/python3 -c 'import re, sys; value = sys.argv[1].removeprefix("cmuxTests/"); match = re.match(r"[A-Za-z_][A-Za-z0-9_]*", value); sys.stdout.write(match.group(0) if match else "")' "$1"
+}
+
+if [ "$(derive_retry_suite_identifier 'CLIHookNoResponseTests\/genericLifecycleFeedTelemetryDoesNotWaitForSocketResponse')" != "CLIHookNoResponseTests" ]; then
+  echo "FAIL: retry suite fallback must derive the XCTestCase class from escaped slash identifiers" >&2
   exit 1
 fi
 

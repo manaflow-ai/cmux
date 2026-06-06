@@ -409,7 +409,13 @@ print("" if total is None else total)
               ;;
           esac
           if [ "$retry_executed_count" -eq 0 ]; then
-            retry_suite_identifier="${retry_identifier%%/*}"
+            retry_suite_identifier="$(/usr/bin/python3 -c 'import re, sys; value = sys.argv[1].removeprefix("cmuxTests/"); match = re.match(r"[A-Za-z_][A-Za-z0-9_]*", value); sys.stdout.write(match.group(0) if match else "")' "$test_identifier")"
+            if [ -z "$retry_suite_identifier" ]; then
+              echo "FAIL $retry_label could not derive containing XCTest suite from $test_identifier" >&2
+              echo "===== $retry_label log =====" >&2
+              tail -n 1200 "$retry_log" >&2
+              exit 1
+            fi
             retry_suite_only_testing="cmuxTests/$retry_suite_identifier"
             retry_suite_label="${retry_label}-suite-fallback"
             retry_suite_log="$LOG_ROOT/$retry_suite_label.log"
