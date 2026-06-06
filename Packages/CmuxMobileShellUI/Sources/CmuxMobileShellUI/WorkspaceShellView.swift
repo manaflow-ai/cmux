@@ -16,16 +16,6 @@ struct WorkspaceShellView: View {
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
-    /// One-shot suppression of the next terminal autofocus. Set after a chrome
-    /// action that creates a workspace or terminal so the freshly-attached
-    /// surface does not steal the keyboard. Consumed (and translated into a
-    /// per-surface entry in ``terminalAutoFocusSuppressedSurfaceIDs``) when the
-    /// detail view next appears or its selected terminal changes.
-    @State private var suppressNextTerminalAutoFocus = false
-    /// Surface IDs whose next window attach must NOT autofocus. A surface in
-    /// this set mounts with `autoFocusOnWindowAttach: false`; the entry clears
-    /// once that surface has appeared and consumed the suppression.
-    @State private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -141,26 +131,22 @@ struct WorkspaceShellView: View {
 
     private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
-        // Selecting an existing workspace is a user-driven focus intent, so the
-        // terminal that comes up should be allowed to take the keyboard.
-        suppressNextTerminalAutoFocus = false
+        // Selecting an existing workspace is a user-driven focus intent: its
+        // preferred terminal is not in the store's suppression set, so it is
+        // free to take the keyboard.
         store.selectedWorkspaceID = id
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
         }
     }
 
-    /// Split-layout list/detail "+" create. Suppresses autofocus like the
-    /// compact path so the new terminal doesn't pop the keyboard on mount.
+    /// Split-layout list/detail "+" create. The store marks the freshly-created
+    /// terminal so it doesn't pop the keyboard on mount.
     private func createWorkspaceFromSplitList() {
-        suppressNextTerminalAutoFocus = true
         store.createWorkspace()
     }
 
     private func createWorkspaceInCompactStack() {
-        // Creating a workspace is a chrome action: the new terminal should not
-        // grab the keyboard the instant it mounts.
-        suppressNextTerminalAutoFocus = true
         let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         store.createWorkspace()
@@ -196,9 +182,7 @@ struct WorkspaceShellView: View {
             store: store,
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
-            safeAreaContext: safeAreaContext,
-            suppressNextTerminalAutoFocus: $suppressNextTerminalAutoFocus,
-            terminalAutoFocusSuppressedSurfaceIDs: $terminalAutoFocusSuppressedSurfaceIDs
+            safeAreaContext: safeAreaContext
         )
     }
 }

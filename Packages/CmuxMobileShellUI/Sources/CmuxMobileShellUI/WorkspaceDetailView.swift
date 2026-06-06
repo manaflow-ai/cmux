@@ -16,18 +16,15 @@ struct WorkspaceDetailView: View {
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
-    @Binding var selectedTerminalID: MobileTerminalPreview.ID?
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
-    @Binding var suppressNextTerminalAutoFocus: Bool
-    @Binding var terminalAutoFocusSuppressedSurfaceIDs: Set<String>
     @State private var isTerminalPickerPresented = false
 
     private var selectedTerminal: MobileTerminalPreview? {
-        workspace.terminals.first { $0.id == selectedTerminalID } ?? workspace.terminals.first
+        workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
 
     var body: some View {
@@ -48,7 +45,7 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
-                    autoFocusOnWindowAttach: shouldAutoFocusTerminalSurface(terminalID)
+                    autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -58,7 +55,7 @@ struct WorkspaceDetailView: View {
                 // sink via dismantleUIView) and builds the newly-selected one.
                 .id(terminalID)
                 .onAppear {
-                    clearConsumedTerminalAutoFocusSuppression(for: terminalID)
+                    store.consumeTerminalAutoFocusSuppression(for: terminalID)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(TerminalPalette.background)
@@ -95,12 +92,6 @@ struct WorkspaceDetailView: View {
         .background(TerminalPalette.background)
         #endif
         .navigationTitle(workspace.name)
-        .onAppear {
-            suppressPendingTerminalAutoFocusIfNeeded(for: selectedTerminal?.id)
-        }
-        .onChange(of: selectedTerminal?.id) { _, terminalID in
-            suppressPendingTerminalAutoFocusIfNeeded(for: terminalID)
-        }
         .mobileTerminalNavigationChrome()
         .toolbar {
             #if os(iOS)
@@ -231,34 +222,30 @@ struct WorkspaceDetailView: View {
 
     private func createWorkspaceFromToolbar() {
         dismissTerminalKeyboardForChrome()
-        suppressNextTerminalAutoFocus = true
         createWorkspace()
     }
 
     private func createWorkspaceFromTerminalPicker() {
         dismissTerminalKeyboardForChrome()
         isTerminalPickerPresented = false
-        suppressNextTerminalAutoFocus = true
         createWorkspace()
     }
 
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
         isTerminalPickerPresented = false
-        suppressNextTerminalAutoFocus = true
         createTerminal()
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         isTerminalPickerPresented = false
-        // Switching to a different terminal is chrome, not a typing intent, so
-        // the newly-selected surface must not grab the keyboard on attach.
-        if selectedTerminal?.id != terminalID {
-            terminalAutoFocusSuppressedSurfaceIDs.insert(terminalID.rawValue)
-        }
-        suppressNextTerminalAutoFocus = false
-        selectedTerminalID = terminalID
+        // Switching from the picker is chrome, not a typing intent, so the
+        // newly-selected surface must not grab the keyboard on attach. The
+        // store suppresses the target's autofocus (and is a no-op when it is
+        // already selected). A push-notification deep link uses the plain
+        // `selectTerminal` path instead and is allowed to autofocus.
+        store.selectTerminalFromChrome(terminalID)
     }
 
     private func dismissTerminalKeyboardForChrome() {
@@ -267,28 +254,5 @@ struct WorkspaceDetailView: View {
         // it; then sweep any other responder across the scene.
         GhosttySurfaceView.resignActiveInput()
         UIApplication.shared.dismissMobileKeyboard()
-    }
-
-    /// Whether the surface for `terminalID` may autofocus on its next window
-    /// attach. False while a one-shot suppression is pending or this surface is
-    /// in the per-surface suppression set.
-    private func shouldAutoFocusTerminalSurface(_ terminalID: String) -> Bool {
-        !suppressNextTerminalAutoFocus
-            && !terminalAutoFocusSuppressedSurfaceIDs.contains(terminalID)
-    }
-
-    /// Clears the per-surface suppression once the surface has appeared (and so
-    /// has already mounted with autofocus disabled).
-    private func clearConsumedTerminalAutoFocusSuppression(for terminalID: String) {
-        terminalAutoFocusSuppressedSurfaceIDs.remove(terminalID)
-    }
-
-    /// Converts a pending one-shot suppression into a per-surface entry for the
-    /// terminal that is about to become visible, then resets the one-shot flag.
-    private func suppressPendingTerminalAutoFocusIfNeeded(for terminalID: MobileTerminalPreview.ID?) {
-        guard suppressNextTerminalAutoFocus,
-              let terminalID else { return }
-        terminalAutoFocusSuppressedSurfaceIDs.insert(terminalID.rawValue)
-        suppressNextTerminalAutoFocus = false
     }
 }
