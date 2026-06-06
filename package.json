@@ -10,9 +10,9 @@
     "prosemirror-model": "^1.25.7",
     "prosemirror-state": "^1.4.4",
     "prosemirror-view": "^1.41.8",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3",
-    "solid-js": "^1.9.10",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "solid-js": "1.9.13",
     "vercel": "^50.9.5"
   },
   "license": "GPL-3.0-or-later",
