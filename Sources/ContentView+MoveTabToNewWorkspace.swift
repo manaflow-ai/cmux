@@ -143,15 +143,13 @@ final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
     }
 
     private func shouldCaptureHitTest() -> Bool {
+        let eventType = NSApp.currentEvent?.type
+        guard WindowInputRoutingContext.allowsWorkspaceDropOverlayHitTesting(eventType: eventType) else {
+            return false
+        }
         guard BonsplitTabDragPayload.canRouteWorkspaceDrop(
             pasteboardTypes: NSPasteboard(name: .drag).types
         ) else { return false }
-        guard let eventType = NSApp.currentEvent?.type else { return true }
-        switch eventType {
-        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .cursorUpdate, .mouseMoved:
-            return true
-        default:
-            return false
-        }
+        return true
     }
 }
