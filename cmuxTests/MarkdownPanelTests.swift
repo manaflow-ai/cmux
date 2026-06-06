@@ -1667,19 +1667,26 @@ private final class MarkdownURLSchemeTaskSpy: NSObject, WKURLSchemeTask {
 }
 
 private final class MarkdownRemoteImageHoldingSchemeHandler: NSObject, WKURLSchemeHandler {
+    private let lock = NSLock()
     private var tasks: [ObjectIdentifier: WKURLSchemeTask] = [:]
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        lock.lock()
         tasks[ObjectIdentifier(urlSchemeTask as AnyObject)] = urlSchemeTask
+        lock.unlock()
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        lock.lock()
         tasks[ObjectIdentifier(urlSchemeTask as AnyObject)] = nil
+        lock.unlock()
     }
 
     func cancelOpenTasks() {
+        lock.lock()
         let openTasks = Array(tasks.values)
         tasks.removeAll()
+        lock.unlock()
         let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
         for task in openTasks {
             task.didFailWithError(error)
@@ -1687,8 +1694,10 @@ private final class MarkdownRemoteImageHoldingSchemeHandler: NSObject, WKURLSche
     }
 
     func finishOpenTasks(data: Data) {
+        lock.lock()
         let openTasks = Array(tasks.values)
         tasks.removeAll()
+        lock.unlock()
         for task in openTasks {
             let response = URLResponse(
                 url: task.request.url ?? URL(string: "cmux-remote-image://image")!,
