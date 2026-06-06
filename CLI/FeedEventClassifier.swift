@@ -169,7 +169,10 @@ struct FeedEventClassifier {
             "Notification": .statusNotification,
         ],
         "codex": [
-            "PermissionRequest": .approvalRequest,
+            // Codex runs PermissionRequest hooks before its own approval
+            // reviewer. Treat this as telemetry so "Approve for me" can still
+            // use Codex's auto-review path instead of blocking on cmux Feed.
+            "PermissionRequest": .toolStart,
             "PreToolUse": .toolStart,
             "beforeShellExecution": .toolStart,
             "PostToolUse": .toolEnd,
