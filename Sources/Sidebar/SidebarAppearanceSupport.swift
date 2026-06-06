@@ -15,6 +15,13 @@ enum SidebarThemeSettings {
     static let accentColorHexKey = "sidebarAccentColorHex"
 }
 
+enum SidebarTabItemFontScale {
+    static func scale(for sidebarFontSize: CGFloat) -> CGFloat {
+        GhosttyConfig.clampedSidebarFontSize(sidebarFontSize)
+            / GhosttyConfig.defaultSidebarFontSize
+    }
+}
+
 extension Color {
     init?(hex: String) {
         let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))
