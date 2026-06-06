@@ -121,7 +121,7 @@ struct WorkspaceShellView: View {
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .sidebar,
                 selectWorkspace: selectWorkspace,
-                createWorkspace: store.createWorkspace,
+                createWorkspace: createWorkspaceFromSplitList,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut
             )
@@ -129,7 +129,7 @@ struct WorkspaceShellView: View {
         } detail: {
             workspaceDestination(
                 for: store.selectedWorkspaceID,
-                createWorkspace: store.createWorkspace,
+                createWorkspace: createWorkspaceFromSplitList,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
         }
@@ -150,7 +150,17 @@ struct WorkspaceShellView: View {
         }
     }
 
+    /// Split-layout list/detail "+" create. Suppresses autofocus like the
+    /// compact path so the new terminal doesn't pop the keyboard on mount.
+    private func createWorkspaceFromSplitList() {
+        suppressNextTerminalAutoFocus = true
+        store.createWorkspace()
+    }
+
     private func createWorkspaceInCompactStack() {
+        // Creating a workspace is a chrome action: the new terminal should not
+        // grab the keyboard the instant it mounts.
+        suppressNextTerminalAutoFocus = true
         let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         store.createWorkspace()
