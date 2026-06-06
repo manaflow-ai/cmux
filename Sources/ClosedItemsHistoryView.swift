@@ -99,6 +99,7 @@ struct ClosedItemsHistoryView: View {
             }
             if count > 0 {
                 Button {
+                    guard confirmClearAll() else { return }
                     selectedItemIds.removeAll()
                     onClearAll()
                 } label: {
@@ -119,6 +120,19 @@ struct ClosedItemsHistoryView: View {
     private func restoreSelectedTitle(count: Int) -> String {
         let format = String(localized: "historyPane.restoreSelected", defaultValue: "Restore %d")
         return String.localizedStringWithFormat(format, count)
+    }
+
+    private func confirmClearAll() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "historyPane.clearAll.confirm.title", defaultValue: "Clear history?")
+        alert.informativeText = String(
+            localized: "historyPane.clearAll.confirm.message",
+            defaultValue: "This removes all closed-item history. This cannot be undone."
+        )
+        alert.addButton(withTitle: String(localized: "historyPane.clearAll", defaultValue: "Clear All"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private var emptyView: some View {

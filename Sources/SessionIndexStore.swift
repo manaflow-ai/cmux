@@ -234,6 +234,9 @@ final class SessionIndexStore: ObservableObject {
             NSSound.beep()
             return false
         }
+        loadTask?.cancel()
+        loadGeneration &+= 1
+        isLoading = false
         entries.removeAll { $0.id == entry.id }
         invalidateDirectorySnapshots()
         return true
@@ -544,17 +547,21 @@ final class SessionIndexStore: ObservableObject {
     }
 
     private var loadTask: Task<Void, Never>?
+    private var loadGeneration: UInt64 = 0
 
     func reload() {
         loadTask?.cancel()
+        loadGeneration &+= 1
+        let generation = loadGeneration
         isLoading = true
         directorySnapshotGeneration += 1
         invalidateDirectorySnapshots()
         loadTask = Task.detached(priority: .userInitiated) { [weak self] in
             let scanned = await Self.scanAll()
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard let self else { return }
-                if Task.isCancelled { return }
+                guard self.loadGeneration == generation else { return }
                 self.entries = scanned
                 self.isLoading = false
                 self.backfillAgentOrderFromEntries()
