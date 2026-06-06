@@ -176,9 +176,11 @@ GUARD_REUSED_ARCHIVE=0
 RUN_GUARD=1
 if [[ -n "$ARCHIVE_PATH" ]]; then
   # Reused archive: BUILD_NUMBER is never stamped into it, so the only number
-  # that ships is the embedded CFBundleVersion, and it can't be self-healed. If
-  # we can't read it, bumping BUILD_NUMBER would be a no-op that falsely claims a
-  # fix, so skip the guard with a warning instead.
+  # that ships is the embedded CFBundleVersion, and it CANNOT be self-healed.
+  # Such an archive must therefore be VERIFIABLE before an upload: if we cannot
+  # read its version (below) or cannot reach App Store Connect (further down), we
+  # fail CLOSED rather than upload a build that may not be offered as an update.
+  # --export-only never uploads, so it only warns and skips.
   GUARD_REUSED_ARCHIVE=1
   # PlistBuddy prints "File Doesn't Exist..." to stdout (and exits non-zero) when
   # the archive or key is missing, so require a NUMERIC result rather than just
@@ -186,9 +188,12 @@ if [[ -n "$ARCHIVE_PATH" ]]; then
   ARCHIVE_BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleVersion' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
   if [[ "$ARCHIVE_BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
     GUARD_BUILD_NUMBER="$ARCHIVE_BUILD_NUMBER"
-  else
-    echo "warning: --archive-path given but could not read a numeric CFBundleVersion; skipping monotonic build-number guard" >&2
+  elif [[ "$EXPORT_ONLY" -eq 1 ]]; then
+    echo "warning: --archive-path CFBundleVersion unreadable; skipping guard (--export-only, no upload)" >&2
     RUN_GUARD=0
+  else
+    echo "error: --archive-path given but could not read a numeric CFBundleVersion to verify monotonicity; refusing to upload an unverifiable archive. Re-archive with --build-number." >&2
+    exit 1
   fi
 fi
 
@@ -208,6 +213,10 @@ if [[ "$RUN_GUARD" -eq 1 && "$EXPORT_ONLY" -ne 1 && -n "${ASC_API_KEY_ID:-}" && 
       echo "build-number guard: $GUARD_BUILD_NUMBER > App Store Connect max ${ASC_MAX:-0}, keeping it" >&2
     fi
   else
+    if [[ "$GUARD_REUSED_ARCHIVE" -eq 1 ]]; then
+      echo "error: reused --archive-path but could not verify its build number against App Store Connect; refusing to upload a possibly non-updatable archive (a reused archive cannot be renumbered). Re-run with App Store Connect access or re-archive." >&2
+      exit 1
+    fi
     echo "warning: build-number guard skipped (could not read App Store Connect max); using $GUARD_BUILD_NUMBER" >&2
   fi
 fi

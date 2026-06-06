@@ -147,20 +147,6 @@ jobs:
           ./scripts/install-zig-ci.sh
           ./scripts/ensure-ghosttykit.sh
 
-      - name: Ensure cryptography for the build-number guard
-        # The upload script's monotonic build-number guard (asc_max_build.py)
-        # mints an ES256 JWT with `cryptography`. Install it BEFORE the App Store
-        # Connect private key is written to disk in the next step, so a compromised
-        # install can't read the signing/upload credential. Pinned to a wheel-
-        # satisfiable range. Best-effort + fail-open: if it can't install, the
-        # guard is skipped and the publish still proceeds with the timestamp
-        # build number (which is already correct).
-        run: |
-          python3 -c 'import cryptography' 2>/dev/null && exit 0
-          python3 -m pip install --quiet --disable-pip-version-check 'cryptography>=42,<46' \
-            || python3 -m pip install --quiet --break-system-packages 'cryptography>=42,<46' \
-            || echo "warning: could not install cryptography; build-number guard will be skipped" >&2
-
       - name: Materialize App Store Connect API key
         env:
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}

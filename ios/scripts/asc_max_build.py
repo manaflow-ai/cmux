@@ -9,6 +9,11 @@ from the App Store Connect API key, resolves the app from its bundle id, pages
 through the app's builds, and prints `max(int(version))` to stdout (0 if the app
 has no builds yet).
 
+Dependency-free on purpose: the only third party is `openssl` (preinstalled on
+macOS), invoked via subprocess for the ECDSA signature. The TestFlight upload job
+holds the signing/upload credential, so it must not `pip install` unverified code
+that could persist in site-packages and run once the key is on disk.
+
 Auth comes from the environment (the same vars the upload workflow already sets):
   ASC_API_KEY_ID, ASC_API_ISSUER_ID, and either ASC_API_KEY_PATH (a .p8 file) or
   ASC_API_KEY_P8_BASE64 (the base64-encoded .p8 contents).
@@ -27,13 +32,12 @@ import argparse
 import base64
 import json
 import os
+import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
-
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec, utils as asym_utils
 
 API_BASE = "https://api.appstoreconnect.apple.com"
 
@@ -42,16 +46,43 @@ def _b64u(b):
     return base64.urlsafe_b64encode(b).rstrip(b"=")
 
 
-def _load_private_key():
-    key_path = os.environ.get("ASC_API_KEY_PATH")
-    if key_path:
-        with open(key_path, "rb") as f:
-            pem = f.read()
-    elif os.environ.get("ASC_API_KEY_P8_BASE64"):
-        pem = base64.b64decode(os.environ["ASC_API_KEY_P8_BASE64"])
-    else:
-        raise RuntimeError("set ASC_API_KEY_PATH or ASC_API_KEY_P8_BASE64")
-    return serialization.load_pem_private_key(pem, password=None)
+def _der_ecdsa_to_raw(der):
+    """Convert a DER-encoded ECDSA signature (openssl output) to JOSE raw r||s.
+
+    A P-256 signature is `SEQUENCE { INTEGER r, INTEGER s }` with short-form
+    lengths, so two fixed-width 32-byte integers concatenated give the 64-byte
+    raw form ES256 (RFC 7518) requires.
+    """
+    if not der or der[0] != 0x30:
+        raise RuntimeError("malformed ECDSA signature from openssl")
+    idx = 2
+    if der[1] & 0x80:  # long-form SEQUENCE length (not expected for P-256)
+        idx = 2 + (der[1] & 0x7F)
+    if der[idx] != 0x02:
+        raise RuntimeError("malformed ECDSA signature (r)")
+    rlen = der[idx + 1]
+    idx += 2
+    r = int.from_bytes(der[idx:idx + rlen], "big")
+    idx += rlen
+    if der[idx] != 0x02:
+        raise RuntimeError("malformed ECDSA signature (s)")
+    slen = der[idx + 1]
+    idx += 2
+    s = int.from_bytes(der[idx:idx + slen], "big")
+    return r.to_bytes(32, "big") + s.to_bytes(32, "big")
+
+
+def _sign_es256(signing_input, key_path):
+    """ES256-sign `signing_input` with the .p8 at `key_path` using openssl."""
+    proc = subprocess.run(
+        ["openssl", "dgst", "-sha256", "-sign", key_path],
+        input=signing_input,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError("openssl signing failed")
+    return _der_ecdsa_to_raw(proc.stdout)
 
 
 def _token():
@@ -59,14 +90,25 @@ def _token():
     issuer_id = os.environ.get("ASC_API_ISSUER_ID")
     if not key_id or not issuer_id:
         raise RuntimeError("set ASC_API_KEY_ID and ASC_API_ISSUER_ID")
-    key = _load_private_key()
     hdr = {"alg": "ES256", "kid": key_id, "typ": "JWT"}
     now = int(time.time())
     pld = {"iss": issuer_id, "iat": now, "exp": now + 600, "aud": "appstoreconnect-v1"}
     signing_input = _b64u(json.dumps(hdr).encode()) + b"." + _b64u(json.dumps(pld).encode())
-    der = key.sign(signing_input, ec.ECDSA(hashes.SHA256()))
-    r, s = asym_utils.decode_dss_signature(der)
-    sig = r.to_bytes(32, "big") + s.to_bytes(32, "big")
+
+    key_path = os.environ.get("ASC_API_KEY_PATH")
+    if key_path:
+        sig = _sign_es256(signing_input, key_path)
+    elif os.environ.get("ASC_API_KEY_P8_BASE64"):
+        # Materialize the key to a 0600 temp file only for the openssl call.
+        fd, tmp = tempfile.mkstemp(suffix=".p8")
+        try:
+            os.write(fd, base64.b64decode(os.environ["ASC_API_KEY_P8_BASE64"]))
+            os.close(fd)
+            sig = _sign_es256(signing_input, tmp)
+        finally:
+            os.unlink(tmp)
+    else:
+        raise RuntimeError("set ASC_API_KEY_PATH or ASC_API_KEY_P8_BASE64")
     return (signing_input + b"." + _b64u(sig)).decode()
 
 
