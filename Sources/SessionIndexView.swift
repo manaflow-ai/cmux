@@ -2679,7 +2679,23 @@ struct SectionPopoverHost: NSViewRepresentable {
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
     let onResume: ((SessionEntry) -> Void)?
-    let onDelete: ((SessionEntry) -> Bool)? = nil
+    let onDelete: ((SessionEntry) -> Bool)?
+
+    init(
+        isPresented: Binding<Bool>,
+        section: IndexSection,
+        search: @escaping SessionSearchFn,
+        loadSnapshot: @escaping DirectorySnapshotFn,
+        onResume: ((SessionEntry) -> Void)?,
+        onDelete: ((SessionEntry) -> Bool)? = nil
+    ) {
+        _isPresented = isPresented
+        self.section = section
+        self.search = search
+        self.loadSnapshot = loadSnapshot
+        self.onResume = onResume
+        self.onDelete = onDelete
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(isPresented: $isPresented)
