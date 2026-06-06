@@ -232,10 +232,6 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         Set(pidsByCMUXSurfaceID[surfaceID] ?? [])
     }
 
-    func processInfo(for pid: Int) -> CmuxTopProcessInfo? {
-        processesByPID[pid]
-    }
-
     func cmuxScopedProcesses() -> [CmuxTopProcessInfo] {
         processesByPID.values
             .filter { $0.cmuxWorkspaceID != nil && $0.cmuxSurfaceID != nil }

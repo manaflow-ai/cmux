@@ -93,6 +93,79 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
     }
 
+    func testWorkspaceReorderManyRoutesByWorkspaceOwnerWhenWindowIsOmitted() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let managerA = TabManager(autoWelcomeIfNeeded: false)
+        let managerB = TabManager(autoWelcomeIfNeeded: false)
+        let windowAId = app.registerMainWindowContextForTesting(tabManager: managerA)
+        let windowBId = app.registerMainWindowContextForTesting(tabManager: managerB)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowAId)
+            app.unregisterMainWindowContextForTesting(windowId: windowBId)
+        }
+
+        TerminalController.shared.setActiveTabManager(managerA)
+        let originalAOrder = managerA.tabs.map(\.id)
+        let firstB = try XCTUnwrap(managerB.tabs.first)
+        let secondB = managerB.addWorkspace(select: false, eagerLoadTerminal: false)
+        let thirdB = managerB.addWorkspace(select: false, eagerLoadTerminal: false)
+
+        let result = try v2Result(
+            method: "workspace.reorder_many",
+            params: [
+                "workspace_ids": [thirdB.id.uuidString, firstB.id.uuidString]
+            ]
+        )
+
+        XCTAssertEqual(result["window_id"] as? String, windowBId.uuidString)
+        XCTAssertEqual(managerA.tabs.map(\.id), originalAOrder)
+        XCTAssertEqual(managerB.tabs.map(\.id), [thirdB.id, firstB.id, secondB.id])
+    }
+
+    func testWorkspaceReorderManyRejectsEmptyOrderItems() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        TerminalController.shared.setActiveTabManager(manager)
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let originalOrder = manager.tabs.map(\.id)
+
+        let orderError = try v2Error(
+            method: "workspace.reorder_many",
+            params: [
+                "order": "\(first.id.uuidString),,\(second.id.uuidString)"
+            ]
+        )
+        XCTAssertEqual(orderError["code"] as? String, "invalid_params")
+        XCTAssertEqual(manager.tabs.map(\.id), originalOrder)
+
+        let arrayError = try v2Error(
+            method: "workspace.reorder_many",
+            params: [
+                "workspace_ids": [first.id.uuidString, " ", second.id.uuidString]
+            ]
+        )
+        XCTAssertEqual(arrayError["code"] as? String, "invalid_params")
+        XCTAssertEqual(manager.tabs.map(\.id), originalOrder)
+    }
+
     func testSystemTreeWindowSelectorErrorsUseWindowContext() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
@@ -234,6 +307,138 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             params: ["window_id": "window:999"]
         )
         XCTAssertEqual(error["code"] as? String, "unavailable")
+    }
+
+    func testWorkspaceListRejectsWindowAliasInsteadOfDefaultWindowFallback() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeMainWindow(id: firstWindowId)
+        let secondWindow = makeMainWindow(id: secondWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: firstWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: secondWindowId)
+            firstWindow.orderOut(nil)
+            secondWindow.orderOut(nil)
+        }
+
+        let firstManager = TabManager(autoWelcomeIfNeeded: false)
+        let secondManager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            firstWindow,
+            windowId: firstWindowId,
+            tabManager: firstManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            secondWindow,
+            windowId: secondWindowId,
+            tabManager: secondManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(firstManager)
+
+        let firstWorkspace = try XCTUnwrap(firstManager.selectedWorkspace)
+        let secondWorkspace = try XCTUnwrap(secondManager.selectedWorkspace)
+
+        let windowList = try v2Result(method: "window.list")
+        let windows = try XCTUnwrap(windowList["windows"] as? [[String: Any]])
+        let secondWindowRef = try XCTUnwrap(
+            windows.first { ($0["id"] as? String) == secondWindowId.uuidString }?["ref"] as? String
+        )
+
+        let routedList = try v2Result(
+            method: "workspace.list",
+            params: ["window_id": secondWindowRef]
+        )
+        XCTAssertEqual(routedList["window_id"] as? String, secondWindowId.uuidString)
+        try assertWorkspaceListContains(routedList, workspaceId: secondWorkspace.id)
+        let routedWorkspaces = try XCTUnwrap(routedList["workspaces"] as? [[String: Any]])
+        XCTAssertFalse(routedWorkspaces.contains { ($0["id"] as? String) == firstWorkspace.id.uuidString })
+
+        let error = try v2Error(
+            method: "workspace.list",
+            params: ["window": secondWindowRef]
+        )
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        let data = try XCTUnwrap(error["data"] as? [String: Any])
+        XCTAssertEqual(data["unsupported_param"] as? String, "window")
+        XCTAssertEqual(data["supported_param"] as? String, "window_id")
+    }
+
+    func testWorkspaceCreateRejectsWindowAliasInsteadOfDefaultWindowFallback() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeMainWindow(id: firstWindowId)
+        let secondWindow = makeMainWindow(id: secondWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: firstWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: secondWindowId)
+            firstWindow.orderOut(nil)
+            secondWindow.orderOut(nil)
+        }
+
+        let firstManager = TabManager(autoWelcomeIfNeeded: false)
+        let secondManager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            firstWindow,
+            windowId: firstWindowId,
+            tabManager: firstManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            secondWindow,
+            windowId: secondWindowId,
+            tabManager: secondManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(firstManager)
+
+        let windowList = try v2Result(method: "window.list")
+        let windows = try XCTUnwrap(windowList["windows"] as? [[String: Any]])
+        let secondWindowRef = try XCTUnwrap(
+            windows.first { ($0["id"] as? String) == secondWindowId.uuidString }?["ref"] as? String
+        )
+
+        let firstCount = firstManager.tabs.count
+        let secondCount = secondManager.tabs.count
+        let error = try v2Error(
+            method: "workspace.create",
+            params: [
+                "window": secondWindowRef,
+                "title": "should not create"
+            ]
+        )
+
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        let data = try XCTUnwrap(error["data"] as? [String: Any])
+        XCTAssertEqual(data["unsupported_param"] as? String, "window")
+        XCTAssertEqual(data["supported_param"] as? String, "window_id")
+        XCTAssertEqual(firstManager.tabs.count, firstCount)
+        XCTAssertEqual(secondManager.tabs.count, secondCount)
     }
 
     func testWorkspaceListResolvesLiveSurfaceAfterMainWindowContextAssociationIsLost() throws {
