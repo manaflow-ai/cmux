@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAuthRuntime
 import CmuxSettings
 import CryptoKit
 import Foundation
@@ -255,11 +256,29 @@ final class MobileHostService {
     private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
+    /// Injected once via `configure(auth:)` at app startup, before the
+    /// listener starts accepting connections.
+    private var auth: AuthCoordinator?
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
     #endif
 
     private init() {}
+
+    /// Inject the auth dependency. Call once at the composition root.
+    func configure(auth: AuthCoordinator) {
+        self.auth = auth
+    }
+
+    /// The signed-in local user's id, awaiting launch session restore first so
+    /// pairing checks can't race it. `nil` when signed out (or before the auth
+    /// graph is configured), which the authorization policy rejects.
+    func currentAuthenticatedLocalUserID() async -> String? {
+        guard let auth else { return nil }
+        await auth.awaitBootstrapped()
+        guard auth.isAuthenticated else { return nil }
+        return auth.currentUser?.id
+    }
 
     /// Fan out a server-pushed event to every connection subscribed to `topic`.
     /// Safe to call from any actor/queue.
@@ -1228,13 +1247,7 @@ private actor MobileHostStackAuthVerifier {
     }
 
     private func currentAuthenticatedLocalUserID() async -> String? {
-        await AuthManager.shared.awaitBootstrapped()
-        return await MainActor.run {
-            guard AuthManager.shared.isAuthenticated else {
-                return nil
-            }
-            return AuthManager.shared.currentUser?.id
-        }
+        await MobileHostService.shared.currentAuthenticatedLocalUserID()
     }
 }
 
