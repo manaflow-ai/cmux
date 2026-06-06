@@ -39,8 +39,22 @@ func shouldRespectForeignFirstResponder(
     in window: NSWindow,
     isRightSidebarOwner: (NSResponder) -> Bool
 ) -> Bool {
-    // A stranded responder (detached, or reparented into another window without resigning) no longer
-    // belongs to this window and must not block the terminal from reclaiming first responder.
+    // A focused text editor is always being edited by the user, so the terminal must yield the
+    // keystroke. `NSText` covers AppKit field editors AND SwiftUI's private `_SystemTextFieldFieldEditor`
+    // (an `NSText` subclass — verified at runtime: the icon-picker field editor logs `isnst=1`).
+    //
+    // Text editors are deliberately checked *before* the window-membership guard below: SwiftUI hosts a
+    // popover/palette overlay's field editor in a backing window that differs from `window` even though
+    // the editor is `window`'s active first responder, so the old `.window === window` guard rejected it
+    // and keyRepair stole the keystroke. The portal-reparenting the guard defends against (issue #5269)
+    // only strands terminal surfaces (`NSView`s, not `NSText`), so respecting text editors here cannot
+    // resurrect that bug.
+    if firstResponder is NSText {
+        return true
+    }
+    // Non-text focus owners (right-sidebar / dock / feed hosts) must still belong to this window: a
+    // stranded host reparented into another window without resigning must not block the terminal from
+    // reclaiming first responder (issue #5269).
     guard (firstResponder as? NSView)?.window === window else { return false }
-    return firstResponder is NSText || isRightSidebarOwner(firstResponder)
+    return isRightSidebarOwner(firstResponder)
 }

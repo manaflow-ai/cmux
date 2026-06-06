@@ -9,6 +9,7 @@ struct WorkspaceGroupIconPickerView: View {
 
     @State private var searchText = ""
     @State private var visibleEmojiCount = pageSize
+    @FocusState private var searchFieldFocused: Bool
 
     init(currentSymbol: String?, onSelect: @escaping (String?) -> Void) {
         self.currentSymbol = currentSymbol
@@ -53,6 +54,7 @@ struct WorkspaceGroupIconPickerView: View {
             )
             .textFieldStyle(.roundedBorder)
             .frame(height: 24)
+            .focused($searchFieldFocused)
             .onChange(of: searchText) { _, _ in
                 visibleEmojiCount = Self.pageSize
             }
@@ -159,5 +161,8 @@ struct WorkspaceGroupIconPickerView: View {
         }
         .padding(12)
         .frame(width: 344, height: 394)
+        .onAppear {
+            searchFieldFocused = true
+        }
     }
 }

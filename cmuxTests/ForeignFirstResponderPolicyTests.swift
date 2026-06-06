@@ -9,7 +9,9 @@ import Testing
 
 /// Coverage for ``shouldRespectForeignFirstResponder(_:in:isRightSidebarOwner:)`` — the policy that
 /// decides whether an active terminal yields to the window's current first responder or reclaims
-/// focus. Regression coverage for issue #5269 (a stranded responder must not block focus).
+/// focus. Text editors are always respected (the user is typing into them, and they may be hosted in
+/// an overlay window); non-text focus owners must belong to the window, preserving the #5269 recovery
+/// path for stranded hosts.
 @MainActor
 @Suite struct ForeignFirstResponderPolicyTests {
     private func makeWindow() -> NSWindow {
@@ -31,14 +33,16 @@ import Testing
         #expect(shouldRespectForeignFirstResponder(textView, in: window, isRightSidebarOwner: neverSidebarOwner))
     }
 
-    /// The #5269 regression: a text responder stranded in another window must NOT be respected, so
-    /// the terminal can reclaim focus. Without the window-membership check this returns `true`.
-    @Test func reclaimsFromStrandedTextEditorInAnotherWindow() {
+    /// A text editor is respected even when its backing window differs from the policy window. SwiftUI
+    /// hosts a popover/palette overlay's field editor in a separate window while it is still the main
+    /// window's active first responder; the terminal must yield the keystroke. (Terminal surfaces, the
+    /// real subject of the #5269 stranding guard, are excluded by callers before this policy.)
+    @Test func respectsTextEditorHostedInAnotherWindow() {
         let windowA = makeWindow()
         let windowB = makeWindow()
         let textView = NSTextView(frame: .zero)
-        windowB.contentView?.addSubview(textView) // belongs to windowB, not windowA
-        #expect(!shouldRespectForeignFirstResponder(textView, in: windowA, isRightSidebarOwner: neverSidebarOwner))
+        windowB.contentView?.addSubview(textView) // hosted in windowB's hierarchy (e.g. an overlay)
+        #expect(shouldRespectForeignFirstResponder(textView, in: windowA, isRightSidebarOwner: neverSidebarOwner))
     }
 
     @Test func respectsInWindowRightSidebarOwner() {
@@ -58,10 +62,12 @@ import Testing
         #expect(!shouldRespectForeignFirstResponder(view, in: windowA, isRightSidebarOwner: alwaysSidebarOwner))
     }
 
-    @Test func reclaimsFromDetachedResponder() {
+    /// A non-text responder detached from any window is reclaimed (it is neither a real text editor
+    /// being typed into nor an in-window focus owner), preserving the #5269 recovery path.
+    @Test func reclaimsFromDetachedNonTextResponder() {
         let window = makeWindow()
-        let textView = NSTextView(frame: .zero) // never added to a window -> .window is nil
-        #expect(!shouldRespectForeignFirstResponder(textView, in: window, isRightSidebarOwner: alwaysSidebarOwner))
+        let view = NSView(frame: .zero) // never added to a window -> .window is nil
+        #expect(!shouldRespectForeignFirstResponder(view, in: window, isRightSidebarOwner: alwaysSidebarOwner))
     }
 
     @Test func doesNotRespectPlainInWindowView() {
