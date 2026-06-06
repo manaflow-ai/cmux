@@ -63,7 +63,8 @@ struct WorkspaceShellView: View {
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut
+                signOut: signOut,
+                store: store
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -113,7 +114,8 @@ struct WorkspaceShellView: View {
                 selectWorkspace: selectWorkspace,
                 createWorkspace: store.createWorkspace,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut
+                signOut: signOut,
+                store: store
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
