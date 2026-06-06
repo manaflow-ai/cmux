@@ -337,16 +337,16 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testMobileConnectCommandIsFoundByIOSAndIPadOSQueries() {
+    func testMobileConnectCommandIsFoundByMobileDeviceQueries() {
         // Mirror the real command pipeline: a command's searchable corpus is
         // [title, subtitle] + keywords (see CommandPaletteCommand.searchableTexts).
         // Pull the keywords from the production source of truth so this test fails
-        // if "ios"/"ipados" are ever dropped from the contribution.
+        // if any of the expected aliases are ever dropped from the contribution.
         let mobileConnect = FixtureEntry(
             id: "palette.mobileConnect",
             rank: 0,
-            title: "Mobile Connect",
-            searchableTexts: ["Mobile Connect", "Mobile"]
+            title: "Connect iPhone/iPad",
+            searchableTexts: ["Connect iPhone/iPad", "Mobile"]
                 + ContentView.commandPaletteMobileConnectKeywords
         )
         // Dense, realistic decoy corpus so the assertion exercises ranking, not a
@@ -361,11 +361,11 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
         let corpus = [mobileConnect] + decoys
 
-        for query in ["ios", "ipados", "iphone", "ipad", "pair", "mobile connect"] {
+        for query in ["ios", "ipados", "iphone", "ipad", "pair", "mobile", "phone", "connect"] {
             XCTAssertEqual(
                 optimizedResults(entries: corpus, query: query).first?.id,
                 "palette.mobileConnect",
-                "Expected Mobile Connect to be the top command palette result for query \"\(query)\""
+                "Expected Connect iPhone/iPad to be the top command palette result for query \"\(query)\""
             )
         }
     }
