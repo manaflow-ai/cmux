@@ -433,7 +433,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "手动配对使用此账户。如果与该 Mac 不匹配，请扫描 Mac 上的二维码/链接。"
+            "value": "手动配对会使用此账户。如果它与该 Mac 上的账户不一致，请扫描 Mac 上的二维码/链接。"
           }
         }
       }
@@ -1100,7 +1100,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请在你的电脑上用同一账户登录，或用那台电脑上的二维码/链接配对。"
+            "value": "无法在这台 Mac 上验证你的账户。请确认两台设备使用同一 cmux 账户，且构建版本匹配（都是正式版，或都是开发版），然后重试。"
           }
         }
       }
@@ -3446,7 +3446,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "终端界面仍在启动中。"
+            "value": "终端 Surface 仍在启动中。"
           }
         }
       }
