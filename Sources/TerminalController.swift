@@ -5390,7 +5390,20 @@ class TerminalController {
     private func v2WorkspaceSetAutoTitle(params: [String: Any]) -> V2CallResult {
         let enabled = WorkspaceAutoNamingSettings.enabled()
         if v2Bool(params, "probe") == true {
-            return .ok(["enabled": enabled])
+            var result: [String: Any] = ["enabled": enabled]
+            // With a workspace_id the probe also reports user ownership, so
+            // naming engines can skip the LLM call entirely for workspaces
+            // the user renamed.
+            if let workspaceId = v2UUID(params, "workspace_id"),
+               let tabManager = v2ResolveTabManager(params: params) {
+                var userOwned: Bool?
+                v2MainSync {
+                    guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+                    userOwned = workspace.effectiveCustomTitleSource == .user
+                }
+                result["workspace_user_owned"] = v2OrNull(userOwned)
+            }
+            return .ok(result)
         }
         guard enabled else {
             return .err(code: "disabled", message: "Workspace auto-naming is disabled in Settings", data: ["enabled": false])
@@ -5408,6 +5421,7 @@ class TerminalController {
         let panelId = v2UUID(params, "panel_id")
 
         let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let panelOnlyIfMultiple = v2Bool(params, "panel_only_if_multiple") ?? false
         var found = false
         var workspaceApplied = false
         var panelApplied: Bool?
@@ -5416,7 +5430,15 @@ class TerminalController {
             found = true
             workspaceApplied = tabManager.setCustomTitle(tabId: workspaceId, title: title, source: .auto)
             if let panelId {
-                panelApplied = workspace.setPanelCustomTitle(panelId: panelId, title: title, source: .auto)
+                // Hook payloads carry surface ids; accept either a panel id
+                // or a surface id for the tab target.
+                let resolvedPanelId = workspace.panels[panelId] != nil
+                    ? panelId
+                    : workspace.panelIdFromSurfaceId(TabID(uuid: panelId))
+                if let resolvedPanelId,
+                   !(panelOnlyIfMultiple && workspace.panels.count < 2) {
+                    panelApplied = workspace.setPanelCustomTitle(panelId: resolvedPanelId, title: title, source: .auto)
+                }
             }
         }
 

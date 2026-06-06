@@ -1,0 +1,281 @@
+import Foundation
+
+// Auto-naming engine: pure, dependency-injected logic for naming workspaces
+// and tabs from agent conversation content. This file is compiled into both
+// the bundled CLI target (which drives it from agent hooks) and the cmux-unit
+// test target (the CLI is a tool target that tests cannot import), so it must
+// not reference CLI-private symbols.
+
+/// Tunable constants for the auto-naming engine. Defaults follow the
+/// debounce shape proven by community prior art (manaflow-ai/cmux#2043)
+/// and are expected to be tuned from dogfood feedback.
+struct AutoNamingConfig: Sendable {
+    /// Minimum transcript line growth since the last naming before another
+    /// summarization call is considered.
+    var minLineGrowth: Int = 6
+    /// Minimum seconds between summarization calls for one session.
+    var minInterval: TimeInterval = 180
+    /// Transcripts shorter than this are skipped entirely (subagent or
+    /// trivial sessions).
+    var minTranscriptLines: Int = 12
+    /// Hard deadline for the summarizer subprocess; also the in-flight
+    /// marker expiry, so a crashed call cannot block future naming.
+    var llmTimeout: TimeInterval = 60
+    /// Maximum title length after sanitization.
+    var maxTitleLength: Int = 50
+    /// Leading user messages included in the summarization context.
+    var contextHeadUserMessages: Int = 2
+    /// Trailing user/assistant messages included in the context.
+    var contextTailMessages: Int = 4
+    /// Per-message truncation applied to context excerpts.
+    var contextMessageMaxChars: Int = 240
+
+    init() {}
+}
+
+/// Projection of one session's persisted auto-naming state, read from the
+/// agent hook session store under its lock.
+struct AutoNamingSessionSnapshot: Sendable {
+    var lastTitle: String?
+    var lastLineCount: Int?
+    var lastNamedAt: TimeInterval?
+    var inFlightAt: TimeInterval?
+
+    init(
+        lastTitle: String? = nil,
+        lastLineCount: Int? = nil,
+        lastNamedAt: TimeInterval? = nil,
+        inFlightAt: TimeInterval? = nil
+    ) {
+        self.lastTitle = lastTitle
+        self.lastLineCount = lastLineCount
+        self.lastNamedAt = lastNamedAt
+        self.inFlightAt = inFlightAt
+    }
+}
+
+/// Outcome of the throttle evaluation that gates a summarization call.
+enum AutoNamingThrottleDecision: Equatable, Sendable {
+    /// Run the summarizer; on success the baseline advances to this count.
+    case proceed(baseline: Int)
+    /// The transcript shrank (compaction or resume rewrite): record the new
+    /// baseline without naming so future growth measures from it.
+    case reseedBaseline(to: Int)
+    case skipShortTranscript
+    case skipInFlight
+    case skipTooSoon
+    case skipInsufficientGrowth
+}
+
+/// One user/assistant text message extracted from a transcript.
+struct AutoNamingTranscriptMessage: Equatable, Sendable {
+    var role: String
+    var text: String
+
+    init(role: String, text: String) {
+        self.role = role
+        self.text = text
+    }
+}
+
+/// Seam for spawning the summarizer subprocess so tests never exercise a
+/// real agent binary.
+protocol AutoNamingProcessRunning {
+    /// Runs `executable` with `arguments`, writing `stdin` to the process and
+    /// returning captured stdout. Implementations must enforce `timeout`.
+    func run(
+        executable: String,
+        arguments: [String],
+        stdin: String,
+        environment: [String: String],
+        timeout: TimeInterval
+    ) throws -> String
+}
+
+/// Environment policy for the summarizer subprocess: scrub the variables
+/// that would recurse into cmux hooks or the parent agent session while
+/// preserving backend selection (Vertex/Bedrock/Anthropic) so the call works
+/// for users on any auth path.
+struct AutoNamingEnvironmentPolicy: Sendable {
+    /// Exact variables that mark a live agent session or cmux terminal and
+    /// must never reach the summarizer.
+    private static let scrubbedExactKeys: Set<String> = [
+        "CLAUDECODE",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_EXECPATH",
+        "CLAUDE_CODE_SSE_PORT",
+        "NODE_OPTIONS"
+    ]
+
+    init() {}
+
+    func summarizerEnvironment(from env: [String: String]) -> [String: String] {
+        env.filter { key, _ in
+            if key.hasPrefix("CMUX_") { return false }
+            if Self.scrubbedExactKeys.contains(key) { return false }
+            return true
+        }
+    }
+
+    /// The model passed to `claude -p`. Honors the user's small/fast model
+    /// override so Vertex/Bedrock deployments are not broken by a hardcoded
+    /// Anthropic alias.
+    func claudeModel(from env: [String: String]) -> String {
+        let override = env["ANTHROPIC_SMALL_FAST_MODEL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return override.isEmpty ? "haiku" : override
+    }
+}
+
+/// Pure auto-naming logic: throttle decisions, transcript extraction,
+/// prompt construction, and response sanitization.
+struct AutoNamingEngine: Sendable {
+    var config: AutoNamingConfig
+
+    init(config: AutoNamingConfig = AutoNamingConfig()) {
+        self.config = config
+    }
+
+    // MARK: - Throttle
+
+    func throttleDecision(
+        snapshot: AutoNamingSessionSnapshot,
+        transcriptLineCount: Int,
+        now: Date
+    ) -> AutoNamingThrottleDecision {
+        guard transcriptLineCount >= config.minTranscriptLines else {
+            return .skipShortTranscript
+        }
+        let nowInterval = now.timeIntervalSince1970
+        if let inFlightAt = snapshot.inFlightAt, nowInterval - inFlightAt < config.llmTimeout {
+            return .skipInFlight
+        }
+        guard let lastLineCount = snapshot.lastLineCount, snapshot.lastNamedAt != nil else {
+            // First naming for this session always qualifies; this also seeds
+            // the baseline for resumed sessions arriving with a large
+            // pre-existing transcript.
+            return .proceed(baseline: transcriptLineCount)
+        }
+        if transcriptLineCount < lastLineCount {
+            return .reseedBaseline(to: transcriptLineCount)
+        }
+        if let lastNamedAt = snapshot.lastNamedAt, nowInterval - lastNamedAt < config.minInterval {
+            return .skipTooSoon
+        }
+        if transcriptLineCount - lastLineCount < config.minLineGrowth {
+            return .skipInsufficientGrowth
+        }
+        return .proceed(baseline: transcriptLineCount)
+    }
+
+    // MARK: - Transcript extraction (Claude Code JSONL)
+
+    /// Extracts user/assistant text messages from Claude Code transcript
+    /// JSONL lines. Tool results, thinking blocks, and non-text content are
+    /// skipped; unparseable lines are ignored.
+    func extractMessages(fromTranscriptLines lines: [String]) -> [AutoNamingTranscriptMessage] {
+        var messages: [AutoNamingTranscriptMessage] = []
+        for line in lines {
+            guard let data = line.data(using: .utf8),
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                continue
+            }
+            guard let role = object["type"] as? String, role == "user" || role == "assistant" else {
+                continue
+            }
+            guard let message = object["message"] as? [String: Any] else { continue }
+            var text = ""
+            if let content = message["content"] as? String {
+                text = content
+            } else if let content = message["content"] as? [[String: Any]] {
+                text = content.compactMap { item -> String? in
+                    guard item["type"] as? String == "text" else { return nil }
+                    return item["text"] as? String
+                }.joined(separator: "\n")
+            }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            messages.append(AutoNamingTranscriptMessage(role: role, text: trimmed))
+        }
+        return messages
+    }
+
+    /// Builds the summarization context: the first user messages anchor the
+    /// session's purpose, the trailing messages capture the current topic.
+    func buildContext(from messages: [AutoNamingTranscriptMessage]) -> String? {
+        guard !messages.isEmpty else { return nil }
+        let headUser = messages
+            .filter { $0.role == "user" }
+            .prefix(config.contextHeadUserMessages)
+        let tail = messages.suffix(config.contextTailMessages)
+        var seen = Set<String>()
+        var parts: [String] = []
+        for message in Array(headUser) + Array(tail) {
+            let excerpt = String(message.text.prefix(config.contextMessageMaxChars))
+            let key = "\(message.role):\(excerpt)"
+            guard seen.insert(key).inserted else { continue }
+            parts.append("\(message.role): \(excerpt)")
+        }
+        let context = parts.joined(separator: "\n")
+        return context.isEmpty ? nil : context
+    }
+
+    // MARK: - Prompt and response
+
+    func buildPrompt(currentTitle: String?, context: String) -> String {
+        var lines: [String] = [
+            "You name terminal workspace tabs for a developer running coding agents.",
+            "Given a conversation excerpt, output ONLY a short title: 2-5 words,",
+            "in the same language as the conversation, no quotes, no trailing punctuation.",
+            ""
+        ]
+        if let currentTitle, !currentTitle.isEmpty {
+            lines.append("The current title is: \(currentTitle)")
+            lines.append("If that still accurately describes the conversation's main topic, output it EXACTLY as given.")
+            lines.append("")
+        }
+        lines.append("Conversation excerpt:")
+        lines.append(context)
+        return lines.joined(separator: "\n")
+    }
+
+    /// Normalizes a summarizer response into a usable title, or `nil` when
+    /// the response is unusable or matches the current title (no rename
+    /// needed). Takes the first non-empty line, strips wrapping quotes,
+    /// collapses whitespace, and enforces the length cap at a word boundary.
+    func sanitizeResponse(_ raw: String?, currentTitle: String?) -> String? {
+        guard let raw else { return nil }
+        guard let firstLine = raw
+            .components(separatedBy: .newlines)
+            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .first(where: { !$0.isEmpty }) else {
+            return nil
+        }
+        var title = firstLine
+        while title.count >= 2,
+              let first = title.first, let last = title.last,
+              (first == "\"" && last == "\"") || (first == "'" && last == "'") ||
+              (first == "\u{201C}" && last == "\u{201D}") {
+            title = String(title.dropFirst().dropLast())
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        title = title
+            .components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !title.isEmpty else { return nil }
+        if title.count > config.maxTitleLength {
+            let prefix = String(title.prefix(config.maxTitleLength))
+            if let lastSpace = prefix.lastIndex(of: " "), prefix.distance(from: prefix.startIndex, to: lastSpace) > 0 {
+                title = String(prefix[..<lastSpace])
+            } else {
+                title = prefix
+            }
+            title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !title.isEmpty else { return nil }
+        if let currentTitle, title == currentTitle { return nil }
+        return title
+    }
+}

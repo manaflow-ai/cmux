@@ -445,6 +445,13 @@ private struct ClaudeHookSessionRecord: Codable {
     var terminalPromptTurnIds: [String]?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
+    // Auto-naming engine state (all optional so stores written before the
+    // feature decode unchanged). The durable baseline advances only after a
+    // confirmed title apply; the in-flight marker dedupes concurrent Stops.
+    var autoNameLastTitle: String?
+    var autoNameLastLineCount: Int?
+    var autoNameLastNamedAt: TimeInterval?
+    var autoNameInFlightAt: TimeInterval?
 }
 
 private struct ClaudeHookActiveSessionRecord: Codable {
@@ -532,6 +539,77 @@ private final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
             state.sessions[normalized]
+        }
+    }
+
+    struct AutoNamingBeginOutcome {
+        var decision: AutoNamingThrottleDecision
+        var lastTitle: String?
+    }
+
+    /// Atomically evaluates the auto-naming throttle for a session and, when
+    /// the decision is to proceed, records the in-flight marker inside the
+    /// same locked transaction so a concurrent Stop hook sees it and skips.
+    func beginAutoNaming(
+        sessionId: String,
+        transcriptLineCount: Int,
+        now: Date,
+        engine: AutoNamingEngine
+    ) throws -> AutoNamingBeginOutcome {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else {
+            return AutoNamingBeginOutcome(decision: .skipShortTranscript, lastTitle: nil)
+        }
+        return try withLockedState { state in
+            var record = state.sessions[normalized]
+            let snapshot = AutoNamingSessionSnapshot(
+                lastTitle: record?.autoNameLastTitle,
+                lastLineCount: record?.autoNameLastLineCount,
+                lastNamedAt: record?.autoNameLastNamedAt,
+                inFlightAt: record?.autoNameInFlightAt
+            )
+            let decision = engine.throttleDecision(
+                snapshot: snapshot,
+                transcriptLineCount: transcriptLineCount,
+                now: now
+            )
+            switch decision {
+            case .proceed:
+                record?.autoNameInFlightAt = now.timeIntervalSince1970
+            case .reseedBaseline(let to):
+                record?.autoNameLastLineCount = to
+            case .skipShortTranscript, .skipInFlight, .skipTooSoon, .skipInsufficientGrowth:
+                break
+            }
+            if var record {
+                record.updatedAt = Date().timeIntervalSince1970
+                state.sessions[normalized] = record
+            }
+            return AutoNamingBeginOutcome(decision: decision, lastTitle: snapshot.lastTitle)
+        }
+    }
+
+    /// Records a completed naming pass. On a confirmed apply, the durable
+    /// baseline (title, line count, timestamp) advances; on failure only the
+    /// in-flight marker clears, so the next qualifying Stop retries.
+    func finishAutoNaming(
+        sessionId: String,
+        appliedTitle: String?,
+        baselineLineCount: Int?,
+        now: Date
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            record.autoNameInFlightAt = nil
+            if let appliedTitle, let baselineLineCount {
+                record.autoNameLastTitle = appliedTitle
+                record.autoNameLastLineCount = baselineLineCount
+                record.autoNameLastNamedAt = now.timeIntervalSince1970
+            }
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
         }
     }
 
@@ -21219,6 +21297,210 @@ struct CMUXCLI {
         }
     }
 
+    /// Drives one auto-naming pass for a Claude session at turn end: live
+    /// setting probe, active-session and nested-agent gates, locked throttle
+    /// with an in-flight marker, transcript extraction, the summarizer
+    /// subprocess (the user's own claude binary), and the provenance-checked
+    /// socket apply. Every failure path returns silently; the durable
+    /// baseline advances only after a confirmed apply so failures retry on
+    /// the next qualifying Stop.
+    private func runClaudeAutoNameHook(
+        parsedInput: ClaudeHookParsedInput,
+        mappedSession: ClaudeHookSessionRecord?,
+        workspaceId: String,
+        surfaceId: String,
+        sessionStore: ClaudeHookSessionStore,
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard let sessionId = parsedInput.sessionId else { return }
+        let env = ProcessInfo.processInfo.environment
+
+        // Live setting + ownership probe before any transcript or LLM work:
+        // mid-session toggles apply immediately, and user-renamed workspaces
+        // never cost a summarization call.
+        guard let probe = try? client.sendV2(
+            method: "workspace.set_auto_title",
+            params: ["probe": true, "workspace_id": workspaceId]
+        ), probe["enabled"] as? Bool == true else {
+            telemetry.breadcrumb("claude-hook.auto-name.disabled")
+            return
+        }
+        guard probe["workspace_user_owned"] as? Bool != true else {
+            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
+            return
+        }
+
+        let claudePid = mappedSession?.pid ?? claudeAgentPID(from: env)
+        guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: claudePid, env: env) else {
+            telemetry.breadcrumb("claude-hook.auto-name.nested-suppressed")
+            return
+        }
+        guard shouldApplyClaudeHookVisibleMutation(
+            sessionStore: sessionStore,
+            parsedInput: parsedInput,
+            workspaceId: workspaceId,
+            telemetry: telemetry
+        ) else {
+            telemetry.breadcrumb("claude-hook.auto-name.stale")
+            return
+        }
+
+        guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath else { return }
+        guard let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024), !lines.isEmpty else {
+            return
+        }
+        let lineCount = countTextFileLines(path: transcriptPath) ?? lines.count
+
+        let engine = AutoNamingEngine()
+        guard let outcome = try? sessionStore.beginAutoNaming(
+            sessionId: sessionId,
+            transcriptLineCount: lineCount,
+            now: Date(),
+            engine: engine
+        ) else { return }
+        guard case .proceed(let baseline) = outcome.decision else {
+            telemetry.breadcrumb("claude-hook.auto-name.throttled")
+            return
+        }
+
+        // From here the in-flight marker is set: clear it on every exit, and
+        // advance the durable baseline only when a title was applied (or the
+        // topic was confirmed stable).
+        var confirmedTitle: String?
+        defer {
+            try? sessionStore.finishAutoNaming(
+                sessionId: sessionId,
+                appliedTitle: confirmedTitle,
+                baselineLineCount: confirmedTitle != nil ? baseline : nil,
+                now: Date()
+            )
+        }
+
+        let messages = engine.extractMessages(fromTranscriptLines: lines)
+        guard let context = engine.buildContext(from: messages) else { return }
+        let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
+
+        let policy = AutoNamingEnvironmentPolicy()
+        let customPath = env["CMUX_CUSTOM_CLAUDE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let executable: String? = {
+            if !customPath.isEmpty,
+               FileManager.default.isExecutableFile(atPath: customPath),
+               !isCmuxClaudeWrapper(at: customPath) {
+                return customPath
+            }
+            return resolveClaudeExecutable(searchPath: env["PATH"])
+        }()
+        guard let executable else {
+            telemetry.breadcrumb("claude-hook.auto-name.no-binary")
+            return
+        }
+
+        guard let rawResponse = runAutoNamingSummarizer(
+            executable: executable,
+            arguments: ["-p", "--model", policy.claudeModel(from: env)],
+            prompt: prompt,
+            environment: policy.summarizerEnvironment(from: env),
+            timeout: engine.config.llmTimeout
+        ) else {
+            telemetry.breadcrumb("claude-hook.auto-name.llm-failed")
+            return
+        }
+
+        let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil)
+        guard let sanitized else { return }
+        if sanitized == outcome.lastTitle {
+            // Topic confirmed stable: keep the title, advance the baseline.
+            confirmedTitle = sanitized
+            return
+        }
+
+        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
+            "workspace_id": workspaceId,
+            "panel_id": surfaceId,
+            "panel_only_if_multiple": true,
+            "title": sanitized
+        ]) else { return }
+        if payload["workspace_applied"] as? Bool == true {
+            confirmedTitle = sanitized
+            telemetry.breadcrumb("claude-hook.auto-name.applied")
+        } else {
+            // The workspace became user-owned between probe and apply; record
+            // the pass so the next Stop's probe short-circuits.
+            confirmedTitle = outcome.lastTitle
+            telemetry.breadcrumb("claude-hook.auto-name.rejected")
+        }
+    }
+
+    /// Streams a text file counting newline bytes, so transcript growth is
+    /// measured against the whole file rather than the tail window used for
+    /// content extraction.
+    private func countTextFileLines(path: String) -> Int? {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
+            return nil
+        }
+        defer { try? handle.close() }
+        var count = 0
+        while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+            count += chunk.reduce(into: 0) { partial, byte in
+                if byte == 0x0A { partial += 1 }
+            }
+        }
+        return count
+    }
+
+    /// Runs the summarizer subprocess with the prompt on stdin and a hard
+    /// deadline, returning captured stdout (nil on failure, timeout, or
+    /// non-zero exit).
+    private func runAutoNamingSummarizer(
+        executable: String,
+        arguments: [String],
+        prompt: String,
+        environment: [String: String],
+        timeout: TimeInterval
+    ) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.environment = environment
+
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        if let promptData = prompt.data(using: .utf8) {
+            try? stdinPipe.fileHandleForWriting.write(contentsOf: promptData)
+        }
+        try? stdinPipe.fileHandleForWriting.close()
+
+        // Drain stdout on a separate queue so the child never blocks on a
+        // full pipe while we wait for exit.
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        var output = Data()
+        let drainQueue = DispatchQueue(label: "cmux.auto-name.stdout-drain")
+        let drainItem = DispatchWorkItem {
+            output = (try? stdoutHandle.readToEnd()) ?? Data()
+        }
+        drainQueue.async(execute: drainItem)
+
+        let exited = (try? waitForProcessExit(process, timeout: timeout)) ?? false
+        if !exited {
+            process.terminate()
+            _ = try? waitForProcessExit(process, timeout: 2)
+        }
+        drainItem.wait()
+        guard exited, process.terminationStatus == 0 else { return nil }
+        return String(data: output, encoding: .utf8)
+    }
+
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,
@@ -21551,6 +21833,38 @@ struct CMUXCLI {
                 icon: "bolt.fill",
                 color: "#4C8DFF"
             )
+            print("OK")
+
+        case "auto-name":
+            telemetry.breadcrumb("claude-hook.auto-name")
+            // Auto-naming emits no feed events of its own; the sync Stop hook
+            // already covers turn telemetry for this turn.
+            didSendFeedTelemetry = true
+            do {
+                let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                    preferred: mappedSession?.workspaceId,
+                    fallback: workspaceArg,
+                    client: client
+                )
+                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                    preferred: mappedSession?.surfaceId,
+                    fallback: surfaceArg,
+                    workspaceId: workspaceId,
+                    client: client
+                )
+                runClaudeAutoNameHook(
+                    parsedInput: parsedInput,
+                    mappedSession: mappedSession,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionStore: sessionStore,
+                    client: client,
+                    telemetry: telemetry
+                )
+            } catch {
+                telemetry.breadcrumb("claude-hook.auto-name.error")
+            }
             print("OK")
 
         case "notification", "notify":
