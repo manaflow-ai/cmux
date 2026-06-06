@@ -536,8 +536,17 @@ final class MobileHostService {
         switch outcome {
         case .invalid, .portInUse:
             break
-        case .applied, .savedWhileDisabled:
+        case .savedWhileDisabled:
             defaults.set(port, forKey: Self.portDefaultsKey)
+        case .applied:
+            defaults.set(port, forKey: Self.portDefaultsKey)
+            // Persisting can be a no-op — e.g. re-applying the configured port
+            // after an ephemeral fallback freed it up — so the settings observer
+            // would see no change and not rebind. Force a restart whenever the
+            // listener is not already bound to the requested port.
+            if enabled, listenerPort != port {
+                restart()
+            }
         }
         return outcome
     }
