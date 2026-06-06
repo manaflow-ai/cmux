@@ -411,11 +411,13 @@ final class RemoteTmuxController {
             swapped = true
         }
         // `swap-window` changes window indices but emits no notification cmux
-        // re-reads the order from, so `windowOrder` would otherwise stay stale —
-        // and the NEXT reorder would compute swaps against the pre-swap order and
-        // no-op or mis-sort. Re-fetch the authoritative order so reorders keep
-        // working across repeated drags.
-        if swapped { mirror.connection.requestWindows() }
+        // re-reads the order from, so update the tracked order locally. The swaps
+        // achieve exactly `desired`, so this matches tmux and a rapid follow-up
+        // drag computes against the just-applied order. (Deliberately NOT a
+        // `requestWindows()` re-fetch: its async snapshot could land after a later
+        // reorder and roll the order back, reintroducing the race; out-of-band
+        // changes reconcile on the topology events that re-fetch anyway.)
+        if swapped { mirror.connection.applyWindowReorder(desired) }
     }
 
     /// A split was requested from a mirrored multi-pane surface → propagate to

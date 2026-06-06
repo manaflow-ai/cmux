@@ -238,6 +238,24 @@ import Testing
         #expect(seq.hasSuffix("\u{1b}[47;3H"))    // absolute cursor, placed last
     }
 
+    // MARK: - Optimistic window reorder (rapid-drag race fix)
+
+    @Test func windowOrderApplyingReorderRearrangesSubsetInPlace() {
+        // All windows reordered → result is exactly the new sequence.
+        #expect(
+            RemoteTmuxControlConnection.windowOrder([0, 4, 6], applyingReorder: [0, 6, 4]) == [0, 6, 4]
+        )
+        // A window not in the dragged subset keeps its slot; the dragged windows
+        // fill the slots they occupied, in the new order.
+        #expect(
+            RemoteTmuxControlConnection.windowOrder([0, 4, 6, 9], applyingReorder: [6, 4, 0]) == [6, 4, 0, 9]
+        )
+        // No-op reorder leaves the order unchanged.
+        #expect(
+            RemoteTmuxControlConnection.windowOrder([0, 4, 6], applyingReorder: [0, 4, 6]) == [0, 4, 6]
+        )
+    }
+
     // MARK: - Raw layout parser
 
     @Test func parsesLeafLayoutWithChecksum() {

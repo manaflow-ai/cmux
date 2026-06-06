@@ -225,6 +225,27 @@ final class RemoteTmuxControlConnection {
         )
     }
 
+    /// Rearranges the tracked window order to reflect a just-applied reorder.
+    /// `reordered` is the new sequence of a subset of windows (the ones the user
+    /// dragged); windows not in it keep their slots. This is synchronous and exact
+    /// — the `swap-window` commands achieve precisely this order, so it matches
+    /// tmux without a round-trip, and a rapid follow-up reorder reads the
+    /// just-applied order rather than a stale one. (A `list-windows` re-fetch would
+    /// reintroduce the race: an earlier reorder's async snapshot could land after a
+    /// later reorder and roll the order back. Out-of-band changes still reconcile
+    /// via the topology events that already trigger ``requestWindows()``.)
+    func applyWindowReorder(_ reordered: [Int]) {
+        windowOrder = Self.windowOrder(windowOrder, applyingReorder: reordered)
+    }
+
+    /// Returns `order` with the windows in `reordered` rearranged into
+    /// `reordered`'s sequence, leaving windows not in that set in their positions.
+    nonisolated static func windowOrder(_ order: [Int], applyingReorder reordered: [Int]) -> [Int] {
+        let set = Set(reordered)
+        var iterator = reordered.makeIterator()
+        return order.map { set.contains($0) ? (iterator.next() ?? $0) : $0 }
+    }
+
     /// Captures a pane's current visible contents (with escapes) and delivers
     /// them to the pane-output observers so a freshly-mounted display surface shows
     /// the existing screen instead of starting blank.
