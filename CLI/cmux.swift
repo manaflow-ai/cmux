@@ -21500,8 +21500,11 @@ struct CMUXCLI {
         }
         // This waits only for the sh wrapper, which exits immediately after
         // backgrounding the real pass with '&' - it reaps sh without blocking
-        // on the naming work itself.
-        process.waitUntilExit()
+        // on the naming work itself. Bounded so a pathologically stalled sh
+        // can never eat the sync hook budget.
+        if ((try? waitForProcessExit(process, timeout: 5)) ?? false) == false {
+            process.terminate()
+        }
     }
 
     /// The detached codex naming pass: live setting + ownership probe,
