@@ -17947,6 +17947,12 @@ struct CMUXCLI {
 
     private static let codexTeamsMaxAutoDepth = 2
     private static let codexTeamsReconcileInterval: TimeInterval = 1
+    private static let codexTeamsMaxCachedApprovalItems = 500
+    static let codexTeamsApprovalMethods: Set<String> = [
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+        "item/permissions/requestApproval"
+    ]
     private static let codexTeamsProbeClientName = "codex_app_server_daemon"
     private static let codexTeamsWatcherClientName = "cmux-codex-teams"
     private static let codexTeamsClientVersion = "0.1.0"
@@ -18183,6 +18189,8 @@ struct CMUXCLI {
         private let stateLock = NSLock()
         private var lastAgentSurfaceId: String?
         private var subscribedThreadIds = Set<String>()
+        private var approvalItemById: [String: [String: Any]] = [:]
+        private var approvalItemOrder: [String] = []
 
         init(
             appServerURL: String,
@@ -18216,6 +18224,7 @@ struct CMUXCLI {
                         clientName: CMUXCLI.codexTeamsWatcherClientName,
                         version: CMUXCLI.codexTeamsClientVersion
                     )
+                    resetConnectionSubscriptions()
                     try backfillLoadedThreads(connection: connection)
                     try listenForNotifications(connection: connection)
                 } catch {
@@ -18260,6 +18269,7 @@ struct CMUXCLI {
             allowThreadSubscribe: Bool = true
         ) throws {
             guard let method = message["method"] as? String else { return }
+            cacheApprovalItemIfPresent(message, method: method)
             if let requestId = message["id"],
                try handleApprovalRequest(message, method: method, requestId: requestId, connection: connection) {
                 return
@@ -18316,21 +18326,71 @@ struct CMUXCLI {
             }
         }
 
+        private func resetConnectionSubscriptions() {
+            stateLock.lock()
+            subscribedThreadIds.removeAll(keepingCapacity: true)
+            stateLock.unlock()
+        }
+
+        private func cacheApprovalItemIfPresent(_ message: [String: Any], method: String) {
+            guard method == "item/started" || method == "item/completed" || method == "item/fileChange/patchUpdated",
+                  let params = message["params"] as? [String: Any] else {
+                return
+            }
+            if let item = params["item"] as? [String: Any],
+               let itemId = CMUXCLI.stringValue(in: item, keys: ["id"]) {
+                cacheApprovalItem(item, itemId: itemId)
+                return
+            }
+            guard method == "item/fileChange/patchUpdated",
+                  let itemId = CMUXCLI.stringValue(in: params, keys: ["itemId", "item_id"]) else {
+                return
+            }
+            var item = cachedApprovalItem(itemId: itemId) ?? [
+                "type": "fileChange",
+                "id": itemId
+            ]
+            if let changes = params["changes"] {
+                item["changes"] = changes
+            }
+            cacheApprovalItem(item, itemId: itemId)
+        }
+
+        private func cacheApprovalItem(_ item: [String: Any], itemId: String) {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            if approvalItemById[itemId] == nil {
+                approvalItemOrder.append(itemId)
+            }
+            approvalItemById[itemId] = item
+            while approvalItemOrder.count > CMUXCLI.codexTeamsMaxCachedApprovalItems {
+                let evicted = approvalItemOrder.removeFirst()
+                approvalItemById.removeValue(forKey: evicted)
+            }
+        }
+
+        private func cachedApprovalItem(itemId: String) -> [String: Any]? {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return approvalItemById[itemId]
+        }
+
         private func handleApprovalRequest(
             _ message: [String: Any],
             method: String,
             requestId: Any,
             connection: CodexTeamsAppServerConnection
         ) throws -> Bool {
-            guard method == "item/commandExecution/requestApproval"
-                || method == "item/fileChange/requestApproval"
-            else { return false }
+            guard CMUXCLI.codexTeamsApprovalMethods.contains(method) else { return false }
             guard let params = message["params"] as? [String: Any] else { return true }
+            let relatedItem = CMUXCLI.stringValue(in: params, keys: ["itemId", "item_id"])
+                .flatMap { cachedApprovalItem(itemId: $0) }
             let feedEvent = CMUXCLI.codexTeamsFeedEvent(
                 method: method,
                 requestId: requestId,
                 params: params,
-                workspaceId: workspaceId
+                workspaceId: workspaceId,
+                relatedItem: relatedItem
             )
             fputs("cmux codex-teams watcher forwarding approval \(method) request \(CMUXCLI.requestIdString(requestId)) to Feed\n", stderr)
             let response = try pushCodexApprovalToFeed(event: feedEvent)
@@ -18562,7 +18622,8 @@ struct CMUXCLI {
         method: String,
         requestId: Any,
         params: [String: Any],
-        workspaceId: String
+        workspaceId: String,
+        relatedItem: [String: Any]? = nil
     ) -> [String: Any] {
         let threadId = stringValue(in: params, keys: ["threadId", "thread_id"])
             ?? stringValue(in: params, keys: ["threadID", "thread_id"])
@@ -18573,11 +18634,20 @@ struct CMUXCLI {
         let cwd = stringValue(in: params, keys: ["cwd"])
         let reason = stringValue(in: params, keys: ["reason"])
         let command = stringValue(in: params, keys: ["command"])
-        let toolName = method == "item/fileChange/requestApproval" ? "Write" : "Bash"
+        let toolName: String
+        switch method {
+        case "item/fileChange/requestApproval":
+            toolName = "Write"
+        case "item/permissions/requestApproval":
+            toolName = "request_permissions"
+        default:
+            toolName = "Bash"
+        }
         var toolInput: [String: Any] = [
             "app_server_method": method,
             "request_id": requestIdString(requestId),
-            "item_id": itemId
+            "item_id": itemId,
+            "approval_params": params
         ]
         if let turnId { toolInput["turn_id"] = turnId }
         if let reason { toolInput["reason"] = reason }
@@ -18591,6 +18661,35 @@ struct CMUXCLI {
         }
         if let available = params["availableDecisions"] ?? params["available_decisions"] {
             toolInput["available_decisions"] = codexTeamsDecisionNames(available)
+        }
+        if let permissions = params["permissions"] {
+            toolInput["permissions"] = permissions
+        }
+        if let networkApprovalContext = params["networkApprovalContext"] ?? params["network_approval_context"] {
+            toolInput["network_approval_context"] = networkApprovalContext
+        }
+        if let additionalPermissions = params["additionalPermissions"] ?? params["additional_permissions"] {
+            toolInput["additional_permissions"] = additionalPermissions
+        }
+        if let commandActions = params["commandActions"] ?? params["command_actions"] {
+            toolInput["command_actions"] = commandActions
+        }
+        if let proposed = params["proposedExecpolicyAmendment"] ?? params["proposed_execpolicy_amendment"] {
+            toolInput["proposed_execpolicy_amendment"] = proposed
+        }
+        if let proposed = params["proposedNetworkPolicyAmendments"] ?? params["proposed_network_policy_amendments"] {
+            toolInput["proposed_network_policy_amendments"] = proposed
+        }
+        if let relatedItem {
+            toolInput["related_item"] = relatedItem
+            if command == nil,
+               let relatedCommand = relatedItem["command"] as? String {
+                toolInput["command"] = relatedCommand
+            }
+            if cwd == nil,
+               let relatedCwd = relatedItem["cwd"] as? String {
+                toolInput["cwd"] = relatedCwd
+            }
         }
 
         var context: [String: Any] = [
@@ -18636,16 +18735,38 @@ struct CMUXCLI {
             return ["decision": codexTeamsCommandApprovalDecision(params: params, mode: mode)]
         case "item/fileChange/requestApproval":
             return ["decision": codexTeamsFileChangeApprovalDecision(params: params, mode: mode)]
+        case "item/permissions/requestApproval":
+            return codexTeamsPermissionsApprovalResponse(params: params, mode: mode)
         default:
             return nil
         }
     }
 
-    static func codexTeamsCommandApprovalDecision(params: [String: Any], mode: String) -> String {
+    static func codexTeamsCommandApprovalDecision(params: [String: Any], mode: String) -> Any {
         if mode == "deny" { return "decline" }
         if codexTeamsModeRequestsPersistentApproval(mode),
            codexTeamsAvailableDecisions(params).contains("acceptForSession") {
             return "acceptForSession"
+        }
+        if codexTeamsModeRequestsPersistentApproval(mode),
+           codexTeamsAvailableDecisions(params).contains("acceptWithExecpolicyAmendment"),
+           let amendment = params["proposedExecpolicyAmendment"] ?? params["proposed_execpolicy_amendment"] {
+            return [
+                "acceptWithExecpolicyAmendment": [
+                    "execpolicy_amendment": amendment
+                ]
+            ]
+        }
+        if codexTeamsModeRequestsPersistentApproval(mode),
+           codexTeamsAvailableDecisions(params).contains("applyNetworkPolicyAmendment"),
+           let amendments = (params["proposedNetworkPolicyAmendments"] as? [Any])
+                ?? (params["proposed_network_policy_amendments"] as? [Any]),
+           let amendment = amendments.first {
+            return [
+                "applyNetworkPolicyAmendment": [
+                    "network_policy_amendment": amendment
+                ]
+            ]
         }
         return "accept"
     }
@@ -18657,6 +18778,19 @@ struct CMUXCLI {
             return "acceptForSession"
         }
         return "accept"
+    }
+
+    static func codexTeamsPermissionsApprovalResponse(params: [String: Any], mode: String) -> [String: Any] {
+        if mode == "deny" {
+            return [
+                "permissions": [String: Any](),
+                "scope": "turn"
+            ]
+        }
+        return [
+            "permissions": params["permissions"] ?? [String: Any](),
+            "scope": codexTeamsModeRequestsPersistentApproval(mode) ? "session" : "turn"
+        ]
     }
 
     static func codexTeamsModeRequestsPersistentApproval(_ mode: String) -> Bool {

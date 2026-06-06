@@ -80,9 +80,21 @@ final class FeedCoordinatorTests: XCTestCase {
                 "command": "touch /tmp/cmux-security-review",
                 "cwd": "/tmp/project",
                 "reason": "requires approval",
+                "additionalPermissions": [
+                    "fileSystem": ["write": ["/tmp/project"]]
+                ],
+                "networkApprovalContext": ["host": "example.com"],
+                "commandActions": [["type": "write", "path": "/tmp/cmux-security-review"]],
+                "proposedExecpolicyAmendment": [["kind": "prefix", "value": "touch"]],
                 "availableDecisions": ["accept", "acceptForSession", "decline"]
             ],
-            workspaceId: "workspace-1"
+            workspaceId: "workspace-1",
+            relatedItem: [
+                "type": "commandExecution",
+                "id": "call-1",
+                "command": "touch /tmp/cmux-security-review",
+                "cwd": "/tmp/project"
+            ]
         )
 
         XCTAssertEqual(event["session_id"] as? String, "codex-thread-1")
@@ -99,10 +111,76 @@ final class FeedCoordinatorTests: XCTestCase {
         XCTAssertEqual(toolInput["item_id"] as? String, "approval-1")
         XCTAssertEqual(toolInput["turn_id"] as? String, "turn-1")
         XCTAssertEqual(toolInput["command"] as? String, "touch /tmp/cmux-security-review")
+        XCTAssertNotNil(toolInput["approval_params"])
+        XCTAssertNotNil(toolInput["additional_permissions"])
+        XCTAssertNotNil(toolInput["network_approval_context"])
+        XCTAssertNotNil(toolInput["command_actions"])
+        XCTAssertNotNil(toolInput["proposed_execpolicy_amendment"])
+        XCTAssertEqual((toolInput["related_item"] as? [String: Any])?["type"] as? String, "commandExecution")
 
         let context = try XCTUnwrap(event["context"] as? [String: Any])
         XCTAssertEqual(context["permissionMode"] as? String, "codex app-server")
         XCTAssertEqual(context["assistantPreamble"] as? String, "requires approval")
+    }
+
+    func testCodexAppServerPermissionsApprovalBuildsFeedEventAndResponse() throws {
+        let permissions: [String: Any] = [
+            "network": ["enabled": true],
+            "fileSystem": [
+                "read": ["/tmp/read"],
+                "write": ["/tmp/write"]
+            ]
+        ]
+        let event = CMUXCLI.codexTeamsFeedEvent(
+            method: "item/permissions/requestApproval",
+            requestId: "permissions-request",
+            params: [
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "itemId": "permissions-call",
+                "environmentId": "local",
+                "cwd": "/tmp/project",
+                "reason": "Need broader access",
+                "permissions": permissions
+            ],
+            workspaceId: "workspace-1"
+        )
+
+        XCTAssertEqual(event["tool_name"] as? String, "request_permissions")
+        XCTAssertEqual(event["_opencode_request_id"] as? String, "codex-app-server-permissions-call")
+        let toolInput = try XCTUnwrap(event["tool_input"] as? [String: Any])
+        XCTAssertEqual(toolInput["app_server_method"] as? String, "item/permissions/requestApproval")
+        XCTAssertNotNil(toolInput["approval_params"])
+        XCTAssertNotNil(toolInput["permissions"])
+
+        let once = try XCTUnwrap(
+            CMUXCLI.codexTeamsAppServerApprovalResponse(
+                method: "item/permissions/requestApproval",
+                params: ["permissions": permissions],
+                mode: "once"
+            )
+        )
+        XCTAssertEqual(once["scope"] as? String, "turn")
+        XCTAssertNotNil(once["permissions"])
+
+        let always = try XCTUnwrap(
+            CMUXCLI.codexTeamsAppServerApprovalResponse(
+                method: "item/permissions/requestApproval",
+                params: ["permissions": permissions],
+                mode: "always"
+            )
+        )
+        XCTAssertEqual(always["scope"] as? String, "session")
+
+        let deny = try XCTUnwrap(
+            CMUXCLI.codexTeamsAppServerApprovalResponse(
+                method: "item/permissions/requestApproval",
+                params: ["permissions": permissions],
+                mode: "deny"
+            )
+        )
+        XCTAssertEqual(deny["scope"] as? String, "turn")
+        XCTAssertEqual((deny["permissions"] as? [String: Any])?.isEmpty, true)
     }
 
     func testCodexAppServerApprovalResponseFollowsFeedDecision() {
@@ -125,6 +203,15 @@ final class FeedCoordinatorTests: XCTestCase {
             )?["decision"] as? String,
             "acceptForSession"
         )
+        let amendmentDecision = CMUXCLI.codexTeamsAppServerApprovalResponse(
+            method: "item/commandExecution/requestApproval",
+            params: [
+                "availableDecisions": [["acceptWithExecpolicyAmendment": [:]]],
+                "proposedExecpolicyAmendment": [["kind": "prefix", "value": "npm test"]]
+            ],
+            mode: "always"
+        )?["decision"] as? [String: Any]
+        XCTAssertNotNil(amendmentDecision?["acceptWithExecpolicyAmendment"])
         XCTAssertEqual(
             CMUXCLI.codexTeamsAppServerApprovalResponse(
                 method: "item/fileChange/requestApproval",
