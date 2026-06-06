@@ -93,6 +93,66 @@ final class TerminalNotificationQueueTests: XCTestCase {
         )
     }
 
+    func testNotifyTargetAsyncAgentStatusKeyAcknowledgesLocalizedTitle() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100
+        )
+        workspace.recordAgentPID(
+            key: "claude_code.session-localized-title",
+            pid: pid_t(12345),
+            panelId: focusedPanelId,
+            refreshPorts: false
+        )
+
+        let args = """
+        \(workspace.id.uuidString) \(focusedPanelId.uuidString) --agent-status-key=claude_code Localized Claude Code|Waiting|Claude needs your input
+        """
+        XCTAssertEqual(TerminalController.debugNotifyTargetQueuedResponseForTesting(args), "OK")
+        TerminalMutationBus.shared.drainForTesting()
+
+        let notification = try XCTUnwrap(store.notifications.first)
+        XCTAssertEqual(notification.title, "Localized Claude Code")
+
+        store.markRead(id: notification.id)
+
+        let status = try XCTUnwrap(workspace.statusEntries["claude_code"])
+        XCTAssertEqual(status.value, "Idle")
+        XCTAssertEqual(status.icon, "pause.circle.fill")
+        XCTAssertEqual(status.color, "#8E8E93")
+        XCTAssertEqual(status.priority, 0)
+    }
+
     func testClearNotificationsDropsQueuedNotifyBeforeDrain() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
