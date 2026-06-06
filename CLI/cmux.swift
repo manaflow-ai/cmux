@@ -5864,9 +5864,14 @@ struct CMUXCLI {
         if isUUID(trimmed) || isHandleRef(trimmed) {
             return trimmed
         }
-        guard let wantedIndex = Int(trimmed) else {
+        guard let wantedOrdinal = Int(trimmed) else {
             throw CLIError(message: "Invalid page handle: \(trimmed) (expected UUID, ref like page:1, or index)")
         }
+        guard wantedOrdinal > 0 else {
+            throw CLIError(message: "Page index not found")
+        }
+        // Bare numeric page handles are one-based like the CLI help/UI. page.list returns zero-based indexes.
+        let wantedIndex = wantedOrdinal - 1
 
         var params: [String: Any] = [:]
         if let workspaceHandle {
