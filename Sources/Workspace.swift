@@ -11449,6 +11449,7 @@ final class Workspace: Identifiable, ObservableObject {
         terminalPanel.surface.workspaceThemeSelectionProvider = { [weak self] in
             self?.ghosttyThemeSelection
         }
+        applyGhosttyTheme(to: terminalPanel, source: "workspace.configureTerminalPanel.theme")
         terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
             guard let self, let terminalPanel else { return }
             self.triggerWorkspacePaneFlash(panelId: terminalPanel.id, reason: reason)
@@ -12133,34 +12134,46 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func reloadTerminalGhosttyTheme(source: String) {
-        let preferredColorScheme = GhosttyApp.shared.effectiveTerminalColorSchemePreference
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
-            let liveSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
-                reason: "workspace.reloadTerminalGhosttyTheme"
-            )
-            guard let liveSurface else { continue }
-            GhosttyApp.shared.reloadSurfaceConfiguration(
-                liveSurface,
-                soft: false,
-                source: source,
-                preferredColorScheme: preferredColorScheme,
-                workspaceTheme: ghosttyThemeSelection
-            )
+            applyGhosttyTheme(to: terminalPanel, source: source)
+        }
+
+        let preferredColorScheme = GhosttyApp.shared.effectiveTerminalColorSchemePreference
+        let config = ghosttyAppearanceConfigForWorkspaceTheme(preferredColorScheme: preferredColorScheme)
+        applyGhosttyChrome(from: config, reason: source)
+    }
+
+    private func applyGhosttyTheme(to terminalPanel: TerminalPanel, source: String) {
+        let preferredColorScheme = GhosttyApp.shared.effectiveTerminalColorSchemePreference
+        let liveSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+            reason: "workspace.applyGhosttyTheme"
+        )
+        guard let liveSurface else {
             terminalPanel.hostedView.applyWorkspaceThemeBackground(
                 selection: ghosttyThemeSelection,
                 preferredColorScheme: preferredColorScheme,
                 reason: source
             )
-            terminalPanel.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
-                preferredColorScheme: preferredColorScheme
-            )
-            terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
-            terminalPanel.surface.forceRefresh(reason: "workspace.theme.reload")
+            return
         }
-
-        let config = ghosttyAppearanceConfigForWorkspaceTheme(preferredColorScheme: preferredColorScheme)
-        applyGhosttyChrome(from: config, reason: source)
+        GhosttyApp.shared.reloadSurfaceConfiguration(
+            liveSurface,
+            soft: false,
+            source: source,
+            preferredColorScheme: preferredColorScheme,
+            workspaceTheme: ghosttyThemeSelection
+        )
+        terminalPanel.hostedView.applyWorkspaceThemeBackground(
+            selection: ghosttyThemeSelection,
+            preferredColorScheme: preferredColorScheme,
+            reason: source
+        )
+        terminalPanel.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
+            preferredColorScheme: preferredColorScheme
+        )
+        terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
+        terminalPanel.surface.forceRefresh(reason: "workspace.theme.reload")
     }
 
     private func ghosttyAppearanceConfigForWorkspaceTheme(
