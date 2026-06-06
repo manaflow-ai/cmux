@@ -388,17 +388,17 @@ Identity and targeting:
 
 Implemented CLI surface:
 
-1. `list-pages [--workspace <id|ref>]`
-2. `current-page [--workspace <id|ref>]`
-3. `new-page [--workspace <id|ref>] [--title <text>]`
-4. `duplicate-page [--workspace <id|ref>] [--page <id|ref>] [--title <text>]`
-5. `select-page --page <id|ref|index> [--workspace <id|ref>]`
-6. `rename-page [--workspace <id|ref>] [--page <id|ref>] <title>`
-7. `close-page [--page <id|ref>] [--workspace <id|ref>]`
-8. `reorder-page --page <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--workspace <id|ref>]`
-9. `next-page [--workspace <id|ref>]`
-10. `previous-page [--workspace <id|ref>]`
-11. `last-page [--workspace <id|ref>]`
+1. `list-pages [--workspace <id|ref|index>] [--window <id|ref|index>]`
+2. `current-page [--workspace <id|ref|index>] [--window <id|ref|index>]`
+3. `new-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>]`
+4. `duplicate-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index>] [--title <text>]`
+5. `select-page --page <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]`
+6. `rename-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index>] <title>`
+7. `close-page [--page <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]`
+8. `reorder-page --page <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--workspace <id|ref|index>] [--window <id|ref|index>]`
+9. `next-page [--workspace <id|ref|index>] [--window <id|ref|index>]`
+10. `previous-page [--workspace <id|ref|index>] [--window <id|ref|index>]`
+11. `last-page [--workspace <id|ref|index>] [--window <id|ref|index>]`
 
 ## Non-Goals For V1
 
