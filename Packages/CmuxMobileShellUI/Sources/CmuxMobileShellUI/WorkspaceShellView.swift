@@ -64,8 +64,8 @@ struct WorkspaceShellView: View {
                 createWorkspace: createWorkspaceInCompactStack,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
-                renameWorkspace: renameWorkspace,
-                setPinned: setWorkspacePinned
+                renameWorkspace: store.supportsWorkspaceActions ? renameWorkspace : nil,
+                setPinned: store.supportsWorkspaceActions ? setWorkspacePinned : nil
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -116,8 +116,8 @@ struct WorkspaceShellView: View {
                 createWorkspace: store.createWorkspace,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
-                renameWorkspace: renameWorkspace,
-                setPinned: setWorkspacePinned
+                renameWorkspace: store.supportsWorkspaceActions ? renameWorkspace : nil,
+                setPinned: store.supportsWorkspaceActions ? setWorkspacePinned : nil
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {

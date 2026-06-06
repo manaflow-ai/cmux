@@ -20765,6 +20765,10 @@ class TerminalController {
             "terminal.render_grid.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",
+            // Advertises the mobile-gated workspace.action handler (pin/unpin/
+            // rename). Lets the iOS client hide rename/pin when paired with an
+            // older Mac that lacks the handler.
+            "workspace.actions.v1",
         ]
         guard includePrivateMetadata else {
             return .ok([
