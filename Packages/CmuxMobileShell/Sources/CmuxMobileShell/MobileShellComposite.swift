@@ -519,14 +519,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// active marker on its own).
     public private(set) var pairedMacs: [MobilePairedMac] = []
 
-    /// Reload ``pairedMacs`` from the store, scoped to the signed-in user.
+    /// Reload ``pairedMacs`` from the store, scoped to the signed-in Stack user.
+    ///
+    /// A missing current Stack user id yields no pairings rather than falling
+    /// back to the unscoped all-users query, so a shared device never exposes
+    /// another user's Macs in the switcher.
     public func loadPairedMacs() async {
-        guard let pairedMacStore, isSignedIn else {
+        guard let pairedMacStore, isSignedIn,
+              let stackUserID = identityProvider?.currentUserID else {
             pairedMacs = []
             return
         }
         do {
-            pairedMacs = try await pairedMacStore.loadAll(stackUserID: identityProvider?.currentUserID)
+            pairedMacs = try await pairedMacStore.loadAll(stackUserID: stackUserID)
         } catch {
             mobileShellLog.error("paired mac store loadAll failed: \(String(describing: error), privacy: .public)")
         }
@@ -548,12 +553,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let (host, port) = Self.firstReconnectHostPortRoute(
             target.routes,
             supportedKinds: supportedKinds
-        ) else {
+        ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .public)")
             return
         }
         await connectManualHost(name: target.displayName ?? host, host: host, port: port)
-        if connectionState == .connected {
+        // Persist the active row only if the live connection is to THIS Mac's
+        // route. A different switch tapped while this connect was in flight
+        // supersedes it via `beginPairingAttempt`, leaving `connectionState`
+        // `.connected` for the other Mac; matching the live route prevents this
+        // superseded task from persisting a stale active target.
+        if connectionState == .connected,
+           case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
+           liveHost == normalizedHost, livePort == port {
             do {
                 try await pairedMacStore.setActive(macDeviceID: macDeviceID)
             } catch {
@@ -563,19 +575,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await loadPairedMacs()
     }
 
-    /// Forget `macDeviceID`. If it is the active Mac the live connection is
-    /// dropped too; otherwise only the stored entry is removed.
+    /// Forget `macDeviceID`. Always removes the selected stored row by its real
+    /// id, and additionally tears down the live connection when that row is the
+    /// active one (the live attach ticket can carry a transient manual id, so we
+    /// must not rely on it to identify the row being forgotten).
     /// - Parameter macDeviceID: The stored Mac to forget.
     public func forgetMac(macDeviceID: String) async {
         let isActiveMac = pairedMacs.first(where: { $0.macDeviceID == macDeviceID })?.isActive ?? false
         if isActiveMac, connectionState == .connected {
-            disconnectAndForgetActiveMac()
-        } else {
-            do {
-                try await pairedMacStore?.remove(macDeviceID: macDeviceID)
-            } catch {
-                mobileShellLog.error("paired mac store remove failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
-            }
+            disconnectLiveConnection()
+        }
+        do {
+            try await pairedMacStore?.remove(macDeviceID: macDeviceID)
+        } catch {
+            mobileShellLog.error("paired mac store remove failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
         await loadPairedMacs()
     }
@@ -684,14 +697,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// session starts from a fresh QR scan. Clears in-memory state and the
     /// persisted active flag (other macs in SQLite stay, but none are marked
     /// active so reconnect-on-launch is a no-op until the user pairs again).
-    public func disconnectAndForgetActiveMac() {
-        let staleMacID = activeTicket?.macDeviceID
+    /// Tear down the live connection and reset connection UI state, without
+    /// touching the paired-Mac store.
+    private func disconnectLiveConnection() {
         pairingAttemptID = UUID()
         connectionError = nil
         connectionRequiresReauth = false
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
+    }
+
+    public func disconnectAndForgetActiveMac() {
+        let staleMacID = activeTicket?.macDeviceID
+        disconnectLiveConnection()
         if let pairedMacStore, let macID = staleMacID {
             // Fire-and-forget: forgetting the persisted mac is cleanup that must
             // not block the synchronous disconnect UI state update above.
