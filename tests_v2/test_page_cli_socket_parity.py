@@ -268,6 +268,26 @@ def main() -> int:
                 f"current-page CLI should agree with page.last: {current_cli}",
             )
 
+            socket_closed_current = c._call("page.close", {"workspace_id": workspace_id}) or {}
+            _must(
+                str(socket_closed_current.get("page_id") or "") == second_page_id,
+                f"page.close without page_id should close the active page: {socket_closed_current}",
+            )
+            _must(
+                str(socket_closed_current.get("selected_page_id") or "") == first_page_id,
+                f"page.close without page_id should select the nearest surviving neighbor: {socket_closed_current}",
+            )
+            after_socket_close_list = _run_cli_json(cli, ["list-pages", "--workspace", workspace_id])
+            after_socket_close_titles, after_socket_close_selected = _page_titles_and_selected(after_socket_close_list)
+            _must(
+                after_socket_close_titles == ["database", "agents"],
+                f"list-pages should reflect socket current-page close: {after_socket_close_list}",
+            )
+            _must(
+                after_socket_close_selected == ["agents"],
+                f"list-pages should keep agents selected after socket current-page close: {after_socket_close_list}",
+            )
+
             closed = _run_cli_json(
                 cli,
                 ["close-page", "--workspace", workspace_id, "--page", duplicate_page_ref],
@@ -280,7 +300,7 @@ def main() -> int:
 
             final_list = _run_cli_json(cli, ["list-pages", "--workspace", workspace_id])
             final_titles, final_selected = _page_titles_and_selected(final_list)
-            _must(final_titles == ["agents", "editor"], f"list-pages should reflect closed duplicate page: {final_list}")
+            _must(final_titles == ["agents"], f"list-pages should reflect closed duplicate page: {final_list}")
             _must(final_selected == ["agents"], f"list-pages should report agents selected after close: {final_list}")
             _must(str(final_list.get("page_id") or "") == first_page_id, f"list-pages active page mismatch after close: {final_list}")
             _must(
