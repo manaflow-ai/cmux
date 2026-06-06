@@ -50,6 +50,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
+    private static let diagnosticsImmediateEventLimit = 50
 
     /// How long the render-grid stream may stay silent (no event of any topic)
     /// before the liveness watchdog assumes the push subscription is dead and
@@ -72,7 +73,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // does not fire for the `init` assignment, so this only records real
             // transitions. Routed to the in-process sink directly (NOT the
             // DEBUG-gated `anchormux`) so it lands in the shipped diagnostics log.
-            MobileDebugLog.shared.append("auth.signedIn=\(isSignedIn)")
+            recordDiagnosticsEvent("auth.signedIn=\(isSignedIn)")
         }
     }
     /// Coarse pairing/workspace phase used by the shell state machine.
@@ -82,7 +83,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Release-path high-signal event: connection-state transition
             // (connect / disconnect / pairing success → .connected).
             let host = connectedHostName.isEmpty ? "-" : connectedHostName
-            MobileDebugLog.shared.append("conn.state=\(connectionState) host=\(host)")
+            recordDiagnosticsEvent("conn.state=\(connectionState) host=\(host)")
         }
     }
     /// User-facing health of the current Mac connection.
@@ -96,7 +97,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // failure flows through `connectionError`, so logging non-nil
             // transitions here captures them in one place.
             guard let error = connectionError, oldValue != connectionError else { return }
-            MobileDebugLog.shared.append("conn.error=\(error)")
+            recordDiagnosticsEvent("conn.error=\(error)")
         }
     }
     /// In-memory attach ticket for the current connection attempt.
@@ -170,6 +171,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalOutputTransport: TerminalOutputTransport
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
+    private var diagnosticsImmediateEvents: [String] = []
+
+    /// Synchronous mirror of recent high-signal state events.
+    ///
+    /// The shipped debug sink is actor-backed and safe for IO/render threads, so
+    /// synchronous callers append through a fire-and-forget task. This mirror lets
+    /// diagnostics include a just-recorded main-actor state transition even when
+    /// the actor write has not run yet.
+    public var diagnosticsImmediateEventLines: [String] {
+        diagnosticsImmediateEvents
+    }
 
     public var phase: MobileShellPhase {
         if !isSignedIn {
@@ -179,6 +191,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .pairing
         }
         return .workspaces
+    }
+
+    private func recordDiagnosticsEvent(_ message: String) {
+        diagnosticsImmediateEvents.append(message)
+        if diagnosticsImmediateEvents.count > Self.diagnosticsImmediateEventLimit {
+            diagnosticsImmediateEvents.removeFirst(diagnosticsImmediateEvents.count - Self.diagnosticsImmediateEventLimit)
+        }
+        MobileDebugLog.shared.append(message)
     }
 
     public var selectedWorkspace: MobileWorkspacePreview? {
@@ -261,6 +281,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Creates a shell store populated with deterministic preview workspaces.
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
         CMUXMobileShellStore(runtime: runtime, workspaces: PreviewMobileHost.workspaces)
     }
@@ -837,6 +858,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Cancels the active pairing attempt and returns the shell to disconnected state.
     public func cancelPairing() {
         pairingAttemptID = UUID()
         connectionError = nil

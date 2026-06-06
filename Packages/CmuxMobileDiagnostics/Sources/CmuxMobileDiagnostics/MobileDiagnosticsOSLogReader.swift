@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(OSLog)
 internal import OSLog
+#endif
 
 /// Best-effort reader of the current process's unified-log entries, used as a
 /// *supplement* to the in-process ``MobileDebugLogSink`` (the primary log
@@ -54,6 +56,7 @@ public actor MobileDiagnosticsOSLogReader {
             "ai.manaflow.cmux",
             "ai.manaflow.cmux.ios",
             "com.cmuxterm.app",
+            "dev.cmux.ios",
         ]
         if let bundleID = Bundle.main.bundleIdentifier {
             set.insert(bundleID)

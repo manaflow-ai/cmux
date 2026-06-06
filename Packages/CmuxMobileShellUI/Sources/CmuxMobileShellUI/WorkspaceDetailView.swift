@@ -413,7 +413,8 @@ struct WorkspaceDetailView: View {
         )
         return await builder.buildReport(
             liveState: liveState,
-            terminalSnapshot: terminalText
+            terminalSnapshot: terminalText,
+            immediateEventLines: store.diagnosticsImmediateEventLines
         )
     }
 

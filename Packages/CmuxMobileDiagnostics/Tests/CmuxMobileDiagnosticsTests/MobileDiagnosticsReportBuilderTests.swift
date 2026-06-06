@@ -3,7 +3,10 @@ import Testing
 @testable import CmuxMobileDiagnostics
 
 @Suite struct MobileDiagnosticsReportBuilderTests {
-    private func makeBuilder(now: Date = Date(timeIntervalSince1970: 1_700_000_000)) -> MobileDiagnosticsReportBuilder {
+    private func makeBuilder(
+        sink: MobileDebugLogSink = MobileDebugLogSink(),
+        now: Date = Date(timeIntervalSince1970: 1_700_000_000)
+    ) -> MobileDiagnosticsReportBuilder {
         let env = MobileDiagnosticsEnvironment(
             appName: "cmux",
             appVersion: "0.64.0",
@@ -14,7 +17,7 @@ import Testing
         )
         return MobileDiagnosticsReportBuilder(
             environment: env,
-            sink: MobileDebugLogSink(),
+            sink: sink,
             now: { now }
         )
     }
@@ -136,5 +139,38 @@ import Testing
         #expect(report.text.contains("VISIBLE TERMINAL SNAPSHOT"))
         #expect(report.text.contains("token=<redacted>"))
         #expect(!report.text.contains("ghp_abcdefghijklmnopqrstuvwxyz012345"))
+    }
+
+    @Test func buildReportIncludesPendingImmediateEvents() async {
+        let builder = makeBuilder()
+        let report = await builder.buildReport(
+            liveState: makeState(),
+            terminalSnapshot: nil,
+            immediateEventLines: ["conn.state=connected host=studio.local"]
+        )
+
+        #expect(report.text.contains("IN-PROCESS LOG (1 lines)"))
+        #expect(report.text.contains("[pending] conn.state=connected host=studio.local"))
+    }
+
+    @Test func buildReportDoesNotDuplicateImmediateEventsAlreadyInSink() async {
+        let sink = MobileDebugLogSink()
+        await sink.append("conn.state=connected host=studio.local")
+        let builder = makeBuilder(sink: sink)
+        let report = await builder.buildReport(
+            liveState: makeState(),
+            terminalSnapshot: nil,
+            immediateEventLines: ["conn.state=connected host=studio.local"]
+        )
+
+        #expect(report.text.contains("IN-PROCESS LOG (1 lines)"))
+        #expect(!report.text.contains("[pending] conn.state=connected host=studio.local"))
+    }
+
+    @Test func defaultOSLogSubsystemsIncludeBetaAndRootSceneSubsystems() {
+        let subsystems = MobileDiagnosticsOSLogReader.defaultSubsystems
+
+        #expect(subsystems.contains("dev.cmux.ios"))
+        #expect(subsystems.contains("ai.manaflow.cmux.ios"))
     }
 }

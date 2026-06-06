@@ -73,15 +73,23 @@ public actor MobileDiagnosticsReportBuilder {
     /// - Returns: The scrubbed report text.
     public func buildReport(
         liveState: MobileDiagnosticsLiveState,
-        terminalSnapshot: String?
+        terminalSnapshot: String?,
+        immediateEventLines: [String] = []
     ) async -> MobileDiagnosticsReport {
         let (logCount, logBody) = await sink.snapshotWithCount()
         let osLog = await osLogReader.recentEntriesText()
+        let pendingImmediateEvents = immediateEventLines
+            .filter { event in logBody.contains(event) == false }
+            .map { "[pending] \($0)" }
+        let immediateEventBody = pendingImmediateEvents.joined(separator: "\n")
+        let combinedLogBody = [logBody, immediateEventBody]
+            .filter { $0.isEmpty == false }
+            .joined(separator: "\n")
 
         let raw = composeReport(
             liveState: liveState,
-            logCount: logCount,
-            logBody: logBody,
+            logCount: logCount + pendingImmediateEvents.count,
+            logBody: combinedLogBody,
             osLog: osLog,
             terminalSnapshot: terminalSnapshot
         )
