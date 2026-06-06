@@ -1063,25 +1063,25 @@ private extension SessionEntry {
 }
 
 private enum SessionTranscriptLoader {
-    private static let streamChunkSize = 256 * 1024
-    private static let maxPreviewRecordBytes = 2 * 1024 * 1024
-    private static let maxPreviewTurns = 500
-    private static let maxTurnTextCharacters = 40_000
-    private static let antigravityPreviewMaxScanBytes = 16 * 1024 * 1024
-    private static let antigravityPreviewMaxScanLines = 20_000
-    private static let newlineByte: UInt8 = 10
+    nonisolated private static let streamChunkSize = 256 * 1024
+    nonisolated private static let maxPreviewRecordBytes = 2 * 1024 * 1024
+    nonisolated private static let maxPreviewTurns = 500
+    nonisolated private static let maxTurnTextCharacters = 40_000
+    nonisolated private static let antigravityPreviewMaxScanBytes = SessionIndexStore.antigravityHistoryMaximumScanBytes
+    nonisolated private static let antigravityPreviewMaxScanLines = SessionIndexStore.antigravityHistoryMaximumScanLines
+    nonisolated private static let newlineByte: UInt8 = 10
 
-    private static let claudeUserNeedles = [
+    nonisolated private static let claudeUserNeedles = [
         Data(#""type":"user""#.utf8),
         Data(#""type": "user""#.utf8),
         Data(#""type":"assistant""#.utf8),
         Data(#""type": "assistant""#.utf8)
     ]
-    private static let codexResponseItemNeedles = [
+    nonisolated private static let codexResponseItemNeedles = [
         Data(#""type":"response_item""#.utf8),
         Data(#""type": "response_item""#.utf8)
     ]
-    private static let codexPreviewNeedles = [
+    nonisolated private static let codexPreviewNeedles = [
         Data(#""role":"user""#.utf8),
         Data(#""role": "user""#.utf8),
         Data(#""role":"assistant""#.utf8),
@@ -1091,7 +1091,7 @@ private enum SessionTranscriptLoader {
         Data(#""type":"function_call_output""#.utf8),
         Data(#""type": "function_call_output""#.utf8)
     ]
-    private static let genericRoleNeedles = [
+    nonisolated private static let genericRoleNeedles = [
         Data(#""role":"#.utf8),
         Data(#""role": "#.utf8)
     ]

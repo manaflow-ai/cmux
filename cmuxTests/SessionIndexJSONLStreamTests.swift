@@ -115,4 +115,33 @@ final class SessionIndexJSONLStreamTests: XCTestCase {
         XCTAssertEqual(visited, [4, 3])
         XCTAssertEqual(summary.stopReason, .maxBytes)
     }
+
+    func testForwardJSONLStreamFlushesTrailingLineAtExactByteBudget() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-jsonl-forward-exact-budget-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let records = [
+            #"{"index":0}"#,
+            #"{"index":1}"#
+        ]
+        let payload = records.joined(separator: "\n")
+        let historyURL = tempDir.appendingPathComponent("history.jsonl", isDirectory: false)
+        try payload.write(to: historyURL, atomically: true, encoding: .utf8)
+
+        var visited: [Int] = []
+        let summary = SessionIndexStore.forEachJSONLine(
+            url: historyURL,
+            maxBytes: Data(payload.utf8).count
+        ) { object in
+            if let index = object["index"] as? Int {
+                visited.append(index)
+            }
+            return false
+        }
+
+        XCTAssertEqual(visited, [0, 1])
+        XCTAssertEqual(summary.stopReason, .completed)
+    }
 }

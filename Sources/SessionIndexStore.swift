@@ -1061,16 +1061,30 @@ final class SessionIndexStore: ObservableObject {
             return SessionIndexJSONLStreamSummary(stopReason: .missingFile)
         }
         defer { try? handle.close() }
+        let fileSize = jsonLineFileSize(url: url)
         switch direction {
         case .forward:
-            return streamJSONLinesForward(handle: handle, maxBytes: maxBytes, maxLines: maxLines, body: body)
+            return streamJSONLinesForward(
+                handle: handle,
+                fileSize: fileSize,
+                maxBytes: maxBytes,
+                maxLines: maxLines,
+                body: body
+            )
         case .reverse:
-            return streamJSONLinesReverse(url: url, handle: handle, maxBytes: maxBytes, maxLines: maxLines, body: body)
+            return streamJSONLinesReverse(
+                handle: handle,
+                fileSize: fileSize,
+                maxBytes: maxBytes,
+                maxLines: maxLines,
+                body: body
+            )
         }
     }
 
     nonisolated private static func streamJSONLinesForward(
         handle: FileHandle,
+        fileSize: UInt64,
         maxBytes: Int,
         maxLines: Int?,
         body: ([String: Any]) -> Bool
@@ -1109,7 +1123,8 @@ final class SessionIndexStore: ObservableObject {
             }
         }
         // Flush trailing line if no newline at EOF.
-        if reachedEOF, !leftover.isEmpty,
+        let didReadEntireFile = fileSize > 0 && UInt64(summary.bytesRead) >= fileSize
+        if (reachedEOF || didReadEntireFile), !leftover.isEmpty,
            let stopReason = processJSONLineData(
                in: leftover,
                range: leftover.startIndex..<leftover.endIndex,
@@ -1120,20 +1135,18 @@ final class SessionIndexStore: ObservableObject {
             summary.stopReason = stopReason
             return summary
         }
-        summary.stopReason = reachedEOF ? .completed : .maxBytes
+        summary.stopReason = (reachedEOF || didReadEntireFile) ? .completed : .maxBytes
         return summary
     }
 
     nonisolated private static func streamJSONLinesReverse(
-        url: URL,
         handle: FileHandle,
+        fileSize: UInt64,
         maxBytes: Int,
         maxLines: Int?,
         body: ([String: Any]) -> Bool
     ) -> SessionIndexJSONLStreamSummary {
         var summary = SessionIndexJSONLStreamSummary()
-        let fileSize = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?
-            .uint64Value ?? 0
         guard fileSize > 0 else {
             return summary
         }
@@ -1154,7 +1167,6 @@ final class SessionIndexStore: ObservableObject {
             var buffer = chunk
             if !carry.isEmpty {
                 buffer.append(carry)
-                carry.removeAll(keepingCapacity: true)
             }
 
             var searchEnd = buffer.endIndex
@@ -1194,6 +1206,11 @@ final class SessionIndexStore: ObservableObject {
         }
         summary.stopReason = position == 0 ? .completed : .maxBytes
         return summary
+    }
+
+    nonisolated private static func jsonLineFileSize(url: URL) -> UInt64 {
+        ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?
+            .uint64Value ?? 0
     }
 
     nonisolated private static func shouldProcessReverseCarry(

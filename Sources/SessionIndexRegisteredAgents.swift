@@ -261,11 +261,11 @@ extension SessionIndexStore {
         var branch: String?
     }
 
-    nonisolated private static let antigravityHistoryMinimumScanBytes = 2 * 1024 * 1024
-    nonisolated private static let antigravityHistoryMaximumScanBytes = 24 * 1024 * 1024
+    nonisolated static let antigravityHistoryMinimumScanBytes = 2 * 1024 * 1024
+    nonisolated static let antigravityHistoryMaximumScanBytes = 24 * 1024 * 1024
     nonisolated private static let antigravityHistoryBytesPerRequestedEntry = 256 * 1024
-    nonisolated private static let antigravityHistoryMinimumScanLines = 512
-    nonisolated private static let antigravityHistoryMaximumScanLines = 12_000
+    nonisolated static let antigravityHistoryMinimumScanLines = 512
+    nonisolated static let antigravityHistoryMaximumScanLines = 12_000
     nonisolated private static let antigravityHistoryLinesPerRequestedEntry = 64
 
     nonisolated static func loadGrokEntries(
@@ -497,9 +497,10 @@ extension SessionIndexStore {
         let fm = FileManager.default
         var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
         var sessionIDsInReverseHistoryOrder: [String] = []
+        var targetSessionIDs = Set<String>()
+        var stableTargetMetadataCount = 0
         let scanLimits = antigravityHistoryScanLimits(offset: offset, limit: limit)
-        let requested = offset > Int.max - limit ? Int.max : offset + limit
-        let target = max(1, requested)
+        let target = antigravityHistoryTarget(offset: offset, limit: limit)
 
         for root in roots {
             if Task.isCancelled { break }
@@ -545,17 +546,26 @@ extension SessionIndexStore {
                     fileURL: historyURL
                 )
                 if let existing = latestBySessionID[sessionId] {
-                    latestBySessionID[sessionId] = existing.mergingMissingFields(from: metadata)
+                    let wasStable = existing.hasStableListMetadata
+                    let merged = existing.mergingMissingFields(from: metadata)
+                    latestBySessionID[sessionId] = merged
+                    if targetSessionIDs.contains(sessionId),
+                       !wasStable,
+                       merged.hasStableListMetadata {
+                        stableTargetMetadataCount += 1
+                    }
                     return false
                 }
                 latestBySessionID[sessionId] = metadata
                 sessionIDsInReverseHistoryOrder.append(sessionId)
+                if sessionIDsInReverseHistoryOrder.count <= target {
+                    _ = targetSessionIDs.insert(sessionId)
+                    if metadata.hasStableListMetadata {
+                        stableTargetMetadataCount += 1
+                    }
+                }
                 if sessionIDsInReverseHistoryOrder.count >= target,
-                   antigravityTargetMetadataIsStable(
-                       sessionIDs: sessionIDsInReverseHistoryOrder,
-                       target: target,
-                       latestBySessionID: latestBySessionID
-                   ) {
+                   stableTargetMetadataCount >= target {
                     return true
                 }
                 return false
@@ -581,19 +591,8 @@ extension SessionIndexStore {
         return Array(entries.dropFirst(offset).prefix(limit))
     }
 
-    nonisolated private static func antigravityTargetMetadataIsStable(
-        sessionIDs: [String],
-        target: Int,
-        latestBySessionID: [String: AntigravityHistoryMetadata]
-    ) -> Bool {
-        sessionIDs.prefix(target).allSatisfy { sessionId in
-            latestBySessionID[sessionId]?.hasStableListMetadata == true
-        }
-    }
-
     nonisolated private static func antigravityHistoryScanLimits(offset: Int, limit: Int) -> (maxBytes: Int, maxLines: Int) {
-        let requested = offset > Int.max - limit ? Int.max : offset + limit
-        let target = max(1, requested)
+        let target = antigravityHistoryTarget(offset: offset, limit: limit)
         let byteBudget = scaledBound(
             target: target,
             unit: antigravityHistoryBytesPerRequestedEntry,
@@ -607,6 +606,11 @@ extension SessionIndexStore {
             maximum: antigravityHistoryMaximumScanLines
         )
         return (byteBudget, lineBudget)
+    }
+
+    nonisolated private static func antigravityHistoryTarget(offset: Int, limit: Int) -> Int {
+        let requested = offset > Int.max - limit ? Int.max : offset + limit
+        return max(1, requested)
     }
 
     nonisolated private static func scaledBound(target: Int, unit: Int, minimum: Int, maximum: Int) -> Int {
