@@ -1092,10 +1092,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard dockedToolbar?.isHidden != active || reservedToolbarHeight != reserved else { return }
         dockedToolbar?.isHidden = active
         reservedToolbarHeight = reserved
-        if active, inputProxy.isFirstResponder {
-            // Let the composer's text field own the keyboard.
-            inputProxy.resignFirstResponder()
-        }
+        // Deliberately do NOT resign the terminal input proxy here. The composer's
+        // text field becomes first responder while this keyboard is still up, so
+        // iOS hands the keyboard over in place. Resigning first tore the keyboard
+        // down and the composer immediately re-summoned it (the visible
+        // disappear/reappear flicker).
         setNeedsGeometrySync()
         setNeedsLayout()
     }
