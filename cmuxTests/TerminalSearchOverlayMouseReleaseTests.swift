@@ -18,13 +18,8 @@ struct TerminalSearchOverlayMouseReleaseTests {
         let (hostedView, window) = try attachToWindow(surface: surface)
         defer { window.orderOut(nil) }
 
-        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
-        #expect(waitUntil(description: "search overlay to mount") {
-            hostedView.debugHasSearchOverlay()
-        })
-
         let terminalView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
-        let overlay = try #require(hostedView.debugSearchOverlayHostingViewForTesting())
+        let overlay = attachSearchOverlay(to: hostedView, surface: surface, terminalView: terminalView)
 
         let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
         terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))
@@ -55,13 +50,8 @@ struct TerminalSearchOverlayMouseReleaseTests {
         let (hostedView, window) = try attachToWindow(surface: surface)
         defer { window.orderOut(nil) }
 
-        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
-        #expect(waitUntil(description: "search overlay to mount") {
-            hostedView.debugHasSearchOverlay()
-        })
-
         let terminalView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
-        let overlay = try #require(hostedView.debugSearchOverlayHostingViewForTesting())
+        let overlay = attachSearchOverlay(to: hostedView, surface: surface, terminalView: terminalView)
 
         let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
         terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))
@@ -108,6 +98,30 @@ struct TerminalSearchOverlayMouseReleaseTests {
         return (hostedView, window)
     }
 
+    private func attachSearchOverlay(
+        to hostedView: GhosttySurfaceScrollView,
+        surface: TerminalSurface,
+        terminalView: GhosttyNSView
+    ) -> TerminalSearchOverlayHostingView {
+        let overlay = TerminalSearchOverlayHostingView(
+            rootView: SurfaceSearchOverlay(
+                tabId: surface.tabId,
+                surfaceId: surface.id,
+                searchState: TerminalSurface.SearchState(needle: "needle"),
+                canApplyFocusRequest: { false },
+                onNavigateSearch: { _ in },
+                onFieldDidFocus: {},
+                onClose: {}
+            ),
+            surfaceView: terminalView
+        )
+        overlay.frame = hostedView.bounds
+        overlay.autoresizingMask = [.width, .height]
+        hostedView.addSubview(overlay)
+        hostedView.layoutSubtreeIfNeeded()
+        return overlay
+    }
+
     private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
         guard let event = NSEvent.mouseEvent(
             with: type,
@@ -134,18 +148,4 @@ struct TerminalSearchOverlayMouseReleaseTests {
             .first
     }
 
-    private func waitUntil(
-        timeout: TimeInterval = 1.0,
-        description: String,
-        _ condition: @escaping () -> Bool
-    ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if condition() {
-                return true
-            }
-            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
-        return condition()
-    }
 }
