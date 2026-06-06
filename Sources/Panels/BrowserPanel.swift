@@ -5957,7 +5957,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 return
             }
 
-            setFaviconState(.resolving(request))
+            setFaviconState(.resolving(request, fallbackPNGData: faviconState.pngData))
             let png = await faviconStore.resolve(request) {
                 await Self.fetchFaviconPNGData(from: iconURL, context: fetchContext)
             }
@@ -5965,8 +5965,8 @@ final class BrowserPanel: Panel, ObservableObject {
             guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             guard let png else {
-                if case .resolving(let currentRequest) = faviconState, currentRequest == request {
-                    setFaviconState(.failed(request))
+                if case .resolving(let currentRequest, let fallbackPNGData) = faviconState, currentRequest == request {
+                    setFaviconState(.failed(request, fallbackPNGData: fallbackPNGData))
                 }
 #if DEBUG
                 cmuxDebugLog(

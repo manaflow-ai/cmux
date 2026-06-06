@@ -87,8 +87,18 @@ struct BrowserFaviconStoreTests {
     func resolvingSameRequestStartsResolution() async throws {
         let request = makeGitHubFaviconRequest()
 
-        #expect(BrowserFaviconPanelState.resolving(request).shouldStartResolution(for: request))
+        #expect(BrowserFaviconPanelState.resolving(request, fallbackPNGData: nil).shouldStartResolution(for: request))
         #expect(!BrowserFaviconPanelState.resolved(request, pngData: Data([1])).shouldStartResolution(for: request))
+    }
+
+    @Test
+    func transientStatesPreserveFallbackPNGData() async throws {
+        let request = makeGitHubFaviconRequest()
+        let fallback = Data([9, 8, 7])
+
+        #expect(BrowserFaviconPanelState.resolving(request, fallbackPNGData: fallback).pngData == fallback)
+        #expect(BrowserFaviconPanelState.failed(request, fallbackPNGData: fallback).pngData == fallback)
+        #expect(BrowserFaviconPanelState.empty.pngData == nil)
     }
 
     private func makeGitHubFaviconRequest() -> BrowserFaviconRequest {
