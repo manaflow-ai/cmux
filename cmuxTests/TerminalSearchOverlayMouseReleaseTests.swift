@@ -114,6 +114,7 @@ struct TerminalSearchOverlayMouseReleaseTests {
         hostedView.setActive(true)
         contentView.layoutSubtreeIfNeeded()
         hostedView.layoutSubtreeIfNeeded()
+        hostedView.attachSurface(surface)
 
         return (hostedView, window)
     }

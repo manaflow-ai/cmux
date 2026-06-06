@@ -1056,9 +1056,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Restored auto-resume input should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertTrue(
+            waitUntilRuntimeSurfaceCreateAttempt(on: panel.surface),
             "Restored auto-resume input must start the terminal runtime without waiting for a window attach."
         )
     }
@@ -1073,9 +1072,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Command-launched offscreen terminals should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertTrue(
+            waitUntilRuntimeSurfaceCreateAttempt(on: panel.surface),
             "Offscreen command-launched terminals must start the runtime without waiting for a window attach."
         )
     }
@@ -1734,6 +1732,20 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         return false
+    }
+
+    private func waitUntilRuntimeSurfaceCreateAttempt(
+        on surface: TerminalSurface,
+        timeout: TimeInterval = 1.0
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0 {
+                return true
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        return surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0
     }
 }
 
