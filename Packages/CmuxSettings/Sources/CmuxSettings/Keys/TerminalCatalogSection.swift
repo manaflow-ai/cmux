@@ -28,7 +28,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
 
     public let agentHibernationIdleSeconds = DefaultsKey<Double>(
         id: "terminal.agentHibernation.idleSeconds",
-        defaultValue: 3600,
+        defaultValue: 5,
         userDefaultsKey: "terminal.agentHibernation.idleSeconds"
     )
 
