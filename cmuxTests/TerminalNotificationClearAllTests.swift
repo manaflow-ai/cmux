@@ -221,6 +221,90 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertTrue(store.notifications.isEmpty)
     }
 
+    func testClosingWorkspaceRemovesAllOwnedNotificationsOnly() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let closingWorkspace = manager.addWorkspace(select: true)
+        let siblingWorkspace = manager.addWorkspace(select: false)
+        defer {
+            if manager.tabs.contains(where: { $0.id == closingWorkspace.id }) {
+                manager.closeWorkspace(closingWorkspace)
+            }
+            if manager.tabs.contains(where: { $0.id == siblingWorkspace.id }) {
+                manager.closeWorkspace(siblingWorkspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let firstPanelId = try XCTUnwrap(closingWorkspace.focusedPanelId)
+        let secondPanel = try XCTUnwrap(
+            closingWorkspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
+        let siblingPanelId = try XCTUnwrap(siblingWorkspace.focusedPanelId)
+
+        store.addNotification(
+            tabId: closingWorkspace.id,
+            surfaceId: firstPanelId,
+            title: "First pane",
+            subtitle: "",
+            body: "Workspace close should remove this"
+        )
+        store.addNotification(
+            tabId: closingWorkspace.id,
+            surfaceId: secondPanel.id,
+            title: "Second pane",
+            subtitle: "",
+            body: "Workspace close should remove this too"
+        )
+        store.addNotification(
+            tabId: closingWorkspace.id,
+            surfaceId: nil,
+            title: "Workspace",
+            subtitle: "",
+            body: "Workspace close should remove workspace-level rows"
+        )
+        store.addNotification(
+            tabId: siblingWorkspace.id,
+            surfaceId: siblingPanelId,
+            title: "Sibling",
+            subtitle: "",
+            body: "Sibling notification should remain"
+        )
+
+        XCTAssertEqual(store.unreadCount(forTabId: closingWorkspace.id), 3)
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: closingWorkspace.id, surfaceId: firstPanelId))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: closingWorkspace.id, surfaceId: secondPanel.id))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: closingWorkspace.id, surfaceId: nil))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: siblingWorkspace.id, surfaceId: siblingPanelId))
+
+        manager.closeWorkspace(closingWorkspace)
+
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == closingWorkspace.id }))
+        XCTAssertEqual(store.unreadCount(forTabId: closingWorkspace.id), 0)
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: closingWorkspace.id, surfaceId: firstPanelId))
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: closingWorkspace.id, surfaceId: secondPanel.id))
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: closingWorkspace.id, surfaceId: nil))
+        XCTAssertFalse(store.notifications.contains { $0.tabId == closingWorkspace.id })
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: siblingWorkspace.id, surfaceId: siblingPanelId))
+        XCTAssertEqual(store.notifications.map(\.tabId), [siblingWorkspace.id])
+    }
+
     func testClosingPaneClearsPanelOwnedAgentRuntimeState() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()

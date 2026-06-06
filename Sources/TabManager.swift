@@ -5224,7 +5224,6 @@ class TabManager: ObservableObject {
         sidebarSelectedWorkspaceIds.remove(workspace.id)
         invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
 
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         workspace.withClosedPanelHistorySuppressed {
             workspace.teardownAllPanels()
         }
@@ -5296,7 +5295,6 @@ class TabManager: ObservableObject {
             clearWorkspacePullRequestTracking(workspaceId: workspace.id)
             invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
 
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
             workspace.withClosedPanelHistorySuppressed {
                 workspace.teardownAllPanels()
             }
@@ -9658,7 +9656,6 @@ extension TabManager {
         // Session restore replaces the bootstrap workspace objects with freshly
         // restored ones. Tear the old graph down after the atomic swap so late
         // panel/socket callbacks cannot keep mutating hidden pre-restore state.
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         workspace.teardownAllPanels()
         workspace.teardownRemoteConnection()
         workspace.owningTabManager = nil

@@ -229,6 +229,7 @@ final class WorkspaceStressProfileTests: XCTestCase {
         var pinSamples: [TimedSample] = []
         var unpinSamples: [TimedSample] = []
         var closeSamples: [TimedSample] = []
+        var closeSingleSamples: [TimedSample] = []
 
         for pass in 0..<config.switchPasses {
             timed("pass-\(label(for: pass))-color-apply", collectInto: &colorSamples) {
@@ -294,13 +295,32 @@ final class WorkspaceStressProfileTests: XCTestCase {
         }
         XCTAssertEqual(closeManager.tabs.count, 1)
 
+        let closeSingleManager = TabManager(autoWelcomeIfNeeded: false)
+        guard let closeSingleTarget = closeSingleManager.selectedWorkspace else {
+            XCTFail("Expected bootstrap workspace for single close profile")
+            return
+        }
+        populate(workspace: closeSingleTarget, tabsPerWorkspace: config.tabsPerWorkspace)
+        _ = closeSingleManager.addWorkspace(
+            title: "Single Close Sibling",
+            select: false,
+            eagerLoadTerminal: false,
+            autoWelcomeIfNeeded: false
+        )
+        timed("close-single-populated-workspace", collectInto: &closeSingleSamples) {
+            closeSingleManager.closeWorkspace(closeSingleTarget)
+        }
+        XCTAssertFalse(closeSingleManager.tabs.contains(where: { $0.id == closeSingleTarget.id }))
+        XCTAssertEqual(closeSingleManager.tabs.count, 1)
+
         let report = [
             "Workspace batch action stress config workspaces=\(config.workspaceCount) passes=\(config.switchPasses)",
             reportLine(title: "color", summary: TimingSummary(samples: colorSamples), slowest: slowest(colorSamples)),
             reportLine(title: "scrollbar", summary: TimingSummary(samples: scrollBarSamples), slowest: slowest(scrollBarSamples)),
             reportLine(title: "pin", summary: TimingSummary(samples: pinSamples), slowest: slowest(pinSamples)),
             reportLine(title: "unpin", summary: TimingSummary(samples: unpinSamples), slowest: slowest(unpinSamples)),
-            reportLine(title: "close", summary: TimingSummary(samples: closeSamples), slowest: slowest(closeSamples))
+            reportLine(title: "close", summary: TimingSummary(samples: closeSamples), slowest: slowest(closeSamples)),
+            reportLine(title: "close.single", summary: TimingSummary(samples: closeSingleSamples), slowest: slowest(closeSingleSamples))
         ].joined(separator: "\n")
 
         print(report)
