@@ -78,6 +78,22 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-4")
     }
 
+    @Test func createTerminalUsesExplicitWorkspaceContextOverStaleSelection() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+        // Selection drifts to a different workspace than the one the "+" was tapped on.
+        store.selectedWorkspaceID = "workspace-docs"
+
+        store.createTerminal(in: "workspace-main")
+
+        // The new terminal lands in the explicitly-targeted workspace, not the selected one.
+        #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
+        #expect(store.selectedWorkspace?.terminals.count == 4)
+        #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-4")
+    }
+
     @Test func selectingWorkspaceReconcilesTerminalSelection() {
         let store = MobileShellComposite.preview()
         store.signIn()

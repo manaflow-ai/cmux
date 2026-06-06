@@ -762,7 +762,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = workspace.terminals.first?.id
     }
 
-    public func createTerminal() {
+    /// Creates a terminal in `workspaceID`, or the selected workspace when nil.
+    ///
+    /// Callers that act on a specific workspace (e.g. the "+" button on a
+    /// workspace row) should pass its id so an in-flight create can't land in a
+    /// different workspace if the selection drifts before the async work runs.
+    public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
+        let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
+        // Pin selection to the target so async creation + the resulting
+        // terminal selection stay on the workspace the caller intended.
+        if let targetWorkspaceID { selectedWorkspaceID = targetWorkspaceID }
         guard remoteClient == nil else {
             guard createTerminalTask == nil else { return }
             let taskID = UUID()
@@ -770,11 +779,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             createTerminalTask = Task { @MainActor [weak self] in
                 defer { self?.clearCreateTerminalTask(id: taskID) }
                 guard let self else { return }
-                await self.createRemoteTerminal()
+                await self.createRemoteTerminal(in: targetWorkspaceID)
             }
             return
         }
-        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == selectedWorkspace?.id }) else {
+        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == targetWorkspaceID }) else {
             return
         }
         let terminalIndex = workspaces[workspaceIndex].terminals.count + 1
@@ -1308,9 +1317,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func createRemoteTerminal() async {
+    private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil) async {
         guard let client = remoteClient,
-              let workspaceID = selectedWorkspace?.id.rawValue else { return }
+              let workspaceID = (explicitWorkspaceID ?? selectedWorkspace?.id)?.rawValue else { return }
         let requestedWorkspaceID = MobileWorkspacePreview.ID(rawValue: workspaceID)
         let generation = connectionGeneration
         do {

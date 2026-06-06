@@ -110,6 +110,12 @@ actor HookFlag {
     func fire() { fired = true }
 }
 
+/// Captures a value observed inside an async hook, for ordering assertions.
+actor TokenProbe {
+    private(set) var value: String?
+    func set(_ token: String?) { value = token }
+}
+
 extension AuthLaunchOptions {
     static func plain(includesDevAuth: Bool = false) -> AuthLaunchOptions {
         AuthLaunchOptions(

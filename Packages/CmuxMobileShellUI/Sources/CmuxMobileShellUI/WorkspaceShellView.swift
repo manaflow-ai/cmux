@@ -16,6 +16,16 @@ struct WorkspaceShellView: View {
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
+    /// One-shot suppression of the next terminal autofocus. Set after a chrome
+    /// action that creates a workspace or terminal so the freshly-attached
+    /// surface does not steal the keyboard. Consumed (and translated into a
+    /// per-surface entry in ``terminalAutoFocusSuppressedSurfaceIDs``) when the
+    /// detail view next appears or its selected terminal changes.
+    @State private var suppressNextTerminalAutoFocus = false
+    /// Surface IDs whose next window attach must NOT autofocus. A surface in
+    /// this set mounts with `autoFocusOnWindowAttach: false`; the entry clears
+    /// once that surface has appeared and consumed the suppression.
+    @State private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -131,6 +141,9 @@ struct WorkspaceShellView: View {
 
     private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
+        // Selecting an existing workspace is a user-driven focus intent, so the
+        // terminal that comes up should be allowed to take the keyboard.
+        suppressNextTerminalAutoFocus = false
         store.selectedWorkspaceID = id
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
@@ -173,7 +186,9 @@ struct WorkspaceShellView: View {
             store: store,
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
-            safeAreaContext: safeAreaContext
+            safeAreaContext: safeAreaContext,
+            suppressNextTerminalAutoFocus: $suppressNextTerminalAutoFocus,
+            terminalAutoFocusSuppressedSurfaceIDs: $terminalAutoFocusSuppressedSurfaceIDs
         )
     }
 }

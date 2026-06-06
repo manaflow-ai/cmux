@@ -98,6 +98,25 @@ import Testing
         #expect(await ranHook.fired)
     }
 
+    @Test func signOutRunsHookWhileTokensStillValid() async throws {
+        // The push-token DELETE runs as the onSignedOut hook and needs a valid
+        // access token. Regression: the hook used to run after client.signOut()
+        // revoked the session, so the DELETE was silently skipped.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let (coordinator, _) = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        let probe = TokenProbe()
+        await coordinator.signOut(onSignedOut: {
+            let token = try? await coordinator.accessToken()
+            await probe.set(token)
+        })
+
+        #expect(await probe.value != nil)  // hook saw a valid token (ran before revoke)
+        #expect(coordinator.isAuthenticated == false)  // session revoked afterward
+    }
+
     @Test func devAuthFortyTwoShortcutSignsIn() async throws {
         let user = CMUXAuthUser(id: "debug", primaryEmail: "l@l.com", displayName: "L")
         let client = FakeAuthClient(user: user)

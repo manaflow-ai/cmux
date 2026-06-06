@@ -14,6 +14,8 @@ struct WorkspaceDetailContainer: View {
     let workspaceID: MobileWorkspacePreview.ID?
     let createWorkspace: () -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    @Binding var suppressNextTerminalAutoFocus: Bool
+    @Binding var terminalAutoFocusSuppressedSurfaceIDs: Set<String>
 
     private var workspace: MobileWorkspacePreview? {
         if let workspaceID {
@@ -34,10 +36,12 @@ struct WorkspaceDetailContainer: View {
                     set: { store.selectTerminal($0) }
                 ),
                 createWorkspace: createWorkspace,
-                createTerminal: store.createTerminal,
+                createTerminal: { store.createTerminal(in: workspace.id) },
                 reportTerminalViewport: store.reportTerminalViewport,
                 sendTerminalInput: store.sendTerminalRawInput,
-                safeAreaContext: safeAreaContext
+                safeAreaContext: safeAreaContext,
+                suppressNextTerminalAutoFocus: $suppressNextTerminalAutoFocus,
+                terminalAutoFocusSuppressedSurfaceIDs: $terminalAutoFocusSuppressedSurfaceIDs
             )
             .onAppear {
                 if store.selectedWorkspaceID != workspace.id {
