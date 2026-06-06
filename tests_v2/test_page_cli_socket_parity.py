@@ -360,6 +360,15 @@ def main() -> int:
             )
             _must(str(selected.get("page_id") or "") == first_page_id, f"select-page targeted wrong page: {selected}")
 
+            selected_via_terminator = _run_cli_json(
+                cli,
+                ["select-page", "--workspace", workspace_id, "--", first_page_ref],
+            )
+            _must(
+                str(selected_via_terminator.get("page_id") or "") == first_page_id,
+                f"select-page should accept a positional page after --: {selected_via_terminator}",
+            )
+
             current_after_select = c._call("page.current", {"workspace_id": workspace_id}) or {}
             _must(
                 str(current_after_select.get("page_id") or "") == first_page_id,
@@ -428,6 +437,33 @@ def main() -> int:
             duplicate_page_ref = after_refs.get("database", duplicate_page_ref)
             first_page_ref = after_refs.get("agents", first_page_ref)
             second_page_ref = after_refs.get("editor", second_page_ref)
+
+            terminator_reordered = _run_cli_json(
+                cli,
+                [
+                    "reorder-page",
+                    "--workspace",
+                    workspace_id,
+                    "--index",
+                    "1",
+                    "--",
+                    first_page_ref,
+                ],
+            )
+            _must(
+                int(terminator_reordered.get("page_index", -1)) == 1,
+                f"reorder-page should accept a positional page after --: {terminator_reordered}",
+            )
+            terminator_list = _run_cli_json(cli, ["list-pages", "--workspace", workspace_id])
+            terminator_titles, _ = _page_titles_and_selected(terminator_list)
+            _must(
+                terminator_titles == ["database", "agents", "editor"],
+                f"reorder-page with -- should move agents back after database: {terminator_list}",
+            )
+            terminator_refs = _page_refs_by_title(terminator_list)
+            duplicate_page_ref = terminator_refs.get("database", duplicate_page_ref)
+            first_page_ref = terminator_refs.get("agents", first_page_ref)
+            second_page_ref = terminator_refs.get("editor", second_page_ref)
 
             restored_reorder = _run_cli_json(
                 cli,
