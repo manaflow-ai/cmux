@@ -250,6 +250,7 @@ extension TerminalController {
             params: params,
             allowsFocusMutation: allowsFocusMutation
         )
+        let shouldAutoRefreshMetadata = v2Bool(params, "auto_refresh_metadata") ?? true
         let ws = tabManager.addWorkspace(
             title: title,
             workingDirectory: creationCwd,
@@ -257,7 +258,8 @@ extension TerminalController {
             initialTerminalEnvironment: initialEnv,
             select: shouldFocus,
             eagerLoadTerminal: !shouldFocus,
-            initialEphemeralWorktree: worktree.record
+            initialEphemeralWorktree: worktree.record,
+            autoRefreshMetadata: shouldAutoRefreshMetadata
         )
         ws.setCustomDescription(description)
 
