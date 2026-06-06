@@ -104,14 +104,15 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "AskUserQuestion").actionable == true)
     }
 
-    /// Codex has a dedicated `PermissionRequest` feed event, so its
-    /// pre-tool events (`PreToolUse` and the Codex-specific
-    /// `beforeShellExecution`) are telemetry only.
+    /// Codex runs `PermissionRequest` hooks before its own approval reviewer,
+    /// so Feed must keep both pre-tool events and permission requests as
+    /// telemetry. Otherwise "Approve for me" gets bypassed by cmux's Feed UI.
     @Test func codexPreToolUseIsTelemetry() {
         #expect(classify("codex", "PreToolUse", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").name == "PreToolUse")
-        #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == true)
+        #expect(classify("codex", "PermissionRequest", tool: "shell").name == "PreToolUse")
+        #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
     }
 
     /// Unknown source + unknown event is safe by default.
