@@ -21,7 +21,7 @@ public extension SocketControlSettings {
     /// - Parameters:
     ///   - bundleIdentifier: The running app's bundle identifier.
     ///   - environment: The process environment.
-    ///   - fileManager: The file manager used to resolve Application Support; defaults to `.default`.
+    ///   - fileManager: The file manager used to resolve the cmux state directory; defaults to `.default`.
     /// - Returns: The marker file paths to write.
     static func lastSocketPathFiles(
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
@@ -31,7 +31,7 @@ public extension SocketControlSettings {
         SocketPathMarkerFiles.paths(
             bundleIdentifier: bundleIdentifier,
             environment: environment,
-            appSupportDirectory: stableSocketDirectoryURL(fileManager: fileManager),
+            directory: stableSocketDirectoryURL(fileManager: fileManager),
             baseDebugBundleIdentifier: baseDebugBundleIdentifier
         )
     }

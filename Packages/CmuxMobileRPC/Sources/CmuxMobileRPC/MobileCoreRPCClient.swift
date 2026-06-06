@@ -180,7 +180,15 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 throw MobileShellConnectionError.attachTicketExpired
             }
         }
-        let shouldSendStackAuth = requestNeedsAuth && auth["attach_token"] == nil
+        // The host treats Stack auth as the SOLE authorization gate: EVERY
+        // authorized request must carry the owner's stack_access_token, even when
+        // an attach_token is also present. The attach ticket is route-discovery
+        // and workspace-selection only and never authorizes on its own, so a
+        // request that ships attach_token-only (e.g. ticket-covered workspace.list)
+        // is rejected host-side with `missingStackTokens`. Always present the
+        // Stack token for authorized requests; attach_token rides along as
+        // supplementary route/workspace context.
+        let shouldSendStackAuth = requestNeedsAuth
         if shouldSendStackAuth {
             guard allowsStackAuthFallback,
                   MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {

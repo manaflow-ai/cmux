@@ -1,7 +1,9 @@
 import AppKit
 import CmuxAuthRuntime
+import CmuxControlSocket
 import CmuxSettings
 import CmuxSocketControl
+import CmuxSwiftRenderUI
 import Carbon.HIToolbox
 import CMUXMobileCore
 import CMUXWorkstream
@@ -19,7 +21,7 @@ extension Notification.Name {
 }
 
 nonisolated private struct SocketLineProcessingResult: Sendable {
-    let response: String
+    let response: String?
     let authenticated: Bool
 }
 
@@ -84,30 +86,6 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 /// Allows automated testing and external control of terminal tabs
 @MainActor
 class TerminalController {
-    struct SocketListenerHealth: Sendable {
-        let isRunning: Bool
-        let acceptLoopAlive: Bool
-        let socketPathMatches: Bool
-        let socketPathExists: Bool
-        let socketPathOwnedByListener: Bool
-
-        var failureSignals: [String] {
-            var signals: [String] = []
-            if !isRunning { signals.append("not_running") }
-            if !acceptLoopAlive { signals.append("accept_loop_dead") }
-            if !socketPathMatches { signals.append("socket_path_mismatch") }
-            if !socketPathExists { signals.append("socket_missing") }
-            if socketPathMatches && socketPathExists && !socketPathOwnedByListener {
-                signals.append("socket_identity_mismatch")
-            }
-            return signals
-        }
-
-        var isHealthy: Bool {
-            failureSignals.isEmpty
-        }
-    }
-
     static let shared = TerminalController()
 
     private nonisolated(unsafe) var socketPath = SocketControlSettings.stableDefaultSocketPath
@@ -140,20 +118,12 @@ class TerminalController {
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
+    // Stateless Sendable structs from CmuxControlSocket; injected at construction.
+    // `transport` is internal so sibling-file extensions (CmuxEventStream) can write through it.
+    nonisolated let transport: SocketTransport
+    private nonisolated let listenerPolicy: SocketListenerPolicy
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
-    private nonisolated static let socketListenBacklog: Int32 = 128
-    private nonisolated static let acceptFailureBaseBackoffMs = 10
-    private nonisolated static let acceptFailureMaxBackoffMs = 5_000
-    private nonisolated static let acceptFailureMinimumRearmDelayMs = 100
-    private nonisolated static let acceptFailureRearmThreshold = 50
-    private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
-    private nonisolated static let socketProbePollAttempts = 3
-    private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
-    private nonisolated static let socketPathLockSuffix = ".lock"
-    private nonisolated static let socketPathLockReusableMarker = "cmux-socket-lock-v1\n"
-    private nonisolated static let socketClientReadTimeout: TimeInterval = 30
-    private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
@@ -178,12 +148,6 @@ class TerminalController {
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
     private nonisolated static let socketCommandSlowThresholdMs: Double = 500
 #endif
-    private nonisolated static let unixSocketPathMaxLength: Int = {
-        var addr = sockaddr_un()
-        // Reserve one byte for the null terminator.
-        return MemoryLayout.size(ofValue: addr.sun_path) - 1
-    }()
-
     private static var terminalProcessExitedMessage: String {
         String(
             localized: "socket.terminal.processExited",
@@ -228,48 +192,6 @@ class TerminalController {
         let reservedStartupSocketPath: String?
         let listenerStartInProgress: Bool
         let socketPathLockHeld: Bool
-    }
-
-    enum AcceptFailureRecoveryAction: Equatable {
-        case retryImmediately
-        case resumeAfterDelay(delayMs: Int)
-        case rearmAfterDelay(delayMs: Int)
-
-        var delayMs: Int {
-            switch self {
-            case .retryImmediately:
-                return 0
-            case .resumeAfterDelay(let delayMs), .rearmAfterDelay(let delayMs):
-                return delayMs
-            }
-        }
-
-        var debugLabel: String {
-            switch self {
-            case .retryImmediately:
-                return "retry_immediately"
-            case .resumeAfterDelay:
-                return "resume_after_delay"
-            case .rearmAfterDelay:
-                return "rearm_after_delay"
-            }
-        }
-    }
-
-    struct SocketPathIdentity: Equatable, Sendable {
-        let device: UInt64
-        let inode: UInt64
-
-        init(device: UInt64, inode: UInt64) {
-            self.device = device
-            self.inode = inode
-        }
-    }
-
-    private enum SocketBindAttemptResult {
-        case success(path: String, identity: SocketPathIdentity)
-        case pathTooLong(path: String)
-        case failure(path: String, stage: String, errnoCode: Int32)
     }
 
     private nonisolated static let focusIntentV1Commands: Set<String> = [
@@ -384,8 +306,14 @@ class TerminalController {
         }
     }
 
-    private init(passwordStore: SocketControlPasswordStore = SocketControlPasswordStore()) {
+    private init(
+        passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
+        transport: SocketTransport = SocketTransport(),
+        listenerPolicy: SocketListenerPolicy = SocketListenerPolicy()
+    ) {
         self.passwordStore = passwordStore
+        self.transport = transport
+        self.listenerPolicy = listenerPolicy
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
             object: nil,
@@ -454,22 +382,22 @@ class TerminalController {
         var reservationPath = path
         var reservationLockFD: Int32 = -1
         var reservationCanReplaceRefusedSocket = false
-        let primaryLock = Self.acquireSocketPathLock(for: path)
-        if let fd = primaryLock.fd {
+        switch transport.acquireSocketPathLock(for: path) {
+        case .acquired(let fd, let canReplaceRefusedSocket):
             reservationLockFD = fd
-            reservationCanReplaceRefusedSocket = primaryLock.canReplaceRefusedSocket
-        } else if let failure = primaryLock.failure,
-                  let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
-                      requestedPath: path,
-                      stage: failure.stage,
-                      errnoCode: failure.errnoCode
-                  ),
-                  fallbackPath != path {
-            reservationPath = fallbackPath
-            let fallbackLock = Self.acquireSocketPathLock(for: fallbackPath)
-            if let fd = fallbackLock.fd {
+            reservationCanReplaceRefusedSocket = canReplaceRefusedSocket
+        case .failed(let failure):
+            if let fallbackPath = listenerPolicy.fallbackSocketPathAfterBindFailure(
+                requestedPath: path,
+                stage: failure.stage,
+                errnoCode: failure.errnoCode
+            ),
+                fallbackPath != path,
+                case .acquired(let fd, let canReplaceRefusedSocket) =
+                    transport.acquireSocketPathLock(for: fallbackPath) {
+                reservationPath = fallbackPath
                 reservationLockFD = fd
-                reservationCanReplaceRefusedSocket = fallbackLock.canReplaceRefusedSocket
+                reservationCanReplaceRefusedSocket = canReplaceRefusedSocket
             }
         }
 
@@ -491,7 +419,7 @@ class TerminalController {
         if didReserve {
             return reservationPath
         }
-        Self.releaseSocketPathLock(reservationLockFD)
+        transport.releaseSocketPathLock(reservationLockFD)
         return path
     }
 
@@ -978,608 +906,17 @@ class TerminalController {
         return true
     }
 
-    nonisolated static func acceptErrorClassification(errnoCode: Int32) -> String {
-        switch errnoCode {
-        case EINTR, ECONNABORTED, EAGAIN, EWOULDBLOCK:
-            return "immediate_retry"
-        case EMFILE, ENFILE, ENOBUFS, ENOMEM:
-            return "resource_pressure"
-        case EBADF, EINVAL, ENOTSOCK:
-            return "fatal"
-        default:
-            return "retry_with_backoff"
-        }
-    }
-
-    nonisolated static func shouldRearmListenerForAcceptError(errnoCode: Int32) -> Bool {
-        acceptErrorClassification(errnoCode: errnoCode) == "fatal"
-    }
-
-    nonisolated static func shouldRetryAcceptImmediately(errnoCode: Int32) -> Bool {
-        acceptErrorClassification(errnoCode: errnoCode) == "immediate_retry"
-    }
-
-    nonisolated static func shouldRearmForConsecutiveAcceptFailures(consecutiveFailures: Int) -> Bool {
-        consecutiveFailures >= acceptFailureRearmThreshold
-    }
-
-    nonisolated static func acceptFailureBackoffMilliseconds(consecutiveFailures: Int) -> Int {
-        guard consecutiveFailures > 0 else { return 0 }
-        var delay = acceptFailureBaseBackoffMs
-        var remaining = consecutiveFailures - 1
-        while remaining > 0 {
-            if delay >= acceptFailureMaxBackoffMs {
-                return acceptFailureMaxBackoffMs
-            }
-            delay = min(delay * 2, acceptFailureMaxBackoffMs)
-            remaining -= 1
-        }
-        return delay
-    }
-
-    nonisolated static func acceptFailureRearmDelayMilliseconds(consecutiveFailures: Int) -> Int {
-        max(
-            acceptFailureBackoffMilliseconds(consecutiveFailures: consecutiveFailures),
-            acceptFailureMinimumRearmDelayMs
-        )
-    }
-
-    nonisolated static func acceptFailureRecoveryAction(
-        errnoCode: Int32,
-        consecutiveFailures: Int
-    ) -> AcceptFailureRecoveryAction {
-        let classification = acceptErrorClassification(errnoCode: errnoCode)
-        if classification == "immediate_retry" {
-            return .retryImmediately
-        }
-
-        if classification == "fatal"
-            || shouldRearmForConsecutiveAcceptFailures(consecutiveFailures: consecutiveFailures) {
-            return .rearmAfterDelay(
-                delayMs: acceptFailureRearmDelayMilliseconds(
-                    consecutiveFailures: consecutiveFailures
-                )
-            )
-        }
-
-        return .resumeAfterDelay(
-            delayMs: acceptFailureBackoffMilliseconds(
-                consecutiveFailures: consecutiveFailures
-            )
-        )
-    }
-
-    nonisolated static func shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: Int) -> Bool {
-        guard consecutiveFailures > 0 else { return false }
-        if consecutiveFailures <= 3 {
-            return true
-        }
-        return (consecutiveFailures & (consecutiveFailures - 1)) == 0
-    }
-
-    nonisolated static func shouldUnlinkSocketPathAfterAcceptLoopCleanup(
-        pathMatches: Bool,
-        isRunning: Bool,
-        activeGeneration: UInt64,
-        listenerStartInProgress: Bool
-    ) -> Bool {
-        guard pathMatches else { return false }
-        guard !listenerStartInProgress else { return false }
-        return !isRunning && activeGeneration == 0
-    }
-
-    nonisolated static func shouldUnlinkSocketPathAfterListenerStop(
-        currentIdentity: SocketPathIdentity?,
-        boundIdentity: SocketPathIdentity?
-    ) -> Bool {
-        guard let currentIdentity, let boundIdentity else { return false }
-        return currentIdentity == boundIdentity
-    }
-
-    private nonisolated static func unixSocketAddress(path: String) -> sockaddr_un? {
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-
-        let maxLength = unixSocketPathMaxLength + 1
-        var didFit = false
-        path.withCString { source in
-            let sourceLength = strlen(source)
-            guard sourceLength < maxLength else { return }
-
-            _ = withUnsafeMutableBytes(of: &addr.sun_path) { buffer in
-                buffer.initializeMemory(as: UInt8.self, repeating: 0)
-            }
-            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
-                let destination = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
-                strncpy(destination, source, maxLength - 1)
-            }
-            didFit = true
-        }
-        return didFit ? addr : nil
-    }
-
-    private nonisolated static func bindUnixSocket(_ socket: Int32, path: String) -> Int32? {
-        guard var addr = unixSocketAddress(path: path) else { return nil }
-        return withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                bind(socket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-    }
-
-    private nonisolated static func configureNonBlocking(_ fd: Int32) -> Int32? {
-        let flags = fcntl(fd, F_GETFL, 0)
-        guard flags >= 0 else {
-            return errno
-        }
-        guard fcntl(fd, F_SETFL, flags | O_NONBLOCK) >= 0 else {
-            return errno
-        }
-        return nil
-    }
-
-    private nonisolated static func configureBlocking(_ fd: Int32) -> Int32? {
-        let flags = fcntl(fd, F_GETFL, 0)
-        guard flags >= 0 else {
-            return errno
-        }
-        guard fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) >= 0 else {
-            return errno
-        }
-        return nil
-    }
-
-    private nonisolated static func makeSocketTimeout(_ timeout: TimeInterval) -> timeval {
-        let normalizedTimeout = max(timeout, 0)
-        let seconds = floor(normalizedTimeout)
-        let microseconds = (normalizedTimeout - seconds) * 1_000_000
-        return timeval(tv_sec: Int(seconds), tv_usec: Int32(microseconds.rounded()))
-    }
-
-    private nonisolated static func configureSocketTimeouts(_ fd: Int32, timeout: TimeInterval) {
-        var socketTimeout = makeSocketTimeout(timeout)
-        _ = withUnsafePointer(to: &socketTimeout) { ptr in
-            setsockopt(
-                fd,
-                SOL_SOCKET,
-                SO_RCVTIMEO,
-                ptr,
-                socklen_t(MemoryLayout<timeval>.size)
-            )
-        }
-        _ = withUnsafePointer(to: &socketTimeout) { ptr in
-            setsockopt(
-                fd,
-                SOL_SOCKET,
-                SO_SNDTIMEO,
-                ptr,
-                socklen_t(MemoryLayout<timeval>.size)
-            )
-        }
-    }
-
-    private nonisolated static func configureSocketSendTimeout(_ fd: Int32, timeout: TimeInterval) -> Int32? {
-        var socketTimeout = makeSocketTimeout(timeout)
-        let result = withUnsafePointer(to: &socketTimeout) { ptr in
-            setsockopt(
-                fd,
-                SOL_SOCKET,
-                SO_SNDTIMEO,
-                ptr,
-                socklen_t(MemoryLayout<timeval>.size)
-            )
-        }
-        return result == 0 ? nil : errno
-    }
-
-    nonisolated static func socketPathIdentity(at path: String) -> SocketPathIdentity? {
-        socketPathIdentityResult(at: path).identity
-    }
-
-    private nonisolated static func socketPathIdentityResult(
-        at path: String
-    ) -> (identity: SocketPathIdentity?, errnoCode: Int32?) {
-        var st = stat()
-        guard lstat(path, &st) == 0 else {
-            return (nil, errno)
-        }
-        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
-            return (nil, ENOTSOCK)
-        }
-        return (
-            SocketPathIdentity(
-                device: UInt64(st.st_dev),
-                inode: UInt64(st.st_ino)
-            ),
-            nil
-        )
-    }
-
-    private nonisolated static func configureNoSigPipe(_ fd: Int32) -> Int32? {
-#if os(macOS)
-        var noSigPipe: Int32 = 1
-        let result = withUnsafePointer(to: &noSigPipe) { ptr in
-            setsockopt(
-                fd,
-                SOL_SOCKET,
-                SO_NOSIGPIPE,
-                ptr,
-                socklen_t(MemoryLayout<Int32>.size)
-            )
-        }
-        return result == 0 ? nil : errno
-#else
-        _ = fd
-        return nil
-#endif
-    }
-
-    private nonisolated static func configureAcceptedClientSocket(_ fd: Int32) -> (stage: String, errnoCode: Int32)? {
-        if let errnoCode = configureBlocking(fd) {
-            return ("accept_client_configure_blocking", errnoCode)
-        }
-        var readTimeout = makeSocketTimeout(socketClientReadTimeout)
-        let readTimeoutResult = withUnsafePointer(to: &readTimeout) { ptr in
-            setsockopt(
-                fd,
-                SOL_SOCKET,
-                SO_RCVTIMEO,
-                ptr,
-                socklen_t(MemoryLayout<timeval>.size)
-            )
-        }
-        if readTimeoutResult != 0 {
-            return ("accept_client_configure_receive_timeout", errno)
-        }
-        if let errnoCode = configureSocketSendTimeout(fd, timeout: socketClientWriteTimeout) {
-            return ("accept_client_configure_send_timeout", errnoCode)
-        }
-        if let errnoCode = configureNoSigPipe(fd) {
-            return ("accept_client_configure_no_sigpipe", errnoCode)
-        }
-        return nil
-    }
-
-    private nonisolated static func shouldReportAcceptedClientConfigFailure(stage: String, errnoCode: Int32) -> Bool {
-        guard stage == "accept_client_configure_receive_timeout" ||
-            stage == "accept_client_configure_send_timeout" ||
-            stage == "accept_client_configure_no_sigpipe" else {
-            return true
-        }
-        return errnoCode != EINVAL &&
-            errnoCode != ENOTCONN &&
-            errnoCode != ECONNRESET &&
-            errnoCode != EPIPE &&
-            errnoCode != EBADF
-    }
-
-    private nonisolated static func socketPathLockPath(for socketPath: String) -> String {
-        socketPath + socketPathLockSuffix
-    }
-
-    private nonisolated static func acquireSocketPathLock(
-        for socketPath: String
-    ) -> (fd: Int32?, canReplaceRefusedSocket: Bool, failure: (stage: String, errnoCode: Int32)?) {
-        if let errnoCode = ensureSocketParentDirectoryExists(path: socketPath) {
-            return (nil, false, (stage: "create_lock_directory", errnoCode: errnoCode))
-        }
-
-        let lockPath = socketPathLockPath(for: socketPath)
-        var fd: Int32 = -1
-        var lastErrno: Int32 = EIO
-        for _ in 0..<3 {
-            fd = open(lockPath, O_CREAT | O_EXCL | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
-            if fd >= 0 {
-                break
-            }
-
-            let createErrno = errno
-            guard createErrno == EEXIST else {
-                return (nil, false, (stage: "open_lock", errnoCode: createErrno))
-            }
-
-            fd = open(lockPath, O_RDWR | O_NOFOLLOW)
-            if fd >= 0 {
-                break
-            }
-
-            lastErrno = errno
-            guard lastErrno == ENOENT else {
-                return (nil, false, (stage: "open_lock", errnoCode: lastErrno))
-            }
-        }
-        guard fd >= 0 else {
-            return (nil, false, (stage: "open_lock", errnoCode: lastErrno))
-        }
-        if let errnoCode = validateSocketPathLockFile(fd) {
-            close(fd)
-            return (nil, false, (stage: "open_lock", errnoCode: errnoCode))
-        }
-        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
-
-        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
-            let errnoCode = errno
-            close(fd)
-            return (nil, false, (stage: "lock", errnoCode: errnoCode))
-        }
-        return (
-            fd,
-            socketPathLockHasReusableMarker(fd) || canReplaceUnmarkedRefusedSocket(at: socketPath),
-            nil
-        )
-    }
-
-    private nonisolated static func validateSocketPathLockFile(_ fd: Int32) -> Int32? {
-        var st = stat()
-        guard fstat(fd, &st) == 0 else {
-            return errno
-        }
-        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
-            return EINVAL
-        }
-        guard st.st_uid == getuid() else {
-            return EACCES
-        }
-        guard st.st_nlink == 1 else {
-            return EMLINK
-        }
-        return nil
-    }
-
-    private nonisolated static func socketPathLockHasReusableMarker(_ fd: Int32) -> Bool {
-        let marker = Array(socketPathLockReusableMarker.utf8)
-        var buffer = [UInt8](repeating: 0, count: marker.count)
-        let readCount = buffer.withUnsafeMutableBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else {
-                return ssize_t(-1)
-            }
-            return pread(fd, baseAddress, rawBuffer.count, 0)
-        }
-        return readCount == ssize_t(marker.count) && buffer == marker
-    }
-
-    private nonisolated static func canReplaceUnmarkedRefusedSocket(at path: String) -> Bool {
-        let filename = URL(fileURLWithPath: (path as NSString).standardizingPath)
-            .lastPathComponent
-            .lowercased()
-        let recoverablePrefixes = ["cmux-debug-", "cmux-nightly-", "cmux-staging-"]
-        return filename == "cmux-debug.sock" ||
-            filename == "cmux-nightly.sock" ||
-            filename == "cmux-staging.sock" ||
-            recoverablePrefixes.contains { prefix in
-                filename.hasPrefix(prefix) && filename.hasSuffix(".sock")
-            }
-    }
-
-    private nonisolated static func markSocketPathLockReusable(_ fd: Int32) {
-        guard fd >= 0 else { return }
-        let marker = Array(socketPathLockReusableMarker.utf8)
-        guard ftruncate(fd, 0) == 0 else { return }
-        guard lseek(fd, 0, SEEK_SET) >= 0 else { return }
-
-        var written = 0
-        while written < marker.count {
-            let result = marker.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress else {
-                    return ssize_t(-1)
-                }
-                return write(fd, baseAddress.advanced(by: written), marker.count - written)
-            }
-            guard result > 0 else { return }
-            written += Int(result)
-        }
-    }
-
-    private nonisolated static func releaseSocketPathLock(_ fd: Int32) {
-        guard fd >= 0 else { return }
-        _ = flock(fd, LOCK_UN)
-        close(fd)
-    }
-
-    private nonisolated static func bindListenerSocket(
-        _ socket: Int32,
-        path: String,
-        canReplaceRefusedSocket: Bool
-    ) -> SocketBindAttemptResult {
-        if let errnoCode = ensureSocketParentDirectoryExists(path: path) {
-            return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
-        }
-        if let preparationFailure = prepareSocketPathForBind(
-            path,
-            canReplaceRefusedSocket: canReplaceRefusedSocket
-        ) {
-            return .failure(
-                path: path,
-                stage: preparationFailure.stage,
-                errnoCode: preparationFailure.errnoCode
-            )
-        }
-
-        guard let bindResult = bindUnixSocket(socket, path: path) else {
-            return .pathTooLong(path: path)
-        }
-        guard bindResult >= 0 else {
-            return .failure(path: path, stage: "bind", errnoCode: errno)
-        }
-        let identityResult = socketPathIdentityResult(at: path)
-        if let identity = identityResult.identity {
-            return .success(path: path, identity: identity)
-        }
-        return .failure(
-            path: path,
-            stage: "stat_bound_path",
-            errnoCode: identityResult.errnoCode ?? EIO
-        )
-    }
-
-    nonisolated static func prepareSocketPathForBind(
-        _ path: String,
-        canReplaceRefusedSocket: Bool = false
-    ) -> (stage: String, errnoCode: Int32)? {
-        var st = stat()
-        guard lstat(path, &st) == 0 else {
-            return errno == ENOENT ? nil : ("stat_existing_path", errno)
-        }
-        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
-            return ("existing_path", EEXIST)
-        }
-        switch socketPathProbeResult(path) {
-        case .stale:
-            break
-        case .refused:
-            guard canReplaceRefusedSocket else {
-                return ("bind", EADDRINUSE)
-            }
-        case .connected, .occupiedOrIndeterminate:
-            return ("bind", EADDRINUSE)
-        }
-        if unlink(path) != 0, errno != ENOENT {
-            return ("unlink", errno)
-        }
-        return nil
-    }
-
-    nonisolated static func socketPathCanBeReclaimedForStartup(_ path: String) -> Bool {
-        var st = stat()
-        guard lstat(path, &st) == 0 else {
-            return errno == ENOENT
-                && socketPathHasAvailableLock(path, requireReusableMarker: false, treatMissingLockAsAvailable: true)
-        }
-        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
-            return false
-        }
-        return socketPathHasAvailableLock(path, requireReusableMarker: true, treatMissingLockAsAvailable: false)
-    }
-
-    private nonisolated static func socketPathHasAvailableLock(
-        _ path: String,
-        requireReusableMarker: Bool,
-        treatMissingLockAsAvailable: Bool
-    ) -> Bool {
-        let lockPath = socketPathLockPath(for: path)
-        let fd = open(lockPath, O_RDWR | O_NOFOLLOW)
-        guard fd >= 0 else {
-            return treatMissingLockAsAvailable && errno == ENOENT
-        }
-        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
-
-        guard validateSocketPathLockFile(fd) == nil else {
-            close(fd)
-            return false
-        }
-        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
-            close(fd)
-            return false
-        }
-        defer {
-            Self.releaseSocketPathLock(fd)
-        }
-        if requireReusableMarker {
-            return socketPathLockHasReusableMarker(fd)
-        }
-        return true
-    }
-
     private nonisolated func bindListenerSocketOnListenerQueue(
         _ socket: Int32,
         path: String,
         canReplaceRefusedSocket: Bool
     ) -> SocketBindAttemptResult {
         socketListenerQueue.sync {
-            Self.bindListenerSocket(
+            transport.bindListenerSocket(
                 socket,
                 path: path,
                 canReplaceRefusedSocket: canReplaceRefusedSocket
             )
-        }
-    }
-
-    private enum SocketPathProbeResult {
-        case connected
-        case refused
-        case occupiedOrIndeterminate
-        case stale
-    }
-
-    nonisolated static func socketPathAcceptsConnections(_ path: String) -> Bool {
-        socketPathProbeResult(path) == .connected
-    }
-
-    private nonisolated static func socketPathProbeResult(_ path: String) -> SocketPathProbeResult {
-        let identityResult = socketPathIdentityResult(at: path)
-        guard identityResult.identity != nil else {
-            return identityResult.errnoCode == ENOENT ? .stale : .occupiedOrIndeterminate
-        }
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return .occupiedOrIndeterminate }
-        defer { close(fd) }
-
-        let originalFlags = fcntl(fd, F_GETFL, 0)
-        guard originalFlags >= 0 else { return .occupiedOrIndeterminate }
-        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else {
-            return .occupiedOrIndeterminate
-        }
-        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
-
-        guard var addr = unixSocketAddress(path: path) else { return .occupiedOrIndeterminate }
-        let result = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        if result == 0 { return .connected }
-
-        let connectErrno = errno
-        switch connectErrno {
-        case ECONNREFUSED:
-            return .refused
-        case ENOENT:
-            return .stale
-        default:
-            // Preserve anything not definitively stale. This keeps bind prep nonblocking
-            // without ever unlinking a socket that might still have a live listener.
-            return .occupiedOrIndeterminate
-        }
-    }
-
-    private nonisolated static func ensureSocketParentDirectoryExists(path: String) -> Int32? {
-        let parentURL = URL(fileURLWithPath: path).deletingLastPathComponent()
-        do {
-            try FileManager.default.createDirectory(
-                at: parentURL,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-            return nil
-        } catch let error as NSError {
-            if error.domain == NSPOSIXErrorDomain {
-                return Int32(error.code)
-            }
-            return EIO
-        }
-    }
-
-    nonisolated static func fallbackSocketPathAfterBindFailure(
-        requestedPath: String,
-        stage: String,
-        errnoCode: Int32,
-        currentUserID: uid_t = getuid()
-    ) -> String? {
-        guard requestedPath == SocketControlSettings.stableDefaultSocketPath else {
-            return nil
-        }
-
-        switch stage {
-        case "unlink" where errnoCode == EACCES || errnoCode == EPERM:
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        case "create_lock_directory", "open_lock", "lock":
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        case "existing_path", "stat_existing_path":
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        case "bind" where errnoCode == EACCES || errnoCode == EPERM || errnoCode == EADDRINUSE:
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        default:
-            return nil
         }
     }
 
@@ -1590,6 +927,7 @@ class TerminalController {
         self.authCoordinator = coordinator
         self.browserSignInFlow = browserSignIn
     }
+
 
     func start(
         tabManager: TabManager,
@@ -1654,13 +992,13 @@ class TerminalController {
         defer {
             if !listenerActivated {
                 if let activeBoundSocketPathIdentity,
-                   Self.shouldUnlinkSocketPathAfterListenerStop(
-                       currentIdentity: Self.socketPathIdentity(at: activeSocketPath),
+                   listenerPolicy.shouldUnlinkSocketPathAfterListenerStop(
+                       currentIdentity: transport.pathIdentity(at: activeSocketPath),
                        boundIdentity: activeBoundSocketPathIdentity
                    ) {
                     unlink(activeSocketPath)
                 }
-                Self.releaseSocketPathLock(activeSocketPathLockFD)
+                transport.releaseSocketPathLock(activeSocketPathLockFD)
                 activeSocketPathLockFD = -1
                 withListenerState {
                     if boundSocketPathIdentity == activeBoundSocketPathIdentity {
@@ -1688,14 +1026,14 @@ class TerminalController {
             if activeSocketPathLockFD >= 0 {
                 return nil
             }
-            let lock = Self.acquireSocketPathLock(for: activeSocketPath)
-            if let fd = lock.fd {
+            switch transport.acquireSocketPathLock(for: activeSocketPath) {
+            case .acquired(let fd, let canReplaceRefusedSocket):
                 activeSocketPathLockFD = fd
-                activeSocketPathCanReplaceRefusedSocket = lock.canReplaceRefusedSocket
+                activeSocketPathCanReplaceRefusedSocket = canReplaceRefusedSocket
                 return nil
+            case .failed(let failure):
+                return .failure(path: activeSocketPath, failure: failure)
             }
-            let failure = lock.failure ?? (stage: "lock", errnoCode: EIO)
-            return .failure(path: activeSocketPath, stage: failure.stage, errnoCode: failure.errnoCode)
         }
 
         var bindAttempt = acquireActiveSocketPathLock()
@@ -1704,11 +1042,11 @@ class TerminalController {
                 path: activeSocketPath,
                 canReplaceRefusedSocket: activeSocketPathCanReplaceRefusedSocket
             )
-        if case .failure(let failedPath, let failedStage, let failedErrnoCode) = bindAttempt,
-           let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
+        if case .failure(let failedPath, let bindFailure) = bindAttempt,
+           let fallbackPath = listenerPolicy.fallbackSocketPathAfterBindFailure(
                requestedPath: failedPath,
-               stage: failedStage,
-               errnoCode: failedErrnoCode
+               stage: bindFailure.stage,
+               errnoCode: bindFailure.errnoCode
            ),
            fallbackPath != failedPath {
             sentryBreadcrumb(
@@ -1717,11 +1055,11 @@ class TerminalController {
                 data: [
                     "requestedPath": failedPath,
                     "fallbackPath": fallbackPath,
-                    "stage": failedStage,
-                    "errno": Int(failedErrnoCode)
+                    "stage": bindFailure.stage,
+                    "errno": Int(bindFailure.errnoCode)
                 ]
             )
-            Self.releaseSocketPathLock(activeSocketPathLockFD)
+            transport.releaseSocketPathLock(activeSocketPathLockFD)
             activeSocketPathLockFD = -1
             activeSocketPathCanReplaceRefusedSocket = false
             activeSocketPath = fallbackPath
@@ -1753,17 +1091,17 @@ class TerminalController {
                 extra: [
                     "path": failedPath,
                     "pathLength": failedPath.utf8.count,
-                    "maxPathLength": Self.unixSocketPathMaxLength
+                    "maxPathLength": SocketTransport.unixSocketPathMaxLength
                 ]
             )
             return
-        case .failure(let failedPath, let failedStage, let failedErrnoCode):
+        case .failure(let failedPath, let bindFailure):
             print("TerminalController: Failed to bind socket")
             close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
-                stage: failedStage,
-                errnoCode: failedErrnoCode,
+                stage: bindFailure.stage,
+                errnoCode: bindFailure.errnoCode,
                 extra: ["path": failedPath]
             )
             return
@@ -1771,7 +1109,7 @@ class TerminalController {
 
         applySocketPermissions()
 
-        if let errnoCode = Self.configureNonBlocking(newServerSocket) {
+        if let errnoCode = transport.configureNonBlocking(newServerSocket) {
             print("TerminalController: Failed to configure socket")
             close(newServerSocket)
             reportSocketListenerFailure(
@@ -1783,7 +1121,7 @@ class TerminalController {
         }
 
         // Listen
-        guard listen(newServerSocket, Self.socketListenBacklog) >= 0 else {
+        guard listen(newServerSocket, transport.listenBacklog) >= 0 else {
             let errnoCode = errno
             print("TerminalController: Failed to listen on socket")
             close(newServerSocket)
@@ -1795,7 +1133,7 @@ class TerminalController {
             return
         }
 
-        Self.markSocketPathLockReusable(activeSocketPathLockFD)
+        transport.markSocketPathLockReusable(activeSocketPathLockFD)
         SocketControlSettings.recordLastSocketPath(activeSocketPath)
 
         var displacedSocketPathLockFD: Int32 = -1
@@ -1816,7 +1154,7 @@ class TerminalController {
             return generation
         }
         if displacedSocketPathLockFD >= 0, displacedSocketPathLockFD != transferredSocketPathLockFD {
-            Self.releaseSocketPathLock(displacedSocketPathLockFD)
+            transport.releaseSocketPathLock(displacedSocketPathLockFD)
         }
         activeSocketPathLockFD = -1
         listenerActivated = true
@@ -1829,7 +1167,7 @@ class TerminalController {
                 "path": activeSocketPath,
                 "mode": accessMode.rawValue,
                 "generation": generation,
-                "backlog": Self.socketListenBacklog
+                "backlog": transport.listenBacklog
             ]
         )
         NotificationCenter.default.post(
@@ -1875,7 +1213,7 @@ class TerminalController {
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
         let snapshot = listenerStateSnapshot()
         let pathMatches = snapshot.socketPath == expectedSocketPath
-        let currentIdentity = Self.socketPathIdentity(at: expectedSocketPath)
+        let currentIdentity = transport.pathIdentity(at: expectedSocketPath)
         let pathExists = currentIdentity != nil
         let pathOwnedByListener = currentIdentity.map { current in
             pathMatches && (snapshot.boundSocketPathIdentity.map { current == $0 } ?? false)
@@ -1888,17 +1226,6 @@ class TerminalController {
             socketPathExists: pathExists,
             socketPathOwnedByListener: pathOwnedByListener
         )
-    }
-
-    nonisolated static func socketPathExists(
-        _ path: String,
-        matching boundIdentity: SocketPathIdentity?
-    ) -> Bool {
-        guard let currentIdentity = socketPathIdentity(at: path),
-              let boundIdentity else {
-            return false
-        }
-        return currentIdentity == boundIdentity
     }
 
     private nonisolated func startSocketPathMonitor(path: String, generation: UInt64) {
@@ -1963,7 +1290,7 @@ class TerminalController {
             return (true, boundSocketPathIdentity)
         }
         guard pathState.shouldCheck else { return }
-        guard !Self.socketPathExists(path, matching: pathState.boundIdentity) else { return }
+        guard !transport.pathExists(path, matching: pathState.boundIdentity) else { return }
 
         reportSocketListenerFailure(
             message: "socket.listener.path.missing",
@@ -1983,7 +1310,7 @@ class TerminalController {
             isRunning &&
                 activeAcceptLoopGeneration == generation &&
                 socketPath == path &&
-                !Self.socketPathExists(path, matching: boundSocketPathIdentity)
+                !transport.pathExists(path, matching: boundSocketPathIdentity)
         }
         guard shouldRestart else { return }
 
@@ -1999,87 +1326,6 @@ class TerminalController {
         )
         stop()
         start(tabManager: tabManager, socketPath: path, accessMode: restartMode)
-    }
-
-    nonisolated static func probeSocketCommand(
-        _ command: String,
-        at socketPath: String,
-        timeout: TimeInterval
-    ) -> String? {
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return nil }
-        defer { close(fd) }
-        Self.configureSocketTimeouts(fd, timeout: timeout)
-
-        _ = Self.configureNoSigPipe(fd)
-
-        var addr = sockaddr_un()
-        memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
-        addr.sun_family = sa_family_t(AF_UNIX)
-
-        let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
-        let pathBytes = Array(socketPath.utf8CString)
-        guard pathBytes.count <= maxLen else { return nil }
-        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-            let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
-            memset(raw, 0, maxLen)
-            for index in 0..<pathBytes.count {
-                raw[index] = pathBytes[index]
-            }
-        }
-
-        let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
-        let addrLen = socklen_t(pathOffset + pathBytes.count)
-#if os(macOS)
-        addr.sun_len = UInt8(min(Int(addrLen), 255))
-#endif
-
-        let connectResult = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                connect(fd, sockaddrPtr, addrLen)
-            }
-        }
-        guard connectResult == 0 else { return nil }
-
-        let payload = command + "\n"
-        let wroteAll = payload.withCString { cString in
-            var remaining = strlen(cString)
-            var pointer = UnsafeRawPointer(cString)
-            while remaining > 0 {
-                let written = write(fd, pointer, remaining)
-                if written <= 0 { return false }
-                remaining -= written
-                pointer = pointer.advanced(by: written)
-            }
-            return true
-        }
-        guard wroteAll else { return nil }
-
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        var response = ""
-
-        while true {
-            let count = read(fd, &buffer, buffer.count)
-            if count < 0 {
-                let readErrno = errno
-                if readErrno == EAGAIN || readErrno == EWOULDBLOCK {
-                    break
-                }
-                return nil
-            }
-            if count == 0 {
-                break
-            }
-            if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
-                response.append(chunk)
-                if let newlineIndex = response.firstIndex(of: "\n") {
-                    return String(response[..<newlineIndex])
-                }
-            }
-        }
-
-        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 
     nonisolated func stop() {
@@ -2135,18 +1381,18 @@ class TerminalController {
         if socketToClose >= 0 {
             close(socketToClose)
         }
-        if Self.shouldUnlinkSocketPathAfterListenerStop(
-            currentIdentity: Self.socketPathIdentity(at: socketPathToUnlink),
+        if listenerPolicy.shouldUnlinkSocketPathAfterListenerStop(
+            currentIdentity: transport.pathIdentity(at: socketPathToUnlink),
             boundIdentity: boundSocketPathIdentityToUnlink
         ) {
             unlink(socketPathToUnlink)
         }
-        Self.releaseSocketPathLock(socketPathLockFDToClose)
+        transport.releaseSocketPathLock(socketPathLockFDToClose)
     }
 
     private nonisolated func unlinkSocketPathIfListenerStillInactive(_ path: String) {
         let shouldUnlink = withListenerState {
-            Self.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
+            listenerPolicy.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
                 pathMatches: socketPath == path,
                 isRunning: isRunning,
                 activeGeneration: activeAcceptLoopGeneration,
@@ -2178,34 +1424,9 @@ class TerminalController {
         }
     }
 
-    nonisolated static func writeAllToSocket(_ data: Data, to socket: Int32) -> Bool {
-        data.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else { return true }
-            var offset = 0
-
-            while offset < rawBuffer.count {
-                let written = write(
-                    socket,
-                    baseAddress.advanced(by: offset),
-                    rawBuffer.count - offset
-                )
-                if written > 0 {
-                    offset += written
-                    continue
-                }
-                if written < 0, errno == EINTR {
-                    continue
-                }
-                return false
-            }
-
-            return true
-        }
-    }
-
     private nonisolated func writeSocketResponse(_ response: String, to socket: Int32) -> Bool {
         let payload = response + "\n"
-        return Self.writeAllToSocket(Data(payload.utf8), to: socket)
+        return transport.writeAll(Data(payload.utf8), to: socket)
     }
 
     private nonisolated func passwordAuthRequiredResponse(for command: String) -> String {
@@ -2329,6 +1550,9 @@ class TerminalController {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        "sidebar.custom.validate",
+        "sidebar.custom.reload",
+        "sidebar.custom.select",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via
@@ -2369,15 +1593,56 @@ class TerminalController {
         )
     }
 
-    private nonisolated func socketWorkerV2ResponseIfNeeded(for command: String) -> String? {
+    private nonisolated func socketWorkerV2ResponseIfHandled(for command: String) -> (handled: Bool, response: String?) {
         guard let request = parseV2SocketRequest(command),
               Self.executionPolicy(forV2Method: request.method) == .socketWorker else {
-            return nil
+            return (false, nil)
         }
 
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
-            socketWorkerV2Response(request)
+            if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
+                return (true, v2Result(id: request.id, workspaceParamError))
+            }
+            if request.method == "feed.push", request.id == nil {
+                guard let waitTimeout = Self.feedPushWaitTimeoutSeconds(params: request.params) else {
+                    return (true, v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "feed.push wait_timeout_seconds must be numeric and between 0 and 120"
+                    ))
+                }
+                guard waitTimeout == 0 else {
+                    return (true, v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "feed.push without an id requires wait_timeout_seconds 0"
+                    ))
+                }
+                _ = socketWorkerV2Response(request)
+                return (true, nil)
+            }
+            return (true, socketWorkerV2Response(request))
         }
+    }
+
+    private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
+        guard let rawTimeout = params["wait_timeout_seconds"] else {
+            return 0
+        }
+        let seconds: Double?
+        if let number = rawTimeout as? NSNumber {
+            seconds = number.doubleValue
+        } else if let value = rawTimeout as? Double {
+            seconds = value
+        } else if let value = rawTimeout as? Int {
+            seconds = Double(value)
+        } else {
+            seconds = nil
+        }
+        guard let seconds, seconds.isFinite, seconds >= 0, seconds <= 120 else {
+            return nil
+        }
+        return seconds
     }
 
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
@@ -2469,6 +1734,12 @@ class TerminalController {
             return v2Result(id: request.id, v2WorkspaceRemotePTYBridge(params: request.params))
         case "workspace.remote.pty_resize":
             return v2Result(id: request.id, v2WorkspaceRemotePTYResize(params: request.params))
+        case "sidebar.custom.validate":
+            return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
+        case "sidebar.custom.reload":
+            return v2Result(id: request.id, v2CustomSidebarReload(params: request.params))
+        case "sidebar.custom.select":
+            return v2Result(id: request.id, v2CustomSidebarSelect(params: request.params))
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
@@ -2553,8 +1824,8 @@ class TerminalController {
                 acceptSourceConsecutiveFailures = 0
             }
 
-            if let failure = Self.configureAcceptedClientSocket(clientSocket) {
-                if Self.shouldReportAcceptedClientConfigFailure(stage: failure.stage, errnoCode: failure.errnoCode) {
+            if let failure = transport.configureAcceptedClientSocket(clientSocket) {
+                if transport.shouldReportAcceptedClientConfigFailure(stage: failure.stage, errnoCode: failure.errnoCode) {
                     sentryBreadcrumb(
                         "socket.listener.client_config.failed",
                         category: "socket",
@@ -2580,7 +1851,7 @@ class TerminalController {
         generation: UInt64,
         errnoCode: Int32
     ) {
-        let errnoClass = Self.acceptErrorClassification(errnoCode: errnoCode)
+        let errnoClass = listenerPolicy.acceptErrorClassification(errnoCode: errnoCode)
         let consecutiveFailures = withListenerState {
             guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else { return 0 }
             acceptSourceConsecutiveFailures += 1
@@ -2588,7 +1859,7 @@ class TerminalController {
         }
         guard consecutiveFailures > 0 else { return }
 
-        let recoveryAction = Self.acceptFailureRecoveryAction(
+        let recoveryAction = listenerPolicy.acceptFailureRecoveryAction(
             errnoCode: errnoCode,
             consecutiveFailures: consecutiveFailures
         )
@@ -2602,7 +1873,7 @@ class TerminalController {
                 extra: [
                     "generation": generation,
                     "consecutiveFailures": consecutiveFailures,
-                    "errnoClass": errnoClass,
+                    "errnoClass": errnoClass.rawValue,
                     "recoveryAction": recoveryAction.debugLabel
                 ]
             )
@@ -2828,10 +2099,12 @@ class TerminalController {
 
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
-                let didWriteResponse = writeSocketResponse(result.response, to: socket)
-                publishSocketEvents(command: trimmed, response: result.response)
-                guard didWriteResponse else {
-                    return
+                if let response = result.response {
+                    let didWriteResponse = writeSocketResponse(response, to: socket)
+                    publishSocketEvents(command: trimmed, response: response)
+                    guard didWriteResponse else {
+                        return
+                    }
                 }
             }
         }
@@ -2866,12 +2139,14 @@ class TerminalController {
 
         let response = processCommandUsingSocketExecutionPolicy(command)
 #if DEBUG
-        Self.debugLogSocketCommandEndIfNeeded(
-            debugInfo: debugInfo,
-            startedAt: debugStart,
-            response: response,
-            loggingEnabled: debugLoggingEnabled
-        )
+        if let response {
+            Self.debugLogSocketCommandEndIfNeeded(
+                debugInfo: debugInfo,
+                startedAt: debugStart,
+                response: response,
+                loggingEnabled: debugLoggingEnabled
+            )
+        }
 #endif
         return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
     }
@@ -2958,7 +2233,7 @@ class TerminalController {
     }
 #endif
 
-    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
+    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
         if Thread.isMainThread,
            let request = parseV2SocketRequest(command),
            Self.executionPolicy(forV2Method: request.method) == .socketWorker,
@@ -2970,7 +2245,11 @@ class TerminalController {
             )
         }
 
-        if let response = socketWorkerV2ResponseIfNeeded(for: command) {
+        let socketWorkerResult = socketWorkerV2ResponseIfHandled(for: command)
+        if socketWorkerResult.handled {
+            guard let response = socketWorkerResult.response else {
+                return nil
+            }
             return response
         }
 
@@ -2990,7 +2269,7 @@ class TerminalController {
     /// request) can reuse the full V1/V2 dispatcher without duplicating
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
-        return processCommandUsingSocketExecutionPolicy(line)
+        return processCommandUsingSocketExecutionPolicy(line) ?? ""
     }
 
     private func processCommand(_ command: String) -> String {
@@ -3368,6 +2647,14 @@ class TerminalController {
 
     // MARK: - V2 JSON Socket Protocol
 
+    /// Runs a v2 command line (`{"method","params","id"}`) through the
+    /// dispatcher in-process and returns the JSON response. Internal seam so
+    /// in-app callers (e.g. custom-sidebar button actions) can drive the same
+    /// command surface as the socket without reaching the private dispatcher.
+    func runV2CommandLine(_ jsonLine: String) -> String {
+        processV2Command(jsonLine)
+    }
+
     private func processV2Command(_ jsonLine: String) -> String {
         // v1 access-mode gating applies to v2 as well. We can't know which v2 method maps
         // to which v1 command without parsing, so parse first and then apply allow-list.
@@ -3403,10 +2690,13 @@ class TerminalController {
             )
         }
 
-        v2MainSync { self.v2RefreshKnownRefs() }
-
-
         return withSocketCommandPolicy(commandKey: method, isV2: true, params: params) {
+            if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: method, params: params) {
+                return v2Result(id: id, workspaceParamError)
+            }
+
+            v2MainSync { self.v2RefreshKnownRefs() }
+
             switch method {
         case "system.ping":
             return v2Ok(id: id, result: ["pong": true])
@@ -5292,6 +4582,22 @@ class TerminalController {
         }
     }
 
+    private nonisolated func v2UnsupportedWorkspaceAliasError(method: String, params: [String: Any]) -> V2CallResult? {
+        guard method.hasPrefix("workspace."), params.keys.contains("window") else { return nil }
+        return .err(
+            code: "invalid_params",
+            message: String(
+                localized: "socket.workspace.unsupportedWindowParam",
+                defaultValue: "Unsupported parameter `window`; use `window_id` with a window UUID or ref from `window.list`."
+            ),
+            data: [
+                "method": method,
+                "unsupported_param": "window",
+                "supported_param": "window_id"
+            ]
+        )
+    }
+
     private nonisolated func v2Encode(_ object: Any) -> String {
         guard JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object, options: []),
@@ -5625,6 +4931,117 @@ class TerminalController {
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspaces": workspaces
         ])
+    }
+
+    private nonisolated func v2CustomSidebarValidate(params: [String: Any]) -> V2CallResult {
+        let name = v2CustomSidebarName(params: params)
+        if let name, name.isEmpty {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.invalidName",
+                    defaultValue: "Sidebar name must not be empty."
+                ),
+                data: nil
+            )
+        }
+        let report = v2CustomSidebarValidationReport(name: name)
+        return .ok(v2CustomSidebarReportPayload(report))
+    }
+
+    private nonisolated func v2CustomSidebarReload(params: [String: Any]) -> V2CallResult {
+        let name = v2CustomSidebarName(params: params)
+        if let name, name.isEmpty {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.invalidName",
+                    defaultValue: "Sidebar name must not be empty."
+                ),
+                data: nil
+            )
+        }
+        let report = v2CustomSidebarValidationReport(name: name)
+        let validNames = report.validNames
+        let reloadNames = report.names
+        if !reloadNames.isEmpty {
+            v2MainSync {
+                NotificationCenter.default.post(
+                    name: .customSidebarReloadRequested,
+                    object: nil,
+                    userInfo: ["names": reloadNames]
+                )
+            }
+        }
+        var payload = v2CustomSidebarReportPayload(report)
+        payload["reloaded_count"] = validNames.count
+        payload["reloaded_names"] = validNames
+        return .ok(payload)
+    }
+
+    private nonisolated func v2CustomSidebarSelect(params: [String: Any]) -> V2CallResult {
+        guard let name = v2CustomSidebarName(params: params), !name.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.selectMissingName",
+                    defaultValue: "Select requires a sidebar name."
+                ),
+                data: nil
+            )
+        }
+
+        let report = v2CustomSidebarValidationReport(name: name)
+        guard let entry = report.entries.first else {
+            return .ok(v2CustomSidebarReportPayload(report))
+        }
+        if let errorMessage = entry.errorMessage {
+            var payload = v2CustomSidebarReportPayload(report)
+            payload["message"] = errorMessage
+            return .ok(payload)
+        }
+
+        let providerId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+        v2MainSync {
+            UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
+            CmuxExtensionSidebarSelection.setProviderId(providerId)
+            NotificationCenter.default.post(
+                name: .customSidebarReloadRequested,
+                object: nil,
+                userInfo: ["names": [name]]
+            )
+        }
+        var payload = v2CustomSidebarReportPayload(report)
+        payload["selected_provider_id"] = providerId
+        payload["selected_name"] = name
+        return .ok(payload)
+    }
+
+    private nonisolated func v2CustomSidebarName(params: [String: Any]) -> String? {
+        guard let raw = params["name"] as? String else { return nil }
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private nonisolated func v2CustomSidebarValidationReport(name: String?) -> CustomSidebarValidationReport {
+        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
+        return CustomSidebarValidator().validate(directory: directory, name: name)
+    }
+
+    private nonisolated func v2CustomSidebarReportPayload(_ report: CustomSidebarValidationReport) -> [String: Any] {
+        [
+            "directory": CmuxExtensionSidebarSelection.customSidebarsDirectory.path,
+            "valid_count": report.validCount,
+            "error_count": report.errorCount,
+            "sidebars": report.entries.map { entry in
+                [
+                    "name": entry.name,
+                    "path": entry.fileURL.path,
+                    "kind": entry.kind.rawValue,
+                    "ok": entry.isValid,
+                    "error": v2OrNull(entry.errorMessage)
+                ] as [String: Any]
+            }
+        ]
     }
 
     private func v2ExtensionSidebarSnapshot(params: [String: Any]) -> V2CallResult {
@@ -6967,6 +6384,9 @@ class TerminalController {
         let foregroundAuthToken = v2RawString(params, "foreground_auth_token")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let localSocketPath = v2RawString(params, "local_socket_path")
+        let hasExplicitAgentSocketPath = v2HasNonNullParam(params, "ssh_auth_sock")
+        let agentSocketPath = v2RawString(params, "ssh_auth_sock")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
@@ -7055,6 +6475,7 @@ class TerminalController {
             "target=\(destination) transport=\(transport.rawValue) port=\(sshPort.map(String.init) ?? "nil") " +
             "autoConnect=\(autoConnect ? 1 : 0) relayPort=\(relayPort.map(String.init) ?? "nil") " +
             "localSocket=\(localSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? localSocketPath! : "nil") " +
+            "sshAuthSock=\(agentSocketPath?.isEmpty == false ? 1 : 0) " +
             "sshOptions=\(sshOptions.joined(separator: "|"))"
         )
 #endif
@@ -7083,6 +6504,11 @@ class TerminalController {
                 localSocketPath: localSocketPath,
                 terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
                 foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
+                agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
+                    sshOptions: sshOptions,
+                    explicitAgentSocketPath: agentSocketPath,
+                    explicitAgentSocketPathIsSet: hasExplicitAgentSocketPath
+                ),
                 daemonWebSocketEndpoint: daemonWebSocketEndpoint,
                 preserveAfterTerminalExit: preserveAfterTerminalExit,
                 persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
@@ -10100,7 +9526,9 @@ class TerminalController {
             includeScrollback = true
         }
 
-        var result: V2CallResult = .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
+        var rawSnapshot: TerminalTextRawSnapshot?
+        var resolvedContext: (workspaceId: UUID, surfaceId: UUID, windowId: UUID?)?
+        var result: V2CallResult?
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -10126,35 +9554,74 @@ class TerminalController {
                 return
             }
 
-            let response = readTerminalTextBase64(
+            rawSnapshot = readTerminalTextRawSnapshot(
                 terminalPanel: terminalPanel,
-                includeScrollback: includeScrollback,
-                lineLimit: lineLimit
+                includeScrollback: includeScrollback
             )
-            guard response.hasPrefix("OK ") else {
-                result = .err(code: "internal_error", message: response, data: nil)
-                return
-            }
-            let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-            let decoded = Data(base64Encoded: base64).flatMap { String(data: $0, encoding: .utf8) }
-            guard let text = decoded ?? (base64.isEmpty ? "" : nil) else {
-                result = .err(code: "internal_error", message: "Failed to decode terminal text", data: nil)
-                return
-            }
-
-            let windowId = v2ResolveWindowId(tabManager: tabManager)
-            result = .ok([
-                "text": text,
-                "base64": base64,
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "window_id": v2OrNull(windowId?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: windowId)
-            ])
+            resolvedContext = (ws.id, surfaceId, v2ResolveWindowId(tabManager: tabManager))
         }
-        return result
+        if let result {
+            return result
+        }
+        guard let rawSnapshot, let resolvedContext else {
+            return .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
+        }
+        switch Self.terminalTextPayload(
+            from: rawSnapshot,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        ) {
+        case .success(let payload):
+            return .ok([
+                "text": payload.text,
+                "base64": payload.base64,
+                "workspace_id": resolvedContext.workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: resolvedContext.workspaceId),
+                "surface_id": resolvedContext.surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: resolvedContext.surfaceId),
+                "window_id": v2OrNull(resolvedContext.windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: resolvedContext.windowId)
+            ])
+        case .failure(let error):
+            return .err(code: "internal_error", message: error.message, data: nil)
+        }
+    }
+
+    struct TerminalTextRawSnapshot {
+        var viewport: String?
+        var screen: String?
+        var history: String?
+        var active: String?
+    }
+
+    struct TerminalTextPayload: Equatable {
+        let text: String
+        let base64: String
+    }
+
+    struct TerminalTextPayloadError: Error, Equatable {
+        let message: String
+    }
+
+    private func readTerminalTextRawSnapshot(
+        terminalPanel: TerminalPanel,
+        includeScrollback: Bool
+    ) -> TerminalTextRawSnapshot? {
+        guard terminalPanel.surface.surface != nil else { return nil }
+        if includeScrollback {
+            return TerminalTextRawSnapshot(
+                viewport: nil,
+                screen: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SCREEN),
+                history: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SURFACE),
+                active: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_ACTIVE)
+            )
+        }
+        return TerminalTextRawSnapshot(
+            viewport: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_VIEWPORT),
+            screen: nil,
+            history: nil,
+            active: nil
+        )
     }
 
     private func readTerminalSelectionText(terminalPanel: TerminalPanel, pointTag: ghostty_point_tag_e) -> String? {
@@ -10196,64 +9663,84 @@ class TerminalController {
         guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
             return "ERROR: Terminal surface not found"
         }
-
-        func readSelectionText(pointTag: ghostty_point_tag_e) -> String? {
-            readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: pointTag)
+        guard let snapshot = readTerminalTextRawSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: includeScrollback
+        ) else {
+            return "ERROR: Terminal surface not found"
         }
+        switch Self.terminalTextPayload(
+            from: snapshot,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        ) {
+        case .success(let payload):
+            return "OK \(payload.base64)"
+        case .failure(let error):
+            return "ERROR: \(error.message)"
+        }
+    }
 
-        var output: String
+    nonisolated static func terminalTextPayload(
+        from snapshot: TerminalTextRawSnapshot,
+        includeScrollback: Bool,
+        lineLimit: Int?
+    ) -> Result<TerminalTextPayload, TerminalTextPayloadError> {
+        let output: String
         if includeScrollback {
-            func candidateScore(_ text: String) -> (lines: Int, bytes: Int) {
-                let lines = text.isEmpty ? 0 : text.split(separator: "\n", omittingEmptySubsequences: false).count
-                return (lines, text.utf8.count)
-            }
-
-            // Read all available regions and pick the most complete candidate.
-            // Different point tags can lose different rows around resize/reflow boundaries.
-            let screen = readSelectionText(pointTag: GHOSTTY_POINT_SCREEN)
-            let history = readSelectionText(pointTag: GHOSTTY_POINT_SURFACE)
-            let active = readSelectionText(pointTag: GHOSTTY_POINT_ACTIVE)
-
             var candidates: [String] = []
-            if let screen {
-                candidates.append(screen)
+            if let screen = snapshot.screen {
+                candidates.append(lineLimit.map { Self.tailTerminalLines(screen, maxLines: $0) } ?? screen)
             }
-            if history != nil || active != nil {
-                var merged = history ?? ""
-                if let active {
+            if snapshot.history != nil || snapshot.active != nil {
+                var merged = lineLimit.map {
+                    Self.tailTerminalLines(snapshot.history ?? "", maxLines: $0)
+                } ?? (snapshot.history ?? "")
+                if let active = snapshot.active {
                     if !merged.isEmpty, !merged.hasSuffix("\n"), !active.isEmpty {
                         merged.append("\n")
                     }
-                    merged.append(active)
+                    merged.append(lineLimit.map { Self.tailTerminalLines(active, maxLines: $0) } ?? active)
                 }
-                candidates.append(merged)
+                candidates.append(lineLimit.map { Self.tailTerminalLines(merged, maxLines: $0) } ?? merged)
             }
 
-            if let best = candidates.max(by: { lhs, rhs in
-                let left = candidateScore(lhs)
-                let right = candidateScore(rhs)
+            guard let best = candidates.max(by: { lhs, rhs in
+                let left = terminalTextCandidateScore(lhs)
+                let right = terminalTextCandidateScore(rhs)
                 if left.lines != right.lines {
                     return left.lines < right.lines
                 }
                 return left.bytes < right.bytes
-            }) {
-                output = best
-            } else {
-                return "ERROR: Failed to read terminal text"
+            }) else {
+                return .failure(TerminalTextPayloadError(message: "Failed to read terminal text"))
             }
+            output = best
         } else {
-            guard let viewport = readSelectionText(pointTag: GHOSTTY_POINT_VIEWPORT) else {
-                return "ERROR: Failed to read terminal text"
+            guard var viewport = snapshot.viewport else {
+                return .failure(TerminalTextPayloadError(message: "Failed to read terminal text"))
+            }
+            if let lineLimit {
+                viewport = Self.tailTerminalLines(viewport, maxLines: lineLimit)
             }
             output = viewport
         }
 
-        if let lineLimit {
-            output = tailTerminalLines(output, maxLines: lineLimit)
-        }
-
         let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
-        return "OK \(base64)"
+        return .success(TerminalTextPayload(text: output, base64: base64))
+    }
+
+    nonisolated private static func terminalTextCandidateScore(_ text: String) -> (lines: Int, bytes: Int) {
+        if text.isEmpty { return (0, 0) }
+        var newlineCount = 0
+        var byteCount = 0
+        for byte in text.utf8 {
+            byteCount += 1
+            if byte == 0x0A {
+                newlineCount += 1
+            }
+        }
+        return (newlineCount + 1, byteCount)
     }
 
     private func readTerminalTextFromVTExportForSnapshot(
@@ -10293,7 +9780,7 @@ class TerminalController {
             ? Self.normalizedMobileVTExportText(rawOutput)
             : rawOutput
         if let lineLimit {
-            output = tailTerminalLines(output, maxLines: lineLimit)
+            output = Self.tailTerminalLines(output, maxLines: lineLimit)
         }
         return output
     }
@@ -12389,12 +11876,19 @@ class TerminalController {
             let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
             let insertFirst = (direction == .left || direction == .up)
 
+            if params["font_size"] != nil, v2Double(params, "font_size") == nil {
+                result = .err(code: "invalid_params", message: "Invalid 'font_size' (expected a number)", data: nil)
+                return
+            }
+            let fontSize = v2Double(params, "font_size").map { MarkdownFontSizeSettings.clamp($0) }
+
             let createdPanel = ws.newMarkdownSplit(
                 from: sourceSurfaceId,
                 orientation: orientation,
                 insertFirst: insertFirst,
                 filePath: filePath,
-                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false),
+                fontSize: fontSize
             )
 
             guard let markdownPanelId = createdPanel?.id else {
@@ -12612,7 +12106,13 @@ class TerminalController {
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
 
         if BrowserAvailabilitySettings.isDisabled() {
+            if v2IsDiffViewerURL(url) {
+                return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
+            }
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
+        if let error = v2RegisterDiffViewerURLIfNeeded(params: params, url: url) {
+            return error
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
@@ -12664,6 +12164,9 @@ class TerminalController {
 
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+            let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
+            let transparentBackground = v2Bool(params, "transparent_background") ?? false
+            let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
 
             var createdSplit = true
             var placementStrategy = "split_right"
@@ -12673,7 +12176,11 @@ class TerminalController {
                     inPane: targetPane,
                     url: url,
                     focus: focus,
-                    creationPolicy: .automationPreload
+                    selectWhenNotFocused: true,
+                    creationPolicy: .automationPreload,
+                    omnibarVisible: omnibarVisible,
+                    transparentBackground: transparentBackground,
+                    bypassRemoteProxy: bypassRemoteProxy
                 )
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
@@ -12683,7 +12190,10 @@ class TerminalController {
                     orientation: .horizontal,
                     url: url,
                     focus: focus,
-                    creationPolicy: .automationPreload
+                    creationPolicy: .automationPreload,
+                    omnibarVisible: omnibarVisible,
+                    transparentBackground: transparentBackground,
+                    bypassRemoteProxy: bypassRemoteProxy
                 )
             }
 
@@ -12710,10 +12220,53 @@ class TerminalController {
                 "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
                 "created_split": createdSplit,
-                "placement_strategy": placementStrategy
+                "placement_strategy": placementStrategy,
+                "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
+                "transparent_background": transparentBackground,
+                "bypass_remote_proxy": bypassRemoteProxy
             ])
         }
         return result
+    }
+
+    private func v2IsDiffViewerURL(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
+            return true
+        }
+        return url.scheme?.lowercased() == "http" &&
+            url.host == "127.0.0.1" &&
+            url.fragment == "cmux-diff-viewer"
+    }
+
+    private func v2RegisterDiffViewerURLIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {
+        guard let url,
+              url.scheme == CmuxDiffViewerURLSchemeHandler.scheme else {
+            return nil
+        }
+        guard let token = v2String(params, "diff_viewer_token"),
+              token == url.host,
+              let rawFiles = params["diff_viewer_files"] as? [[String: Any]],
+              !rawFiles.isEmpty,
+              rawFiles.count <= CmuxDiffViewerURLSchemeHandler.maxRegisteredFiles else {
+            return .err(code: "invalid_params", message: "Missing or invalid trusted diff viewer allowlist", data: nil)
+        }
+
+        let files = rawFiles.compactMap(CmuxDiffViewerURLSchemeHandler.registeredFile(from:))
+        guard files.count == rawFiles.count else {
+            return .err(code: "invalid_params", message: "Invalid trusted diff viewer allowlist", data: nil)
+        }
+
+        do {
+            try CmuxDiffViewerURLSchemeHandler.shared.register(token: token, files: files)
+            return nil
+        } catch {
+            return .err(
+                code: "invalid_params",
+                message: "Invalid trusted diff viewer allowlist",
+                data: ["details": error.localizedDescription]
+            )
+        }
     }
 
     private func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
@@ -17008,31 +16561,21 @@ class TerminalController {
         )
     }
 
-    private func tailTerminalLines(_ text: String, maxLines: Int) -> String {
+    nonisolated static func tailTerminalLines(_ text: String, maxLines: Int) -> String {
         guard maxLines > 0 else { return "" }
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        guard lines.count > maxLines else { return text }
-        let normalized = terminalTextDroppingFinalLineTerminator(text)
-        let normalizedLines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
-        guard normalizedLines.count > maxLines else { return normalized }
-        return normalizedLines.suffix(maxLines).joined(separator: "\n")
-    }
-
-    private func terminalTextDroppingFinalLineTerminator(_ text: String) -> String {
-        if text.hasSuffix("\r\n") {
-            return String(text.dropLast(2))
-        }
-        if text.hasSuffix("\n") || text.hasSuffix("\r") {
-            return String(text.dropLast())
+        var newlineCount = 0
+        var index = text.endIndex
+        while index > text.startIndex {
+            let previous = text.index(before: index)
+            if text[previous] == "\n" {
+                newlineCount += 1
+                if newlineCount == maxLines {
+                    return String(text[index...])
+                }
+            }
+            index = previous
         }
         return text
-    }
-
-    private func headTerminalLines(_ text: String, maxLines: Int) -> String {
-        guard maxLines > 0 else { return "" }
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        guard lines.count > maxLines else { return text }
-        return lines.prefix(maxLines).joined(separator: "\n")
     }
 
     private func readTerminalTextBase64(surfaceArg: String, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {

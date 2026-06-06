@@ -1176,8 +1176,19 @@ private actor MobileHostStackAuthVerifier {
     }
 
     private static func cacheKey(for accessToken: String) -> String {
-        let digest = SHA256.hash(data: Data(accessToken.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
+        // Pure-Swift byte-to-hex (no String(format:)) — this runs for every
+        // authorized mobile RPC (incl. per-keystroke terminal.input) before the
+        // verifier cache hit, so it must stay allocation-cheap. String(format:)
+        // here would reintroduce the PR #5347 hot-path memory-growth crash class.
+        let digest = Array(SHA256.hash(data: Data(accessToken.utf8)))
+        let hexDigits: [UInt8] = Array("0123456789abcdef".utf8)
+        var hex = [UInt8]()
+        hex.reserveCapacity(digest.count * 2)
+        for byte in digest {
+            hex.append(hexDigits[Int(byte >> 4)])
+            hex.append(hexDigits[Int(byte & 0x0F)])
+        }
+        return String(decoding: hex, as: UTF8.self)
     }
 
     private static func withVerificationTimeout<T: Sendable>(

@@ -6,8 +6,15 @@ import Foundation
 ///
 /// All members are pure functions of their inputs so the trust decisions (loopback
 /// vs Tailscale vs LAN vs arbitrary host) can be exhaustively tested without a live
-/// connection. The host classification is intentionally conservative: only loopback,
-/// Tailscale, private-LAN, and `.local`/`.ts.net` DNS hosts are treated as trusted.
+/// connection.
+///
+/// The Stack-bearer-token gate (``routeAllowsStackAuth(_:)``) is intentionally
+/// restricted to **encrypted or loopback channels only**: the Tailscale tunnel
+/// (WireGuard-encrypted), iroh peer connections (encrypted), and loopback (never
+/// leaves the machine). Plain private-LAN and `.local`/Bonjour hosts are dialed
+/// over unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
+/// so they are excluded from the Stack-auth-allowed set even though they may still
+/// be reachable as attach routes.
 public struct MobileShellRouteAuthPolicy {
     private init() {}
 
@@ -54,15 +61,30 @@ public struct MobileShellRouteAuthPolicy {
         return .tailscale
     }
 
-    /// Whether the given route is trusted enough to carry Stack auth credentials.
+    /// Whether the given route is trusted enough to carry the Stack bearer token.
+    ///
+    /// The Stack `stack_access_token` is the owner's account credential, so it must
+    /// only ever traverse an encrypted or loopback channel. This predicate gates
+    /// every Stack-token-send site and returns `true` only for:
+    ///
+    /// - `.tailscale` to a Tailscale host (a `100.64.0.0/10` CGNAT address or a
+    ///   `*.ts.net` MagicDNS host), which rides the WireGuard-encrypted tunnel.
+    /// - `.iroh` to a peer, which is an encrypted QUIC connection.
+    /// - `.debugLoopback` to a loopback host, which never leaves the machine.
+    ///
+    /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
+    /// `.local`/Bonjour hosts are deliberately **excluded**: they are dialed over
+    /// unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
+    /// so sending the bearer token to such a host would disclose it in plaintext on
+    /// the local network before the Mac proves it is the same-account host.
     /// - Parameter route: The candidate attach route.
-    /// - Returns: `true` only for loopback, Tailscale/LAN/local-DNS, and iroh peer routes.
+    /// - Returns: `true` only for Tailscale-tunnel, iroh peer, and loopback routes.
     public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
         case (.tailscale, let .hostPort(host, _)):
-            return isTailscaleHost(host) || isPrivateLANHost(host) || isLocalDNSHost(host)
+            return isTailscaleHost(host)
         case (.iroh, .peer):
             return true
         default:
@@ -147,21 +169,5 @@ public struct MobileShellRouteAuthPolicy {
         host.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .hasSuffix(".ts.net")
-    }
-
-    private static func isPrivateLANHost(_ host: String) -> Bool {
-        guard let octets = ipv4Octets(host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) else {
-            return false
-        }
-        return octets[0] == 10 ||
-            (octets[0] == 172 && (16...31).contains(octets[1])) ||
-            (octets[0] == 192 && octets[1] == 168) ||
-            (octets[0] == 169 && octets[1] == 254)
-    }
-
-    private static func isLocalDNSHost(_ host: String) -> Bool {
-        host.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .hasSuffix(".local")
     }
 }

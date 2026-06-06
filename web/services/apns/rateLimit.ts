@@ -27,7 +27,7 @@ export async function recordPushSendOrThrow(
   const windowStart = new Date(now.getTime() - PUSH_RATE_LIMIT_WINDOW_MS);
 
   await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 1))`);
     await tx
       .delete(notificationSendEvents)
       .where(and(eq(notificationSendEvents.userId, userId), lt(notificationSendEvents.createdAt, windowStart)));

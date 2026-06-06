@@ -833,7 +833,7 @@ final class TerminalOutputCollector {
     let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
     #expect(workspaceList.workspaceID == nil)
     #expect(workspaceList.attachToken == "ticket-secret")
-    #expect(workspaceList.stackAccessToken == nil)
+    #expect(workspaceList.stackAccessToken == "test-stack-token")
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
 }
 
@@ -904,7 +904,7 @@ final class TerminalOutputCollector {
     #expect(workspaceLists[0].workspaceID == nil)
     #expect(workspaceLists[0].terminalID == nil)
     #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
-    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == nil })
+    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == "test-stack-token" })
     let workspaceIDs = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, docsWorkspaceID])
     #expect(workspaceIDs == [workspaceID, docsWorkspaceID])
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
@@ -977,7 +977,7 @@ final class TerminalOutputCollector {
     #expect(workspaceLists[0].workspaceID == nil)
     #expect(workspaceLists[0].terminalID == nil)
     #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
-    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == nil })
+    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == "test-stack-token" })
     let workspaceIDs = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, secondWorkspaceID])
     #expect(workspaceIDs == [workspaceID, secondWorkspaceID])
 }
@@ -1049,7 +1049,7 @@ final class TerminalOutputCollector {
     #expect(workspaceList.workspaceID == nil)
     #expect(workspaceList.terminalID == nil)
     #expect(workspaceList.attachToken == "ticket-secret")
-    #expect(workspaceList.stackAccessToken == nil)
+    #expect(workspaceList.stackAccessToken == "test-stack-token")
     #expect(store.selectedWorkspace?.terminals.first?.id.rawValue == terminalID)
 }
 
@@ -1529,7 +1529,7 @@ final class TerminalOutputCollector {
     let requests = await router.sentRequests()
     let createRequest = try #require(requests.first { $0.method == "workspace.create" })
     #expect(createRequest.attachToken == "ticket-secret")
-    #expect(createRequest.stackAccessToken == nil)
+    #expect(createRequest.stackAccessToken == "test-stack-token")
     #expect(store.connectionError == nil)
     #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main", "workspace-3"])
     #expect(store.selectedWorkspace?.id.rawValue == "workspace-3")

@@ -267,6 +267,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let ghosttyConfigContents = """
         font-family = Unit Mono
         font-size = 15
+        background-opacity = 0.42
         theme = light:Unit Light,dark:Unit Dark
         """
         try ghosttyConfigContents.write(to: ghosttyConfigURL, atomically: true, encoding: .utf8)
@@ -352,6 +353,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let commandPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
         let params = try XCTUnwrap(commandPayload["params"] as? [String: Any])
         XCTAssertEqual(params["show_omnibar"] as? Bool, false)
+        XCTAssertEqual(params["transparent_background"] as? Bool, true)
         XCTAssertEqual(params["bypass_remote_proxy"] as? Bool, true)
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let viewerURL = try XCTUnwrap(URL(string: rawURL))
@@ -367,7 +369,9 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
         let patchText = try String(contentsOf: patchSidecarURL, encoding: .utf8)
-        let viewerPayload = try diffViewerPayload(from: html)
+        let viewerConfig = try diffViewerConfig(from: html)
+        let viewerPayload = try diffViewerPayload(from: viewerConfig)
+        let viewerAssets = try diffViewerAssets(from: viewerConfig)
         let shortcuts = try XCTUnwrap(viewerPayload["shortcuts"] as? [String: Any])
         let scrollDown = try XCTUnwrap(shortcuts["diffViewerScrollDown"] as? [String: Any])
         let scrollDownFirst = try XCTUnwrap(scrollDown["first"] as? [String: Any])
@@ -384,26 +388,26 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(fileSearch["unbound"] as? Bool, true)
         let files = try diffViewerAllowedFiles(for: rawURL, from: params)
         XCTAssertTrue(html.contains("Review diff"), html)
-        XCTAssertTrue(html.contains("id=\"files-sidebar\""), html)
-        XCTAssertTrue(html.contains("grid-template-areas: \"viewer files\""), html)
-        XCTAssertTrue(html.contains("grid-template-columns: minmax(0, 1fr) var(--cmux-diff-files-width)"), html)
-        XCTAssertTrue(html.contains("id=\"file-search-toggle\""), html)
-        XCTAssertTrue(html.contains("id=\"files-footer\""), html)
-        XCTAssertTrue(html.contains("id=\"jump-select\""), html)
-        XCTAssertTrue(html.contains("id=\"layout-toggle\""), html)
-        XCTAssertTrue(html.contains("id=\"options-menu\""), html)
+        XCTAssertTrue(html.contains("<script id=\"cmux-diff-viewer-config\" type=\"application/json\">"), html)
+        XCTAssertTrue(html.contains("<div id=\"root\"></div>"), html)
+        XCTAssertTrue(html.contains("<script type=\"module\" src=\"./assets/cmux-diff-viewer-app/main.mjs\"></script>"), html)
         let assetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent("pierre-diffs-1.2.1-trees-1.0.0-beta.4", isDirectory: true)
+            .appendingPathComponent("pierre-diffs-1.2.7-trees-1.0.0-beta.4", isDirectory: true)
+        let appAssetDirectory = viewerFileURL.deletingLastPathComponent()
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-app", isDirectory: true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("diffs.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("trees.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-pool.mjs").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-portable.mjs").path))
-        XCTAssertTrue(html.contains("WORKER_POOL_MODULE_URL"), html)
-        XCTAssertTrue(html.contains("new CodeView(codeViewOptions(), workerPool ?? undefined)"), html)
-        XCTAssertTrue(html.contains("Indicator style"), html)
-        XCTAssertTrue(html.contains("Open source URL"), html)
-        XCTAssertTrue(html.contains("Copy git apply command"), html)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-portable.js").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs").path))
+        XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/diffs.mjs")
+        XCTAssertEqual(viewerAssets["treesModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/trees.mjs")
+        XCTAssertEqual(viewerAssets["workerPoolModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-pool.mjs")
+        XCTAssertEqual(viewerAssets["workerModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js")
+        let appearance = try XCTUnwrap(viewerPayload["appearance"] as? [String: Any])
+        XCTAssertEqual(appearance["backgroundOpacity"] as? Double, 0.42)
         XCTAssertTrue(html.contains("\"fontFamily\":\"Unit Mono\""), html)
         XCTAssertTrue(html.contains("\"fontSize\":13"), html)
         XCTAssertFalse(html.contains("\"fontSize\":15"), html)
@@ -418,6 +422,14 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(files.contains { file in
             file["request_path"] as? String == "/\(patchSidecarURL.lastPathComponent)" &&
                 file["mime_type"] as? String == "text/x-diff"
+        })
+        XCTAssertTrue(files.contains { file in
+            file["request_path"] as? String == "/assets/cmux-diff-viewer-app/main.mjs" &&
+                file["mime_type"] as? String == "text/javascript"
+        })
+        XCTAssertTrue(files.contains { file in
+            file["request_path"] as? String == "/assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js" &&
+                file["mime_type"] as? String == "text/javascript"
         })
         XCTAssertFalse(html.contains("hello.txt"), html)
         XCTAssertFalse(html.contains("<\\/script> marker"), html)
@@ -459,9 +471,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
 
         XCTAssertEqual(result.params["show_omnibar"] as? Bool, false)
-        XCTAssertTrue(result.html.contains("\"externalURL\":\"\(originalURL)\""), result.html)
-        XCTAssertTrue(result.html.contains("\"sourceLabel\":\"\(originalURL)\""), result.html)
-        XCTAssertTrue(result.html.contains("id=\"external-link\""), result.html)
+        let payload = try diffViewerPayload(from: result.html)
+        XCTAssertEqual(payload["externalURL"] as? String, originalURL)
+        XCTAssertEqual(payload["sourceLabel"] as? String, originalURL)
         let rawURL = try XCTUnwrap(result.params["url"] as? String)
         let files = try diffViewerAllowedFiles(for: rawURL, from: result.params)
         let patchFile = try XCTUnwrap(files.first { file in
@@ -671,7 +683,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(gitLog.contains(plainSiblingURL.path), gitLog)
     }
 
-    func testDiffCommandKeepsSelectedEmptyErrorWhenFallbackProbeFails() throws {
+    func testDiffCommandShowsFriendlyEmptyStateWhenEveryGitSourceIsEmpty() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -721,11 +733,12 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertNotEqual(result.status, 0)
-        XCTAssertFalse(result.stdout.contains("OK surface="), result.stdout)
-        XCTAssertTrue(result.stderr.contains("No unstaged changes to diff."), result.stderr)
+        // Empty diffs are a friendly state, not an error: the CLI exits 0 (so the
+        // launcher never emits the "unable to click" beep) and prints nothing to
+        // stderr. (issue #5246)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(result.stderr.contains("No unstaged changes to diff."), result.stderr)
         XCTAssertFalse(result.stderr.contains("EmptyDiffSourceError"), result.stderr)
-        XCTAssertFalse(result.stderr.contains("workspace and surface"), result.stderr)
 
         let commandPayload = try XCTUnwrap(
             state.commands.compactMap { Self.v2Payload(from: $0) }.first { payload in
@@ -739,9 +752,16 @@ final class CMUXOpenCommandTests: XCTestCase {
         let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
         XCTAssertTrue(html.contains("No unstaged changes to diff."), html)
         XCTAssertFalse(html.contains("No last-turn diff baseline recorded"), html)
+        let payload = try diffViewerPayload(from: html)
+        XCTAssertEqual(payload["statusIsError"] as? Bool, false, html)
     }
 
-    func testDiffCommandDoesNotFallbackFromLastTurnBaselineError() throws {
+    func testDiffCommandShowsFriendlyEmptyStateForLastTurnWithoutBaseline() throws {
+        // Regression: a last-turn diff with no recorded baseline must render the
+        // friendly empty diff state (with the source switcher) and exit 0, not
+        // surface the raw "No last-turn diff baseline recorded" CLI error. The
+        // non-zero exit is what triggered the launcher's "unable to click" beep,
+        // so a clean exit fixes both the bad copy and the beep (issue #5246).
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -757,10 +777,12 @@ final class CMUXOpenCommandTests: XCTestCase {
         try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "story.txt"], in: repoURL)
         try runGit(["commit", "-m", "initial"], in: repoURL)
+        // Staged changes exist on another source; last turn must NOT silently fall
+        // back to them — it stays on its own empty state.
         try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "story.txt"], in: repoURL)
 
-        let result = runDiffCLIExpectingNoOpen(
+        let result = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", "--last-turn"],
             environmentOverrides: [
@@ -768,15 +790,16 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "CMUX_WORKSPACE_ID": UUID().uuidString.lowercased(),
                 "CMUX_SURFACE_ID": UUID().uuidString.lowercased()
             ],
-            currentDirectoryURL: repoURL
+            currentDirectoryURL: repoURL,
+            readPatchSidecar: false
         )
 
-        XCTAssertNotEqual(result.status, 0)
-        XCTAssertTrue(result.stderr.contains("No last-turn diff baseline recorded for this workspace and surface yet"), result.stderr)
-        XCTAssertFalse(result.stdout.contains("surface="), result.stdout)
+        try assertFriendlyLastTurnEmptyState(html: result.html)
+        // No silent fallback to the staged "+two" change.
+        XCTAssertFalse(result.html.contains("+two"), result.html)
     }
 
-    func testDiffCommandDoesNotFallbackFromEmptyLastTurnDiff() throws {
+    func testDiffCommandShowsFriendlyEmptyStateForEmptyLastTurnDiff() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -813,7 +836,7 @@ final class CMUXOpenCommandTests: XCTestCase {
             baseCommit: featureCommit
         )
 
-        let result = runDiffCLIExpectingNoOpen(
+        let result = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", "--last-turn"],
             environmentOverrides: [
@@ -821,12 +844,11 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "CMUX_WORKSPACE_ID": workspaceId,
                 "CMUX_SURFACE_ID": surfaceId
             ],
-            currentDirectoryURL: repoURL
+            currentDirectoryURL: repoURL,
+            readPatchSidecar: false
         )
 
-        XCTAssertNotEqual(result.status, 0)
-        XCTAssertTrue(result.stderr.contains("No last-turn changes to diff."), result.stderr)
-        XCTAssertFalse(result.stdout.contains("surface="), result.stdout)
+        try assertFriendlyLastTurnEmptyState(html: result.html)
     }
 
     func testDiffCommandSupportsGitSourcesAndSurfaceScopedLastTurn() throws {
@@ -893,9 +915,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(branch.patch.contains("+two"), branch.patch)
         XCTAssertTrue(branch.patch.contains("+three"), branch.patch)
         XCTAssertTrue(branch.html.contains("\"sourceLabel\":\"git branch origin/main\""), branch.html)
-        XCTAssertTrue(branch.html.contains("id=\"source-select\""), branch.html)
-        XCTAssertTrue(branch.html.contains("id=\"repo-select\""), branch.html)
-        XCTAssertTrue(branch.html.contains("id=\"base-select\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"sourceOptions\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"repoOptions\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"baseOptions\""), branch.html)
@@ -1135,7 +1154,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(homeLastTurn.html.contains("Last turn diff"), homeLastTurn.html)
         XCTAssertTrue(homeLastTurn.patch.contains("new-turn-file.txt"), homeLastTurn.patch)
 
-        let wrongSurfaceResult = runDiffCLIExpectingNoOpen(
+        let wrongSurfaceResult = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", "--last-turn"],
             environmentOverrides: [
@@ -1143,10 +1162,26 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "CMUX_WORKSPACE_ID": workspaceId,
                 "CMUX_SURFACE_ID": UUID().uuidString.lowercased()
             ],
-            currentDirectoryURL: repoURL
+            currentDirectoryURL: repoURL,
+            readPatchSidecar: false
         )
-        XCTAssertNotEqual(wrongSurfaceResult.status, 0)
-        XCTAssertTrue(wrongSurfaceResult.stderr.contains("No last-turn diff baseline recorded for this workspace and surface yet"), wrongSurfaceResult.stderr)
+        try assertFriendlyLastTurnEmptyState(html: wrongSurfaceResult.html)
+    }
+
+    /// Asserts the diff viewer HTML renders the friendly, non-error last-turn empty
+    /// state: plain-language copy (never the raw baseline CLI error), `statusIsError`
+    /// false, and the source switcher still present with last turn selected.
+    private func assertFriendlyLastTurnEmptyState(html: String) throws {
+        XCTAssertFalse(html.contains("No last-turn diff baseline recorded"), html)
+        let payload = try diffViewerPayload(from: html)
+        XCTAssertEqual(payload["statusMessage"] as? String, "No last-turn changes to diff.", html)
+        XCTAssertEqual(payload["statusIsError"] as? Bool, false, html)
+        let sourceOptions = try XCTUnwrap(payload["sourceOptions"] as? [[String: Any]], html)
+        let lastTurnOption = try XCTUnwrap(
+            sourceOptions.first { $0["value"] as? String == "last-turn" },
+            html
+        )
+        XCTAssertEqual(lastTurnOption["selected"] as? Bool, true, html)
     }
 
     func testAgentTurnDiffBaselineStoresUntrackedSnapshotsOutsideGit() throws {
@@ -1637,10 +1672,14 @@ final class CMUXOpenCommandTests: XCTestCase {
         wait(for: [openHandled], timeout: 5)
         XCTAssertNotNil(openedURLBox.get())
         XCTAssertEqual(diffHadStartedWhenOpenedBox.get() ?? true, false)
-        XCTAssertTrue(pendingHTMLBox.get()?.contains("data-cmux-diff-pending=\"true\"") == true, pendingHTMLBox.get() ?? "")
-        XCTAssertTrue(pendingHTMLBox.get()?.contains("data-status-only=\"true\"") == true, pendingHTMLBox.get() ?? "")
-        XCTAssertTrue(pendingHTMLBox.get()?.contains("id=\"toolbar\"") == true, pendingHTMLBox.get() ?? "")
-        XCTAssertTrue(pendingHTMLBox.get()?.contains("id=\"viewer\"") == true, pendingHTMLBox.get() ?? "")
+        let pendingHTML = try XCTUnwrap(pendingHTMLBox.get())
+        let pendingPayload = try diffViewerPayload(from: pendingHTML)
+        XCTAssertTrue(pendingHTML.contains("data-cmux-diff-pending=\"true\""), pendingHTML)
+        XCTAssertFalse(pendingHTML.contains("data-status-only=\"true\""), pendingHTML)
+        XCTAssertTrue(pendingHTML.contains("<div id=\"root\"></div>"), pendingHTML)
+        XCTAssertEqual(pendingPayload["pendingReplacement"] as? Bool, true)
+        XCTAssertEqual(pendingPayload["title"] as? String, "Slow diff")
+        XCTAssertEqual(pendingPayload["statusIsError"] as? Bool, false)
         XCTAssertFalse(FileManager.default.fileExists(atPath: releaseDiffURL.path))
         FileManager.default.createFile(atPath: releaseDiffURL.path, contents: Data())
         let openingHTMLURL = try XCTUnwrap(openedHTMLURLBox.get())
@@ -2250,17 +2289,31 @@ final class CMUXOpenCommandTests: XCTestCase {
         return "/" + pathParts.dropFirst().joined(separator: "/")
     }
 
-    private func diffViewerPayload(from html: String) throws -> [String: Any] {
-        let marker = "const payload = "
+    private func diffViewerConfig(from html: String) throws -> [String: Any] {
+        let marker = "<script id=\"cmux-diff-viewer-config\" type=\"application/json\">"
         let start = try XCTUnwrap(html.range(of: marker)?.upperBound)
         let tail = html[start...]
-        let end = try XCTUnwrap(tail.range(of: "\n            const labels")?.lowerBound)
-        var json = String(tail[..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
-        if json.hasSuffix(";") {
-            json.removeLast()
-        }
+        let end = try XCTUnwrap(tail.range(of: "</script>")?.lowerBound)
+        let json = String(tail[..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
         let object = try JSONSerialization.jsonObject(with: Data(json.utf8))
         return try XCTUnwrap(object as? [String: Any])
+    }
+
+    private func diffViewerPayload(from html: String) throws -> [String: Any] {
+        try diffViewerPayload(from: diffViewerConfig(from: html))
+    }
+
+    private func diffViewerPayload(from config: [String: Any]) throws -> [String: Any] {
+        try XCTUnwrap(config["payload"] as? [String: Any])
+    }
+
+    private func diffViewerAssets(from config: [String: Any]) throws -> [String: String] {
+        let assets = try XCTUnwrap(config["assets"] as? [String: Any])
+        var result: [String: String] = [:]
+        for (key, value) in assets {
+            result[key] = try XCTUnwrap(value as? String)
+        }
+        return result
     }
 
     private func diffViewerOptionURL(value: String, in options: [[String: Any]]) throws -> String {

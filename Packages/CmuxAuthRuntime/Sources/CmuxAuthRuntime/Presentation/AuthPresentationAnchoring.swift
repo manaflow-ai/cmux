@@ -7,7 +7,7 @@ public import AuthenticationServices
 /// platform window to present from. The production conformer is
 /// ``AuthPresentationContextProvider``; tests can supply their own. Construct it
 /// once at the app composition root and inject it as `any AuthPresentationAnchoring`.
-public protocol AuthPresentationAnchoring: NSObject,
+public protocol AuthPresentationAnchoring: NSObjectProtocol,
     ASWebAuthenticationPresentationContextProviding,
     ASAuthorizationControllerPresentationContextProviding,
     Sendable {}

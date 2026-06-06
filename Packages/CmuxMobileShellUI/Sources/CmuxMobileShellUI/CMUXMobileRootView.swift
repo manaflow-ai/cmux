@@ -56,6 +56,10 @@ struct CMUXMobileRootView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             store.resumeForegroundRefresh()
+            // Re-check the Stack session on resume so one that died while
+            // backgrounded routes to the sign-in page instead of waiting for a
+            // failed connect to surface a confusing host-side message.
+            Task { await authManager.revalidateSession() }
         }
         .onOpenURL { url in
             let rawURL = url.absoluteString

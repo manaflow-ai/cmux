@@ -947,7 +947,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // loopback, LAN, .local). Untrusted manual public hosts stay off and
         // therefore cannot authorize, which is intended.
         let routeAllowsStackAuthFallback = allowsStackAuthFallback
-            ?? supportedRoutes.allSatisfy(MobileShellRouteAuthPolicy.routeAllowsImplicitPairLinkStackAuth)
+            ?? supportedRoutes.allSatisfy(MobileShellRouteAuthPolicy.routeAllowsStackAuth)
         var lastError: (any Error)?
         for route in supportedRoutes {
             activeRoute = route

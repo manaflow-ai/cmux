@@ -65,7 +65,18 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
+        // Loopback (127.0.0.1) is a Stack-auth-trusted route, so production wires
+        // `allowsStackAuthFallback: true` here via the `allSatisfy(routeAllowsStackAuth)`
+        // default in MobileShellComposite.connect. Authorized requests now carry the
+        // Stack token unconditionally and would otherwise throw `insecureManualRoute`
+        // before reaching the transport. This is a transport queue/cancellation test,
+        // so enable fallback to match the real trusted-route path.
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
         let firstRequest = try MobileCoreRPCClient.requestData(
             method: "terminal.input",
             params: [
