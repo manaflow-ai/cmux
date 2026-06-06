@@ -26465,7 +26465,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         try pruneLegacyGrokHookFileIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
-        try pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
+        pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
         printCopilotHookStorageNoteIfNeeded(def: def, filePath: filePath)
 
         // Post-install actions
@@ -26592,6 +26592,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         def: AgentHookDef,
         configDir: String,
         primaryFilePath: String
+    ) {
+        do {
+            try pruneLegacyCopilotConfigHooks(def: def, configDir: configDir, primaryFilePath: primaryFilePath)
+        } catch {
+            // Copilot owns config.json and may rewrite or lock it. Stable hook
+            // file install/uninstall must not depend on this legacy cleanup.
+        }
+    }
+
+    private func pruneLegacyCopilotConfigHooks(
+        def: AgentHookDef,
+        configDir: String,
+        primaryFilePath: String
     ) throws {
         guard def.name == "copilot" else { return }
         let configRootURL = URL(fileURLWithPath: configDir, isDirectory: true).deletingLastPathComponent()
@@ -26665,7 +26678,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         guard let data = fm.contents(atPath: filePath),
               var json = Self.jsonObjectForHookConfig(from: data, def: def) else {
             print("No \(def.configFile) found at \(filePath)")
-            try pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
+            pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
             return
         }
 
@@ -26737,7 +26750,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if remainingKeys.isEmpty {
                 try fm.removeItem(atPath: filePath)
                 print(Self.localizedHookRemovalMessage(count: removed, path: filePath))
-                try pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
+                pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
                 return
             }
         }
@@ -26745,7 +26758,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let dataToWrite = Self.hookConfigDataPreservingLeadingComments(newData, originalData: data, def: def)
         try dataToWrite.write(to: URL(fileURLWithPath: filePath), options: .atomic)
         print(Self.localizedHookRemovalMessage(count: removed, path: filePath))
-        try pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
+        pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
 
         // Post-uninstall actions
         if let action = def.postInstallAction {

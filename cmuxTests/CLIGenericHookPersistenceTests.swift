@@ -3184,8 +3184,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-copilot-hook-file-\(UUID().uuidString)", isDirectory: true)
         let copilotHome = root.appendingPathComponent("copilot-home", isDirectory: true)
         let configURL = copilotHome.appendingPathComponent("config.json", isDirectory: false)
-        let hookURL = copilotHome
-            .appendingPathComponent("hooks", isDirectory: true)
+        let hooksDirURL = copilotHome.appendingPathComponent("hooks", isDirectory: true)
+        let hookURL = hooksDirURL
             .appendingPathComponent("cmux.json", isDirectory: false)
         try FileManager.default.createDirectory(at: copilotHome, withIntermediateDirectories: true)
         try """
@@ -3218,7 +3218,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
           }
         }
         """.write(to: configURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer {
+            _ = Darwin.chmod(copilotHome.path, 0o700)
+            _ = Darwin.chmod(hooksDirURL.path, 0o700)
+            try? FileManager.default.removeItem(at: root)
+        }
 
         let result = runProcess(
             executablePath: cliPath,
@@ -3281,6 +3285,58 @@ extension CLINotifyProcessIntegrationRegressionTests {
             configJSONC.hasPrefix("// Copilot CLI 1.0.49 writes comments at the top of config.json."),
             configJSONC
         )
+        XCTAssertFalse(configJSONC.contains(#""hooks""#), configJSONC)
+
+        try """
+        // Copilot CLI 1.0.49 regenerated legacy cmux hooks in config.json.
+        {
+          "editor": "vim",
+          "hooks": {
+            "SessionStart": [
+              {
+                "type": "command",
+                "command": "cmux hooks copilot session-start",
+                "timeout": 5000
+              }
+            ]
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        try #"{"version":1,"hooks":{}}"#.write(to: hookURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: copilotHome.path)
+        let bestEffortPruneResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "COPILOT_HOME": copilotHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: copilotHome.path)
+        XCTAssertFalse(bestEffortPruneResult.timedOut, bestEffortPruneResult.stderr)
+        XCTAssertEqual(bestEffortPruneResult.status, 0, bestEffortPruneResult.stderr)
+        let repairedHookJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        XCTAssertNotNil((repairedHookJSON["hooks"] as? [String: Any])?["SessionStart"])
+        configJSONC = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertTrue(configJSONC.contains(#""hooks""#), configJSONC)
+
+        let writablePruneResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "COPILOT_HOME": copilotHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        XCTAssertFalse(writablePruneResult.timedOut, writablePruneResult.stderr)
+        XCTAssertEqual(writablePruneResult.status, 0, writablePruneResult.stderr)
+        configJSONC = try String(contentsOf: configURL, encoding: .utf8)
         XCTAssertFalse(configJSONC.contains(#""hooks""#), configJSONC)
 
         try """
