@@ -232,6 +232,10 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         await send("session.error", { info, error: { message: "upstream quota" } });
         await send("session.status", status("running"));
         await send("session.error", { info, error: { message: "upstream quota" } });
+        await send("permission.asked", { info, message: "approve" });
+        await send("session.idle", { info });
+        await send("session.status", status("running"));
+        await send("session.status", { info: { ...info, status: { type: "queued", message: "truncate inactive workbench" } } });
         await send("session.status", status("idle"));
         await send("todo.updated", { info });
         await send("session.idle", { info });
@@ -270,6 +274,10 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let commands = log.split(separator: "\n").map(String.init)
         let errorNotifications = commands.filter { $0.contains("hooks opencode runtime-notification error") }
         XCTAssertEqual(errorNotifications.count, 2, log)
+        let needsInputStatuses = commands.filter { $0.contains("hooks opencode runtime-status needs-input") }
+        XCTAssertEqual(needsInputStatuses.count, 1, log)
+        let runningStatuses = commands.filter { $0.contains("hooks opencode runtime-status running") }
+        XCTAssertEqual(runningStatuses.count, 3, log)
         let stopHooks = commands.filter { $0 == "hooks opencode stop" }
         XCTAssertEqual(stopHooks.count, lifecycleEvictionSessionCount + 3, log)
     }

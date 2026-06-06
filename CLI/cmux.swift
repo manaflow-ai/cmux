@@ -25551,21 +25551,34 @@ function statusWordsForKeys(value, keys, depth = 0) {
   return keys.flatMap((key) => statusWordsForKeys(value[key], keys, depth + 1));
 }
 
+function statusTokens(words) {
+  return words.flatMap((word) => String(word).toLowerCase().match(/[a-z0-9]+/g) || []);
+}
+
+function hasAnyStatusToken(tokens, candidates) {
+  return tokens.some((token) => candidates.has(token));
+}
+
+const RETRY_STATUS_TOKENS = new Set(["retry", "retrying", "retried", "throttle", "throttled", "throttling", "backoff"]);
+const ERROR_STATUS_TOKENS = new Set(["error", "errored", "fail", "failed", "failure", "exception", "crash", "crashed", "panic", "panicked"]);
+const IDLE_STATUS_TOKENS = new Set(["idle", "ready", "done", "complete", "completed", "stopped"]);
+const RUNNING_STATUS_TOKENS = new Set(["run", "running", "busy", "active", "work", "working", "stream", "streaming", "process", "processing", "execute", "executing"]);
+
+function hasRetryStatus(tokens) {
+  return hasAnyStatusToken(tokens, RETRY_STATUS_TOKENS) || (tokens.includes("rate") && tokens.includes("limit"));
+}
+
 function descriptorForOpenCodeStatus(rawStatus) {
-  const primary = statusWordsForKeys(rawStatus, ["type", "status", "state", "phase"]).join(" ").toLowerCase();
-  const lower = statusWords(rawStatus).join(" ").toLowerCase();
-  if (!lower) return null;
-  if (/(retry|rate.?limit|throttl|backoff)/.test(lower)) return STATUS_DESCRIPTORS.retrying;
-  if (/(error|fail|failure|exception|crash|panic)/.test(primary)) return STATUS_DESCRIPTORS.error;
-  if (/(idle|ready|done|complete|completed|stopped)/.test(primary)) return STATUS_DESCRIPTORS.idle;
-  if (/(run|running|busy|active|work|working|stream|streaming|process|processing|execute|executing)/.test(primary)) {
-    return STATUS_DESCRIPTORS.running;
-  }
-  if (/(error|fail|failure|exception|crash|panic)/.test(lower)) return STATUS_DESCRIPTORS.error;
-  if (/(idle|ready|done|complete|completed|stopped)/.test(lower)) return STATUS_DESCRIPTORS.idle;
-  if (/(run|running|busy|active|work|working|stream|streaming|process|processing|execute|executing)/.test(lower)) {
-    return STATUS_DESCRIPTORS.running;
-  }
+  const primaryTokens = statusTokens(statusWordsForKeys(rawStatus, ["type", "status", "state", "phase"]));
+  const tokens = statusTokens(statusWords(rawStatus));
+  if (!tokens.length) return null;
+  if (hasRetryStatus(tokens)) return STATUS_DESCRIPTORS.retrying;
+  if (hasAnyStatusToken(primaryTokens, ERROR_STATUS_TOKENS)) return STATUS_DESCRIPTORS.error;
+  if (hasAnyStatusToken(primaryTokens, IDLE_STATUS_TOKENS)) return STATUS_DESCRIPTORS.idle;
+  if (hasAnyStatusToken(primaryTokens, RUNNING_STATUS_TOKENS)) return STATUS_DESCRIPTORS.running;
+  if (hasAnyStatusToken(tokens, ERROR_STATUS_TOKENS)) return STATUS_DESCRIPTORS.error;
+  if (hasAnyStatusToken(tokens, IDLE_STATUS_TOKENS)) return STATUS_DESCRIPTORS.idle;
+  if (hasAnyStatusToken(tokens, RUNNING_STATUS_TOKENS)) return STATUS_DESCRIPTORS.running;
   return null;
 }
 
@@ -25630,11 +25643,20 @@ function notifyOpenCodeErrorOnce(ctx, event) {
 function sendStopHookOnIdleTransition(ctx, event) {
   const record = lifecycleRecordFor(event);
   if (!record) return;
+  if (record.phase === "needs-input" || record.phase === "error") return;
   if (record.phase === "idle") return;
   if (sendHook("stop", ctx, event)) {
     record.phase = "idle";
     record.errorNotified = false;
   }
+}
+
+function setIdleStatusAndStop(ctx, event) {
+  const record = lifecycleRecordFor(event);
+  if (!record) return;
+  if (record.phase === "needs-input" || record.phase === "error") return;
+  setStatus(STATUS_DESCRIPTORS.idle, ctx, event);
+  sendStopHookOnIdleTransition(ctx, event);
 }
 
 function setStatus(descriptor, ctx, event) {
@@ -25716,19 +25738,19 @@ const CMUXSessionRestore = async (ctx) => {
           break;
         case "session.status": {
           const descriptor = descriptorForOpenCodeStatus(props.status || props.info?.status || props);
-          setStatus(descriptor, ctx, event);
           if (descriptor === STATUS_DESCRIPTORS.idle) {
-            sendStopHookOnIdleTransition(ctx, event);
+            setIdleStatusAndStop(ctx, event);
           } else if (descriptor === STATUS_DESCRIPTORS.error) {
+            setStatus(descriptor, ctx, event);
             notifyOpenCodeErrorOnce(ctx, event);
           } else if (descriptor) {
+            setStatus(descriptor, ctx, event);
             markSessionNotIdle(event);
           }
           break;
         }
         case "session.idle":
-          setStatus(STATUS_DESCRIPTORS.idle, ctx, event);
-          sendStopHookOnIdleTransition(ctx, event);
+          setIdleStatusAndStop(ctx, event);
           break;
         case "permission.asked":
           markSessionNeedsInput(event);
