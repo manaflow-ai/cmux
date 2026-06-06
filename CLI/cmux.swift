@@ -4239,8 +4239,11 @@ struct CMUXCLI {
             )
 
         case "close-page":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
-            let pageRaw = optionValue(commandArgs, name: "--page") ?? commandArgs.first
+            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
+            let (pageOpt, rem1) = parseOption(rem0, name: "--page")
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let positionalArgs = rem1.dropFirst(rem1.first == "--" ? 1 : 0)
+            let pageRaw = pageOpt ?? positionalArgs.first
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
             if let wsId { params["workspace_id"] = wsId }
