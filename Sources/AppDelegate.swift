@@ -12514,8 +12514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-        if shouldBypassPrintableOptionTextShortcutRouting(event: event, normalizedFlags: normalizedFlags),
-           !matchesConfiguredShortcutOrChordPrefix(event: event) {
+        if shouldBypassPrintableOptionTextShortcutRouting(event: event, normalizedFlags: normalizedFlags) {
             return false
         }
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
@@ -12821,8 +12820,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event),
-           !matchesConfiguredShortcutOrChordPrefix(event: event) {
+        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
             return false
         }
 
@@ -14721,25 +14719,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         if !action.shortcutContext.isAlwaysAvailable && !action.shortcutContext.isAvailable(shortcutEventFocusContext(event)) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
-    }
-
-    private func matchesConfiguredShortcutOrChordPrefix(event: NSEvent) -> Bool {
-        KeyboardShortcutSettings.Action.allCases.contains { action in
-            if !action.shortcutContext.isAlwaysAvailable,
-               !action.shortcutContext.isAvailable(shortcutEventFocusContext(event)) {
-                return false
-            }
-            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-            guard !shortcut.isUnbound else { return false }
-            if matchConfiguredShortcut(event: event, shortcut: shortcut) {
-                return true
-            }
-            guard activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-                  shortcut.hasChord else {
-                return false
-            }
-            return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
-        }
     }
 
     fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {
