@@ -859,14 +859,13 @@ class TerminalController {
         }
     }
 
-    /// Wire-protocol helpers (parse/route/encode) shared with the package;
+    /// Wire-protocol helpers (parse/encode) shared with the package;
     /// stateless, so single instances serve every thread.
     private nonisolated static let v2Parser = ControlRequestParser()
-    private nonisolated static let v2Routing = ControlMethodRoutingPolicy()
     private nonisolated static let v2Encoder = ControlResponseEncoder()
 
     private nonisolated static func executionPolicy(forV2Method method: String) -> ControlCommandExecutionPolicy {
-        v2Routing.executionPolicy(forMethod: method)
+        ControlCommandExecutionPolicy(forMethod: method)
     }
 
     private nonisolated func parseV2SocketRequest(_ command: String) -> V2SocketRequest? {
@@ -878,7 +877,7 @@ class TerminalController {
 
     private nonisolated func socketWorkerV2ResponseIfHandled(for command: String) -> (handled: Bool, response: String?) {
         guard let request = parseV2SocketRequest(command),
-              Self.executionPolicy(forV2Method: request.method) == .socketWorker else {
+              Self.executionPolicy(forV2Method: request.method).runsOnSocketWorker else {
             return (false, nil)
         }
 
@@ -1278,8 +1277,7 @@ class TerminalController {
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
         if Thread.isMainThread,
            let request = parseV2SocketRequest(command),
-           Self.executionPolicy(forV2Method: request.method) == .socketWorker,
-           !Self.v2Routing.isMainThreadCallable(method: request.method) {
+           Self.executionPolicy(forV2Method: request.method) == .socketWorker(mainThreadCallable: false) {
             return v2Error(
                 id: request.id,
                 code: "invalid_dispatch",
@@ -2227,7 +2225,7 @@ class TerminalController {
         case "debug.terminal.simulate_file_drop":
             return v2Result(id: id, self.v2DebugSimulateTerminalFileDrop(params: params))
         // debug.sidebar.simulate_drag is dispatched on the socket worker
-        // (see ControlMethodRoutingPolicy + the worker switch in processCommand)
+        // (see ControlCommandExecutionPolicy + the worker switch in processCommand)
         // so its inter-tick Thread.sleep never blocks the main actor.
 #endif
         case "debug.terminal.read_text":
@@ -15175,11 +15173,11 @@ class TerminalController {
     /// generate a deterministic 60Hz-style drag load without HID synthesis.
     /// Never commits the reorder; calls back with the synthesized step path.
     ///
-    /// Runs on the socket worker (see `ControlMethodRoutingPolicy`) so the
+    /// Runs on the socket worker (see `ControlCommandExecutionPolicy`) so the
     /// inter-tick `Thread.sleep` doesn't block the main actor — every
     /// dragState mutation hops to main via `v2MainSync`.
     private nonisolated func v2DebugSidebarSimulateDrag(params: [String: Any]) -> V2CallResult {
-        // Dispatched on the socket worker (see ControlMethodRoutingPolicy) so the
+        // Dispatched on the socket worker (see ControlCommandExecutionPolicy) so the
         // inter-tick Thread.sleep doesn't block the main actor. All parameter
         // resolution (including workspace:N -> UUID ref-resolution) and the
         // SidebarDragState mutations hop to main via v2MainSync.
