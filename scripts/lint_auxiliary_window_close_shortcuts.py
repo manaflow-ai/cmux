@@ -19,6 +19,8 @@ OWNER_LIST_NAME = "cmuxAuxiliaryWindowIdentifiers"
 IGNORED_IDENTIFIERS = {
     # Hidden WebKit preload host; it is not user closable and must not own Cmd+W.
     "cmux.browserBackgroundPreload",
+    # Hidden WebKit visual automation host; it renders offscreen and never becomes key/main.
+    "cmux.browserVisualAutomationRender",
     "cmux.bootstrap",
     # Cursor-anchored textbox completion popup; it never becomes key/main.
     "cmux.textbox.mentionCompletionPanel",

@@ -55,7 +55,7 @@ export function codeViewUnsafeCSS(): string {
     :host {
       --diffs-light-bg: var(--cmux-diff-bg);
       --diffs-dark-bg: var(--cmux-diff-bg);
-      --diffs-bg-buffer-override: var(--cmux-diff-bg);
+      --diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
       --diffs-bg-context-override: var(--cmux-diff-bg);
       --diffs-bg-context-gutter-override: var(--cmux-diff-bg);
       --cmux-diff-surface-bg: light-dark(
@@ -83,11 +83,23 @@ export function codeViewUnsafeCSS(): string {
       min-height: 30px;
       background-color: var(--cmux-diff-surface-bg) !important;
     }
-    [data-line-type='change-addition'] {
+    [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--diffs-addition-base);
     }
-    [data-line-type='change-deletion'] {
+    [data-line-type='change-deletion']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--diffs-deletion-base);
+    }
+    [data-gutter-buffer='buffer'] {
+      background-position: 5px 0;
+      background-size: 8px 8px;
+      background-origin: border-box;
+      background-image: repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 4.242px,
+        var(--diffs-bg-buffer) 4.242px,
+        var(--diffs-bg-buffer) 5.656px
+      );
     }
     [data-separator='line-info'] {
       background-color: var(--diffs-bg-separator);
@@ -138,15 +150,6 @@ export function fileTreeUnsafeCSS(): string {
     [data-item-section='content'] {
       flex: 1 1 auto;
       min-width: 0;
-    }
-    [data-item-section='decoration'] {
-      flex: 0 0 56px;
-      width: 56px;
-      min-width: 56px;
-      margin-inline-start: 4px;
-    }
-    [data-item-section='decoration'] > span {
-      font-variant-numeric: tabular-nums;
     }
     [data-item-section='git'] {
       opacity: 0.75;
