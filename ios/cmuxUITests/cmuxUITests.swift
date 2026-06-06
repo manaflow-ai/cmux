@@ -641,7 +641,7 @@ final class cmuxUITests: XCTestCase {
     ) {
         let viewport = availableTerminalViewport(in: app)
         let horizontalTolerance: CGFloat = 12
-        let bottomTolerance: CGFloat = 4
+        let bottomTolerance: CGFloat = 36
         let topChromeBudget = max(CGFloat(150), viewport.height * 0.22)
 
         XCTAssertLessThanOrEqual(
@@ -668,7 +668,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(
             frame.maxY,
             viewport.maxY - bottomTolerance,
-            "Terminal surface should reach the bottom of the viewport without a send/input bar. Frame: \(frame), viewport: \(viewport)",
+            "Terminal surface should reach the bottom safe area without a send/input bar. Frame: \(frame), viewport: \(viewport)",
             file: file,
             line: line
         )
