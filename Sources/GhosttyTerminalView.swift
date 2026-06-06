@@ -10565,7 +10565,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         switch command {
         case .deleteBackward:
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            let hasTerminalModifier = flags.intersection([.control, .option, .command]).isEmpty == false
+            let hasTerminalModifier = !flags.isDisjoint(with: [.control, .option, .command])
             return !hasTerminalModifier &&
                 (event.characters ?? "").isEmpty &&
                 (event.charactersIgnoringModifiers ?? "").isEmpty
