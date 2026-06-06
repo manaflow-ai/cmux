@@ -502,8 +502,10 @@ public struct BrowserSection: View {
     }
 
     private func setBrowserEngine(_ value: BrowserEngine) {
-        browserEngine.set(value)
-        hostActions.setBrowserEngine(value.rawValue)
+        browserEngine.assumeCurrent(value)
+        if !hostActions.setBrowserEngine(value.rawValue) {
+            browserEngine.set(value)
+        }
     }
 
     private func browserEngineUsesEmbeddedBrowser(_ engine: BrowserEngine) -> Bool {

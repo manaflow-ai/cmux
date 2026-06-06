@@ -86,6 +86,11 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         }
     }
 
+    /// Updates UI state when a host path has already persisted the same value.
+    func assumeCurrent(_ value: Value) {
+        current = value
+    }
+
     /// Removes the override; ``current`` updates when the stream observes
     /// the reset.
     public func reset() {

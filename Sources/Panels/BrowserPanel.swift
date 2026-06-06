@@ -590,6 +590,10 @@ enum BrowserEngineSettings {
 
     static func setCurrentEngine(_ engine: BrowserEngine, defaults: UserDefaults = .standard) {
         defaults.set(engine.rawValue, forKey: engineKey)
+        applyCurrentEngineSideEffects(engine, defaults: defaults)
+    }
+
+    private static func applyCurrentEngineSideEffects(_ engine: BrowserEngine, defaults: UserDefaults = .standard) {
         defaults.set(!engine.usesEmbeddedBrowser, forKey: legacyDisabledKey)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
         NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
