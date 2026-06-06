@@ -183,6 +183,10 @@ class TerminalController {
         "workspace.next",
         "workspace.previous",
         "workspace.last",
+        "page.select",
+        "page.next",
+        "page.previous",
+        "page.last",
         "workspace.group.focus",
         "surface.focus",
         "pane.focus",
@@ -203,6 +207,7 @@ class TerminalController {
     enum V2HandleKind: String, CaseIterable {
         case window
         case workspace
+        case page
         case workspaceGroup = "workspace_group"
         case pane
         case surface
@@ -211,6 +216,7 @@ class TerminalController {
     private var v2NextHandleOrdinal: [V2HandleKind: Int] = [
         .window: 1,
         .workspace: 1,
+        .page: 1,
         .workspaceGroup: 1,
         .pane: 1,
         .surface: 1,
@@ -218,6 +224,7 @@ class TerminalController {
     private var v2RefByUUID: [V2HandleKind: [UUID: String]] = [
         .window: [:],
         .workspace: [:],
+        .page: [:],
         .workspaceGroup: [:],
         .pane: [:],
         .surface: [:],
@@ -225,6 +232,7 @@ class TerminalController {
     private var v2UUIDByRef: [V2HandleKind: [String: UUID]] = [
         .window: [:],
         .workspace: [:],
+        .page: [:],
         .workspaceGroup: [:],
         .pane: [:],
         .surface: [:],
@@ -1982,50 +1990,74 @@ class TerminalController {
         case "feed.list":
             return v2Result(id: id, self.v2FeedList(params: params))
 
+        // Pages
+        case "page.list":
+            return v2Result(id: id, self.v2PageList(params: params))
+        case "page.create":
+            return v2Result(id: id, self.v2PageCreate(params: params))
+        case "page.duplicate":
+            return v2Result(id: id, self.v2PageDuplicate(params: params))
+        case "page.select":
+            return v2Result(id: id, self.v2PageSelect(params: params))
+        case "page.current":
+            return v2Result(id: id, self.v2PageCurrent(params: params))
+        case "page.close":
+            return v2Result(id: id, self.v2PageClose(params: params))
+        case "page.reorder":
+            return v2Result(id: id, self.v2PageReorder(params: params))
+        case "page.rename":
+            return v2Result(id: id, self.v2PageRename(params: params))
+        case "page.next":
+            return v2Result(id: id, self.v2PageNext(params: params))
+        case "page.previous":
+            return v2Result(id: id, self.v2PagePrevious(params: params))
+        case "page.last":
+            return v2Result(id: id, self.v2PageLast(params: params))
+
 
         // Surfaces / input
         case "surface.list":
-            return v2Result(id: id, self.v2SurfaceList(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceList(params: params) }
         case "surface.current":
-            return v2Result(id: id, self.v2SurfaceCurrent(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceCurrent(params: params) }
         case "surface.focus":
-            return v2Result(id: id, self.v2SurfaceFocus(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceFocus(params: params) }
         case "surface.split":
-            return v2Result(id: id, self.v2SurfaceSplit(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceSplit(params: params) }
         case "surface.respawn":
-            return v2Result(id: id, self.v2SurfaceRespawn(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceRespawn(params: params) }
         case "surface.create":
-            return v2Result(id: id, self.v2SurfaceCreate(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceCreate(params: params) }
         case "surface.close":
-            return v2Result(id: id, self.v2SurfaceClose(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceClose(params: params) }
         case "surface.move":
-            return v2Result(id: id, self.v2SurfaceMove(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceMove(params: params) }
         case "surface.reorder":
-            return v2Result(id: id, self.v2SurfaceReorder(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceReorder(params: params) }
         case "surface.action":
-            return v2Result(id: id, self.v2TabAction(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2TabAction(params: params) }
         case "tab.action":
-            return v2Result(id: id, self.v2TabAction(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2TabAction(params: params) }
         case "surface.drag_to_split":
-            return v2Result(id: id, self.v2SurfaceDragToSplit(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceDragToSplit(params: params) }
         case "surface.split_off":
-            return v2Result(id: id, self.v2SurfaceSplitOff(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceSplitOff(params: params) }
         case "surface.refresh":
-            return v2Result(id: id, self.v2SurfaceRefresh(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceRefresh(params: params) }
         case "surface.health":
-            return v2Result(id: id, self.v2SurfaceHealth(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceHealth(params: params) }
         case "surface.resume.set":
-            return v2Result(id: id, self.v2SurfaceResumeSet(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceResumeSet(params: params) }
         case "surface.resume.get":
-            return v2Result(id: id, self.v2SurfaceResumeGet(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceResumeGet(params: params) }
         case "surface.resume.clear":
-            return v2Result(id: id, self.v2SurfaceResumeClear(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceResumeClear(params: params) }
         case "debug.terminals":
             return v2Result(id: id, self.v2DebugTerminals(params: params))
         case "surface.send_text":
-            return v2Result(id: id, self.v2SurfaceSendText(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceSendText(params: params) }
         case "surface.send_key":
-            return v2Result(id: id, self.v2SurfaceSendKey(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceSendKey(params: params) }
         case "surface.report_tty":
             return v2Result(id: id, self.v2SurfaceReportTTY(params: params))
         case "surface.report_shell_state":
@@ -2033,29 +2065,29 @@ class TerminalController {
         case "surface.ports_kick":
             return v2Result(id: id, self.v2SurfacePortsKick(params: params))
         case "surface.clear_history":
-            return v2Result(id: id, self.v2SurfaceClearHistory(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceClearHistory(params: params) }
         case "surface.trigger_flash":
-            return v2Result(id: id, self.v2SurfaceTriggerFlash(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceTriggerFlash(params: params) }
 
         // Panes
         case "pane.list":
-            return v2Result(id: id, self.v2PaneList(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneList(params: params) }
         case "pane.focus":
-            return v2Result(id: id, self.v2PaneFocus(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneFocus(params: params) }
         case "pane.surfaces":
-            return v2Result(id: id, self.v2PaneSurfaces(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneSurfaces(params: params) }
         case "pane.create":
-            return v2Result(id: id, self.v2PaneCreate(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneCreate(params: params) }
         case "pane.resize":
-            return v2Result(id: id, self.v2PaneResize(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneResize(params: params) }
         case "pane.swap":
-            return v2Result(id: id, self.v2PaneSwap(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneSwap(params: params) }
         case "pane.break":
-            return v2Result(id: id, self.v2PaneBreak(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneBreak(params: params) }
         case "pane.join":
-            return v2Result(id: id, self.v2PaneJoin(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneJoin(params: params) }
         case "pane.last":
-            return v2Result(id: id, self.v2PaneLast(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneLast(params: params) }
 
         // Notifications
         case "notification.create":
@@ -2368,6 +2400,12 @@ class TerminalController {
         }
     }
 
+#if DEBUG
+    func debugProcessV2Command(_ jsonLine: String) -> String {
+        processV2Command(jsonLine)
+    }
+#endif
+
     private nonisolated func v2Capabilities() -> [String: Any] {
         var methods: [String] = [
             "system.ping",
@@ -2457,6 +2495,17 @@ class TerminalController {
             "feed.exit_plan.reply",
             "feed.jump",
             "feed.list",
+            "page.list",
+            "page.create",
+            "page.duplicate",
+            "page.select",
+            "page.current",
+            "page.close",
+            "page.reorder",
+            "page.rename",
+            "page.next",
+            "page.previous",
+            "page.last",
             "surface.list",
             "surface.current",
             "surface.focus",
@@ -2663,11 +2712,16 @@ class TerminalController {
                let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
                 let paneUUID = ws.bonsplitController.focusedPaneId?.id
                 let surfaceUUID = ws.focusedPanelId
+                let pageId = ws.activePageId
                 focused = [
                     "window_id": v2OrNull(windowId?.uuidString),
                     "window_ref": v2Ref(kind: .window, uuid: windowId),
                     "workspace_id": wsId.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId),
+                    "page_index": v2OrNull(ws.pageIndex(pageId: pageId)),
+                    "page_title": ws.pageTitle(pageId: pageId) ?? "",
                     "pane_id": v2OrNull(paneUUID?.uuidString),
                     "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
                     "surface_id": v2OrNull(surfaceUUID?.uuidString),
@@ -2690,15 +2744,21 @@ class TerminalController {
         if let callerObj = params["caller"] as? [String: Any],
            let wsId = v2UUIDAny(callerObj["workspace_id"]) {
             let surfaceId = v2UUIDAny(callerObj["surface_id"]) ?? v2UUIDAny(callerObj["tab_id"])
+            let callerPageId = v2UUIDAny(callerObj["page_id"])
             v2MainSync {
                 let callerTabManager = AppDelegate.shared?.tabManagerFor(tabId: wsId) ?? tabManager
                 if let ws = callerTabManager.tabs.first(where: { $0.id == wsId }) {
                     let callerWindowId = v2ResolveWindowId(tabManager: callerTabManager)
+                    let pageId = callerPageId.flatMap { ws.pageIndex(pageId: $0) != nil ? $0 : nil } ?? ws.activePageId
                     var payload: [String: Any] = [
                         "window_id": v2OrNull(callerWindowId?.uuidString),
                         "window_ref": v2Ref(kind: .window, uuid: callerWindowId),
                         "workspace_id": wsId.uuidString,
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
+                        "page_id": pageId.uuidString,
+                        "page_ref": v2Ref(kind: .page, uuid: pageId),
+                        "page_index": v2OrNull(ws.pageIndex(pageId: pageId)),
+                        "page_title": ws.pageTitle(pageId: pageId) ?? ""
                     ]
 
                     if let surfaceId, ws.panels[surfaceId] != nil {
@@ -3443,6 +3503,59 @@ class TerminalController {
         index: Int,
         selected: Bool
     ) -> [String: Any] {
+        let pageNodes: [[String: Any]] = workspace.pages.enumerated().compactMap { pageIndex, page in
+            guard let snapshot = workspace.pageStateSnapshot(pageId: page.id, includeScrollback: false) else {
+                return nil
+            }
+            return v2TreePageNode(
+                workspace: workspace,
+                page: page,
+                index: pageIndex,
+                snapshot: snapshot
+            )
+        }
+        let selectedPagePanes = pageNodes.first(where: { ($0["selected"] as? Bool) == true })?["panes"] as? [[String: Any]] ?? []
+
+        return [
+            "id": workspace.id.uuidString,
+            "ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "index": index,
+            "title": workspace.title,
+            "description": v2OrNull(workspace.customDescription),
+            "selected": selected,
+            "pinned": workspace.isPinned,
+            "selected_page_id": workspace.activePageId.uuidString,
+            "selected_page_ref": v2Ref(kind: .page, uuid: workspace.activePageId),
+            "page_count": pageNodes.count,
+            "pages": pageNodes,
+            // Preserve the selected page's panes at workspace.panes for older tree consumers.
+            "panes": selectedPagePanes
+        ]
+    }
+
+    private func v2TreePageNode(
+        workspace: Workspace,
+        page: WorkspacePage,
+        index: Int,
+        snapshot: SessionWorkspacePageStateSnapshot
+    ) -> [String: Any] {
+        let panes = page.id == workspace.activePageId
+            ? v2TreeLivePagePanes(workspace: workspace)
+            : v2TreeStoredPagePanes(snapshot: snapshot)
+
+        return [
+            "id": page.id.uuidString,
+            "ref": v2Ref(kind: .page, uuid: page.id),
+            "index": index,
+            "title": page.title,
+            "selected": page.id == workspace.activePageId,
+            "pane_count": panes.count,
+            "surface_count": snapshot.panels.count,
+            "panes": panes
+        ]
+    }
+
+    private func v2TreeLivePagePanes(workspace: Workspace) -> [[String: Any]] {
         var paneByPanelId: [UUID: UUID] = [:]
         var indexInPaneByPanelId: [UUID: Int] = [:]
         var selectedInPaneByPanelId: [UUID: Bool] = [:]
@@ -3499,7 +3612,7 @@ class TerminalController {
         }
 
         let focusedPaneId = workspace.bonsplitController.focusedPaneId
-        let panes: [[String: Any]] = paneIds.enumerated().map { paneIndex, paneId in
+        return paneIds.enumerated().map { paneIndex, paneId in
             let tabs = workspace.bonsplitController.tabs(inPane: paneId)
             let surfaceUUIDs: [UUID] = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id) }
             let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
@@ -3518,17 +3631,57 @@ class TerminalController {
                 "surfaces": surfacesByPane[paneId.id] ?? []
             ]
         }
+    }
 
-        return [
-            "id": workspace.id.uuidString,
-            "ref": v2Ref(kind: .workspace, uuid: workspace.id),
-            "index": index,
-            "title": workspace.title,
-            "description": v2OrNull(workspace.customDescription),
-            "selected": selected,
-            "pinned": workspace.isPinned,
-            "panes": panes
-        ]
+    private func v2TreeStoredPagePanes(snapshot: SessionWorkspacePageStateSnapshot) -> [[String: Any]] {
+        let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
+        return v2TreePaneSnapshots(in: snapshot.layout).enumerated().map { paneIndex, pane in
+            let surfaces: [[String: Any]] = pane.panelIds.enumerated().compactMap { surfaceIndex, panelId in
+                guard let panel = panelSnapshotsById[panelId] else { return nil }
+                var item: [String: Any] = [
+                    "id": NSNull(),
+                    "ref": NSNull(),
+                    "index": surfaceIndex,
+                    "type": panel.type.rawValue,
+                    "title": panel.customTitle ?? panel.title ?? "",
+                    "focused": panelId == snapshot.focusedPanelId,
+                    "selected": pane.selectedPanelId == panelId,
+                    "selected_in_pane": v2OrNull(pane.selectedPanelId == panelId),
+                    "pane_id": NSNull(),
+                    "pane_ref": NSNull(),
+                    "index_in_pane": surfaceIndex
+                ]
+                if panel.type == .browser {
+                    item["url"] = panel.browser?.urlString ?? ""
+                } else {
+                    item["url"] = NSNull()
+                }
+                return item
+            }
+
+            let focused = surfaces.contains { ($0["focused"] as? Bool) == true }
+            return [
+                "id": NSNull(),
+                "ref": NSNull(),
+                "index": paneIndex,
+                "focused": focused,
+                "surface_ids": [],
+                "surface_refs": [],
+                "selected_surface_id": NSNull(),
+                "selected_surface_ref": NSNull(),
+                "surface_count": surfaces.count,
+                "surfaces": surfaces
+            ]
+        }
+    }
+
+    private func v2TreePaneSnapshots(in layout: SessionWorkspaceLayoutSnapshot) -> [SessionPaneLayoutSnapshot] {
+        switch layout {
+        case .pane(let pane):
+            return [pane]
+        case .split(let split):
+            return v2TreePaneSnapshots(in: split.first) + v2TreePaneSnapshots(in: split.second)
+        }
     }
 
     // MARK: - V2 Helpers (encoding + result plumbing)
@@ -3731,6 +3884,53 @@ class TerminalController {
         }
     }
 
+    private func v2ResultActivatingRequestedPage(
+        id: Any?,
+        params: [String: Any],
+        _ body: () -> V2CallResult
+    ) -> String {
+        if let activationError = v2ActivateRequestedPageContext(params: params) {
+            return v2Result(id: id, activationError)
+        }
+        return v2Result(id: id, body())
+    }
+
+    private func v2ActivateRequestedPageContext(params: [String: Any]) -> V2CallResult? {
+        guard let pageId = v2UUID(params, "page_id") else { return nil }
+
+        return v2MainSync {
+            guard let located = v2LocatePage(pageId) else {
+                return .err(code: "not_found", message: "Page not found", data: [
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+            }
+
+            if let windowId = v2UUID(params, "window_id"), windowId != located.windowId {
+                return .err(code: "not_found", message: "Page not found in window", data: [
+                    "window_id": windowId.uuidString,
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+            }
+
+            if let workspaceId = v2UUID(params, "workspace_id"), workspaceId != located.workspace.id {
+                return .err(code: "not_found", message: "Page not found in workspace", data: [
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+            }
+
+            if located.workspace.activePageId != pageId {
+                located.workspace.selectPage(pageId)
+            }
+            return nil
+        }
+    }
+
     private nonisolated func v2UnsupportedWorkspaceAliasError(method: String, params: [String: Any]) -> V2CallResult? {
         guard method.hasPrefix("workspace."), params.keys.contains("window") else { return nil }
         return .err(
@@ -3875,6 +4075,9 @@ class TerminalController {
             if let tm = app.tabManagerFor(windowId: item.windowId) {
                 for ws in tm.tabs {
                     _ = v2EnsureHandleRef(kind: .workspace, uuid: ws.id)
+                    for page in ws.pages {
+                        _ = v2EnsureHandleRef(kind: .page, uuid: page.id)
+                    }
                     for paneId in ws.bonsplitController.allPaneIds {
                         _ = v2EnsureHandleRef(kind: .pane, uuid: paneId.id)
                     }
@@ -3925,6 +4128,11 @@ class TerminalController {
         }
         if let paneId = v2UUID(params, "pane_id") {
             if let tm = v2MainSync({ v2LocatePane(paneId)?.tabManager }) {
+                return tm
+            }
+        }
+        if let pageId = v2UUID(params, "page_id") {
+            if let tm = v2MainSync({ self.v2LocatePage(pageId)?.tabManager }) {
                 return tm
             }
         }
@@ -6987,6 +7195,425 @@ class TerminalController {
         return result
     }
 
+    // MARK: - V2 Page Methods
+
+    private func v2LocatePage(_ pageUUID: UUID) -> (windowId: UUID, tabManager: TabManager, workspace: Workspace, pageIndex: Int)? {
+        guard let app = AppDelegate.shared else { return nil }
+        let windows = app.listMainWindowSummaries()
+        for item in windows {
+            guard let tm = app.tabManagerFor(windowId: item.windowId) else { continue }
+            for ws in tm.tabs {
+                if let pageIndex = ws.pageIndex(pageId: pageUUID) {
+                    return (item.windowId, tm, ws, pageIndex)
+                }
+            }
+        }
+        return nil
+    }
+
+    private func v2PagePayload(
+        workspace: Workspace,
+        page: WorkspacePage,
+        index: Int,
+        selected: Bool
+    ) -> [String: Any] {
+        let summary = workspace.pageStructureSummary(page: page)
+        return [
+            "id": page.id.uuidString,
+            "ref": v2Ref(kind: .page, uuid: page.id),
+            "index": index,
+            "title": page.title,
+            "selected": selected,
+            "pane_count": summary?.paneCount ?? 0,
+            "surface_count": summary?.surfaceCount ?? 0
+        ]
+    }
+
+    private func v2PageResultPayload(
+        tabManager: TabManager,
+        workspace: Workspace,
+        pageId: UUID
+    ) -> [String: Any] {
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        let pageIndex = workspace.pageIndex(pageId: pageId)
+        return [
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "workspace_id": workspace.id.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "page_id": pageId.uuidString,
+            "page_ref": v2Ref(kind: .page, uuid: pageId),
+            "page_index": v2OrNull(pageIndex),
+            "page_title": workspace.pageTitle(pageId: pageId) ?? ""
+        ]
+    }
+
+    private func v2PageList(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var payload: [String: Any]?
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let pages = workspace.pages.enumerated().map { index, page in
+                v2PagePayload(
+                    workspace: workspace,
+                    page: page,
+                    index: index,
+                    selected: page.id == workspace.activePageId
+                )
+            }
+            payload = v2PageResultPayload(
+                tabManager: tabManager,
+                workspace: workspace,
+                pageId: workspace.activePageId
+            )
+            payload?["pages"] = pages
+        }
+
+        guard let payload else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        return .ok(payload)
+    }
+
+    private func v2PageCreate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        let title = v2String(params, "title")
+        let select = v2FocusAllowed(requested: v2Bool(params, "select") ?? true)
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            if select {
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+            }
+            let page = workspace.newPage(select: select)
+            if let title {
+                workspace.setPageTitle(pageId: page.id, title: title)
+            }
+            result = .ok(v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: page.id))
+        }
+
+        return result
+    }
+
+    private func v2PageDuplicate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        let requestedPageId = v2UUID(params, "page_id")
+        if v2HasNonNullParam(params, "page_id"), requestedPageId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid page_id", data: nil)
+        }
+        let title = v2String(params, "title")
+        let select = v2FocusAllowed(requested: v2Bool(params, "select") ?? true)
+        var result: V2CallResult = .err(code: "not_found", message: "Page not found", data: nil)
+
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let sourcePageId: UUID
+            if let requestedPageId {
+                guard workspace.pageIndex(pageId: requestedPageId) != nil else {
+                    result = .err(code: "not_found", message: "Page not found", data: [
+                        "page_id": requestedPageId.uuidString,
+                        "page_ref": v2Ref(kind: .page, uuid: requestedPageId)
+                    ])
+                    return
+                }
+                sourcePageId = requestedPageId
+            } else {
+                sourcePageId = workspace.activePageId
+            }
+
+            if select {
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+            }
+
+            guard let page = workspace.duplicatePage(
+                sourcePageId: sourcePageId,
+                select: select,
+                title: title
+            ) else {
+                result = .err(code: "internal_error", message: "Failed to duplicate page", data: [
+                    "page_id": sourcePageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: sourcePageId)
+                ])
+                return
+            }
+
+            result = .ok(v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: page.id))
+        }
+
+        return result
+    }
+
+    private func v2PageSelect(params: [String: Any]) -> V2CallResult {
+        guard let pageId = v2UUID(params, "page_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid page_id", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Page not found", data: [
+            "page_id": pageId.uuidString,
+            "page_ref": v2Ref(kind: .page, uuid: pageId)
+        ])
+
+        v2MainSync {
+            if let explicitTabManager = v2ResolveTabManager(params: params),
+               let workspace = v2ResolveWorkspace(params: params, tabManager: explicitTabManager),
+               workspace.pageIndex(pageId: pageId) != nil {
+                v2MaybeFocusWindow(for: explicitTabManager)
+                v2MaybeSelectWorkspace(explicitTabManager, workspace: workspace)
+                workspace.selectPage(pageId)
+                result = .ok(v2PageResultPayload(tabManager: explicitTabManager, workspace: workspace, pageId: pageId))
+                return
+            }
+
+            guard let located = v2LocatePage(pageId) else { return }
+            v2MaybeFocusWindow(for: located.tabManager)
+            v2MaybeSelectWorkspace(located.tabManager, workspace: located.workspace)
+            located.workspace.selectPage(pageId)
+            result = .ok(v2PageResultPayload(tabManager: located.tabManager, workspace: located.workspace, pageId: pageId))
+        }
+
+        return result
+    }
+
+    private func v2PageCurrent(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "No page selected", data: nil)
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            result = .ok(v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: workspace.activePageId))
+        }
+        return result
+    }
+
+    private func v2PageClose(params: [String: Any]) -> V2CallResult {
+        let requestedPageId = v2UUID(params, "page_id")
+        if v2HasNonNullParam(params, "page_id"), requestedPageId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid page_id", data: nil)
+        }
+
+        let force = v2Bool(params, "force") ?? true
+        let notFoundData: [String: Any]? = requestedPageId.map { pageId in
+            [
+                "page_id": pageId.uuidString,
+                "page_ref": v2Ref(kind: .page, uuid: pageId)
+            ]
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "Page not found", data: notFoundData)
+
+        v2MainSync {
+            let located: (windowId: UUID?, tabManager: TabManager, workspace: Workspace, pageId: UUID)?
+            if let requestedPageId {
+                if let explicitTabManager = v2ResolveTabManager(params: params),
+                   let workspace = v2ResolveWorkspace(params: params, tabManager: explicitTabManager),
+                   workspace.pageIndex(pageId: requestedPageId) != nil {
+                    located = (v2ResolveWindowId(tabManager: explicitTabManager), explicitTabManager, workspace, requestedPageId)
+                } else {
+                    let resolved = v2LocatePage(requestedPageId)
+                    located = resolved.map { ($0.windowId, $0.tabManager, $0.workspace, requestedPageId) }
+                }
+            } else {
+                guard let tabManager = v2ResolveTabManager(params: params),
+                      let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                    return
+                }
+                located = (v2ResolveWindowId(tabManager: tabManager), tabManager, workspace, workspace.activePageId)
+            }
+
+            guard let located else { return }
+            let pageId = located.pageId
+            guard located.workspace.canClosePage(pageId) else {
+                result = .err(code: "invalid_state", message: "Cannot close the last page in a workspace", data: [
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+                return
+            }
+            located.workspace.closePage(pageId, skipConfirmation: force)
+            result = .ok([
+                "window_id": v2OrNull(located.windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: located.windowId),
+                "workspace_id": located.workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: located.workspace.id),
+                "page_id": pageId.uuidString,
+                "page_ref": v2Ref(kind: .page, uuid: pageId),
+                "selected_page_id": located.workspace.activePageId.uuidString,
+                "selected_page_ref": v2Ref(kind: .page, uuid: located.workspace.activePageId)
+            ])
+        }
+
+        return result
+    }
+
+    private func v2PageReorder(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let pageId = v2UUID(params, "page_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid page_id", data: nil)
+        }
+
+        let index = v2Int(params, "index")
+        let beforeId = v2UUID(params, "before_page_id")
+        let afterId = v2UUID(params, "after_page_id")
+        let targetCount = (index != nil ? 1 : 0) + (beforeId != nil ? 1 : 0) + (afterId != nil ? 1 : 0)
+        if targetCount != 1 {
+            return .err(
+                code: "invalid_params",
+                message: "Specify exactly one target: index, before_page_id, or after_page_id",
+                data: nil
+            )
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            guard let currentIndex = workspace.pageIndex(pageId: pageId) else {
+                result = .err(code: "not_found", message: "Page not found", data: [
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+                return
+            }
+
+            let moved: Bool
+            if let index {
+                moved = workspace.movePage(pageId: pageId, toIndex: index)
+            } else if let beforeId {
+                guard let beforeIndex = workspace.pageIndex(pageId: beforeId) else {
+                    result = .err(code: "not_found", message: "Anchor page (before_page_id) not found", data: [
+                        "before_page_id": beforeId.uuidString,
+                        "page_id": pageId.uuidString,
+                        "page_ref": v2Ref(kind: .page, uuid: pageId)
+                    ])
+                    return
+                }
+                let targetIndex = currentIndex < beforeIndex ? beforeIndex - 1 : beforeIndex
+                moved = workspace.movePage(pageId: pageId, toIndex: targetIndex)
+            } else if let afterId {
+                guard let afterIndex = workspace.pageIndex(pageId: afterId) else {
+                    result = .err(code: "not_found", message: "Anchor page (after_page_id) not found", data: [
+                        "after_page_id": afterId.uuidString,
+                        "page_id": pageId.uuidString,
+                        "page_ref": v2Ref(kind: .page, uuid: pageId)
+                    ])
+                    return
+                }
+                let targetIndex = currentIndex < afterIndex + 1 ? afterIndex : afterIndex + 1
+                moved = workspace.movePage(pageId: pageId, toIndex: targetIndex)
+            } else {
+                moved = false
+            }
+
+            let newIndex = workspace.pageIndex(pageId: pageId)
+            guard moved else {
+                result = .err(code: "invalid_state", message: "Cannot reorder: workspace has only one page", data: [
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+                return
+            }
+            var payload = v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: pageId)
+            payload["index"] = v2OrNull(newIndex)
+            result = .ok(payload)
+        }
+        return result
+    }
+
+    private func v2PageRename(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        let requestedPageId = v2UUID(params, "page_id")
+        if v2HasNonNullParam(params, "page_id"), requestedPageId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid page_id", data: nil)
+        }
+        guard let title = v2String(params, "title") else {
+            return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+        var payload: [String: Any]?
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let pageId = requestedPageId ?? workspace.activePageId
+            guard workspace.pageIndex(pageId: pageId) != nil else {
+                result = .err(code: "not_found", message: "Page not found", data: [
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+                return
+            }
+            workspace.setPageTitle(pageId: pageId, title: title)
+            payload = v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: pageId)
+        }
+
+        guard let payload else {
+            return result
+        }
+        return .ok(payload)
+    }
+
+    private func v2PageNext(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "No page selected", data: nil)
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+            workspace.selectNextPage()
+            result = .ok(v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: workspace.activePageId))
+        }
+        return result
+    }
+
+    private func v2PagePrevious(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "No page selected", data: nil)
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+            workspace.selectPreviousPage()
+            result = .ok(v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: workspace.activePageId))
+        }
+        return result
+    }
+
+    private func v2PageLast(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "No page selected", data: nil)
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let lastPage = workspace.pages.last else { return }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+            workspace.selectPage(lastPage.id)
+            result = .ok(v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: workspace.activePageId))
+        }
+        return result
+    }
+
     private func v2TabAction(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -7285,6 +7912,9 @@ class TerminalController {
     func v2ResolveWorkspace(params: [String: Any], tabManager: TabManager) -> Workspace? {
         if let wsId = v2UUID(params, "workspace_id") {
             return tabManager.tabs.first(where: { $0.id == wsId })
+        }
+        if let pageId = v2UUID(params, "page_id") {
+            return tabManager.tabs.first(where: { $0.pageIndex(pageId: pageId) != nil })
         }
         if let surfaceId = v2UUID(params, "surface_id")
             ?? v2UUID(params, "terminal_id")

@@ -3811,6 +3811,33 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
+        case "list-pages":
+            let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
+            var params: [String: Any] = [:]
+            let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
+            applyPageCommandContext(pageContext, to: &params)
+            let payload = try client.sendV2(method: "page.list", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let pages = payload["pages"] as? [[String: Any]] ?? []
+                if pages.isEmpty {
+                    print(String(localized: "cli.page.listPages.noPages", defaultValue: "No pages"))
+                } else {
+                    for page in pages {
+                        let selected = (page["selected"] as? Bool) == true
+                        let handle = textHandle(page, idFormat: idFormat)
+                        let title = (page["title"] as? String) ?? ""
+                        let paneCount = intFromAny(page["pane_count"]) ?? 0
+                        let surfaceCount = intFromAny(page["surface_count"]) ?? 0
+                        let prefix = selected ? "* " : "  "
+                        let selectedTag = selected ? "  [selected]" : ""
+                        let titlePart = title.isEmpty ? "" : "  \(title)"
+                        print("\(prefix)\(handle)\(titlePart)  [\(paneCount) pane\(paneCount == 1 ? "" : "s"), \(surfaceCount) surface\(surfaceCount == 1 ? "" : "s")]\(selectedTag)")
+                    }
+                }
+            }
+
         case "ssh":
             try runSSH(
                 commandArgs: commandArgs,
@@ -3847,6 +3874,35 @@ struct CMUXCLI {
                 windowOverride: windowId,
                 honorJSONOutput: false
             )
+
+        case "new-page":
+            let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
+            let (titleOpt, rem1) = parseOption(pageContextOptions.remainingBeforeTerminator, name: "--title")
+            let titleArgs = rem1 + pageContextOptions.terminatorAndAfter
+            let trailingTitle = titleArgs.dropFirst(titleArgs.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = titleOpt ?? (trailingTitle.isEmpty ? nil : trailingTitle)
+            var params: [String: Any] = [:]
+            let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
+            applyPageCommandContext(pageContext, to: &params)
+            if let title, !title.isEmpty { params["title"] = title }
+            let payload = try client.sendV2(method: "page.create", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["page", "workspace"]))
+
+        case "duplicate-page":
+            let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
+            let (pageOpt, rem1) = parseOption(pageContextOptions.remainingBeforeTerminator, name: "--page")
+            let (titleOpt, rem2) = parseOption(rem1, name: "--title")
+            let (positionalPage, titleArgs) = splitOptionalPositionalPageHandle(rem2 + pageContextOptions.terminatorAndAfter, explicitPage: pageOpt)
+            let trailingTitle = titleArgs.dropFirst(titleArgs.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = titleOpt ?? (trailingTitle.isEmpty ? nil : trailingTitle)
+            var params: [String: Any] = [:]
+            let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
+            applyPageCommandContext(pageContext, to: &params)
+            let pageId = try normalizePageHandle(pageOpt ?? positionalPage, client: client, workspaceHandle: pageContext.workspaceHandle, allowCurrent: true)
+            if let pageId { params["page_id"] = pageId }
+            if let title, !title.isEmpty { params["title"] = title }
+            let payload = try client.sendV2(method: "page.duplicate", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["page", "workspace"]))
 
         case "new-split":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
@@ -4182,6 +4238,19 @@ struct CMUXCLI {
                 requireWorkspaceFlag: true
             )
 
+        case "close-page":
+            let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
+            let (pageOpt, rem1) = parseOption(pageContextOptions.remainingBeforeTerminator, name: "--page")
+            let pageRaw = pageOpt ?? firstPositionalPageHandle(rem1 + pageContextOptions.terminatorAndAfter)
+            var params: [String: Any] = [:]
+            let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
+            applyPageCommandContext(pageContext, to: &params)
+            let pageId = try normalizePageHandle(pageRaw, client: client, workspaceHandle: pageContext.workspaceHandle, allowCurrent: true)
+            if let pageId { params["page_id"] = pageId }
+            params["force"] = true
+            let payload = try client.sendV2(method: "page.close", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["page", "workspace"]))
+
         case "select-workspace":
             Self.warnLegacyVerbDeprecated("select-workspace", replacement: "cmux workspace select")
             try runWorkspaceSelectCommand(
@@ -4193,6 +4262,21 @@ struct CMUXCLI {
                 windowOverride: windowId,
                 requireWorkspaceFlag: true
             )
+
+        case "select-page":
+            let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
+            let (pageOpt, rem0) = parseOption(pageContextOptions.remainingBeforeTerminator, name: "--page")
+            let pageRaw = pageOpt ?? firstPositionalPageHandle(rem0 + pageContextOptions.terminatorAndAfter)
+            guard let pageRaw else {
+                throw CLIError(message: "select-page requires --page <id|ref|index>")
+            }
+            var params: [String: Any] = [:]
+            let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
+            applyPageCommandContext(pageContext, to: &params)
+            let pageId = try normalizePageHandle(pageRaw, client: client, workspaceHandle: pageContext.workspaceHandle)
+            if let pageId { params["page_id"] = pageId }
+            let payload = try client.sendV2(method: "page.select", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["page", "workspace"]))
 
         case "rename-workspace", "rename-window":
             if command == "rename-workspace" {
@@ -4220,6 +4304,62 @@ struct CMUXCLI {
                     ?? ""
                 print(handle)
             }
+
+        case "current-page":
+            let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
+            var params: [String: Any] = [:]
+            let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
+            applyPageCommandContext(pageContext, to: &params)
+            let payload = try client.sendV2(method: "page.current", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["page", "workspace"]))
+
+        case "rename-page":
+            let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
+            let (pageOpt, rem1) = parseOption(pageContextOptions.remainingBeforeTerminator, name: "--page")
+            let (positionalPage, renameTitleArgs) = splitOptionalPositionalPageHandle(
+                rem1 + pageContextOptions.terminatorAndAfter,
+                explicitPage: pageOpt,
+                requiresTrailingTitle: true
+            )
+            let titleArgs = renameTitleArgs.dropFirst(renameTitleArgs.first == "--" ? 1 : 0)
+            let title = titleArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else {
+                throw CLIError(message: "rename-page requires a title")
+            }
+            var params: [String: Any] = ["title": title]
+            let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
+            applyPageCommandContext(pageContext, to: &params)
+            let pageId = try normalizePageHandle(pageOpt ?? positionalPage, client: client, workspaceHandle: pageContext.workspaceHandle, allowCurrent: true)
+            if let pageId { params["page_id"] = pageId }
+            let payload = try client.sendV2(method: "page.rename", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["page", "workspace"]))
+
+        case "reorder-page":
+            try runReorderPage(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
+
+        case "next-page":
+            let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
+            var params: [String: Any] = [:]
+            let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
+            applyPageCommandContext(pageContext, to: &params)
+            let payload = try client.sendV2(method: "page.next", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["page", "workspace"]))
+
+        case "previous-page":
+            let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
+            var params: [String: Any] = [:]
+            let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
+            applyPageCommandContext(pageContext, to: &params)
+            let payload = try client.sendV2(method: "page.previous", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["page", "workspace"]))
+
+        case "last-page":
+            let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowId)
+            var params: [String: Any] = [:]
+            let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
+            applyPageCommandContext(pageContext, to: &params)
+            let payload = try client.sendV2(method: "page.last", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["page", "workspace"]))
 
         case "read-screen":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
@@ -4993,6 +5133,7 @@ struct CMUXCLI {
         "clear-notifications",
         "clear-progress",
         "clear-status",
+        "close-page",
         "close-surface",
         "close-window",
         "close-workspace",
@@ -5002,6 +5143,7 @@ struct CMUXCLI {
         "codex-teams",
         "config",
         "copy-mode",
+        "current-page",
         "current-window",
         "current-workspace",
         "debug-terminals",
@@ -5012,6 +5154,7 @@ struct CMUXCLI {
         "display-message",
         "docs",
         "drag-surface-to-split",
+        "duplicate-page",
         "enable-browser",
         "events",
         "feedback",
@@ -5029,11 +5172,13 @@ struct CMUXCLI {
         "is-webview-focused",
         "join-pane",
         "jump-to-unread",
+        "last-page",
         "last-pane",
         "last-window",
         "list-buffers",
         "list-log",
         "list-notifications",
+        "list-pages",
         "list-pane-surfaces",
         "list-panels",
         "list-panes",
@@ -5050,11 +5195,13 @@ struct CMUXCLI {
         "move-tab-to-new-workspace",
         "move-workspace-to-window",
         "navigate",
+        "new-page",
         "new-pane",
         "new-split",
         "new-surface",
         "new-window",
         "new-workspace",
+        "next-page",
         "next-window",
         "notify",
         "omc",
@@ -5067,14 +5214,17 @@ struct CMUXCLI {
         "ping",
         "pipe-pane",
         "popup",
+        "previous-page",
         "previous-window",
         "read-screen",
         "refresh-surfaces",
         "reload-config",
         "remote-daemon-status",
+        "rename-page",
         "rename-tab",
         "rename-window",
         "rename-workspace",
+        "reorder-page",
         "reorder-surface",
         "reorder-workspace",
         "reorder-workspaces",
@@ -5083,6 +5233,7 @@ struct CMUXCLI {
         "restore-session",
         "right-sidebar",
         "rpc",
+        "select-page",
         "select-workspace",
         "send",
         "send-key",
@@ -5587,7 +5738,7 @@ struct CMUXCLI {
         let pieces = value.split(separator: ":", omittingEmptySubsequences: false)
         guard pieces.count == 2 else { return false }
         let kind = String(pieces[0]).lowercased()
-        guard ["window", "workspace", "pane", "surface"].contains(kind) else { return false }
+        guard ["window", "workspace", "page", "pane", "surface"].contains(kind) else { return false }
         return Int(String(pieces[1])) != nil
     }
 
@@ -5696,6 +5847,48 @@ struct CMUXCLI {
             return (item["id"] as? String) ?? (item["ref"] as? String)
         }
         throw CLIError(message: "Workspace index not found")
+    }
+
+    private func normalizePageHandle(
+        _ raw: String?,
+        client: SocketClient,
+        workspaceHandle: String? = nil,
+        allowCurrent: Bool = false
+    ) throws -> String? {
+        guard let raw else {
+            if !allowCurrent { return nil }
+            var params: [String: Any] = [:]
+            if let workspaceHandle {
+                params["workspace_id"] = workspaceHandle
+            }
+            let current = try client.sendV2(method: "page.current", params: params)
+            return (current["page_ref"] as? String) ?? (current["page_id"] as? String)
+        }
+
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return nil }
+        if isUUID(trimmed) || isHandleRef(trimmed) {
+            return trimmed
+        }
+        guard let wantedOrdinal = Int(trimmed) else {
+            throw CLIError(message: "Invalid page handle: \(trimmed) (expected UUID, ref like page:1, or index)")
+        }
+        guard wantedOrdinal > 0 else {
+            throw CLIError(message: "Page index not found")
+        }
+        // Bare numeric page handles are one-based like the CLI help/UI. page.list returns zero-based indexes.
+        let wantedIndex = wantedOrdinal - 1
+
+        var params: [String: Any] = [:]
+        if let workspaceHandle {
+            params["workspace_id"] = workspaceHandle
+        }
+        let listed = try client.sendV2(method: "page.list", params: params)
+        let items = listed["pages"] as? [[String: Any]] ?? []
+        for item in items where intFromAny(item["index"]) == wantedIndex {
+            return (item["ref"] as? String) ?? (item["id"] as? String)
+        }
+        throw CLIError(message: "Page index not found")
     }
 
     func normalizePaneHandle(
@@ -6601,6 +6794,50 @@ struct CMUXCLI {
             let index = item["to_index"] ?? item["index"] ?? "?"
             return String(format: lineFormat, workspace, window, String(describing: index))
         }
+    }
+
+    private func runReorderPage(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let pageContextOptions = parsePageCommandContextOptions(commandArgs, windowOverride: windowOverride)
+        let (pageOpt, rem0) = parseOption(pageContextOptions.remainingBeforeTerminator, name: "--page")
+        let (beforeOpt, rem1) = parseOption(rem0, name: "--before")
+        let (beforePageOpt, rem2) = parseOption(rem1, name: "--before-page")
+        let (afterOpt, rem3) = parseOption(rem2, name: "--after")
+        let (afterPageOpt, rem4) = parseOption(rem3, name: "--after-page")
+        let (indexRaw, rem5) = parseOption(rem4, name: "--index")
+        let pageRaw = pageOpt ?? firstPositionalPageHandle(rem5 + pageContextOptions.terminatorAndAfter)
+        guard let pageRaw else {
+            throw CLIError(message: "reorder-page requires --page <id|ref|index>")
+        }
+
+        let pageContext = try resolvePageCommandContext(pageContextOptions, client: client)
+        let pageHandle = try normalizePageHandle(pageRaw, client: client, workspaceHandle: pageContext.workspaceHandle)
+
+        let beforeRaw = beforeOpt ?? beforePageOpt
+        let afterRaw = afterOpt ?? afterPageOpt
+        let beforeHandle = try normalizePageHandle(beforeRaw, client: client, workspaceHandle: pageContext.workspaceHandle)
+        let afterHandle = try normalizePageHandle(afterRaw, client: client, workspaceHandle: pageContext.workspaceHandle)
+
+        var params: [String: Any] = [:]
+        applyPageCommandContext(pageContext, to: &params)
+        if let pageHandle { params["page_id"] = pageHandle }
+        if let beforeHandle { params["before_page_id"] = beforeHandle }
+        if let afterHandle { params["after_page_id"] = afterHandle }
+        if let indexRaw {
+            guard let index = Int(indexRaw) else {
+                throw CLIError(message: "--index must be an integer")
+            }
+            params["index"] = index
+        }
+
+        let payload = try client.sendV2(method: "page.reorder", params: params)
+        let summary = "OK page=\(formatHandle(payload, kind: "page", idFormat: idFormat) ?? "unknown") workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown") index=\(payload["index"] ?? payload["page_index"] ?? "?")"
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
     }
 
     private func runSimulateSidebarDrag(
@@ -13612,6 +13849,147 @@ struct CMUXCLI {
               cmux remote-daemon-status
               cmux remote-daemon-status --os linux --arch arm64
             """
+        case "list-pages":
+            return """
+            Usage: cmux list-pages [--workspace <id|ref|index>] [--window <id|ref|index>]
+
+            List pages in a workspace.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+
+            Example:
+              cmux list-pages
+              cmux list-pages --workspace workspace:2
+            """
+        case "new-page":
+            return """
+            Usage: cmux new-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--] [title]
+
+            Create a new page in a workspace.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+              --title <text>               Optional page title
+
+            Example:
+              cmux new-page
+              cmux new-page --title "editor"
+              cmux new-page --workspace workspace:2 "database"
+            """
+        case "duplicate-page":
+            return """
+            Usage: cmux duplicate-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index> | <id|ref|index>] [--title <text>] [--] [title]
+
+            Duplicate a page. Defaults to the current page in the resolved workspace.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+              --page <id|ref|index>        Page to duplicate (default: current page; may also be passed positionally)
+              --title <text>               Optional title override for the duplicated page
+
+            Example:
+              cmux duplicate-page
+              cmux duplicate-page page:2
+              cmux duplicate-page --page page:2
+              cmux duplicate-page --title "editor copy"
+            """
+        case "current-page":
+            return """
+            Usage: cmux current-page [--workspace <id|ref|index>] [--window <id|ref|index>]
+
+            Print the currently selected page in a workspace.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+            """
+        case "select-page":
+            return """
+            Usage: cmux select-page [--workspace <id|ref|index>] [--window <id|ref|index>] (--page <id|ref|index> | <id|ref|index>)
+
+            Select a page in a workspace.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+              --page <id|ref|index>        Page to select (required unless passed positionally)
+
+            Example:
+              cmux select-page 1
+              cmux select-page --page page:3
+            """
+        case "rename-page":
+            return """
+            Usage: cmux rename-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index>] [--] <title>
+
+            Rename a page. Defaults to the current page in the resolved workspace.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+              --page <id|ref|index>        Page to rename (default: current page)
+
+            Example:
+              cmux rename-page "editor"
+              cmux rename-page --page page:2 "psql"
+            """
+        case "close-page":
+            return """
+            Usage: cmux close-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index> | <id|ref|index>]
+
+            Close a page. Defaults to the current page in the resolved workspace.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+              --page <id|ref|index>        Page to close
+
+            Example:
+              cmux close-page
+              cmux close-page --page page:2
+            """
+        case "reorder-page":
+            return """
+            Usage: cmux reorder-page [--workspace <id|ref|index>] [--window <id|ref|index>] (--page <id|ref|index> | <id|ref|index>) [flags]
+
+            Reorder a page within its workspace.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+              --page <id|ref|index>        Page to reorder (required unless passed positionally)
+              --index <n>                  Place at this index
+              --before <id|ref|index>      Place before this page
+              --before-page <id|ref|index> Alias for --before
+              --after <id|ref|index>       Place after this page
+              --after-page <id|ref|index>  Alias for --after
+
+            Example:
+              cmux reorder-page --page page:2 --index 0
+              cmux reorder-page 1 --after page:3
+            """
+        case "next-page":
+            return """
+            Usage: cmux next-page [--workspace <id|ref|index>] [--window <id|ref|index>]
+
+            Select the next page in the resolved workspace.
+            """
+        case "previous-page":
+            return """
+            Usage: cmux previous-page [--workspace <id|ref|index>] [--window <id|ref|index>]
+
+            Select the previous page in the resolved workspace.
+            """
+        case "last-page":
+            return """
+            Usage: cmux last-page [--workspace <id|ref|index>] [--window <id|ref|index>]
+
+            Select the last page in the resolved workspace.
+            """
         case "new-split":
             return """
             Usage: cmux new-split <left|right|up|down> [flags]
@@ -13663,7 +14041,7 @@ struct CMUXCLI {
             return """
             Usage: cmux tree [flags]
 
-            Print the hierarchy of windows, workspaces, panes, and surfaces.
+            Print the hierarchy of windows, workspaces, pages, panes, and surfaces.
 
             Flags:
               --all                         Include all windows (default: current window only)
@@ -13676,6 +14054,7 @@ struct CMUXCLI {
               - ◀ active (true focused window/workspace/pane/surface path)
               - ◀ here (caller surface where `cmux tree` was invoked)
               - workspace [selected]
+              - page [selected]
               - pane [focused]
               - surface [selected]
               Browser surfaces also include their current URL.
@@ -14814,6 +15193,109 @@ struct CMUXCLI {
         optionValue(args, name: "--window") ?? windowOverride
     }
 
+    private struct PageCommandContextOptions {
+        let workspaceRaw: String?
+        let windowRaw: String?
+        let remainingBeforeTerminator: [String]
+        let terminatorAndAfter: [String]
+    }
+
+    private struct PageCommandContext {
+        let windowHandle: String?
+        let workspaceHandle: String?
+    }
+
+    private func parsePageCommandContextOptions(
+        _ args: [String],
+        windowOverride: String?
+    ) -> PageCommandContextOptions {
+        let split = splitArgsAtTerminator(args)
+        let (workspaceRaw, rem0) = parseOption(split.before, name: "--workspace")
+        let (windowRaw, rem1) = parseOption(rem0, name: "--window")
+        return PageCommandContextOptions(
+            workspaceRaw: workspaceRaw,
+            windowRaw: windowRaw ?? windowOverride,
+            remainingBeforeTerminator: rem1,
+            terminatorAndAfter: split.terminatorAndAfter
+        )
+    }
+
+    private func resolvePageCommandContext(
+        _ options: PageCommandContextOptions,
+        client: SocketClient
+    ) throws -> PageCommandContext {
+        let windowHandle = try normalizeWindowHandle(options.windowRaw, client: client)
+        let workspaceRaw = options.workspaceRaw
+            ?? (options.windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        let workspaceHandle = try normalizeWorkspaceHandle(
+            workspaceRaw,
+            client: client,
+            windowHandle: windowHandle,
+            allowCurrent: true
+        )
+        return PageCommandContext(windowHandle: windowHandle, workspaceHandle: workspaceHandle)
+    }
+
+    private func applyPageCommandContext(_ context: PageCommandContext, to params: inout [String: Any]) {
+        if let windowHandle = context.windowHandle {
+            params["window_id"] = windowHandle
+        }
+        if let workspaceHandle = context.workspaceHandle {
+            params["workspace_id"] = workspaceHandle
+        }
+    }
+
+    private func positionalArgsAfterOptionalTerminator(_ args: [String]) -> [String] {
+        args.first == "--" ? Array(args.dropFirst()) : args
+    }
+
+    private func splitArgsAtTerminator(_ args: [String]) -> (before: [String], terminatorAndAfter: [String]) {
+        guard let terminatorIndex = args.firstIndex(of: "--") else {
+            return (args, [])
+        }
+        return (Array(args[..<terminatorIndex]), Array(args[terminatorIndex...]))
+    }
+
+    private func firstPositionalPageHandle(_ args: [String]) -> String? {
+        positionalArgsAfterOptionalTerminator(args).first
+    }
+
+    private func splitOptionalPositionalPageHandle(
+        _ args: [String],
+        explicitPage: String?,
+        requiresTrailingTitle: Bool = false
+    ) -> (page: String?, titleArgs: [String]) {
+        guard args.first != "--" else {
+            return (nil, args)
+        }
+        let positionalArgs = args
+        guard explicitPage == nil,
+              let first = positionalArgs.first,
+              looksLikePageHandle(first)
+        else {
+            return (nil, args)
+        }
+        let titleArgs = Array(positionalArgs.dropFirst())
+        if requiresTrailingTitle, titleArgs.isEmpty {
+            return (nil, args)
+        }
+        return (first, titleArgs)
+    }
+
+    private func looksLikePageHandle(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        if isUUID(trimmed) { return true }
+        if Int(trimmed) != nil { return true }
+        let pieces = trimmed.split(separator: ":", omittingEmptySubsequences: false)
+        guard pieces.count == 2,
+              pieces[0].lowercased() == "page"
+        else {
+            return false
+        }
+        return Int(String(pieces[1])) != nil
+    }
+
     private func applyWindowOrCallerContext(to params: inout [String: Any], client: SocketClient, windowRaw: String?) throws {
         if let windowHandle = try normalizeWindowHandle(windowRaw, client: client) {
             params["window_id"] = windowHandle
@@ -15346,6 +15828,7 @@ struct CMUXCLI {
     private struct TreePath {
         let windowHandle: String?
         let workspaceHandle: String?
+        let pageHandle: String?
         let paneHandle: String?
         let surfaceHandle: String?
     }
@@ -15825,6 +16308,7 @@ struct CMUXCLI {
         return TreePath(
             windowHandle: treeRelatedHandle(payload, refKey: "window_ref", idKey: "window_id"),
             workspaceHandle: treeRelatedHandle(payload, refKey: "workspace_ref", idKey: "workspace_id"),
+            pageHandle: treeRelatedHandle(payload, refKey: "page_ref", idKey: "page_id"),
             paneHandle: treeRelatedHandle(payload, refKey: "pane_ref", idKey: "pane_id"),
             surfaceHandle: treeRelatedHandle(payload, refKey: "surface_ref", idKey: "surface_id")
         )
@@ -15878,27 +16362,44 @@ struct CMUXCLI {
                 workspaceNode["active"] = treeItemMatchesHandle(workspaceNode, handle: activePath.workspaceHandle)
 
                 let panes = workspace["panes"] as? [[String: Any]] ?? []
-                let paneNodes = panes.map { pane in
-                    var paneNode = pane
-                    paneNode["active"] = treeItemMatchesHandle(paneNode, handle: activePath.paneHandle)
-
-                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
-                    paneNode["surfaces"] = surfaces.map { surface in
-                        var surfaceNode = surface
-                        surfaceNode["active"] = treeItemMatchesHandle(surfaceNode, handle: activePath.surfaceHandle)
-                        surfaceNode["here"] = treeItemMatchesHandle(surfaceNode, handle: callerPath.surfaceHandle)
-                        return surfaceNode
-                    }
-                    return paneNode
+                workspaceNode["panes"] = panes.map {
+                    treeApplyMarkers(pane: $0, activePath: activePath, callerPath: callerPath)
                 }
 
-                workspaceNode["panes"] = paneNodes
+                let pages = workspace["pages"] as? [[String: Any]] ?? []
+                workspaceNode["pages"] = pages.map { page in
+                    var pageNode = page
+                    pageNode["active"] = treeItemMatchesHandle(pageNode, handle: activePath.pageHandle)
+                    let pagePanes = page["panes"] as? [[String: Any]] ?? []
+                    pageNode["panes"] = pagePanes.map {
+                        treeApplyMarkers(pane: $0, activePath: activePath, callerPath: callerPath)
+                    }
+                    return pageNode
+                }
                 return workspaceNode
             }
 
             windowNode["workspaces"] = workspaceNodes
             return windowNode
         }
+    }
+
+    private func treeApplyMarkers(
+        pane: [String: Any],
+        activePath: TreePath,
+        callerPath: TreePath
+    ) -> [String: Any] {
+        var paneNode = pane
+        paneNode["active"] = treeItemMatchesHandle(paneNode, handle: activePath.paneHandle)
+
+        let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
+        paneNode["surfaces"] = surfaces.map { surface in
+            var surfaceNode = surface
+            surfaceNode["active"] = treeItemMatchesHandle(surfaceNode, handle: activePath.surfaceHandle)
+            surfaceNode["here"] = treeItemMatchesHandle(surfaceNode, handle: callerPath.surfaceHandle)
+            return surfaceNode
+        }
+        return paneNode
     }
 
     private func fetchTreeBrowserURLs(
@@ -15987,19 +16488,24 @@ struct CMUXCLI {
                 let workspaceIndent = workspaceIsLast ? "    " : "│   "
                 lines.append("\(workspaceBranch)\(treeWorkspaceLabel(workspace, idFormat: idFormat))")
 
-                let panes = workspace["panes"] as? [[String: Any]] ?? []
-                for (paneIndex, pane) in panes.enumerated() {
-                    let paneIsLast = paneIndex == panes.count - 1
-                    let paneBranch = paneIsLast ? "└── " : "├── "
-                    let paneIndent = paneIsLast ? "    " : "│   "
-                    lines.append("\(workspaceIndent)\(paneBranch)\(treePaneLabel(pane, idFormat: idFormat))")
-
-                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
-                    for (surfaceIndex, surface) in surfaces.enumerated() {
-                        let surfaceIsLast = surfaceIndex == surfaces.count - 1
-                        let surfaceBranch = surfaceIsLast ? "└── " : "├── "
-                        lines.append("\(workspaceIndent)\(paneIndent)\(surfaceBranch)\(treeSurfaceLabel(surface, idFormat: idFormat))")
+                let pages = workspace["pages"] as? [[String: Any]] ?? []
+                if !pages.isEmpty {
+                    for (pageIndex, page) in pages.enumerated() {
+                        let pageIsLast = pageIndex == pages.count - 1
+                        let pageBranch = pageIsLast ? "└── " : "├── "
+                        let pageIndent = pageIsLast ? "    " : "│   "
+                        lines.append("\(workspaceIndent)\(pageBranch)\(treePageLabel(page, idFormat: idFormat))")
+                        let panes = page["panes"] as? [[String: Any]] ?? []
+                        appendTreePanes(
+                            panes,
+                            to: &lines,
+                            prefix: workspaceIndent + pageIndent,
+                            idFormat: idFormat
+                        )
                     }
+                } else {
+                    let panes = workspace["panes"] as? [[String: Any]] ?? []
+                    appendTreePanes(panes, to: &lines, prefix: workspaceIndent, idFormat: idFormat)
                 }
             }
         }
@@ -16007,8 +16513,42 @@ struct CMUXCLI {
         return lines.joined(separator: "\n")
     }
 
+    private func appendTreePanes(
+        _ panes: [[String: Any]],
+        to lines: inout [String],
+        prefix: String,
+        idFormat: CLIIDFormat
+    ) {
+        for (paneIndex, pane) in panes.enumerated() {
+            let paneIsLast = paneIndex == panes.count - 1
+            let paneBranch = paneIsLast ? "└── " : "├── "
+            let paneIndent = paneIsLast ? "    " : "│   "
+            lines.append("\(prefix)\(paneBranch)\(treePaneLabel(pane, idFormat: idFormat))")
+
+            let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
+            for (surfaceIndex, surface) in surfaces.enumerated() {
+                let surfaceIsLast = surfaceIndex == surfaces.count - 1
+                let surfaceBranch = surfaceIsLast ? "└── " : "├── "
+                lines.append("\(prefix)\(paneIndent)\(surfaceBranch)\(treeSurfaceLabel(surface, idFormat: idFormat))")
+            }
+        }
+    }
+
+    private func treeDisplayHandle(_ item: [String: Any], idFormat: CLIIDFormat) -> String {
+        if treeItemHandle(item) != nil {
+            let handle = textHandle(item, idFormat: idFormat)
+            if !handle.isEmpty {
+                return handle
+            }
+        }
+        if let index = intFromAny(item["index"]) {
+            return "#\(index)"
+        }
+        return "?"
+    }
+
     private func treeWindowLabel(_ window: [String: Any], idFormat: CLIIDFormat) -> String {
-        var parts = ["window \(textHandle(window, idFormat: idFormat))"]
+        var parts = ["window \(treeDisplayHandle(window, idFormat: idFormat))"]
         if (window["current"] as? Bool) == true {
             parts.append("[current]")
         }
@@ -16019,7 +16559,7 @@ struct CMUXCLI {
     }
 
     private func treeWorkspaceLabel(_ workspace: [String: Any], idFormat: CLIIDFormat) -> String {
-        var parts = ["workspace \(textHandle(workspace, idFormat: idFormat))"]
+        var parts = ["workspace \(treeDisplayHandle(workspace, idFormat: idFormat))"]
         let title = (workspace["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !title.isEmpty {
             parts.append("\"\(title)\"")
@@ -16033,8 +16573,23 @@ struct CMUXCLI {
         return parts.joined(separator: " ")
     }
 
+    private func treePageLabel(_ page: [String: Any], idFormat: CLIIDFormat) -> String {
+        var parts = ["page \(treeDisplayHandle(page, idFormat: idFormat))"]
+        let title = (page["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !title.isEmpty {
+            parts.append("\"\(title)\"")
+        }
+        if (page["selected"] as? Bool) == true {
+            parts.append("[selected]")
+        }
+        if (page["active"] as? Bool) == true {
+            parts.append("◀ active")
+        }
+        return parts.joined(separator: " ")
+    }
+
     private func treePaneLabel(_ pane: [String: Any], idFormat: CLIIDFormat) -> String {
-        var parts = ["pane \(textHandle(pane, idFormat: idFormat))"]
+        var parts = ["pane \(treeDisplayHandle(pane, idFormat: idFormat))"]
         if (pane["focused"] as? Bool) == true {
             parts.append("[focused]")
         }
@@ -16047,7 +16602,7 @@ struct CMUXCLI {
     private func treeSurfaceLabel(_ surface: [String: Any], idFormat: CLIIDFormat) -> String {
         let rawType = ((surface["type"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let surfaceType = rawType.isEmpty ? "unknown" : rawType
-        var parts = ["surface \(textHandle(surface, idFormat: idFormat))", "[\(surfaceType)]"]
+        var parts = ["surface \(treeDisplayHandle(surface, idFormat: idFormat))", "[\(surfaceType)]"]
         let title = (surface["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !title.isEmpty {
             parts.append("\"\(title)\"")
@@ -31879,7 +32434,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           cmux [global-options] <command> [options]
 
         Handle Inputs:
-          Use UUIDs, short refs (window:1/workspace:2/pane:3/surface:4), or indexes where commands accept window, workspace, pane, or surface inputs.
+          For most v2-backed commands you can use UUIDs, short refs (window:1/workspace:2/page:3/pane:4/surface:5), or indexes.
           `tab-action` also accepts `tab:<n>` in addition to `surface:<n>`.
           Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs.
 
@@ -31936,6 +32491,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+          list-pages [--workspace <id|ref|index>] [--window <id|ref|index>]
+          new-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>]
+          duplicate-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index> | <id|ref|index>] [--title <text>]
+          current-page [--workspace <id|ref|index>] [--window <id|ref|index>]
+          select-page [--workspace <id|ref|index>] [--window <id|ref|index>] (--page <id|ref|index> | <id|ref|index>)
+          rename-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index>] <title>
+          close-page [--workspace <id|ref|index>] [--window <id|ref|index>] [--page <id|ref|index> | <id|ref|index>]
+          reorder-page [--workspace <id|ref|index>] [--window <id|ref|index>] (--page <id|ref|index> | <id|ref|index>) (--index <n> | --before <id|ref|index> | --after <id|ref|index>)
+          next-page [--workspace <id|ref|index>] [--window <id|ref|index>]
+          previous-page [--workspace <id|ref|index>] [--window <id|ref|index>]
+          last-page [--workspace <id|ref|index>] [--window <id|ref|index>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]

@@ -794,4 +794,12 @@ enum WorkspaceShortcutMapper {
         }
         return nil
     }
+
+    static func pageIndex(forOptionDigit digit: Int, pageCount: Int) -> Int? {
+        workspaceIndex(forDigit: digit, workspaceCount: pageCount)
+    }
+
+    static func optionDigitForPage(at index: Int, pageCount: Int) -> Int? {
+        digitForWorkspace(at: index, workspaceCount: pageCount)
+    }
 }

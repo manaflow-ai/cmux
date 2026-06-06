@@ -1,4 +1,5 @@
 import XCTest
+import Testing
 import CoreGraphics
 import Bonsplit
 
@@ -154,6 +155,101 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
                 layoutSnapshot: snapshot
             ),
             [CGRect(x: 677.5, y: 30, width: 500, height: 290)]
+        )
+    }
+}
+
+@Suite(.serialized)
+@MainActor
+struct WorkspacePageLifecycleTests {
+    @Test func switchingPagesPreservesLivePanelIdentityAcrossDetachAndReattach() throws {
+        let workspace = Workspace()
+        let firstPageId = workspace.activePageId
+        let firstPaneId = try #require(workspace.bonsplitController.allPaneIds.first)
+
+        #expect(workspace.newTerminalSurface(inPane: firstPaneId, focus: false) != nil)
+        let firstPagePanelIds = Set(workspace.panels.keys)
+        #expect(firstPagePanelIds.count == 2)
+
+        let secondPage = workspace.newPage(select: true)
+        #expect(workspace.activePageId == secondPage.id)
+
+        let secondPagePanelIds = Set(workspace.panels.keys)
+        #expect(secondPagePanelIds.count == 1, "A fresh page should mount its own placeholder terminal")
+        #expect(firstPagePanelIds != secondPagePanelIds)
+
+        workspace.selectPage(firstPageId)
+        #expect(workspace.activePageId == firstPageId)
+        #expect(
+            Set(workspace.panels.keys) == firstPagePanelIds,
+            "Returning to the first page should reattach the parked live panels"
+        )
+
+        workspace.selectPage(secondPage.id)
+        #expect(workspace.activePageId == secondPage.id)
+        #expect(
+            Set(workspace.panels.keys) == secondPagePanelIds,
+            "Returning to the second page should reuse its parked live panel instead of rebuilding a new one"
+        )
+    }
+
+    @Test func runtimePageRestoreReplacesPreviousPagePaneSkeleton() throws {
+        let workspace = Workspace()
+        let firstPageId = workspace.activePageId
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) != nil)
+        let firstPagePanelIds = Set(workspace.panels.keys)
+        let firstPagePaneCount = workspace.bonsplitController.allPaneIds.count
+        #expect(firstPagePaneCount == 2)
+
+        let secondPage = workspace.newPage(select: true)
+        let secondPanelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.newTerminalSplit(from: secondPanelId, orientation: .vertical) != nil)
+        #expect(workspace.bonsplitController.allPaneIds.count == 2)
+
+        workspace.selectPage(firstPageId)
+
+        #expect(workspace.activePageId == firstPageId)
+        #expect(Set(workspace.panels.keys) == firstPagePanelIds)
+        #expect(
+            workspace.bonsplitController.allPaneIds.count == firstPagePaneCount,
+            "Runtime page restore should replace the leaving page's empty pane skeleton"
+        )
+        #expect(workspace.activePageId != secondPage.id)
+    }
+
+    @Test func runtimePageRestoreDoesNotRecordPlaceholderPanelsAsClosedItems() throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let workspace = Workspace()
+        let firstPageId = workspace.activePageId
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) != nil)
+
+        let secondPage = workspace.newPage(select: true)
+        let secondPanelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.newTerminalSplit(from: secondPanelId, orientation: .vertical) != nil)
+
+        workspace.selectPage(firstPageId)
+        workspace.selectPage(secondPage.id)
+
+        #expect(
+            !ClosedItemHistoryStore.shared.canReopen,
+            "Runtime page restore should not expose synthetic placeholder panels in recently closed items"
+        )
+    }
+
+    @Test func runtimePageRestoreFallsBackWhenSelectedPanelDidNotAttach() {
+        let missingSelectedPanelId = UUID()
+        let attachedPanelId = UUID()
+
+        #expect(
+            Workspace.runtimePageRestoreSelectedPanelId(
+                snapshotSelectedPanelId: missingSelectedPanelId,
+                attachedPanelIds: [attachedPanelId]
+            ) == attachedPanelId,
+            "Runtime page restore should select an attached fallback panel when the stored selected panel failed to attach"
         )
     }
 }

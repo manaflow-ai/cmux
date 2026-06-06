@@ -167,11 +167,170 @@ extension Workspace {
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWorkspaceSnapshot {
-        let tree = bonsplitController.treeSnapshot()
-        let rawLayout = sessionLayoutSnapshot(from: tree)
         if let surfaceResumeBindingIndex {
             reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
         }
+
+        let activePageSnapshot = currentPageSessionStateSnapshot(
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        )
+        let pageSnapshots = pages.map { page in
+            let state: SessionWorkspacePageStateSnapshot
+            if page.id == activePageId {
+                state = activePageSnapshot
+            } else if let storedState = storedPageStates[page.id] {
+                state = exportedPageStateSnapshot(storedState.sessionState, includeScrollback: includeScrollback)
+            } else {
+                state = emptyPageSessionStateSnapshot(currentDirectory: currentDirectory)
+            }
+            return SessionWorkspacePageSnapshot(id: page.id, title: page.title, state: state)
+        }
+        let notificationStore = AppDelegate.shared?.notificationStore
+        let isWorkspaceManuallyUnread = notificationStore?.hasManualUnread(forTabId: id) ?? false
+        let hasWorkspaceUnreadIndicator =
+            (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
+            (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
+        let workspaceNotificationSnapshots = notificationSnapshots(surfaceId: nil)
+
+        return SessionWorkspaceSnapshot(
+            workspaceId: id,
+            processTitle: processTitle,
+            customTitle: customTitle,
+            customDescription: customDescription,
+            customColor: customColor,
+            isPinned: isPinned,
+            groupId: groupId,
+            isManuallyUnread: isWorkspaceManuallyUnread,
+            hasUnreadIndicator: hasWorkspaceUnreadIndicator,
+            notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
+            terminalScrollBarHidden: terminalScrollBarHidden ? true : nil,
+            currentDirectory: activePageSnapshot.currentDirectory,
+            focusedPanelId: activePageSnapshot.focusedPanelId,
+            layout: activePageSnapshot.layout,
+            panels: activePageSnapshot.panels,
+            statusEntries: activePageSnapshot.statusEntries,
+            logEntries: activePageSnapshot.logEntries,
+            progress: activePageSnapshot.progress,
+            gitBranch: activePageSnapshot.gitBranch,
+            remote: remoteConfiguration?.sessionSnapshot(),
+            activePageId: activePageId,
+            pages: pageSnapshots
+        )
+    }
+
+    @discardableResult
+    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) -> [UUID: UUID] {
+        let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
+            localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore()
+        )
+        if let restoredRemoteConfiguration {
+            let shouldAutoConnect = Self.shouldAutoConnectRestoredRemote(
+                foregroundAuthToken: restoredRemoteConfiguration.foregroundAuthToken,
+                snapshot: snapshot
+            )
+            configureRemoteConnection(
+                restoredRemoteConfiguration,
+                autoConnect: shouldAutoConnect
+            )
+        } else {
+            disconnectRemoteConnection(clearConfiguration: true)
+        }
+
+        let restoredPages: [SessionWorkspacePageSnapshot] = {
+            if let pages = snapshot.pages, !pages.isEmpty {
+                return pages
+            }
+            let initialPageId = pages.first?.id ?? activePageId
+            return [
+                SessionWorkspacePageSnapshot(
+                    id: initialPageId,
+                    title: pages.first?.title ?? String(
+                        format: String(localized: "workspace.page.defaultTitleFormat", defaultValue: "Page %lld"),
+                        1
+                    ),
+                    state: legacyPageStateSnapshot(from: snapshot)
+                )
+            ]
+        }()
+
+        let pageModels = restoredPages.enumerated().map { offset, page in
+            WorkspacePage(
+                id: page.id,
+                title: normalizedPageTitle(page.title, fallbackIndex: offset + 1)
+            )
+        }
+        let restoredActivePageId = snapshot.activePageId.flatMap { candidate in
+            pageModels.contains(where: { $0.id == candidate }) ? candidate : nil
+        } ?? pageModels.first?.id ?? activePageId
+
+        teardownStoredPageStates()
+        storedPageStates.removeAll(keepingCapacity: false)
+        pages = pageModels
+        activePageId = restoredActivePageId
+        nextAutoPageNumber = max(nextAutoPageNumber, pageModels.count + 1)
+
+        let activeOldToNewPanelIds: [UUID: UUID]
+        let activePageStateSnapshot: SessionWorkspacePageStateSnapshot?
+        if let activePageSnapshot = restoredPages.first(where: { $0.id == restoredActivePageId }) {
+            activePageStateSnapshot = activePageSnapshot.state
+            activeOldToNewPanelIds = restoreSessionPageState(
+                activePageSnapshot.state,
+                snapshotWorkspaceId: snapshot.workspaceId
+            )
+        } else if let fallbackPageSnapshot = restoredPages.first {
+            activePageId = fallbackPageSnapshot.id
+            activePageStateSnapshot = fallbackPageSnapshot.state
+            activeOldToNewPanelIds = restoreSessionPageState(
+                fallbackPageSnapshot.state,
+                snapshotWorkspaceId: snapshot.workspaceId
+            )
+        } else {
+            activePageStateSnapshot = nil
+            activeOldToNewPanelIds = restoreSessionPageState(
+                emptyPageSessionStateSnapshot(currentDirectory: currentDirectory),
+                snapshotWorkspaceId: snapshot.workspaceId
+            )
+        }
+
+        for page in restoredPages where page.id != activePageId {
+            storedPageStates[page.id] = StoredPageState(sessionState: page.state, runtimeState: nil)
+        }
+
+        applyProcessTitle(snapshot.processTitle)
+        setCustomTitle(snapshot.customTitle)
+        setCustomDescription(snapshot.customDescription)
+        setCustomColor(snapshot.customColor)
+        isPinned = snapshot.isPinned
+        groupId = snapshot.groupId
+        setTerminalScrollBarHidden(snapshot.terminalScrollBarHidden ?? false)
+
+        let isWorkspaceManuallyUnread = snapshot.isManuallyUnread == true
+        restoreWorkspaceManualUnread(isWorkspaceManuallyUnread)
+        let restoredNotifications = restoredSessionNotifications(
+            from: snapshot,
+            activePageState: activePageStateSnapshot,
+            oldToNewPanelIds: activeOldToNewPanelIds
+        )
+        let hasUnreadWorkspaceNotification = snapshot.notifications?.contains { !$0.isRead } == true
+        if snapshot.hasUnreadIndicator == true, !hasUnreadWorkspaceNotification {
+            AppDelegate.shared?.notificationStore?.restoreUnreadIndicator(forTabId: id)
+        } else {
+            AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
+        }
+        AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+        syncUnreadBadgeStateForAllPanels()
+        return activeOldToNewPanelIds
+    }
+
+    private func currentPageSessionStateSnapshot(
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) -> SessionWorkspacePageStateSnapshot {
+        let tree = bonsplitController.treeSnapshot()
+        let rawLayout = sessionLayoutSnapshot(from: tree)
 
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
@@ -227,24 +386,8 @@ extension Workspace {
         let gitBranchSnapshot = gitBranch.map { branch in
             SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
         }
-        let notificationStore = AppDelegate.shared?.notificationStore
-        let isWorkspaceManuallyUnread = notificationStore?.hasManualUnread(forTabId: id) ?? false
-        let hasWorkspaceUnreadIndicator =
-            (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
-            (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
-        let workspaceNotificationSnapshots = notificationSnapshots(surfaceId: nil)
 
-        return SessionWorkspaceSnapshot(
-            workspaceId: id,
-            processTitle: processTitle,
-            customTitle: customTitle,
-            customDescription: customDescription,
-            customColor: customColor,
-            isPinned: isPinned,
-            groupId: groupId,
-            isManuallyUnread: isWorkspaceManuallyUnread,
-            hasUnreadIndicator: hasWorkspaceUnreadIndicator,
-            notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
+        return SessionWorkspacePageStateSnapshot(
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
@@ -252,13 +395,39 @@ extension Workspace {
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
             progress: progressSnapshot,
-            gitBranch: gitBranchSnapshot,
-            remote: remoteConfiguration?.sessionSnapshot()
+            gitBranch: gitBranchSnapshot
         )
     }
 
+    private func exportedPageStateSnapshot(
+        _ snapshot: SessionWorkspacePageStateSnapshot,
+        includeScrollback: Bool
+    ) -> SessionWorkspacePageStateSnapshot {
+        guard !includeScrollback else { return snapshot }
+
+        var strippedSnapshot = snapshot
+        strippedSnapshot.panels = snapshot.panels.map { panel in
+            var strippedPanel = panel
+            if var terminal = strippedPanel.terminal {
+                terminal.scrollback = nil
+                strippedPanel.terminal = terminal
+            }
+            return strippedPanel
+        }
+        return strippedSnapshot
+    }
+
+    private func teardownStoredPageStates() {
+        for storedState in storedPageStates.values {
+            teardownStoredPageState(storedState)
+        }
+    }
+
     @discardableResult
-    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) -> [UUID: UUID] {
+    private func restoreSessionPageState(
+        _ snapshot: SessionWorkspacePageStateSnapshot,
+        snapshotWorkspaceId: UUID? = nil
+    ) -> [UUID: UUID] {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
@@ -273,22 +442,9 @@ extension Workspace {
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
-
-        let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
-            localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore()
-        )
-        if let restoredRemoteConfiguration {
-            let shouldAutoConnect = Self.shouldAutoConnectRestoredRemote(
-                foregroundAuthToken: restoredRemoteConfiguration.foregroundAuthToken,
-                snapshot: snapshot
-            )
-            configureRemoteConnection(
-                restoredRemoteConfiguration,
-                autoConnect: shouldAutoConnect
-            )
-        } else {
-            disconnectRemoteConnection(clearConfiguration: true)
-        }
+        metadataBlocks = [:]
+        pullRequest = nil
+        panelPullRequests = [:]
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -300,6 +456,7 @@ extension Workspace {
             let previousValue = suppressRemoteTerminalStartupForSessionRestoreScaffold
             suppressRemoteTerminalStartupForSessionRestoreScaffold = true
             defer { suppressRemoteTerminalStartupForSessionRestoreScaffold = previousValue }
+            collapseBonsplitToSinglePaneForSessionRestore()
             return restoreSessionLayout(snapshot.layout)
         }()
         var oldToNewPanelIds: [UUID: UUID] = [:]
@@ -309,7 +466,7 @@ extension Workspace {
                 entry.paneId,
                 snapshot: entry.snapshot,
                 panelSnapshotsById: panelSnapshotsById,
-                snapshotWorkspaceId: snapshot.workspaceId,
+                snapshotWorkspaceId: snapshotWorkspaceId,
                 oldToNewPanelIds: &oldToNewPanelIds
             )
         }
@@ -317,12 +474,15 @@ extension Workspace {
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
         applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
 
-        applyProcessTitle(snapshot.processTitle)
-        setCustomTitle(snapshot.customTitle)
-        setCustomDescription(snapshot.customDescription)
-        setCustomColor(snapshot.customColor)
-        isPinned = snapshot.isPinned
-        groupId = snapshot.groupId
+        if panels.isEmpty {
+            let replacement = createReplacementTerminalPanel()
+            if let replacementTabId = surfaceIdFromPanelId(replacement.id),
+               let replacementPane = bonsplitController.allPaneIds.first {
+                bonsplitController.focusPane(replacementPane)
+                bonsplitController.selectTab(replacementTabId)
+                applyTabSelection(tabId: replacementTabId, inPane: replacementPane)
+            }
+        }
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -355,21 +515,33 @@ extension Workspace {
         } else {
             scheduleFocusReconcile()
         }
-        let isWorkspaceManuallyUnread = snapshot.isManuallyUnread == true
-        restoreWorkspaceManualUnread(isWorkspaceManuallyUnread)
-        let restoredNotifications = restoredSessionNotifications(
-            from: snapshot,
-            oldToNewPanelIds: oldToNewPanelIds
-        )
-        let hasUnreadWorkspaceNotification = snapshot.notifications?.contains { !$0.isRead } == true
-        if snapshot.hasUnreadIndicator == true, !hasUnreadWorkspaceNotification {
-            AppDelegate.shared?.notificationStore?.restoreUnreadIndicator(forTabId: id)
-        } else {
-            AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
-        }
-        AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
-        syncUnreadBadgeStateForAllPanels()
         return oldToNewPanelIds
+    }
+
+    private func legacyPageStateSnapshot(from snapshot: SessionWorkspaceSnapshot) -> SessionWorkspacePageStateSnapshot {
+        SessionWorkspacePageStateSnapshot(
+            currentDirectory: snapshot.currentDirectory,
+            focusedPanelId: snapshot.focusedPanelId,
+            layout: snapshot.layout,
+            panels: snapshot.panels,
+            statusEntries: snapshot.statusEntries,
+            logEntries: snapshot.logEntries,
+            progress: snapshot.progress,
+            gitBranch: snapshot.gitBranch
+        )
+    }
+
+    private func emptyPageSessionStateSnapshot(currentDirectory: String) -> SessionWorkspacePageStateSnapshot {
+        SessionWorkspacePageStateSnapshot(
+            currentDirectory: currentDirectory,
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
@@ -1463,6 +1635,19 @@ extension Workspace {
         return leaves
     }
 
+    private func collapseBonsplitToSinglePaneForSessionRestore() {
+        guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
+        for paneId in bonsplitController.allPaneIds.reversed() where paneId != rootPaneId {
+            let panelIds = bonsplitController
+                .tabs(inPane: paneId)
+                .compactMap { panelIdFromSurfaceId($0.id) }
+            for panelId in panelIds {
+                _ = closePanel(panelId, force: true)
+            }
+            _ = bonsplitController.closePane(paneId)
+        }
+    }
+
     private func restoreSessionLayoutNode(
         _ node: SessionWorkspaceLayoutSnapshot,
         inPane paneId: PaneID,
@@ -1958,13 +2143,36 @@ extension Workspace {
 
     private func restoredSessionNotifications(
         from snapshot: SessionWorkspaceSnapshot,
+        activePageState: SessionWorkspacePageStateSnapshot?,
         oldToNewPanelIds: [UUID: UUID]
     ) -> [TerminalNotification] {
         var notifications = (snapshot.notifications ?? []).map {
             $0.terminalNotification(tabId: id, surfaceId: nil, panelId: nil)
         }
 
-        for panelSnapshot in snapshot.panels {
+        let usesPageSnapshots = snapshot.pages?.isEmpty == false
+        let panelSnapshots = usesPageSnapshots ? (activePageState?.panels ?? snapshot.panels) : snapshot.panels
+        notifications.append(contentsOf: restoredPanelSessionNotifications(
+            from: panelSnapshots,
+            oldToNewPanelIds: oldToNewPanelIds
+        ))
+
+        return notifications
+    }
+
+    private func restoredPageSessionNotifications(
+        from pageState: SessionWorkspacePageStateSnapshot,
+        oldToNewPanelIds: [UUID: UUID]
+    ) -> [TerminalNotification] {
+        restoredPanelSessionNotifications(from: pageState.panels, oldToNewPanelIds: oldToNewPanelIds)
+    }
+
+    private func restoredPanelSessionNotifications(
+        from panelSnapshots: [SessionPanelSnapshot],
+        oldToNewPanelIds: [UUID: UUID]
+    ) -> [TerminalNotification] {
+        var notifications: [TerminalNotification] = []
+        for panelSnapshot in panelSnapshots {
             guard let newPanelId = oldToNewPanelIds[panelSnapshot.id] else { continue }
             notifications.append(
                 contentsOf: (panelSnapshot.notifications ?? []).map {
@@ -1976,7 +2184,6 @@ extension Workspace {
                 }
             )
         }
-
         return notifications
     }
 
@@ -10218,6 +10425,11 @@ struct ClosedBrowserPanelRestoreSnapshot {
     }
 }
 
+struct WorkspacePage: Identifiable, Equatable {
+    let id: UUID
+    var title: String
+}
+
 /// Process-wide cache of `RestorableAgentSessionIndex.load()` results, used by every
 /// workspace's right-click "Fork Conversation" availability check. The load runs
 /// `sysctl(KERN_PROCARGS2)` per hook record for live-PID filtering, which is too
@@ -10290,6 +10502,41 @@ final class Workspace: Identifiable, ObservableObject {
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
 
+    private struct StoredPageState {
+        // Mirrors transient per-page Workspace state that is not encoded by the session snapshot.
+        // New runtime-only page state should be captured and restored with this boundary.
+        struct RuntimeState {
+            var currentDirectory: String
+            var focusedPanelId: UUID?
+            var layout: SessionWorkspaceLayoutSnapshot
+            var detachedSurfaces: [UUID: DetachedSurfaceTransfer]
+            var statusEntries: [String: SidebarStatusEntry]
+            var metadataBlocks: [String: SidebarMetadataBlock]
+            var logEntries: [SidebarLogEntry]
+            var progress: SidebarProgressState?
+            var gitBranch: SidebarGitBranchState?
+            var pullRequest: SidebarPullRequestState?
+            var panelDirectories: [UUID: String]
+            var panelTitles: [UUID: String]
+            var panelCustomTitles: [UUID: String]
+            var pinnedPanelIds: Set<UUID>
+            var manualUnreadPanelIds: Set<UUID>
+            var manualUnreadMarkedAt: [UUID: Date]
+            var panelGitBranches: [UUID: SidebarGitBranchState]
+            var panelPullRequests: [UUID: SidebarPullRequestState]
+            var surfaceListeningPorts: [UUID: [Int]]
+            var surfaceTTYNames: [UUID: String]
+            var panelShellActivityStates: [UUID: PanelShellActivityState]
+            var restoredTerminalScrollbackByPanelId: [UUID: String]
+            var lastTerminalConfigInheritancePanelId: UUID?
+            var lastTerminalConfigInheritanceFontPoints: Float?
+            var terminalInheritanceFontPointsByPanelId: [UUID: Float]
+        }
+
+        var sessionState: SessionWorkspacePageStateSnapshot
+        var runtimeState: RuntimeState?
+    }
+
     let id: UUID
     @Published var title: String
     @Published var customTitle: String?
@@ -10324,6 +10571,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var extensionSidebarProjectRootRefreshID: UInt64 = 0
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
+    @Published private(set) var pages: [WorkspacePage]
+    @Published private(set) var activePageId: UUID
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -10701,6 +10950,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private var processTitle: String
+    private var storedPageStates: [UUID: StoredPageState] = [:]
+    private var nextAutoPageNumber: Int = 2
 
     enum SurfaceKind {
         static let terminal = "terminal"
@@ -11020,12 +11271,21 @@ final class Workspace: Identifiable, ObservableObject {
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:], initialDetachedSurface: DetachedSurfaceTransfer? = nil
     ) {
+        let initialPage = WorkspacePage(
+            id: UUID(),
+            title: String(
+                format: String(localized: "workspace.page.defaultTitleFormat", defaultValue: "Page %lld"),
+                1
+            )
+        )
         self.id = UUID()
         self.portOrdinal = portOrdinal
         self.processTitle = title
         self.title = title
         self.customTitle = nil
         self.customDescription = nil
+        self.pages = [initialPage]
+        self.activePageId = initialPage.id
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
@@ -11288,6 +11548,566 @@ final class Workspace: Identifiable, ObservableObject {
         guard configuration.appearance.splitButtons != bonsplitButtons else { return }
         configuration.appearance.splitButtons = bonsplitButtons
         bonsplitController.configuration = configuration
+    }
+
+    var activePage: WorkspacePage? {
+        pages.first(where: { $0.id == activePageId })
+    }
+
+    var activePageIndex: Int? {
+        pages.firstIndex(where: { $0.id == activePageId })
+    }
+
+    func pageIndex(pageId: UUID) -> Int? {
+        pages.firstIndex(where: { $0.id == pageId })
+    }
+
+    func pageTitle(pageId: UUID) -> String? {
+        pages.first(where: { $0.id == pageId })?.title
+    }
+
+    func pageStateSnapshot(
+        pageId: UUID,
+        includeScrollback: Bool = false
+    ) -> SessionWorkspacePageStateSnapshot? {
+        guard let page = pages.first(where: { $0.id == pageId }) else { return nil }
+        return pageStateSnapshot(page: page, includeScrollback: includeScrollback)
+    }
+
+    private func pageStateSnapshot(
+        page: WorkspacePage,
+        includeScrollback: Bool = false
+    ) -> SessionWorkspacePageStateSnapshot? {
+        if page.id == activePageId {
+            return currentPageSessionStateSnapshot(includeScrollback: includeScrollback)
+        }
+        guard let storedState = storedPageStates[page.id] else { return nil }
+        return exportedPageStateSnapshot(storedState.sessionState, includeScrollback: includeScrollback)
+    }
+
+    func pageStructureSummary(pageId: UUID) -> (paneCount: Int, surfaceCount: Int)? {
+        guard let page = pages.first(where: { $0.id == pageId }) else { return nil }
+        return pageStructureSummary(page: page)
+    }
+
+    func pageStructureSummary(page: WorkspacePage) -> (paneCount: Int, surfaceCount: Int)? {
+        guard let snapshot = pageStateSnapshot(page: page, includeScrollback: false) else {
+            return nil
+        }
+        return (
+            paneCount: splitPaneLeafCount(in: snapshot.layout),
+            surfaceCount: snapshot.panels.count
+        )
+    }
+
+    func canClosePage(_ pageId: UUID) -> Bool {
+        pages.count > 1 && pages.contains(where: { $0.id == pageId })
+    }
+
+    @discardableResult
+    func newPage(select: Bool = false) -> WorkspacePage {
+        let page = WorkspacePage(
+            id: UUID(),
+            title: defaultPageTitle(number: nextAutoPageNumber)
+        )
+        nextAutoPageNumber += 1
+        pages.append(page)
+
+        if select {
+            selectPage(page.id)
+        } else {
+            storedPageStates[page.id] = StoredPageState(
+                sessionState: emptyPageSessionStateSnapshot(currentDirectory: currentDirectory),
+                runtimeState: nil
+            )
+        }
+        return page
+    }
+
+    @discardableResult
+    func duplicatePage(
+        sourcePageId: UUID,
+        select: Bool = false,
+        title: String? = nil
+    ) -> WorkspacePage? {
+        guard let sourceIndex = pageIndex(pageId: sourcePageId),
+              let sourceTitle = pageTitle(pageId: sourcePageId),
+              let sourceSnapshot = pageStateSnapshot(pageId: sourcePageId, includeScrollback: true) else {
+            NSSound.beep()
+            return nil
+        }
+
+        let duplicatedSnapshot = duplicatedPageStateSnapshot(sourceSnapshot)
+        let page = newPage(select: false)
+        storedPageStates[page.id] = StoredPageState(sessionState: duplicatedSnapshot, runtimeState: nil)
+        setPageTitle(
+            pageId: page.id,
+            title: title ?? duplicatedPageTitle(from: sourceTitle)
+        )
+        _ = movePage(pageId: page.id, toIndex: sourceIndex + 1)
+
+        if select {
+            selectPage(page.id)
+        }
+
+        return pages.first(where: { $0.id == page.id })
+    }
+
+    func selectPage(_ pageId: UUID) {
+        guard pageId != activePageId else { return }
+        guard pages.contains(where: { $0.id == pageId }) else { return }
+
+        hideAllTerminalPortalViews()
+        hideAllBrowserPortalViews()
+        storedPageStates[activePageId] = captureActivePageStoredState(detachPanels: true)
+        restoreStoredPage(pageId)
+        activePageId = pageId
+        requestBackgroundPrimeTerminalSurfaceStartIfNeeded()
+    }
+
+    func selectNextPage() {
+        guard let activePageIndex, !pages.isEmpty else { return }
+        let nextIndex = (activePageIndex + 1) % pages.count
+        selectPage(pages[nextIndex].id)
+    }
+
+    func selectPreviousPage() {
+        guard let activePageIndex, !pages.isEmpty else { return }
+        let previousIndex = (activePageIndex - 1 + pages.count) % pages.count
+        selectPage(pages[previousIndex].id)
+    }
+
+    func selectPage(at index: Int) {
+        guard index >= 0 && index < pages.count else { return }
+        selectPage(pages[index].id)
+    }
+
+    func selectLastPage() {
+        guard let lastPage = pages.last else { return }
+        selectPage(lastPage.id)
+    }
+
+    @discardableResult
+    func movePage(pageId: UUID, toIndex targetIndex: Int) -> Bool {
+        guard let currentIndex = pages.firstIndex(where: { $0.id == pageId }) else { return false }
+        guard pages.count > 1 else { return false }
+        let clampedIndex = max(0, min(targetIndex, pages.count - 1))
+        guard currentIndex != clampedIndex else { return true }
+        let page = pages.remove(at: currentIndex)
+        pages.insert(page, at: clampedIndex)
+        return true
+    }
+
+    @discardableResult
+    func movePageLeft(pageId: UUID) -> Bool {
+        guard let currentIndex = pages.firstIndex(where: { $0.id == pageId }) else { return false }
+        return movePage(pageId: pageId, toIndex: currentIndex - 1)
+    }
+
+    @discardableResult
+    func movePageRight(pageId: UUID) -> Bool {
+        guard let currentIndex = pages.firstIndex(where: { $0.id == pageId }) else { return false }
+        return movePage(pageId: pageId, toIndex: currentIndex + 1)
+    }
+
+    func setPageTitle(pageId: UUID, title: String?) {
+        guard let index = pages.firstIndex(where: { $0.id == pageId }) else { return }
+        let nextTitle = normalizedPageTitle(title, fallbackIndex: index + 1)
+        guard pages[index].title != nextTitle else { return }
+        pages[index].title = nextTitle
+    }
+
+    func closePage(_ pageId: UUID, skipConfirmation: Bool = false) {
+        guard canClosePage(pageId) else {
+            NSSound.beep()
+            return
+        }
+        let shouldSkipConfirmation =
+            skipConfirmation || ProcessInfo.processInfo.environment["CMUX_UI_TEST_SKIP_CONFIRM_CLOSE_PAGE"] == "1"
+        guard shouldSkipConfirmation || !pageNeedsConfirmClose(pageId) || confirmClosePage(pageId: pageId) else { return }
+        guard let index = pages.firstIndex(where: { $0.id == pageId }) else { return }
+
+        let replacementPageId: UUID? = {
+            if index + 1 < pages.count {
+                return pages[index + 1].id
+            }
+            if index > 0 {
+                return pages[index - 1].id
+            }
+            return nil
+        }()
+
+        if pageId == activePageId {
+            hideAllTerminalPortalViews()
+            hideAllBrowserPortalViews()
+            let closedState = captureActivePageStoredState(detachPanels: true)
+            teardownStoredPageState(closedState)
+            pages.remove(at: index)
+            storedPageStates.removeValue(forKey: pageId)
+
+            if let replacementPageId {
+                restoreStoredPage(replacementPageId)
+                activePageId = replacementPageId
+                requestBackgroundPrimeTerminalSurfaceStartIfNeeded()
+            }
+        } else {
+            if let storedState = storedPageStates.removeValue(forKey: pageId) {
+                teardownStoredPageState(storedState)
+            }
+            pages.remove(at: index)
+        }
+    }
+
+    func closeOtherPages(keeping pageId: UUID? = nil) {
+        let keepPageId = pageId ?? activePageId
+        guard pages.count > 1 else { return }
+
+        let removableIds = pages.map(\.id).filter { $0 != keepPageId }
+        for removableId in removableIds.reversed() {
+            closePage(removableId)
+        }
+    }
+
+    private func defaultPageTitle(number: Int) -> String {
+        String(
+            format: String(localized: "workspace.page.defaultTitleFormat", defaultValue: "Page %lld"),
+            max(1, number)
+        )
+    }
+
+    private func duplicatedPageTitle(from sourceTitle: String) -> String {
+        String(
+            format: String(localized: "workspace.page.duplicateTitleFormat", defaultValue: "%@ Copy"),
+            sourceTitle
+        )
+    }
+
+    private func normalizedPageTitle(_ rawTitle: String?, fallbackIndex: Int) -> String {
+        let trimmed = rawTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            return defaultPageTitle(number: fallbackIndex)
+        }
+        return trimmed
+    }
+
+    private func splitPaneLeafCount(in layout: SessionWorkspaceLayoutSnapshot) -> Int {
+        switch layout {
+        case .pane:
+            return 1
+        case .split(let split):
+            return splitPaneLeafCount(in: split.first) + splitPaneLeafCount(in: split.second)
+        }
+    }
+
+    private func pageNeedsConfirmClose(_ pageId: UUID) -> Bool {
+        if pageId == activePageId {
+            return needsConfirmClose()
+        }
+        guard let runtimeState = storedPageStates[pageId]?.runtimeState else { return false }
+        return runtimeState.detachedSurfaces.values.contains { transfer in
+            guard let terminalPanel = transfer.panel as? TerminalPanel else { return false }
+            return terminalPanel.needsConfirmClose()
+        }
+    }
+
+    private func confirmClosePage(pageId: UUID) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "dialog.closePage.title", defaultValue: "Close page?")
+        alert.informativeText = String(localized: "dialog.closePage.message", defaultValue: "This will close the page and all of its panels.")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(localized: "common.close", defaultValue: "Close"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func duplicatedPageStateSnapshot(
+        _ snapshot: SessionWorkspacePageStateSnapshot
+    ) -> SessionWorkspacePageStateSnapshot {
+        let panelIdMap = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, UUID()) })
+        let remappedPanels = snapshot.panels.map { panel in
+            var remappedPanel = panel
+            remappedPanel.id = panelIdMap[panel.id] ?? panel.id
+            return remappedPanel
+        }
+
+        return SessionWorkspacePageStateSnapshot(
+            currentDirectory: snapshot.currentDirectory,
+            focusedPanelId: snapshot.focusedPanelId.flatMap { panelIdMap[$0] },
+            layout: duplicatedPageLayoutSnapshot(snapshot.layout, panelIdMap: panelIdMap),
+            panels: remappedPanels,
+            statusEntries: snapshot.statusEntries,
+            logEntries: snapshot.logEntries,
+            progress: snapshot.progress,
+            gitBranch: snapshot.gitBranch
+        )
+    }
+
+    private func duplicatedPageLayoutSnapshot(
+        _ layout: SessionWorkspaceLayoutSnapshot,
+        panelIdMap: [UUID: UUID]
+    ) -> SessionWorkspaceLayoutSnapshot {
+        switch layout {
+        case .pane(let pane):
+            return .pane(
+                SessionPaneLayoutSnapshot(
+                    panelIds: pane.panelIds.map { panelIdMap[$0] ?? $0 },
+                    selectedPanelId: pane.selectedPanelId.flatMap { panelIdMap[$0] }
+                )
+            )
+        case .split(let split):
+            return .split(
+                SessionSplitLayoutSnapshot(
+                    orientation: split.orientation,
+                    dividerPosition: split.dividerPosition,
+                    first: duplicatedPageLayoutSnapshot(split.first, panelIdMap: panelIdMap),
+                    second: duplicatedPageLayoutSnapshot(split.second, panelIdMap: panelIdMap)
+                )
+            )
+        }
+    }
+
+    private func captureActivePageStoredState(detachPanels: Bool) -> StoredPageState {
+        let sessionState = currentPageSessionStateSnapshot(includeScrollback: true)
+        let runtimeState = StoredPageState.RuntimeState(
+            currentDirectory: currentDirectory,
+            focusedPanelId: focusedPanelId,
+            layout: sessionState.layout,
+            detachedSurfaces: detachPanels ? detachAllLivePanelsForPageSwitch() : [:],
+            statusEntries: statusEntries,
+            metadataBlocks: metadataBlocks,
+            logEntries: logEntries,
+            progress: progress,
+            gitBranch: gitBranch,
+            pullRequest: pullRequest,
+            panelDirectories: panelDirectories,
+            panelTitles: panelTitles,
+            panelCustomTitles: panelCustomTitles,
+            pinnedPanelIds: pinnedPanelIds,
+            manualUnreadPanelIds: manualUnreadPanelIds,
+            manualUnreadMarkedAt: manualUnreadMarkedAt,
+            panelGitBranches: panelGitBranches,
+            panelPullRequests: panelPullRequests,
+            surfaceListeningPorts: surfaceListeningPorts,
+            surfaceTTYNames: surfaceTTYNames,
+            panelShellActivityStates: panelShellActivityStates,
+            restoredTerminalScrollbackByPanelId: restoredTerminalScrollbackByPanelId,
+            lastTerminalConfigInheritancePanelId: lastTerminalConfigInheritancePanelId,
+            lastTerminalConfigInheritanceFontPoints: lastTerminalConfigInheritanceFontPoints,
+            terminalInheritanceFontPointsByPanelId: terminalInheritanceFontPointsByPanelId
+        )
+        return StoredPageState(sessionState: sessionState, runtimeState: runtimeState)
+    }
+
+    private func detachAllLivePanelsForPageSwitch() -> [UUID: DetachedSurfaceTransfer] {
+        var orderedPanelIds = sidebarOrderedPanelIds()
+        var seen = Set(orderedPanelIds)
+        for panelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) where seen.insert(panelId).inserted {
+            orderedPanelIds.append(panelId)
+        }
+
+        var detachedTransfers: [UUID: DetachedSurfaceTransfer] = [:]
+        for panelId in orderedPanelIds.reversed() {
+            guard let detached = detachSurface(panelId: panelId) else { continue }
+            detachedTransfers[panelId] = detached
+        }
+        return detachedTransfers
+    }
+
+    private func restoreStoredPage(_ pageId: UUID) {
+        let storedState = storedPageStates.removeValue(forKey: pageId) ?? StoredPageState(
+            sessionState: emptyPageSessionStateSnapshot(currentDirectory: currentDirectory),
+            runtimeState: nil
+        )
+
+        if let runtimeState = storedState.runtimeState,
+           Self.canRestoreRuntimeLayout(runtimeState.layout, detachedSurfaceIds: Set(runtimeState.detachedSurfaces.keys)) {
+            restoreRuntimePageState(runtimeState)
+            restorePageSwitchNotifications(
+                from: storedState.sessionState,
+                oldToNewPanelIds: identityPanelIdMap(for: storedState.sessionState)
+            )
+        } else {
+            teardownDetachedSurfaces(storedState.runtimeState?.detachedSurfaces)
+            let oldToNewPanelIds = restoreSessionPageState(storedState.sessionState)
+            restorePageSwitchNotifications(
+                from: storedState.sessionState,
+                oldToNewPanelIds: oldToNewPanelIds
+            )
+        }
+    }
+
+    private func restorePageSwitchNotifications(
+        from selectedPageState: SessionWorkspacePageStateSnapshot,
+        oldToNewPanelIds: [UUID: UUID]
+    ) {
+        guard let notificationStore = AppDelegate.shared?.notificationStore else {
+            syncUnreadBadgeStateForAllPanels()
+            return
+        }
+
+        var notificationsById: [UUID: TerminalNotification] = [:]
+        func record(_ notification: TerminalNotification) {
+            notificationsById[notification.id] = notification
+        }
+
+        for notification in notificationStore.notifications(forTabId: id, surfaceId: nil) {
+            record(notification)
+        }
+
+        for storedState in storedPageStates.values {
+            for notification in restoredPageSessionNotifications(
+                from: storedState.sessionState,
+                oldToNewPanelIds: identityPanelIdMap(for: storedState.sessionState)
+            ) {
+                record(notification)
+            }
+        }
+
+        for notification in restoredPageSessionNotifications(
+            from: selectedPageState,
+            oldToNewPanelIds: oldToNewPanelIds
+        ) {
+            record(notification)
+        }
+
+        for panelId in panels.keys {
+            for notification in notificationStore.notifications(forTabId: id, surfaceId: panelId) {
+                record(notification)
+            }
+        }
+
+        notificationStore.restoreSessionNotifications(Array(notificationsById.values), forTabId: id)
+        syncUnreadBadgeStateForAllPanels()
+    }
+
+    private func identityPanelIdMap(for pageState: SessionWorkspacePageStateSnapshot) -> [UUID: UUID] {
+        Dictionary(uniqueKeysWithValues: pageState.panels.map { ($0.id, $0.id) })
+    }
+
+    static func canRestoreRuntimeLayout(
+        _ layout: SessionWorkspaceLayoutSnapshot,
+        detachedSurfaceIds: Set<UUID>
+    ) -> Bool {
+        Set(runtimeLayoutPanelIds(in: layout)).isSubset(of: detachedSurfaceIds)
+    }
+
+    private static func runtimeLayoutPanelIds(in layout: SessionWorkspaceLayoutSnapshot) -> [UUID] {
+        switch layout {
+        case .pane(let pane):
+            return pane.panelIds
+        case .split(let split):
+            return runtimeLayoutPanelIds(in: split.first) + runtimeLayoutPanelIds(in: split.second)
+        }
+    }
+
+    private func restoreRuntimePageState(_ runtimeState: StoredPageState.RuntimeState) {
+        currentDirectory = runtimeState.currentDirectory
+        statusEntries = runtimeState.statusEntries
+        metadataBlocks = runtimeState.metadataBlocks
+        logEntries = runtimeState.logEntries
+        progress = runtimeState.progress
+        gitBranch = runtimeState.gitBranch
+        pullRequest = runtimeState.pullRequest
+
+        if runtimeState.detachedSurfaces.isEmpty {
+            restoreSessionPageState(emptyPageSessionStateSnapshot(currentDirectory: runtimeState.currentDirectory))
+            return
+        }
+
+        withClosedPanelHistorySuppressed {
+            collapseBonsplitToSinglePaneForSessionRestore()
+            let leafEntries = restoreSessionLayout(runtimeState.layout)
+            for entry in leafEntries {
+                let placeholderPanelIds = bonsplitController
+                    .tabs(inPane: entry.paneId)
+                    .compactMap { panelIdFromSurfaceId($0.id) }
+
+                let desiredPanelIds = entry.snapshot.panelIds.filter { runtimeState.detachedSurfaces[$0] != nil }
+                var attachedPanelIds: [UUID] = []
+                for desiredPanelId in desiredPanelIds {
+                    guard let detached = runtimeState.detachedSurfaces[desiredPanelId] else { continue }
+                    guard let attachedPanelId = attachDetachedSurface(detached, inPane: entry.paneId, focus: false) else { continue }
+                    attachedPanelIds.append(attachedPanelId)
+                }
+
+                for placeholderPanelId in placeholderPanelIds {
+                    _ = closePanel(placeholderPanelId, force: true)
+                }
+
+                for (targetIndex, attachedPanelId) in attachedPanelIds.enumerated() {
+                    _ = reorderSurface(panelId: attachedPanelId, toIndex: targetIndex)
+                }
+
+                let selectedPanelId = Self.runtimePageRestoreSelectedPanelId(
+                    snapshotSelectedPanelId: entry.snapshot.selectedPanelId,
+                    attachedPanelIds: attachedPanelIds
+                )
+                if let selectedPanelId,
+                   let selectedTabId = surfaceIdFromPanelId(selectedPanelId) {
+                    bonsplitController.focusPane(entry.paneId)
+                    bonsplitController.selectTab(selectedTabId)
+                }
+            }
+        }
+
+        panelDirectories = runtimeState.panelDirectories
+        panelTitles = runtimeState.panelTitles
+        panelCustomTitles = runtimeState.panelCustomTitles
+        pinnedPanelIds = runtimeState.pinnedPanelIds
+        manualUnreadPanelIds = runtimeState.manualUnreadPanelIds
+        manualUnreadMarkedAt = runtimeState.manualUnreadMarkedAt
+        panelGitBranches = runtimeState.panelGitBranches
+        panelPullRequests = runtimeState.panelPullRequests
+        surfaceListeningPorts = runtimeState.surfaceListeningPorts
+        surfaceTTYNames = runtimeState.surfaceTTYNames
+        syncRemotePortScanTTYs()
+        panelShellActivityStates = runtimeState.panelShellActivityStates
+        restoredTerminalScrollbackByPanelId = runtimeState.restoredTerminalScrollbackByPanelId
+        lastTerminalConfigInheritancePanelId = runtimeState.lastTerminalConfigInheritancePanelId
+        lastTerminalConfigInheritanceFontPoints = runtimeState.lastTerminalConfigInheritanceFontPoints
+        terminalInheritanceFontPointsByPanelId = runtimeState.terminalInheritanceFontPointsByPanelId
+
+        pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
+        applySessionDividerPositions(snapshotNode: runtimeState.layout, liveNode: bonsplitController.treeSnapshot())
+
+        for paneId in bonsplitController.allPaneIds {
+            normalizePinnedTabs(in: paneId)
+            for tab in bonsplitController.tabs(inPane: paneId) {
+                if let panelId = panelIdFromSurfaceId(tab.id) {
+                    syncUnreadBadgeStateForPanel(panelId)
+                }
+            }
+        }
+
+        recomputeListeningPorts()
+
+        if let focusedPanelId = runtimeState.focusedPanelId, panels[focusedPanelId] != nil {
+            focusPanel(focusedPanelId)
+        } else {
+            scheduleFocusReconcile()
+        }
+    }
+
+    static func runtimePageRestoreSelectedPanelId(
+        snapshotSelectedPanelId: UUID?,
+        attachedPanelIds: [UUID]
+    ) -> UUID? {
+        if let snapshotSelectedPanelId,
+           attachedPanelIds.contains(snapshotSelectedPanelId) {
+            return snapshotSelectedPanelId
+        }
+        return attachedPanelIds.first
+    }
+
+    private func teardownStoredPageState(_ storedState: StoredPageState) {
+        teardownDetachedSurfaces(storedState.runtimeState?.detachedSurfaces)
+    }
+
+    private func teardownDetachedSurfaces(_ detachedSurfaces: [UUID: DetachedSurfaceTransfer]?) {
+        guard let detachedSurfaces else { return }
+        for transfer in detachedSurfaces.values {
+            transfer.panel.close()
+        }
     }
 
     // MARK: - Surface ID to Panel ID Mapping
@@ -15501,6 +16321,8 @@ final class Workspace: Identifiable, ObservableObject {
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
         hideAllBrowserPortalViews()
+        teardownStoredPageStates()
+        storedPageStates.removeAll(keepingCapacity: false)
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
             discardClosedPanelLifecycleState(
@@ -17588,6 +18410,29 @@ final class Workspace: Identifiable, ObservableObject {
         syncBrowserAudioMuteStateForPanel(newPanel.id, browserPanel: newPanel)
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
         return newPanel
+    }
+
+    func promptRenamePage(pageId: UUID) {
+        guard let pageIndex = pages.firstIndex(where: { $0.id == pageId }) else { return }
+
+        let alert = NSAlert()
+        alert.messageText = String(localized: "dialog.renamePage.title", defaultValue: "Rename Page")
+        alert.informativeText = String(localized: "dialog.renamePage.message", defaultValue: "Enter a name for this page.")
+        let input = NSTextField(string: pages[pageIndex].title)
+        input.placeholderString = String(localized: "dialog.renamePage.placeholder", defaultValue: "Page name")
+        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+        alert.accessoryView = input
+        alert.addButton(withTitle: String(localized: "common.rename", defaultValue: "Rename"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+        setPageTitle(pageId: pageId, title: input.stringValue)
     }
 
     private func promptRenamePanel(tabId: TabID) {

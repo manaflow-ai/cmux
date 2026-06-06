@@ -112,6 +112,20 @@ enum KeyboardShortcutSettings {
         case toggleTerminalCopyMode
         case focusTextBoxInput
         case attachTextBoxFile
+        case newPage
+        case renamePage
+        case closePage
+        case nextPage
+        case previousPage
+        case selectPage1
+        case selectPage2
+        case selectPage3
+        case selectPage4
+        case selectPage5
+        case selectPage6
+        case selectPage7
+        case selectPage8
+        case selectLastPage
         case sendCtrlFToTerminal
 
         // Panes / splits
@@ -212,6 +226,20 @@ enum KeyboardShortcutSettings {
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
+            case .newPage: return String(localized: "shortcut.newPage.label", defaultValue: "New Page")
+            case .renamePage: return String(localized: "shortcut.renamePage.label", defaultValue: "Rename Page")
+            case .closePage: return String(localized: "shortcut.closePage.label", defaultValue: "Close Page")
+            case .nextPage: return String(localized: "shortcut.nextPage.label", defaultValue: "Next Page")
+            case .previousPage: return String(localized: "shortcut.previousPage.label", defaultValue: "Previous Page")
+            case .selectPage1: return String(localized: "shortcut.selectPage1.label", defaultValue: "Select Page 1")
+            case .selectPage2: return String(localized: "shortcut.selectPage2.label", defaultValue: "Select Page 2")
+            case .selectPage3: return String(localized: "shortcut.selectPage3.label", defaultValue: "Select Page 3")
+            case .selectPage4: return String(localized: "shortcut.selectPage4.label", defaultValue: "Select Page 4")
+            case .selectPage5: return String(localized: "shortcut.selectPage5.label", defaultValue: "Select Page 5")
+            case .selectPage6: return String(localized: "shortcut.selectPage6.label", defaultValue: "Select Page 6")
+            case .selectPage7: return String(localized: "shortcut.selectPage7.label", defaultValue: "Select Page 7")
+            case .selectPage8: return String(localized: "shortcut.selectPage8.label", defaultValue: "Select Page 8")
+            case .selectLastPage: return String(localized: "shortcut.selectLastPage.label", defaultValue: "Select Last Page")
             case .sendCtrlFToTerminal: return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
             case .focusLeft: return String(localized: "shortcut.focusPaneLeft.label", defaultValue: "Focus Pane Left")
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
@@ -368,6 +396,34 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: ".", command: true, shift: false, option: false, control: true)
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
+            case .newPage:
+                return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
+            case .renamePage:
+                return StoredShortcut(key: "r", command: true, shift: false, option: true, control: false)
+            case .closePage:
+                return StoredShortcut(key: "w", command: true, shift: false, option: true, control: false)
+            case .nextPage:
+                return StoredShortcut(key: "]", command: false, shift: false, option: true, control: false)
+            case .previousPage:
+                return StoredShortcut(key: "[", command: false, shift: false, option: true, control: false)
+            case .selectPage1:
+                return StoredShortcut(key: "1", command: false, shift: false, option: true, control: false)
+            case .selectPage2:
+                return StoredShortcut(key: "2", command: false, shift: false, option: true, control: false)
+            case .selectPage3:
+                return StoredShortcut(key: "3", command: false, shift: false, option: true, control: false)
+            case .selectPage4:
+                return StoredShortcut(key: "4", command: false, shift: false, option: true, control: false)
+            case .selectPage5:
+                return StoredShortcut(key: "5", command: false, shift: false, option: true, control: false)
+            case .selectPage6:
+                return StoredShortcut(key: "6", command: false, shift: false, option: true, control: false)
+            case .selectPage7:
+                return StoredShortcut(key: "7", command: false, shift: false, option: true, control: false)
+            case .selectPage8:
+                return StoredShortcut(key: "8", command: false, shift: false, option: true, control: false)
+            case .selectLastPage:
+                return StoredShortcut(key: "9", command: false, shift: false, option: true, control: false)
             case .focusLeft:
                 return StoredShortcut(key: "←", command: true, shift: false, option: true, control: false)
             case .focusRight:
@@ -980,6 +1036,20 @@ enum KeyboardShortcutSettings {
     static func prevSidebarTabShortcut() -> StoredShortcut { shortcut(for: .prevSidebarTab) }
     static func renameWorkspaceShortcut() -> StoredShortcut { shortcut(for: .renameWorkspace) }
     static func closeWorkspaceShortcut() -> StoredShortcut { shortcut(for: .closeWorkspace) }
+    static func newPageShortcut() -> StoredShortcut { shortcut(for: .newPage) }
+    static func renamePageShortcut() -> StoredShortcut { shortcut(for: .renamePage) }
+    static func closePageShortcut() -> StoredShortcut { shortcut(for: .closePage) }
+    static func nextPageShortcut() -> StoredShortcut { shortcut(for: .nextPage) }
+    static func previousPageShortcut() -> StoredShortcut { shortcut(for: .previousPage) }
+    static func selectPage1Shortcut() -> StoredShortcut { shortcut(for: .selectPage1) }
+    static func selectPage2Shortcut() -> StoredShortcut { shortcut(for: .selectPage2) }
+    static func selectPage3Shortcut() -> StoredShortcut { shortcut(for: .selectPage3) }
+    static func selectPage4Shortcut() -> StoredShortcut { shortcut(for: .selectPage4) }
+    static func selectPage5Shortcut() -> StoredShortcut { shortcut(for: .selectPage5) }
+    static func selectPage6Shortcut() -> StoredShortcut { shortcut(for: .selectPage6) }
+    static func selectPage7Shortcut() -> StoredShortcut { shortcut(for: .selectPage7) }
+    static func selectPage8Shortcut() -> StoredShortcut { shortcut(for: .selectPage8) }
+    static func selectLastPageShortcut() -> StoredShortcut { shortcut(for: .selectLastPage) }
 
     static func focusLeftShortcut() -> StoredShortcut { shortcut(for: .focusLeft) }
     static func focusRightShortcut() -> StoredShortcut { shortcut(for: .focusRight) }
@@ -1676,6 +1746,10 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         let allowANSIKeyCodeFallback = flags.contains(.control)
+            || (!flags.contains(.command)
+                && flags.contains(.option)
+                && !flags.contains(.control)
+                && !Self.shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey))
             || (flags.contains(.command)
                 && !flags.contains(.control)
                 && (
