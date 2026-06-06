@@ -149,6 +149,7 @@ enum KeyboardShortcutSettings {
         case useSelectionForFind
         case toggleBrowserDeveloperTools
         case showBrowserJavaScriptConsole
+        case toggleBrowserFocusMode
         case toggleReactGrab
         case openDiffViewer
         case diffViewerScrollDown
@@ -243,6 +244,7 @@ enum KeyboardShortcutSettings {
             case .useSelectionForFind: return String(localized: "menu.find.useSelectionForFind", defaultValue: "Use Selection for Find")
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
+            case .toggleBrowserFocusMode: return String(localized: "shortcut.toggleBrowserFocusMode.label", defaultValue: "Enter Browser Focus Mode")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
             case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
             case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
@@ -452,6 +454,13 @@ enum KeyboardShortcutSettings {
             case .showBrowserJavaScriptConsole:
                 // Safari default: Show JavaScript Console.
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
+            case .toggleBrowserFocusMode:
+                // Option+Cmd+Return: "enter" focus mode mnemonic. Option+Cmd is a
+                // modifier tier web pages rarely bind, so it stays out of the page's
+                // way while focus mode is off and cmux owns the shortcut, and it
+                // avoids the Ctrl+Cmd+Return global hotkey some screen recorders use.
+                // Exit stays double-Escape; rebind in Settings or cmux.json.
+                return StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .openDiffViewer:
@@ -1590,6 +1599,9 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         guard event.type == .keyDown else { return false }
+        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+            return false
+        }
 
         return matches(
             keyCode: Self.recordableKey(from: event)?.keyCode ?? event.keyCode,
@@ -1806,6 +1818,20 @@ struct ShortcutStroke: Equatable, Hashable {
         eventKeyCode: UInt16
     ) -> String {
         let lowered = eventCharacter.lowercased()
+
+        // "+" -> "=" and "_" -> "-" are normalized regardless of Shift. On US
+        // layouts these symbols only exist as Shift variants, so the Shift gate
+        // below historically sufficed. On European layouts (German QWERTZ, French
+        // AZERTY, Nordic) "+" and "-" are dedicated keys typed WITHOUT Shift, so a
+        // bare "+"/"_" can only originate from such a key. Mapping them to their
+        // base zoom key ("=", "-") unconditionally is therefore safe (no shortcut
+        // key is ever stored as "+"/"_") and is what makes Cmd zoom work there.
+        switch lowered {
+        case "+": return "="
+        case "_": return "-"
+        default: break
+        }
+
         guard applyShiftSymbolNormalization else { return lowered }
 
         switch lowered {
@@ -1818,8 +1844,6 @@ struct ShortcutStroke: Equatable, Hashable {
         case "\"": return "'"
         case "|": return "\\"
         case "~": return "`"
-        case "+": return "="
-        case "_": return "-"
         case "!": return eventKeyCode == 18 ? "1" : lowered // kVK_ANSI_1
         case "@": return eventKeyCode == 19 ? "2" : lowered // kVK_ANSI_2
         case "#": return eventKeyCode == 20 ? "3" : lowered // kVK_ANSI_3

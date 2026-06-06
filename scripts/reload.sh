@@ -16,7 +16,16 @@ CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CLI_PATH=""
-LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
+# Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
+# read the last-socket-path markers (https://github.com/manaflow-ai/cmux/issues/5146).
+# Resolve the real account home via getpwuid (the same syscall
+# homeDirectoryForCurrentUser uses) rather than $HOME, which a shell can override.
+# perl ships with macOS and returns the full home path even when it contains spaces;
+# `dscl ... | awk` mis-parses such paths because dscl wraps a value with spaces onto
+# a second line. `|| true` keeps the lookup from aborting the script under
+# `set -euo pipefail`; an empty result falls back to $HOME.
+_cmux_account_home="$(perl -e 'print((getpwuid($<))[7])' 2>/dev/null || true)"
+LAST_SOCKET_PATH_DIR="${_cmux_account_home:-$HOME}/.local/state/cmux"
 AUTO_SKIP_ZIG_BUILD_REASON=""
 SWIFT_FRONTEND_WORKAROUND=0
 XCODEBUILD_STARTED=0
@@ -43,6 +52,36 @@ write_dev_cli_shim() {
 set -euo pipefail
 
 CLI_PATH_FILE="/tmp/cmux-last-cli-path"
+SOCKET_ARG=""
+EXPECT_SOCKET_VALUE=0
+for arg in "\$@"; do
+  if [[ "\$EXPECT_SOCKET_VALUE" == "1" ]]; then
+    SOCKET_ARG="\$arg"
+    EXPECT_SOCKET_VALUE=0
+    continue
+  fi
+  case "\$arg" in
+    --socket)
+      EXPECT_SOCKET_VALUE=1
+      ;;
+    --socket=*)
+      SOCKET_ARG="\${arg#--socket=}"
+      ;;
+  esac
+done
+if [[ -n "\$SOCKET_ARG" ]]; then
+  SOCKET_NAME="\$(basename "\$SOCKET_ARG")"
+  if [[ "\$SOCKET_NAME" == cmux-debug-*.sock ]]; then
+    TAG="\${SOCKET_NAME#cmux-debug-}"
+    TAG="\${TAG%.sock}"
+    if [[ "\$TAG" =~ ^[A-Za-z0-9_-]+$ ]]; then
+      TAG_CLI="\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG/Build/Products/Debug/cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
+      if [[ -x "\$TAG_CLI" ]] && [[ "\$TAG_CLI" != "\$0" ]]; then
+        exec "\$TAG_CLI" "\$@"
+      fi
+    fi
+  fi
+fi
 if [[ -n "\${CMUX_BUNDLED_CLI_PATH:-}" ]] && [[ -f "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ -x "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ "\$CMUX_BUNDLED_CLI_PATH" != "\$0" ]]; then
   exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
 fi
@@ -597,17 +636,14 @@ if [[ -z "$TAG" ]]; then
   XCODEBUILD_ARGS+=(
     INFOPLIST_KEY_CFBundleName="$APP_NAME"
     INFOPLIST_KEY_CFBundleDisplayName="$APP_NAME"
-    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
   )
 fi
+XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
 # Scope the sidebar ExtensionKit point per build tag so concurrent dev builds (and
-# their tagged sample extensions) don't share one point. Baked at build time via the
-# CMUX_SIDEBAR_EXTENSION_POINT_ID build setting so Xcode emits a coherent, normally
-# signed, pkd-ingestible bundle (the host's .appextensionpoint file + Info.plist key
-# are both stamped from this value). The committed default is the base id; the tagged
-# id never touches tracked source.
+# their tagged sample extensions) don't share one point. The host bundle declares
+# the point under Contents/Extensions, and Info.plist carries the same identifier.
 if [[ -n "$TAG" ]]; then
-  XCODEBUILD_ARGS+=(CMUX_SIDEBAR_EXTENSION_POINT_ID="com.manaflow.cmux.sidebar.${TAG_ID}")
+  XCODEBUILD_ARGS+=(CMUX_SIDEBAR_EXTENSION_POINT_ID="${BUNDLE_ID}.cmux.sidebar")
 fi
 # Forward explicit CMUX_SKIP_ZIG_BUILD to xcodebuild run script phases.
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then

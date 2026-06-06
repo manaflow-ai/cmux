@@ -413,7 +413,7 @@
         "agentHibernation": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Opt-in Agent Hibernation settings. cmux can suspend old background terminals only when they run a restorable coding agent, the agent lifecycle reports idle, no terminal output has changed for the configured idle window, and the live-terminal limit is exceeded. Hibernated agents resume when their tab is visited; the placeholder Resume button is a manual fallback.",
+          "description": "Opt-in Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. A terminal is only suspended when it runs a restorable coding agent, the agent lifecycle reports idle, the terminal is off-screen, the live-terminal limit is exceeded, and its output has stayed unchanged for the idle window plus a short confirmation settle window. The placeholder Resume button is a manual fallback.",
           "properties": {
             "enabled": {
               "type": "boolean",
@@ -424,8 +424,8 @@
               "type": "integer",
               "minimum": 5,
               "maximum": 604800,
-              "default": 3600,
-              "description": "Minimum seconds with no terminal output or input before an idle restorable agent terminal can hibernate."
+              "default": 5,
+              "description": "Minimum seconds with no terminal output or input before an idle restorable agent terminal can hibernate. A short confirmation settle window (~60s) still applies on top of this before the agent is killed."
             },
             "maxLiveTerminals": {
               "type": "integer",
@@ -871,6 +871,12 @@
           "descriptionKey": "schemaDescriptions.automation.suppressSubagentNotifications",
           "description": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
         },
+        "ampIntegration": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.automation.ampIntegration",
+          "description": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed."
+        },
         "cursorIntegration": {
           "type": "boolean",
           "default": true,
@@ -1022,7 +1028,36 @@
           "minimum": 8,
           "maximum": 96,
           "default": 15,
-          "description": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0."
+          "description": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "descriptionKey": "schemaDescriptions.markdown.fontSize"
+        },
+        "fontFamily": {
+          "type": "string",
+          "default": "",
+          "description": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "descriptionKey": "schemaDescriptions.markdown.fontFamily"
+        },
+        "maxWidth": {
+          "type": "integer",
+          "minimum": 320,
+          "maximum": 2400,
+          "default": 980,
+          "description": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers.",
+          "descriptionKey": "schemaDescriptions.markdown.maxWidth"
+        }
+      }
+    },
+    "fileEditor": {
+      "title": "fileEditor",
+      "description": "Built-in plain-text file editor settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wordWrap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+          "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
         }
       }
     },
@@ -1118,6 +1153,7 @@
               "useSelectionForFind",
               "toggleBrowserDeveloperTools",
               "showBrowserJavaScriptConsole",
+              "toggleBrowserFocusMode",
               "toggleReactGrab",
               "diffViewerScrollDown",
               "diffViewerScrollUp",

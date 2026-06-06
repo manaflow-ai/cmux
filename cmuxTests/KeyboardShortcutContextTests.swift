@@ -141,6 +141,33 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
 
+    func testBrowserFocusModeToggleIsBrowserScopedAndDoesNotCollideWithSplitZoom() {
+        let focusMode = KeyboardShortcutSettings.Action.toggleBrowserFocusMode
+
+        // Scoped to browser panels so it only claims the key when a browser is focused.
+        XCTAssertEqual(focusMode.shortcutContext, .browserPanel)
+
+        // Default is Option+Cmd+Return: a modifier tier web pages rarely bind,
+        // distinct from the other Return-based shortcut (Cmd+Shift+Return = toggle
+        // split zoom), and clear of the Ctrl+Cmd+Return some screen recorders use.
+        let focusModeShortcut = focusMode.defaultShortcut
+        XCTAssertEqual(
+            focusModeShortcut,
+            StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
+        )
+        XCTAssertNotEqual(
+            focusModeShortcut,
+            KeyboardShortcutSettings.Action.toggleSplitZoom.defaultShortcut
+        )
+        XCTAssertFalse(
+            focusMode.conflicts(
+                with: KeyboardShortcutSettings.Action.toggleSplitZoom.defaultShortcut,
+                proposedAction: .toggleSplitZoom,
+                configuredShortcut: focusModeShortcut
+            )
+        )
+    }
+
     func testMarkdownZoomIsScopedToFocusedMarkdownPanelAndDoesNotCollideWithBrowserZoom() {
         for action in [
             KeyboardShortcutSettings.Action.markdownZoomIn,
@@ -168,6 +195,104 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(nonBrowser, .nonBrowserPanel)
         XCTAssertTrue(markdown.overlaps(nonBrowser))
         XCTAssertTrue(nonBrowser.overlaps(markdown))
+    }
+
+    // Regression: on European layouts (German QWERTZ, French AZERTY, Nordic, ...)
+    // "+" and "-" are dedicated keys typed WITHOUT Shift, so the event reports
+    // character "+"/"-" with no Shift flag and a keyCode that is not the US
+    // kVK_ANSI_Equal (24) / kVK_ANSI_Minus (27). The Cmd-=/Cmd-- zoom chords must
+    // still match from those keys. See https://github.com/manaflow-ai/cmux/pull/5163.
+    func testMarkdownZoomMatchesDedicatedPlusMinusKeysOnNonUSLayout() {
+        // German QWERTZ: dedicated "+" key sits at the US RightBracket position
+        // (keyCode 30) and produces "+" with no Shift; "-" sits at the US Slash
+        // position (keyCode 44) and produces "-" with no Shift.
+        let zoomIn = KeyboardShortcutSettings.Action.markdownZoomIn.defaultShortcut
+        XCTAssertTrue(
+            zoomIn.matches(
+                keyCode: 30,
+                modifierFlags: [.command],
+                eventCharacter: "+",
+                layoutCharacterProvider: { _, _ in "+" }
+            ),
+            "Cmd and the dedicated + key should zoom markdown in on non-US layouts"
+        )
+
+        let zoomOut = KeyboardShortcutSettings.Action.markdownZoomOut.defaultShortcut
+        XCTAssertTrue(
+            zoomOut.matches(
+                keyCode: 44,
+                modifierFlags: [.command],
+                eventCharacter: "-",
+                layoutCharacterProvider: { _, _ in "-" }
+            ),
+            "Cmd and the dedicated - key should zoom markdown out on non-US layouts"
+        )
+    }
+
+    func testBrowserZoomMatchesDedicatedPlusMinusKeysOnNonUSLayout() {
+        let zoomIn = KeyboardShortcutSettings.Action.browserZoomIn.defaultShortcut
+        XCTAssertTrue(
+            zoomIn.matches(
+                keyCode: 30,
+                modifierFlags: [.command],
+                eventCharacter: "+",
+                layoutCharacterProvider: { _, _ in "+" }
+            ),
+            "Cmd and the dedicated + key should zoom the browser in on non-US layouts"
+        )
+
+        let zoomOut = KeyboardShortcutSettings.Action.browserZoomOut.defaultShortcut
+        XCTAssertTrue(
+            zoomOut.matches(
+                keyCode: 44,
+                modifierFlags: [.command],
+                eventCharacter: "-",
+                layoutCharacterProvider: { _, _ in "-" }
+            ),
+            "Cmd and the dedicated - key should zoom the browser out on non-US layouts"
+        )
+    }
+
+    // The "_" -> "-" normalization was also moved out of the Shift gate, so a
+    // bare "_" (no Shift) from a layout where "_" is a dedicated key must match
+    // the "-" zoom-out chord. Without this, a future refactor could re-gate "_"
+    // behind Shift with no failing test to catch it.
+    func testZoomOutMatchesBareUnderscoreOnNonUSLayout() {
+        let markdownZoomOut = KeyboardShortcutSettings.Action.markdownZoomOut.defaultShortcut
+        XCTAssertTrue(
+            markdownZoomOut.matches(
+                keyCode: 27,
+                modifierFlags: [.command],
+                eventCharacter: "_",
+                layoutCharacterProvider: { _, _ in "_" }
+            ),
+            "Cmd and a dedicated _ key should zoom markdown out (\"_\" normalizes to \"-\")"
+        )
+
+        let browserZoomOut = KeyboardShortcutSettings.Action.browserZoomOut.defaultShortcut
+        XCTAssertTrue(
+            browserZoomOut.matches(
+                keyCode: 27,
+                modifierFlags: [.command],
+                eventCharacter: "_",
+                layoutCharacterProvider: { _, _ in "_" }
+            ),
+            "Cmd and a dedicated _ key should zoom the browser out (\"_\" normalizes to \"-\")"
+        )
+    }
+
+    func testZoomInDoesNotMatchUnrelatedKeyOnNonUSLayout() {
+        // Guard: the layout-aware "+" handling must not make Cmd-= match keys that
+        // legitimately produce other characters (e.g. a bare letter key).
+        let zoomIn = KeyboardShortcutSettings.Action.browserZoomIn.defaultShortcut
+        XCTAssertFalse(
+            zoomIn.matches(
+                keyCode: 45,
+                modifierFlags: [.command],
+                eventCharacter: "n",
+                layoutCharacterProvider: { _, _ in "n" }
+            )
+        )
     }
 
     func testFocusHistoryMenuShortcutsSuppressDuplicateBrowserHistoryKeys() throws {
