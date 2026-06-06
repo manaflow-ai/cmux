@@ -6283,6 +6283,68 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testSetColorCommandIsNotHijackedBySameNamedPath() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("set-color-path")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let currentDirectory = try makeTemporaryDirectory(prefix: "cmux-set-color-path")
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        try createExistingFile(at: currentDirectory.appendingPathComponent("set-color"))
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            XCTAssertEqual(method, "workspace.set_color")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+            XCTAssertEqual(params["color"] as? String, "Blue")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "window_id": windowId,
+                    "workspace_id": workspaceId,
+                    "color": "#1E6AD8",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["set-color", "--workspace", workspaceId, "Blue"],
+            environment: environment,
+            timeout: 5,
+            currentDirectoryURL: currentDirectory
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceId) window=\(windowId) color=#1E6AD8\n")
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.set_color"]
+        )
+    }
+
     func testClearColorCommandSendsWorkspaceClearColorRPC() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("clear-color")
