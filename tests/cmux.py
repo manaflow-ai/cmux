@@ -123,6 +123,21 @@ def _contains_path(paths: set[str], path: str) -> bool:
     return any(path_forms.intersection(_path_forms(candidate)) for candidate in paths)
 
 
+def _known_default_socket_paths() -> set[str]:
+    return _stable_implicit_default_paths().union({
+        _socket_path_for_file_name("com.cmuxterm.app.dev.sock"),
+        "/tmp/cmux-debug.sock",
+        _socket_path_for_file_name("com.cmuxterm.app.nightly.sock"),
+        "/tmp/cmux-nightly.sock",
+        _socket_path_for_file_name("com.cmuxterm.app.staging.sock"),
+        "/tmp/cmux-staging.sock",
+    })
+
+
+def _is_known_default_socket_path(path: str) -> bool:
+    return _contains_path(_known_default_socket_paths(), path)
+
+
 def _quote_option_value(value: str) -> str:
     # Must match TerminalController.parseOptions() quoting rules.
     escaped = (value or "").replace("\\", "\\\\").replace('"', '\\"')
@@ -305,6 +320,7 @@ def _default_socket_path() -> str:
             p for p in tagged
             if os.path.exists(p)
             and _is_discoverable_tagged_debug_socket_name(os.path.basename(p))
+            and not _is_known_default_socket_path(p)
         ]
         if tagged:
             tagged.sort(key=lambda p: os.path.getmtime(p), reverse=True)

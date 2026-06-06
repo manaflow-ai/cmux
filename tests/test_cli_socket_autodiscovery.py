@@ -636,6 +636,67 @@ def test_python_clients_ignore_untagged_debug_socket_during_tagged_discovery() -
     return True
 
 
+def test_python_clients_ignore_user_scoped_stable_socket_during_tagged_discovery() -> bool:
+    user_stable_socket = f"/tmp/cmux-{os.getuid()}.sock"
+    if os.path.exists(user_stable_socket):
+        print(f"SKIP: {user_stable_socket} already exists")
+        return True
+
+    cases = [
+        (
+            "python client",
+            python_client_default_socket_path,
+            b"PONG\n",
+            f"python-user-stable-{os.getpid()}",
+        ),
+        (
+            "tests_v2 client",
+            python_v2_client_default_socket_path,
+            b'{"id":1,"ok":true,"result":{"pong":true}}\n',
+            f"v2-user-stable-{os.getpid()}",
+        ),
+    ]
+
+    for label, resolver, response, tag in cases:
+        with temporary_socket_home("cmux-py-user-stable-") as home:
+            expected = socket_path_for_home(home, f"com.cmuxterm.app.dev.{tag}.sock")
+            server = PingServer(
+                user_stable_socket,
+                response=response,
+                max_ping_requests=2,
+                accept_timeout=1.0,
+            )
+            server.start()
+            if not server.wait_ready(2.0):
+                print(f"FAIL: {label} user-scoped stable socket server did not become ready")
+                return False
+            if server.error is not None:
+                print(f"FAIL: {label} user-scoped stable socket server failed to start: {server.error}")
+                return False
+
+            try:
+                actual = resolver({
+                    "HOME": home,
+                    "CFFIXED_USER_HOME": home,
+                    "CMUX_TAG": tag,
+                })
+            finally:
+                server.join(timeout=2.0)
+                try:
+                    os.remove(user_stable_socket)
+                except OSError:
+                    pass
+
+            if actual != expected:
+                print(f"FAIL: {label} discovered user-scoped stable socket for tagged resolution")
+                print(f"expected={expected!r}")
+                print(f"actual={actual!r}")
+                return False
+
+    print("PASS: python clients ignore user-scoped stable socket during tagged discovery")
+    return True
+
+
 def test_python_client_default_constants_are_lazy() -> bool:
     tag = f"python-lazy-{os.getpid()}"
 
@@ -1469,6 +1530,9 @@ def main() -> int:
         return 1
 
     if not test_python_clients_ignore_untagged_debug_socket_during_tagged_discovery():
+        return 1
+
+    if not test_python_clients_ignore_user_scoped_stable_socket_during_tagged_discovery():
         return 1
 
     if not test_python_client_default_constants_are_lazy():

@@ -106,6 +106,21 @@ def _contains_path(paths: set[str], path: str) -> bool:
     return any(path_forms.intersection(_path_forms(candidate)) for candidate in paths)
 
 
+def _known_default_socket_paths() -> set[str]:
+    return _stable_implicit_default_paths().union({
+        _socket_path_for_file_name("com.cmuxterm.app.dev.sock"),
+        "/tmp/cmux-debug.sock",
+        _socket_path_for_file_name("com.cmuxterm.app.nightly.sock"),
+        "/tmp/cmux-nightly.sock",
+        _socket_path_for_file_name("com.cmuxterm.app.staging.sock"),
+        "/tmp/cmux-staging.sock",
+    })
+
+
+def _is_known_default_socket_path(path: str) -> bool:
+    return _contains_path(_known_default_socket_paths(), path)
+
+
 def _is_known_cmux_bundle_id(bundle_id: str) -> bool:
     return (
         bundle_id == _STABLE_BUNDLE_ID
@@ -300,6 +315,7 @@ def _default_socket_path() -> str:
             path for path in discovered
             if os.path.exists(path)
             and _is_discoverable_tagged_debug_socket_name(os.path.basename(path))
+            and not _is_known_default_socket_path(path)
         ]
         if discovered:
             discovered.sort(key=os.path.getmtime, reverse=True)
