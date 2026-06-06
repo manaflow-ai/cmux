@@ -13,6 +13,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private weak var workspace: Workspace?
     private weak var fileExplorerContainerView: FileExplorerContainerView?
     private weak var sessionIndexFocusAnchorView: RightSidebarToolFocusAnchorView?
+    private weak var feedFocusHostView: FeedKeyboardFocusView?
     private var fileExplorerStoreStorage: FileExplorerStore?
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
@@ -73,6 +74,10 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         sessionIndexFocusAnchorView = anchor
     }
 
+    fileprivate func attachFeedFocusHost(_ host: FeedKeyboardFocusView?) {
+        feedFocusHostView = host
+    }
+
     func syncWorkspaceRoot(from workspace: Workspace) {
         switch mode {
         case .files, .find:
@@ -124,6 +129,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     func close() {
         fileExplorerContainerView = nil
         sessionIndexFocusAnchorView = nil
+        feedFocusHostView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
         sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
         workspaceObservationCancellable = nil
@@ -139,7 +145,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             guard let anchor = sessionIndexFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
-        case .feed, .dock:
+        case .feed:
+            _ = feedFocusHostView?.focusHostFromCoordinator()
+        case .dock:
             break
         }
     }
@@ -161,7 +169,10 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .feed, .dock:
+        case .feed:
+            guard feedFocusHostView?.ownsKeyboardFocus(responder) == true else { return nil }
+            return .panel
+        case .dock:
             return nil
         }
     }
@@ -289,7 +300,7 @@ struct RightSidebarToolPanelView: View {
                     .frame(width: 0, height: 0)
             )
         case .feed:
-            FeedPanelView(placement: .pane)
+            FeedPanelView(placement: .pane, onFocusHostChange: panel.attachFeedFocusHost)
         case .dock:
             EmptyView()
         }

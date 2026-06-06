@@ -88,9 +88,14 @@ struct FeedPanelView: View {
     @State private var filter: Filter = .actionable
     @StateObject private var viewModel = FeedPanelViewModel()
     let placement: Placement
+    let onFocusHostChange: (FeedKeyboardFocusView?) -> Void
 
-    init(placement: Placement = .rightSidebar) {
+    init(
+        placement: Placement = .rightSidebar,
+        onFocusHostChange: @escaping (FeedKeyboardFocusView?) -> Void = { _ in }
+    ) {
         self.placement = placement
+        self.onFocusHostChange = onFocusHostChange
     }
 
     var body: some View {
@@ -102,6 +107,7 @@ struct FeedPanelView: View {
                 hasMorePersistedItems: viewModel.hasMorePersistedItems,
                 isLoadingOlderItems: viewModel.isLoadingOlderItems,
                 registersWithKeyboardFocusCoordinator: placement.registersWithKeyboardFocusCoordinator,
+                onFocusHostChange: onFocusHostChange,
                 onLoadOlderItems: viewModel.loadOlderItems
             )
         }
@@ -188,6 +194,7 @@ private struct FeedListView: View {
     let hasMorePersistedItems: Bool
     let isLoadingOlderItems: Bool
     let registersWithKeyboardFocusCoordinator: Bool
+    let onFocusHostChange: (FeedKeyboardFocusView?) -> Void
     let onLoadOlderItems: () -> Void
 
     @State private var focusSnapshot = FeedFocusSnapshot()
@@ -219,6 +226,7 @@ private struct FeedListView: View {
             .background(
                 FeedKeyboardFocusBridge(
                     registersWithKeyboardFocusCoordinator: registersWithKeyboardFocusCoordinator,
+                    onViewChange: onFocusHostChange,
                     onEscape: {
                         let window = activeFeedWindow()
                         if AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() != true {
@@ -731,6 +739,7 @@ private extension View {
 
 private struct FeedKeyboardFocusBridge: NSViewRepresentable {
     let registersWithKeyboardFocusCoordinator: Bool
+    let onViewChange: (FeedKeyboardFocusView?) -> Void
     let onEscape: () -> Void
     let onMoveSelection: (Int) -> Void
     let onActivateSelection: () -> Void
@@ -747,10 +756,12 @@ private struct FeedKeyboardFocusBridge: NSViewRepresentable {
         view.onFocusFirstItemRequested = onFocusFirstItemRequested
         view.onFocusChanged = onFocusChanged
         view.onFocusSnapshotChanged = onFocusSnapshotChanged
+        context.coordinator.attach(view)
         return view
     }
 
     func updateNSView(_ nsView: FeedKeyboardFocusView, context: Context) {
+        context.coordinator.onViewChange = onViewChange
         nsView.registersWithKeyboardFocusCoordinator = registersWithKeyboardFocusCoordinator
         nsView.onEscape = onEscape
         nsView.onMoveSelection = onMoveSelection
@@ -758,7 +769,37 @@ private struct FeedKeyboardFocusBridge: NSViewRepresentable {
         nsView.onFocusFirstItemRequested = onFocusFirstItemRequested
         nsView.onFocusChanged = onFocusChanged
         nsView.onFocusSnapshotChanged = onFocusSnapshotChanged
+        context.coordinator.attach(nsView)
         nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
+    }
+
+    static func dismantleNSView(_ nsView: FeedKeyboardFocusView, coordinator: Coordinator) {
+        coordinator.detach(nsView)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onViewChange: onViewChange)
+    }
+
+    final class Coordinator {
+        var onViewChange: (FeedKeyboardFocusView?) -> Void
+        private weak var attachedView: FeedKeyboardFocusView?
+
+        init(onViewChange: @escaping (FeedKeyboardFocusView?) -> Void) {
+            self.onViewChange = onViewChange
+        }
+
+        func attach(_ view: FeedKeyboardFocusView) {
+            guard attachedView !== view else { return }
+            attachedView = view
+            onViewChange(view)
+        }
+
+        func detach(_ view: FeedKeyboardFocusView) {
+            guard attachedView === view else { return }
+            attachedView = nil
+            onViewChange(nil)
+        }
     }
 }
 
