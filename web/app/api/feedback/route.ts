@@ -5,24 +5,12 @@ import { z } from "zod";
 
 import { env } from "@/app/env";
 import { recordSpanError, setSpanAttributes, withApiRouteSpan } from "../../../services/telemetry";
+import { PreparedFeedbackAttachment, prepareFeedbackAttachments } from "./attachments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const feedbackRecipient = "feedback@manaflow.com";
-const maxAttachmentCount = 10;
-const maxAttachmentBytes = 4 * 1024 * 1024;
-// Keep multipart requests below Vercel Functions' 4.5 MB request-body limit.
-const maxTotalAttachmentBytes = 4 * 1024 * 1024;
-const allowedImageTypes = new Set([
-  "image/gif",
-  "image/heic",
-  "image/heif",
-  "image/jpeg",
-  "image/png",
-  "image/tiff",
-  "image/webp",
-]);
 
 const feedbackSchema = z.object({
   email: z.string().trim().email().max(320),
@@ -39,17 +27,6 @@ const feedbackSchema = z.object({
   architecture: z.string().trim().max(20).optional().default(""),
   displayInfo: z.string().trim().max(200).optional().default(""),
 });
-
-type PreparedAttachment = {
-  content: Buffer;
-  contentType: string;
-  filename: string;
-  size: number;
-};
-
-type PrepareAttachmentsResult =
-  | { attachments: PreparedAttachment[] }
-  | { errorResponse: Response };
 
 export async function POST(request: Request) {
   return withApiRouteSpan(
@@ -114,8 +91,9 @@ export async function POST(request: Request) {
         "cmux.feedback.app_version_set": parsed.data.appVersion.length > 0,
       });
 
-      const attachmentsResult = await prepareAttachments(
+      const attachmentsResult = await prepareFeedbackAttachments(
         formData.getAll("attachments"),
+        formData.getAll("diagnostics"),
       );
       if ("errorResponse" in attachmentsResult) {
         return attachmentsResult.errorResponse;
@@ -216,51 +194,6 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-async function prepareAttachments(values: FormDataEntryValue[]): Promise<PrepareAttachmentsResult> {
-  const files = values.filter(
-    (value): value is File => value instanceof File && value.name.length > 0,
-  );
-
-  if (files.length > maxAttachmentCount) {
-    return {
-      errorResponse: jsonError("Too many images attached", 400),
-    };
-  }
-
-  let totalSize = 0;
-  const attachments: PreparedAttachment[] = [];
-
-  for (const file of files) {
-    if (!allowedImageTypes.has(file.type)) {
-      return {
-        errorResponse: jsonError("Unsupported image attachment type", 415),
-      };
-    }
-
-    if (file.size > maxAttachmentBytes) {
-      return {
-        errorResponse: jsonError("Image attachment is too large", 413),
-      };
-    }
-
-    totalSize += file.size;
-    if (totalSize > maxTotalAttachmentBytes) {
-      return {
-        errorResponse: jsonError("Total image attachment size is too large", 413),
-      };
-    }
-
-    attachments.push({
-      content: Buffer.from(await file.arrayBuffer()),
-      contentType: file.type,
-      filename: sanitizeFilename(file.name),
-      size: file.size,
-    });
-  }
-
-  return { attachments };
-}
-
 function buildSubject(email: string, message: string, appVersion: string) {
   const firstNonEmptyLine =
     message
@@ -290,7 +223,7 @@ function buildTextBody(input: {
   memoryGB: string;
   architecture: string;
   displayInfo: string;
-  attachments: PreparedAttachment[];
+  attachments: PreparedFeedbackAttachment[];
 }) {
   const attachmentLines =
     input.attachments.length === 0
@@ -299,7 +232,7 @@ function buildTextBody(input: {
           "Attachments:",
           ...input.attachments.map(
             (attachment) =>
-              `- ${attachment.filename} (${attachment.contentType}, ${attachment.size} bytes)`,
+              `- ${attachment.kind}: ${attachment.filename} (${attachment.contentType}, ${attachment.size} bytes)`,
           ),
         ].join("\n");
 
@@ -309,7 +242,7 @@ function buildTextBody(input: {
     `App build: ${input.appBuild || "unknown"}`,
     `App commit: ${input.appCommit || "unknown"}`,
     `Bundle identifier: ${input.bundleIdentifier || "unknown"}`,
-    `macOS: ${input.osVersion || "unknown"}`,
+    `OS: ${input.osVersion || "unknown"}`,
     `Locale: ${input.locale || "unknown"}`,
     `Hardware model: ${input.hardwareModel || "unknown"}`,
     `Chip: ${input.chip || "unknown"}`,
@@ -337,7 +270,7 @@ function buildHtmlBody(input: {
   memoryGB: string;
   architecture: string;
   displayInfo: string;
-  attachments: PreparedAttachment[];
+  attachments: PreparedFeedbackAttachment[];
 }) {
   const attachmentMarkup =
     input.attachments.length === 0
@@ -345,7 +278,7 @@ function buildHtmlBody(input: {
       : `<p><strong>Attachments:</strong></p><ul>${input.attachments
           .map(
             (attachment) =>
-              `<li>${escapeHtml(attachment.filename)} (${escapeHtml(
+              `<li>${escapeHtml(attachment.kind)}: ${escapeHtml(attachment.filename)} (${escapeHtml(
                 attachment.contentType,
               )}, ${attachment.size} bytes)</li>`,
           )
@@ -361,7 +294,7 @@ function buildHtmlBody(input: {
       <p><strong>Bundle identifier:</strong> ${escapeHtml(
         input.bundleIdentifier || "unknown",
       )}</p>
-      <p><strong>macOS:</strong> ${escapeHtml(input.osVersion || "unknown")}</p>
+      <p><strong>OS:</strong> ${escapeHtml(input.osVersion || "unknown")}</p>
       <p><strong>Locale:</strong> ${escapeHtml(input.locale || "unknown")}</p>
       <p><strong>Hardware model:</strong> ${escapeHtml(input.hardwareModel || "unknown")}</p>
       <p><strong>Chip:</strong> ${escapeHtml(input.chip || "unknown")}</p>
@@ -375,11 +308,6 @@ function buildHtmlBody(input: {
       )}</pre>
     </div>
   `.trim();
-}
-
-function sanitizeFilename(fileName: string) {
-  const cleaned = fileName.replace(/[\r\n"]/g, "").trim();
-  return cleaned.length > 0 ? cleaned : "attachment";
 }
 
 function escapeHtml(value: string) {

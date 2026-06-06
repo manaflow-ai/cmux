@@ -28,6 +28,7 @@ struct WorkspaceDetailView: View {
     #if canImport(UIKit)
     @State private var diagnosticsReport: MobileDiagnosticsReport?
     @State private var isBuildingDiagnostics = false
+    @State private var isFeedbackComposerPresented = false
     #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
@@ -108,6 +109,15 @@ struct WorkspaceDetailView: View {
             }
         #endif
         }
+        #if canImport(UIKit)
+        .sheet(isPresented: $isFeedbackComposerPresented) {
+            MobileFeedbackComposerSheet(
+                initialDiagnosticsReport: diagnosticsReport,
+                buildDiagnosticsReport: buildDiagnosticsReport
+            )
+            .presentationDetents([.large])
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -201,6 +211,7 @@ struct WorkspaceDetailView: View {
 
             diagnosticsCopyButton
             diagnosticsShareButton
+            diagnosticsFeedbackButton
             #endif
         }
         .frame(minWidth: 240, maxWidth: 320, alignment: .leading)
@@ -273,6 +284,23 @@ struct WorkspaceDetailView: View {
             .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
         }
     }
+
+    /// Opens the feedback form that emails the scrubbed diagnostics report
+    /// through the same backend feedback flow used by the macOS app.
+    private var diagnosticsFeedbackButton: some View {
+        Button(action: presentFeedbackComposer) {
+            Label(
+                L10n.string("mobile.feedback.open", defaultValue: "Send Feedback"),
+                systemImage: "paperplane"
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .accessibilityIdentifier("MobileSendFeedbackMenuItem")
+    }
     #endif
 
     #if canImport(UIKit)
@@ -292,23 +320,25 @@ struct WorkspaceDetailView: View {
         )
     }
 
-    /// Builds the diagnostics report (in-process log + OS log + live state +
-    /// visible terminal, then scrubbed) and writes the shareable temp file.
-    ///
     /// Runs when the picker opens so both Copy and `ShareLink` have a ready item.
     private func prepareDiagnosticsReport() async {
         guard !isBuildingDiagnostics else { return }
         isBuildingDiagnostics = true
         defer { isBuildingDiagnostics = false }
 
+        diagnosticsReport = await buildDiagnosticsReport()
+    }
+
+    /// Builds the diagnostics report (in-process log + OS log + live state +
+    /// visible terminal, then scrubbed) and writes the shareable temp file.
+    private func buildDiagnosticsReport() async -> MobileDiagnosticsReport {
         let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
         let liveState = diagnosticsLiveState
         let builder = MobileDiagnosticsReportBuilder(sink: MobileDebugLog.shared.sink)
-        let report = await builder.buildReport(
+        return await builder.buildReport(
             liveState: liveState,
             terminalSnapshot: terminalText
         )
-        diagnosticsReport = report
     }
 
     /// Copies the prepared diagnostics text to the system pasteboard.
@@ -317,6 +347,12 @@ struct WorkspaceDetailView: View {
         isTerminalPickerPresented = false
         UIPasteboard.general.string = report.text
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    /// Presents the mobile feedback form with the current diagnostics report.
+    private func presentFeedbackComposer() {
+        isTerminalPickerPresented = false
+        isFeedbackComposerPresented = true
     }
     #endif
 
