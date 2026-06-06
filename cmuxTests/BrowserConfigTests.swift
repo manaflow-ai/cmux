@@ -1841,7 +1841,11 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
     }
 
     func testBrowserPanelRefreshesUnderPageBackgroundColorWhenGhosttyBackgroundChanges() {
-        let panel = BrowserPanel(workspaceId: UUID())
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "https://example.com/background")!,
+            renderInitialNavigation: false
+        )
         defer { closeBrowserPanel(panel) }
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
         let updatedOpacity = 0.57
@@ -1921,7 +1925,11 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
     }
 
     func testBrowserPanelRefreshesUnderPageBackgroundColorWithGhosttyOpacity() {
-        let panel = BrowserPanel(workspaceId: UUID())
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "https://example.com/background")!,
+            renderInitialNavigation: false
+        )
         defer { closeBrowserPanel(panel) }
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
 

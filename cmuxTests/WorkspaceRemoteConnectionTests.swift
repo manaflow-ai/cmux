@@ -3271,6 +3271,24 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let timedOut: Bool
     }
 
+    private final class ProcessPipeCapture: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+
+        func append(_ chunk: Data) {
+            lock.lock()
+            data.append(chunk)
+            lock.unlock()
+        }
+
+        func stringValue() -> String {
+            lock.lock()
+            let value = data
+            lock.unlock()
+            return String(data: value, encoding: .utf8) ?? ""
+        }
+    }
+
     private struct PTYAttachCall {
         let sessionID: String
         let attachmentID: String
@@ -3588,15 +3606,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in
-            exitSignal.signal()
-        }
-
         do {
             try process.run()
         } catch {
-            process.terminationHandler = nil
             return ProcessRunResult(
                 status: -1,
                 stdout: "",
@@ -3604,24 +3616,47 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 timedOut: false
             )
         }
+        let stdoutCapture = ProcessPipeCapture()
+        let stderrCapture = ProcessPipeCapture()
+        let ioGroup = DispatchGroup()
+        ioGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stdoutCapture.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+            ioGroup.leave()
+        }
+        ioGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stderrCapture.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            ioGroup.leave()
+        }
         if let standardInput, let stdinPipe {
             stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
             try? stdinPipe.fileHandleForWriting.close()
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
+        }
+
+        let timeoutFloor = ProcessInfo.processInfo.environment["CMUX_CLI_NOTIFY_PROCESS_TIMEOUT_SECONDS"]
+            .flatMap(TimeInterval.init) ?? timeout
+        let effectiveTimeout = max(timeout, timeoutFloor)
+        let timedOut = exitSignal.wait(timeout: .now() + effectiveTimeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
         }
-        process.terminationHandler = nil
+        _ = ioGroup.wait(timeout: .now() + 1)
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(
-            status: process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
+            status: process.isRunning ? SIGKILL : process.terminationStatus,
+            stdout: stdoutCapture.stringValue(),
+            stderr: stderrCapture.stringValue(),
             timedOut: timedOut
         )
     }
