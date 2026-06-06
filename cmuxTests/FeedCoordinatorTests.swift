@@ -12,7 +12,7 @@ final class FeedCoordinatorTests: XCTestCase {
         XCTAssertTrue(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .claude))
         XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .claude))
 
-        XCTAssertFalse(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .codex))
+        XCTAssertTrue(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .codex))
         XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .codex))
 
         XCTAssertTrue(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .opencode))
@@ -20,6 +20,82 @@ final class FeedCoordinatorTests: XCTestCase {
 
         XCTAssertFalse(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .hermesAgent))
         XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .hermesAgent))
+    }
+
+    func testCodexAppServerApprovalBuildsActionableFeedEvent() throws {
+        let event = CMUXCLI.codexTeamsFeedEvent(
+            method: "item/commandExecution/requestApproval",
+            requestId: 41,
+            params: [
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "itemId": "call-1",
+                "approvalId": "approval-1",
+                "command": "touch /tmp/cmux-security-review",
+                "cwd": "/tmp/project",
+                "reason": "requires approval",
+                "availableDecisions": ["accept", "acceptForSession", "decline"]
+            ],
+            workspaceId: "workspace-1"
+        )
+
+        XCTAssertEqual(event["session_id"] as? String, "codex-thread-1")
+        XCTAssertEqual(event["hook_event_name"] as? String, "PermissionRequest")
+        XCTAssertEqual(event["_source"] as? String, "codex")
+        XCTAssertEqual(event["workspace_id"] as? String, "workspace-1")
+        XCTAssertEqual(event["_opencode_request_id"] as? String, "codex-app-server-approval-1")
+        XCTAssertEqual(event["tool_name"] as? String, "Bash")
+        XCTAssertEqual(event["cwd"] as? String, "/tmp/project")
+
+        let toolInput = try XCTUnwrap(event["tool_input"] as? [String: Any])
+        XCTAssertEqual(toolInput["app_server_method"] as? String, "item/commandExecution/requestApproval")
+        XCTAssertEqual(toolInput["request_id"] as? String, "41")
+        XCTAssertEqual(toolInput["item_id"] as? String, "approval-1")
+        XCTAssertEqual(toolInput["turn_id"] as? String, "turn-1")
+        XCTAssertEqual(toolInput["command"] as? String, "touch /tmp/cmux-security-review")
+
+        let context = try XCTUnwrap(event["context"] as? [String: Any])
+        XCTAssertEqual(context["permissionMode"] as? String, "codex app-server")
+        XCTAssertEqual(context["assistantPreamble"] as? String, "requires approval")
+    }
+
+    func testCodexAppServerApprovalResponseFollowsFeedDecision() {
+        let params: [String: Any] = [
+            "availableDecisions": ["accept", "acceptForSession", "decline"]
+        ]
+
+        XCTAssertEqual(
+            CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: [
+                "status": "resolved",
+                "decision": ["kind": "permission", "mode": "always"]
+            ]),
+            "always"
+        )
+        XCTAssertEqual(
+            CMUXCLI.codexTeamsAppServerApprovalResponse(
+                method: "item/commandExecution/requestApproval",
+                params: params,
+                mode: "always"
+            )?["decision"] as? String,
+            "acceptForSession"
+        )
+        XCTAssertEqual(
+            CMUXCLI.codexTeamsAppServerApprovalResponse(
+                method: "item/fileChange/requestApproval",
+                params: [:],
+                mode: "once"
+            )?["decision"] as? String,
+            "accept"
+        )
+        XCTAssertEqual(
+            CMUXCLI.codexTeamsAppServerApprovalResponse(
+                method: "item/commandExecution/requestApproval",
+                params: params,
+                mode: "deny"
+            )?["decision"] as? String,
+            "decline"
+        )
+        XCTAssertNil(CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: ["status": "timed_out"]))
     }
 
     func testBlockingIngestExpiresItemWhenHookTimesOut() async {

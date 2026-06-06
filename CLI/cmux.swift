@@ -18027,6 +18027,13 @@ struct CMUXCLI {
             try sendObject(["method": "initialized"], timeout: responseTimeout)
         }
 
+        func respond(requestId: Any, result: [String: Any], timeout: TimeInterval = 10) throws {
+            try sendObject([
+                "id": requestId,
+                "result": result
+            ], timeout: timeout)
+        }
+
         func request(
             method: String,
             params: [String: Any]? = nil,
@@ -18175,6 +18182,7 @@ struct CMUXCLI {
         private let readinessLock = NSLock()
         private let stateLock = NSLock()
         private var lastAgentSurfaceId: String?
+        private var subscribedThreadIds = Set<String>()
 
         init(
             appServerURL: String,
@@ -18222,30 +18230,19 @@ struct CMUXCLI {
                 method: "thread/loaded/list",
                 params: ["limit": 200],
                 notificationHandler: { [weak self] message in
-                    try self?.handleNotification(message)
+                    try self?.handleAppServerMessage(
+                        message,
+                        connection: connection,
+                        allowThreadSubscribe: false
+                    )
                 }
             )
             let threadIds = loaded["data"] as? [String] ?? []
             for threadId in threadIds {
-                let read: [String: Any]
                 do {
-                    read = try connection.request(
-                        method: "thread/read",
-                        params: [
-                            "threadId": threadId,
-                            "includeTurns": false
-                        ],
-                        notificationHandler: { [weak self] message in
-                            try self?.handleNotification(message)
-                        }
-                    )
+                    try subscribeToThreadIfNeeded(threadId, connection: connection)
                 } catch {
-                    fputs("cmux codex-teams watcher skipped unreadable thread \(threadId): \(error)\n", stderr)
-                    continue
-                }
-                if let threadObject = read["thread"] as? [String: Any],
-                   let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
-                    try observeThreadSafely(thread)
+                    fputs("cmux codex-teams watcher skipped thread \(threadId): \(error)\n", stderr)
                 }
             }
         }
@@ -18253,12 +18250,20 @@ struct CMUXCLI {
         private func listenForNotifications(connection: CodexTeamsAppServerConnection) throws {
             while true {
                 let message = try connection.receiveObject()
-                try handleNotification(message)
+                try handleAppServerMessage(message, connection: connection)
             }
         }
 
-        private func handleNotification(_ message: [String: Any]) throws {
+        private func handleAppServerMessage(
+            _ message: [String: Any],
+            connection: CodexTeamsAppServerConnection,
+            allowThreadSubscribe: Bool = true
+        ) throws {
             guard let method = message["method"] as? String else { return }
+            if let requestId = message["id"],
+               try handleApprovalRequest(message, method: method, requestId: requestId, connection: connection) {
+                return
+            }
             guard method.hasPrefix("thread/"),
                   let params = message["params"] as? [String: Any],
                   let threadObject = params["thread"] as? [String: Any],
@@ -18266,6 +18271,88 @@ struct CMUXCLI {
                 return
             }
             try observeThreadSafely(thread)
+            if allowThreadSubscribe {
+                do {
+                    try subscribeToThreadIfNeeded(thread.id, connection: connection)
+                } catch {
+                    fputs("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n", stderr)
+                }
+            }
+        }
+
+        private func subscribeToThreadIfNeeded(
+            _ threadId: String,
+            connection: CodexTeamsAppServerConnection
+        ) throws {
+            stateLock.lock()
+            let inserted = subscribedThreadIds.insert(threadId).inserted
+            stateLock.unlock()
+            guard inserted else { return }
+
+            do {
+                let response = try connection.request(
+                    method: "thread/resume",
+                    params: [
+                        "threadId": threadId,
+                        "excludeTurns": true
+                    ],
+                    notificationHandler: { [weak self] message in
+                        try self?.handleAppServerMessage(
+                            message,
+                            connection: connection,
+                            allowThreadSubscribe: false
+                        )
+                    }
+                )
+                if let threadObject = response["thread"] as? [String: Any],
+                   let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
+                    try observeThreadSafely(thread)
+                }
+            } catch {
+                stateLock.lock()
+                subscribedThreadIds.remove(threadId)
+                stateLock.unlock()
+                throw error
+            }
+        }
+
+        private func handleApprovalRequest(
+            _ message: [String: Any],
+            method: String,
+            requestId: Any,
+            connection: CodexTeamsAppServerConnection
+        ) throws -> Bool {
+            guard method == "item/commandExecution/requestApproval"
+                || method == "item/fileChange/requestApproval"
+            else { return false }
+            guard let params = message["params"] as? [String: Any] else { return true }
+            let feedEvent = CMUXCLI.codexTeamsFeedEvent(
+                method: method,
+                requestId: requestId,
+                params: params,
+                workspaceId: workspaceId
+            )
+            fputs("cmux codex-teams watcher forwarding approval \(method) request \(CMUXCLI.requestIdString(requestId)) to Feed\n", stderr)
+            let response = try pushCodexApprovalToFeed(event: feedEvent)
+            guard let decision = CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: response) else {
+                return true
+            }
+            guard let result = CMUXCLI.codexTeamsAppServerApprovalResponse(
+                method: method,
+                params: params,
+                mode: decision
+            ) else {
+                return true
+            }
+            try connection.respond(requestId: requestId, result: result)
+            return true
+        }
+
+        private func pushCodexApprovalToFeed(event: [String: Any]) throws -> [String: Any] {
+            try socketClient.sendV2(method: "feed.push", params: [
+                "event": event,
+                "wait_timeout_seconds": 120
+            ], responseTimeout: 125)
         }
 
         private func observeThreadSafely(_ thread: CodexTeamsThread) throws {
@@ -18469,6 +18556,154 @@ struct CMUXCLI {
                 // Layout polish is best-effort after the pane is opened.
             }
         }
+    }
+
+    static func codexTeamsFeedEvent(
+        method: String,
+        requestId: Any,
+        params: [String: Any],
+        workspaceId: String
+    ) -> [String: Any] {
+        let threadId = stringValue(in: params, keys: ["threadId", "thread_id"])
+            ?? stringValue(in: params, keys: ["threadID", "thread_id"])
+            ?? "unknown"
+        let turnId = stringValue(in: params, keys: ["turnId", "turn_id"])
+        let itemId = stringValue(in: params, keys: ["approvalId", "approval_id", "itemId", "item_id"])
+            ?? requestIdString(requestId)
+        let cwd = stringValue(in: params, keys: ["cwd"])
+        let reason = stringValue(in: params, keys: ["reason"])
+        let command = stringValue(in: params, keys: ["command"])
+        let toolName = method == "item/fileChange/requestApproval" ? "Write" : "Bash"
+        var toolInput: [String: Any] = [
+            "app_server_method": method,
+            "request_id": requestIdString(requestId),
+            "item_id": itemId
+        ]
+        if let turnId { toolInput["turn_id"] = turnId }
+        if let reason { toolInput["reason"] = reason }
+        if let command { toolInput["command"] = command }
+        if let cwd { toolInput["cwd"] = cwd }
+        if let approvalId = stringValue(in: params, keys: ["approvalId", "approval_id"]) {
+            toolInput["approval_id"] = approvalId
+        }
+        if let grantRoot = params["grantRoot"] ?? params["grant_root"] {
+            toolInput["grant_root"] = grantRoot
+        }
+        if let available = params["availableDecisions"] ?? params["available_decisions"] {
+            toolInput["available_decisions"] = codexTeamsDecisionNames(available)
+        }
+
+        var context: [String: Any] = [
+            "permissionMode": "codex app-server"
+        ]
+        if let reason {
+            context["assistantPreamble"] = reason
+        }
+        if let command {
+            context["toolSummary"] = command
+        }
+
+        var event: [String: Any] = [
+            "session_id": "codex-\(threadId)",
+            "hook_event_name": "PermissionRequest",
+            "_source": "codex",
+            "workspace_id": workspaceId,
+            "tool_name": toolName,
+            "tool_input": toolInput,
+            "context": context,
+            "_opencode_request_id": "codex-app-server-\(itemId)"
+        ]
+        if let cwd { event["cwd"] = cwd }
+        return event
+    }
+
+    static func codexTeamsPermissionMode(fromFeedPushResponse response: [String: Any]) -> String? {
+        guard (response["status"] as? String) == "resolved",
+              let decision = response["decision"] as? [String: Any],
+              (decision["kind"] as? String) == "permission",
+              let mode = decision["mode"] as? String
+        else { return nil }
+        return mode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    static func codexTeamsAppServerApprovalResponse(
+        method: String,
+        params: [String: Any],
+        mode: String
+    ) -> [String: Any]? {
+        switch method {
+        case "item/commandExecution/requestApproval":
+            return ["decision": codexTeamsCommandApprovalDecision(params: params, mode: mode)]
+        case "item/fileChange/requestApproval":
+            return ["decision": codexTeamsFileChangeApprovalDecision(params: params, mode: mode)]
+        default:
+            return nil
+        }
+    }
+
+    static func codexTeamsCommandApprovalDecision(params: [String: Any], mode: String) -> String {
+        if mode == "deny" { return "decline" }
+        if codexTeamsModeRequestsPersistentApproval(mode),
+           codexTeamsAvailableDecisions(params).contains("acceptForSession") {
+            return "acceptForSession"
+        }
+        return "accept"
+    }
+
+    static func codexTeamsFileChangeApprovalDecision(params: [String: Any], mode: String) -> String {
+        if mode == "deny" { return "decline" }
+        if codexTeamsModeRequestsPersistentApproval(mode),
+           codexTeamsAvailableDecisions(params).contains("acceptForSession") {
+            return "acceptForSession"
+        }
+        return "accept"
+    }
+
+    static func codexTeamsModeRequestsPersistentApproval(_ mode: String) -> Bool {
+        mode == "always" || mode == "all" || mode == "bypass"
+    }
+
+    static func codexTeamsAvailableDecisions(_ params: [String: Any]) -> Set<String> {
+        guard let raw = params["availableDecisions"] ?? params["available_decisions"] else {
+            return []
+        }
+        return Set(codexTeamsDecisionNames(raw))
+    }
+
+    static func codexTeamsDecisionNames(_ raw: Any) -> [String] {
+        let values = raw as? [Any] ?? []
+        return values.compactMap { value in
+            if let string = value as? String {
+                return string
+            }
+            if let object = value as? [String: Any],
+               let key = object.keys.first {
+                return key
+            }
+            return nil
+        }
+    }
+
+    static func requestIdString(_ requestId: Any) -> String {
+        if let string = requestId as? String {
+            return string
+        }
+        if let number = requestId as? NSNumber {
+            return number.stringValue
+        }
+        return String(describing: requestId)
+    }
+
+    static func stringValue(in object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = object[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            } else if let value = object[key] as? NSNumber {
+                return value.stringValue
+            }
+        }
+        return nil
     }
 
     private static func codexTeamsThreadCanResume(appServerURL: String, threadId: String) -> Bool {
