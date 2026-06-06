@@ -1646,17 +1646,18 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func acknowledgeStructuredAgentInputStatuses(for notificationsToAcknowledge: [TerminalNotification]) {
         for notification in notificationsToAcknowledge {
+            let acknowledgementPanelId = notification.panelId ?? notification.surfaceId
             guard let statusKey = Self.structuredAgentStatusKey(for: notification),
                   !hasRemainingUnreadStructuredAgentInputStatus(statusKey: statusKey, tabId: notification.tabId),
                   let workspace = workspaceForStructuredAgentInputAcknowledgement(
                       tabId: notification.tabId,
-                      surfaceId: notification.surfaceId ?? notification.panelId
+                      panelId: acknowledgementPanelId
                   ) else {
                 continue
             }
             workspace.acknowledgeStructuredAgentInputStatus(
                 statusKeys: [statusKey],
-                panelId: notification.surfaceId ?? notification.panelId,
+                panelId: acknowledgementPanelId,
                 notificationCreatedAt: notification.createdAt
             )
         }
@@ -1674,12 +1675,12 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func workspaceForStructuredAgentInputAcknowledgement(
         tabId: UUID,
-        surfaceId: UUID?
+        panelId: UUID?
     ) -> Workspace? {
         guard let appDelegate = AppDelegate.shared else { return nil }
-        if let surfaceId,
+        if let panelId,
            let located = appDelegate.workspaceContainingPanel(
-               panelId: surfaceId,
+               panelId: panelId,
                preferredWorkspaceId: tabId
            ) {
             return located.workspace
