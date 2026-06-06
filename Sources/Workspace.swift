@@ -12122,6 +12122,7 @@ final class Workspace: Identifiable, ObservableObject {
         ghosttyThemeSelection = normalized
         if reload {
             reloadTerminalGhosttyTheme(source: "workspace.theme.set")
+            NotificationCenter.default.post(name: .workspaceGhosttyThemeDidChange, object: self)
         }
     }
 
