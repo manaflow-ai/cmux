@@ -690,6 +690,10 @@ enum CmuxXCTestLaunchEnvironment {
         !isRunningUnderXCTest(env) || isUITest(env) || isUITestSocketHarness(env)
     }
 
+    static func isPureUnitTestAppHost(_ env: [String: String]) -> Bool {
+        isRunningUnderXCTest(env) && !isUITest(env) && !isUITestSocketHarness(env)
+    }
+
     static func shouldUseUITestWindowFallback(_ env: [String: String]) -> Bool {
         isUITest(env) || (isRunningUnderXCTest(env) && isUITestSocketHarness(env))
     }
@@ -1561,8 +1565,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.start()
         windowDecorationsController.start()
         installMainWindowKeyObserver()
-        refreshGhosttyGotoSplitShortcuts()
-        installGhosttyConfigObserver()
+        if !CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(env) {
+            refreshGhosttyGotoSplitShortcuts()
+            installGhosttyConfigObserver()
+        }
         installWindowResponderSwizzles()
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()

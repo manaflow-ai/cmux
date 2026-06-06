@@ -780,7 +780,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         defer { AppDelegate.shared = previousAppDelegate }
 
         let windowId = UUID()
-        let tabManager = TabManager()
+        let tabManager = TabManager(createInitialWorkspace: false)
         let sidebarState = SidebarState()
         let sidebarSelectionState = SidebarSelectionState()
         let fileExplorerState = FileExplorerState()

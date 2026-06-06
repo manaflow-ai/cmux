@@ -1350,6 +1350,28 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertTrue(CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow([:]))
     }
 
+    func testXCTestLaunchEnvironmentIdentifiesPureUnitAppHost() {
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(
+                ["XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration"]
+            )
+        )
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(
+                ["CMUX_UI_TEST_MODE": "1"]
+            )
+        )
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_SOCKET_PATH": "/tmp/cmux-ui-test.sock"
+                ]
+            )
+        )
+        XCTAssertFalse(CmuxXCTestLaunchEnvironment.isPureUnitTestAppHost([:]))
+    }
+
     func testXCTestLaunchEnvironmentOnlyUsesWindowFallbackForUITests() {
         XCTAssertFalse(
             CmuxXCTestLaunchEnvironment.shouldUseUITestWindowFallback(
