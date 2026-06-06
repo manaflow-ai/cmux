@@ -723,6 +723,22 @@ struct WorkspaceGroupTests {
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   ") == "doc.text")
     }
 
+    // The icon picker feeds its search field through `isRenderable`, so a long typing session
+    // would otherwise grow the global renderability cache without bound. The cache must stay capped.
+    @Test func renderabilityCacheStaysBoundedUnderManyDistinctQueries() {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let limit = RenderableSystemSymbol.renderabilityCacheLimitForTesting
+        for index in 0..<(limit + 200) {
+            _ = RenderableSystemSymbol.isRenderable("picker.query.\(index)")
+        }
+        #expect(RenderableSystemSymbol.renderabilityCacheCountForTesting() <= limit)
+    }
+
+    @Test func renderabilityRejectsOverlongSymbolNames() {
+        let overlong = String(repeating: "a", count: 256)
+        #expect(RenderableSystemSymbol.isRenderable(overlong) == false)
+    }
+
     // Regression for #5404: renaming a group must update the name shown in
     // window chrome (the custom title bar / NSWindow title / toolbar label),
     // not just the sidebar header. The chrome derives a grouped anchor's
