@@ -10969,7 +10969,7 @@ struct VerticalTabsSidebar: View {
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .overlay(alignment: .trailing) {
-            SidebarTrailingBorder()
+            SidebarTrailingBorder(settings: tabItemSettings)
         }
         .background(
             WindowAccessor { window in
@@ -18654,12 +18654,12 @@ struct WindowChromeBorder: View {
 
 /// 1px trailing border on the sidebar, themeable with Ghostty config.
 private struct SidebarTrailingBorder: View {
-    @AppStorage(SidebarThemeSettings.borderColorHexKey) private var sidebarBorderColorHex: String?
+    let settings: SidebarTabItemSettingsSnapshot
 
     var body: some View {
         WindowChromeBorder(
             orientation: .vertical,
-            colorOverride: sidebarBorderColorHex.flatMap(NSColor.init(hex:))
+            colorOverride: settings.borderColorHex.flatMap(NSColor.init(hex:))
         )
     }
 }
