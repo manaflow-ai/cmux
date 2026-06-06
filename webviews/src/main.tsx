@@ -1,9 +1,4 @@
 import {
-  createHashHistory,
-  createRootRoute,
-  createRoute,
-  createRouter,
-  Outlet,
   RouterProvider,
 } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
@@ -15,6 +10,7 @@ import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "./appear
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "./status";
 import diffViewerStyles from "./styles.css?inline";
+import { createWebviewsRouter } from "./router";
 import type { DiffViewerConfig } from "./types";
 
 type WebviewKind = "agent-session" | "diff";
@@ -94,29 +90,7 @@ function RoutedWebview() {
   return <App config={diffRuntime.config} initialStatus={diffRuntime.initialStatus} />;
 }
 
-const rootRoute = createRootRoute({
-  component: Outlet,
-});
-const indexRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/",
-  component: RoutedWebview,
-});
-const diffRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/diff",
-  component: RoutedWebview,
-});
-const agentSessionRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/agent-session",
-  component: RoutedWebview,
-});
-const routeTree = rootRoute.addChildren([indexRoute, diffRoute, agentSessionRoute]);
-const router = createRouter({
-  history: createHashHistory(),
-  routeTree,
-});
+const router = createWebviewsRouter(RoutedWebview);
 
 declare module "@tanstack/react-router" {
   interface Register {
